@@ -26,6 +26,20 @@ public sealed class WingmanNowResponse
     /// <summary>The session this is about.</summary>
     public string SessionId { get; set; } = "";
 
+    /// <summary>
+    /// WHICH SESSION THIS IS, in finished words, for the first line of the view: "112 - Cube Data and Projects -
+    /// Architect". Never empty, and present in EVERY state.
+    ///
+    /// It is here because the pane carried no name at all, and the owner moves between a dozen sessions on this
+    /// one screen. The damage that costs is not a misread line - it is the right answer sent to the wrong
+    /// session, which is the worst thing this view can cause.
+    ///
+    /// The number leads when the row carries one, because that is the short name the Sessions list and the
+    /// command line both use. A row that has gone away entirely leaves only the session's identifier, which is
+    /// machine output and is said so here rather than dressed up: it is the last truthful thing left.
+    /// </summary>
+    public string SessionLine { get; set; } = "";
+
     /// <summary>Which state Now is in - one of <see cref="WingmanNowStates"/>. Never empty.</summary>
     public string State { get; set; } = "";
 
@@ -84,6 +98,25 @@ public sealed class WingmanNowResponse
 
     /// <summary>The words inside the empty reply box. Null when this state offers no reply box.</summary>
     public string? ReplyPlaceholder { get; set; }
+
+    /// <summary>
+    /// The sentence beside the reply box's Send, saying what sending does. Null exactly when
+    /// <see cref="ReplyPlaceholder"/> is - a box that is not offered needs nothing said about it.
+    ///
+    /// IT DIFFERS BY STATE, which is the point of folding it here. The second half - that one reply can answer
+    /// more than one question - is true only where something was asked, and it was showing on done, on a report,
+    /// on a working session and on a snoozed one, where nothing had been.
+    /// </summary>
+    public string? ReplyHint { get; set; }
+
+    /// <summary>
+    /// When a snoozed session comes back, as a finished lead plus the instant: "Snoozed until" + 09:00.
+    ///
+    /// Null when the session is not snoozed, and null on a snooze with no deadline to name - a hold that has not
+    /// landed yet, or one that waits for him to wake it. That second case says so in <see cref="Headline"/>
+    /// instead, because a lead with no instant after it is a sentence that stops in the middle.
+    /// </summary>
+    public WingmanNowWhenDto? SnoozedUntil { get; set; }
 
     /// <summary>The card on a stop that needs nothing from the owner. Null otherwise.</summary>
     public WingmanNowCardDto? CalmCard { get; set; }
@@ -368,6 +401,34 @@ public sealed class WingmanNowNeedsDto
     /// otherwise.</summary>
     public string? Question { get; set; }
 
+    /// <summary>The line under the heading saying what a tap does - "Click an option to send it as your answer".
+    /// Null when this stop offers no options, where it would be an affordance for something that is not there.
+    /// </summary>
+    public string? OptionsLead { get; set; }
+
+    /// <summary>
+    /// The short warning beside the options when answering this stop costs something that cannot be taken back:
+    /// "Cannot be undone", "Says yes from now on", "Spends real money". Null when the judge's risk word is
+    /// "none", and null when it recorded none at all - an unrecorded risk is not a safe one, and it is not
+    /// claimed to be either way.
+    ///
+    /// IT IS ABOUT THE STOP, NOT ABOUT ONE OPTION, and that is the honest reading of what reaches here: the
+    /// judge answers ONE risk word for the whole answer (see the turn-verdict contract), and nothing in the
+    /// record says which of the options carries it. Putting it on the recommended option would be this fold
+    /// guessing, and putting it on all of them would say "cannot be undone" about the option that does nothing -
+    /// which is how a warning stops being read.
+    /// </summary>
+    public string? RiskFlag { get; set; }
+
+    /// <summary>The sentence under the flag, saying what the risk is in plain words. Null exactly when
+    /// <see cref="RiskFlag"/> is.</summary>
+    public string? RiskLine { get; set; }
+
+    /// <summary>True when the screen must ask once before it sends an answer to this stop. Set exactly when
+    /// <see cref="RiskFlag"/> is present: the one place a confirmation earns its interruption is the answer
+    /// that cannot be taken back.</summary>
+    public bool ConfirmBeforeSending { get; set; }
+
     /// <summary>The ways of answering, in the verdict's own order. Empty when the stop takes typed words only.</summary>
     public List<WingmanNowOptionDto> Options { get; set; } = new();
 }
@@ -378,6 +439,17 @@ public sealed class WingmanNowOptionDto
     /// <summary>The option's position in the verdict's own list, which is what
     /// <c>POST /sessions/{sid}/turn-verdict/answer</c> takes. Zero-based, as that route reads it.</summary>
     public int Index { get; set; }
+
+    /// <summary>
+    /// THE NUMBER THE OWNER READS - <see cref="Index"/> plus one, so the first option is 1.
+    ///
+    /// Two numbers for one option looks like duplication and is the opposite: the zero-based one is what the
+    /// answer route takes and is an internal detail, and it was being rendered. People count from one, so the
+    /// screen was showing him a "0" that meant nothing to him and a "1" that meant the second option. The
+    /// display number is folded here, beside every other owner-facing value, rather than by arithmetic in a
+    /// client - which is the one place it could quietly go back to agreeing with the route.
+    /// </summary>
+    public int Number { get; set; }
 
     /// <summary>The short label, naming the action being decided.</summary>
     public string Key { get; set; } = "";
@@ -419,8 +491,8 @@ public static class WingmanNowCardTones
 }
 
 /// <summary>
-/// The ten states Now can be in - <see cref="WingmanNowResponse.State"/>'s closed word list. String constants on the
-/// wire, the same convention as <see cref="VerdictStates"/>.
+/// The eleven states Now can be in - <see cref="WingmanNowResponse.State"/>'s closed word list. String constants on
+/// the wire, the same convention as <see cref="VerdictStates"/>.
 /// </summary>
 public static class WingmanNowStates
 {
@@ -432,6 +504,15 @@ public static class WingmanNowStates
 
     /// <summary>The session is working.</summary>
     public const string Working = "working";
+
+    /// <summary>
+    /// The owner parked this session, and it comes back when the snooze runs out.
+    ///
+    /// It sits directly under working in the fold's order, exactly where the row's own colour ladder puts it
+    /// (<see cref="SessionOrdering.EffectiveColor"/>), so the pill and the dot cannot come to different answers
+    /// about a snoozed session that still carries a verdict.
+    /// </summary>
+    public const string Snoozed = "snoozed";
 
     /// <summary>The session is working again, moments after the owner answered its last stop.</summary>
     public const string JustAnswered = "just-answered";
@@ -451,7 +532,7 @@ public static class WingmanNowStates
     /// <summary>The Wingman is switched off for this account, so nothing reads this session's stops.</summary>
     public const string SwitchedOff = "switched-off";
 
-    /// <summary>Any row none of the above describes - snoozed, supervised, exited, brand new, or stopped with no
+    /// <summary>Any row none of the above describes - supervised, exited, brand new, or stopped with no
     /// verdict. It wears the row's own label, so Now is never blank.</summary>
     public const string Other = "other";
 }

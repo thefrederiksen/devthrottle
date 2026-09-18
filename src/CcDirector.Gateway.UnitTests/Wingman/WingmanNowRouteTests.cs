@@ -449,6 +449,67 @@ public sealed class WingmanNowRouteTests : IDisposable
         Assert.Equal(WingmanNowVoiceKinds.Preparing, now.Voice.Kind);
     }
 
+    /// <summary>
+    /// THE PILL CARRIES THE ROW'S OWN COLOUR, EXACTLY, IN EVERY STOPPED STATE - three states, three different
+    /// colours, each pill matching its own row.
+    ///
+    /// THE DEFECT IT WATCHES. The voice facts were stamped onto the row AFTER this route's roster fold ran.
+    /// VoiceAudioReady and VoiceGenerating are Gateway-owned - no Director pushes them - so the fold saw false
+    /// for both, SessionOrdering.IsVoicePreparing held the row yellow, and needs-you, done and report all came
+    /// back wearing the same "preparing voice" yellow while the same session's dot in the Sessions list was red
+    /// or cyan. Measured off the owner's screen on 2026-09-18: pill (234, 179, 8), dot (6, 182, 212).
+    ///
+    /// IT IS DRIVEN WITH VOICE ON AND AUDIO READY, which is the case that was wrong: nothing is being prepared,
+    /// so yellow is false about every one of these rows. The control below is the same route with the audio NOT
+    /// ready, where yellow is the true answer and the row and the pill agree on it.
+    ///
+    /// THE COMPARISON IS AGAINST THE ROW, not against a colour written out here. A test that named "red" and
+    /// "cyan" would pass the day the ladder changed and the list moved without the pill.
+    /// </summary>
+    [Fact]
+    public void The_pill_wears_the_rows_own_colour_in_every_stopped_state()
+    {
+        foreach (var verdict in new[] { NeedsYouVerdict(), FinishedVerdict("done"), FinishedVerdict("report") })
+        {
+            var verdicts = StoreHolding(verdict);
+            var pushed = PushedWithVoiceOn();
+            var facts = new VoiceRowStamp.VoiceFacts(AudioReady: _ => true);
+
+            var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed, voiceFacts: _ => facts));
+
+            // The row the Sessions list is served, folded the same way, with the same facts.
+            var row = GatewayEndpoints.FoldedAccountRoster(_registry, pushed, Account, null, null,
+                RowSourceOver(verdicts), null, voiceFacts: facts)
+                .Single(s => s.SessionId == Sid);
+
+            Assert.Equal(row.EffectiveColor, now.PillColour);
+            Assert.Equal(row.EffectiveColorHex, now.PillColourHex);
+            // The symptom, named: not one of these three is "preparing voice", and the clip is ready.
+            Assert.NotEqual("yellow", now.PillColour);
+        }
+
+        // THE CONTROL. With no audio yet the row IS preparing voice, and the pill says the same thing - so the
+        // assertions above are about the pill following the row, not about yellow being banned.
+        var preparing = BodyOf(Read(Caller.Device, Sid, StoreHolding(NeedsYouVerdict()), PushedWithVoiceOn(),
+            voiceFacts: _ => new VoiceRowStamp.VoiceFacts(AudioReady: _ => false)));
+        Assert.Equal("yellow", preparing.PillColour);
+    }
+
+    /// <summary>A calm verdict of one kind or the other, so the row folds cyan rather than red.</summary>
+    private static TurnVerdictDto FinishedVerdict(string finishedKind) => new()
+    {
+        VerdictId = "verdict-now-" + finishedKind,
+        JudgedAtUtc = Stopped.AddSeconds(4),
+        TurnEndObservedAtUtc = Stopped,
+        Verdict = Core.Wingman.TurnVerdictVocabulary.Finished,
+        FinishedKind = finishedKind,
+        Confidence = "high",
+        Label = "The QA report is ready",
+        Summary = "It wrote the QA report and asks for nothing.",
+        Evidence = "The QA report is ready.",
+        AnswerVia = "reply",
+    };
+
     /// <summary>A session this account knows about whose stop has never been judged is not an error - it is the
     /// ordinary state of a session that has not stopped, and of every session on an account with the Wingman off.</summary>
     [Fact]

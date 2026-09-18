@@ -69,7 +69,7 @@ public sealed class SessionColourLegendTests
         ("cyan", "the work is done") =>
             new(Judged("cyan-done", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindDone), "Done - Pushed the branch"),
         ("cyan", "it is only reporting something and asks you nothing") =>
-            new(Judged("cyan-report", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindReport), "Report - Pushed the branch"),
+            new(Judged("cyan-report", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindReport), SessionOrdering.CalmReportLabel + " - Pushed the branch"),
 
         // The row is purple NOW; that it turns red is the carrying-on clock's promise, executed against the real
         // watchdog in TheCarryingOnPromise_IsKeptByTheRealClock below.

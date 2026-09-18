@@ -86,6 +86,20 @@ public static class WingmanNowFold
     /// "It" is the session - so the lead says whose opinion is being read.</summary>
     public const string RecommendsLead = "It recommends: ";
 
+    /// <summary>The line under the needs heading, saying what a tap does. The options are drawn as boxes and
+    /// nothing else on the card says a click is the answer going out.</summary>
+    public const string OptionsLeadText = "Click an option to send it as your answer";
+
+    // THE RISK WORDS, IN THE OWNER'S OWN WORDS. The judge answers one of four (see the turn-verdict contract);
+    // "none" is the fourth and carries nothing. Each flag is the short warning and each line is what it means.
+    public const string RiskFlagIrreversible = "Cannot be undone";
+    public const string RiskLineIrreversible = "Answering this stop does something that cannot be taken back.";
+    public const string RiskFlagStandingGrant = "Says yes from now on";
+    public const string RiskLineStandingGrant =
+        "Answering this stop can say yes to everything of this shape from now on, not only this once.";
+    public const string RiskFlagSpendsMoney = "Spends real money";
+    public const string RiskLineSpendsMoney = "Answering this stop spends real money.";
+
     /// <summary>The lead on the moment a session stopped.</summary>
     public const string StoppedAtLead = "Stopped at";
 
@@ -158,10 +172,27 @@ public static class WingmanNowFold
     public const string ReplyPlaceholderReport = "Reply if you want it to do something about this.";
     public const string ReplyPlaceholderOther = "Answer the session directly.";
 
+    // WHAT SENDING DOES, beside the box's own Send. The first sentence is true wherever the box is offered. The
+    // second is true only where something was ASKED - and it was being shown on done, on a report, on a working
+    // session and on a snoozed one, none of which asked him anything.
+    public const string ReplyHintPlain = "Sent to the session as your message.";
+    public const string ReplyHintAsked =
+        "Sent to the session as your message. You can answer more than one question in one reply.";
+
     // The cards on a stop that needs nothing from the owner.
     public const string DoneHeading = "The work is complete";
     public const string DoneBody = "Nothing is needed from you. You can close this session when you are ready.";
-    public const string ReportHeading = "Only telling you";
+
+    /// <summary>
+    /// ONE NAME FOR THE TELLING-YOU STATE, and it is this one - the pill, this card's heading and the row's own
+    /// label in the Sessions list all say it (<see cref="SessionOrdering.CalmReportLabel"/> is the same words).
+    ///
+    /// It used to be three: the pill said "Report", the card said "Only telling you", and the row said "Report -
+    /// Review the QA report". "Report" beside "QA report" also read as a noun about the document rather than as
+    /// what the session is doing.
+    /// </summary>
+    public const string ReportHeading = SessionOrdering.CalmReportLabel;
+
     public const string ReportBody = "Nothing is needed from you, and the work is not finished yet.";
     public const string CarryingOnHeading = "Nothing needed from you";
 
@@ -169,7 +200,9 @@ public static class WingmanNowFold
     public const string PillNeedsYou = "Needs you";
     public const string PillCarryingOn = "Carrying on";
     public const string PillDone = "Done";
-    public const string PillReport = "Report";
+
+    /// <inheritdoc cref="ReportHeading"/>
+    public const string PillReport = ReportHeading;
 
     /// <summary>The words a row wears when it carries no label of its own. A row always has one on a served roster,
     /// so this is the answer for a session whose machine has gone away and left nothing folded.</summary>
@@ -248,6 +281,28 @@ public static class WingmanNowFold
     /// <summary>The lead on the stop a working session has just come from.</summary>
     public const string LastStopLead = "Last stop";
 
+    /// <summary>
+    /// The whole line for a stop the CARRYING-ON CLOCK wrote, as a sentence.
+    ///
+    /// Every other past stop reads "&lt;pill words&gt; - &lt;the Wingman's headline&gt;", and for a judged stop that
+    /// is a state word in front of an ask, which reads. For this one it was a state word glued to a reason code:
+    /// "Needs you - Said it would continue and did not". The clock's own record is recognised by its
+    /// <see cref="TurnVerdictWatchdog.ClockModel"/> stamp - a fact on the record, never a match on the label -
+    /// so this cannot start firing for a judged stop whose words happen to look similar.
+    /// </summary>
+    public const string ExpiredPastText = "It said it would carry on, then stopped, so it needed you.";
+
+    /// <summary>The lead before the moment a snoozed session comes back.</summary>
+    public const string SnoozedUntilLead = "Snoozed until";
+
+    /// <summary>The headline on a snooze with no moment to name - a hold that has not landed yet, or one that
+    /// waits for him. The sentence says what ends it instead of naming a time nothing recorded.</summary>
+    public const string SnoozedNoDeadlineHeadline = "Snoozed until you wake it";
+
+    /// <summary>The lead on the stop a snooze was taken over. It is PAST and says so, but it is not thrown away:
+    /// the Wingman's account of it is the only reason the snooze meant anything.</summary>
+    public const string SnoozedOverLead = "The stop you snoozed over";
+
     /// <summary>The reply box while it works. It says what actually happens, because a message sent to a working
     /// session is not lost and is not delivered either - it waits.</summary>
     public const string ReplyPlaceholderWorking =
@@ -306,6 +361,9 @@ public static class WingmanNowFold
         var answer = new WingmanNowResponse
         {
             SessionId = inputs.SessionId,
+            // WHICH SESSION THIS IS, FIRST AND IN EVERY STATE - set here, outside every branch below, because
+            // there is no state in which the owner may be left to guess whose question he is answering.
+            SessionLine = SessionLine(inputs.SessionId, row),
             State = state,
             PillText = PillText(state, row),
             PillColour = row?.EffectiveColor,
@@ -317,6 +375,7 @@ public static class WingmanNowFold
             Voice = Voice(state, row, live),
             VerdictId = live?.VerdictId,
             ReplyPlaceholder = ReplyPlaceholder(state),
+            ReplyHint = ReplyPlaceholder(state) is null ? null : ReplyHint(state),
         };
 
         // WORKING. Most of a session's life, and the state that outranks every other - see StateOf. There is no
@@ -334,6 +393,38 @@ public static class WingmanNowFold
             {
                 answer.Answered = answered;
                 answer.NextNeedsYou = NextNeedsYou(inputs.AccountRoster, inputs.SessionId);
+            }
+
+            return answer;
+        }
+
+        // SNOOZED. The owner parked it, so nothing here is waiting on him - but the screen used to say the word
+        // "Snoozed" twice and nothing else, and the Wingman's account of the stop he snoozed OVER was simply
+        // dropped. Both halves are restored: when it comes back, and what it was he decided to leave.
+        if (string.Equals(state, WingmanNowStates.Snoozed, StringComparison.Ordinal))
+        {
+            if (row?.SnoozeUntil is { } until)
+            {
+                answer.SnoozedUntil = new WingmanNowWhenDto { Lead = SnoozedUntilLead, AtUtc = until };
+            }
+            else
+            {
+                // A DEFERRED HOLD HAS NO DEADLINE YET (see SessionDto.SnoozeUntil), and neither has a snooze
+                // that waits for him. The headline says what ends it rather than naming a moment nothing
+                // recorded - a lead with no instant after it is a sentence that stops in the middle.
+                answer.Headline = SnoozedNoDeadlineHeadline;
+            }
+
+            // THE STOP IT WAS SNOOZED OVER, read from the stored history rather than from the row: a snooze may
+            // or may not leave a verdict in force on the row, and the account of the stop is worth the same
+            // either way. When one IS still in force, its words come too - that narration is the whole reason
+            // the snooze meant anything, and throwing it away is what left this screen with two words on it.
+            answer.LastStop = LastStop(verdicts, SnoozedOverLead);
+            if (live is not null)
+            {
+                answer.Story = NullIfBlank(live.Summary);
+                answer.AgentSaid = AgentSaid(live, row);
+                answer.WholeReply = WholeReply(inputs.Conversation);
             }
 
             return answer;
@@ -448,6 +539,14 @@ public static class WingmanNowFold
         // SWITCHED OFF IS AN ACCOUNT FACT, so it outranks every stopped state below: when nothing reads this
         // session's stops, "the Wingman is reading it" and "the Wingman could not explain it" are both false.
         if (working) return WingmanNowStates.Working;
+
+        // SNOOZED SITS DIRECTLY UNDER WORKING, exactly where the row's own colour ladder puts it
+        // (SessionOrdering.EffectiveColor: `IsWorking ? blue : s.OnHold ? grey`). It reads the SAME field that
+        // ladder reads, so a snoozed session that still carries a judged verdict cannot show a red "Needs you"
+        // pill over a grey dot. It is above the switched-off arm for the same reason: with the account's
+        // Wingman off the row still says "Snoozed", and that is the true thing about the session.
+        if (row is not null && row.OnHold) return WingmanNowStates.Snoozed;
+
         if (wingmanSwitchedOff == true) return WingmanNowStates.SwitchedOff;
 
         if (row is not null)
@@ -479,6 +578,29 @@ public static class WingmanNowFold
             _ => WingmanNowStates.Other,
         };
     }
+
+    /// <summary>
+    /// WHICH SESSION THIS IS: "112 - Cube Data and Projects - Architect".
+    ///
+    /// The number leads when the row carries one - it is the short name the Sessions list and the command line
+    /// both use - and the name follows it. A row this Gateway has nothing pushed for leaves only the session's
+    /// identifier: machine output, and shown anyway, because on the one screen where sending the right answer to
+    /// the wrong session is the damage, an identifier he can check beats a blank he cannot.
+    /// </summary>
+    private static string SessionLine(string sessionId, SessionDto? row)
+    {
+        var name = NullIfBlank(row?.Name);
+        if (row?.Number is { } number)
+            return name is null ? number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                : number.ToString(System.Globalization.CultureInfo.InvariantCulture) + " - " + name;
+        return name ?? sessionId;
+    }
+
+    /// <summary>What sending the reply box does. The second sentence is true only where something was asked.</summary>
+    private static string ReplyHint(string state)
+        => string.Equals(state, WingmanNowStates.NeedsYou, StringComparison.Ordinal)
+            ? ReplyHintAsked
+            : ReplyHintPlain;
 
     private static string PillText(string state, SessionDto? row) => state switch
     {
@@ -535,10 +657,11 @@ public static class WingmanNowFold
         {
             Lead = StoppedAtLead,
             AtUtc = at.Value,
-            // HOW LONG AGO ONLY WHERE IT MEANS SOMETHING. On a stop that is waiting for him, the elapsed time IS the
-            // cost of not looking. On done and report nothing is pending, so a running "47 minutes ago" would read as
-            // pressure about a session that wants nothing.
-            ShowAgo = state is not (WingmanNowStates.Done or WingmanNowStates.Report),
+            // BOTH CLOCKS, ALWAYS. This used to drop "ago" on done and on a report, so that nothing was said to be
+            // pressing about a session that wanted nothing - and the cost of that was that a session that finished
+            // two minutes ago and one that finished yesterday were the same line on the screen. "How long ago" is
+            // not pressure, it is which of two identical sentences he is reading.
+            ShowAgo = true,
         };
     }
 
@@ -608,8 +731,12 @@ public static class WingmanNowFold
         var needs = new WingmanNowNeedsDto
         {
             Heading = NeedsHeading,
-            Recommends = NullIfBlank(live.AgentRecommends) is { } r ? RecommendsLead + r : null,
+            Recommends = Recommends(live),
             Question = NullIfBlank(live.Menu?.Question),
+            OptionsLead = live.Options.Count > 0 ? OptionsLeadText : null,
+            RiskFlag = RiskFlag(live.Risk),
+            RiskLine = RiskLine(live.Risk),
+            ConfirmBeforeSending = RiskFlag(live.Risk) is not null,
         };
         for (var i = 0; i < live.Options.Count; i++)
         {
@@ -620,6 +747,8 @@ public static class WingmanNowFold
                 // not carried: the Cockpit sends an index and the Gateway decides what that means, so nothing a
                 // client holds can be replayed into a session as keystrokes.
                 Index = i,
+                // And the number he READS, which is that plus one. See WingmanNowOptionDto.Number.
+                Number = i + 1,
                 Key = option.Key,
                 Note = option.Note,
                 Recommended = option.Recommended,
@@ -627,6 +756,85 @@ public static class WingmanNowFold
         }
         return needs;
     }
+
+    /// <summary>
+    /// THE AGENT'S RECOMMENDATION, OR NOTHING - and nothing is the common answer.
+    ///
+    /// The screen already carries the ask three times over: the headline, the story, and the agent's own decisive
+    /// sentence. A judge asked for "the agent's own recommendation, quoted or closely paraphrased" very often
+    /// answers with the ask again, and a fourth copy of one sentence under the words "It recommends" is how a
+    /// reader learns to stop reading the card. So this line is shown only when it ADDS something:
+    ///
+    /// 1. NOT A QUESTION. A recommendation cannot be a question. When the agent's own words are one - "Want me to
+    ///    land it to main and deploy?" - there is nothing to state, and rewriting a question into a statement
+    ///    would be this fold putting words in the agent's mouth. The RECOMMENDED mark on the option is what says
+    ///    which way it leans, and it says it without a sentence.
+    /// 2. NOT THE ASK AGAIN. Measured against the three sentences already on the card - the menu's question, the
+    ///    Wingman's headline and the agent's receipt - with punctuation, case and spacing ignored. Either
+    ///    containing the other counts, because a paraphrase that only adds "Should I " adds nothing.
+    ///
+    /// What survives both is a statement that says something the rest of the card does not, and the lead makes it
+    /// read as one: "It recommends: committing and deploying."
+    /// </summary>
+    private static string? Recommends(TurnVerdictDto live)
+    {
+        if (NullIfBlank(live.AgentRecommends) is not { } recommends) return null;
+        if (recommends.TrimEnd().EndsWith('?')) return null;
+
+        foreach (var already in new[] { live.Menu?.Question, live.Label, live.Evidence })
+        {
+            if (NullIfBlank(already) is { } other && SaysTheSameThing(other, recommends)) return null;
+        }
+
+        return RecommendsLead + recommends;
+    }
+
+    /// <summary>
+    /// Whether two owner-facing sentences say the same thing: equal, or one inside the other, once punctuation,
+    /// case and runs of whitespace are taken out.
+    ///
+    /// CONTAINMENT RATHER THAN EQUALITY, because the sentences this is asked about differ by a lead-in and
+    /// nothing else - "Commit and deploy the fixes?" against "Want me to commit and deploy the fixes?". A test
+    /// for equality would pass every one of them through and change nothing.
+    /// </summary>
+    private static bool SaysTheSameThing(string left, string right)
+    {
+        var a = Normalise(left);
+        var b = Normalise(right);
+        if (a.Length == 0 || b.Length == 0) return false;
+        return a.Contains(b, StringComparison.Ordinal) || b.Contains(a, StringComparison.Ordinal);
+    }
+
+    /// <summary>A sentence with its punctuation, case and spacing taken out, for comparing one against another.
+    /// It is never shown to anybody - only compared - so nothing here has to read.</summary>
+    private static string Normalise(string text)
+    {
+        var chars = new List<char>(text.Length);
+        foreach (var c in text)
+        {
+            if (char.IsLetterOrDigit(c)) chars.Add(char.ToLowerInvariant(c));
+            else if (c == ' ' && chars.Count > 0 && chars[^1] != ' ') chars.Add(' ');
+        }
+        return new string(chars.ToArray()).Trim();
+    }
+
+    /// <summary>The short warning for a risk word, or null for "none" and for a record that carries none.</summary>
+    private static string? RiskFlag(string? risk) => risk switch
+    {
+        TurnVerdictVocabulary.RiskIrreversible => RiskFlagIrreversible,
+        TurnVerdictVocabulary.RiskStandingGrant => RiskFlagStandingGrant,
+        TurnVerdictVocabulary.RiskSpendsMoney => RiskFlagSpendsMoney,
+        _ => null,
+    };
+
+    /// <summary>What that warning means, in one sentence.</summary>
+    private static string? RiskLine(string? risk) => risk switch
+    {
+        TurnVerdictVocabulary.RiskIrreversible => RiskLineIrreversible,
+        TurnVerdictVocabulary.RiskStandingGrant => RiskLineStandingGrant,
+        TurnVerdictVocabulary.RiskSpendsMoney => RiskLineSpendsMoney,
+        _ => null,
+    };
 
     /// <summary>
     /// Whether the options may still be tapped. Every gate below can only turn a tap OFF, and each one alone is
@@ -730,18 +938,16 @@ public static class WingmanNowFold
             if (verdict.Failed) continue;
             if (liveId is not null && string.Equals(verdict.VerdictId, liveId, StringComparison.Ordinal)) continue;
 
-            var words = PastPillWords(verdict);
-            if (words is null) continue;
+            if (PastPillWords(verdict) is null) continue;
 
             var at = verdict.TurnEndObservedAtUtc != default ? verdict.TurnEndObservedAtUtc : verdict.JudgedAtUtc;
             if (at == default) continue;
 
-            var label = NullIfBlank(verdict.Label);
             return new WingmanNowPastDto
             {
                 Lead = LastGoodLead,
                 AtUtc = at,
-                Text = label is null ? words : words + " - " + label,
+                Text = PastText(verdict),
             };
         }
 
@@ -784,14 +990,30 @@ public static class WingmanNowFold
         if (LastStopRecord(verdicts) is not { } stored) return null;
 
         var verdict = stored.Verdict;
-        var words = PastPillWords(verdict)!;
-        var label = NullIfBlank(verdict.Label);
         return new WingmanNowPastDto
         {
             Lead = lead,
             AtUtc = StopMoment(verdict),
-            Text = label is null ? words : words + " - " + label,
+            Text = PastText(verdict),
         };
+    }
+
+    /// <summary>
+    /// What a past stop SAYS, as one line: the pill's words, a dash, and the Wingman's own headline.
+    ///
+    /// EXCEPT FOR A STOP THE CARRYING-ON CLOCK WROTE, which is a whole sentence instead - see
+    /// <see cref="ExpiredPastText"/>. That record's label is a reason code rather than an ask, and the ordinary
+    /// shape glued a status word onto it with a dash: "Needs you - Said it would continue and did not". It is
+    /// recognised by the model stamped on the record, which the clock and only the clock writes.
+    /// </summary>
+    private static string PastText(TurnVerdictDto verdict)
+    {
+        if (string.Equals(verdict.Model, TurnVerdictWatchdog.ClockModel, StringComparison.Ordinal))
+            return ExpiredPastText;
+
+        var words = PastPillWords(verdict)!;
+        var label = NullIfBlank(verdict.Label);
+        return label is null ? words : words + " - " + label;
     }
 
     /// <summary>
@@ -981,6 +1203,17 @@ public static class WingmanNowFold
     /// inbox record and nothing types a framed message into a session, so there is no format left to parse and
     /// keeping a parser for one would be reading a string nothing writes. Such a message is simply not claimed
     /// to be from anyone, which is outcome 2.
+    ///
+    /// A USER MESSAGE WITH NO WORDS IN IT IS SKIPPED, NOT AN ANSWER OF "NOTHING" - and that one line is why this
+    /// card was blank on the owner's screen for every working session. In a Claude Code transcript a TOOL RESULT
+    /// is a message of role "user" whose only part is a ToolResult (see ClaudeTranscriptReader: a line of type
+    /// "user" carrying a tool_result block). A working session is mid-tool-loop almost by definition, so the
+    /// newest "user" message is almost always one of those - and this scan used to stop dead on it and say
+    /// nothing had been asked. What was asked is the newest user message that carries WORDS, which is what the
+    /// card claims to show.
+    ///
+    /// A missing TIMESTAMP still ends the scan rather than skipping past it: the card says when it was asked,
+    /// and a message this Gateway cannot place in time is not a better answer than silence.
     /// </summary>
     private static WingmanNowAskedDto? LastAsked(WingmanNowConversation? conversation, SessionDto? row,
         IReadOnlyList<AnsweredTurnVerdict> verdicts)
@@ -994,7 +1227,7 @@ public static class WingmanNowFold
             if (!string.Equals(message.Role, "User", StringComparison.OrdinalIgnoreCase)) continue;
 
             var text = MessageText(message);
-            if (text is null) return null;
+            if (text is null) continue;
             if (message.Timestamp is not { } stamp) return null;
 
             var at = stamp.UtcDateTime;

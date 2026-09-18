@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -22,14 +22,14 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// and rendered "Working for 7:14 a.m.". A test that hands a view an object the CLIENT invented proves nothing about
 /// the wire.
 ///
-/// SO THE SAMPLE IS PRODUCED HERE, BY THE FOLD, and only read there. This test folds five real states, serializes
+/// SO THE SAMPLE IS PRODUCED HERE, BY THE FOLD, and only read there. This test folds six real states, serializes
 /// them exactly as <c>GET /sessions/{sid}/wingman-now</c> serializes its body, and writes the result to a file inside
 /// the client package. <c>wingmanNowWireSample.test.tsx</c> renders the Now view from that file. Rename a field on
 /// either side and one of the two goes red.
 ///
 /// WHAT IT DOES NOT PROVE. It is the FOLD's answer, not an answer observed coming out of a running Gateway over
 /// HTTP - the handler that gathers the fold's inputs is proven separately in <see cref="WingmanNowRouteTests"/>.
-/// And it covers the five states below; a field that appears only in a sixth is not on the wire here.
+/// And it covers the six states below; a field that appears only in a seventh is not on the wire here.
 ///
 /// PARKED SUITE. Gateway.UnitTests runs under -Parked.
 /// </summary>
@@ -68,6 +68,7 @@ public sealed class WingmanNowWireSampleTests
             ["justAnswered"] = JustAnswered(),
             ["carryingOn"] = CarryingOn(),
             ["done"] = Done(),
+            ["snoozed"] = Snoozed(),
         };
 
         var written = JsonSerializer.Serialize(samples, FileOptions);
@@ -101,11 +102,11 @@ public sealed class WingmanNowWireSampleTests
     [Fact]
     public void Every_sampled_state_is_about_the_same_session()
     {
-        foreach (var answer in new[] { NeedsYou(), Working(), JustAnswered(), CarryingOn(), Done() })
+        foreach (var answer in new[] { NeedsYou(), Working(), JustAnswered(), CarryingOn(), Done(), Snoozed() })
             Assert.Equal(Sid, answer.SessionId);
     }
 
-    // ---------------------------------------------------------------- the five states
+    // ---------------------------------------------------------------- the six states
 
     /// <summary>A stop that needs him, with two options to tap - the state the whole screen exists for. It carries
     /// the verdict identifier the answer route takes and the agent's own decisive sentence.</summary>
@@ -170,6 +171,18 @@ public sealed class WingmanNowWireSampleTests
             [new AnsweredTurnVerdict(verdict, null)], null, NowUtc: Stopped.AddMinutes(3)));
     }
 
+    /// <summary>A session the owner parked: when it comes back, and the stop he parked it over, kept rather
+    /// than thrown away.</summary>
+    private static WingmanNowResponse Snoozed()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        var row = Row(verdict, colour: "grey", hex: "#6b7280", label: "Snoozed");
+        row.OnHold = true;
+        row.SnoozeUntil = Stopped.AddHours(4);
+        return WingmanNowFold.Fold(new WingmanNowInputs(
+            Sid, row, [new AnsweredTurnVerdict(verdict, null)], null, NowUtc: Stopped.AddMinutes(30)));
+    }
+
     // ---------------------------------------------------------------- the rows and verdicts behind them
 
     private static TurnVerdictDto Verdict(
@@ -201,6 +214,7 @@ public sealed class WingmanNowWireSampleTests
         string label = "Needs you") => new()
     {
         SessionId = Sid,
+        Number = 112,
         Name = "Wingman Inspector - Manager",
         AgentToolDisplay = "Claude Code",
         ActivityState = "WaitingForInput",
