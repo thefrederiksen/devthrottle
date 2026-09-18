@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -2277,8 +2278,28 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     {
         private readonly int _refusals;
         private readonly TimeSpan? _retryAfter;
+        private readonly object _stamps = new();
+        private readonly List<long> _callTicks = new();
         private int _calls;
         public int Calls => _calls;
+
+        /// <summary>
+        /// How long after the first call the second one arrived, or null if there has not been a second.
+        /// Taken from the monotonic timestamp of each call INSIDE the handler, so it measures what the
+        /// service did rather than when the test happened to look.
+        /// </summary>
+        public TimeSpan? GapBetweenFirstTwoCalls
+        {
+            get
+            {
+                lock (_stamps)
+                {
+                    if (_callTicks.Count < 2) return null;
+                    return Stopwatch.GetElapsedTime(_callTicks[0], _callTicks[1]);
+                }
+            }
+        }
+
         public TtsRateLimitedHandler(int refusals, TimeSpan? retryAfter = null)
         {
             _refusals = refusals;
@@ -2286,6 +2307,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            lock (_stamps) _callTicks.Add(Stopwatch.GetTimestamp());
             var n = Interlocked.Increment(ref _calls);
             if (n > _refusals)
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
@@ -2439,13 +2461,23 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
             // THE SEAM RECORDS WHAT WE DECIDED; THE HANDLER SHOWS WHAT WE DID. Found in review: asserting
             // the recorded delay alone passes if the task is dropped, fires immediately, or fires at the
-            // wrong time. So the wait itself is observed - still one call well past the RUNG, and a second
-            // call after the PROVIDER'S number.
-            await Task.Delay(300);
-            Assert.Equal(1, handler.Calls);   // 15x the rung has passed and it has not called again
-
+            // wrong time. So the wait itself is observed - the second call has to arrive, and it has to
+            // arrive after the PROVIDER'S number rather than after the rung.
+            //
+            // MEASURE THE GAP, do not sleep inside it. This used to wait 300ms and assert the second call
+            // had not happened yet, which is the same defect as the one fixed in pull request 3048 pointing
+            // the other way: it asserts that a callback booked for 800ms has NOT run, and on a loaded runner
+            // the test's own continuation can arrive after 800ms, so correct behaviour fails the assertion.
+            // The gap is stamped inside the handler, so it measures what the service did and not when the
+            // test happened to look, and no scheduling delay can move it.
             Assert.True(await Eventually(() => handler.Calls >= 2),
                 "the booked re-attempt never ran at all - the recorded delay described work nobody did");
+
+            var gap = handler.GapBetweenFirstTwoCalls;
+            Assert.NotNull(gap);
+            Assert.True(gap >= TimeSpan.FromMilliseconds(700),
+                $"the re-attempt came {gap!.Value.TotalMilliseconds:F0}ms after the first call, so the 20ms rung "
+                + "was used and the provider's 800ms Retry-After was not honoured");
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
