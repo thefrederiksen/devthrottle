@@ -1,0 +1,6 @@
+[
+ {"name":"stuck marks read messages too","old":"                .Where(m => m.ReadAtUtc == null && m.StuckAtUtc == null && m.RingCount > 0)","new":"                .Where(m => m.StuckAtUtc == null && m.RingCount > 0)"},
+ {"name":"a ring is recorded on a read message","old":"                .Where(m => ids.Contains(m.MessageId) && m.ReadAtUtc == null && m.StuckAtUtc == null)","new":"                .Where(m => ids.Contains(m.MessageId))"},
+ {"name":"stuck messages are still offered for ringing","old":"            .Where(m => m.RecipientSessionId == recipient && m.ReadAtUtc == null && m.StuckAtUtc == null)\n            .OrderBy(m => m.CreatedAtUtc)\n            .ToList();","new":"            .Where(m => m.RecipientSessionId == recipient && m.ReadAtUtc == null)\n            .OrderBy(m => m.CreatedAtUtc)\n            .ToList();"},
+ {"name":"stuck recipients still listed","old":"            .Where(m => m.ReadAtUtc == null && m.StuckAtUtc == null)\n            .Select(m => m.RecipientSessionId)","new":"            .Where(m => m.ReadAtUtc == null)\n            .Select(m => m.RecipientSessionId)"}
+]

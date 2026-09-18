@@ -99,7 +99,8 @@ public class PiPreambleWriterTests
             Assert.Contains("cc-devthrottle", text);
             Assert.Contains("session list", text);
             Assert.Contains("message send", text);
-            Assert.Contains("message ask", text);
+            Assert.Contains("message inbox", text);
+            Assert.DoesNotContain("message ask", text);
             Assert.DoesNotContain("cc-rename", text);
             Assert.DoesNotContain("cc-sessions", text);
             Assert.DoesNotContain("cc-send", text);

@@ -1,0 +1,27 @@
+== MUTATION item 8 reverted: every working edge ends an armed snooze: exit=1
+    Failed!  - Failed:     4, Passed:    25, Skipped:     0, Total:    29, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Work_started_by_an_agent_origin_send_leaves_an_armed_snooze_armed(activity: "Starting") [1 s]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Work_started_by_an_agent_origin_send_leaves_an_armed_snooze_armed(activity: "Working") [72 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.The_owner_typing_during_an_agent_origin_turn_ends_the_snooze [46 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.The_armed_snooze_is_still_there_when_the_agent_origin_turn_settles [32 ms]
+== MUTATION owner half weakened: any reported origin spares the snooze: exit=1
+    Failed!  - Failed:     4, Passed:    25, Skipped:     0, Total:    29, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Work_the_owner_started_still_ends_an_armed_snooze [39 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Only_the_exact_agent_literal_spares_the_snooze(origin: "robot") [41 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Only_the_exact_agent_literal_spares_the_snooze(origin: "agent ") [43 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Only_the_exact_agent_literal_spares_the_snooze(origin: "Agent") [43 ms]
+== MUTATION the law weakened further: unexplained work spares the snooze too: exit=1
+    Failed!  - Failed:     6, Passed:    23, Skipped:     0, Total:    29, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.AnArmedHold_IsDeletedWhenTheSessionWorksAgain(activity: "Starting") [36 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.AnArmedHold_IsDeletedWhenTheSessionWorksAgain(activity: "Working") [35 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Only_the_exact_agent_literal_spares_the_snooze(origin: "robot") [33 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Only_the_exact_agent_literal_spares_the_snooze(origin: "agent ") [35 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Only_the_exact_agent_literal_spares_the_snooze(origin: "Agent") [37 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Work_no_submission_explains_still_ends_an_armed_snooze [77 ms]
+== MUTATION origin compared loosely: exit=1
+    Failed!  - Failed:     2, Passed:    27, Skipped:     0, Total:    29, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Only_the_exact_agent_literal_spares_the_snooze(origin: "agent ") [35 ms]
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.Only_the_exact_agent_literal_spares_the_snooze(origin: "Agent") [33 ms]
+== MUTATION agent-origin branch checked after the owner-turn edge is skipped: exit=1
+    Failed!  - Failed:     1, Passed:    28, Skipped:     0, Total:    29, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.SnoozeLandingObserverTests.The_owner_typing_during_an_agent_origin_turn_ends_the_snooze [37 ms]

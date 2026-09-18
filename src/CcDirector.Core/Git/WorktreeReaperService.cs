@@ -79,16 +79,19 @@ public sealed class WorktreeReaperService
     private readonly Func<DateTime> _utcNow;
     private readonly WorktreeReservationStore _reservations;
     private readonly WorktreeLeftoverStore _leftovers;
+    private readonly CcWorktreesPoolSlots _poolSlots;
 
     public WorktreeReaperService(
         WorktreeInventoryService? inventory = null,
         GitCommandRunner? git = null,
         Func<DateTime>? utcNow = null,
         WorktreeReservationStore? reservations = null,
-        WorktreeLeftoverStore? leftovers = null)
+        WorktreeLeftoverStore? leftovers = null,
+        CcWorktreesPoolSlots? poolSlots = null)
     {
         _git = git ?? new GitCommandRunner();
-        _inventory = inventory ?? new WorktreeInventoryService(_git);
+        _poolSlots = poolSlots ?? new CcWorktreesPoolSlots();
+        _inventory = inventory ?? new WorktreeInventoryService(_git, poolSlots: _poolSlots);
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _reservations = reservations ?? new WorktreeReservationStore();
         _leftovers = leftovers ?? new WorktreeLeftoverStore();
@@ -293,6 +296,30 @@ public sealed class WorktreeReaperService
                         continue;
                     }
 
+                    // A cc-worktrees pool slot is never removed here, whatever the inventory concluded.
+                    // The inventory already classifies one out of the safe set; this is the second,
+                    // independent check at the destructive step itself, for the same reason the roster
+                    // and the reservations are re-read here - the decision and the act are not the same
+                    // moment, and this is the moment that cannot be undone. Records that exist and
+                    // cannot be read abort the reap rather than letting "cannot tell" pass as "no".
+                    bool ownedByPool;
+                    try
+                    {
+                        ownedByPool = _poolSlots.Owns(worktree.Path);
+                    }
+                    catch (CcWorktreesStateUnreadableException ex)
+                    {
+                        FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not tell whether {worktree.Path} belongs to a cc-worktrees pool: {ex.Message}");
+                        await _git.RunAsync(repositoryPath, new[] { "worktree", "prune" }, CancellationToken.None);
+                        return BuildResult($"reap aborted after removing {outcomes.Count(o => o.Removed)} worktree(s) - could not tell whether {worktree.Path} belongs to a cc-worktrees pool: {ex.Message}");
+                    }
+                    if (ownedByPool)
+                    {
+                        FileLog.Write($"[WorktreeReaperService] SKIP (a cc-worktrees pool slot - that tool owns it): {worktree.Path}");
+                        skipped.Add(normalized);
+                        continue;
+                    }
+
                     outcomes.Add(await RemoveOneAsync(repositoryPath, worktree, ct));
                 }
                 catch (OperationCanceledException)
@@ -483,6 +510,8 @@ public sealed class WorktreeReaperService
                 }
                 if (reservedNow.Any(p => PathCoversWorktree(path, p)))
                     continue; // a live session (re)entered it - leave it entirely alone
+                if (IsPoolSlotOrUnknown(path))
+                    continue; // cc-worktrees owns it, or this machine cannot say it does not
                 if (!HasLeftoverMarker(path))
                 {
                     // The folder at this path is no longer OUR orphan - the owner recreated it, or git
@@ -505,6 +534,28 @@ public sealed class WorktreeReaperService
             }
         }
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="path"/> belongs to a cc-worktrees pool - and TRUE when this machine's
+    /// cc-worktrees records exist and cannot be read, because the caller is about to delete a folder
+    /// and "I could not tell" is not "no". The doubtful case is logged so a machine whose records are
+    /// broken says so rather than quietly stopping the retry forever.
+    /// </summary>
+    private bool IsPoolSlotOrUnknown(string path)
+    {
+        try
+        {
+            if (!_poolSlots.Owns(path))
+                return false;
+            FileLog.Write($"[WorktreeReaperService] leftover {path} is a cc-worktrees pool slot - not deleting");
+            return true;
+        }
+        catch (CcWorktreesStateUnreadableException ex)
+        {
+            FileLog.Write($"[WorktreeReaperService] leftover {path} not deleted - could not tell whether it belongs to a cc-worktrees pool: {ex.Message}");
+            return true;
+        }
     }
 
     private static void TryDeleteDirectory(string path)

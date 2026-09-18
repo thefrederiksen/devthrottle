@@ -38,7 +38,32 @@ public enum FleetMessageOutcome
 
     /// <summary>The sender wrote to this recipient too recently (ruling 3).</summary>
     RefusedRecipientSpacing,
+
+    /// <summary>A reply that is not from the session the original was sent to, or not to the session that sent
+    /// it, or to a Gateway notice (slice 3, ruling 10).</summary>
+    RefusedReplyTarget,
+
+    /// <summary>The original has already been answered; one reply per question (slice 3).</summary>
+    RefusedAlreadyReplied,
+
+    /// <summary>A reply named an id no message in the account has. Decided by the store's lookup, before the
+    /// policy is asked (slice 3).</summary>
+    RefusedUnknownMessage,
+
+    /// <summary>A reply named a message that did not ask for one. Decided by the store's lookup (slice 3).</summary>
+    RefusedNoReplyWanted,
 }
+
+/// <summary>The message a reply answers, as the store found it (slice 3, ruling 10).</summary>
+/// <param name="MessageId">The original's id.</param>
+/// <param name="OriginalSenderSessionId">The session that sent the original, or null for a Gateway notice.</param>
+/// <param name="OriginalRecipientSessionId">The session the original was sent to.</param>
+/// <param name="AlreadyReplied">True when a reply to the original has already been written.</param>
+public sealed record FleetReplyOriginal(
+    string MessageId,
+    string? OriginalSenderSessionId,
+    string OriginalRecipientSessionId,
+    bool AlreadyReplied);
 
 /// <summary>
 /// Everything the policy needs to decide one send, gathered by the caller. The counts come from the
@@ -60,6 +85,7 @@ public enum FleetMessageOutcome
 /// <param name="Exemption">Why, if at all, the relationship and rate rules are waived.</param>
 /// <param name="Kind">The kind of message, one of <see cref="FleetMessageKinds"/>. A report is not held to
 /// the per-recipient spacing - see <see cref="FleetMessagePolicy"/>.</param>
+/// <param name="ReplyTo">For a <see cref="FleetMessageKinds.Reply"/>, the message it answers; null otherwise.</param>
 public sealed record FleetMessageAttempt(
     string? SenderSessionId,
     string? SenderControllerSessionId,
@@ -71,7 +97,8 @@ public sealed record FleetMessageAttempt(
     DateTime? LastSentToRecipientUtc,
     bool RecipientHasUnreadDuplicate,
     FleetMessageExemption Exemption = FleetMessageExemption.None,
-    string Kind = FleetMessageKinds.Message);
+    string Kind = FleetMessageKinds.Message,
+    FleetReplyOriginal? ReplyTo = null);
 
 /// <summary>The decision and the sentence that explains it. <see cref="Reason"/> is what the sender reads;
 /// it is empty only for <see cref="FleetMessageOutcome.Queued"/>.</summary>
@@ -96,13 +123,21 @@ public readonly record struct FleetMessageVerdict(FleetMessageOutcome Outcome, s
 /// RULE 3: at most <see cref="FleetMessageLimits.PerSenderPerHour"/> messages per rolling hour per sender;
 /// at most one per recipient per <see cref="FleetMessageLimits.PerRecipientSpacing"/>; and a message
 /// identical to one the recipient has not yet read is dropped, because the one it would add is already
-/// waiting.
+/// waiting. Identical means the same sender, kind, question answered, reply request and text (inspection 6,
+/// ruling 2); the store decides it and hands the answer in as <see cref="FleetMessageAttempt.RecipientHasUnreadDuplicate"/>.
 ///
 /// A REPORT IS NOT HELD TO THE PER-RECIPIENT SPACING. Every rate refusal tells the sender to put what it
 /// wanted to say in its report, so refusing the report itself because the worker asked its supervisor a
 /// question five minutes earlier would send it round in a circle. The hourly limit and the duplicate rule
 /// still apply to a report, and a report refused by the hourly limit is told to leave its answer in its own
 /// session, where the supervisor reads it.
+///
+/// A REPLY HAS ITS OWN RULE (slice 3, ruling 10). It is allowed from the session the original was sent to, to
+/// the session that sent it, whatever their relationship - the sender asked, so the answer may come back. It
+/// goes to nobody else. It is held to the text rules and the duplicate rule, and to one reply per question,
+/// but NOT to the hourly limit or the per-recipient spacing: a reply is an answer, not a new demand. It is
+/// not counted towards the replier's hourly six either (<see cref="FleetMessageStore"/> leaves it out of the
+/// count). A reply after the deadline is allowed like any other.
 ///
 /// THE ORDER IS PART OF THE RULE. Text first (nothing else can be judged about a blank message); then
 /// self and relationship, because a session that may not write to this recipient at all should be told
@@ -141,6 +176,9 @@ public static class FleetMessagePolicy
         var recipient = attempt.RecipientSessionId;
         var sender = attempt.SenderSessionId;
 
+        if (attempt.Kind == FleetMessageKinds.Reply)
+            return DecideReply(attempt, recipient, sender);
+
         if (!exempt)
         {
             if (string.IsNullOrWhiteSpace(sender))
@@ -159,9 +197,7 @@ public static class FleetMessagePolicy
         }
 
         if (attempt.RecipientHasUnreadDuplicate)
-            return new(FleetMessageOutcome.DuplicateDropped,
-                $"{Short(recipient)} has not yet read an identical message from you, so this copy was dropped. " +
-                "The one already waiting will be read.");
+            return Duplicate(recipient);
 
         if (!exempt)
         {
@@ -188,6 +224,39 @@ public static class FleetMessagePolicy
 
         return new(FleetMessageOutcome.Queued, "");
     }
+
+    private static FleetMessageVerdict DecideReply(FleetMessageAttempt attempt, string recipient, string? sender)
+    {
+        var original = attempt.ReplyTo;
+        if (original is null || attempt.Exemption != FleetMessageExemption.None)
+            return new(FleetMessageOutcome.RefusedReplyTarget,
+                "A reply must name the message it answers, and only a session sends one.");
+        if (string.IsNullOrWhiteSpace(original.OriginalSenderSessionId))
+            return new(FleetMessageOutcome.RefusedReplyTarget,
+                $"Message {original.MessageId} is a notice from the Gateway; there is nobody to reply to.");
+        if (!Same(sender, original.OriginalRecipientSessionId))
+            return new(FleetMessageOutcome.RefusedReplyTarget,
+                $"Only the session message {original.MessageId} was sent to may reply to it. Nothing was queued.");
+        if (!Same(recipient, original.OriginalSenderSessionId))
+            return new(FleetMessageOutcome.RefusedReplyTarget,
+                $"A reply to message {original.MessageId} goes only to the session that sent it, " +
+                $"{Short(original.OriginalSenderSessionId)}. Nothing was queued.");
+
+        if (attempt.RecipientHasUnreadDuplicate)
+            return Duplicate(recipient);
+
+        if (original.AlreadyReplied)
+            return new(FleetMessageOutcome.RefusedAlreadyReplied,
+                $"You have already replied to message {original.MessageId}; one reply per question. " +
+                $"Nothing was queued. {PutItInYourReport}");
+
+        return new(FleetMessageOutcome.Queued, "");
+    }
+
+    private static FleetMessageVerdict Duplicate(string recipient) =>
+        new(FleetMessageOutcome.DuplicateDropped,
+            $"{Short(recipient)} has not yet read an identical message from you, so this copy was dropped. " +
+            "The one already waiting will be read.");
 
     private static bool Same(string? a, string? b) =>
         !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)

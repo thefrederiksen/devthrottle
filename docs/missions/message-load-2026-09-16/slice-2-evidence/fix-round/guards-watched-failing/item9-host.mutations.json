@@ -1,0 +1,3 @@
+[
+ {"name":"host does not wire the lock","old":"            dictationInFlight: (tenant, sid) => _transcribingSessions.IsActivelyTranscribing(tenant, sid)\n                                               || _transcribingSessions.IsTranscribing(tenant, sid)\n","new":"            dictationInFlight: (tenant, sid) => _transcribingSessions.IsActivelyTranscribing(tenant, sid)\n"}
+]

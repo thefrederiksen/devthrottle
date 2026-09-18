@@ -22,10 +22,10 @@ public sealed record FleetMessageLimits
     /// <summary>The shortest gap between two messages from one sender to one recipient.</summary>
     public TimeSpan PerRecipientSpacing { get; init; } = TimeSpan.FromMinutes(10);
 
-    /// <summary>How long an unread message waits before the doorbell is rung again. Read by slice 2.</summary>
+    /// <summary>How long an unread message waits before the doorbell is rung again (<see cref="FleetRingSchedule"/>).</summary>
     public TimeSpan RingGrace { get; init; } = TimeSpan.FromMinutes(5);
 
-    /// <summary>How many unanswered rings mark a message stuck. Read by slice 2.</summary>
+    /// <summary>How many unanswered rings mark a message stuck (<see cref="FleetRingSchedule"/>).</summary>
     public int StuckAfterRings { get; init; } = 3;
 
     /// <summary>How long a message is kept after it was written. Thirty days, matching the activity ledger.</summary>
@@ -43,9 +43,40 @@ public sealed record FleetMessageLimits
     /// Gateway never loads an unbounded day of sixteen-thousand-character rows for one request.</summary>
     public int RecentReadCap { get; init; } = 200;
 
+    /// <summary>How long a sender waits for a wanted reply when it names no deadline (slice 3, ruling 10). When it
+    /// passes with no reply, the sender gets one no-reply notice.</summary>
+    public TimeSpan DefaultReplyWindow { get; init; } = TimeSpan.FromMinutes(60);
+
+    /// <summary>The shortest reply deadline a sender may name.</summary>
+    public TimeSpan MinReplyWindow { get; init; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>The longest reply deadline a sender may name. A day: a question nobody answers in a day is not
+    /// waiting on a reply any more, and the no-reply notice is what tells the sender to carry on.</summary>
+    public TimeSpan MaxReplyWindow { get; init; } = TimeSpan.FromHours(24);
+
     /// <summary>The longest message text accepted. A message is read from the inbox, never typed, so it may
-    /// be long - but not unbounded.</summary>
-    public int MaxTextLength { get; init; } = 16_000;
+    /// be long - but not unbounded. Never below <see cref="MinTextLength"/>: a shorter cap is refused when the
+    /// limits are built (inspection 8, ruling 2).</summary>
+    public int MaxTextLength
+    {
+        get => _maxTextLength;
+        init
+        {
+            if (value < MinTextLength)
+                throw new ArgumentOutOfRangeException(nameof(MaxTextLength), value,
+                    $"The text cap must be at least {MinTextLength} characters, so a stuck notice always names its whole message id.");
+            _maxTextLength = value;
+        }
+    }
+
+    private readonly int _maxTextLength = 16_000;
+
+    /// <summary>How long a message id is: a Guid written as 32 hex digits.</summary>
+    public const int MessageIdLength = 32;
+
+    /// <summary>The shortest text cap allowed: the stuck notice's fixed opening plus one whole message id, so a
+    /// notice fitted to any allowed cap still names its message (<see cref="FleetDoorbell.StuckNoticeText"/>).</summary>
+    public static int MinTextLength => FleetDoorbell.StuckNoticePrefix.Length + MessageIdLength;
 }
 
 /// <summary>The kinds of fleet message. Stored in <c>fleet_messages.Kind</c>.</summary>
@@ -66,7 +97,11 @@ public static class FleetMessageKinds
     /// <summary>A notice written by the Gateway itself. No sender.</summary>
     public const string System = "system";
 
-    /// <summary>True for the kinds a caller may name in the request body. The other three are decided by
+    /// <summary>An answer to a message that asked for one (slice 3, <c>message reply</c>). Written only by the
+    /// reply route, to the sender of the original, and never chosen in a send's body.</summary>
+    public const string Reply = "reply";
+
+    /// <summary>True for the kinds a caller may name in the request body. The others are decided by
     /// the route, never by the caller.</summary>
     public static bool IsCallerChoosable(string? kind) => kind is Message or Report;
 }

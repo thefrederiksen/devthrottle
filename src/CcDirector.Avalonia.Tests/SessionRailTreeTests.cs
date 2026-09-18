@@ -1,3 +1,4 @@
+using Avalonia.Headless.XUnit;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Memory;
 using CcDirector.Gateway.Contracts;
@@ -30,6 +31,12 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class SessionRailTreeTests
 {
+    // WHY [AvaloniaFact] AND NOT [Fact]: SessionViewModel builds
+    // its brushes in a static initialiser, and building a brush is an Avalonia property write that verifies
+    // it is on the dispatcher's thread. A plain [Fact] gets whatever thread xUnit hands it, so whether that
+    // succeeds depends on whether another class in this assembly has already started a headless session - and
+    // a static initialiser that throws once stays thrown for the rest of the process. These run ON the
+    // dispatcher thread instead. Same reason as SessionRailStateTests, where the accident actually fired.
     private static readonly DateTime Now = new(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc);
 
     /// <summary>A real session, with only the facts the fold reads set on it.</summary>
@@ -78,7 +85,7 @@ public sealed class SessionRailTreeTests
 
     // ===== A crew that is closed hides its sessions; a crew that is open shows them =====
 
-    [Fact]
+    [AvaloniaFact]
     public void CollapsedCrew_HidesItsSessions_AndStillCarriesThemOnTheCrewLine()
     {
         var architect = Vm("Architect");
@@ -107,7 +114,7 @@ public sealed class SessionRailTreeTests
         Assert.Equal("", rows[1].CrewLine);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void ExpandedCrew_ShowsItsSessionsInDesktopOrder_IndentedUnderIt()
     {
         var architect = Vm("Architect");
@@ -142,7 +149,7 @@ public sealed class SessionRailTreeTests
 
     // ===== THE DEFECT THE TYPESCRIPT INSPECTIONS FOUND TWICE: stopping at the first level =====
 
-    [Fact]
+    [AvaloniaFact]
     public void ThreeLevelCrew_IsFullyReachable_AndTheCrewLineCountsEveryLevel()
     {
         var architect = Vm("Architect");
@@ -174,7 +181,7 @@ public sealed class SessionRailTreeTests
 
     /// <summary>The strip of small squares on a closed crew row is one square per session under it at
     /// EVERY level - collapsing a crew must hide no colour, so a grandchild has a square too.</summary>
-    [Fact]
+    [AvaloniaFact]
     public void CrewSquares_CoverEveryLevel_NotJustTheDirectChildren()
     {
         var architect = Vm("Architect");
@@ -197,7 +204,7 @@ public sealed class SessionRailTreeTests
 
     // ===== The crew line's exact words, and its clock =====
 
-    [Fact]
+    [AvaloniaFact]
     public void CrewLine_SaysExactlyWhatTheFoldSays()
     {
         var architect = Vm("Architect");
@@ -217,7 +224,7 @@ public sealed class SessionRailTreeTests
         Assert.Equal("3 under it: 1 working, 2 stopped, 0 need you", rows[0].CrewLine);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void CrewAge_IsTheAgeOfTheOldestSessionUnderIt_OnTheClockItIsGiven()
     {
         var architect = Vm("Architect", createdAt: new DateTimeOffset(Now.AddMinutes(-30)));
@@ -240,7 +247,7 @@ public sealed class SessionRailTreeTests
     /// gone from it and it surfaces - two levels down, inside a crew the user has closed. The number on the
     /// closed row has to say so.
     /// </summary>
-    [Fact]
+    [AvaloniaFact]
     public void ClosedCrew_ReportsARedGrandchild_RatherThanHidingIt()
     {
         var architect = Vm("Architect");
@@ -256,7 +263,7 @@ public sealed class SessionRailTreeTests
 
     // ===== A supervisor that is gone surfaces its sessions; a loop renders once =====
 
-    [Fact]
+    [AvaloniaFact]
     public void DeadSupervisor_PutsItsSessionAtTheTopLevel()
     {
         var orphan = Vm("Orphan");
@@ -272,7 +279,7 @@ public sealed class SessionRailTreeTests
         Assert.Null(rows[0].Parent);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void OwnershipLoop_RendersEverySessionExactlyOnce()
     {
         var a = Vm("A");
@@ -292,7 +299,7 @@ public sealed class SessionRailTreeTests
         Assert.Contains(rows, r => r.Session.DisplayName == "B");
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void SelfLoop_IsATopLevelRow_NotAVanishedOne()
     {
         var itself = Vm("Its own supervisor");
@@ -307,7 +314,7 @@ public sealed class SessionRailTreeTests
 
     // ===== The order switch: my order, then attention, top level only =====
 
-    [Fact]
+    [AvaloniaFact]
     public void MyOrder_KeepsTheTopLevelInTheUsersDragOrder()
     {
         var snoozed = Vm("Snoozed one", snoozed: true);
@@ -322,7 +329,7 @@ public sealed class SessionRailTreeTests
         Assert.All(rows, r => Assert.Equal("", r.SectionTitle));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void AttentionOrder_SectionsTheTopLevel_LongestWaitFirst()
     {
         var snoozed = Vm("Snoozed one", snoozed: true);
@@ -353,7 +360,7 @@ public sealed class SessionRailTreeTests
         Assert.Equal("SNOOZED 1", rows[3].SectionTitle);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void AttentionOrder_NeverReordersTheSessionsUnderAParent()
     {
         var architect = Vm("Architect");
@@ -376,7 +383,7 @@ public sealed class SessionRailTreeTests
 
     // ===== Dragging: among siblings, never across a parent boundary =====
 
-    [Fact]
+    [AvaloniaFact]
     public void Drag_ReordersATopLevelRowAmongTopLevelRows()
     {
         var first = Vm("First");
@@ -392,7 +399,7 @@ public sealed class SessionRailTreeTests
         Assert.Equal(1, SessionRailDrag.DropTarget(rows, roster, third, 1));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Drag_ReordersAChildAmongItsOwnSiblings()
     {
         var architect = Vm("Architect");
@@ -410,7 +417,7 @@ public sealed class SessionRailTreeTests
         Assert.Equal(2, SessionRailDrag.DropTarget(rows, roster, three, 2));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Drag_RefusesToLiftAChildOutOfItsCrew()
     {
         var solo = Vm("Solo");
@@ -434,7 +441,7 @@ public sealed class SessionRailTreeTests
         Assert.NotNull(SessionRailDrag.DropTarget(rows, roster, worker, 3));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Drag_RefusesToDropATopLevelRowInsideSomeoneElsesCrew()
     {
         var architect = Vm("Architect");
@@ -454,7 +461,7 @@ public sealed class SessionRailTreeTests
         Assert.NotNull(SessionRailDrag.DropTarget(rows, roster, solo, 3));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Drag_WithinACollapsedRail_StillOnlyEverSeesTopLevelRows()
     {
         var architect = Vm("Architect");

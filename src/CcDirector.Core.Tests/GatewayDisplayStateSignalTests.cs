@@ -69,6 +69,27 @@ public sealed class GatewayDisplayStateSignalTests
     }
 
     [Fact]
+    public void TheInboxLineChangingAlone_RaisesTheChange_AndIsCached()
+    {
+        var s = NewSession();
+        s.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false);
+        var heard = 0;
+        s.OnGatewayDisplayStateChanged += () => heard++;
+
+        // Message Load mission, slice 4: a message arriving changes nothing but the row line. The row must hear it.
+        s.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false, inboxLine: "1 reply waiting");
+        Assert.Equal(1, heard);
+        Assert.Equal("1 reply waiting", s.GatewayInboxLine);
+
+        s.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false, inboxLine: "1 reply waiting");
+        Assert.Equal(1, heard);
+
+        s.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false, inboxLine: null);
+        Assert.Equal(2, heard);
+        Assert.Null(s.GatewayInboxLine);
+    }
+
+    [Fact]
     public void AnyFieldChanging_RaisesTheChange()
     {
         var s = NewSession();

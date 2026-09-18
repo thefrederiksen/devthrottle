@@ -1,0 +1,4 @@
+[
+ {"name":"an unknown reason read as a deferral","old":"            || !FleetRingDeferReasons.IsKnown(answer.Reason))","new":"            || false)"},
+ {"name":"an unknown outcome read as a deferral","old":"        if (!string.Equals(answer.Outcome, FleetRingOutcomes.Deferred, StringComparison.Ordinal)\n","new":"        if (false\n"}
+]

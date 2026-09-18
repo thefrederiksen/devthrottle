@@ -1,0 +1,59 @@
+== MUTATION due ignores the grace: exit=1
+    Failed!  - Failed:     5, Passed:    15, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.No_second_ring_inside_the_grace [64 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_shortened_grace_moves_the_whole_schedule [51 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_ring_counts_only_the_messages_that_were_due [91 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_message_is_not_rung_a_fourth_time [72 ms]
+== MUTATION grace boundary exclusive: exit=1
+    Failed!  - Failed:     6, Passed:    14, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_shortened_grace_moves_the_whole_schedule [40 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_read_undoes_stuck_and_nothing_further_is_rung_or_sent [97 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_second_ring_once_the_grace_has_passed [42 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_message_is_not_rung_a_fourth_time [82 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Not_stuck_one_second_before_the_grace_after_the_third_ring [79 ms]
+== MUTATION due ignores the ring cap: exit=0
+    Passed!  - Failed:     0, Passed:    20, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+== MUTATION stuck ignores the grace after the last ring: exit=1
+    Failed!  - Failed:     4, Passed:    16, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_shortened_grace_moves_the_whole_schedule [70 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_message_is_not_rung_a_fourth_time [61 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Not_stuck_one_second_before_the_grace_after_the_third_ring [39 ms]
+== MUTATION stuck one ring early: exit=0
+    Passed!  - Failed:     0, Passed:    20, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+== MUTATION a ring counts every open message: exit=1
+    Failed!  - Failed:     1, Passed:    19, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_ring_counts_only_the_messages_that_were_due [90 ms]
+== MUTATION a deferral is counted as a ring: exit=1
+    Failed!  - Failed:     1, Passed:    19, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_deferred_ring_types_nothing_and_does_not_move_the_message_towards_stuck [78 ms]
+== MUTATION an unreachable director is counted as a ring: exit=1
+    Failed!  - Failed:     1, Passed:    19, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.An_unreachable_director_is_not_a_ring [64 ms]
+== MUTATION the sender is not told: exit=1
+    /Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Gateway/Messaging/FleetDoorbell.cs(279,24): error CS0162: Unreachable code detected [/Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Gateway/CcDirector.Gateway.csproj]
+== MUTATION working sessions are asked anyway: exit=1
+    Failed!  - Failed:     2, Passed:    18, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_director_is_not_asked_when_the_roster_says_working_or_exited(activity: "Working", expected: SkippedWorking) [32 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_director_is_not_asked_when_the_roster_says_working_or_exited(activity: "Starting", expected: SkippedWorking) [33 ms]
+== MUTATION exited sessions are asked anyway: exit=1
+    Failed!  - Failed:     1, Passed:    19, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_director_is_not_asked_when_the_roster_says_working_or_exited(activity: "Exited", expected: SkippedExited) [35 ms]
+== MUTATION the line counts only the due messages: exit=1
+    Failed!  - Failed:     1, Passed:    19, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_ring_counts_only_the_messages_that_were_due [51 ms]
+== MUTATION the settled edge does nothing: exit=1
+    Failed!  - Failed:     1, Passed:    19, Skipped:     0, Total:    20, Duration: 7 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_settled_edge_rings_without_waiting_for_the_heartbeat [5 s]
+== MUTATION a stuck notice that was itself a notice tells someone: exit=1
+    Failed!  - Failed:     1, Passed:    19, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_stuck_system_notice_tells_nobody [140 ms]
+== MUTATION heartbeat does not mark stuck: exit=1
+    Failed!  - Failed:     5, Passed:    15, Skipped:     0, Total:    20, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_shortened_grace_moves_the_whole_schedule [65 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_stuck_system_notice_tells_nobody [82 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_read_undoes_stuck_and_nothing_further_is_rung_or_sent [99 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_message_is_not_rung_a_fourth_time [68 ms]

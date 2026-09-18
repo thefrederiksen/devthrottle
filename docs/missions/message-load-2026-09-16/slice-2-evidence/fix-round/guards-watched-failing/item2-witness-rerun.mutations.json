@@ -1,0 +1,7 @@
+[
+ {
+  "name": "transcript witness ignores the rows already there",
+  "old": " || CountDoorbellRows(frame) > rowsBefore;",
+  "new": " || CountDoorbellRows(frame) > 0;"
+ }
+]

@@ -535,10 +535,9 @@ public class DirectorDrainTests
 
         var architect = result.Document.Seats.Single(s => s.SessionId == "arch");
         Assert.Equal(WorkspaceRestoreDecisions.Restore, architect.Restore!.Decision);
-        Assert.Contains("cc-devthrottle session spawn", architect.Restore.Command!);
-        Assert.Contains(DrainRestoreCommand.NewDirectorToken, architect.Restore.Command!);
-        Assert.Contains("--standalone", architect.Restore.Command!);
-        Assert.Contains(architect.HandoverPath!, architect.Restore.Command!);
+        Assert.Equal(
+            $"cc-devthrottle director restore \"test-drain\" --director \"{DrainRestoreCommand.NewDirectorToken}\" --seat arch",
+            architect.Restore.Command);
     }
 
     [Fact]
@@ -1294,10 +1293,11 @@ public class DirectorDrainTests
     }
 
     [Fact]
-    public async Task Drain_ARestoreCommandKeepsTheREALIdOfAControllerThatIsNotBeingRestarted()
+    public async Task Drain_ARestoreCommandNamesNoOwner_TheDirectorResolvesItFromTheCapture()
     {
-        // A controller on another Director survives the restart and keeps the id it has. A placeholder
-        // there sends whoever runs the command hunting for a new id nobody will ever mint.
+        // The Message Load mission, slice 6. The command used to carry --controlled-by with the seat's owner, and a
+        // session key naming another session as owner is refused - so the line a restoring session ran failed for
+        // every owned seat. Now it names the workspace and the seat, and the Director reads the owner itself.
         using var dir = new TempDir();
         var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
         var seat = DrainTestRig.Seat("w", "Worker", reportsTo: "a-controller-on-another-director");
@@ -1309,11 +1309,14 @@ public class DirectorDrainTests
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
         var command = result.Document.Seats.Single().Restore!.Command!;
-        Assert.Contains("--controlled-by a-controller-on-another-director", command);
-        Assert.DoesNotContain("--controlled-by <the new id of", command);
+        Assert.DoesNotContain("--controlled-by", command);
+        Assert.DoesNotContain("a-controller-on-another-director", command);
+        Assert.DoesNotContain("session spawn", command);
+        Assert.StartsWith("cc-devthrottle director restore \"test-drain\"", command);
+        Assert.EndsWith("--seat w", command);
 
         // The DIRECTOR placeholder is still there and must be: this Director does get a new identifier.
-        Assert.Contains("--director " + DrainRestoreCommand.NewDirectorToken, command);
+        Assert.Contains("--director \"" + DrainRestoreCommand.NewDirectorToken + "\"", command);
     }
 
     // ================= the one door off this machine =================

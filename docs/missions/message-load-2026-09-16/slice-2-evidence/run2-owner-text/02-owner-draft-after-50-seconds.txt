@@ -1,0 +1,43 @@
+# 02-owner-draft-after-50-seconds - session 12c50356-20ae-48d8-8962-e27047b41f8a (Proof - Worker) at 2026-09-17T06:24:47.9128220Z
+# director activity state: WaitingForInput
+# visible screen rows:
+|
+| ▐▛███▛█   Claude Code v2.1.274
+|▝▜██████▀  Opus 5 (1M context) · Claude Max
+|  ▝▝ ▝▝    /private/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/ccd-doorbell-proof-e5c758c1/repo-run2
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|❯ an owner draft that must not be touched
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|  ⏵⏵ bypass permissions on (shift+tab to cycle)
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|

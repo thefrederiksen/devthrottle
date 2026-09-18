@@ -1,0 +1,9 @@
+[
+ {"name":"Claude cursor column ignored","old":"                    if (frame.CursorRow != prompt || frame.CursorCol > EmptyComposerCursorColumn)","new":"                    if (frame.CursorRow != prompt)"},
+ {"name":"Claude cursor row ignored","old":"                    if (frame.CursorRow != prompt || frame.CursorCol > EmptyComposerCursorColumn)","new":"                    if (frame.CursorCol > EmptyComposerCursorColumn)"},
+ {"name":"hidden cursor read as empty","old":"                    if (!frame.CursorVisible)\n                        return (ComposerReading.NotFound, \"\");","new":""},
+ {"name":"whitespace trimmed after the glyph","old":"        return rest.Length > 0 && rest[0] is ' ' or '\\u00A0' ? rest[1..] : rest;","new":"        return rest.Trim();"},
+ {"name":"separator not removed","old":"        return rest.Length > 0 && rest[0] is ' ' or '\\u00A0' ? rest[1..] : rest;","new":"        return rest;"},
+ {"name":"blank continuation rows ignored","old":"                if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))","new":"                if (onPrompt.Length == 0 && continuation.All(string.IsNullOrWhiteSpace))"},
+ {"name":"Codex cursor column ignored on an empty row","old":"            return cursorAtStart ? (ComposerReading.Empty, \"\") : (ComposerReading.HoldsText, \"\");","new":"            return (ComposerReading.Empty, \"\");"}
+]

@@ -355,6 +355,11 @@ public sealed class Session : IDisposable
     /// (<see cref="SessionDto.SnoozeExpired"/>), rendered as a distinct "Snooze ended" badge.</summary>
     public bool GatewaySnoozeExpired { get; private set; }
 
+    /// <summary>The Gateway's row line (<see cref="SessionDto.InboxLine"/>): what waits in this session's fleet
+    /// inbox - "2 messages waiting" - or null when nothing does. The rail renders this verbatim; it never counts
+    /// messages itself.</summary>
+    public string? GatewayInboxLine { get; private set; }
+
     /// <summary>
     /// Raised when any pushed display-state field changes, so the desktop rail re-reads the fold. Same shape
     /// and same reason as <see cref="OnGatewayResolvedRoleChanged"/>: a new fact with no signal is invisible -
@@ -376,11 +381,13 @@ public sealed class Session : IDisposable
         string? triageBucket,
         DateTime? needsYouSince,
         DateTime? snoozeUntil,
-        bool snoozeExpired)
+        bool snoozeExpired,
+        string? inboxLine = null)
     {
         var color = string.IsNullOrWhiteSpace(effectiveColor) ? null : effectiveColor.Trim();
         var label = string.IsNullOrWhiteSpace(stateLabel) ? null : stateLabel.Trim();
         var bucket = string.IsNullOrWhiteSpace(triageBucket) ? null : triageBucket.Trim();
+        var inbox = string.IsNullOrWhiteSpace(inboxLine) ? null : inboxLine;
 
         var changed =
             !string.Equals(GatewayEffectiveColor, color, StringComparison.Ordinal)
@@ -388,7 +395,8 @@ public sealed class Session : IDisposable
             || !string.Equals(GatewayTriageBucket, bucket, StringComparison.Ordinal)
             || GatewayNeedsYouSince != needsYouSince
             || GatewaySnoozeUntil != snoozeUntil
-            || GatewaySnoozeExpired != snoozeExpired;
+            || GatewaySnoozeExpired != snoozeExpired
+            || !string.Equals(GatewayInboxLine, inbox, StringComparison.Ordinal);
 
         if (!changed) return;
 
@@ -398,8 +406,9 @@ public sealed class Session : IDisposable
         GatewayNeedsYouSince = needsYouSince;
         GatewaySnoozeUntil = snoozeUntil;
         GatewaySnoozeExpired = snoozeExpired;
+        GatewayInboxLine = inbox;
 
-        FileLog.Write($"[Session] ApplyGatewayDisplayState: session={Id}, color={color ?? "(cleared)"}, label={label ?? "(none)"}, bucket={bucket ?? "(none)"}, snoozeUntil={snoozeUntil?.ToString("O") ?? "(none)"}, snoozeExpired={snoozeExpired}");
+        FileLog.Write($"[Session] ApplyGatewayDisplayState: session={Id}, color={color ?? "(cleared)"}, label={label ?? "(none)"}, bucket={bucket ?? "(none)"}, snoozeUntil={snoozeUntil?.ToString("O") ?? "(none)"}, snoozeExpired={snoozeExpired}, inboxLine={inbox ?? "(none)"}");
         try { OnGatewayDisplayStateChanged?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler threw: {ex.Message}"); }
     }
@@ -520,6 +529,31 @@ public sealed class Session : IDisposable
 
     public string RepoPath { get; }
     public string WorkingDirectory { get; }
+
+    /// <summary>
+    /// The pooled worktree this session was handed when its repository has the pooled-worktree setting
+    /// turned on, or null for every other session - which is every session by default.
+    ///
+    /// When it is set, <see cref="RepoPath"/> and <see cref="WorkingDirectory"/> are the SLOT, because
+    /// that is where the agent is working and every consumer of those properties means "where the
+    /// session is". The repository the slot came from is <c>PooledWorktree.Repo</c>.
+    ///
+    /// The LEASE is the reason this is kept on the session at all: close is the only moment it is
+    /// needed, and without it cc-worktrees has no evidence the holder let go and will not take the
+    /// slot back.
+    /// </summary>
+    public Git.PooledWorktree? PooledWorktree { get; internal set; }
+
+    /// <summary>
+    /// Why cc-worktrees did NOT take the pooled worktree back when this session closed, in the tool's
+    /// own words - or null when there was nothing to return or it came back free.
+    ///
+    /// A held slot keeps whatever is in it and this session's row stays, so the reason is in front of
+    /// the person who closed it. Nothing is forced, retried with a stronger flag, or destroyed on the
+    /// strength of it.
+    /// </summary>
+    public string? PooledWorktreeHeldReason { get; internal set; }
+
     public SessionStatus Status { get; internal set; }
     public DateTimeOffset CreatedAt { get; }
     public string? ClaudeArgs { get; }
@@ -2154,6 +2188,46 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
+    /// True when an earlier send by the product gave up without proving this composer clear, so the next send
+    /// would press Escape before typing (issue #2818). Read, never taken - see <see cref="Drivers.ComposerRetention.MayHoldText"/>.
+    /// Always false for a session without a terminal backend that submits through the shared path.
+    /// </summary>
+    public bool ProductMayHaveLeftComposerText =>
+        BackendType is SessionBackendType.ConPty && Drivers.ComposerRetention.MayHoldText(_backend);
+
+    /// <summary>
+    /// Type and submit the fleet doorbell line (the Message Load mission) through
+    /// <see cref="Drivers.TerminalSubmit.DoorbellSubmitAsync"/>: one Enter, no nudges, no Escape. Agent-origin -
+    /// it never stamps an owner turn. Only a VERIFIED submit is recorded as a submitted turn and turns the
+    /// session Working; anything else leaves the session's state alone and the caller reads the composer.
+    /// </summary>
+    public async Task<Drivers.DoorbellSubmitOutcome> SubmitDoorbellLineAsync(
+        string line, Func<bool> mayTypeNow, Func<bool> composerShowsLine, Func<bool> turnStarted)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed || BackendType is not SessionBackendType.ConPty)
+            return Drivers.DoorbellSubmitOutcome.NotTyped;
+        FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, driver={Driver.Kind}, len={line.Length}");
+        // The origin is reported from the moment Enter is pressed, before the submit is verified, so a Working
+        // push in between does not read as unexplained work (which would end an armed snooze).
+        var priorOrigin = WorkingOrigin;
+        var outcome = await Drivers.TerminalSubmit.DoorbellSubmitAsync(
+            _backend, line, Driver.Kind.ToString(), mayTypeNow, composerShowsLine, turnStarted,
+            beforeEnter: () => WorkingOrigin = Gateway.Contracts.WorkingOrigins.Agent);
+        FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, outcome={outcome}");
+        if (outcome != Drivers.DoorbellSubmitOutcome.Verified && ActivityState is not (ActivityState.Working or ActivityState.Starting))
+            WorkingOrigin = priorOrigin;
+        if (outcome == Drivers.DoorbellSubmitOutcome.Verified)
+        {
+            IsBrandNew = false;
+            StampSubmission(SendSource.Agent, null, SubmissionEvidence.OfText(
+                SubmissionProvenance.Typed(SubmissionRoutes.FleetMessage, SubmissionIdentityKinds.Framework), line));
+            SetActivityState(ActivityState.Working);
+        }
+        return outcome;
+    }
+
+    /// <summary>
     /// Snapshot the CURRENT visible terminal grid (not scrollback) as plain-text rows,
     /// trailing-trimmed, top to bottom. Unlike the raw byte buffer this is the RESOLVED
     /// on-screen state, so a spinner cell or a churning status line shows only its
@@ -2824,6 +2898,26 @@ public sealed class Session : IDisposable
     /// </summary>
     public DateTime? LastOwnerTurnAtUtc { get; private set; }
 
+    /// <summary>
+    /// WHO STARTED THE CURRENT WORK: <see cref="Gateway.Contracts.WorkingOrigins.Owner"/> when the last submission
+    /// since this session last settled was the owner's, <see cref="Gateway.Contracts.WorkingOrigins.Agent"/> when
+    /// it was an agent or product send (the fleet doorbell among them), and null when no submission explains the
+    /// work. Set at the submission choke point, cleared when the session settles or exits.
+    ///
+    /// A FACT THIS SESSION REPORTS, like <see cref="LastOwnerTurnAtUtc"/>. The Gateway reads it to keep an armed
+    /// snooze through agent-origin work (the Message Load mission, ruling 15); this session does not know it is
+    /// snoozed. A settle clears it, so a detector flicker in the middle of a doorbell turn makes the next working
+    /// edge unexplained - and an unexplained edge ends a snooze, which errs toward the owner's rule.
+    /// </summary>
+    public string? WorkingOrigin { get; private set; }
+
+    /// <summary>The origin a submission gives the work: the same test as <see cref="IsOwnerDriven"/>; on the
+    /// raw-byte path (no source) only a human origin is the owner.</summary>
+    private static string OriginFor(SendSource? source, InputOrigin? origin) =>
+        origin is not null || source is SendSource.UserInput or SendSource.Delivery
+            ? Gateway.Contracts.WorkingOrigins.Owner
+            : Gateway.Contracts.WorkingOrigins.Agent;
+
     /// <summary>Record that the owner just drove a turn. Idempotent by nature - it is a timestamp.</summary>
     private void StampOwnerTurn()
     {
@@ -2873,6 +2967,7 @@ public sealed class Session : IDisposable
         ArgumentNullException.ThrowIfNull(evidence);
         var characters = (int)Math.Min(evidence.ContentLength, int.MaxValue);
         LastSubmissionAtUtc = DateTime.UtcNow;
+        WorkingOrigin = OriginFor(source, origin);
         // A human origin is a human turn, on its own (modality, surface) bucket.
         if (origin is InputOrigin o)
         {
@@ -3092,6 +3187,12 @@ public sealed class Session : IDisposable
         // behaves exactly as it did before. The rule exists to stop a catch swallowing a failure and
         // continuing in a degraded state; this one exists to stop a failure being swallowed by SILENCE.
         // A test pins the rethrow so it cannot quietly become a handler.
+        // THE ORIGIN IS KNOWN BEFORE THE TURN STARTS, so it is reported before the turn starts. The submit below
+        // can take seconds to verify, and the terminal detector may push Working in the meantime; a push that
+        // said "no origin" then would end an armed snooze this send must not end (the Message Load mission,
+        // ruling 15). A send that fails puts the previous value back.
+        var priorOrigin = WorkingOrigin;
+        WorkingOrigin = OriginFor(source, origin);
         try
         {
             if (BackendType is SessionBackendType.ConPty)
@@ -3117,6 +3218,7 @@ public sealed class Session : IDisposable
         }
         catch (Exception ex)
         {
+            WorkingOrigin = priorOrigin;
             PromptDeliveryFailures.RecordFailedDelivery(Id, source.ToString(), ex.Message, text?.Length ?? 0);
             RaisePromptDeliveryChanged();
             throw;
@@ -3424,6 +3526,10 @@ public sealed class Session : IDisposable
         // briefing re-evaluates from scratch. Only WaitingForInput/WaitingForPerm preserve it.
         if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
             IsBackgroundRunning = false;
+        // The work that a submission explained is over once the session settles or exits; the next working
+        // edge is explained only by the next submission.
+        if (newState is not (ActivityState.Working or ActivityState.Starting))
+            WorkingOrigin = null;
         // A real state change opens a new "generation". This releases any sticky
         // positive-evidence color from the previous generation (issue #136 option C):
         // e.g. a red pending-question survives cosmetic repaints while the session is

@@ -47,7 +47,23 @@ def _walk(command, path):
 
 TREE = list(_walk(typer.main.get_command(app), []))
 GROUPS = [(path, command) for path, command in TREE if hasattr(command, "list_commands")]
-LEAVES = [(path, command) for path, command in TREE if not hasattr(command, "list_commands")]
+_ALL_LEAVES = [(path, command) for path, command in TREE if not hasattr(command, "list_commands")]
+
+
+def _is_pass_through(command):
+    """True for a command that hands its arguments to another tool instead of parsing them.
+
+    The pooled-worktree commands run cc-worktrees and never answer for it, so the option list
+    that matters is cc-worktrees' own and the refusal has to come from cc-worktrees - naming
+    this tool's options would name the wrong tool's. They are checked by the test below and by
+    tests/test_worktree_pool.py, not by the parsed-option contract.
+    """
+    settings = command.context_settings or {}
+    return bool(settings.get("ignore_unknown_options")) and bool(settings.get("allow_extra_args"))
+
+
+LEAVES = [(path, command) for path, command in _ALL_LEAVES if not _is_pass_through(command)]
+PASS_THROUGH_LEAVES = [(path, command) for path, command in _ALL_LEAVES if _is_pass_through(command)]
 
 
 def _label(path):
@@ -133,6 +149,22 @@ def test_every_command_UnknownOption_ExitsTwoAndListsEveryValidOption(path, comm
     assert _listed(text, "Valid options") == _options(command)
     assert "Valid commands" not in text
     assert text.splitlines()[1].startswith(f"Usage: {' '.join([PROG, *path])} ")
+
+
+def test_pass_through_commands_AreNamed_AndHandTheArgumentsOn():
+    """The exemption above must cover a known list, never quietly empty itself.
+
+    An empty list would make the contract test pass by checking nothing, and a command that
+    stopped passing its arguments on would drop out of here silently.
+    """
+    assert [_label(path) for path, _ in PASS_THROUGH_LEAVES] == [
+        "worktree get",
+        "worktree return",
+        "worktree lease",
+        "worktree destroy",
+    ]
+    for path, command in PASS_THROUGH_LEAVES:
+        assert command.params == [] or all(p.param_type_name != "option" for p in command.params), _label(path)
 
 
 @pytest.mark.parametrize("path,group", GROUPS, ids=[_label(p) for p, _ in GROUPS])

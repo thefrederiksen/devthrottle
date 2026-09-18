@@ -236,6 +236,17 @@ public sealed class SessionDto
     public DateTime? LastOwnerTurnAtUtc { get; set; }
 
     /// <summary>
+    /// WHO STARTED THE WORK THIS SESSION IS DOING NOW - one of <see cref="WorkingOrigins"/>, or null when no
+    /// submission explains it (the agent started on its own, the terminal repainted, or a Director too old to
+    /// say). Reported by the owning Director from the last submission since the session last settled.
+    ///
+    /// A FACT, like <see cref="LastOwnerTurnAtUtc"/>, and read for one ruling only: the Gateway's working edge
+    /// spares an ARMED snooze when the work was started by an agent-origin send - the fleet doorbell, another
+    /// product send - and ends it otherwise (the Message Load mission, ruling 15, inspection 4 ruling 8).
+    /// </summary>
+    public string? WorkingOrigin { get; set; }
+
+    /// <summary>
     /// How many prompts to this session have FAILED to be delivered - the send threw, so the user's words
     /// never reached the agent (issue internal#811). Reported by the owning Director from
     /// <c>PromptDeliveryFailures</c>; 0 from a Director too old to count them. Counts survive a recovery,
@@ -845,6 +856,18 @@ public sealed class SessionDto
     public string? NeedsManagerReason { get; set; }
 
     /// <summary>
+    /// THE ROW LINE (Message Load mission, slice 4): what waits in this session's fleet inbox, in finished
+    /// words - "2 messages waiting", "1 message stuck, unread for 20 minutes", "1 reply waiting" - or null
+    /// when nothing waits. Folded once on the Gateway by <c>FleetInboxLineFold</c> from the inbox table and
+    /// stamped by the same pass that stamps the colour and the label. Every client renders it verbatim; no
+    /// client counts messages or words them (project rule 7).
+    ///
+    /// Assigned on every fold, in both directions, so a row re-served after its messages were read carries
+    /// null again rather than the line it had before.
+    /// </summary>
+    public string? InboxLine { get; set; }
+
+    /// <summary>
     /// RAW FACT: the display name was AUTO-composed at birth (mirrors <c>Session.IsAutoNamed</c>); false once
     /// a human/self explicitly renamed it. Automatic session roles (chunk 3): the marker any future
     /// auto-rename gates on so a self/human name is never re-auto-named.
@@ -1058,4 +1081,14 @@ public sealed class SessionDto
         copy.DriverCapabilities = new List<string>(DriverCapabilities);
         return copy;
     }
+}
+
+/// <summary>The values of <see cref="SessionDto.WorkingOrigin"/>.</summary>
+public static class WorkingOrigins
+{
+    /// <summary>The owner started it: typed, spoke, or sent from one of his screens.</summary>
+    public const string Owner = "owner";
+
+    /// <summary>The product or an agent started it with a send: the fleet doorbell, a handover, a queue drain.</summary>
+    public const string Agent = "agent";
 }

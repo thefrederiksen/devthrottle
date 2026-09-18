@@ -70,6 +70,8 @@ public sealed class SessionKeyGuardTests
     // route's ruling, because it needs the roster; the guard only lets the request reach it.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/message")]
     [InlineData("POST", "/fleet/broadcast")]
+    // An answer to a message that asked for one (slice 3). Who may answer, and to whom, is the route's ruling.
+    [InlineData("POST", "/fleet/reply")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/hold")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/role")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/mission")]
@@ -107,6 +109,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/workspaces")]
     [InlineData("PUT", "/gateway/workspaces/director-restart-2026-09-06")]
     [InlineData("DELETE", "/gateway/workspaces/director-restart-2026-09-06")]
+    // Ask a Director to restore a drained fleet (the Message Load mission, slice 6). A session drives the
+    // restore as it drives the drain; the Director names the owners, from the capture.
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore")]
     public void The_action_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
@@ -157,6 +162,16 @@ public sealed class SessionKeyGuardTests
         Assert.False(SessionKeyGuard.Check("POST", "/fleet/inbox").Allowed);
     }
 
+    [Fact]
+    public void The_reply_route_is_allowed_only_in_its_one_shape()
+    {
+        // Slice 3: the id is in the body, so a shape carrying one in the path, or a read of the route, is not a route
+        // a session key reaches.
+        Assert.True(SessionKeyGuard.Check("POST", "/fleet/reply").Allowed);
+        Assert.False(SessionKeyGuard.Check("GET", "/fleet/reply").Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/fleet/reply/0123456789abcdef0123456789abcdef").Allowed);
+    }
+
     // ---------- The routes the SHIPPED CLIENTS actually call ----------
     //
     // Every case below is copied from the Gateway's route table and from the command line that calls it -
@@ -202,6 +217,11 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06")]
     [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restart")]
     [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06/seats")]
+    [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06/restore")]
+    [InlineData("PUT", "/gateway/workspaces/director-restart-2026-09-06/restore")]
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore/now")]
+    // What a restore did is written only by the Director running it (inspection 7, ruling 1). A session never.
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore/marks")]
     public void Workspace_shapes_the_Gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a routed workspace shape and must not be authorized");

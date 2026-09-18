@@ -1,0 +1,254 @@
+[
+ {
+  "ruling": 1,
+  "mutation": "store: a refused no-reply notice still writes the overdue mark (the defect of inspection 6, finding 1)",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "181"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_blank_notice_is_refused_and_leaves_the_question_open",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_notice_the_policy_refuses_leaves_the_question_open_and_the_next_sweep_retries"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 1,
+  "mutation": "store: an identical unread notice for the same question is treated as a refusal (question never marked, rescanned for ever)",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "182"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.An_identical_unread_notice_for_the_same_question_leaves_the_mark_written_and_adds_no_second"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 1,
+  "mutation": "service: the no-reply notice is built without the text cap",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageService.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "182"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_no_reply_notice_fits_the_text_cap_whatever_the_recipients_name"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 1,
+  "mutation": "service: the name is kept whole when it does not fit",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageService.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "181"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_no_reply_notice_fits_the_text_cap_whatever_the_recipients_name",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_no_reply_notice_text_is_cut_only_in_the_name"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 1,
+  "mutation": "service: a cut name keeps fewer than four characters instead of being left out",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageService.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "182"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_no_reply_notice_text_is_cut_only_in_the_name"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 2,
+  "mutation": "store: the duplicate key ignores the kind",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "188"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_report_is_not_dropped_as_a_duplicate_of_a_waiting_message_with_the_same_words"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 2,
+  "mutation": "store: the duplicate key ignores the question answered (the defect of inspection 6, finding 2)",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "187"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_notice_with_the_same_words_about_another_question_is_not_a_duplicate",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_same_words_answering_a_second_question_are_a_reply_to_that_question_not_a_duplicate"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 2,
+  "mutation": "store: the duplicate key ignores the reply request (the defect of inspection 6, finding 3)",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "187"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_plain_message_is_not_dropped_as_a_duplicate_of_a_waiting_question_with_the_same_words",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.Asking_for_a_reply_is_never_reduced_to_a_waiting_plain_message_with_the_same_words"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 2,
+  "mutation": "store: a plain send may match a waiting question",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "188"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_plain_message_is_not_dropped_as_a_duplicate_of_a_waiting_question_with_the_same_words"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 2,
+  "mutation": "store: a system notice keeps the old key (recipient and text only)",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "188"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_notice_with_the_same_words_about_another_question_is_not_a_duplicate"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 3,
+  "mutation": "command line: the Gateway sentence is printed with hard wrapping (the defect behind inspection 6's colour failure)",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "results": {
+   "cc-devthrottle": {
+    "summary": [
+     "2 failed, 49 passed"
+    ],
+    "failed": [
+     "tests/test_message_queue.py::test_a_duplicate_note_is_printed_verbatim[narrow colour terminal]",
+     "tests/test_message_queue.py::test_broadcast_sentences_are_printed_verbatim[narrow colour terminal]"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "ruling": 3,
+  "mutation": "command line: the Gateway sentence is highlighted (the colour defect the verbatim tests were written for)",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "results": {
+   "cc-devthrottle": {
+    "summary": [
+     "4 failed, 47 passed"
+    ],
+    "failed": [
+     "tests/test_message_queue.py::test_a_duplicate_note_is_printed_verbatim[colour terminal]",
+     "tests/test_message_queue.py::test_a_duplicate_note_is_printed_verbatim[narrow colour terminal]",
+     "tests/test_message_queue.py::test_broadcast_sentences_are_printed_verbatim[colour terminal]",
+     "tests/test_message_queue.py::test_broadcast_sentences_are_printed_verbatim[narrow colour terminal]"
+    ],
+    "compile_errors": []
+   }
+  }
+ }
+]

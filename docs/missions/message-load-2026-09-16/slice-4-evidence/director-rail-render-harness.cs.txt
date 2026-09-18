@@ -1,0 +1,108 @@
+// Slice 4 evidence: the Director's REAL session-row template (MainWindow.SessionList.ItemTemplate), rendered
+// headless with Skia and captured in-process with RenderTargetBitmap - no screen capture. Each row is a real
+// Session carrying a display state stamped the way the Gateway's set-display-state verb stamps it.
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Themes.Fluent;
+using Avalonia.Threading;
+using CcDirector.Avalonia;
+using CcDirector.Core.Backends;
+using CcDirector.Core.Memory;
+using CcDirector.Core.Sessions;
+
+internal static class Program
+{
+    [STAThread]
+    private static int Main(string[] args)
+    {
+        var outPath = args.Length > 0 ? args[0] : "rail.png";
+        AppBuilder.Configure<HarnessApp>()
+            .UseSkia()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+            .SetupWithoutStarting();
+
+        var rows = new (string Name, string Color, string Label, string Bucket, string? Line)[]
+        {
+            ("Message Load - Worker - A", "blue", "Working", "active", "2 messages waiting"),
+            ("Message Load - Manager", "red", "Needs you", "needsYou", "1 message stuck, unread for 20 minutes"),
+            ("Message Load - Architect", "grey", "Idle", "active", "1 reply waiting; 1 notice from the Gateway waiting"),
+            ("Quiet session", "blue", "Working", "active", null),
+        };
+        var vms = rows.Select(r =>
+        {
+            var s = new Session(Guid.NewGuid(), "/repo", "/repo", null, new InertBackend(), SessionBackendType.ConPty);
+            s.IsBrandNew = false;
+            s.CustomName = r.Name;
+            s.ApplyGatewayDisplayState(r.Color, r.Label, r.Bucket, null, null, false, r.Line);
+            return new SessionViewModel(s);
+        }).ToArray();
+
+        var source = new MainWindow();
+        var list = new ListBox
+        {
+            ItemTemplate = source.SessionList.ItemTemplate,
+            ItemsSource = vms,
+            Background = new SolidColorBrush(Color.Parse("#252526")),
+        };
+        var window = new Window { Content = list, Width = 264, Height = 420, Background = new SolidColorBrush(Color.Parse("#252526")) };
+        window.Show();
+        for (var i = 0; i < 3; i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            list.Measure(new Size(264, 420));
+            list.Arrange(new Rect(0, 0, 264, 420));
+        }
+        Dispatcher.UIThread.RunJobs();
+
+        var drawn = list.GetVisualDescendantsText();
+        foreach (var r in rows.Where(r => r.Line is not null))
+            if (!drawn.Contains(r.Line!)) { Console.Error.WriteLine("MISSING: " + r.Line); return 1; }
+
+        using var rtb = new RenderTargetBitmap(new PixelSize(528, 840), new Vector(192, 192));
+        rtb.Render(window);
+        rtb.Save(outPath);
+        Console.WriteLine("RENDER OK -> " + outPath);
+        foreach (var t in drawn) Console.WriteLine("  text: " + t);
+        return 0;
+    }
+
+    private static List<string> GetVisualDescendantsText(this Visual v) =>
+        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(v).OfType<TextBlock>()
+            .Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text)).Select(t => t.Text!).ToList();
+
+    private sealed class HarnessApp : Application
+    {
+        public override void Initialize()
+        {
+            Styles.Add(new FluentTheme());
+            RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
+            foreach (var (k, v) in new[] { ("PanelBackground", "#1E1E1E"), ("SidebarBackground", "#252526"),
+                ("ButtonBackground", "#3C3C3C"), ("ButtonHover", "#505050"), ("TextForeground", "#CCCCCC"),
+                ("AccentBrush", "#007ACC"), ("SelectedItemBrush", "#094771") })
+                Resources[k] = new SolidColorBrush(Color.Parse(v));
+        }
+    }
+
+    private sealed class InertBackend : ISessionBackend
+    {
+        public int ProcessId => 1234;
+        public string Status => "Inert";
+        public bool IsRunning => true;
+        public bool HasExited => false;
+        public CircularTerminalBuffer? Buffer => null;
+#pragma warning disable CS0067
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+        public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
+        public void Write(byte[] data) { }
+        public Task SendTextAsync(string text) => Task.CompletedTask;
+        public Task SendEnterAsync() => Task.CompletedTask;
+        public void Resize(short cols, short rows) { }
+        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+}

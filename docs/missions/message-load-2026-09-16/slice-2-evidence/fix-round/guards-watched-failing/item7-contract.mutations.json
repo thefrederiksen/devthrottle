@@ -1,0 +1,7 @@
+[
+ {"name":"a reason literal renamed on both sides at once (the inspector's case)","old":"public const string ComposerHoldsText = \"composer-holds-text\";","new":"public const string ComposerHoldsText = \"composer-has-text\";"},
+ {"name":"the verb literal renamed on both sides at once","old":"public const string Ring = \"ring\";","new":"public const string Ring = \"doorbell\";"},
+ {"name":"an outcome literal renamed","old":"public const string Deferred = \"deferred\";","new":"public const string Deferred = \"held\";"},
+ {"name":"a reason missing from the known list","old":"[Working, ComposerHoldsText, MenuOpen, Exited, ScreenUnreadable, NotSubmitted];","new":"[Working, ComposerHoldsText, MenuOpen, Exited, ScreenUnreadable];"},
+ {"name":"known-reason check case-insensitive","old":"All.Contains(reason, StringComparer.Ordinal)","new":"All.Contains(reason, StringComparer.OrdinalIgnoreCase)"}
+]

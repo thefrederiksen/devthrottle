@@ -1,0 +1,16 @@
+$ cc-devthrottle message inbox --all   (exit 0)
+count: 0 unread
+earlier: 1 read before
+message 1 of 1
+  id: c129345e3dcb4f7a9fc08d1631d8b8ce
+  from: Proof - Manager (96b275a1-ae35-45e8-99f8-6b7f299f33ca) on devthrottle-mac-mini
+  kind: message
+  sent: 2026-09-17T08:36:31.819219Z
+  text:
+    Slice 2 proof message, line one.
+    Line two: after reading this, write the single word ACK as your answer here. Do not send any message.
+    Line three ends the message.
+help[3]:
+  cc-devthrottle message inbox --all
+  cc-devthrottle message send <id> "<message>"
+  cc-devthrottle session report "<what you did>"

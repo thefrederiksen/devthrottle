@@ -1,0 +1,17 @@
+[
+ {"name":"due ignores the grace","old":"        return message.LastRungAtUtc is not { } last || nowUtc - last >= limits.RingGrace;","new":"        return true;"},
+ {"name":"grace boundary exclusive","old":"        return message.LastRungAtUtc is not { } last || nowUtc - last >= limits.RingGrace;","new":"        return message.LastRungAtUtc is not { } last || nowUtc - last > limits.RingGrace;"},
+ {"name":"due ignores the ring cap","old":"        if (message.RingCount >= limits.StuckAfterRings) return false;\n        return message.LastRungAtUtc is not","new":"        return message.LastRungAtUtc is not"},
+ {"name":"stuck ignores the grace after the last ring","old":"        return message.LastRungAtUtc is { } last && nowUtc - last >= limits.RingGrace;","new":"        return message.LastRungAtUtc is not null;"},
+ {"name":"stuck one ring early","old":"        if (message.RingCount < limits.StuckAfterRings) return false;","new":"        if (message.RingCount < limits.StuckAfterRings - 1) return false;"},
+ {"name":"a ring counts every open message","old":"            var marked = _store.MarkRung(tenant, due, now);","new":"            var marked = _store.MarkRung(tenant, open.Select(m => m.MessageId).ToList(), now);"},
+ {"name":"a deferral is counted as a ring","old":"        FileLog.Write($\"[FleetDoorbell] ring DEFERRED","new":"        _store.MarkRung(tenant, due, now);\n        FileLog.Write($\"[FleetDoorbell] ring DEFERRED"},
+ {"name":"an unreachable director is counted as a ring","old":"            FileLog.Write($\"[FleetDoorbell] ring UNREACHABLE","new":"            _store.MarkRung(tenant, due, now);\n            FileLog.Write($\"[FleetDoorbell] ring UNREACHABLE"},
+ {"name":"the sender is not told","old":"            _messages.Send(\n                tenant,","new":"            if (false) _messages.Send(\n                tenant,"},
+ {"name":"working sessions are asked anyway","old":"            // Not logged: a long turn would write this line every heartbeat. The settled edge asks again.\n            return FleetRingAttempt.SkippedWorking;","new":"            _ = 0;"},
+ {"name":"exited sessions are asked anyway","old":"            FileLog.Write($\"[FleetDoorbell] ring SKIPPED (exited): sid={Short(sid)} trigger={trigger} due={due.Count}\");\n            return FleetRingAttempt.SkippedExited;","new":"            FileLog.Write(\"x\");"},
+ {"name":"the line counts only the due messages","old":"        var unread = _store.CountUnread(tenant, sid);","new":"        var unread = due.Count;"},
+ {"name":"the settled edge does nothing","old":"        _ = RingOnSettledAsync(tenant, sessionId);","new":"        _ = tenant;"},
+ {"name":"a stuck notice that was itself a notice tells someone","old":"            if (m.SenderSessionId is null) continue; // a stuck system notice has nobody to tell","new":"            if (m.SenderSessionId is null) { _messages.Send(tenant, null, new FleetParty(m.RecipientSessionId, null, null, null), \"x\", FleetMessageKinds.System, FleetMessageExemption.System); continue; }"},
+ {"name":"heartbeat does not mark stuck","old":"            MarkStuckAndNotify(tenant);\n","new":"\n"}
+]

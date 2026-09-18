@@ -1544,9 +1544,16 @@ def _say_gateway(label: str, sentence: Any) -> None:
     numbers and paths inside it. With colour on, "the limit is 6" otherwise reaches the reader as
     "the limit is <colour>6<reset>", which is no longer the sentence the Gateway sent and no longer
     matches it. The label is ours, so it keeps its markup; an empty label prints the sentence alone.
+
+    And it is printed with soft wrapping, so the console never inserts a line break into it (inspection 6,
+    ruling 3): the terminal folds a long line for display, but the text is the sentence, whole. Without
+    this a narrow terminal - or one named "dumb", where the console wraps at 80 whatever width it was
+    given - split a broadcast refusal row mid-sentence. A single send's refusal is written to standard
+    error as plain text and never went through the console, which is why only the broadcast rows and the
+    duplicate note were exposed.
     """
     text = escape(str(sentence))
-    console.print(f"{label} {text}" if label else text, highlight=False)
+    console.print(f"{label} {text}" if label else text, highlight=False, soft_wrap=True)
 
 
 def _report_queued(resp: Any, who: str) -> None:
@@ -1569,10 +1576,12 @@ def _report_queued(resp: Any, who: str) -> None:
             "typed into it; it reads the message from its inbox when it is free.",
             highlight=False,
         )
+        _print_reply_wanted(resp)
         return
     if status == "duplicate":
         note = resp.get("note") or resp.get("Note") or "an identical message is already waiting unread."
         _say_gateway("[yellow]Not queued again:[/yellow]", note)
+        _print_reply_wanted(resp)
         return
     err = None
     if isinstance(resp, dict):
@@ -1584,6 +1593,28 @@ def _report_queued(resp: Any, who: str) -> None:
         ),
         _NOT_QUEUED_NEXT,
         label="Not queued:",
+    )
+
+
+def _print_reply_wanted(resp: Dict[str, Any]) -> None:
+    """When the Gateway gave the message a correlation id, print it on its own line (slice 3).
+
+    Nobody waits for the answer: it arrives in this session's inbox, beside the question, and if it has
+    not arrived by the deadline the Gateway puts a no-reply notice there instead. The id is printed in
+    full so it can be matched against what `message inbox` later shows.
+    """
+    correlation = resp.get("correlationId", resp.get("CorrelationId"))
+    if not correlation:
+        return
+    by = resp.get("replyByUtc", resp.get("ReplyByUtc"))
+    line = f"correlation id: {correlation}"
+    if by:
+        line += f" (reply wanted by {by})"
+    console.print(axi_cli.shown(line), highlight=False)
+    console.print(
+        "Do not wait for it: the reply arrives in your inbox, and if none comes by the deadline a "
+        "no-reply notice arrives instead.",
+        highlight=False,
     )
 
 
@@ -1663,12 +1694,18 @@ def send_message(
     reason: str | None = None,
     grant: str | None = None,
     kind: str = "message",
+    reply_wanted: bool = False,
+    reply_by: Optional[int] = None,
 ) -> None:
     """Queue a message for one session, or for each of your workers with target 'all'.
 
     The Gateway decides who you may write to: the session that started you, and the sessions you
     started. Anything else is refused with the reason. --everyone reaches the whole account and needs
-    a human grant plus a reason (issue #1229); its copies are queued like any other message."""
+    a human grant plus a reason (issue #1229); its copies are queued like any other message.
+
+    --reply-wanted (slice 3) asks the recipient for a reply: the Gateway gives the message a correlation
+    id and a deadline (--reply-by minutes, 60 when omitted), and this prints the id. Nothing waits for
+    the answer. It is for one recipient only."""
     is_broadcast = target.strip().lower() == "all"
     # Refused before anything is sent: each of these flags only means something on a fleet-wide
     # broadcast, and a flag that is silently dropped is a defect (docs/axi-standard.md).
@@ -1688,6 +1725,16 @@ def send_message(
         axi_cli.usage_error(
             "the message is blank. "
             'Pass the text: cc-devthrottle message send <session-id> "<message>"',
+        )
+    if reply_by is not None and not reply_wanted:
+        axi_cli.usage_error(
+            "--reply-by is the deadline for a reply, so it needs --reply-wanted. "
+            'Use cc-devthrottle message send <session-id> "<message>" --reply-wanted --reply-by <minutes>.',
+        )
+    if reply_wanted and is_broadcast:
+        axi_cli.usage_error(
+            "--reply-wanted asks one session for a reply, so it needs one session id, not 'all'. "
+            'Send the question to each worker with cc-devthrottle message send <session-id> "<message>" --reply-wanted.',
         )
 
     if is_broadcast:
@@ -1718,6 +1765,10 @@ def send_message(
     body = {"text": message}
     if kind != "message":
         body["kind"] = kind
+    if reply_wanted:
+        body["replyWanted"] = True
+        if reply_by is not None:
+            body["replyByMinutes"] = reply_by
     try:
         resp = gateway.post_json(f"sessions/{target_sid}/message", body)
     except gateway.GatewayError as err:
@@ -1733,8 +1784,58 @@ def send_message(
     axi_cli.print_next(["cc-devthrottle message inbox", "cc-devthrottle session list"])
 
 
+def send_reply(reply_id: str, text: str) -> None:
+    """Answer a message that asked for a reply (slice 3, ruling 10).
+
+    `reply_id` is the correlation id or the message id `message inbox` showed. The Gateway sends the
+    answer to whoever sent the question - whatever your relationship to it - and refuses a reply from a
+    session the question was not sent to, a second reply to one question, and a reply to a message that
+    did not ask for one. A reply is not held to (or counted against) the message limits, and a reply
+    after the deadline still lands."""
+    if not reply_id.strip():
+        axi_cli.usage_error(
+            "the id is blank. Pass the correlation id or message id from your inbox: "
+            'cc-devthrottle message reply <correlation-id> "<answer>"',
+        )
+    if not text.strip():
+        axi_cli.usage_error(
+            "the reply is blank. "
+            'Pass the answer: cc-devthrottle message reply <correlation-id> "<answer>"',
+        )
+    try:
+        resp = gateway.post_json("fleet/reply", {"id": reply_id.strip(), "text": text})
+    except gateway.GatewayError as err:
+        axi_cli.fail(
+            f"the reply to {reply_id.strip()} was not queued: {err}",
+            ["cc-devthrottle message inbox --all", *_NOT_QUEUED_NEXT, axi_cli.CHECK_GATEWAY],
+            label="Not queued:",
+        )
+    status = str(resp.get("status", resp.get("Status", "")) or "") if isinstance(resp, dict) else ""
+    if status == "queued":
+        to = str(resp.get("recipientSessionId", resp.get("RecipientSessionId", "")) or "")
+        mid = str(resp.get("messageId", resp.get("MessageId", "")) or "")
+        about = str(resp.get("inReplyToMessageId", resp.get("InReplyToMessageId", "")) or "")
+        if not mid or not to:
+            # "queued" with nothing to show for it is not a confirmation.
+            axi_cli.fail(
+                "the Gateway said the reply was queued but gave no reply id or recipient, so it is not confirmed.",
+                ["cc-devthrottle message inbox --all", axi_cli.CHECK_GATEWAY],
+                label="Not confirmed:",
+            )
+        console.print(
+            f"[green]Reply queued[/green] for {axi_cli.shown(to)} (reply {axi_cli.shown(mid)}, answering message "
+            f"{axi_cli.shown(about)}). Nothing was typed into it; it reads the reply from its inbox.",
+            highlight=False,
+        )
+    else:
+        # A duplicate and a refusal in a 200 body are reported exactly as a send's are.
+        _report_queued(resp, reply_id.strip())
+    axi_cli.print_next(["cc-devthrottle message inbox", 'cc-devthrottle session report "<what you did>"'])
+
+
 INBOX_HELP = [
     "cc-devthrottle message inbox --all",
+    'cc-devthrottle message reply <correlation-id> "<answer>"',
     'cc-devthrottle message send <id> "<message>"',
     'cc-devthrottle session report "<what you did>"',
 ]
@@ -1753,16 +1854,61 @@ def _inbox_block(m: Dict[str, Any], index: int, total: int) -> str:
     else:
         who = "the Gateway"
     text = str(m.get("text", m.get("Text", "")) or "")
+    kind = str(m.get("kind", m.get("Kind", "")) or "")
+    notice = m.get("notice", m.get("Notice"))
+    about = m.get("inReplyTo", m.get("InReplyTo"))
+    esc = axi_output.escape_ascii
+    # The heading says what the row IS, as the Gateway labelled it: a reply, a no-reply notice, or a message.
+    if notice == "no-reply":
+        heading = f"no-reply notice {index} of {total}"
+    elif kind == "reply":
+        heading = f"reply {index} of {total}"
+    else:
+        heading = f"message {index} of {total}"
     lines = [
-        f"message {index} of {total}",
-        f"  id: {axi_output.escape_ascii(str(m.get('messageId', m.get('MessageId', ''))))}",
-        f"  from: {axi_output.escape_ascii(who)}",
-        f"  kind: {axi_output.escape_ascii(str(m.get('kind', m.get('Kind', ''))))}",
-        f"  sent: {axi_output.escape_ascii(str(m.get('sentAtUtc', m.get('SentAtUtc', ''))))}",
-        "  text:",
+        heading,
+        f"  id: {esc(str(m.get('messageId', m.get('MessageId', ''))))}",
+        f"  from: {esc(who)}",
+        f"  kind: {esc(kind)}",
     ]
-    lines.extend("    " + axi_output.escape_ascii(line) for line in text.split("\n"))
+    if notice:
+        lines.append(f"  notice: {esc(str(notice))}")
+    lines.append(f"  sent: {esc(str(m.get('sentAtUtc', m.get('SentAtUtc', ''))))}")
+    if m.get("replyWanted", m.get("ReplyWanted")):
+        lines.append(f"  reply wanted by: {esc(str(m.get('replyByUtc', m.get('ReplyByUtc', ''))))}")
+        lines.append(f"  correlation id: {esc(str(m.get('correlationId', m.get('CorrelationId', ''))))}")
+        hint = m.get("replyHint", m.get("ReplyHint"))
+        if hint:
+            # A command to paste: its quotes are kept, only what is not printable ASCII is escaped.
+            lines.append(f"  to answer: {axi_cli.ascii_text(str(hint))}")
+    if isinstance(about, dict):
+        lines.extend(_question_lines(about, is_reply=kind == "reply"))
+    lines.append("  text:")
+    lines.extend("    " + esc(line) for line in text.split("\n"))
     return "\n".join(lines)
+
+
+def _question_lines(about: Dict[str, Any], is_reply: bool) -> List[str]:
+    """The question a reply or a no-reply notice is about, in full, as the Gateway returned it."""
+    esc = axi_output.escape_ascii
+    mid = str(about.get("messageId", about.get("MessageId", "")) or "")
+    correlation = str(about.get("correlationId", about.get("CorrelationId", "")) or "")
+    lines = [f"  {'answers' if is_reply else 'about'}: message {esc(mid)} (correlation id {esc(correlation)})"]
+    to = about.get("toSessionId", about.get("ToSessionId"))
+    if to:
+        lines.append(f"  asked of: {esc(str(to))}")
+    by = about.get("replyByUtc", about.get("ReplyByUtc"))
+    if by:
+        lines.append(f"  deadline: {esc(str(by))}")
+    if is_reply:
+        lines.append(f"  late: {'yes' if about.get('late', about.get('Late')) else 'no'}")
+    question = about.get("text", about.get("Text"))
+    if question is None:
+        lines.append("  question: (no longer kept)")
+    else:
+        lines.append("  question:")
+        lines.extend("    " + esc(line) for line in str(question).split("\n"))
+    return lines
 
 
 def read_inbox(include_read: bool = False, json_output: bool = False) -> Dict[str, Any]:
@@ -1943,8 +2089,8 @@ def spawn_session(
             if not controller_session_id:
                 axi_cli.usage_error(
                     "--controlled-by self requires CC_SESSION_ID to be set, but it is not. "
-                    "Run this from inside a session, or pass an explicit controlling session id: "
-                    "--controlled-by <session-id>",
+                    "Run this from inside a session, or pass --standalone --why \"<reason>\" to give "
+                    "the new session to the user.",
                 )
         else:
             controller_session_id = controlled_by

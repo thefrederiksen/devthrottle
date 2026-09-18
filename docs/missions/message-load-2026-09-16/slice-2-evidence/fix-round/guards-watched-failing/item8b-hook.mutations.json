@@ -1,0 +1,5 @@
+[
+ {"name":"hook never called","old":"        beforeEnter?.Invoke();\n","new":""},
+ {"name":"hook called after the Enter","old":"        beforeEnter?.Invoke();\n        backend.Write(DoorbellEnter);","new":"        backend.Write(DoorbellEnter);\n        beforeEnter?.Invoke();"},
+ {"name":"hook called before the echo check","old":"        await WriteTextAsync(backend, line);\n\n        var needle","new":"        beforeEnter?.Invoke();\n        await WriteTextAsync(backend, line);\n\n        var needle"}
+]

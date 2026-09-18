@@ -1,0 +1,40 @@
+== MUTATION no working marker check: exit=1
+    Failed!  - Failed:     2, Passed:    26, Skipped:     0, Total:    28, Duration: 21 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_mid_turn_is_deferred_even_though_its_composer_is_drawn_empty [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Codex_mid_turn_is_deferred_on_its_footer_written_not_captured [< 1 ms]
+== MUTATION composer text ignored (always empty): exit=1
+    Failed!  - Failed:     5, Passed:    23, Skipped:     0, Total:    28, Duration: 21 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_with_anything_in_the_composer_is_deferred(capture: "claude-collapsed-paste") [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_with_anything_in_the_composer_is_deferred(capture: "claude-slash-command-typed") [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_with_anything_in_the_composer_is_deferred(capture: "claude-owner-text") [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_with_anything_in_the_composer_is_deferred(capture: "claude-owner-text-two-lines") [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Both_frames_must_be_empty_an_empty_then_typed_pair_is_deferred [< 1 ms]
+== MUTATION continuation rows ignored: exit=0
+    Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 18 ms - CcDirector.Core.UnitTests.dll (net10.0)
+== MUTATION no menu detection for Claude: exit=1
+    Failed!  - Failed:     2, Passed:    26, Skipped:     0, Total:    28, Duration: 21 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_with_a_menu_open_is_deferred(capture: "claude-menu-model-picker") [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_with_a_menu_open_is_deferred(capture: "claude-menu-trust-folder") [< 1 ms]
+== MUTATION unframed prompt accepted: exit=1
+    /Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/Drivers/DoorbellSafety.cs(217,28): error CS0162: Unreachable code detected [/Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/CcDirector.Core.csproj]
+== MUTATION only the first frame checked: exit=1
+    Failed!  - Failed:     1, Passed:    27, Skipped:     0, Total:    28, Duration: 20 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Both_frames_must_be_empty_an_empty_then_typed_pair_is_deferred [< 1 ms]
+== MUTATION exited not checked: exit=1
+    /Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/Drivers/DoorbellSafety.cs(147,13): error CS0162: Unreachable code detected [/Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/CcDirector.Core.csproj]
+== MUTATION product retained text not checked: exit=1
+    /Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/Drivers/DoorbellSafety.cs(151,13): error CS0162: Unreachable code detected [/Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/CcDirector.Core.csproj]
+== MUTATION director working state not checked: exit=1
+    /Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/Drivers/DoorbellSafety.cs(154,13): error CS0162: Unreachable code detected [/Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/CcDirector.Core.csproj]
+== MUTATION codex placeholder accepted wherever the cursor is: exit=1
+    Failed!  - Failed:     1, Passed:    27, Skipped:     0, Total:    28, Duration: 25 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Codex_placeholder_text_with_the_cursor_after_it_is_owner_text [2 ms]
+== MUTATION codex hidden cursor accepted: exit=0
+    Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 28 ms - CcDirector.Core.UnitTests.dll (net10.0)
+== MUTATION blank screen read as a screen: exit=0
+    Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 18 ms - CcDirector.Core.UnitTests.dll (net10.0)
+== MUTATION unknown agent read as claude: exit=1
+    Failed!  - Failed:     3, Passed:    25, Skipped:     0, Total:    28, Duration: 19 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.An_agent_without_a_composer_reader_is_unreadable(agent: Gemini) [9 ms]
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.An_agent_without_a_composer_reader_is_unreadable(agent: OpenCode) [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.An_agent_without_a_composer_reader_is_unreadable(agent: Pi) [< 1 ms]

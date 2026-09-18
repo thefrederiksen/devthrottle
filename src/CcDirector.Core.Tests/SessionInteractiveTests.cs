@@ -155,6 +155,125 @@ public sealed class SessionInteractiveTests
         Assert.Null(s.LastOwnerTurnAtUtc);
     }
 
+    // ---- Who started the current work (the Message Load mission, ruling 15) ----
+
+    [Fact]
+    public async Task AnAgentSend_MarksTheWorkAgentOrigin()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+
+        await s.SendTextAsync("[DevThrottle doorbell] 1 fleet message is waiting", SendSource.Agent);
+
+        Assert.Equal(ActivityState.Working, s.ActivityState);
+        Assert.Equal("agent", s.WorkingOrigin);
+    }
+
+    [Fact]
+    public async Task AFrameworkSend_MarksTheWorkAgentOrigin()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+
+        await s.SendTextAsync("/handover", SendSource.Framework);
+
+        Assert.Equal("agent", s.WorkingOrigin);
+    }
+
+    [Theory]
+    [InlineData(SendSource.UserInput, false)]
+    [InlineData(SendSource.Delivery, false)]
+    [InlineData(SendSource.Framework, true)]
+    [InlineData(SendSource.Agent, true)]
+    public async Task AnOwnerSend_MarksTheWorkOwnerOrigin(SendSource source, bool withVoiceOrigin)
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+
+        await s.SendTextAsync("hello", source, withVoiceOrigin ? InputOrigin.DesktopVoice : null);
+
+        Assert.Equal("owner", s.WorkingOrigin);
+    }
+
+    [Fact]
+    public void TerminalTyping_IsOwnerOrigin_AndAnUntaggedRawSubmit_IsAgentOrigin()
+    {
+        using var typed = NewSession(new RecordingBackend(), ActivityState.Idle);
+        typed.SendInput(new byte[] { (byte)'h', 0x0D }, InputOrigin.DesktopTyped);
+        Assert.Equal("owner", typed.WorkingOrigin);
+
+        using var agent = NewSession(new RecordingBackend(), ActivityState.Idle);
+        agent.SendInput(new byte[] { (byte)'h', 0x0D });
+        Assert.Equal("agent", agent.WorkingOrigin);
+    }
+
+    [Fact]
+    public async Task TheOrigin_IsReportedBeforeTheSubmitFinishes()
+    {
+        // The submit can take seconds to verify; a Working push in that time must already say who started it.
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+        string? seenDuringSubmit = "unset";
+        backend.OnSendText = _ => { seenDuringSubmit = s.WorkingOrigin; return Task.CompletedTask; };
+
+        await s.SendTextAsync("a doorbell", SendSource.Agent);
+
+        Assert.Equal("agent", seenDuringSubmit);
+    }
+
+    [Fact]
+    public async Task AFailedSend_PutsThePreviousOriginBack()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+        backend.OnSendText = _ => throw new InvalidOperationException("the terminal refused the text");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => s.SendTextAsync("a doorbell", SendSource.Agent));
+
+        Assert.Null(s.WorkingOrigin);
+    }
+
+    [Theory]
+    [InlineData(ActivityState.WaitingForInput)]
+    [InlineData(ActivityState.WaitingForPerm)]
+    [InlineData(ActivityState.Idle)]
+    [InlineData(ActivityState.Exited)]
+    public async Task SettlingOrExiting_ForgetsWhoStartedTheWork(ActivityState settled)
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+        await s.SendTextAsync("a doorbell", SendSource.Agent);
+
+        s.ApplyTerminalActivityState(settled);
+
+        Assert.Null(s.WorkingOrigin);
+    }
+
+    [Fact]
+    public async Task WorkThatStartsWithNoSubmission_HasNoOrigin()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+        await s.SendTextAsync("a doorbell", SendSource.Agent);
+        s.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+
+        s.ApplyTerminalActivityState(ActivityState.Working);
+
+        Assert.Null(s.WorkingOrigin);
+    }
+
+    [Fact]
+    public async Task TheOrigin_StaysThroughTheTurnItStarted()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+        await s.SendTextAsync("a doorbell", SendSource.Agent);
+
+        s.ApplyTerminalActivityState(ActivityState.Working);
+
+        Assert.Equal("agent", s.WorkingOrigin);
+    }
+
     [Fact]
     public void SendInput_StampsAnOwnerTurn_OnlyWithAHumanOrigin()
     {
@@ -291,7 +410,8 @@ public sealed class SessionInteractiveTests
 
         public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
         public void Write(byte[] data) => Writes.Add(data);
-        public Task SendTextAsync(string text) { SentTexts.Add(text); return Task.CompletedTask; }
+        public Func<string, Task>? OnSendText { get; set; }
+        public Task SendTextAsync(string text) { SentTexts.Add(text); return OnSendText?.Invoke(text) ?? Task.CompletedTask; }
         public Task SendEnterAsync() => Task.CompletedTask;
         public void Resize(short cols, short rows) => Resizes.Add((cols, rows));
         public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;

@@ -41,6 +41,7 @@ from .session_ops import (
     selftest as run_selftest,
     show_live_state,
     send_message,
+    send_reply,
     spawn_session,
     stop_session,
     undo_done,
@@ -57,7 +58,14 @@ app = typer.Typer(
 )
 session_app = typer.Typer(cls=AxiGroup, help="Manage running sessions.", add_completion=False)
 repo_app = typer.Typer(cls=AxiGroup, help="List the fleet's repositories.", add_completion=False)
-worktree_app = typer.Typer(cls=AxiGroup, help="List the fleet's worktrees and who is in them.", add_completion=False)
+worktree_app = typer.Typer(
+    cls=AxiGroup,
+    # Two different things share this word, so the help says which is which. "list" is the FLEET
+    # view, served by the Gateway, every machine. The other commands are this machine's pool of
+    # reusable worktrees, and every one of them runs the cc-worktrees tool - see worktree_pool_ops.
+    help="The fleet's worktrees, and this machine's pool of reusable ones.",
+    add_completion=False,
+)
 machine_app = typer.Typer(
     cls=AxiGroup,
     help="List machines, search them, start applications and ask for restarts.",
@@ -511,6 +519,26 @@ _ACTIONS = [
         ],
     },
     {
+        "id": "director-restore",
+        "description": (
+            "Bring a drained fleet back onto a Director (after a restart, the NEW one). The DIRECTOR starts "
+            "every seat on its own credential, under the owner the seat had when it was captured - an owner "
+            "restarted in the same drain comes back first and is named by its new id. You name no owner and "
+            "cannot. Each seat that fails is reported on that seat and the rest carry on; a seat that came "
+            "back is never started twice. This is the restore step of the director-restart skill."
+        ),
+        "command": "cc-devthrottle director restore <workspace> --director <new director id> [--seat <id>] [--seed <id>=<path>] [--force-seat <id>] [--wait-seconds <n>]",
+        "mutatesState": True,
+        "args": [
+            {"name": "workspace", "required": True},
+            {"name": "director", "required": True},
+            {"name": "seat", "required": False},
+            {"name": "seed", "required": False},
+            {"name": "force-seat", "required": False},
+            {"name": "wait-seconds", "required": False},
+        ],
+    },
+    {
         "id": "machine-restart-request-status",
         "description": "Where one restart request stands, with the owner's or the Director's reason.",
         "command": "cc-devthrottle machine restart-request-status <machine> <request-id>",
@@ -544,8 +572,9 @@ _ACTIONS = [
             "Park a session so it stops asking for attention, for a set number of minutes. Defaults "
             "to THIS session. A session holding ITSELF is always mid-turn, so the hold is deferred "
             "automatically and lands when the turn ends - there is no separate verb for that, and the "
-            "reply says 'pending' when it deferred. Only the owner lifts a hold: releasing it, typing "
-            "or speaking into the session, or the timer expiring. Another agent's message does not."
+            "reply says 'pending' when it deferred. A hold ends when it is released, when the owner "
+            "types or speaks into the session, when the timer expires, or when the session starts work "
+            "nothing explains. Another agent's message does not end it."
         ),
         "command": "cc-devthrottle session hold [target] --minutes <n>",
         "mutatesState": True,
@@ -627,13 +656,32 @@ _ACTIONS = [
             "and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full "
             "text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target "
             "'all' queues one copy for each of your workers. Messages are rare - put what you would have "
-            "said in your report instead."
+            "said in your report instead. --reply-wanted (one session only) asks for a reply without "
+            "waiting: it prints a correlation id, the reply arrives in your inbox, and if none arrives by "
+            "the deadline (--reply-by minutes, 60 by default) a no-reply notice arrives instead."
         ),
-        "command": 'cc-devthrottle message send <target|all> "<message>"',
+        "command": 'cc-devthrottle message send <target|all> "<message>" [--reply-wanted] [--reply-by <minutes>]',
         "mutatesState": True,
         "args": [
             {"name": "target", "required": True},
             {"name": "message", "required": True},
+            {"name": "reply-wanted", "required": False},
+            {"name": "reply-by", "required": False},
+        ],
+    },
+    {
+        "id": "message-reply",
+        "description": (
+            "Answer a message that asked for a reply. The id is the correlation id (or message id) "
+            "'message inbox' showed. The reply goes to whoever asked, whatever your relationship to it; "
+            "only the session the question was sent to may answer, once. It is not held to the message "
+            "limits, and a reply after the deadline still arrives."
+        ),
+        "command": 'cc-devthrottle message reply <id> "<answer>"',
+        "mutatesState": True,
+        "args": [
+            {"name": "id", "required": True},
+            {"name": "answer", "required": True},
         ],
     },
     {
@@ -641,6 +689,8 @@ _ACTIONS = [
         "description": (
             "Read THIS session's inbox: every unread message in full, each marked read by this call. "
             "Reading is the acknowledgement - a message stays open until its recipient runs this. "
+            "A reply is shown with the question it answers, and a no-reply notice with the question that "
+            "went unanswered. "
             "--all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost "
             "can be recovered - for 24 hours, and only by asking."
         ),
@@ -653,7 +703,7 @@ _ACTIONS = [
     },
     {
         "id": "fleet-selftest",
-        "description": "Run an end-to-end fleet messaging smoke test.",
+        "description": "Windows only: check that a message to a throwaway worker is queued.",
         "command": "cc-devthrottle selftest",
         "mutatesState": True,
         "args": [],
@@ -1047,6 +1097,94 @@ _ACTIONS = [
         "mutatesState": True,
         "args": [],
     },
+    {
+        "id": "worktree-list",
+        "description": (
+            "List the fleet's worktrees, on every machine, with the Gateway's verdict, the size, and "
+            "which session is in each."
+        ),
+        "command": "cc-devthrottle worktree list [--repo <name>] [--state <verdict>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "repo", "required": False},
+            {"name": "state", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-list-pool",
+        "description": (
+            "List this machine's pool of reusable worktrees (cc-worktrees): slot, state (free, "
+            "in-use, held), holder, and the reason a held one is held."
+        ),
+        "command": "cc-devthrottle worktree list --pool [--repo <path>] [--fields <a,b>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "repo", "required": False},
+            {"name": "fields", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-get",
+        "description": (
+            "Take a pooled worktree on this machine to work in. It comes back reset to the remote "
+            "default branch with its build output kept, and with the lease that returns it."
+        ),
+        "command": "cc-devthrottle worktree get --repo <path> --holder <text> [--pool-size N]",
+        "mutatesState": True,
+        "args": [
+            {"name": "repo", "required": True},
+            {"name": "holder", "required": True},
+            {"name": "pool_size", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-return",
+        "description": (
+            "Give a pooled worktree back. It is reset and freed only when its work is proven to have "
+            "landed on the remote; anything unproven is held with the reason and left untouched."
+        ),
+        "command": "cc-devthrottle worktree return <path-or-slot> --lease <id> [--repo <path>]",
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "lease", "required": True},
+            {"name": "repo", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-lease",
+        "description": "Take one named pooled worktree rather than whichever one is free.",
+        "command": (
+            "cc-devthrottle worktree lease <path-or-slot> --holder <text> [--reclaim-held] "
+            "[--repo <path>]"
+        ),
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "holder", "required": True},
+            {"name": "reclaim_held", "required": False},
+            {"name": "repo", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-destroy",
+        "description": (
+            "Remove one pooled worktree. A dry run that says what it would remove unless --yes, and "
+            "refused unless the work in it is proven landed at that moment."
+        ),
+        "command": (
+            "cc-devthrottle worktree destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] "
+            "[--repo <path>]"
+        ),
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "yes", "required": False},
+            {"name": "allow_held", "required": False},
+            {"name": "allow_in_use", "required": False},
+            {"name": "repo", "required": False},
+        ],
+    },
 ]
 
 
@@ -1221,28 +1359,123 @@ def repo_list(
     list_repositories(json_output, dirty_only=dirty, state=state, repo=repo, machine=machine, fields=fields)
 
 
+# The pooled-worktree commands below take their arguments exactly as cc-worktrees takes them and
+# forward them untouched, so a flag never means one thing here and another there, and a flag added to
+# cc-worktrees works through this command the day it lands. cc-worktrees rejects an argument it does
+# not know, with its own usage exit code, so nothing is silently ignored on the way through.
+_PASS_THROUGH = {"allow_extra_args": True, "ignore_unknown_options": True}
+
+
 @worktree_app.command("list")
 def worktree_list(
     json_output: bool = typer.Option(
         False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
     ),
-    repo: str = typer.Option(None, "--repo", help="Only worktrees of this repository: its folder name or full path."),
-    state: str = typer.Option(
-        None, "--state", help="Only these states, comma separated: needs-attention, in-use, safe-to-reap, verifying."
+    repo: str = typer.Option(
+        None,
+        "--repo",
+        help="Only this repository: its folder name or full path for the fleet listing, its PATH with --pool.",
     ),
-    machine: str = typer.Option(None, "--machine", help="Only worktrees on this machine."),
+    state: str = typer.Option(
+        None,
+        "--state",
+        help="Fleet listing only. Only these states, comma separated: needs-attention, in-use, safe-to-reap, verifying.",
+    ),
+    machine: str = typer.Option(
+        None, "--machine", help="Fleet listing only. Only worktrees on this machine."
+    ),
     fields: str = typer.Option(
         None,
         "--fields",
-        help="Fields to show, comma separated. Default: path,repo,machine,state. "
-        "Valid: path, repo, machine, state, branch, reason, sessions, bytes, last-activity, repo-path, "
-        "director, data-age, provisional.",
+        help="Fields to show, comma separated. Fleet listing default: path,repo,machine,state; valid: path, repo, "
+        "machine, state, branch, reason, sessions, bytes, last-activity, repo-path, director, data-age, provisional. "
+        "With --pool: repo, slot, path, state, holder, reason, updated.",
+    ),
+    pool: bool = typer.Option(
+        False, "--pool", help="List this machine's cc-worktrees pool instead of the fleet."
     ),
 ) -> None:
-    """List the fleet's worktrees: full path, repository, machine and state."""
+    """List the fleet's worktrees, or this machine's pool of reusable ones with --pool.
+
+    The fleet view is every machine's worktrees as the Gateway sees them, with verdicts, sizes and
+    which session is in each. With --pool it is this machine's pool, answered by cc-worktrees:
+    slot, state (free, in-use, held), holder and reason.
+    """
+    if pool:
+        from . import worktree_pool_ops
+
+        for name, value in (("--state", state), ("--machine", machine)):
+            if value is not None:
+                worktree_pool_ops.usage_error(
+                    f"{name} filters the fleet listing and has no meaning for the pool",
+                    ["cc-devthrottle worktree list --pool [--repo <path>] [--fields <a,b>]"],
+                    json_output,
+                )
+        arguments = ["list"]
+        if repo is not None:
+            arguments += ["--repo", repo]
+        if fields is not None:
+            arguments += ["--fields", fields]
+        if json_output:
+            arguments += ["--json"]
+        worktree_pool_ops.run_pool_command(arguments)
+
     from .repo_ops import list_worktrees
 
     list_worktrees(json_output, repo=repo, state=state, machine=machine, fields=fields)
+
+
+@worktree_app.command("get", context_settings=_PASS_THROUGH)
+def worktree_get(ctx: typer.Context) -> None:
+    """Take a free pooled worktree to work in. Runs: cc-worktrees get.
+
+    A free slot is handed out, or a new one is created beside the repository while the pool is
+    under its size.
+
+      cc-devthrottle worktree get --repo <path> --holder <text> [--pool-size N] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["get"] + list(ctx.args))
+
+
+@worktree_app.command("return", context_settings=_PASS_THROUGH)
+def worktree_return(ctx: typer.Context) -> None:
+    """Give a pooled worktree back. Runs: cc-worktrees return.
+
+    It is reset and freed only when cc-worktrees can prove its work landed; otherwise it is held
+    with the reason and nothing in it is touched.
+
+      cc-devthrottle worktree return <path-or-slot> --lease <id> [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["return"] + list(ctx.args))
+
+
+@worktree_app.command("lease", context_settings=_PASS_THROUGH)
+def worktree_lease(ctx: typer.Context) -> None:
+    """Take one named pooled worktree. Runs: cc-worktrees lease.
+
+      cc-devthrottle worktree lease <path-or-slot> --holder <text> [--reclaim-held] [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["lease"] + list(ctx.args))
+
+
+@worktree_app.command("destroy", context_settings=_PASS_THROUGH)
+def worktree_destroy(ctx: typer.Context) -> None:
+    """Remove one pooled worktree. Runs: cc-worktrees destroy.
+
+    A dry run unless --yes, and refused whatever the recorded state says unless the work is proven
+    landed at that moment.
+
+      cc-devthrottle worktree destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["destroy"] + list(ctx.args))
 
 
 @machine_app.command("list")
@@ -1292,6 +1525,30 @@ def director_list(
     from .machine_ops import list_directors
 
     list_directors(json_output, state=state, machine=machine, fields=fields)
+
+
+@director_app.command("restore")
+def director_restore(
+    workspace: str = typer.Argument(..., help="The workspace the drain recorded (the id in its restore commands)."),
+    director: str = typer.Option(..., "--director", help="The Director that brings the seats back - after a restart, the NEW one. See 'director list'."),
+    seat: List[str] = typer.Option([], "--seat", help="Only this seat (its captured session id). Repeat for several. Default: every seat decided restore that has not come back."),
+    seed: List[str] = typer.Option([], "--seed", help="<captured session id>=<path>: start that seat from this seed file instead of its handover. Repeatable."),
+    force_seat: List[str] = typer.Option([], "--force-seat", help="Start this seat (its captured session id) even though an earlier start of it MAY have landed. Only after checking the session list. Repeatable."),
+    wait_seconds: int = typer.Option(600, "--wait-seconds", help="How long to wait for every seat's answer. 0 asks and does not wait, and exits 3 (accepted, not waited)."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+) -> None:
+    """Bring a drained fleet back: the Director starts each seat under its old owner.
+
+    Owners come from what the Gateway captured, never from you: an owner restarted in the same drain
+    comes back first and is named by its new id. Each seat that fails is reported and the rest carry on.
+    A seat still running is not started again, and one whose earlier start may have landed needs --force-seat.
+
+    Exit 0 means every seat asked for came back. Exit 1: a seat failed or is still pending.
+    Exit 3: --wait-seconds 0 - accepted, not waited, so nothing is known to have come back.
+    """
+    from .machine_ops import restore_workspace
+
+    restore_workspace(workspace, director, seat, seed, wait_seconds, json_output, force_seat)
 
 
 @machine_app.command("apps")
@@ -1453,8 +1710,9 @@ def report(
 
     This is the last step of delegated work, not a courtesy. Your parent asked you to do something;
     getting back to them is part of doing it - so you send it yourself, in your own words, the moment
-    your turn ends. It is QUEUED in their inbox, never typed into them: they read it when they are
-    free, and it stays open until they do.
+    your turn ends. It is QUEUED in their inbox, never typed into them: when they are not working, one
+    doorbell line tells them to run 'cc-devthrottle message inbox', and it stays open until they read
+    it. It is still held to the six-an-hour message limit, but not to the ten-minute spacing.
 
     If NO live parent owns you, the USER does, and nothing is sent: you are already red and in his
     queue, so that red is your report. Leave your answer in this session where he will read it.
@@ -1535,9 +1793,10 @@ def hold(
     session holds ITSELF, since it is mid-turn - is DEFERRED automatically: it applies the moment
     the turn finishes, and the reply tells you so with `pending`.
 
-    ONLY THE OWNER LIFTS A HOLD - by releasing it, by typing or speaking into the session, or by
-    the --minutes timer running out. Another agent messaging the session, or the terminal simply
-    repainting, no longer un-holds it, so a hold you set actually lasts as long as you asked for.
+    A hold ends when it is released, when the owner types or speaks into the session, when the
+    --minutes timer runs out, or when the session starts work the Director cannot attribute to
+    anyone. Another agent's message does NOT end it: the doorbell that announces a message is
+    agent-origin work, and the owner decided on 17 September 2026 that it leaves the hold in place.
     """
     hold_session(target, release=release, minutes=minutes)
 
@@ -1579,8 +1838,11 @@ def compact_continue(
 
     A session whose context window is full cannot read anything you send it: every message is
     swallowed and the tool just reprints its context-limit line. Compaction is the only thing that
-    unblocks it, and this verb also gets it moving again afterwards, so a supervising agent can
-    rescue a worker with nobody at its keyboard.
+    unblocks it, and this verb also gets it moving again afterwards.
+
+    THE OWNER'S TOOL. The message it sends afterwards is typed into the session, so the Gateway
+    refuses this verb to every session key (an agent may not type into a session). An agent rescuing
+    its own worker runs `cc-devthrottle session compact` and queues a message instead.
 
     The message is sent only once the compaction has actually FINISHED - never on a timer. A prompt
     fired while the tool is still summarizing gets swallowed exactly like the ones that were lost
@@ -1998,6 +2260,18 @@ def message_send(
         "--grant",
         help="A human-issued broadcast grant id authorizing a fleet-wide broadcast (--everyone).",
     ),
+    reply_wanted: bool = typer.Option(
+        False,
+        "--reply-wanted",
+        help="Ask the recipient for a reply. The Gateway gives the message a correlation id, printed "
+        "here; the reply arrives in your inbox, and if none comes by the deadline a no-reply notice "
+        "arrives instead. Nothing waits for it. One session only, not 'all'.",
+    ),
+    reply_by: Optional[int] = typer.Option(
+        None,
+        "--reply-by",
+        help="Minutes the recipient has to reply, with --reply-wanted: 1 to 1440, 60 when omitted.",
+    ),
 ) -> None:
     """Queue a message for your supervisor or a worker ('all' for every worker).
 
@@ -2007,9 +2281,29 @@ def message_send(
 
     Add --everyone (with --reason and --grant) to reach the whole fleet; it is queued the same way.
 
+    Add --reply-wanted to ask for a reply without waiting for it; answer one with 'message reply'.
+
     Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting.
     """
-    send_message(target, message, everyone=everyone, reason=reason, grant=grant)
+    send_message(target, message, everyone=everyone, reason=reason, grant=grant,
+                 reply_wanted=reply_wanted, reply_by=reply_by)
+
+
+@message_app.command("reply")
+def message_reply(
+    reply_id: str = typer.Argument(
+        ..., metavar="ID",
+        help="The correlation id (or message id) of the message you are answering, from 'message inbox'.",
+    ),
+    text: str = typer.Argument(..., help="The answer. It may span lines; it is read, never typed."),
+) -> None:
+    """Answer a message that asked for a reply; the answer goes to whoever asked.
+
+    Only the session the question was sent to may answer it, once. A reply is not held to the message
+    limits, and one sent after the deadline still arrives. Nothing is typed into the asker; it reads
+    the reply from its inbox.
+    """
+    send_reply(reply_id, text)
 
 
 @message_app.command("inbox")
@@ -2026,7 +2320,9 @@ def message_inbox(
 ) -> None:
     """Read your unread messages in full, which marks them read.
 
-    Reading is the acknowledgement: the sender's message stays open until you read it.
+    Reading is the acknowledgement: the sender's message stays open until you read it. A message that
+    wants a reply shows its correlation id and the command to answer it; a reply shows the question it
+    answers; a no-reply notice says which question got no answer by its deadline.
     """
     read_inbox(include_read=include_read, json_output=json_output)
 
@@ -2034,10 +2330,10 @@ def message_inbox(
 @app.command()
 def selftest(
     timeout_ms: int = typer.Option(
-        25000, "--timeout-ms", help="How long the ask step waits for the responder."
+        25000, "--timeout-ms", help="Kept for callers that still pass it; nothing waits any more."
     ),
 ) -> None:
-    """Run the fleet messaging self-test against the local Director."""
+    """Windows only: check that a message to a throwaway worker is queued."""
     run_selftest(timeout_ms)
 
 

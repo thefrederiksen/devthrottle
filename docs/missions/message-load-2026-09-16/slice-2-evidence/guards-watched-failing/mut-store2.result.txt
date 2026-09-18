@@ -1,0 +1,12 @@
+== MUTATION stuck marks read messages too: exit=1
+    Failed!  - Failed:     1, Passed:    24, Skipped:     0, Total:    25, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Marking_stuck_never_touches_a_message_already_read_whatever_the_ruling_says [44 ms]
+== MUTATION a ring is recorded on a read message: exit=1
+    Failed!  - Failed:     1, Passed:    24, Skipped:     0, Total:    25, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_ring_is_not_recorded_on_a_message_already_read [41 ms]
+== MUTATION stuck messages are still offered for ringing: exit=1
+    Failed!  - Failed:     1, Passed:    24, Skipped:     0, Total:    25, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_stuck_message_is_not_offered_for_ringing_but_still_counts_as_unread [46 ms]
+== MUTATION stuck recipients still listed: exit=1
+    Failed!  - Failed:     1, Passed:    24, Skipped:     0, Total:    25, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_stuck_message_is_not_offered_for_ringing_but_still_counts_as_unread [35 ms]

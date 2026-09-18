@@ -2541,7 +2541,10 @@ public partial class MainWindow : Window
             {
                 FileLog.Write($"[MainWindow] CloseAllSessionsAsync: failed to kill {vm.Session.Id}: {ex.Message}");
             }
-            _sessionManager.RemoveSession(vm.Session.Id);
+            // Off the user-interface thread: a session in a pooled worktree gives it back here, and
+            // that runs cc-worktrees, which fetches the remote. Blocking the interface thread on a
+            // network call would freeze the window on the way out.
+            await Task.Run(() => _sessionManager.RemoveSession(vm.Session.Id));
         }
 
         SetSessionHeaderVisible(false);

@@ -26,6 +26,20 @@ namespace CcDirector.Core.Drivers;
 /// Working, and the next send typed itself onto the end of the orphan and ran the two mashed together
 /// (pull request #1513). Every Enter now goes through <see cref="PressEnterAndVerifyAsync"/>.
 /// </summary>
+/// <summary>What <see cref="TerminalSubmit.DoorbellSubmitAsync"/> came to.</summary>
+public enum DoorbellSubmitOutcome
+{
+    /// <summary>The last look said no; nothing was written.</summary>
+    NotTyped,
+
+    /// <summary>The line was typed, Enter was pressed once, and the screen showed the turn.</summary>
+    Verified,
+
+    /// <summary>The line was typed, but its submit was not proven - Enter may or may not have been pressed.
+    /// The caller reads the composer to decide what happened.</summary>
+    NotVerified,
+}
+
 public static class TerminalSubmit
 {
     private static readonly byte[] EscapeByte = [0x1B];
@@ -165,6 +179,104 @@ public static class TerminalSubmit
         // well as on each early return means no route can quietly keep a stale mark alive and make the
         // NEXT send press Escape over text that belongs to the owner.
         ComposerRetention.Clear(backend);
+    }
+
+    /// <summary>
+    /// THE DOORBELL'S SUBMIT (the Message Load mission, slice 2 fix round, inspection 4 ruling 2). A cut-down
+    /// echo-verified submit for the one fixed doorbell line, with every step that could touch the owner's words
+    /// taken out:
+    ///  - NO NUDGE LADDER. Enter is pressed exactly once. <see cref="SubmitVerifier"/> presses Enter again on
+    ///    every quiet beat for about ten seconds; an owner who starts typing in that window, while the agent's
+    ///    answer is short, would have their half-typed words submitted.
+    ///  - NO ESCAPE AND NO RETYPE. An echo that never arrives ends the attempt with Enter unpressed.
+    ///  - NO RETAINED-COMPOSER STEP. The ringer never rings while a retention mark stands, so the Escape that
+    ///    step presses is never needed here.
+    ///  - THE LAST LOOK RUNS IMMEDIATELY BEFORE THE FIRST BYTE (ruling 1): when <paramref name="mayTypeNow"/>
+    ///    says no, nothing is written at all.
+    ///
+    /// The submit is VERIFIED only when <paramref name="turnStarted"/> - the ringer's reading of the screen - says
+    /// the line left the composer and a turn took it, within <paramref name="watch"/>. The byte count the shared
+    /// verifier relies on is not used: a one-word answer never reaches it, and bytes cannot tell a submitted
+    /// line from one the interface discarded.
+    /// </summary>
+    /// <param name="mayTypeNow">The last look; false means type nothing.</param>
+    /// <param name="composerShowsLine">True when the rendered composer holds exactly the line - a second witness
+    /// for the echo when the byte stream misses it.</param>
+    /// <param name="turnStarted">True when the screen proves the line was submitted.</param>
+    /// <param name="pause">How to wait between polls; tests pass one that does not sleep.</param>
+    /// <param name="beforeEnter">Runs immediately before the one Enter is written.</param>
+    public static async Task<DoorbellSubmitOutcome> DoorbellSubmitAsync(
+        ISessionBackend backend,
+        string line,
+        string driverTag,
+        Func<bool> mayTypeNow,
+        Func<bool> composerShowsLine,
+        Func<bool> turnStarted,
+        TimeSpan? echoTimeout = null,
+        TimeSpan? watch = null,
+        TimeSpan? poll = null,
+        Func<TimeSpan, Task>? pause = null,
+        Action? beforeEnter = null)
+    {
+        ArgumentNullException.ThrowIfNull(backend);
+        ArgumentNullException.ThrowIfNull(line);
+        ArgumentNullException.ThrowIfNull(mayTypeNow);
+        ArgumentNullException.ThrowIfNull(composerShowsLine);
+        ArgumentNullException.ThrowIfNull(turnStarted);
+        var wait = pause ?? (d => Task.Delay(d));
+        var step = poll ?? TimeSpan.FromMilliseconds(100);
+        var echoPolls = Polls(echoTimeout ?? BaseEchoTimeout, step);
+        var watchPolls = Polls(watch ?? DoorbellWatch, step);
+
+        if (!mayTypeNow())
+            return DoorbellSubmitOutcome.NotTyped;
+
+        var buffer = backend.Buffer;
+        var cursor = buffer?.TotalBytesWritten ?? 0;
+        await WriteTextAsync(backend, line);
+
+        var needle = NormalizeForEcho(line);
+        var echoed = false;
+        for (var i = 0; i < echoPolls && !echoed; i++)
+        {
+            echoed = (buffer is not null && EchoSeen(buffer, cursor, needle)) || composerShowsLine();
+            if (!echoed) await wait(step);
+        }
+        if (!echoed)
+        {
+            FileLog.Write($"[{driverTag}] DoorbellSubmit: the line never echoed - Enter NOT pressed");
+            return DoorbellSubmitOutcome.NotVerified;
+        }
+
+        await wait(TimeSpan.FromMilliseconds(40));
+        beforeEnter?.Invoke();
+        backend.Write(DoorbellEnter);
+        for (var i = 0; i < watchPolls; i++)
+        {
+            await wait(step);
+            if (turnStarted())
+            {
+                FileLog.Write($"[{driverTag}] DoorbellSubmit: submitted, the screen shows the turn");
+                return DoorbellSubmitOutcome.Verified;
+            }
+        }
+        FileLog.Write($"[{driverTag}] DoorbellSubmit: Enter pressed once, no turn seen within {(watch ?? DoorbellWatch).TotalSeconds:0}s - NOT verified, no nudge sent");
+        return DoorbellSubmitOutcome.NotVerified;
+    }
+
+    /// <summary>How long the doorbell submit watches the screen for the turn after its one Enter.</summary>
+    public static readonly TimeSpan DoorbellWatch = TimeSpan.FromSeconds(10);
+
+    private static readonly byte[] DoorbellEnter = [0x0D];
+
+    private static int Polls(TimeSpan total, TimeSpan step) =>
+        Math.Max(1, (int)Math.Ceiling(total.TotalMilliseconds / Math.Max(1, step.TotalMilliseconds)));
+
+    private static bool EchoSeen(CircularTerminalBuffer buffer, long cursor, string needle)
+    {
+        var (bytes, _) = buffer.GetWrittenSince(cursor);
+        var hay = NormalizeForEcho(StripAnsi(Encoding.UTF8.GetString(bytes)));
+        return needle.Length > 0 && (hay.Contains(needle, StringComparison.Ordinal) || IndexOfInterleaved(hay, needle) >= 0);
     }
 
     /// <summary>

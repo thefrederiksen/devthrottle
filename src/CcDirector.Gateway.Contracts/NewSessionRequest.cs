@@ -97,6 +97,14 @@ public sealed class NewSessionRequest
     public string? ControllerSessionId { get; set; }
 
     /// <summary>
+    /// Set only by a Director restoring a drained seat (the Message Load mission, inspection 7, ruling 3): the
+    /// workspace seat this session is, and the token stored on it before this create was sent. The Gateway
+    /// records the new session's id on that seat when the create succeeds. Refused from any caller that is not
+    /// a Director. The Director's create verb ignores it.
+    /// </summary>
+    public WorkspaceRestoreClaim? RestoreClaim { get; set; }
+
+    /// <summary>
     /// WHO is asking for this session (devthrottle_internal issue #982): one of the
     /// <c>SessionOriginKinds</c> tokens - "human", "agent", "schedule" - case-insensitive. An unknown
     /// value is REJECTED as a bad request, the same posture as <see cref="Role"/>: a mistyped origin

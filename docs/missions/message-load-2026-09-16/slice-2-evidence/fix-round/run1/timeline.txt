@@ -1,0 +1,17 @@
+08:35:25.769 gateway listening at http://127.0.0.1:64315; ring grace 00:01:00, stuck after 3 rings
+08:35:26.085 director tunnel connected
+08:35:26.153 /Users/soren/ReposFred/devthrottle-message-load/docs/missions/message-load-2026-09-16/slice-2-evidence/fix-round/run1: manager 96b275a1-ae35-45e8-99f8-6b7f299f33ca, worker 7cd43026-1210-4ad7-b57f-b83ada0a214a (controller 96b275a1-ae35-45e8-99f8-6b7f299f33ca)
+08:36:28.046 captured run1/00-worker-ready
+08:36:31.806 worker turn started; screen shows 'esc to interrupt'
+08:36:31.807 captured run1/01-worker-mid-turn-before-send
+08:36:31.826 POST /sessions/7cd43026-1210-4ad7-b57f-b83ada0a214a/message as 96b275a1-ae35-45e8-99f8-6b7f299f33ca -> 200 queued c129345e3dcb4f7a9fc08d1631d8b8ce 
+08:36:31.826 message sent mid-turn: c129345e3dcb4f7a9fc08d1631d8b8ce
+08:36:31.826 captured run1/02-worker-mid-turn-just-after-send
+08:36:42.036 worker turn ended (marker gone)
+08:36:42.036 captured run1/03-worker-turn-ended
+08:36:52.141 doorbell line appeared on the worker's screen
+08:36:52.394 captured run1/04-worker-doorbell
+08:36:55.165 record read at 2026-09-17T08:36:55.0695790Z; rings 1
+08:37:00.433 captured run1/05-worker-after-reading-inbox
+08:37:00.442 saved 1 conversation record lines containing 'Line three ends the message' to agent-record-Proof---Worker.jsonl
+08:37:00.702 message inbox --all as Proof - Worker: exit 0

@@ -1,0 +1,5 @@
+[
+ {"name":"every submission reported as the owner's","old":"            ? Gateway.Contracts.WorkingOrigins.Owner\n            : Gateway.Contracts.WorkingOrigins.Agent;","new":"            ? Gateway.Contracts.WorkingOrigins.Owner\n            : Gateway.Contracts.WorkingOrigins.Owner;"},
+ {"name":"voice arriving as framework reported as agent","old":"        WorkingOrigin = origin is not null || source is SendSource.UserInput or SendSource.Delivery","new":"        WorkingOrigin = source is SendSource.UserInput or SendSource.Delivery"},
+ {"name":"origin never forgotten on settle","old":"        if (newState is not (ActivityState.Working or ActivityState.Starting))\n            WorkingOrigin = null;","new":""}
+]

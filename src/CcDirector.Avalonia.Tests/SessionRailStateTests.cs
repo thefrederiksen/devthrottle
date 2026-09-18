@@ -1,3 +1,4 @@
+using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Backends;
@@ -26,6 +27,14 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class SessionRailStateTests
 {
+    // WHY [AvaloniaFact] AND NOT [Fact]: these read Avalonia objects - the dot's brush colour - and pump the
+    // dispatcher, and both verify they are on the dispatcher's thread. A plain [Fact] runs on whatever thread
+    // xUnit hands it, which is the dispatcher's thread only while no headless session has claimed it; the
+    // moment another class in this assembly starts one, these throw "Call from invalid thread". That is an
+    // ordering accident, so it arrived as five of nineteen failing on Windows while every one passed on macOS
+    // and on the run before. [AvaloniaFact] runs the body ON the dispatcher thread, so the answer no longer
+    // depends on who ran first.
+
     /// <summary>A bare session with no Gateway stamp yet - the pre-first-push / no-tunnel shape.</summary>
     private static Session Bare()
     {
@@ -38,7 +47,7 @@ public sealed class SessionRailStateTests
 
     // ===== The "no Gateway, no fold" floor: an unstamped session shows a neutral placeholder =====
 
-    [Fact]
+    [AvaloniaFact]
     public void NoGatewayStamp_RailShowsNeutralPlaceholder_NotCountedNotLabelled()
     {
         var vm = new SessionViewModel(Bare());
@@ -53,7 +62,7 @@ public sealed class SessionRailStateTests
 
     // ===== The dot, the label and the count read the Gateway's stamp verbatim =====
 
-    [Fact]
+    [AvaloniaFact]
     public void NeedsYou_ReadsTheGatewayTriageStamp()
     {
         var session = Bare();
@@ -70,7 +79,7 @@ public sealed class SessionRailStateTests
         Assert.False(vm.NeedsYou);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void ActivityLabel_And_Dot_ReadTheGatewayStamp()
     {
         var session = Bare();
@@ -82,7 +91,7 @@ public sealed class SessionRailStateTests
         Assert.Equal(Color.Parse(StatusPalette.Grey), ((ISolidColorBrush)vm.StatusColorBrush).Color);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void StatusColorBrush_ReadsTheGatewayEffectiveColor()
     {
         var session = Bare();
@@ -97,7 +106,7 @@ public sealed class SessionRailStateTests
 
     /// <summary>An effective-color the desktop's palette does not know is a bug, not a state, and must hit
     /// the unmistakable magenta sentinel - never render as a real colour (grey would read as "parked").</summary>
-    [Fact]
+    [AvaloniaFact]
     public void StatusColorBrush_UnknownStampValue_FallsToMagentaSentinel()
     {
         var session = Bare();
@@ -110,7 +119,7 @@ public sealed class SessionRailStateTests
 
     // ===== The waiting timer reads the Gateway's needs-you clock, so it matches every surface =====
 
-    [Fact]
+    [AvaloniaFact]
     public void WaitingDuration_ReadsTheGatewayNeedsYouSince()
     {
         var session = Bare();
@@ -122,7 +131,7 @@ public sealed class SessionRailStateTests
         Assert.Equal("waiting 11m", vm.WaitingDurationLabel);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void WaitingDuration_IsHidden_WhenNotRed()
     {
         var session = Bare();
@@ -137,7 +146,7 @@ public sealed class SessionRailStateTests
 
     // ===== NEW: the hold time, from the Gateway's snooze clock =====
 
-    [Fact]
+    [AvaloniaFact]
     public void Snoozed_ShowsHoldTime_FromTheGatewaySnoozeClock()
     {
         var session = Bare();
@@ -152,7 +161,7 @@ public sealed class SessionRailStateTests
         Assert.StartsWith("wakes in 3h", vm.HoldTimeLabel);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void HoldTime_IsHidden_WhenThereIsNoSnoozeClock()
     {
         var session = Bare();
@@ -166,7 +175,7 @@ public sealed class SessionRailStateTests
 
     // ===== NEW: the snooze-ended badge, from the Gateway's expiry overlay =====
 
-    [Fact]
+    [AvaloniaFact]
     public void SnoozeEnded_ShowsTheBadge_FromTheGatewayMarker()
     {
         var session = Bare();
@@ -181,7 +190,7 @@ public sealed class SessionRailStateTests
 
     // ===== A stamp arriving must move the WHOLE row together, not half of it =====
 
-    [Fact]
+    [AvaloniaFact]
     public void ADisplayStamp_MovesEveryRenderedFieldTogether()
     {
         var session = Bare();
@@ -210,7 +219,7 @@ public sealed class SessionRailStateTests
         Assert.True(vm.HasHoldTime);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void ClearingTheStamp_ReturnsTheRailToTheNeutralPlaceholder()
     {
         var session = Bare();
@@ -228,7 +237,7 @@ public sealed class SessionRailStateTests
 
     // ===== The role BADGE is a separate Gateway-owned fact (GatewayResolvedRole), unchanged by this work ===
 
-    [Fact]
+    [AvaloniaFact]
     public void ResolvedRole_BeforeAnyGatewayStamp_IsUnknown_NotAssertedStandalone()
     {
         var vm = new SessionViewModel(Bare());
@@ -239,7 +248,7 @@ public sealed class SessionRailStateTests
         Assert.Equal("", vm.RoleTooltip);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void ResolvedRole_FollowsTheGatewayStamp()
     {
         var session = Bare();
@@ -255,7 +264,7 @@ public sealed class SessionRailStateTests
         Assert.Equal("Worker", vm.RoleTooltip);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void ResolvedRole_WhenTheGatewayClearsTheStamp_ReturnsToUnknown()
     {
         var session = Bare();
@@ -278,7 +287,7 @@ public sealed class SessionRailStateTests
     // and never reached the Gateway. It now reads the Session, which the Director's SessionGitStatusMonitor
     // writes and ControlEndpoints.Map puts on the wire - so the rail and the Cockpit roster show one number.
 
-    [Fact]
+    [AvaloniaFact]
     public void UncommittedBadge_UnprobedSession_ShowsNoBadge()
     {
         var vm = new SessionViewModel(Bare());
@@ -289,7 +298,7 @@ public sealed class SessionRailStateTests
         Assert.Equal(0, vm.UncommittedCount);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void UncommittedBadge_CleanTree_ShowsNoBadge()
     {
         var session = Bare();
@@ -300,7 +309,7 @@ public sealed class SessionRailStateTests
         Assert.False(vm.HasUncommittedChanges);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void UncommittedBadge_DirtyTree_ShowsTheCountFromTheSession()
     {
         var session = Bare();
@@ -313,7 +322,7 @@ public sealed class SessionRailStateTests
         Assert.Equal(12, vm.UncommittedCount);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void UncommittedBadge_CountChanges_RaisesTheRailsRepaint()
     {
         var session = Bare();

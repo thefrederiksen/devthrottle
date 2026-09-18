@@ -450,6 +450,9 @@ function RosterRow({
           </span>
           {/* Line 2: the Gateway-stamped status, on its own line so it is never squeezed to "Wor...". */}
           <span className="roster-state">{contextLine(session)}</span>
+          {/* Line 2a (only when something waits): the row line - what waits in this session's fleet inbox,
+              in the Gateway's words, rendered verbatim (Message Load mission, slice 4). */}
+          {session.inboxLine && <span className="roster-inbox">{session.inboxLine}</span>}
           {/* Line 2b: the supervision facts (internal#625) - started / open / idle / turns, from the
               ONE shared formatter, ticking on the shared one-second clock. Stats a Director does not
               report are omitted, never shown as zero. */}

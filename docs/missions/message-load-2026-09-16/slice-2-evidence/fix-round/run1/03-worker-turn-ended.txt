@@ -1,0 +1,43 @@
+# 03-worker-turn-ended - session 7cd43026-1210-4ad7-b57f-b83ada0a214a (Proof - Worker) at 2026-09-17T08:36:42.0363960Z
+# director activity state: Working
+# visible screen rows:
+|  two hundred twenty-eight
+|  two hundred twenty-nine
+|  two hundred thirty
+|  two hundred thirty-one
+|  two hundred thirty-two
+|  two hundred thirty-three
+|  two hundred thirty-four
+|  two hundred thirty-five
+|  two hundred thirty-six
+|  two hundred thirty-seven
+|  two hundred thirty-eight
+|  two hundred thirty-nine
+|  two hundred forty
+|  two hundred forty-one
+|  two hundred forty-two
+|  two hundred forty-three
+|  two hundred forty-four
+|  two hundred forty-five
+|  two hundred forty-six
+|  two hundred forty-seven
+|  two hundred forty-eight
+|  two hundred forty-nine
+|  two hundred fifty
+|
+|✻ Cooked for 13s · done 4:36 AM
+|
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|❯
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|

@@ -885,6 +885,15 @@ body {
   word-break: break-word;
 }
 
+/* The row line (Message Load mission, slice 4): the Gateway's words for what waits in the fleet inbox.
+   Message-count blue, one colour for every line - the words say what kind of wait it is. */
+.roster-inbox {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--accent);
+  word-break: break-word;
+}
+
 /* The supervision line (internal#625): started / open / idle / turns as quiet monospace key-value
    pairs, the same visual language as the Fleet Map's tag rows. Generous gaps and free wrapping on
    purpose - the values must read clearly and sit on their lines, never cram (owner's note on the

@@ -135,18 +135,28 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
         store.Create(NameTheRestored(all), Now);
         Assert.Equal(WorkspaceSeatOutcomes.All_, store.Get("director-restart")!.SeatOutcome!.Scope);
 
+        // The restored ids are written by a restore, never by an ordinary write (the Message Load mission,
+        // inspection 7, ruling 1) - so the "some" record is a capture whose restore brought two seats back, and
+        // the outcome is then written onto it.
         var some = Captured(owed: 3);
-        some.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
-        some.SeatOutcome = new WorkspaceSeatOutcome
+        some.Id = "director-restart-some";
+        store.Create(some, Now);
+        foreach (var (seat, i) in some.Seats.Where(x => x.Restore!.Decision == WorkspaceRestoreDecisions.Restore).Take(2).Select((x, i) => (x, i)))
+            RecordRestored(store, some.Id, seat.SessionId!, $"9a1b{i}c2d-0000-4000-8000-00000000000{i}");
+        var someOutcome = store.Get(some.Id)!;
+        someOutcome.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
+        someOutcome.SeatOutcome = new WorkspaceSeatOutcome
         {
             RestoredCount = 2,
             NotRestoredCount = 1,
             NotRestoredWhy = "its work turned out to be finished",
         };
-        store.Save(NameTheRestored(some), Now);
-        Assert.Equal(WorkspaceSeatOutcomes.Some, store.Get("director-restart")!.SeatOutcome!.Scope);
+        store.Save(someOutcome, Now);
+        Assert.Equal(WorkspaceSeatOutcomes.Some, store.Get(some.Id)!.SeatOutcome!.Scope);
 
         var none = Captured(owed: 3);
+        none.Id = "director-restart-none";
+        store.Create(none, Now);
         none.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
         none.SeatOutcome = new WorkspaceSeatOutcome
         {
@@ -154,7 +164,23 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
             NotRestoredWhy = "the restore was never run",
         };
         store.Save(none, Now);
-        Assert.Equal(WorkspaceSeatOutcomes.None, store.Get("director-restart")!.SeatOutcome!.Scope);
+        Assert.Equal(WorkspaceSeatOutcomes.None, store.Get(none.Id)!.SeatOutcome!.Scope);
+    }
+
+    /// <summary>Record one seat as restored the only way a restore can: a lease, a started mark, a restored mark.</summary>
+    internal static void RecordRestored(WorkspaceStore store, string workspaceId, string seatId, string newId)
+    {
+        const string director = "restoring-director";
+        store.TakeRestoreLease(workspaceId, director, null, Now);
+        store.RecordRestoreMark(workspaceId, new WorkspaceRestoreMark
+        {
+            DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = seatId, Token = "t-" + seatId,
+        }, Now);
+        store.RecordRestoreMark(workspaceId, new WorkspaceRestoreMark
+        {
+            DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = seatId, RestoredSessionId = newId, Token = "t-" + seatId,
+        }, Now);
+        store.RecordRestoreMark(workspaceId, new WorkspaceRestoreMark { DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Finished }, Now);
     }
 
     [Fact]
@@ -239,5 +265,53 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
 
         NewStore().Save(doc, Now);
         Assert.Null(NewStore().Get("morning-fleet")!.Seats[0].SessionId);
+    }
+
+    // ---- A Director restore attempt (the Message Load mission, slice 6) ------------------------------
+
+    [Fact]
+    public void A_restore_failure_is_stored_on_its_seat_and_read_back()
+    {
+        var doc = Captured(owed: 1);
+        doc.Seats[0].Restore!.Failure = "the Gateway did not start it: repository not found";
+        doc.Seats[0].Restore!.AttemptedAtUtc = Now;
+
+        NewStore().Create(doc, Now);
+
+        var stored = NewStore().Get("director-restart")!.Seats[0].Restore!;
+        Assert.Equal("the Gateway did not start it: repository not found", stored.Failure);
+        Assert.Equal(Now, stored.AttemptedAtUtc);
+    }
+
+    [Fact]
+    public void A_restore_failure_is_capped_like_every_other_judgment()
+    {
+        var doc = Captured(owed: 1);
+        doc.Seats[0].Restore!.Failure = new string('x', WorkspaceValidation.MaxTextFieldChars + 1);
+
+        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Create(doc, Now));
+        Assert.Contains("restore.failure", ex.Message);
+    }
+
+    [Fact]
+    public void An_authored_workspace_cannot_claim_a_restore_attempt()
+    {
+        var doc = new WorkspaceDocument
+        {
+            Id = "morning-fleet",
+            Name = "Morning fleet",
+            Origin = WorkspaceOrigins.Authored,
+            Seats =
+            {
+                new WorkspaceSeat
+                {
+                    Name = "a seat", Agent = "ClaudeCode", RepoPath = @"D:\repo",
+                    Restore = new WorkspaceSeatRestore { Failure = "never ran" },
+                },
+            },
+        };
+
+        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        Assert.Contains("a seat restore attempt", ex.Message);
     }
 }

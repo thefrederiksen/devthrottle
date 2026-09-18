@@ -1,0 +1,77 @@
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with no account > says so, and offers to sign in rather than showing an empty list
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with one account > NEVER signs out on the first tap - it asks first
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with one account > does NOT offer sign out of all - there is only one
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with one account > hands Add account back to the shell, which owns the sign-in route
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with one account > names the account and marks it as the one in use
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with one account > offers Add account and a sign-out that names the account
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with one account > replaces the actions with the question, and the committing button answers it
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with one account > signs out on the confirmation, and can be backed out of
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with two accounts > cannot switch to the account already in use
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with two accounts > lists both, with the newest one active
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with two accounts > offers signing out of all of them, and warns that each needs signing in again
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with two accounts > promises the OTHER account survives - the outcome that differs from a single-login sign-out
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with two accounts > says switching needs no password and no connection, because that is not obvious
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with two accounts > says the device stays on the account at devthrottle.com, so a sign-out is not read as a revoke
+ FAIL  src/auth/AccountsPanel.test.tsx > a browser with two accounts > switches to the other account on a tap
+ FAIL  src/auth/accountsLayout.test.tsx > buttons > carries no account address in a button label, on either the one or the two account screen
+ FAIL  src/auth/accountsLayout.test.tsx > buttons > holds every button label to one line
+ FAIL  src/auth/accountsLayout.test.tsx > buttons > lets the two confirmation buttons share one row without summing past it
+ FAIL  src/auth/accountsLayout.test.tsx > the account row, against the real stylesheet > arms the ellipsis on both lines, which an inline box would have ignored
+ FAIL  src/auth/accountsLayout.test.tsx > the account row, against the real stylesheet > lets the row shrink below the width of a long address
+ FAIL  src/auth/accountsLayout.test.tsx > the account row, against the real stylesheet > marks the active account with a drawn dot carrying no text of its own
+ FAIL  src/auth/accountsLayout.test.tsx > the account row, against the real stylesheet > stacks the label and the status line instead of running them together on one line
+ FAIL  src/auth/enrollRequest.test.ts > next-route preservation across the round trip > returns null (the shell default) when storage is unavailable
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - By director pivot (devthrottle_internal#1177) > gives every Director its own lane by NAME, keeps idle ones as free slots and offline ones dimmed
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - By machine free slots > does not fold idle Directors into the repository pivot - only machine shows capacity
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - By machine free slots > shows an idle machine as a lane with a free slot, even though it has no sessions
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - By machine free slots > shows an offline machine, dated and with no new-session action - dimmed, never dropped
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - Director sub-header new-session button > opens the shared dialog pre-targeted to the clicked Director, not the newest one
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - the Sessions list's tree, across machines > By agent does not hide a session inside another column's crew
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - the Sessions list's tree, across machines > collapses 102's crew by default and says what is inside it
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - the Sessions list's tree, across machines > expands to BOTH Workers under 102, the one on SOREN_NORTH saying where it runs, each drawn once
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - the unreachable banner is the Gateway's sentence > does NOT call a machine unreachable just because one of its Directors is
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - the unreachable banner is the Gateway's sentence > prints the Gateway's banner verbatim
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - the unreachable banner is the Gateway's sentence > renders a shut-down Director as not running, with no warning and no action
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - what the colours mean > hovers a purple dot as Carrying on, not as the Director's 'needs you'
+ FAIL  src/fleet/FleetMapView.test.tsx > FleetMapView - what the colours mean > shows the Gateway's legend beside the map, every colour it sends
+ FAIL  src/sessions/sessionsBadge.test.tsx > Cockpit needs-you badge > counts only the waiting sessions on machines the owner can act on
+ FAIL  src/sessions/sessionsBadge.test.tsx > Cockpit needs-you badge > still counts a session the Gateway did not stamp at all (older Gateway)
+ FAIL  src/throttle/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered Cockpit page - the whole answer > a modality token the consumers do not know is refused
+ FAIL  src/throttle/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered Cockpit page - the whole answer > a surface the consumers do not know is refused
+ FAIL  src/throttle/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered Cockpit page - the whole answer > an answer without a headline is refused
+ FAIL  src/throttle/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered Cockpit page - the whole answer > the empty state is the librarys ruling
+ FAIL  src/throttle/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered Cockpit page - the whole answer > the headline is rendered not the counts
+ FAIL  src/throttle/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered Cockpit page - the whole answer > the percent field is printed not re rounded
+ FAIL  src/throttle/YourThrottleView.test.tsx > YourThrottleView at the mentor report's link > a URL with neither asks for the Gateway's default and shows the served label
+ FAIL  src/throttle/YourThrottleView.test.tsx > YourThrottleView at the mentor report's link > asks the Gateway for exactly the week in the URL and shows the Gateway's label for it verbatim
+ FAIL  src/throttle/YourThrottleView.test.tsx > YourThrottleView at the mentor report's link > choosing a length re-asks the Gateway with days=N, puts days=N in the URL, and marks the served choice
+ FAIL  src/pages/HomeRosterCard.test.tsx > mobile roster card agent tool > polls, groups, and renders the tool label through the assembled Home roster
+ FAIL  src/pages/HomeSessionTree.test.tsx > the colour legend on the phone roster > offers the legend under the order switch, and opens it
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > draws the calm band under the reds: its title, and the judged calm row as a card inside it
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > draws the guides with the stylesheet the build ships - hiding them in CSS, or re-declaring the selector later, is caught here
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > expands the crew in place as one-line rows that open the child session
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > keeps a Manager's Workers reachable, stepped in one level, and counts them on the Architect
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > names the machine on every edge that crosses one, not just against the crew's root
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > nests a Worker on another machine under its Architect and names that machine on its row
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > never shrinks the state or the machine on a phone row - the name wraps instead
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > opens in attention order with the crew folded under its parent and the band saying what is under it
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > renders both members of an ownership loop as cards
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > shows the level number instead of guides once a row is deeper than the guides can draw
+ FAIL  src/pages/HomeSessionTree.test.tsx > the phone roster is the ownership tree > switches to my order, grouped by machine, and remembers the choice on this device
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > allows recent repositories when history fails and reports the partial failure
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > caps broad search rendering, reports the full match count, and keeps every result reachable
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > ignores late agent and repository responses from a previous Director
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > keeps case-distinct Unix repository paths as separate choices
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > keeps the loading state honest while an empty recent source waits for repository history
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > preserves choices and typed input while retrying repository sources
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > reports a blank manual path and accepts a populated manual path
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > reports an agent loading error and retries before allowing selection
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > searches beyond five recent repositories and creates only after explicit review
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > shows an empty agent list explicitly and does not enable review
+ FAIL  src/pages/NewSession.test.tsx > mobile new session > uses an immediate in-flight guard so rapid confirmation taps create one session
+ FAIL  src/pages/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered phone page - the whole answer > a modality token the consumers do not know is refused
+ FAIL  src/pages/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered phone page - the whole answer > a surface the consumers do not know is refused
+ FAIL  src/pages/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered phone page - the whole answer > an answer without a headline is refused
+ FAIL  src/pages/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered phone page - the whole answer > the empty state is the librarys ruling
+ FAIL  src/pages/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered phone page - the whole answer > the headline is rendered not the counts
+ FAIL  src/pages/YourThrottleContract.test.tsx > the Your Throttle contract, on the rendered phone page - the whole answer > the percent field is printed not re rounded

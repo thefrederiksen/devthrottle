@@ -19,6 +19,12 @@ namespace CcDirector.Gateway.Api;
 ///   PUT    /gateway/workspaces/{id}   -> store a document | 400
 ///                                     with "If-None-Match: *", create only | 412 if it exists
 ///   DELETE /gateway/workspaces/{id}   -> 200 | 404
+///   POST   /gateway/workspaces/{id}/restore
+///                                     -> RESTORE: the named Director brings the seats back | 202 | 400 | 404
+///                                        | 409 | 502 (the Message Load mission, slice 6)
+///   POST   /gateway/workspaces/{id}/restore/marks
+///                                     -> what a restore did to one seat, written by the Director holding the
+///                                        restore lease | 200 | 400 | 403 | 409 (inspection 7, ruling 1)
 ///
 /// The routes sit under /gateway for the same reason the workflow routes do: the Gateway serves the
 /// single-page app at "/" and falls unknown page paths back to index.html, so an API at a bare
@@ -59,12 +65,193 @@ internal static class WorkspaceEndpoints
     /// side of a disconnection.</param>
     /// <param name="lookupDirector">Resolve a Director's display name and version, for the capture header.
     /// Returns null when the Gateway does not know that Director.</param>
+    /// <param name="sendRestore">Send a restore order down one Director's stream and return its answer, or null
+    /// when that Director is not connected (the Message Load mission, slice 6).</param>
+    /// <param name="callerIsDirector">Whether the request's verified credential is the one the named Director said
+    /// Hello on, in the request's own account (inspection 11, ruling 1).</param>
     public static void Map(
         IEndpointRouteBuilder app,
         WorkspaceStore store,
         Func<string, (Streaming.FleetObservation Observation, IReadOnlyList<SessionDto> Sessions)> connectedFleet,
-        Func<string, DirectorDto?> lookupDirector)
+        Func<string, DirectorDto?> lookupDirector,
+        Func<string, WorkspaceRestoreOrder, CancellationToken, Task<DirectorCommandResult?>> sendRestore,
+        Func<HttpContext, string, bool> callerIsDirector)
     {
+        // RESTORE (the Message Load mission, slice 6; owner decision 2, 17 September 2026). A drained fleet is
+        // brought back by the DIRECTOR, not by a session running spawn lines: a session key may name only itself
+        // or the user as the owner of what it starts, and a restored Worker is owned by somebody else. So a
+        // session (or the owner) asks here, the Gateway relays the order to the named Director, and that Director
+        // starts every seat through POST /directors/{its id}/sessions on its own credential, naming the owner the
+        // seat had - read from the seat facts this Gateway captured, which no caller can rewrite.
+        //
+        // WHO ASKED is stamped from the verified credential, never read from the body. The Director checks the
+        // workspace and the seats before it answers, so a restore that cannot start is refused here, with its
+        // reason, rather than failing later in a log.
+        app.MapPost("/gateway/workspaces/{id}/restore", async (string id, HttpContext ctx, CancellationToken ct) =>
+        {
+            WorkspaceRestoreRequest? req;
+            try
+            {
+                req = await JsonSerializer.DeserializeAsync<WorkspaceRestoreRequest>(
+                    ctx.Request.Body, WorkspaceStore.DocumentJsonOptions, ct);
+            }
+            catch (JsonException ex)
+            {
+                return Results.Json(new { error = $"the restore body could not be read: {ex.Message}" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            if (req is null || string.IsNullOrWhiteSpace(req.DirectorId))
+                return Results.Json(new { error = "directorId is required - a restore names the Director that brings the seats back (after a restart, the NEW one)" },
+                    statusCode: StatusCodes.Status400BadRequest);
+
+            var doc = store.Get(id);
+            if (doc is null)
+                return Results.Json(new { error = $"no workspace with id '{id}'" },
+                    statusCode: StatusCodes.Status404NotFound);
+
+            var director = lookupDirector(req.DirectorId);
+            if (director is null)
+                return Results.Json(
+                    new { error = $"no Director with id '{req.DirectorId}' - this Gateway has never seen it, or it belongs to another account" },
+                    statusCode: StatusCodes.Status404NotFound);
+
+            // The seats were captured on one machine, and their repositories are paths on that machine. Starting
+            // them on another would be a guess that the same paths exist there.
+            if (!string.IsNullOrWhiteSpace(doc.Machine) && !string.IsNullOrWhiteSpace(director.MachineName)
+                && !string.Equals(doc.Machine, director.MachineName, StringComparison.OrdinalIgnoreCase))
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore REFUSED: id={id}, director={req.DirectorId}: machine {director.MachineName} is not {doc.Machine}");
+                return Results.Json(
+                    new { error = $"workspace '{id}' was captured on {doc.Machine}, and Director '{req.DirectorId}' runs on {director.MachineName}. " +
+                                  "A seat is restored on the machine its repository paths belong to." },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
+            var askedBy = ctx.Items.TryGetValue(Util.AuthMiddleware.AuthenticatedSessionItemKey, out var si)
+                          && si is Pairing.SessionCredentialIdentity caller
+                ? caller.SessionId.ToString()
+                : null;
+            var order = new WorkspaceRestoreOrder
+            {
+                WorkspaceId = doc.Id,
+                Seats = req.Seats,
+                Seeds = req.Seeds,
+                ForceSeats = req.ForceSeats,
+                RequestedBySessionId = askedBy,
+            };
+
+            // ONE DIRECTOR PER WORKSPACE (inspection 7, ruling 4). The Director's own gate is per process, and two
+            // Directors on the captured machine both pass the machine check above - each would read the same
+            // un-restored seats and start them. The lease is taken HERE, before anything is relayed, and only the
+            // holder may write what a restore did.
+            if (!string.Equals(doc.Origin, WorkspaceOrigins.Captured, StringComparison.Ordinal))
+                return Results.Json(
+                    new { error = $"workspace '{id}' is {doc.Origin}, not captured. A Director restores only a workspace the Gateway captured, because only there are the owners facts the Gateway observed." },
+                    statusCode: StatusCodes.Status409Conflict);
+
+            bool newlyLeased;
+            try
+            {
+                newlyLeased = store.TakeRestoreLease(doc.Id, req.DirectorId, askedBy, DateTime.UtcNow);
+            }
+            catch (WorkspaceValidationException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore REFUSED: id={id}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            catch (WorkspaceConflictException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore REFUSED: id={id}, director={req.DirectorId}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+
+            FileLog.Write($"[WorkspaceEndpoints] restore: id={id}, director={req.DirectorId}, askedBy={askedBy ?? "owner"}, " +
+                          $"seats={(req.Seats is null ? "all owed" : string.Join(",", req.Seats))}, newlyLeased={newlyLeased}");
+            var result = await sendRestore(req.DirectorId, order, ct);
+
+            // A lease this request granted is given back when nothing will run under it. A lease the Director
+            // already held is left alone: a run of that Director may be the reason this one was refused. A
+            // timeout keeps it too - the Director may have taken the restore - and it lapses on its own.
+            var nothingRuns = result is null || (!result.Ok && result.Status != DirectorCommandStatus.Timeout);
+            if (newlyLeased && nothingRuns) store.ReleaseRestoreLease(doc.Id, req.DirectorId);
+
+            if (result is null)
+                return Results.Json(new { error = $"Director '{req.DirectorId}' is not connected to this Gateway, so nothing was restored." },
+                    statusCode: StatusCodes.Status502BadGateway);
+            if (!result.Ok)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore REFUSED by the Director: id={id}, status={result.Status}: {result.Error}");
+                var status = result.Status switch
+                {
+                    DirectorCommandStatus.BadRequest => StatusCodes.Status400BadRequest,
+                    DirectorCommandStatus.Conflict => StatusCodes.Status409Conflict,
+                    DirectorCommandStatus.NotFound => StatusCodes.Status404NotFound,
+                    DirectorCommandStatus.Timeout => StatusCodes.Status504GatewayTimeout,
+                    _ => StatusCodes.Status502BadGateway,
+                };
+                return Results.Json(new { error = result.Error ?? $"the Director refused the restore ({result.Status})" }, statusCode: status);
+            }
+
+            return Results.Content(result.BodyJson ?? "{}", "application/json", statusCode: StatusCodes.Status202Accepted);
+        });
+        // WHAT A RESTORE DID (inspection 7, ruling 1). The only way the restored id, the failure, the attempt time
+        // and the start token reach a workspace: written by the Director that holds the restore lease, on its own
+        // credential. A session key never reaches this route (SessionKeyGuard lists only the restore route
+        // itself), and a person's device is refused here - neither runs a restore.
+        //
+        // AND THE CREDENTIAL MUST BE THAT DIRECTOR'S (inspection 11, ruling 1). The mark names a Director; the
+        // Gateway already knows which credential that Director said Hello on, because the hub bound the id to the
+        // authenticated key. Any other key of the same account - another workstation - is refused 403 before the
+        // store is asked, so it can neither write a mark under the lease holder's name nor release its lease.
+        // What this does not separate: several Directors on ONE machine share that machine's key, so one of them
+        // can still name another. The lease and the start token are what stop those.
+        app.MapPost("/gateway/workspaces/{id}/restore/marks", async (string id, HttpContext ctx, CancellationToken ct) =>
+        {
+            if (!IsDirectorCredential(ctx))
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore mark REFUSED: id={id}: not a Director's credential");
+                return Results.Json(new { error = "only the Director running a restore writes what the restore did; a person or a session sets the restore decision and the handover path, and asks for the restore." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            WorkspaceRestoreMark? mark;
+            try
+            {
+                mark = await JsonSerializer.DeserializeAsync<WorkspaceRestoreMark>(ctx.Request.Body, WorkspaceStore.DocumentJsonOptions, ct);
+            }
+            catch (JsonException ex)
+            {
+                return Results.Json(new { error = $"the restore mark could not be read: {ex.Message}" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+            if (mark is null)
+                return Results.Json(new { error = "a restore mark body is required" }, statusCode: StatusCodes.Status400BadRequest);
+
+            if (string.IsNullOrWhiteSpace(mark.DirectorId) || !callerIsDirector(ctx, mark.DirectorId))
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore mark REFUSED: id={id}, director={mark.DirectorId}, kind={mark.Kind}: the credential is not the one that Director is connected on");
+                return Results.Json(new { error = $"this credential is not the one Director '{mark.DirectorId}' is connected to this Gateway on, so it may not write what that Director's restore did." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            try
+            {
+                var saved = store.RecordRestoreMark(id, mark, DateTime.UtcNow);
+                return Results.Json(saved, WorkspaceStore.DocumentJsonOptions);
+            }
+            catch (WorkspaceValidationException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore mark REFUSED: id={id}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            catch (WorkspaceConflictException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore mark CONFLICT: id={id}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+        });
+
         app.MapGet("/gateway/workspaces", () =>
         {
             var workspaces = store.List();
@@ -242,5 +429,17 @@ internal static class WorkspaceEndpoints
                 : Results.Json(new { error = $"no workspace with id '{id}'" },
                     statusCode: StatusCodes.Status404NotFound);
         });
+    }
+
+    /// <summary>
+    /// True when the verified credential is a DIRECTOR's: not a session key and not a person's phone or browser.
+    /// That leaves a workstation key (what a Director enrols with) or the shared machine token of a self-hosted
+    /// Gateway. Read from the identity the authentication gate resolved, never from the request.
+    /// </summary>
+    internal static bool IsDirectorCredential(HttpContext ctx)
+    {
+        if (Util.AuthMiddleware.CallingSession(ctx) is not null) return false;
+        var deviceType = ctx.Items.TryGetValue(Util.AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
+        return Core.Sessions.SessionOriginSurfaces.FromDeviceType(deviceType) == Core.Sessions.SessionOriginSurfaces.Unknown;
     }
 }

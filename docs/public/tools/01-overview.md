@@ -117,8 +117,9 @@ The full guide, including the limits, is at https://devthrottle.com/docs/cli/sec
 ```bash
 cc-devthrottle session list
 cc-devthrottle session whoami
-cc-devthrottle message send <session> "Can you run the focused test?"
-cc-devthrottle message ask <session> "What is your status?"
+cc-devthrottle message inbox
+cc-devthrottle message send <session> "Main is red - hold your rebase." --reply-wanted
+cc-devthrottle message reply <correlation-id> "Holding."
 cc-devthrottle session spawn D:\path\to\repo --prompt "Run the tests." --standalone --why "..."
 cc-devthrottle schedule list
 cc-devthrottle setup status
@@ -126,4 +127,6 @@ cc-devthrottle setup status
 
 Groups: `session`, `message`, `mission`, `director`, `machine`, `repo`, `worktree`, `workflow`, `skill`, `schedule`, `browser`, `diag`, `autostart`, `email`, `settings`, `setup`, plus the top-level `actions` and `selftest`.
 
-The fleet commands call the Gateway with the session's own key (`CC_GATEWAY_URL` and `CC_GATEWAY_SESSION_KEY`), which a Director attached to a Gateway puts into every session it launches. Local commands such as `setup status` and `actions` work in any terminal. When you spawn from inside a session, say who owns the new one: `--controlled-by self`, a session id, or `--standalone` with `--why`.
+The fleet commands call the Gateway with the session's own key (`CC_GATEWAY_URL` and `CC_GATEWAY_SESSION_KEY`), which a Director attached to a Gateway puts into every session it launches. Local commands such as `setup status` and `actions` work in any terminal. When you spawn from inside a session, say who owns the new one: `--controlled-by self` or `--standalone` with `--why`.
+
+Messages are rare and they queue. A session may message only the session that started it and the sessions it started, at most six an hour; anything else is refused with "put it in your report". Nothing is typed into a working session: when the recipient is free, one doorbell line tells it to run `cc-devthrottle message inbox`. Nobody waits for an answer - ask with `--reply-wanted`, and the reply arrives in your inbox. See `docs/FleetMessaging.md`.

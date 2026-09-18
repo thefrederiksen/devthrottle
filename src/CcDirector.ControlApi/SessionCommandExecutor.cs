@@ -97,6 +97,9 @@ internal static class SessionCommandExecutor
         // a loopback debug port and a profile directory on this disk - so the Gateway never drives one; it
         // carries the command to the Director that does.
         new BrowserExecutor(),
+        // The Message Load mission, slice 2: the doorbell. The Gateway asks; this Director checks the live screen
+        // and types the one line only when that is safe.
+        new FleetDoorbellExecutor(),
     };
 
     /// <summary>
@@ -590,7 +593,13 @@ internal static class SessionCommandExecutor
             }
         }
 
-        sessionManager.RemoveSession(guid);
+        // The removal can DECLINE, and there is one reason it does: the session was running in a pooled
+        // cc-worktrees worktree and that tool would not take the worktree back, so the row is kept with
+        // the tool's reason on it. Read what actually happened rather than asserting it - a stop that
+        // reported "row removed" about a row still on the screen is the same false report this whole
+        // answer shape exists to stop.
+        var rowRemoved = sessionManager.RemoveSession(guid);
+        var pooledHeld = rowRemoved ? null : sessionManager.GetSession(guid)?.PooledWorktreeHeldReason;
 
         var result = new DirectorStopResult
         {
@@ -598,10 +607,11 @@ internal static class SessionCommandExecutor
             // distinguish "ended a live process" from "there was nothing running"; the honest fields below
             // are why they no longer have to.
             Killed = true,
-            Removed = true,
+            Removed = rowRemoved,
             ProcessId = processId,
             ProcessEnded = processEnded,
-            RowRemoved = true,
+            RowRemoved = rowRemoved,
+            PooledWorktreeHeldReason = pooledHeld,
             WorktreePath = worktreePath,
             WorktreeHadUncommittedChanges = worktreeDirty,
             // WHAT WAS ESTABLISHED IS STILL REPORTED. Under stoppedNotDescribed the process identifier read
@@ -624,7 +634,8 @@ internal static class SessionCommandExecutor
             + $"pid={(result.ProcessId?.ToString() ?? "none")}, processEnded={result.ProcessEnded}, "
             + $"rowRemoved={result.RowRemoved}, worktree={worktreePath ?? "none"}, "
             + $"worktreeProbe={ProbeOutcome(worktreeDirty)}"
-            + (notDescribed is null ? "" : $", notDescribed={notDescribed}"));
+            + (notDescribed is null ? "" : $", notDescribed={notDescribed}")
+            + (pooledHeld is null ? "" : $", pooledWorktreeHeld={pooledHeld}"));
         return DirectorCommandResult.Success(Serialize(result));
     }
 

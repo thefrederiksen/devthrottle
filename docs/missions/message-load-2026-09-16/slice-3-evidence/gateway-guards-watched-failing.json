@@ -1,0 +1,771 @@
+[
+ {
+  "mutation": "policy: the reply's recipient is not checked",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessagePolicy.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "410"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_to_a_session_the_replier_may_otherwise_message_is_still_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_to_anyone_but_the_asker_is_refused"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "policy: the replier is not checked",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessagePolicy.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "4",
+      "408"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_refused_target_is_reported_before_an_earlier_answer",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_from_a_session_the_question_was_not_sent_to_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_from_the_asker_to_itself_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_from_a_session_the_question_was_not_sent_to_is_refused_and_nothing_is_written"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "8",
+      "33"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_from_a_session_that_was_not_asked_is_refused",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_allowed_after_the_relationship_is_gone_where_a_message_is_not",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_not_held_to_the_spacing_that_refuses_a_second_message",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_needs_an_id_and_a_session_key",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_round_trip_lands_in_the_askers_inbox_with_the_question_and_types_nothing",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_to_a_message_that_did_not_ask_is_refused",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_second_reply_is_refused_and_an_unknown_id_is_not_found",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "policy: a reply goes through the ordinary rules",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessagePolicy.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "22",
+      "390"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_refused_target_is_reported_before_an_earlier_answer",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_cannot_ride_an_exemption(exemption:",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_from_a_session_the_question_was_not_sent_to_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_from_the_asker_to_itself_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_is_not_held_to_the_hourly_limit(sentInWindow:",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_is_not_held_to_the_per_recipient_spacing",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_over_the_text_cap_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_that_names_no_question_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_to_a_notice_from_the_gateway_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_to_a_session_the_replier_may_otherwise_message_is_still_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_to_anyone_but_the_asker_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_to_the_asker_is_queued_although_the_two_are_strangers",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_second_reply_to_the_same_question_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.An_identical_unread_reply_is_dropped",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.Session_ids_are_compared_without_case_or_padding",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_from_a_session_the_question_was_not_sent_to_is_refused_and_nothing_is_written",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_second_reply_to_the_same_question_is_refused",
+     "CcDirector.Gateway.Tests.SessionKeyGuardTests.The_action_side_of_the_agent_route_set_is_allowed(method:",
+     "CcDirector.Gateway.Tests.SessionKeyGuardTests.The_reply_route_is_allowed_only_in_its_one_shape"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "7",
+      "34"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_from_a_session_that_was_not_asked_is_refused",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_allowed_after_the_relationship_is_gone_where_a_message_is_not",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_not_held_to_the_spacing_that_refuses_a_second_message",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_needs_an_id_and_a_session_key",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_round_trip_lands_in_the_askers_inbox_with_the_question_and_types_nothing",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_second_reply_is_refused_and_an_unknown_id_is_not_found",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "policy: a reply is held to the hourly limit",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessagePolicy.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "3",
+      "409"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_is_not_held_to_the_hourly_limit(sentInWindow:"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "policy: a reply is held to the spacing",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessagePolicy.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "411"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_is_not_held_to_the_per_recipient_spacing"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_not_held_to_the_spacing_that_refuses_a_second_message"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "policy: one reply per question not enforced",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessagePolicy.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "410"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_second_reply_to_the_same_question_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_second_reply_to_the_same_question_is_refused"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_second_reply_is_refused_and_an_unknown_id_is_not_found"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: replies counted in the hourly six",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "411"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.Replies_are_not_counted_against_the_repliers_hourly_six_or_its_spacing"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: replies start the spacing",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "411"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.Replies_are_not_counted_against_the_repliers_hourly_six_or_its_spacing"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: overdue mark saved before the notice is staged",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "410"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_failure_before_the_save_persists_neither_the_mark_nor_the_notice_and_the_retry_writes_both_once",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_notice_that_cannot_be_built_leaves_the_question_unmarked"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: an overdue question is scanned again",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "410"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_failure_before_the_save_persists_neither_the_mark_nor_the_notice_and_the_retry_writes_both_once",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.Nothing_is_marked_before_the_deadline_and_the_asker_is_told_once_at_it"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Passed!",
+      "0",
+      "41"
+     ]
+    ],
+    "failed": [],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "policy: a reply to a Gateway notice allowed",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessagePolicy.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "411"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.A_reply_to_a_notice_from_the_gateway_is_refused"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: an answered question is scanned",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "410"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_plain_message_and_a_reply_are_never_marked",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.An_answered_question_is_never_marked"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: the reply does not stamp the question",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "5",
+      "407"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_plain_message_and_a_reply_are_never_marked",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_after_the_deadline_still_lands_and_no_second_notice_follows",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_lands_in_the_askers_inbox_beside_the_question_it_answers",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_second_reply_to_the_same_question_is_refused",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.An_answered_question_is_never_marked"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_second_reply_is_refused_and_an_unknown_id_is_not_found"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: a reply may be taken for a question",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "411"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_cannot_be_used_as_a_question_to_reply_to"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: a late reply is refused",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "411"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_after_the_deadline_still_lands_and_no_second_notice_follows"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: the question's text shown to any reader",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "411"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_row_about_a_question_the_reader_did_not_send_shows_no_question_text"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "store: the question is not joined to the read",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "4",
+      "408"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_after_the_deadline_still_lands_and_no_second_notice_follows",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_lands_in_the_askers_inbox_beside_the_question_it_answers",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.Recent_replies_show_their_question_too",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_no_reply_notice_is_shown_as_one_with_the_question_it_is_about"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "39"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_round_trip_lands_in_the_askers_inbox_with_the_question_and_types_nothing",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "doorbell: the heartbeat does not run the no-reply scan",
+  "file": "src/CcDirector.Gateway/Messaging/FleetDoorbell.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "3",
+      "409"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_heartbeat_over_forty_recipients_reads_the_database_a_fixed_number_of_times(directorsRing:",
+     "CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_heartbeat_marks_a_question_past_its_deadline_and_rings_the_asker_for_the_notice_on_the_same_tick"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "service: the no-reply notice not labelled",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageService.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "410"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_after_the_deadline_still_lands_and_no_second_notice_follows",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_no_reply_notice_is_shown_as_one_with_the_question_it_is_about"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "service: the notice carries no link to the question",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageService.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "4",
+      "408"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_after_the_deadline_still_lands_and_no_second_notice_follows",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.Each_overdue_question_gets_its_own_notice",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.Nothing_is_marked_before_the_deadline_and_the_asker_is_told_once_at_it",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_no_reply_notice_is_shown_as_one_with_the_question_it_is_about"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "service: late never reported",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageService.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "411"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_after_the_deadline_still_lands_and_no_second_notice_follows"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "service: default reply window 30 minutes",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageLimits.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "410"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.The_reply_window_limits_are_the_approved_ones",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_reply_window_defaults_to_an_hour_and_takes_the_bounds(minutes:"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "service: upper bound 48 hours",
+  "file": "src/CcDirector.Gateway/Messaging/FleetMessageLimits.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "5",
+      "407"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyPolicyTests.The_reply_window_limits_are_the_approved_ones",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.A_reply_window_outside_the_bounds_is_refused_with_a_sentence(minutes:",
+     "CcDirector.Gateway.Tests.Messaging.FleetMessageReplyStoreTests.The_service_refuses_a_window_the_route_should_have_refused"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "39"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_bad_reply_deadline_is_refused_and_nothing_is_queued(json:"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "guard: the reply route not allowed",
+  "file": "src/CcDirector.Gateway/Util/SessionKeyGuard.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.UnitTests": {
+    "summary": [
+     [
+      "Failed!",
+      "2",
+      "410"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.SessionKeyGuardTests.The_action_side_of_the_agent_route_set_is_allowed(method:",
+     "CcDirector.Gateway.Tests.SessionKeyGuardTests.The_reply_route_is_allowed_only_in_its_one_shape"
+    ],
+    "compile_errors": []
+   },
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "8",
+      "33"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_from_a_session_that_was_not_asked_is_refused",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_allowed_after_the_relationship_is_gone_where_a_message_is_not",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_not_held_to_the_spacing_that_refuses_a_second_message",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_needs_an_id_and_a_session_key",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_round_trip_lands_in_the_askers_inbox_with_the_question_and_types_nothing",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_to_a_message_that_did_not_ask_is_refused",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_second_reply_is_refused_and_an_unknown_id_is_not_found",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "route: replyWanted ignored",
+  "file": "src/CcDirector.Gateway/Api/GatewayEndpoints.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "7",
+      "34"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_from_a_session_that_was_not_asked_is_refused",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_allowed_after_the_relationship_is_gone_where_a_message_is_not",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_is_not_held_to_the_spacing_that_refuses_a_second_message",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_needs_an_id_and_a_session_key",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_reply_round_trip_lands_in_the_askers_inbox_with_the_question_and_types_nothing",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_second_reply_is_refused_and_an_unknown_id_is_not_found",
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands"
+    ],
+    "compile_errors": []
+   }
+  }
+ },
+ {
+  "mutation": "route: a deadline without the ask accepted",
+  "file": "src/CcDirector.Gateway/Api/GatewayEndpoints.cs",
+  "red": true,
+  "results": {
+   "CcDirector.Gateway.Tests": {
+    "summary": [
+     [
+      "Failed!",
+      "1",
+      "40"
+     ]
+    ],
+    "failed": [
+     "CcDirector.Gateway.Tests.FleetMessageRouteTests.A_bad_reply_deadline_is_refused_and_nothing_is_queued(json:"
+    ],
+    "compile_errors": []
+   }
+  }
+ }
+]

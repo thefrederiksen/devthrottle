@@ -834,7 +834,7 @@ public sealed class DirectorDrain
             },
             Why = block.Why,
             Command = block.Restore == true
-                ? DrainRestoreCommand.Build(seat, path, ControllerIsBeingRestarted(seat, byId))
+                ? DrainRestoreCommand.Build(WorkspaceId, seat.SessionId!)
                 : null,
         };
 
@@ -1310,12 +1310,6 @@ public sealed class DirectorDrain
                 "this record, so a restart would destroy it without a trace. Drain again.");
         }
     }
-
-    /// <summary>Whether this seat's controller is itself being restarted, which decides whether its restore
-    /// command carries a placeholder for a new id or the id the controller keeps.</summary>
-    private static bool ControllerIsBeingRestarted(
-        WorkspaceSeat seat, Dictionary<string, WorkspaceSeat> byId)
-        => !string.IsNullOrWhiteSpace(seat.ReportsTo) && byId.ContainsKey(seat.ReportsTo!);
 
     /// <summary>
     /// The questions, rolled up from what each seat's CURRENT block said - never by re-reading the files.

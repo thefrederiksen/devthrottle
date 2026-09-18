@@ -1,0 +1,14 @@
+== MUTATION item 9 reverted: the dictation lock not consulted: exit=1
+    Failed!  - Failed:     2, Passed:    56, Skipped:     0, Total:    58, Duration: 7 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_dictation_in_flight_defers_the_ring_without_asking_the_Director [35 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_dictation_in_flight_moves_nothing_towards_stuck [51 ms]
+== MUTATION the lock consulted for the wrong session: exit=1
+    Failed!  - Failed:     3, Passed:    55, Skipped:     0, Total:    58, Duration: 8 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_dictation_in_flight_defers_the_ring_without_asking_the_Director [42 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_dictation_for_another_session_does_not_hold_this_one [22 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_dictation_in_flight_moves_nothing_towards_stuck [46 ms]
+== MUTATION a dictation deferral counted as a ring: exit=1
+    Failed!  - Failed:     3, Passed:    55, Skipped:     0, Total:    58, Duration: 9 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_dictation_in_flight_defers_the_ring_without_asking_the_Director [48 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_ring_goes_once_the_dictation_has_ended [43 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_dictation_in_flight_moves_nothing_towards_stuck [101 ms]

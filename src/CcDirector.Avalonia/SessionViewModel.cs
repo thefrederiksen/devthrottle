@@ -149,6 +149,8 @@ public class SessionViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasRoleGlyph));
         OnPropertyChanged(nameof(RoleGlyphText));
         OnPropertyChanged(nameof(RoleTooltip));
+        OnPropertyChanged(nameof(InboxLine));
+        OnPropertyChanged(nameof(HasInboxLine));
     }
 
     /// <summary>A fold input changed and carries nothing else - re-read the projection. Serves the three
@@ -639,6 +641,17 @@ public class SessionViewModel : INotifyPropertyChanged
     /// which is exactly why it disagreed. Empty until a Gateway stamps one (the no-Gateway floor).
     /// </summary>
     public string ActivityLabel => FoldInput.StateLabel ?? "";
+
+    /// <summary>
+    /// The row line (Message Load mission, slice 4): what waits in this session's fleet inbox, in the
+    /// GATEWAY'S words (<c>SessionDto.InboxLine</c>, stamped down from <c>Session.GatewayInboxLine</c>) -
+    /// the same string the Cockpit and the phone render. Verbatim; the rail never counts or words messages.
+    /// Empty when nothing waits or no Gateway has stamped one.
+    /// </summary>
+    public string InboxLine => FoldInput.InboxLine ?? "";
+
+    /// <summary>Whether the row line has anything to show. Presence only - the words decide nothing here.</summary>
+    public bool HasInboxLine => InboxLine.Length > 0;
 
     /// <summary>
     /// True when this session is waiting on YOU - the shared fold's triage verdict, not a colour.

@@ -1,0 +1,165 @@
+--- /private/tmp/claude-501/-Users-soren-ReposFred-devthrottle-message-load/bb8198e1-49cd-44b4-a229-740b6e91781f/scratchpad/skill-dr.orig/SKILL.md	2026-09-17 07:13:21
++++ /private/tmp/claude-501/-Users-soren-ReposFred-devthrottle-message-load/bb8198e1-49cd-44b4-a229-740b6e91781f/scratchpad/skill-dr/SKILL.md	2026-09-17 07:14:55
+@@ -289,7 +289,23 @@
+ 
+ Keep a second copy where the driving session can reach it, because the driving session is somewhere
+ else and is the one that will do the restoring.
++
++**The record the restore reads is the WORKSPACE on the Gateway, not this file.** A Director's own
++drain writes one. If you drain by hand, capture one BEFORE step 5 closes anything - the capture reads
++the live sessions, so it is impossible afterwards - and write each seat's handover path, drain state
++and restore decision onto it as you go:
++
++```bash
++curl -X POST "$CC_GATEWAY_URL/gateway/workspaces" -H "Authorization: Bearer $CC_GATEWAY_SESSION_KEY" \
++  -H "Content-Type: application/json" \
++  -d '{"id":"<timestamp>-<director name>","name":"<director name> restart","directorId":"<target id>","reason":"<why>"}'
++# then GET /gateway/workspaces/<id>, set the judgments on each seat, and PUT it back
++```
+ 
++The Gateway fills in each seat's name, agent, role, mission, repository and OWNER from what it saw, and
++nobody can change those afterwards. That is what lets the Director restore a seat under its real
++owner (step 8) without anyone having to name that owner.
++
+ ### index.json
+ 
+ ```json
+@@ -326,7 +342,7 @@
+       "restore": {
+         "decision": "restore",
+         "why": "handover names a specific next action",
+-        "command": "cc-devthrottle session spawn ... --director <new id> --agent ClaudeCode --name \"Linux Support - VM Worker\" --role Worker --controlled-by <new manager id> --prompt \"<seed>\""
++        "command": "cc-devthrottle director restore \"<workspace id>\" --director \"<the NEW director id>\" --seat 8f894218-..."
+       },
+       "closedAtUtc": null,
+       "restoredSessionId": null
+@@ -463,8 +479,10 @@
+ So finish the job in the other direction:
+ 
+ - **Restore every seat recorded `drained` or `covered`**, from the workspace, seeded from its own
+-  handover - exactly as you would after a restart. Nothing about the Director changed, so this is the
+-  simpler path of the two, not a special case.
++  handover - exactly as you would after a restart, with the SAME Director's id:
++  `cc-devthrottle director restore "<workspace id>" --director "<this Director's id>"`. Nothing about
++  the Director changed, so this is the simpler path of the two, not a special case. A seat whose owner
++  is the blocked seat comes back under that seat's current id, because it never stopped.
+ - **Leave the `blocked` seat alone.** It is still running. Restoring over a live session is how you
+   end up with two of it.
+ - The blocked session keeps running, the Director keeps its old version, and the fleet is whole
+@@ -538,23 +556,51 @@
+ Restore a Manager or a Worker directly only when no senior is coming back to re-seat it. Otherwise you
+ create a seat its Architect is about to create again, and the mission ends up with two of it.
+ 
+-If you do restore several, restore seniors before juniors, so a Worker can be pointed at its real
+-Manager with `--controlled-by` rather than at a session that no longer exists.
++### The Director does the spawning. You ask it to.
+ 
++**Changed 17 September 2026 (the Message Load mission, owner decision 2).** A restore used to be a
++list of `cc-devthrottle session spawn ... --controlled-by <the owner's id>` lines for the restoring
++session to run. The Gateway now refuses a session that names ANY other session as the owner of what it
++starts - that is the boundary that decides who may message whom - so those lines fail for every seat
++owned by somebody else, which is nearly every Worker. Do not look for a way round it. Ask the
++Director:
++
+ ```bash
+-cc-devthrottle session spawn "<repoPath>" \
+-  --director "<the NEW director id>" \
+-  --agent <the same agent> \
+-  --name "<the original name>" \
+-  --role <the original role> \
+-  --mission <missionId, if it had one> \
+-  --controlled-by <the restored manager's new id, or --standalone> \
+-  --prompt "<seed>"
++cc-devthrottle director restore "<workspace id>" --director "<the NEW director id>"
+ ```
+ 
+-`--args` is passed through literally and applies no defaults, so if you set it to pin a model you
+-must supply the permission preset too, or the session blocks on a prompt for every action.
++The Director reads the workspace, and for every seat decided `restore` that has not come back it:
++
++- starts the seat itself, on its own credential, through the same spawn route every client uses;
++- names the owner the seat had when the Gateway captured it - never one you supply;
++- starts an owner that was restarted in the same drain FIRST, and names it by its NEW id (the
++  placeholder `<the new id of ...>` the old lines carried is resolved for you, in order);
++- keeps the id of an owner on another Director, which survived the restart;
++- does NOT start a seat whose owner is not coming back (decided `close`, failed, or not yet restored),
++  and says so on that seat - it never starts it unowned or under a dead id;
++- writes each result onto its seat as it goes: `restoredSessionId` when it came back,
++  `restore.failure` with the reason when it did not, and `restore.attemptedAtUtc` either way. One seat
++  failing does not stop the rest;
++- never starts a seat that already came back, so asking twice is safe.
+ 
++The command waits (ten minutes by default, `--wait-seconds`) and prints one line per seat -
++`RESTORED`, `FAILED` with the reason, or `PENDING` if the wait ran out. It exits 0 only when every seat
++came back. The restore is refused before anything starts when the workspace was not captured from a
++Director, when nothing is left to bring back, when the Director is on a different machine from the
++one the workspace was captured on, or when a restore is already running there.
++
++**Your decisions are still yours - write them onto the workspace first.** A seat you decided not to
++restore (above) gets `"decision": "close"` on the workspace BEFORE you ask, or the Director will bring
++it back. To go one seat at a time - the head of a mission first, check it, then anything else - pass
++`--seat <captured session id>`, repeated as needed. The per-seat command the drain wrote into each
++record is exactly that form; replace `<the NEW director id>` before running it.
++
++The restore records the session that asked as each new seat's parent. It is never recorded as
++anybody's owner, and you do not need to own anything to ask.
++
++`--agent`, `--role`, `--mission` and the workflow seat come from the capture too. There is no way to
++pass `--args` through a restore; a seat comes back with the Director's default agent settings.
++
+ ### The seed prompt goes in a FILE. Never inline.
+ 
+ **A long `--prompt` does not reach the agent.** It parks in the agent's composer, unsubmitted, and
+@@ -563,19 +609,23 @@
+ Director records it on the session row and nowhere else:
+ `promptDeliveryUnresolved`, `failedPromptDeliveries`, `lastPromptDeliveryFailureReason`.
+ 
+-So write one seed file per restore, beside the index, and spawn with a single line pointing at it:
++So write one seed file per restore, beside the index, and hand it to the restore; the Director starts
++that seat with a single line pointing at it:
+ 
+ ```
+ <index dir>/SEED-<short id>-<what it is>.md
+ ```
+ 
+ ```bash
+-cc-devthrottle session spawn "<repoPath>" ...   --prompt "Read <index dir>\SEED-<short id>-<what it is>.md - it is your whole mandate. Follow it."
++cc-devthrottle director restore "<workspace id>" --director "<the NEW director id>" \
++  --seed "<captured session id>=<index dir>/SEED-<short id>-<what it is>.md"
+ ```
+ 
++A seat with no `--seed` is started from its own handover with the same one-line shape.
++
+ This is also the right shape for its own sake: the seed sits next to the handover it points at, it
+ survives the session that wrote it, and anybody can read what a restored session was actually told.
+-Record the file name in the index as `restoredSeedFile`.
++The Director records the file name on the seat as `restoredSeedFile`.
+ 
+ **What the seed file says**, in this order:
+ 
+@@ -620,7 +670,9 @@
+ 
+ It passes when the session states the work, its constraints and the next action FROM the document,
+ and then does that action. It fails when it guesses, asks what it should be doing, or starts
+-something the document assigned to someone else. Write `restoredSessionId` only on a pass.
++something the document assigned to someone else. The Director has already written
++`restoredSessionId` - the session exists - so a FAILED check goes into the report and the index notes
++as exactly that, with what the seat said, rather than being quietly left off.
+ 
+ ---
+ 
+@@ -735,10 +787,10 @@
+   was able to answer. When one cannot, the Gateway's generated summary (`POST /handover`) is the
+   fallback - a mechanical scrape of last prompt, last reply, files touched and commands, carrying no
+   intent, no decisions and no traps. Use it when nothing better exists, never by preference.
+-- **Whether the restore should be automatic.** The restore half needs no admission scope - it is
+-  ordinary session spawning - so unlike the restart, nothing stops the Director doing it itself. The
+-  open question is what watches for a Director that has just come back with a `restoreAfterRestart`
+-  list nobody has acted on.
++- **Whether the restore should start by itself.** Since 17 September 2026 the Director performs the
++  restore (step 8), but only when asked. What is still open is what asks it: nothing yet watches for a
++  Director that has just come back with a workspace whose seats nobody has restored, so a restart
++  with no surviving driver still restores nothing.
+ - **Whether a restart should ever proceed without a surviving driver.** On the evidence, no: the
+   drain is worthless without the restore. Either the driver lives on another Director, or the index
+   needs an owner on the target machine that starts after the restart and finishes the job.

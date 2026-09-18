@@ -1,0 +1,20 @@
+== MUTATION doorbell records the ring against the wrong session: exit=1
+    Failed!  - Failed:    16, Passed:    17, Skipped:     0, Total:    33, Duration: 4 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_fourth_ring_after_three_counted_is_refused_by_the_store_at_the_product_cap [93 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.No_second_ring_inside_the_grace [52 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_shortened_grace_moves_the_whole_schedule [64 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_stuck_system_notice_tells_nobody [103 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_ring_counts_only_the_messages_that_were_due [73 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_sweep_after_a_crash_marks_and_notifies_exactly_once [38 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_settled_edge_never_rings_a_fourth_time_even_before_the_heartbeat_marks_stuck [38 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_notice_that_cannot_be_written_leaves_the_message_open [38 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_failure_between_the_stuck_mark_and_its_notice_persists_neither [38 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_read_undoes_stuck_and_nothing_further_is_rung_or_sent [110 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_new_message_is_rung_at_once_with_the_unread_count [84 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_second_ring_once_the_grace_has_passed [89 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_message_is_not_rung_a_fourth_time [148 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_mark_and_the_notice_carry_the_same_moment [92 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Not_stuck_one_second_before_the_grace_after_the_third_ring [84 ms]
+== MUTATION doorbell passes no cap (unobservable by design: the schedule filters first): exit=0
+    Passed!  - Failed:     0, Passed:    33, Skipped:     0, Total:    33, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)

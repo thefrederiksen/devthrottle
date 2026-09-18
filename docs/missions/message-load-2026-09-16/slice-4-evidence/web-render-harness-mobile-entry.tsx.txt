@@ -1,0 +1,10 @@
+import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
+import { rows, shimFetch } from "./rows";
+shimFetch();
+const { SessionRow } = await import("<repo>/apps/mobile/src/pages/Home");
+createRoot(document.getElementById("root")!).render(
+  <MemoryRouter>
+    <ul className="list">{rows().map((s) => <SessionRow key={String(s.sessionId)} session={s as never} />)}</ul>
+  </MemoryRouter>,
+);

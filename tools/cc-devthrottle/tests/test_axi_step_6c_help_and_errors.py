@@ -335,6 +335,9 @@ _ACTIONS_JSON_BEFORE = Path(__file__).parent / "fixtures" / "actions_json_before
 _ACTIONS_ADDED_SINCE_PIN = {
     "fleet-digest", "fleet-events", "fleet-ack", "fleet-ready", "fleet-finding", "fleet-decision", "fleet-outcomes",
     "fleet-show", "fleet-answer", "fleet-prefer", "fleet-preferences", "fleet-forget",
+    # The pooled-worktree commands, which run cc-worktrees rather than answering for it.
+    "worktree-get", "worktree-return", "worktree-lease", "worktree-destroy", "worktree-list-pool",
+    "worktree-list",
 }
 
 
@@ -342,8 +345,10 @@ def test_actions_json_is_unchanged():
     pinned = _ACTIONS_JSON_BEFORE.read_text(encoding="utf-8")
     # The pin itself must be the real payload, not an empty file that anything would match.
     actions = json.loads(pinned)["actions"]
-    assert len(actions) == 86
-    assert {"session-list", "schedule-create", "browser-start"} <= {a["id"] for a in actions}
+    # 87 since the Message Load mission's slice 3 added message-reply to the pin (and the send flags); 88 since
+    # slice 6 added director-restore.
+    assert len(actions) == 88
+    assert {"session-list", "schedule-create", "browser-start", "message-reply", "director-restore"} <= {a["id"] for a in actions}
 
     result = runner.invoke(app, ["actions", "--json"])
     assert result.exit_code == 0

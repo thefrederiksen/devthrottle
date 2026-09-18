@@ -120,6 +120,19 @@ public sealed class WorktreeReservationStore
     {
         if (string.IsNullOrWhiteSpace(workingDirectory) || string.IsNullOrWhiteSpace(sessionId))
             return;
+
+        // A cc-worktrees pool slot is not reserved here. A reservation is the Director's own claim on a
+        // directory it manages, and a pool slot already has an owner and a claim: cc-worktrees holds
+        // the lease on it, the reaper refuses to touch it on that evidence alone, and a second claim
+        // written here would say the Director manages a directory it does not. The layout check is used
+        // rather than the tool's records so that a machine whose records cannot be read still skips the
+        // slot instead of writing a reservation for it.
+        if (CcWorktreesPoolSlots.HasSlotLayout(workingDirectory))
+        {
+            FileLog.Write($"[WorktreeReservationStore] Reserve skipped for {sessionId}: {workingDirectory} is a cc-worktrees pool slot, which that tool owns");
+            return;
+        }
+
         try
         {
             Directory.CreateDirectory(_dir);

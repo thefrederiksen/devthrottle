@@ -169,6 +169,14 @@ public sealed class WorkspaceDocument
     /// <summary>Written back AFTER the restore: which session did it and how.</summary>
     public WorkspaceRestoredBy? RestoredBy { get; set; }
 
+    /// <summary>
+    /// The Director currently allowed to restore this workspace (inspection 7, ruling 4), or null. Granted by
+    /// the Gateway when a restore is relayed, renewed by every restore mark that Director writes, released
+    /// when its run finishes, and void once <see cref="WorkspaceRestoreLease.RenewedAtUtc"/> is older than
+    /// <see cref="WorkspaceRestoreLease.Expiry"/>. Written only by the Gateway.
+    /// </summary>
+    public WorkspaceRestoreLease? RestoreLease { get; set; }
+
     /// <summary>The checks run over this record and its documents before anybody restarts anything, and
     /// the proof that the secret sweep was able to fail. Null until a drain has run them (issue #2723).</summary>
     public WorkspaceIntegrity? Integrity { get; set; }
@@ -380,6 +388,34 @@ public sealed class WorkspaceSeatRestore
 
     /// <summary>The command that brings it back. Required when the decision is "restore".</summary>
     public string? Command { get; set; }
+
+    /// <summary>
+    /// Why the Director's last attempt to bring this seat back FAILED, in plain words, or null when it has
+    /// not failed. Written by the Director restore (the Message Load mission, slice 6), one seat at a time,
+    /// so one seat that could not come back is reported against that seat and does not stop the rest.
+    /// Cleared when a later attempt succeeds.
+    /// </summary>
+    public string? Failure { get; set; }
+
+    /// <summary>When the Director last attempted to bring this seat back, successful or not. Null when no
+    /// Director restore has touched it.</summary>
+    public DateTime? AttemptedAtUtc { get; set; }
+
+    /// <summary>
+    /// The token of the Director's LAST START of this seat, written and stored BEFORE the create was sent
+    /// (inspection 7, ruling 3). The create carries the same token, and the Gateway that performs the create
+    /// writes the new session's id onto this seat when the token matches - so a start whose answer never
+    /// reached the Director is still recorded. A seat with a token and no
+    /// <see cref="WorkspaceSeat.RestoredSessionId"/> MAY have been started, and is never started again without
+    /// an explicit force. Cleared only when the Gateway refused the create outright.
+    /// </summary>
+    public string? StartedToken { get; set; }
+
+    /// <summary>When <see cref="StartedToken"/> was written.</summary>
+    public DateTime? StartedAtUtc { get; set; }
+
+    /// <summary>The Director that wrote <see cref="StartedToken"/>.</summary>
+    public string? StartedByDirectorId { get; set; }
     /// <summary>Anything in this object this build does not know a field for, kept verbatim.
     /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
     /// </summary>
@@ -569,6 +605,36 @@ public sealed class WorkspaceLauncherAfter
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Unknown { get; set; }
 
+}
+
+/// <summary>
+/// Which Director may restore a workspace right now (inspection 7, ruling 4). One Director at a time per
+/// workspace, across every Director in the account: two Directors on one machine both pass the machine check,
+/// and each would otherwise start the same seats.
+/// </summary>
+public sealed class WorkspaceRestoreLease
+{
+    /// <summary>How long a lease lives without a restore mark renewing it.</summary>
+    public static readonly TimeSpan Expiry = TimeSpan.FromMinutes(15);
+
+    /// <summary>The Director holding it.</summary>
+    public string DirectorId { get; set; } = "";
+
+    /// <summary>The session whose key asked for the restore, or null for the owner.</summary>
+    public string? RequestedBySessionId { get; set; }
+
+    /// <summary>When it was granted.</summary>
+    public DateTime GrantedAtUtc { get; set; }
+
+    /// <summary>When the holder last wrote a restore mark (or was granted it).</summary>
+    public DateTime RenewedAtUtc { get; set; }
+
+    /// <summary>True while the lease still binds at <paramref name="nowUtc"/>.</summary>
+    public bool IsLiveAt(DateTime nowUtc) => nowUtc - RenewedAtUtc < Expiry;
+
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 /// <summary>Written back after the restore: which session did it, when, and how.</summary>

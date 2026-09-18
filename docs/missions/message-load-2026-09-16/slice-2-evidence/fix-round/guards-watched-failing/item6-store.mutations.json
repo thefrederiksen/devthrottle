@@ -1,0 +1,5 @@
+[
+ {"name":"stuck scan ignores the floor","old":"m.RingCount >= floor)","new":"m.RingCount >= 1)"},
+ {"name":"scheduling read carries the text","old":"                Kind = m.Kind,\n                CreatedAtUtc = m.CreatedAtUtc,","new":"                Kind = m.Kind,\n                Text = m.Text,\n                CreatedAtUtc = m.CreatedAtUtc,"},
+ {"name":"one update per row instead of one statement","old":"            if (accepted.Count == 0) return 0;\n","new":"            if (accepted.Count == 0) return 0;\n            if (accepted.Count > 0) { var tracked = ctx.FleetMessages.Where(m => accepted.Contains(m.MessageId)).ToList(); foreach (var t in tracked) { t.RingCount++; t.LastRungAtUtc = now; } ctx.SaveChanges(); return tracked.Count; }\n"}
+]

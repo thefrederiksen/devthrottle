@@ -1,0 +1,43 @@
+# 04-worker-doorbell - session 7cd43026-1210-4ad7-b57f-b83ada0a214a (Proof - Worker) at 2026-09-17T08:36:52.3938550Z
+# director activity state: Working
+# visible screen rows:
+|  two hundred thirty-three
+|  two hundred thirty-four
+|  two hundred thirty-five
+|  two hundred thirty-six
+|  two hundred thirty-seven
+|  two hundred thirty-eight
+|  two hundred thirty-nine
+|  two hundred forty
+|  two hundred forty-one
+|  two hundred forty-two
+|  two hundred forty-three
+|  two hundred forty-four
+|  two hundred forty-five
+|  two hundred forty-six
+|  two hundred forty-seven
+|  two hundred forty-eight
+|  two hundred forty-nine
+|  two hundred fifty
+|
+|✻ Cooked for 13s · done 4:36 AM
+|
+|❯ [DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox
+|
+|✶ Whisking…
+|  ⎿  Tip: Use /memory to view and manage Claude memory
+|
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|❯
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for agents
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|

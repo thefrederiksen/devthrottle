@@ -7,6 +7,7 @@ namespace CcDirector.Core.Git;
 ///
 /// A worktree is safe to reap ONLY IF all of:
 ///   A. it is not the primary checkout, and
+///   A2. it is not a slot in a cc-worktrees pool (that tool owns its slots), and
 ///   B. its tree is clean (no modified, staged, or untracked content), and
 ///   C. its work is proven merged by at least one of:
 ///        C1 pull request merged, C2 origin branch gone, C3 contained in origin/main;
@@ -23,6 +24,14 @@ public static class WorktreeSafetyEvaluator
         if (facts.IsPrimary)
             return NeedsAttention(WorktreeSafetyReason.PrimaryCheckout,
                 "Primary checkout - never removed.");
+
+        // Guardrail A2: a cc-worktrees pool slot is not ours. Checked before any merge signal, because
+        // the point is not that the work might be unmerged - it is that this directory has another
+        // owner, which holds the lease on it and runs its own landed-work proof before resetting it.
+        // Two owners for one directory is how a slot gets removed out from under the session in it.
+        if (facts.IsCcWorktreesPoolSlot)
+            return NeedsAttention(WorktreeSafetyReason.CcWorktreesPoolSlot,
+                "A cc-worktrees pool slot - cc-worktrees owns it; return it with cc-worktrees.");
 
         // Fail closed: if a required git probe failed we cannot prove anything about this worktree.
         if (!facts.InspectionSucceeded)

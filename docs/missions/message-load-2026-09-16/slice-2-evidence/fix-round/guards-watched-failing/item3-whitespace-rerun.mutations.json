@@ -1,0 +1,7 @@
+[
+ {
+  "name": "blank continuation rows ignored",
+  "old": "                if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))",
+  "new": "                if (onPrompt.Length == 0 && continuation.All(string.IsNullOrWhiteSpace))"
+ }
+]

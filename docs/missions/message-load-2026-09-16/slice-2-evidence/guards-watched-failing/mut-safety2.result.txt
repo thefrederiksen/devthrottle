@@ -1,0 +1,27 @@
+== MUTATION continuation rows ignored: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 24 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_text_on_a_continuation_row_alone_is_text [1 ms]
+== MUTATION unframed prompt accepted: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 21 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.A_prompt_row_not_framed_by_rules_is_not_a_composer [< 1 ms]
+== MUTATION exited not checked: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 23 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.An_exited_session_is_never_rung_whatever_the_screen_shows [< 1 ms]
+== MUTATION product retained text not checked: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 20 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Text_the_product_may_have_left_defers_even_on_an_empty_looking_screen [< 1 ms]
+== MUTATION director working state not checked: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 20 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.The_directors_own_working_state_defers_even_on_an_idle_screen [< 1 ms]
+== MUTATION no terminal grid not checked: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 20 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.A_session_without_a_rendered_terminal_is_unreadable [< 1 ms]
+== MUTATION codex hidden cursor accepted: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 22 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Codex_with_the_cursor_hidden_has_no_composer [< 1 ms]
+== MUTATION blank screen read as a screen: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 22 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.A_blank_screen_says_it_rendered_nothing [< 1 ms]
+== MUTATION one frame accepted: exit=1
+    Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 20 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.One_frame_is_not_enough [< 1 ms]

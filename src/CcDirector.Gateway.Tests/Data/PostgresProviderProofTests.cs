@@ -213,6 +213,10 @@ public sealed class PostgresProviderProofTests
             ("device_import_markers", "SourcePath"),
             ("dictation_suggestion_dismissals", "Term"),
             ("dictation_suggestion_verdicts", "Term"),
+            // Main's column, from pull request 2997 (the fleet manager marks), which declares SessionId with
+            // collation "C" and did not add it here. Listed so the census runs to its end on the Message Load
+            // branch (postgres-proof-2.md) instead of stopping at the first name it does not know.
+            ("fleet_manager_marks", "SessionId"),
             // The fleet message inbox (the Message Load mission): the minted message id, and the two session
             // ids the inbox read and the sender's limits select on.
             ("fleet_messages", "MessageId"),

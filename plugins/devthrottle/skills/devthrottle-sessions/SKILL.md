@@ -1,6 +1,6 @@
 ---
 name: devthrottle-sessions
-description: "Talk to the other DevThrottle sessions running across your machines - list them, rename this one, send a message, ask a question and wait for the answer, open a new session, and close one down. Use when the task involves: message another session, ask another session, list sessions, what sessions are running, spawn a session, rename this session, close this session."
+description: "Talk to the other DevThrottle sessions running across your machines - list them, rename this one, send one of the rare queued messages, read the inbox, reply, open a new session, and close one down. Use when the task involves: message another session, ask another session, list sessions, what sessions are running, spawn a session, rename this session, close this session."
 license: MIT
 ---
 
@@ -48,48 +48,60 @@ session for the work it is doing. Several sessions often run in the same checkou
 an unnamed one shows up as the bare folder name, indistinguishable from its neighbours.
 Leave the repository out of the name - the session list already has a column for it.
 
-## Send a message
+## Messages are rare, and they queue
+
+Most sessions can message nobody. A session may message only the session that started it and
+the sessions it started - never a sibling, never another session on the same piece of work,
+never a session in the same checkout. The gateway allows at most six messages an hour, one to
+the same recipient every ten minutes, and drops an identical message that is still unread.
+Every refusal says: put it in your report.
 
 ```
-cc-devthrottle message send 4c81 "I finished the API layer - the frontend is unblocked."
-cc-devthrottle message send docs "Please refresh the API page when you get a chance."
-cc-devthrottle message send all "Heads up: I am about to rebase our shared branch."
+cc-devthrottle message send 4c81 "Main is red - do not rebase until I say so."
+cc-devthrottle message send all "Stop and commit what you have."
+cc-devthrottle message inbox
 ```
 
-**Every message you send interrupts the session that receives it.** It is typed into
-that agent's composer and starts a turn there. Treat it as a claim on someone else's
-attention and scope it accordingly.
+**A message never interrupts.** Nothing is typed into a session while it works. The gateway
+stores the message and `message send` answers "queued". When the recipient is not working and
+its composer is empty, one fixed doorbell line tells it to run `cc-devthrottle message inbox`;
+when you see that line, run it. Reading marks the messages read. An unread message is rung
+again after five minutes and marked stuck after three rings, and its sender is told.
 
-`message send all` reaches only the sessions working alongside you - the same piece of
-work, or the same repository on the same computer. That is the everyday broadcast, and
-it is the right tool for a heads-up about a shared checkout. It does not reach sessions
-in other repositories.
+`message send all` queues one copy for each session you started, and nobody else.
 
-A whole-fleet broadcast interrupts every session on every computer. The gateway refuses
-one unless a person has granted it. If you believe you need one, ask the person running
-the fleet; do not look for a way around the refusal.
+A whole-fleet broadcast needs a grant from a person. If you believe you need one, ask the
+person running the fleet; do not look for a way around the refusal.
 
-## Ask a question and wait for the answer
+## Questions and replies - nobody waits
 
 ```
-cc-devthrottle message ask 9b2f "Which database schema is loaded in your checkout?"
-cc-devthrottle message ask docs "What is the title of the API page?" --timeout-ms 60000
+cc-devthrottle message send 9b2f "Which database schema is loaded in your checkout?" --reply-wanted
+cc-devthrottle message reply <correlation-id> "Schema v42."
 ```
 
-`message ask` is always single-target and blocks until the other session answers.
+There is no command that waits for an answer. Ask with `--reply-wanted` (optionally
+`--reply-by <minutes>`, 60 by default) and carry on; the reply arrives in your inbox, or a
+no-reply notice does if nobody answers in time. The session that was asked answers once with
+`message reply` and the id its inbox shows.
 
-**Prefer `ask` over `send` whenever the answer matters.** `send` reports that a message
-was delivered; delivery is not an answer, and a session that received your message and
-then did nothing looks identical to one that acted on it. If you need to know something,
-ask and read the reply.
+**Delivery is not an answer.** "queued" says only that the message is stored. If you need to
+know something, ask for a reply and read it.
+
+When you finish, report with `cc-devthrottle session report "<what you did>"`. When you are
+blocked on a decision, put your hand up with `cc-devthrottle session raise "<what you need>"`.
 
 ## Open a new session
 
 ```
-cc-devthrottle session spawn /path/to/repo --name "Frontend review"
-cc-devthrottle session spawn /path/to/repo --purpose "run the test suite" --agent ClaudeCode --prompt "Run the tests and report failures."
-cc-devthrottle session spawn /path/to/repo --name "build" --machine other-computer
+cc-devthrottle session spawn /path/to/repo --controlled-by self --name "Frontend review"
+cc-devthrottle session spawn /path/to/repo --controlled-by self --purpose "run the test suite" --agent ClaudeCode --prompt "Run the tests and report failures."
+cc-devthrottle session spawn /path/to/repo --standalone --why "the person asked me to open it for them" --name "build" --machine other-computer
 ```
+
+From inside a session, say who owns the new one: `--controlled-by self` (you own it, and it
+reports back to you) or `--standalone --why "<reason>"` (the person owns it). The spawn is
+refused until you say, and naming any other session as the owner is refused too.
 
 Give every spawn a `--name` or a `--purpose`; a spawn with neither is warned about, and
 a name equal to the bare folder name is rejected.
@@ -117,5 +129,5 @@ so a finished session does not sit idle.
 cc-devthrottle selftest
 ```
 
-Opens two throwaway local sessions, proves list, send and ask all work end to end, then
-removes them.
+Windows only. Opens one throwaway worker, checks it is listed and that a message to it is
+queued, then flags it for removal. It does not prove the message was read.

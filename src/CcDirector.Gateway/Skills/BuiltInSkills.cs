@@ -40,7 +40,8 @@ public static class BuiltInSkills
         new SkillDefinition(
             Id: "fleet-comms",
             Name: "Fleet communication",
-            Summary: "Talk to other sessions across the fleet: list, rename, message, ask, and open sessions.",
+            Summary: "List, rename and open sessions across the fleet, and the rare queued message: who you may " +
+                     "message, the inbox, and replies.",
             Triggers: new[]
             {
                 "message another session", "talk to another session", "ask another session",
