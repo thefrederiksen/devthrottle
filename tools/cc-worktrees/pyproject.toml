@@ -3,7 +3,18 @@ name = "cc-worktrees"
 version = "0.1.0"
 description = "Pooled git worktrees that are only reset when their work has provably landed"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["cc-shared"]
+
+[project.scripts]
+cc-worktrees = "cc_worktrees.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cc_worktrees"]
+package-dir = {"cc_worktrees" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

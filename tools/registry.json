@@ -252,6 +252,15 @@
       "requirements": []
     },
     {
+      "name": "cc-worktrees",
+      "category": "data-utilities",
+      "type": "python",
+      "description": "Pooled git worktrees that are only reset when their work has provably landed",
+      "built": true,
+      "ship": true,
+      "requirements": ["git"]
+    },
+    {
       "name": "cc-hardware",
       "category": "data-utilities",
       "type": "python",

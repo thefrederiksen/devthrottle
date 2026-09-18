@@ -1,6 +1,6 @@
 # Tools Overview
 
-The DevThrottle installer puts nine command-line tools on your PATH. They are the shipped set: every tool with `"ship": true` in `tools/registry.json`, and the same nine listed in `src/CcDirector.Core/Tools/tools-manifest.json`. The Director checks their health on the Home screen and in the Tools tab of Settings, and repairs a broken install.
+The DevThrottle installer puts ten command-line tools on your PATH. They are the shipped set: every tool with `"ship": true` in `tools/registry.json`, and the same ten listed in `src/CcDirector.Core/Tools/tools-manifest.json`. The Director checks their health on the Home screen and in the Tools tab of Settings, and repairs a broken install.
 
 The repository holds more `cc-*` tools than these. They build from source for development but are not installed, so they are not documented here.
 
@@ -16,6 +16,7 @@ Every tool answers `--help` with its full command list. A longer reference with 
 | cc-image | Describe an image, read the text in it, resize and convert | `DEVTHROTTLE_API_KEY` for describe and ocr on the default engine |
 | cc-vault | Personal vault: contacts, tasks, goals, ideas, documents, with search | A model key for search and ask |
 | cc-secrets | Use a stored password without the model ever seeing it | Entries you add by hand |
+| cc-worktrees | Pooled git worktrees, only reset once their work has provably landed | git |
 | cc-devthrottle | The fleet: sessions, messages, missions, workflows, skills, schedules, setup | A DevThrottle session for the fleet commands |
 
 ---
@@ -109,6 +110,26 @@ cc-secrets log
 - The store is a plain JSON file private to your user: `%LOCALAPPDATA%\cc-director\secrets` on Windows, `~/.cc-director/secrets` on Linux. On macOS the store is not supported yet, so no entry can be added or used there.
 
 The full guide, including the limits, is at https://devthrottle.com/docs/cli/secrets.
+
+---
+
+## Worktrees: cc-worktrees
+
+A pool of git worktrees your sessions share. `get` hands one out and `return` gives it back. A returned worktree is reset and reused, so build output stays warm - but it is only reset once its work has provably landed on the remote. Anything unproven is held, with the reason, and nothing in it is touched.
+
+```bash
+cc-worktrees get --repo D:\Repos\myrepo --holder "my session"
+cc-worktrees list
+cc-worktrees return wt01 --lease <id> --repo D:\Repos\myrepo
+cc-worktrees release wt01 --confirm-abandon --repo D:\Repos\myrepo
+```
+
+- `get` resets a free slot to the freshly fetched default branch, or creates a new slot beside the repository while the pool is under its size (four by default).
+- `return` needs the lease `get` handed you. Landed work is reset and freed; unproven work is held and left exactly as it is.
+- `release` is the only way out of held. It pins every commit it cannot prove landed under `refs/cc-worktrees/<slot>/`, where `git gc` can never take it, and then removes the slot. It never deletes a commit.
+- `destroy` re-runs the full check at that moment, whatever the recorded state says, and refuses unless it passes. It is a dry run unless you pass `--yes`.
+- Every command takes `--json` and never prompts. Exit codes: 0 success, 1 error, 2 usage error, 3 held, 4 pool full.
+- The Director uses this tool for its own pooled worktrees, and `cc-devthrottle worktree` passes straight through to it.
 
 ---
 

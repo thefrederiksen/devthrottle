@@ -7,6 +7,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tomllib
+from importlib import metadata
+from pathlib import Path
 
 from cc_shared import axi_output
 
@@ -14,6 +17,7 @@ import pool
 from errors import EXIT_ERROR, EXIT_OK, EXIT_USAGE, ToolError
 
 PROG = "cc-worktrees"
+DIST_NAME = "cc-worktrees"
 
 HELP = f"""\
 Pooled git worktrees. A worktree is only reset when its work has provably landed on the remote.
@@ -35,6 +39,8 @@ Pooled git worktrees. A worktree is only reset when its work has provably landed
       Put a HELD slot back in the pool. Pins every commit it cannot prove landed under
       refs/cc-worktrees/<slot>/, where git gc can never take it, then removes the directory and the
       ignored files in it. Refuses while anything in the slot cannot be pinned.
+  {PROG} --version
+      The tool's version, the way the Director's Tools page asks every tool for it.
 
 A slot is reset only when: nothing uncommitted or untracked, the remote was fetched just now, the
 default branch was read from the remote, and every commit is on a remote branch or already in the
@@ -167,6 +173,63 @@ def _q(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------------------------------
+
+# `pyproject.toml` sits beside src/ in a checkout and is NOT inside the wheel, because the wheel ships
+# only the package directory. That is why the installed answer is asked for first.
+PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
+
+
+def tool_version() -> str:
+    """The tool's version. There is exactly one place it is written down: `pyproject.toml`.
+
+    Installed, the answer is the distribution's recorded version, which the build wrote out of that
+    same `pyproject.toml` and which is the only copy an installed tool has - the wheel ships the
+    package directory, not the file. From a checkout, where no distribution of this name exists, the
+    file itself is read. Deliberately no ``__version__`` in the source: a second copy in the source
+    is a second source of truth, and it goes stale the first time somebody bumps one and not the
+    other.
+
+    Not proven by the code here, and worth knowing: a checkout that has had a wheel built in it keeps
+    a `cc_worktrees.egg-info` beside this package, and that IS an installed distribution as far as
+    the first branch is concerned. So a checkout whose version was bumped without rebuilding answers
+    with the version it last built. `tests/test_42_version.py` fails when the two disagree and says
+    so in those words.
+
+    Neither source answering is a broken install, not a thing to paper over - it says so and exits 1.
+    """
+    try:
+        return metadata.version(DIST_NAME)
+    except metadata.PackageNotFoundError:
+        pass
+    try:
+        text = PYPROJECT.read_text(encoding="utf-8")
+    except OSError as ex:
+        raise ToolError("version", f"cannot tell you the version: no installed distribution named "
+                                   f"{DIST_NAME}, and {PYPROJECT} could not be read ({ex})",
+                        [f"{PROG} --help"], exit_code=EXIT_ERROR) from ex
+    value = tomllib.loads(text).get("project", {}).get("version")
+    if not isinstance(value, str) or not value.strip():
+        raise ToolError("version", f"cannot tell you the version: no installed distribution named "
+                                   f"{DIST_NAME}, and {PYPROJECT} has no project.version",
+                        [f"{PROG} --help"], exit_code=EXIT_ERROR)
+    return value
+
+
+def cmd_version(as_json: bool) -> int:
+    """`--version` is the tool's own flag, not a command's. The Director's Tools page runs exactly
+    `cc-worktrees --version` on every tool it lists and fails the row on a non-zero exit."""
+    record = {"tool": DIST_NAME, "version": tool_version()}
+    if as_json:
+        sys.stdout.write(json.dumps(record) + "\n")
+        return EXIT_OK
+    axi_output.write_blocks(sys.stdout, _pairs(record, ["tool", "version"]),
+                            axi_output.format_help([f"{PROG} --help"]))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------------------------------
 
@@ -261,6 +324,12 @@ def main(argv: list[str] | None = None) -> int:
     as_json = "--json" in argv
     parser = build_parser()
     try:
+        # `--version` takes no subcommand, so argparse (whose subcommand is required) would reject it
+        # before ever seeing the flag. It is answered here, and ONLY when it is the whole request:
+        # `cc-worktrees list --version` stays the usage error it should be rather than quietly
+        # printing a version and dropping the command the caller asked for.
+        if [a for a in argv if a != "--json"] == ["--version"]:
+            return cmd_version(as_json)
         args = parser.parse_args(argv)
         return COMMANDS[args.command](args)
     except _UsageError as ex:
