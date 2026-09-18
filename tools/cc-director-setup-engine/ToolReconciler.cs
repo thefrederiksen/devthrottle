@@ -74,6 +74,14 @@ public sealed class ToolReconciler
     }
 
     /// <summary>
+    /// Which install this reconcile is working on. Internal, for the guard that the default is the
+    /// MACHINE's install and never the folder of the Director that happened to start the reconcile -
+    /// the reconciler runs unattended at Director start, so a wrong default here fills a Director's own
+    /// folder with a second copy of the tools and then treats that copy as the install from then on.
+    /// </summary>
+    internal InstallLayout Layout => _layout;
+
+    /// <summary>
     /// Detect drift between the embedded manifest and the installed tool layout and correct it. Returns a
     /// structured <see cref="ReconcileResult"/> (never throws for the supervisor's benefit): InSync when there
     /// was no drift, Reconciled when drift was found and fixed, Failed when a corrective action failed.

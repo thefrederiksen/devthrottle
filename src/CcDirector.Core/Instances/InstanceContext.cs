@@ -46,10 +46,23 @@ public static class InstanceContext
     public static bool IsDefault => string.Equals(Slug, DefaultSlug, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// This instance's isolated data home: <c>{SharedRoot}\instances\{slug}</c> for EVERY
+    /// This instance's isolated DATA home: <c>{SharedRoot}\instances\{slug}</c> for EVERY
     /// instance, default included. This is the value fed into the <c>CC_DIRECTOR_ROOT</c>
-    /// override so the whole data tree redirects here. Shared binaries/runtime
-    /// (<c>bin\</c>, <c>python\</c>, <c>app\</c>) stay at the shared root by design.
+    /// override so the whole data tree - sessions, settings, logs - redirects here.
+    ///
+    /// The installed product does NOT live here, and nothing may install into it. The tool
+    /// launchers (<c>bin</c>), the bundled interpreter (<c>python</c>), the shared virtual
+    /// environment (<c>pyenv</c>), the Director itself (<c>app</c>) and the launcher are one
+    /// copy per machine, at the machine root, and every Director on the machine uses that copy.
+    ///
+    /// That was always the design, and until September 2026 this comment said so in the present
+    /// tense - "stay at the shared root by design" - while the code had stopped doing it. Because
+    /// the whole data tree redirects here, anything that asked where to install, or where the
+    /// tools were, got this folder back whenever it ran from inside a Director or one of its
+    /// sessions. One computer ended up with seven complete copies of the tools. Ask
+    /// <see cref="Storage.CcStorage.MachineRoot"/> for anything installed;
+    /// <see cref="Storage.CcStorage.Bin"/> and <see cref="Storage.CcStorage.PythonRuntime"/>
+    /// already do.
     /// </summary>
     public static string InstanceHome => Path.Combine(SharedRoot, "instances", Slug);
 
@@ -85,20 +98,9 @@ public static class InstanceContext
     /// computing from the real root could see or reach it. From outside it was a perfectly healthy
     /// launcher that could not restart anything.
     ///
-    /// The test is STRUCTURAL - a parent directory named <c>instances</c>, which is exactly how
-    /// <see cref="InstanceHome"/> composes one - and it is deliberately narrow. A launcher serving a
-    /// throwaway root of its own (a test rig) is NOT this fault and answers false, which is right: an
-    /// isolated root is a legitimate thing to serve, and refusing it would refuse the only safe way to
-    /// exercise any of this. What this catches is the one shape that is wrong by construction.
+    /// The answer itself lives in <see cref="Storage.CcStorage.IsDirectorInstanceHome"/>, because the
+    /// storage paths and this identity both have to agree on the shape and two implementations of one
+    /// shape cannot stay equal. Read the reasoning for the shape there.
     /// </summary>
-    public static bool LooksLikeAnInstanceHome(string? root)
-    {
-        if (string.IsNullOrWhiteSpace(root)) return false;
-
-        var trimmed = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var parent = Path.GetDirectoryName(trimmed);
-        if (string.IsNullOrEmpty(parent)) return false;
-
-        return string.Equals(Path.GetFileName(parent), "instances", StringComparison.OrdinalIgnoreCase);
-    }
+    public static bool LooksLikeAnInstanceHome(string? root) => CcStorage.IsDirectorInstanceHome(root);
 }

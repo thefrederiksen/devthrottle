@@ -21,8 +21,12 @@ public static class AboutInfo
     /// <summary>Full informational version as stamped, e.g. "0.6.15+sha".</summary>
     public static string VersionFull => AppVersion.Full;
 
-    /// <summary>The per-user install root (<c>%LOCALAPPDATA%\cc-director</c>).</summary>
-    public static string InstallRoot => CcStorage.Root();
+    /// <summary>
+    /// The per-machine install root (<c>%LOCALAPPDATA%\cc-director</c>) - where the product is
+    /// installed, which is what an About box is reporting. Not this Director's data folder: on a named
+    /// Director those are different places, and only one of them has an install in it.
+    /// </summary>
+    public static string InstallRoot => CcStorage.MachineRoot();
 
     /// <summary>Build date of the running exe (its file write time), or null when it can't be read.</summary>
     public static DateTime? BuildDate()
@@ -43,10 +47,14 @@ public static class AboutInfo
     /// <c>%LOCALAPPDATA%\cc-director\config\setup\installed.json</c>. Empty when the file is absent
     /// (e.g. running from a dev build) or unreadable. Read directly (no dependency on the installer
     /// engine) so every UI surface can call it.
+    ///
+    /// The installer writes that manifest at the machine root, so this reads it from there. Asking for
+    /// this Director's own folder instead made a named Director report every component as missing and
+    /// every Python tool's version as unknown - it was reading a file that only the machine root has.
     /// </summary>
     public static IReadOnlyDictionary<string, string> InstalledComponents()
     {
-        var path = Path.Combine(CcStorage.Root(), "config", "setup", "installed.json");
+        var path = Path.Combine(CcStorage.MachineRoot(), "config", "setup", "installed.json");
         try
         {
             if (!File.Exists(path)) return new Dictionary<string, string>();

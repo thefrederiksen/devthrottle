@@ -189,10 +189,38 @@ def _is_windows() -> bool:
     return os.name == "nt"
 
 
+def _machine_root(root: Path) -> Path:
+    """The machine root that ``root`` belongs to.
+
+    A Director's own folder is always ``<machine root>/instances/<name>``, and every Director hands
+    that path to every session it starts as the CC_DIRECTOR_ROOT setting. So this command, run from
+    inside a session, used to take that Director's folder for the whole machine - and reported the
+    install status of, and repaired into, a folder that holds no install. This climbs out of a
+    Director's folder and answers with the machine root above it.
+
+    It climbs repeatedly, because the same leak produced nested folders
+    (``instances/default/instances/default`` exists on the computer that prompted this work) and one
+    climb out of that lands on another Director's folder. Climbing on cannot reach past a real
+    machine root: a real machine root is never a child of a folder named ``instances``.
+
+    Any other path - a throwaway root a test rig pins with CC_DIRECTOR_ROOT, say - comes back exactly
+    as it went in, because a rig keeping its own tools is what makes a rig safe to run at all.
+    """
+    current = root
+    while current.parent.name.lower() == "instances":
+        machine = current.parent.parent
+        # A folder named "instances" at the top of the tree is not a shape any Director writes.
+        # Inventing a parent that is not there would be worse than answering with what we were given.
+        if machine == current.parent:
+            return current
+        current = machine
+    return current
+
+
 def _install_root() -> Path:
     override = os.environ.get("CC_DIRECTOR_ROOT")
     if override:
-        return Path(override)
+        return _machine_root(Path(override))
     if _is_windows():
         return Path(os.environ.get("LOCALAPPDATA", "")) / "cc-director"
     if sys.platform == "darwin":
