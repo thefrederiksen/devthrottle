@@ -1084,9 +1084,9 @@ _ACTIONS = [
     {
         "id": "session-hand-over",
         "description": (
-            "Hand a running session to the Fleet Manager, or back to the owner. The owner's change: the Gateway "
-            "allows it only from the owner's own phone or browser and refuses every session key, the Fleet "
-            "Manager's included."
+            "Hand a running session to the Fleet Manager, or back to the owner. You may release a session YOU own "
+            "to the owner (--to owner) on your own; every other change of owner is the owner's to direct, from his "
+            "phone or browser, or on his word."
         ),
         "command": "cc-devthrottle session hand-over <session> --to fleet-manager|owner [--json]",
         "mutatesState": True,
@@ -1799,9 +1799,15 @@ def hand_over(
 ) -> None:
     """Hand a running session to the Fleet Manager, or back to the owner.
 
-    The Gateway allows it from the owner's own signed-in phone or browser (the Cockpit's Fleet Manager
-    page and session menu), and from the account's Fleet Manager with its own session key - which takes
-    a session only when the owner has asked it to. Any other session's key is refused with the reason.
+    A SESSION MAY RELEASE WHAT IT OWNS. Run from a session, `--to owner` is allowed for a session that
+    session owns: giving the work away lands it in front of the owner, where everything lands by default.
+    Taking a session, and handing one to the Fleet Manager, stay the owner's to direct - he does it from
+    the Cockpit or the phone, or tells a session to do it on his word.
+
+    The Gateway also allows it from the owner's own signed-in phone or browser (the Cockpit's Fleet
+    Manager page and session menu), and from the account's Fleet Manager with its own session key - which
+    takes a session only when the owner has asked it to. Any other session's key is refused with the
+    reason, and the reason says which direction is allowed.
 
     The Gateway also refuses: a session this account is not running, the Fleet Manager itself, handing to
     a Fleet Manager the account does not have running, a session another running session owns, a session

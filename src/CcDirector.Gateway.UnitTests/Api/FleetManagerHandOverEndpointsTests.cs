@@ -140,8 +140,11 @@ public sealed class FleetManagerHandOverEndpointsTests
             Request(Tenant, Body(), sessionKeyFor: Plain), ResolveTenant, _service);
 
         Assert.Equal(403, Status(result));
-        Assert.Equal($"Only this account's Fleet Manager session ({Fm}) may hand a session over; session {Plain} is not it. " +
-                     "The owner hands sessions over from the Cockpit or the phone.", Error(result));
+        Assert.Equal($"Session {Plain} may not hand session {Plain} over: it does not own that session, and it is " +
+                     $"not this account's Fleet Manager session ({Fm}). " +
+                     "A session may hand over a session it OWNS, and only to the owner (--to owner). " +
+                     "Taking a session, or handing one to the Fleet Manager, is the owner's to direct: he does it " +
+                     "from the Cockpit or the phone, or tells a session to do it on his word.", Error(result));
         Assert.Equal(0, _world.Sends);
     }
 

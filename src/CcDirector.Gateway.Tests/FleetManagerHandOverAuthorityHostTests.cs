@@ -18,6 +18,7 @@ namespace CcDirector.Gateway.Tests;
 ///  - the account's marked Fleet Manager, with its own session key, takes to itself a session that answers to the
 ///    owner, and hands a session it owns back to the owner;
 ///  - it never takes a session another running session owns, and never reaches another account's session;
+///  - any session RELEASES a session it owns to the owner, and may not take one (issue #3086);
 ///  - every other session key of the account is refused with <c>not_fleet_manager</c> and the reason;
 ///  - the owner's own browser still hands over as before.
 ///
@@ -43,6 +44,7 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
     private HttpClient _ownerA = null!;
     private HttpClient _fleetManager = null!;
     private HttpClient _plainKey = null!;
+    private HttpClient _architectKey = null!;
     private HttpClient _fleetManagerB = null!;
 
     private readonly string _fleetManagerId = Guid.NewGuid().ToString();
@@ -83,6 +85,7 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
 
         _fleetManager = Client(SessionKey(a.Tenant, DirectorIdA, _fleetManagerId));
         _plainKey = Client(SessionKey(a.Tenant, DirectorIdA, _plainId));
+        _architectKey = Client(SessionKey(a.Tenant, DirectorIdA, _architectId));
         _fleetManagerB = Client(SessionKey(b.Tenant, DirectorIdB, _fleetManagerBId));
 
         var now = DateTime.UtcNow;
@@ -117,7 +120,7 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        foreach (var http in new[] { _ownerA, _fleetManager, _plainKey, _fleetManagerB })
+        foreach (var http in new[] { _ownerA, _fleetManager, _plainKey, _architectKey, _fleetManagerB })
             http?.Dispose();
         if (_directorA is not null) await _directorA.DisposeAsync();
         if (_directorB is not null) await _directorB.DisposeAsync();
@@ -301,10 +304,70 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Forbidden, status);
         Assert.Equal("not_fleet_manager", body.GetProperty("code").GetString());
-        Assert.Equal($"Only this account's Fleet Manager session ({_fleetManagerId}) may hand a session over; " +
-                     $"session {_plainId} is not it. The owner hands sessions over from the Cockpit or the phone.",
+        Assert.Equal($"Session {_plainId} may not hand session {target} over: it does not own that session, and it " +
+                     $"is not this account's Fleet Manager session ({_fleetManagerId}). " +
+                     "A session may hand over a session it OWNS, and only to the owner (--to owner). " +
+                     "Taking a session, or handing one to the Fleet Manager, is the owner's to direct: he does it " +
+                     "from the Cockpit or the phone, or tells a session to do it on his word.",
             body.GetProperty("error").GetString());
         Assert.Empty(_ownerChangesA);
+    }
+
+    // ---- a session releasing a session it owns (issue #3086) -------------------------------------------------
+
+    [Fact]
+    public async Task A_session_releases_the_session_it_owns_to_the_owner()
+    {
+        var (status, body) = await HandOverAsync(_architectKey, _workerId, "owner");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("ownerSessionId").ValueKind);
+        Assert.Equal(_architectId, body.GetProperty("previousOwnerSessionId").GetString());
+        Assert.Equal(_workerId, Assert.Single(_ownerChangesA).SessionId);
+        Assert.Null(_rowsA[_workerId].ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task A_session_may_not_take_the_session_it_owns_to_the_Fleet_Manager()
+    {
+        var (status, body) = await HandOverAsync(_architectKey, _workerId, "fleet-manager");
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("not_fleet_manager", body.GetProperty("code").GetString());
+        var error = body.GetProperty("error").GetString();
+        Assert.StartsWith($"Session {_architectId} owns session {_workerId}, but the only change of owner it may make " +
+                          $"on its own is to release it: cc-devthrottle session hand-over {_workerId} --to owner.", error);
+        Assert.Contains("A session may hand over a session it OWNS, and only to the owner (--to owner).", error);
+        Assert.Empty(_ownerChangesA);
+        Assert.Equal(_architectId, _rowsA[_workerId].ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task A_session_may_not_release_a_session_another_session_owns()
+    {
+        var (status, _) = await HandOverAsync(_plainKey, _workerId, "owner");
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Empty(_ownerChangesA);
+        Assert.Equal(_architectId, _rowsA[_workerId].ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task A_released_session_asks_the_owner_directly_on_the_next_roster_read()
+    {
+        var (status, _) = await HandOverAsync(_architectKey, _workerId, "owner");
+        Assert.Equal(HttpStatusCode.OK, status);
+        await PushAAsync();
+
+        using var listed = await _ownerA.GetAsync("sessions");
+        Assert.Equal(HttpStatusCode.OK, listed.StatusCode);
+        var text = await listed.Content.ReadAsStringAsync();
+        _out.WriteLine($"GET sessions -> {text}");
+        var row = JsonDocument.Parse(text).RootElement.EnumerateArray()
+            .First(s => string.Equals(s.GetProperty("sessionId").GetString(), _workerId, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("controllerSessionId").ValueKind);
+        Assert.False(row.GetProperty("hasLiveSupervisor").GetBoolean(),
+            "nothing holds the released session, so its turn end goes red for the owner");
     }
 
     [Fact]

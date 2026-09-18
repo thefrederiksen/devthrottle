@@ -21,15 +21,18 @@ namespace CcDirector.Gateway.Api;
 /// request), 403 (a caller that may not hand this over), 404 (no such running session in this account), 409 (the session
 /// or the account does not allow it) or 502 (the Director did not make the change).
 ///
-/// WHO MAY CALL IT. Two callers, and nobody else:
+/// WHO MAY CALL IT. Three callers, and nobody else:
 ///  - THE OWNER, from their own signed-in phone or browser (<see cref="FleetManagerOwnerDevice"/>, shared with the
 ///    walkthrough). A Director's own key and the shared machine token are refused with <c>code: "owner_only"</c>.
 ///  - THE ACCOUNT'S FLEET MANAGER, with its own session key (the Architect's ruling on step 8). It may take to itself a
 ///    session of its own account that answers to the owner, and hand a session it owns back to the owner - and nothing
 ///    more: it never takes a session another running session owns, and its key only ever reaches its own account's
-///    roster. It does this only when the owner has asked; the Fleet Manager skill says so. Every other session key is
-///    refused by <see cref="FleetManagerHandOverService"/> with <c>code: "not_fleet_manager"</c> and the reason, after
-///    <see cref="SessionKeyGuard"/> has let the one POST through.
+///    roster. It does this only when the owner has asked; the Fleet Manager skill says so.
+///  - ANY SESSION RELEASING A SESSION IT OWNS, with <c>"to": "owner"</c> (issue #3086). That direction alone: giving
+///    work away puts it in front of the person, which is where everything lands by default, so it needs no permission.
+///
+/// Every other session key is refused by <see cref="FleetManagerHandOverService"/> with <c>code: "not_fleet_manager"</c>
+/// and a reason that says which direction is allowed, after <see cref="SessionKeyGuard"/> has let the one POST through.
 /// </summary>
 internal static class FleetManagerHandOverEndpoints
 {

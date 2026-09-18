@@ -8,9 +8,12 @@ directly owns. The workflow a session is seated on never makes it the Fleet Mana
 no target marks the session running the command. `clear` removes the mark. `show` prints it.
 
 `session hand-over` (the Fleet Manager mission, step 8) changes who owns a running session: to the Fleet
-Manager, or back to the owner. The Gateway allows it from the owner's own phone or browser, and from the
-account's Fleet Manager with its own session key (which acts only when the owner has asked it to); every
-other session key is refused, and this command prints the Gateway's refusal in words, not a status number.
+Manager, or back to the owner. The Gateway allows it from the owner's own phone or browser, from the
+account's Fleet Manager with its own session key (which acts only when the owner has asked it to), and
+from any session RELEASING a session it owns to the owner (issue #3086) - that direction alone, because
+giving work away lands it in front of the person. Every other session key is refused, and this command
+prints the Gateway's refusal in words, not a status number; the refusal itself says which direction a
+session may hand over.
 """
 
 from __future__ import annotations

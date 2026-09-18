@@ -53,6 +53,21 @@ You are a session, so when you spawn there are two possible owners and no safe d
 You cannot give the new session to another session. The Gateway refuses a session that names any id
 but its own as the owner, because the owner is one of the few sessions the new one may message.
 
+**You may let go afterwards, and only that way.** If you own a session and the work turns out to be
+the user's - it outlives you, it needs him, it was never yours to collect - release it:
+
+```
+cc-devthrottle session hand-over <session> --to owner
+```
+
+It answers to him from then on, goes red for him when it stops, and keeps everything it has done.
+That is the one change of owner a session makes on its own, and it is safe for the same reason
+`--controlled-by self` is the only owner you may name at birth: giving work away puts it in front of
+the person. Taking a session, moving one between two sessions, and handing one to the Fleet Manager
+are all his to direct - he does them from the Cockpit or the phone, or tells you to do them on his
+word. Anything else is refused with the reason.
+
+
 **Reach for `--controlled-by self` by default.** You asked for the work; getting back with it is part
 of doing it. `--standalone` is for the narrow case where the work is genuinely the user's - he asked
 you to open it for him, or it needs his decision before anything else can run - and it requires

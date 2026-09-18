@@ -94,8 +94,9 @@ def test_json_prints_the_gateway_answer_unchanged(monkeypatch, plain):
 
 
 def test_a_refusal_prints_the_gateways_sentence_and_exits_1(monkeypatch, plain):
-    sentence = ("Only the owner can hand a session over, from the Cockpit or the phone. "
-                "A session's own key cannot - not even the Fleet Manager's.")
+    sentence = (f"Session {FM_ID} may not hand session {PLAIN_ID} over: it does not own that session, and it is "
+                "not this account's Fleet Manager session. A session may hand over a session it OWNS, and only "
+                "to the owner (--to owner).")
     _stub(monkeypatch, error=sentence, status=403)
 
     result = runner.invoke(app, ["session", "hand-over", PLAIN_ID, "--to", "fleet-manager"])
@@ -154,6 +155,45 @@ def test_a_session_that_is_not_in_the_fleet_is_an_error_and_sends_nothing(monkey
     assert result.exit_code == 1
     assert "No session matches 'no-such-session'" in plain(result.output)
     assert state["posts"] == []
+
+
+def test_releasing_a_session_you_own_sends_to_owner_and_reports_the_user_has_it(monkeypatch, plain):
+    """Issue #3086: a session lets go of a session it owns. The command sends the same one body; the Gateway
+    decides who may ask. What is pinned here is that `--to owner` reaches the route unchanged and the answer,
+    with no owner, is reported as the user's."""
+    state = _stub(monkeypatch, answer=_answer(
+        to="owner", owner=None,
+        sentence='Session "Widgets - invoice export" is yours again. It asks you directly from now on.'))
+
+    result = runner.invoke(app, ["session", "hand-over", PLAIN_ID, "--to", "owner"])
+
+    assert result.exit_code == 0, result.output
+    assert state["posts"] == [("gateway/fleet-manager/hand-over", {"session": PLAIN_ID, "to": "owner"})]
+    out = plain(result.output)
+    assert "is yours again. It asks you directly from now on." in out
+    assert "owner: you" in out
+
+
+def test_the_help_says_a_session_may_release_what_it_owns(plain):
+    """An agent that reads the help learns the rule without hitting the refusal (issue #3086)."""
+    result = runner.invoke(app, ["session", "hand-over", "--help"])
+
+    assert result.exit_code == 0
+    out = " ".join(plain(result.output).split())
+    assert "RELEASE WHAT IT OWNS" in out.upper()
+    assert "--to owner" in out
+    assert "the owner's to direct" in out
+
+
+def test_the_action_description_says_which_direction_a_session_may_hand_over(plain):
+    result = runner.invoke(app, ["actions", "--json"])
+
+    assert result.exit_code == 0
+    actions = json.loads(plain(result.output))
+    rows = actions if isinstance(actions, list) else actions.get("actions", [])
+    row = next(a for a in rows if a["id"] == "session-hand-over")
+    assert "release a session YOU own" in row["description"]
+    assert "--to owner" in row["description"]
 
 
 def test_the_action_is_listed_for_agents(plain):

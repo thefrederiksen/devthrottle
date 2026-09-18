@@ -1,6 +1,7 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Fleet;
+using CcDirector.Gateway.Wingman;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Fleet;
@@ -386,8 +387,123 @@ public sealed class FleetManagerHandOverServiceTests
     {
         var result = await HandAsSessionAsync(caller, Owned, to);
 
-        AssertRefused(result, 403, $"Only this account's Fleet Manager session ({Fm}) may hand a session over; session {caller} is not it.");
+        AssertRefused(result, 403, $"Session {caller} may not hand session {Owned} over: it does not own that " +
+                                   $"session, and it is not this account's Fleet Manager session ({Fm}).");
         Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
+    }
+
+    // ============================================= a session releasing a session it owns (issue #3086)
+
+    [Fact]
+    public async Task OwningSessionKey_ReleasesTheSessionItOwnsToTheOwner_AndTheChangeIsRecorded()
+    {
+        var result = await HandAsSessionAsync(Architect, ArchitectWorker, "owner");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(("dir-2", ArchitectWorker, (string?)null), Assert.Single(_world.Sent));
+        Assert.Equal(Architect, Assert.Single(_world.Expected));
+        Assert.Null(result.Answer!.OwnerSessionId);
+        Assert.Equal(Architect, result.Answer.PreviousOwnerSessionId);
+        Assert.Equal("Session \"The Architect's Worker\" is yours again. It asks you directly from now on.", result.Answer.Sentence);
+        var audited = Assert.Single(_world.Audited);
+        Assert.Equal((ArchitectWorker, $"session {Architect}"), (audited.SessionId, audited.Actor));
+        Assert.Equal($"released to the owner by session {Architect}, which owned it", audited.Detail);
+        Assert.Null(Assert.Single(_world.OwnerChanges).ControllerSessionId);
+    }
+
+    /// <summary>
+    /// WHERE THE RED GOES is the whole point of the release (issue #3086). A session with a live owner is HELD - its
+    /// turn end is that owner's to read - and the released session must stop being held, so the person sees it. Read
+    /// through the real <see cref="TurnVerdictHeldCheck"/>, from the row the Director answered with, not from the
+    /// request: the answer is what the roster carries afterwards.
+    /// </summary>
+    [Fact]
+    public async Task OwningSessionKey_AfterTheRelease_TheSessionsTurnEndReachesTheUser()
+    {
+        var before = TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker, Fm);
+        Assert.True(before.Held, "before the release the Architect holds it, so its turn end is the Architect's to read");
+
+        var result = await HandAsSessionAsync(Architect, ArchitectWorker, "owner");
+
+        Assert.Equal(200, result.Status);
+        var row = _world.Rosters[Tenant].First(r => r.Session.SessionId == ArchitectWorker);
+        row.Session.ControllerSessionId = result.Answer!.Session!.ControllerSessionId;
+        row.Session.IsControlled = result.Answer.Session.IsControlled;
+
+        var after = TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker, Fm);
+
+        Assert.False(after.Held, "after the release nothing holds it, so its red goes to the user");
+        Assert.True(FleetManagerSessions.AsksOwnerDirectly(
+            _world.Roster(Tenant).First(r => r.Session.SessionId == ArchitectWorker).Session, Fm));
+    }
+
+    [Fact]
+    public async Task NonOwningSessionKey_MayNotReleaseASessionAnotherSessionOwns()
+    {
+        var result = await HandAsSessionAsync(Plain, ArchitectWorker, "owner");
+
+        AssertRefused(result, 403, $"Session {Plain} may not hand session {ArchitectWorker} over: it does not own " +
+                                   $"that session, and it is not this account's Fleet Manager session ({Fm}).");
+        Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
+    }
+
+    /// <summary>
+    /// A SESSION THAT OWNS THE SESSION IS NOT TOLD IT OWNS NOTHING. It asked for the wrong direction, and the sentence
+    /// that sends it after the wrong fix - "it does not own that session" - is worse than no sentence at all, because
+    /// it is false about the one fact the reader would act on. Raised in review.
+    /// </summary>
+    [Fact]
+    public async Task OwningSessionKey_MayNotTakeTheSessionItOwnsToTheFleetManager()
+    {
+        var result = await HandAsSessionAsync(Architect, ArchitectWorker, "fleet-manager");
+
+        AssertRefused(result, 403, $"Session {Architect} owns session {ArchitectWorker}, but the only change of owner " +
+                                   $"it may make on its own is to release it: cc-devthrottle session hand-over " +
+                                   $"{ArchitectWorker} --to owner.");
+        Assert.DoesNotContain("does not own", result.Error);
+        Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
+    }
+
+    /// <summary>The Fleet Manager's own key is unchanged by the owning-caller sentence: a session it already owns is
+    /// still answered by the session rules, not by the caller check.</summary>
+    [Fact]
+    public async Task FleetManagerKey_TakingASessionItAlreadyOwns_IsStillTheOrdinaryRefusal()
+        => AssertRefused(await HandAsSessionAsync(Fm, Owned, "fleet-manager"), 409, "is already the Fleet Manager's.");
+
+    [Fact]
+    public async Task AnySessionKey_MayNotAcquireASessionThatAnswersToTheOwner()
+    {
+        var result = await HandAsSessionAsync(Architect, Plain, "fleet-manager");
+
+        AssertRefused(result, 403, $"Session {Architect} may not hand session {Plain} over: it does not own that session");
+    }
+
+    [Fact]
+    public async Task ARefusedSessionKey_IsToldWhichDirectionItMayHandOver()
+    {
+        var result = await HandAsSessionAsync(Plain, ArchitectWorker, "owner");
+
+        Assert.Contains("A session may hand over a session it OWNS, and only to the owner (--to owner).", result.Error);
+        Assert.Contains("is the owner's to direct", result.Error);
+    }
+
+    [Fact]
+    public async Task OwningSessionKey_WhenTheAccountHasNoFleetManagerAtAll_StillReleasesWhatItOwns()
+    {
+        _world.Mark = null;
+
+        var result = await HandAsSessionAsync(Architect, ArchitectWorker, "owner");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(("dir-2", ArchitectWorker, (string?)null), Assert.Single(_world.Sent));
+    }
+
+    [Fact]
+    public async Task OwningSessionKey_ReleasingASessionThatHasEnded_IsRefusedAsBefore()
+    {
+        _world.Rosters[Tenant].Add(("dir-1", Row(Gone, "Its worker, finished", controller: Architect, state: "Exited")));
+
+        AssertRefused(await HandAsSessionAsync(Architect, Gone, "owner"), 409, "has ended, so it cannot be handed over.");
     }
 
     [Fact]

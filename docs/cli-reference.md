@@ -668,7 +668,7 @@ COMMANDS:
                    (sends nothing when a Fleet Manager owns you: the Gateway tells it).
   session raise    Put your hand up to the session driving you when you are blocked.
   session hand-over  Hand a running session to the Fleet Manager, or back to the owner
-                   (the owner's, or the Fleet Manager's when the owner asks it).
+                   (release one you own to the owner yourself; the rest is the owner's to direct).
   director list    List every Director this account runs, with the id --director accepts.
   worktree list    List the fleet's worktrees; --pool lists this machine's cc-worktrees pool.
   worktree get     Take a pooled worktree to work in (runs cc-worktrees).
@@ -999,8 +999,15 @@ the Fleet Manager's session, as the actor).
 "Hand sessions to the Fleet Manager..." list on the Fleet Manager page and the session menu's "Hand to the
 Fleet Manager" and "Hand back to me". And the account's Fleet Manager, with its own session key, when the
 owner has asked it to: it may take a session that asks the owner directly (`--to fleet-manager`) and hand
-a session it owns back (`--to owner`). Every other session key is refused with code `not_fleet_manager`
-and the reason, so run from any other session this command prints the Gateway's refusal and exits 1.
+a session it owns back (`--to owner`).
+
+And any session may RELEASE a session it OWNS to the owner (`--to owner`), on its own, with no permission
+asked. Giving work away is always safe: it lands where everything lands by default, in front of the
+person, and the released session goes red for him from then on. That direction alone - a session never
+takes a session, its own included, to itself or to the Fleet Manager. Every other change of owner is the
+owner's to direct: he makes it from the Cockpit or the phone, or tells a session to make it on his word.
+Every other session key is refused with code `not_fleet_manager` and a reason that says which direction is
+allowed, so run from any other session this command prints the Gateway's refusal and exits 1.
 
 Every refusal is the Gateway's sentence: a session this account is not running now (another account's
 session answers the same), the Fleet Manager itself, handing to a Fleet Manager the account has not
