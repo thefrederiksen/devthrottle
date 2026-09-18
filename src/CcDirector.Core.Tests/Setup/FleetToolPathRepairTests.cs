@@ -23,7 +23,7 @@ public class FleetToolPathRepairTests
         Assert.Equal(P(@"C:\mine\bin", @"C:\windows", @"C:\tools"), result);
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void MoveToFront_EntryBehindAStaleInstall_OvertakesIt()
     {
         // The machine this was written for: the old install's bin wins because it comes first.
@@ -36,7 +36,7 @@ public class FleetToolPathRepairTests
             result);
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void MoveToFront_RunTwice_DoesNotAccumulateDuplicates()
     {
         var once = FleetToolPathRepair.MoveToFront(P(@"C:\windows"), @"C:\mine\bin");
@@ -65,7 +65,7 @@ public class FleetToolPathRepairTests
         Assert.Contains(@"%USERPROFILE%\bin", result, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void MoveToFront_IgnoresTrailingSeparatorAndCaseWhenMatching()
     {
         var before = P(@"C:\Mine\Bin\", @"C:\windows");
@@ -96,7 +96,7 @@ public class FleetToolPathRepairTests
         Assert.Throws<ArgumentException>(() => FleetToolPathRepair.PutFirstOnPath("  "));
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void PutFirstOnPath_DirectoryThatExistsButHoldsNoTool_RefusesAndSaysWhy()
     {
         // THE BUG, at the layer that could have stopped it. On 2026-08-01 this directory existed and
@@ -166,7 +166,7 @@ public class FleetToolPathRepairTests
         return FleetToolPathRepair.Rewrite(path, OurBin, Exists, Exists, TempRoot);
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void Rewrite_TheSupersededFlatBinOfOurOwnInstall_IsRemoved()
     {
         // Two entries for one command line serve nobody: only the first can ever win, and the loser
@@ -177,7 +177,7 @@ public class FleetToolPathRepairTests
         Assert.Equal(new[] { LegacyBin }, result.Removed);
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void Rewrite_AnotherLiveInstancesBin_IsKept()
     {
         // A second Director in its own instance home is legitimate on this machine. Ours goes in
@@ -188,7 +188,7 @@ public class FleetToolPathRepairTests
         Assert.Empty(result.Removed);
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void Rewrite_AToolDirectoryUnderTheTempDirectory_IsRemoved()
     {
         // There is one of these on the machine that prompted this work: a wizard test harness left
@@ -201,7 +201,7 @@ public class FleetToolPathRepairTests
         Assert.Equal(new[] { leaked }, result.Removed);
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void Rewrite_AnInstallBinThatIsGoneFromDisk_IsRemoved()
     {
         var vanished = Path.Combine("C:", "old", "cc-director", "bin");
@@ -212,7 +212,7 @@ public class FleetToolPathRepairTests
         Assert.Equal(new[] { vanished }, result.Removed);
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void Rewrite_AMissingDirectoryThatIsNothingToDoWithUs_IsKept()
     {
         // An entry whose network drive is unmapped this morning is not ours to tidy away. The removal
@@ -277,7 +277,7 @@ public class FleetToolPathRepairTests
         }
     }
 
-    [Fact]
+    [WindowsOnlyFact("persisting a PATH change is Windows-only - the product throws PlatformNotSupportedException elsewhere because the shell profile owns PATH - and these expectations are drive-letter and semicolon shaped")]
     public void Rewrite_RunTwice_IsStable()
     {
         var once = RewriteWith(P(LegacyBin, @"C:\windows", OurBin), LegacyBin, OurBin);

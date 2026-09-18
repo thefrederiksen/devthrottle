@@ -23,7 +23,7 @@ public class CommandLineLauncherTests
         Assert.Equal(string.Empty, args);
     }
 
-    [Fact]
+    [WindowsOnlyFact("wrapping a .cmd or .bat shim through the command interpreter is a Windows mechanism with no counterpart elsewhere")]
     public void Build_CmdShim_WrapsThroughComSpec()
     {
         var (exe, args) = CommandLineLauncher.Build(@"C:\Users\me\AppData\Roaming\npm\opencode.cmd", "");
@@ -33,7 +33,7 @@ public class CommandLineLauncherTests
         Assert.Equal("/s /c \"\"C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd\"\"", args);
     }
 
-    [Fact]
+    [WindowsOnlyFact("wrapping a .cmd or .bat shim through the command interpreter is a Windows mechanism with no counterpart elsewhere")]
     public void Build_CmdShimWithArgs_QuotesProgramAndKeepsArgs()
     {
         var (exe, args) = CommandLineLauncher.Build(@"C:\path with space\tool.cmd", "--a --b");
@@ -42,7 +42,7 @@ public class CommandLineLauncherTests
         Assert.Equal("/s /c \"\"C:\\path with space\\tool.cmd\" --a --b\"", args);
     }
 
-    [Fact]
+    [WindowsOnlyFact("wrapping a .cmd or .bat shim through the command interpreter is a Windows mechanism with no counterpart elsewhere")]
     public void Build_BatShim_AlsoWrapped()
     {
         var (exe, args) = CommandLineLauncher.Build(@"C:\tools\legacy.bat", null);

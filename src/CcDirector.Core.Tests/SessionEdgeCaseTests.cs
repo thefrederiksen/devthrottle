@@ -39,7 +39,7 @@ public class SessionEdgeCaseTests : IDisposable
             () => _manager.CreateSession(@"X:\this\does\not\exist"));
     }
 
-    [Fact]
+    [WindowsOnlyFact("the embedded terminal type is Windows-only, so off Windows the product refuses with PlatformNotSupportedException before the guard under test is reached")]
     public void CreateSession_EmbeddedType_ThrowsInvalidOperation()
     {
         Assert.Throws<InvalidOperationException>(

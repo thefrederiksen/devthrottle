@@ -20,7 +20,7 @@ public sealed class WorktreeReaperServiceTests : IDisposable
 
     public WorktreeReaperServiceTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "ccd-reaper-" + Guid.NewGuid().ToString("N"));
+        _root = TestTempRoot.For("ccd-reaper-");
         Directory.CreateDirectory(_root);
         _leftovers = new WorktreeLeftoverStore(Path.Combine(_root, "leftovers"));
         _origin = Path.Combine(_root, "origin.git");
