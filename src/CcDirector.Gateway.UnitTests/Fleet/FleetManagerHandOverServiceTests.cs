@@ -447,14 +447,28 @@ public sealed class FleetManagerHandOverServiceTests
         Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
     }
 
+    /// <summary>
+    /// A SESSION THAT OWNS THE SESSION IS NOT TOLD IT OWNS NOTHING. It asked for the wrong direction, and the sentence
+    /// that sends it after the wrong fix - "it does not own that session" - is worse than no sentence at all, because
+    /// it is false about the one fact the reader would act on. Raised in review.
+    /// </summary>
     [Fact]
     public async Task OwningSessionKey_MayNotTakeTheSessionItOwnsToTheFleetManager()
     {
         var result = await HandAsSessionAsync(Architect, ArchitectWorker, "fleet-manager");
 
-        AssertRefused(result, 403, $"Session {Architect} may not hand session {ArchitectWorker} over: it does not own that session");
+        AssertRefused(result, 403, $"Session {Architect} owns session {ArchitectWorker}, but the only change of owner " +
+                                   $"it may make on its own is to release it: cc-devthrottle session hand-over " +
+                                   $"{ArchitectWorker} --to owner.");
+        Assert.DoesNotContain("does not own", result.Error);
         Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
     }
+
+    /// <summary>The Fleet Manager's own key is unchanged by the owning-caller sentence: a session it already owns is
+    /// still answered by the session rules, not by the caller check.</summary>
+    [Fact]
+    public async Task FleetManagerKey_TakingASessionItAlreadyOwns_IsStillTheOrdinaryRefusal()
+        => AssertRefused(await HandAsSessionAsync(Fm, Owned, "fleet-manager"), 409, "is already the Fleet Manager's.");
 
     [Fact]
     public async Task AnySessionKey_MayNotAcquireASessionThatAnswersToTheOwner()

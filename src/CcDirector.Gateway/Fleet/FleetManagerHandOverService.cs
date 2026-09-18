@@ -135,12 +135,12 @@ public sealed class FleetManagerHandOverService
         // RELEASING IS ALWAYS ALLOWED, ACQUIRING NEVER IS (issue #3086). A session may let go of a session it owns, and
         // only to the owner - the work then lands where everything lands by default, in front of the person. Read here,
         // before the caller is judged, because whether the caller owns the session is what decides whether it may ask.
-        var releasing = callingSessionId is not null
-                        && to == SessionOwnerChangeDto.ToOwner
-                        && roster.Any(r => FleetManagerSessions.SameId(r.Session.SessionId, sid)
-                                           && FleetManagerSessions.IsOwnedBy(r.Session, callingSessionId));
+        var callerOwnsIt = callingSessionId is not null
+                           && roster.Any(r => FleetManagerSessions.SameId(r.Session.SessionId, sid)
+                                              && FleetManagerSessions.IsOwnedBy(r.Session, callingSessionId));
+        var releasing = callerOwnsIt && to == SessionOwnerChangeDto.ToOwner;
         if (callingSessionId is not null && !releasing
-            && RefuseUnlessFleetManager(roster, marked, callingSessionId, sid) is { } notAllowed)
+            && RefuseUnlessFleetManager(roster, marked, callingSessionId, sid, callerOwnsIt) is { } notAllowed)
             return notAllowed;
 
         var found = roster.FirstOrDefault(r => FleetManagerSessions.SameId(r.Session.SessionId, sid));
@@ -246,15 +246,22 @@ public sealed class FleetManagerHandOverService
 
     /// <summary>Null when <paramref name="callingSessionId"/> is the account's live Fleet Manager; otherwise the 403.
     /// Asked only after a release has been ruled out, so every sentence here also says which direction IS allowed -
-    /// an agent that hits this learns the rule from the error rather than from a document (issue #3086).</summary>
+    /// an agent that hits this learns the rule from the error rather than from a document (issue #3086).
+    ///
+    /// <paramref name="callerOwnsIt"/> IS THE DIFFERENCE BETWEEN TWO REFUSALS, and saying the wrong one sends the
+    /// reader after the wrong fix: a session that OWNS the session and asked for the wrong direction is not a session
+    /// with no business here, and must never be told it does not own what it owns.</summary>
     private static FleetHandOverResult? RefuseUnlessFleetManager(
-        IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string? marked, string callingSessionId, string sid)
+        IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string? marked, string callingSessionId, string sid,
+        bool callerOwnsIt)
     {
         const string Rule = " A session may hand over a session it OWNS, and only to the owner (--to owner). " +
                             "Taking a session, or handing one to the Fleet Manager, is the owner's to direct: he does it " +
                             "from the Cockpit or the phone, or tells a session to do it on his word.";
+        // THE LIVE FLEET MANAGER PASSES FIRST, exactly as before: it may take a session that answers to the owner, and
+        // a session it owns is answered by the ordinary rules below this method (already the Fleet Manager's, and so on).
         var opening = $"Session {callingSessionId} may not hand session {sid} over: it does not own that session, and ";
-        string? why = null;
+        string? why;
         if (string.IsNullOrEmpty(marked))
             why = opening + "this account has no Fleet Manager marked.";
         else if (!FleetManagerSessions.SameId(callingSessionId, marked))
@@ -262,7 +269,12 @@ public sealed class FleetManagerHandOverService
         else if (FleetManagerSessions.LiveFleetManager(roster.Select(r => r.Session), marked) is null)
             why = opening + "it is marked as the Fleet Manager but is not running as the Fleet Manager " +
                   "(it has ended, is owned by another session, or no computer of this account reports it).";
-        if (why is null) return null;
+        else
+            return null;
+        // A session that DOES own it asked for the wrong direction, so it is told that and not that it owns nothing.
+        if (callerOwnsIt)
+            why = $"Session {callingSessionId} owns session {sid}, but the only change of owner it may make on its " +
+                  $"own is to release it: cc-devthrottle session hand-over {sid} --to owner.";
         FileLog.Write($"[FleetManagerHandOverService] REFUSED session key {callingSessionId}: {why}");
         return FleetHandOverResult.Refused(403, why + Rule, FleetHandOverResult.NotFleetManager);
     }

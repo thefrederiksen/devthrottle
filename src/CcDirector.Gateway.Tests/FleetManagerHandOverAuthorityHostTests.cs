@@ -334,8 +334,10 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Forbidden, status);
         Assert.Equal("not_fleet_manager", body.GetProperty("code").GetString());
-        Assert.Contains("A session may hand over a session it OWNS, and only to the owner (--to owner).",
-            body.GetProperty("error").GetString());
+        var error = body.GetProperty("error").GetString();
+        Assert.StartsWith($"Session {_architectId} owns session {_workerId}, but the only change of owner it may make " +
+                          $"on its own is to release it: cc-devthrottle session hand-over {_workerId} --to owner.", error);
+        Assert.Contains("A session may hand over a session it OWNS, and only to the owner (--to owner).", error);
         Assert.Empty(_ownerChangesA);
         Assert.Equal(_architectId, _rowsA[_workerId].ControllerSessionId);
     }
