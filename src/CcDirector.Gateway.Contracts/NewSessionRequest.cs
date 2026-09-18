@@ -9,6 +9,23 @@ public sealed class NewSessionRequest
     public string RepoPath { get; set; } = "";
 
     /// <summary>
+    /// A pooled worktree this seat ALREADY HOLDS, handed back to the Director when a captured
+    /// workspace seat is restored. Null on every ordinary create, and the ordinary create is the
+    /// only one that may take a slot.
+    ///
+    /// When it is set the Director runs the session in that slot on that lease and asks cc-worktrees
+    /// for NOTHING - it does not even read the repository's setting, because the answer is already
+    /// known. That is the point: a restore must never take a NEW slot. The old one would stay in use
+    /// under a holder that no longer exists while a second was consumed, so a Director that restarted
+    /// a few times would fill its own pool with slots nobody could give back.
+    ///
+    /// Only a Director restoring a workspace sends one, and it sends back what the CAPTURE recorded -
+    /// it is a value returning to where it came from, not a caller choosing a slot. An incomplete
+    /// record is ignored rather than half-honoured.
+    /// </summary>
+    public PooledWorktreeRef? PooledWorktree { get; set; }
+
+    /// <summary>
     /// Optional explicit display name for the new session (issue #800). When provided it is used
     /// verbatim, EXCEPT that a blank name or one equal (case-insensitive) to the bare repository
     /// folder name is rejected with HTTP 400 - pass a meaningful name or a <see cref="Purpose"/>.

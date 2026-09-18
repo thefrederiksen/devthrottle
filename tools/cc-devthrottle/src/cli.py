@@ -66,6 +66,15 @@ worktree_app = typer.Typer(
     help="The fleet's worktrees, and this machine's pool of reusable ones.",
     add_completion=False,
 )
+pool_app = typer.Typer(
+    cls=AxiGroup,
+    # The SETTING, not the pool itself. `worktree get/return/lease/destroy` act on this machine's
+    # pool through cc-worktrees; these three say whether a repository uses one at all, and they are
+    # the only way a person turns it on.
+    help="Whether a repository uses a pooled worktree, and how many slots it may have.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 machine_app = typer.Typer(
     cls=AxiGroup,
     help="List machines, search them, start applications and ask for restarts.",
@@ -153,6 +162,7 @@ fleet_app = typer.Typer(
 app.add_typer(session_app, name="session")
 app.add_typer(repo_app, name="repo")
 app.add_typer(worktree_app, name="worktree")
+worktree_app.add_typer(pool_app, name="pool")
 app.add_typer(machine_app, name="machine")
 app.add_typer(director_app, name="director")
 app.add_typer(mission_app, name="mission")
@@ -1185,6 +1195,43 @@ _ACTIONS = [
             {"name": "repo", "required": False},
         ],
     },
+    {
+        "id": "worktree-pool-status",
+        "description": (
+            "Say whether a repository runs its sessions in a pooled worktree, with how many slots, "
+            "and when a change to that takes effect."
+        ),
+        "command": "cc-devthrottle worktree pool status [--repo <path>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "repo", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-pool-on",
+        "description": (
+            "Turn pooled worktrees ON for a repository: every session opened in it from then on runs "
+            "in a slot of its own instead of the shared checkout. Pool size defaults to 4."
+        ),
+        "command": "cc-devthrottle worktree pool on --repo <path> [--size N]",
+        "mutatesState": True,
+        "args": [
+            {"name": "repo", "required": True},
+            {"name": "size", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-pool-off",
+        "description": (
+            "Turn pooled worktrees OFF for a repository. Sessions already running in a slot are "
+            "untouched and still give their slot back when they close."
+        ),
+        "command": "cc-devthrottle worktree pool off --repo <path>",
+        "mutatesState": True,
+        "args": [
+            {"name": "repo", "required": True},
+        ],
+    },
 ]
 
 
@@ -1476,6 +1523,70 @@ def worktree_destroy(ctx: typer.Context) -> None:
     from . import worktree_pool_ops
 
     worktree_pool_ops.run_pool_command(["destroy"] + list(ctx.args))
+
+
+# The three commands below write the SETTING the Director reads on the create path, in the one place
+# it reads it (config.json, worktreePool.repoDefaults). They run no tool. Without them the setting is
+# unreachable: step 4 shipped the Director side and left the only way to turn it on as editing a JSON
+# file by hand.
+
+
+@pool_app.command("status")
+def worktree_pool_status(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, one object."
+    ),
+    repo: str = typer.Option(
+        ".", "--repo", help="The repository, by full path. Defaults to the current directory."
+    ),
+) -> None:
+    """Is this repository set to use a pooled worktree, and how many slots it may have.
+
+      cc-devthrottle worktree pool status [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.pool_status(repo, json_output)
+
+
+@pool_app.command("on")
+def worktree_pool_on(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, one object."
+    ),
+    repo: str = typer.Option(..., "--repo", help="The repository, by full path."),
+    size: int = typer.Option(
+        None, "--size",
+        help="The most slots this repository's pool may hold. Defaults to 4 the first time; "
+             "otherwise the size already stored is kept.",
+    ),
+) -> None:
+    """Run this repository's sessions in a pooled worktree.
+
+      cc-devthrottle worktree pool on --repo <path> [--size N] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.pool_on(repo, size, json_output)
+
+
+@pool_app.command("off")
+def worktree_pool_off(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, one object."
+    ),
+    repo: str = typer.Option(..., "--repo", help="The repository, by full path."),
+) -> None:
+    """Stop running this repository's sessions in a pooled worktree.
+
+    Sessions already running in a slot are untouched - each still holds its lease and still gives
+    its slot back when it closes. Only the next session opened here is affected.
+
+      cc-devthrottle worktree pool off --repo <path> [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.pool_off(repo, json_output)
 
 
 @machine_app.command("list")

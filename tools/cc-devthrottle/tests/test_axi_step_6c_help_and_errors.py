@@ -338,6 +338,10 @@ _ACTIONS_ADDED_SINCE_PIN = {
     # The pooled-worktree commands, which run cc-worktrees rather than answering for it.
     "worktree-get", "worktree-return", "worktree-lease", "worktree-destroy", "worktree-list-pool",
     "worktree-list",
+    # The pooled-worktree SETTING, which runs no tool: it is the per-repository switch the Director
+    # reads when it opens a session, and without it the setting could only be turned on by editing a
+    # JSON file by hand.
+    "worktree-pool-status", "worktree-pool-on", "worktree-pool-off",
 }
 
 

@@ -963,6 +963,30 @@ internal static class SessionCommandExecutor
             controllerSessionId = parsedControllerId;
         }
 
+        // A RESTORED SEAT BRINGS ITS OWN SLOT. Only a complete record is honoured - all four of
+        // repository, slot, path and lease - because the lease is the whole point of carrying it and
+        // a record missing any part of itself names a slot this Director could not give back. An
+        // incomplete one is dropped and said so in the log, NOT quietly turned into an ordinary
+        // create: an ordinary create in a pooled repository takes a NEW slot, which is exactly the
+        // outcome this field exists to prevent.
+        Core.Git.PooledWorktree? reattachPooledWorktree = null;
+        if (req.PooledWorktree is { } carried)
+        {
+            if (carried.IsComplete())
+            {
+                reattachPooledWorktree = new Core.Git.PooledWorktree(
+                    carried.Repo, carried.Slot, carried.Path, carried.Lease);
+                FileLog.Write($"[SessionCommandExecutor] create: the caller carries pooled slot {carried.Slot} " +
+                              $"at {carried.Path} (pool of {carried.Repo}); it is re-attached and no new slot is taken");
+            }
+            else
+            {
+                FileLog.Write("[SessionCommandExecutor] create: an INCOMPLETE pooled worktree arrived " +
+                              $"(repo=\"{carried.Repo}\", slot=\"{carried.Slot}\", path=\"{carried.Path}\", " +
+                              $"lease present={!string.IsNullOrWhiteSpace(carried.Lease)}); it is ignored");
+            }
+        }
+
         Session session;
         try
         {
@@ -997,7 +1021,8 @@ internal static class SessionCommandExecutor
                     // and the row that lost the race would record "unknown" for a session whose origin
                     // was known all along - permanently, since first sight only happens once.
                     s.StampOrigin(origin);
-                });
+                },
+                reattachPooledWorktree: reattachPooledWorktree);
         }
         catch (Exception ex)
         {

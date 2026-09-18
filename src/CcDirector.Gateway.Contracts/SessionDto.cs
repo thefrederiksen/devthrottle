@@ -33,6 +33,17 @@ public sealed class SessionDto
     /// <summary>Repository / working directory.</summary>
     public string RepoPath { get; set; } = "";
 
+    /// <summary>
+    /// The pooled worktree this session is running in, or null - which is every session in a
+    /// repository whose pooled-worktree setting is off, and that is the default.
+    ///
+    /// When it is set, <see cref="RepoPath"/> is the SLOT (that is where the session is, and every
+    /// reader of RepoPath means where the session is) and <see cref="PooledWorktreeRef.Repo"/> is
+    /// the repository the slot came from. It rides the roster so a workspace CAPTURE keeps it: a
+    /// seat restored after a Director restart needs the lease, and the lease exists nowhere else.
+    /// </summary>
+    public PooledWorktreeRef? PooledWorktree { get; set; }
+
     /// <summary>Process lifecycle status: Starting / Running / Exiting / Exited / Failed.</summary>
     public string Status { get; set; } = "";
 

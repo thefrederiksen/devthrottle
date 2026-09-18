@@ -247,6 +247,19 @@ public sealed class WorkspaceSeat
     /// <summary>The repository / working directory the seat runs in.</summary>
     public string RepoPath { get; set; } = "";
 
+    /// <summary>
+    /// The pooled worktree this seat was running in when it was captured, or null - which is every
+    /// seat in a repository whose pooled-worktree setting is off, and every AUTHORED seat, which has
+    /// never been a session and so has never held a slot.
+    ///
+    /// THIS IS THE FIELD THAT MAKES A RESTART SURVIVABLE for a pooled seat. <see cref="RepoPath"/>
+    /// is the slot's directory, so a restore already lands in the right place; what it could not do
+    /// without this is take the slot BACK, because the lease lived only in the Director's memory. A
+    /// restore with it re-attaches that lease and takes no new slot; a restore without it runs in
+    /// the slot as a stranger, and the slot stays in use under a holder that no longer exists.
+    /// </summary>
+    public PooledWorktreeRef? PooledWorktree { get; set; }
+
     /// <summary>The mission this seat is attached to, if any.</summary>
     public WorkspaceMissionRef? Mission { get; set; }
 
