@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using CcDirector.Core;
@@ -3410,6 +3410,19 @@ public sealed class GatewayHost : IAsyncDisposable
             }
         });
 
+        // Dev reports phase 3b (issue #3025): ONE printed address per report, /r/{reportId}. It decides only
+        // WHICH APP opens the report and 302s to that app's own report landing - it looks nothing up, it
+        // authorises nothing, and it needs no account, because it echoes back an identifier the caller
+        // already held. Registered HERE, BEFORE the authentication middleware and therefore before the
+        // mobile front door further down, because BOTH would otherwise take the request first:
+        //   - authentication would send a signed-out navigation to /signin?next=/r/{id}, and `next` is
+        //     followed at the end of the round trip by the shell's ROUTER, which has no /r/:id route on
+        //     either surface - so the printed address would never be requested a second time;
+        //   - the mobile front door sends every phone HTML navigation to /mobile/, so a phone would land on
+        //     the mobile home screen instead of the report.
+        // Both orderings are pinned by DevReportLinkRouteTests. See DevReportLinkRoute for the full reasoning.
+        Api.DevReportLinkRoute.UseDevReportLink(_app);
+
         if (AuthEnabled)
         {
             // Issue #469: a per-device key issued at enrollment is a valid Bearer credential
@@ -3449,12 +3462,6 @@ public sealed class GatewayHost : IAsyncDisposable
         // (Accept: text/html, phone User-Agent) not already under the mobile app gets a 302 to the mobile
         // app at /mobile/; a desktop UA falls through unchanged to the Cockpit. After auth, before the
         // Cockpit's browser-page routes - so a phone never reaches the Cockpit sitemap.
-        // Dev reports phase 3b (issue #3025): ONE printed address per report, /r/{reportId}, routed by device
-        // straight into that report. Registered HERE, immediately BEFORE the mobile front door, because that
-        // front door sends every phone HTML navigation to /mobile/ - a mapped endpoint would run at the end of
-        // the pipeline and every phone link would land on the mobile home screen instead of the report.
-        Api.DevReportLinkRoute.UseDevReportLink(_app, _devReports, _tenantBoundary);
-
         Mobile.MobileRedirect.UseMobileRedirect(_app);
 
         // Browser-aware front door (the Cockpit sitemap): a PERSON navigating to /sessions,

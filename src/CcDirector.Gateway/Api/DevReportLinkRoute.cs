@@ -1,57 +1,67 @@
-using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
-using CcDirector.Gateway.DevReports;
 using CcDirector.Gateway.Mobile;
-using CcDirector.Gateway.Tenancy;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
 namespace CcDirector.Gateway.Api;
 
 /// <summary>
-/// ONE ADDRESS FOR A REPORT, ROUTED BY DEVICE (phase 3b of the dev reports mission, issue #3025).
-/// <c>cc-dev-reports open</c> prints a single Gateway address - <c>&lt;gateway&gt;/r/&lt;report id&gt;</c> - and
-/// whoever opens it lands INSIDE that report on whatever device they opened it on:
+/// ONE ADDRESS FOR A REPORT, AND IT WORKS WITH NOBODY SIGNED IN (phase 3b of the dev reports mission,
+/// issue #3025). <c>cc-dev-reports open</c> prints a single Gateway address -
+/// <c>&lt;gateway&gt;/r/&lt;report id&gt;</c> - and this route decides exactly ONE thing: WHICH APP opens it.
 ///
-///   phone   -> <c>/mobile/session/{sessionId}/reports/{reportId}</c>
-///   anything else -> <c>/session/{sessionId}?tab=reports&amp;report={reportId}</c>  (the Cockpit's Reports tab)
+///   phone         -> <c>/mobile/report/{reportId}</c>
+///   anything else -> <c>/report/{reportId}</c>
 ///
 /// The device decision is the one the Gateway already makes, <see cref="MobileRedirect.IsPhoneUserAgent"/>, so
-/// there is one phone/desktop policy on this server and not two that can disagree.
+/// there is one phone/desktop policy on this server and not two that can disagree. Each app then has ONE
+/// landing that needs only a report id: it reads the report through the authenticated API, learns the session
+/// from the record, and lands in that report.
 ///
-/// WHY THIS IS MIDDLEWARE AND NOT A MAPPED ENDPOINT. The mobile front door
-/// (<see cref="MobileRedirect.UseMobileRedirect"/>) sends EVERY phone HTML navigation to <c>/mobile/</c>, and it
-/// runs long before the endpoint middleware at the end of the pipeline. A mapped route would therefore never be
-/// reached by a phone: every printed link would land on the mobile home screen instead of the report. So this
-/// runs as its own middleware, registered immediately BEFORE the front door, and
-/// <c>DevReportLinkRouteTests.Phone_navigation_to_report_link_answers_before_the_mobile_front_door</c> fails the
-/// moment a later edit reorders the two.
+/// PUBLIC, AND TENANT-FREE ON PURPOSE. This route authorises nothing and reveals nothing: it echoes back an
+/// identifier the caller already held and names which app should open it. There is no report lookup here, so
+/// there is no 404 and no 403 - an identifier that belongs to nobody is redirected exactly like one that
+/// belongs to you, and the APP says "this report does not appear" behind its own sign-in. Every real check is
+/// the app's authenticated read.
 ///
-/// SIGNED OUT. Nothing here: <see cref="AuthMiddleware"/> already runs first and sends a signed-out HTML
-/// navigation to <c>/signin?next=&lt;the requested route&gt;</c>, so the round trip comes back to <c>/r/{id}</c>
-/// itself and THEN routes by device. There is deliberately no second sign-in path.
+/// WHY IT MUST BE PUBLIC, WHICH IS THE WHOLE POINT OF THIS PHASE. Signed out, the obvious design cannot work.
+/// <see cref="Util.AuthMiddleware"/> would bounce the browser to <c>/signin?next=/r/{id}</c>, and <c>next</c>
+/// is followed at the end of the round trip by the ROUTER, not by the browser: the Cockpit has no
+/// <c>/r/:id</c> route (Not found) and the phone's router is based at <c>/mobile</c> (it would ask for
+/// <c>/mobile/r/{id}</c>, also nothing). The Gateway route is never requested a second time. So the printed
+/// address must resolve BEFORE any gate, hand the browser an IN-SHELL route, and let each shell's own gate
+/// carry that route through its own sign-in - where <c>next</c> is something its router can actually resolve.
 ///
-/// A report that is not in the caller's account is a 404 with a sentence - never a redirect to a guess, and
-/// never a hint that it exists somewhere else.
+/// WHY THIS IS MIDDLEWARE AND NOT A MAPPED ENDPOINT, AND WHERE IT IS REGISTERED. It must run ahead of TWO
+/// things, and either reorder silently breaks the printed address:
+/// <list type="bullet">
+/// <item>the AUTHENTICATION middleware, or a signed-out navigation is redirected to sign-in instead of
+///   reaching this route at all - the failure above;</item>
+/// <item>the mobile front door (<see cref="MobileRedirect.UseMobileRedirect"/>), which sends EVERY phone HTML
+///   navigation that is not already under <c>/mobile</c> to <c>/mobile/</c> - so a phone would land on the
+///   mobile home screen instead of the report.</item>
+/// </list>
+/// Both orderings are pinned by tests (<c>DevReportLinkRouteTests</c>): the signed-out test fails if this is
+/// moved after authentication, and the phone test fails if it is moved after the front door.
 /// </summary>
 internal static class DevReportLinkRoute
 {
     /// <summary>The route's prefix. One address, deliberately short enough to read aloud.</summary>
     public const string Prefix = "/r/";
 
-    /// <summary>The Cockpit's Reports tab, with that report open (the route the Cockpit Worker built).</summary>
-    public static string CockpitTarget(string sessionId, string reportId)
-        => $"/session/{Uri.EscapeDataString(sessionId)}?tab=reports&report={Uri.EscapeDataString(reportId)}";
+    /// <summary>The Cockpit's report landing - the one route that needs only a report id.</summary>
+    public static string CockpitTarget(string reportId)
+        => $"/report/{Uri.EscapeDataString(reportId)}";
 
-    /// <summary>The phone app's report screen.</summary>
-    public static string PhoneTarget(string sessionId, string reportId)
-        => $"/mobile/session/{Uri.EscapeDataString(sessionId)}/reports/{Uri.EscapeDataString(reportId)}";
+    /// <summary>The phone app's report landing, under the mobile app's mount.</summary>
+    public static string PhoneTarget(string reportId)
+        => $"/mobile/report/{Uri.EscapeDataString(reportId)}";
 
-    /// <summary>Where this device is sent for this report. Public so the policy is unit-testable without a host.</summary>
-    public static string Target(string sessionId, string reportId, string? userAgent)
+    /// <summary>Which app opens this report on this device. Public so the policy is unit-testable without a host.</summary>
+    public static string Target(string reportId, string? userAgent)
         => MobileRedirect.IsPhoneUserAgent(userAgent)
-            ? PhoneTarget(sessionId, reportId)
-            : CockpitTarget(sessionId, reportId);
+            ? PhoneTarget(reportId)
+            : CockpitTarget(reportId);
 
     /// <summary>
     /// The report id in a <c>/r/{id}</c> path, or null when this is not the link route. Exactly one segment
@@ -69,14 +79,13 @@ internal static class DevReportLinkRoute
     }
 
     /// <summary>
-    /// Middleware for <c>GET|HEAD /r/{reportId}</c>. Register BEFORE
-    /// <see cref="MobileRedirect.UseMobileRedirect"/> - see the type comment for why that ordering is the whole
-    /// route working on a phone.
+    /// Middleware for <c>GET|HEAD /r/{reportId}</c>. Register BEFORE the authentication middleware and BEFORE
+    /// <see cref="MobileRedirect.UseMobileRedirect"/> - see the type comment for why each ordering is the
+    /// whole address working.
     /// </summary>
-    public static void UseDevReportLink(WebApplication app, DevReportStore store, HostedTenantBoundary? boundary)
+    public static void UseDevReportLink(WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
-        ArgumentNullException.ThrowIfNull(store);
 
         app.Use(async (ctx, next) =>
         {
@@ -91,37 +100,9 @@ internal static class DevReportLinkRoute
                 return;
             }
 
-            if (GatewayEndpoints.ResolveReadTenant(ctx, boundary) is not { } tenant)
-            {
-                FileLog.Write($"[DevReportLinkRoute] /r/{reportId}: no account is bound to this request");
-                await WriteSentenceAsync(ctx, StatusCodes.Status403Forbidden, "No account is bound to this request.");
-                return;
-            }
-
-            // Another account's report is NOT FOUND, exactly as it is on every dev report route: the answer must
-            // not tell the caller that a report they cannot read exists somewhere else.
-            var report = Guid.TryParse(reportId, out var id) ? store.Get(tenant, id) : null;
-            if (report is null)
-            {
-                FileLog.Write($"[DevReportLinkRoute] /r/{reportId}: no such report in this account");
-                await WriteSentenceAsync(ctx, StatusCodes.Status404NotFound, $"There is no dev report {reportId} here.");
-                return;
-            }
-
-            var target = Target(report.SessionId, report.Id.ToString("D"), ctx.Request.Headers.UserAgent);
+            var target = Target(reportId, ctx.Request.Headers.UserAgent);
             FileLog.Write($"[DevReportLinkRoute] /r/{reportId} -> {target}");
             ctx.Response.Redirect(target);
         });
-    }
-
-    private static async Task WriteSentenceAsync(HttpContext ctx, int status, string sentence)
-    {
-        ctx.Response.StatusCode = status;
-        ctx.Response.ContentType = "text/plain; charset=utf-8";
-        // The not-found sentence repeats the identifier the caller typed. It is plain text and never a page, and
-        // nosniff says so to the browser rather than trusting it not to guess - the same precaution the report's
-        // own /html route takes for the same reason.
-        ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
-        await ctx.Response.WriteAsync(sentence);
     }
 }

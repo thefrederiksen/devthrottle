@@ -12,18 +12,20 @@ using Xunit.Abstractions;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// ONE ADDRESS PER REPORT, AND THE WAY BACK NAMED FOR A HUMAN (phase 3b of the dev reports mission, issue
-/// #3025), on a REAL hosted Gateway over HTTP with real credentials. What only a booted host proves:
+/// ONE ADDRESS PER REPORT THAT WORKS WITH NOBODY SIGNED IN, AND THE WAY BACK NAMED FOR A HUMAN (phase 3b of
+/// the dev reports mission, issue #3025), on a REAL hosted Gateway over HTTP with real credentials. What only
+/// a booted host proves:
 ///
-///  - THE DEVICE ROUTING. A phone User-Agent on <c>/r/{id}</c> is sent to the phone's report screen; anything
-///    else is sent to the Cockpit's Reports tab with that report open. Both identifiers ride in the address.
-///  - THE ORDERING, which is the whole route working on a phone. The mobile front door sends every phone HTML
-///    navigation to <c>/mobile/</c>; if this route were registered after it, every printed link would land on
-///    the mobile home screen. The phone test below fails the moment the two are reordered.
-///  - THE REFUSALS. An unknown report is a 404 with a sentence, never a redirect to a guess; ANOTHER ACCOUNT's
-///    report is the same 404, so its existence does not leak.
-///  - THE SIGN-IN ROUND TRIP. Signed out, an HTML navigation reaches the sign-in gate carrying <c>/r/{id}</c>
-///    itself in <c>next</c>, so the browser comes back here and THEN routes by device.
+///  - THE DEVICE ROUTING. A phone User-Agent on <c>/r/{id}</c> is sent to the phone app's report landing;
+///    anything else to the Cockpit's. The report id rides in the address; nothing else does.
+///  - NO ACCOUNT IS NEEDED, which is the change this phase makes. A request carrying NO credential at all gets
+///    the same 302 - never the sign-in redirect, never a refusal - and so does a request carrying ANOTHER
+///    ACCOUNT's credential, and so does an identifier no report has ever had. Re-add a tenant gate or a report
+///    lookup here and those three go red.
+///  - THE TWO ORDERINGS, and either reorder silently breaks the printed address. Registered after the
+///    AUTHENTICATION middleware, a signed-out navigation is bounced to <c>/signin?next=/r/{id}</c> - a route no
+///    shell router can resolve. Registered after the MOBILE FRONT DOOR, every phone link lands on the mobile
+///    home screen. One test each, and each fails with exactly that symptom.
 ///  - THE WORDS. The report list and the report detail both carry <c>sessionLabel</c> and <c>backLabel</c>,
 ///    folded on the Gateway from the live roster, from the session history row when the session has gone, and
 ///    down to a plain true sentence when the Gateway knows neither - with no session identifier in any of them.
@@ -37,9 +39,13 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
     private const string PhoneAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Mobile Safari/537.36";
     private const string DesktopAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36";
 
+    // TWO options, because a question with one is not a question: the shape check refuses it. This fixture
+    // carried only "tonight" and every publish here answered 422, which failed every test in this class for a
+    // reason that had nothing to do with what any of them was about.
     private const string Question =
         "<div data-dev-report-question=\"deploy-window\" data-dev-report-question-text=\"When should we deploy?\">" +
         "<label><input type=\"radio\" name=\"deploy-window\" value=\"tonight\" data-recommended> Tonight - quiet traffic</label>" +
+        "<label><input type=\"radio\" name=\"deploy-window\" value=\"monday\"> Monday - the team is around</label>" +
         "</div>";
 
     private readonly ITestOutputHelper _out;
@@ -172,22 +178,22 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
     // ---------------------------------------------------------------- the pure policy
 
     [Fact]
-    public void Target_PhoneUserAgent_IsThePhonesReportScreen()
+    public void Target_PhoneUserAgent_IsThePhoneAppsReportLanding()
     {
-        Assert.Equal("/mobile/session/s-1/reports/r-1", DevReportLinkRoute.Target("s-1", "r-1", PhoneAgent));
+        Assert.Equal("/mobile/report/r-1", DevReportLinkRoute.Target("r-1", PhoneAgent));
     }
 
     [Fact]
-    public void Target_DesktopUserAgent_IsTheCockpitsReportsTabWithTheReportOpen()
+    public void Target_DesktopUserAgent_IsTheCockpitsReportLanding()
     {
-        Assert.Equal("/session/s-1?tab=reports&report=r-1", DevReportLinkRoute.Target("s-1", "r-1", DesktopAgent));
+        Assert.Equal("/report/r-1", DevReportLinkRoute.Target("r-1", DesktopAgent));
     }
 
     [Fact]
-    public void Target_IdentifiersNeedingEscaping_AreEscapedIntoThePathAndQuery()
+    public void Target_AnIdentifierNeedingEscaping_IsEscapedIntoThePath()
     {
-        Assert.Equal("/mobile/session/a%20b/reports/c%26d", DevReportLinkRoute.Target("a b", "c&d", PhoneAgent));
-        Assert.Equal("/session/a%20b?tab=reports&report=c%26d", DevReportLinkRoute.Target("a b", "c&d", DesktopAgent));
+        Assert.Equal("/mobile/report/a%20b%26c", DevReportLinkRoute.Target("a b&c", PhoneAgent));
+        Assert.Equal("/report/a%20b%26c", DevReportLinkRoute.Target("a b&c", DesktopAgent));
     }
 
     [Theory]
@@ -205,33 +211,33 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
     // ---------------------------------------------------------------- the live route
 
     [Fact]
-    public async Task LinkRoute_PhoneUserAgent_RedirectsToThePhoneReportScreenWithBothIdentifiers()
+    public async Task LinkRoute_PhoneUserAgent_RedirectsToThePhoneAppsReportLanding()
     {
         var reportId = await PublishAsync(_sessionOnTheRoster, _sessionKeyRoster, @"C:\work\phone.html");
 
         using var resp = await NavigateAsync($"/r/{reportId}", PhoneAgent, _deviceKeyA);
 
         Assert.Equal(HttpStatusCode.Found, resp.StatusCode);
-        Assert.Equal($"/mobile/session/{_sessionOnTheRoster}/reports/{reportId}", resp.Headers.Location?.ToString());
+        Assert.Equal($"/mobile/report/{reportId}", resp.Headers.Location?.ToString());
     }
 
     [Fact]
-    public async Task LinkRoute_DesktopUserAgent_RedirectsToTheCockpitReportsTabWithTheReportOpen()
+    public async Task LinkRoute_DesktopUserAgent_RedirectsToTheCockpitsReportLanding()
     {
         var reportId = await PublishAsync(_sessionOnTheRoster, _sessionKeyRoster, @"C:\work\desktop.html");
 
         using var resp = await NavigateAsync($"/r/{reportId}", DesktopAgent, _deviceKeyA);
 
         Assert.Equal(HttpStatusCode.Found, resp.StatusCode);
-        Assert.Equal($"/session/{_sessionOnTheRoster}?tab=reports&report={reportId}", resp.Headers.Location?.ToString());
+        Assert.Equal($"/report/{reportId}", resp.Headers.Location?.ToString());
     }
 
     [Fact]
     public async Task LinkRoute_PhoneNavigation_AnswersBeforeTheMobileFrontDoor()
     {
-        // THE ORDERING TEST. The mobile front door sends every phone HTML navigation to /mobile/. If this route
-        // is ever registered after it, a phone opening a printed report link lands on the mobile home screen and
-        // never sees the report - silently, with every other test still green.
+        // ORDERING TEST ONE. The mobile front door sends every phone HTML navigation that is not already under
+        // /mobile to /mobile/. If this route is ever registered after it, a phone opening a printed report link
+        // lands on the mobile home screen and never sees the report - silently, with every other test green.
         var reportId = await PublishAsync(_sessionOnTheRoster, _sessionKeyRoster, @"C:\work\ordering.html");
 
         using var resp = await NavigateAsync($"/r/{reportId}", PhoneAgent, _deviceKeyA);
@@ -242,45 +248,63 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
         Assert.Contains(reportId, location);
     }
 
-    [Fact]
-    public async Task LinkRoute_UnknownReportId_IsA404WithASentenceAndNoRedirect()
-    {
-        var unknown = Guid.NewGuid().ToString("D");
-
-        using var resp = await NavigateAsync($"/r/{unknown}", DesktopAgent, _deviceKeyA);
-
-        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        Assert.Null(resp.Headers.Location);
-        Assert.Contains("There is no dev report", await resp.Content.ReadAsStringAsync());
-    }
+    // ------------------------------------------- no account is needed here, and nothing is looked up
 
     [Fact]
-    public async Task LinkRoute_ReportOfAnotherAccount_IsTheSame404AndDoesNotLeakThatItExists()
+    public async Task LinkRoute_WithNoCredentialAtAll_StillRoutesTheDesktopToTheCockpitsLanding()
     {
-        var reportId = await PublishAsync(_sessionOnTheRoster, _sessionKeyRoster, @"C:\work\tenant.html");
-
-        // Account B's own device key, on account A's report.
-        using var resp = await NavigateAsync($"/r/{reportId}", DesktopAgent, _deviceKeyB);
-
-        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        Assert.Null(resp.Headers.Location);
-        var body = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("There is no dev report", body);
-        // Nothing in the answer names the session the report belongs to.
-        Assert.DoesNotContain(_sessionOnTheRoster, body, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task LinkRoute_SignedOutHtmlNavigation_ReachesTheSignInGateCarryingTheLinkItself()
-    {
-        var reportId = await PublishAsync(_sessionOnTheRoster, _sessionKeyRoster, @"C:\work\signin.html");
+        // ORDERING TEST TWO, and the point of this phase. Registered after the authentication middleware, this
+        // request is bounced to /signin?next=/r/{id} instead - and `next` is resolved at the end of the sign-in
+        // round trip by the shell's ROUTER, which has no /r/:id route on either surface. The printed address
+        // would never be requested a second time, so signed out it would land nowhere at all.
+        var reportId = await PublishAsync(_sessionOnTheRoster, _sessionKeyRoster, @"C:\work\signedout.html");
 
         using var resp = await NavigateAsync($"/r/{reportId}", DesktopAgent, bearer: null);
 
         Assert.Equal(HttpStatusCode.Found, resp.StatusCode);
-        var location = resp.Headers.Location?.ToString() ?? "";
-        Assert.StartsWith("/signin?next=", location);
-        Assert.Equal($"/signin?next={Uri.EscapeDataString($"/r/{reportId}")}", location);
+        Assert.Equal($"/report/{reportId}", resp.Headers.Location?.ToString());
+    }
+
+    [Fact]
+    public async Task LinkRoute_WithNoCredentialAtAll_StillRoutesThePhoneToTheMobileLanding()
+    {
+        // The same request from a phone has to clear BOTH gates - authentication and the mobile front door - so
+        // this one test goes red for either reorder, with a different wrong address each time.
+        var reportId = await PublishAsync(_sessionOnTheRoster, _sessionKeyRoster, @"C:\work\signedoutphone.html");
+
+        using var resp = await NavigateAsync($"/r/{reportId}", PhoneAgent, bearer: null);
+
+        Assert.Equal(HttpStatusCode.Found, resp.StatusCode);
+        Assert.Equal($"/mobile/report/{reportId}", resp.Headers.Location?.ToString());
+    }
+
+    [Fact]
+    public async Task LinkRoute_AnotherAccountsCredential_GetsTheSameAnswerBecauseNothingHereIsAuthorised()
+    {
+        // This route authorises nothing: it echoes back an identifier the caller already held and names which
+        // app should open it. Whether THIS account may read that report is the app's authenticated read, behind
+        // the app's own sign-in. Re-add a tenant gate here and this goes red.
+        var reportId = await PublishAsync(_sessionOnTheRoster, _sessionKeyRoster, @"C:\work\tenant.html");
+
+        using var resp = await NavigateAsync($"/r/{reportId}", DesktopAgent, _deviceKeyB);
+
+        Assert.Equal(HttpStatusCode.Found, resp.StatusCode);
+        Assert.Equal($"/report/{reportId}", resp.Headers.Location?.ToString());
+    }
+
+    [Fact]
+    public async Task LinkRoute_AnIdentifierNoReportHasEverHad_IsRoutedExactlyLikeARealOne()
+    {
+        // Nothing is looked up here, so there is no 404 and no 403 - and therefore nothing whose answer differs
+        // between "this report exists" and "it does not". The APP says "this report does not appear". Re-add the
+        // store lookup here and this goes red.
+        var unknown = Guid.NewGuid().ToString("D");
+
+        using var resp = await NavigateAsync($"/r/{unknown}", DesktopAgent, _deviceKeyA);
+
+        Assert.Equal(HttpStatusCode.Found, resp.StatusCode);
+        Assert.Equal($"/report/{unknown}", resp.Headers.Location?.ToString());
+        Assert.Equal("", await resp.Content.ReadAsStringAsync());
     }
 
     // ---------------------------------------------------------------- the words on the record

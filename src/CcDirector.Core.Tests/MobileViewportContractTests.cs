@@ -43,7 +43,18 @@ namespace CcDirector.Core.Tests;
 public sealed class MobileViewportContractTests
 {
     private const string StylesPath = "apps/mobile/src/styles.css";
-    private const string ShellPath = "apps/mobile/src/main.tsx";
+
+    /// <summary>
+    /// The file holding the app shell layout every gated screen hangs off - the one place the hook is
+    /// mounted. This was main.tsx until the route table moved out of it (dev reports phase 3b, #3025) so the
+    /// tests could mount the table the app mounts; the gated layout went with it. EntryPath below still pins
+    /// the other half of the chain, so the split cannot quietly break the mounting.
+    /// </summary>
+    private const string ShellPath = "apps/mobile/src/routes.tsx";
+
+    /// <summary>The app's entry point, which must actually mount the table the shell layout sits in.</summary>
+    private const string EntryPath = "apps/mobile/src/main.tsx";
+
     private const string HookPath = "apps/mobile/src/hooks/useVisibleViewportHeight.ts";
 
     /// <summary>
@@ -143,6 +154,23 @@ public sealed class MobileViewportContractTests
         });
         Assert.True(mounted,
             $"{ShellPath} does not CALL useVisibleViewportHeight(). Mounted once in the app shell, it fits EVERY screen; if it is not mounted, --app-vh is never set and every shell silently falls back to the dvh that does not work on the device.{Why}");
+
+        // ...AND the app actually mounts that table. The shell layout living in its own file is only worth
+        // anything while the entry point renders it; without this, changing the mount in main.tsx would leave
+        // a hook mounted in a file nothing runs, and the check above would still be green.
+        //
+        // A Contains("MOBILE_ROUTES") here would be a FAKE guard for the same reason the call check above
+        // spells out: the import line mentions the name, so swapping the mounted array for a different one
+        // left this passing. It must be a real, uncommented CALL that hands over THAT array.
+        var entryLines = File.ReadAllLines(Path.Combine(root, EntryPath));
+        var mounts = entryLines.Any(line =>
+        {
+            var code = line.Trim();
+            if (code.StartsWith("//", StringComparison.Ordinal) || code.StartsWith("*", StringComparison.Ordinal)) return false;
+            return Regex.IsMatch(code, @"createBrowserRouter\s*\(\s*MOBILE_ROUTES\b");
+        });
+        Assert.True(mounts,
+            $"{EntryPath} no longer hands MOBILE_ROUTES to createBrowserRouter, so the app shell layout in {ShellPath} - and the hook mounted in it - is never rendered.{Why}");
     }
 
     [Fact]
