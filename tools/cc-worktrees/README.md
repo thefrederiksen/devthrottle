@@ -115,23 +115,25 @@ A worktree is reset only when all of these are positively proven, in this order:
    no remote branch touches, the slot's content equals the content of the current default branch tip.
    A patch in the history is not content in the tip: a patch that was landed and then reverted is held.
    So is landed work whose paths upstream changed again afterwards, even though nothing is lost there;
-   that is accepted, and a later phase may release it through the host's own record of the merge. For
-   a commit found only in the reflog, the same comparison uses that commit's own content. Files that
+   that is accepted, and the host layer below frees it when the host's own record of the merge proves it.
+   For a commit found only in the reflog, the same comparison uses that commit's own content. Files that
    merely end up the same are never proof for the commits behind them.
    - A commit that differs from a landed one only in its message counts as landed, so the message
      itself is not protected.
-   - Work landed only by a squash merge is held, because a squash is not the same patch as any one of
-     the commits it combined. It counts as landed while its commits are still on a remote branch (for
-     example the pull request branch). A later phase may prove a squash through the pull request.
-   - **The ordinary rebase-and-force-push holds the slot, and so does a squash-merged pull request whose
-     branch was deleted.** After `git rebase origin/<default>` and `git push --force-with-lease`, the
-     rebased commit proves itself on the remote branch, but the commit it replaced lives only in the
-     slot's HEAD reflog: `git cherry` compares a stray commit against the default branch alone, never
-     against the remote feature branch that now carries its rebased twin. That predecessor is held and
-     pinned. Once the pull request is squash-merged and its branch deleted, nothing can ever prove either
-     commit, and the slot stays held for good. Neither loses anything - both are pinned - and
-     `release <slot> --confirm-abandon` is the way back into the pool.
-   - A merge commit on no remote branch is held: `git cherry` does not compare merge commits.
+   - Work landed only by a squash merge is not proven by git, because a squash is not the same patch as
+     any one of the commits it combined. It counts as landed while its commits are still on a remote
+     branch (for example the pull request branch). Once that branch is gone, only the host can prove it:
+     see **The host layer** below.
+   - **The ordinary rebase-and-force-push is not proven by git.** After `git rebase origin/<default>`
+     and `git push --force-with-lease`, the rebased commit proves itself on the remote branch, but the
+     commit it replaced lives only in the slot's HEAD reflog: `git cherry` compares a stray commit
+     against the default branch alone, never against the remote feature branch that now carries its
+     rebased twin. Git holds and pins that predecessor; the host frees it only when it is one of the
+     pull request's own commits, which a force-pushed predecessor usually is not. Nothing is lost - it
+     is pinned - and `release <slot> --confirm-abandon` is the way back into the pool.
+   - A merge commit on no remote branch is not proven by git: `git cherry` does not compare merge
+     commits. This is the commonest case the host layer frees, because a branch that had the default
+     branch merged into it before its pull request went up carries one.
    - The tracking refs come from the fetch, which runs before the command waits for the machine-wide
      lock, and that wait can last up to 300 seconds. Ancestry of the default tip needs nothing more: an
      older default tip loses nothing. A commit whose only proof is another remote branch has those
@@ -226,6 +228,96 @@ slot the hook never saw.
 
 The tool never kills a process, never deletes a branch, and never pushes, merges or rewrites history.
 
+## The host layer
+
+Git cannot recognise every way a host lands a branch. A squash merge makes one commit that is not the
+same patch as any of the commits it combined, and a rebase or an Azure DevOps semi-linear merge drops a
+merge commit that `git cherry` never compares. The work landed; git simply has no way to say so. The host
+does: it still holds the pull request, the commits that went into it, and the commit it landed as.
+
+**The host layer is asked ONLY about commits git has already failed to prove.** So it can turn held into
+free, and it can never turn free into held - and an ordinary return, where git proves everything, makes no
+call to a host tool at all.
+
+### Which host
+
+The origin remote's URL says which, and nothing else does:
+
+| Host | Remote URL shapes | Asked with |
+|---|---|---|
+| GitHub.com | `https://github.com/<owner>/<repo>[.git]`, `git@github.com:<owner>/<repo>[.git]`, `ssh://git@github.com/<owner>/<repo>[.git]` | `gh` |
+| Azure DevOps | `https://[<user>@]dev.azure.com/<org>/<project>/_git/<repo>[.git]`, `git@ssh.dev.azure.com:v3/<org>/<project>/<repo>`, `https://<org>.visualstudio.com/[<collection>/]<project>/_git/<repo>[.git]` | `az` |
+| Any other | anything else, including a path to a local or network repository | nothing - see **checked by git only** |
+
+The match is anchored at the end of the URL, so a directory named after a host somewhere in a path does
+not make a local clone that host's.
+
+### Reading the default branch
+
+The default branch comes from `git ls-remote --symref origin HEAD` (rule 3). Both hosts answer it, it
+needs no host tool and no sign-in beyond the git credentials the fetch already uses, and it is read again
+on every command. It is never assumed to be `main` - the Azure DevOps testbed's default branch is
+`develop` - and the local `origin/HEAD` is never used: that ref is written once when the repository is
+cloned and then left alone for ever. A remote that does not say which branch is its default is
+`cannot verify`, and the slot is held.
+
+### What a pull request may prove
+
+A merged pull request frees the commits git could not prove only when **all** of this holds:
+
+1. The host says the pull request is merged (GitHub) or completed (Azure DevOps), and that it targeted
+   the default branch that was just read from the remote.
+2. The commit it landed as - GitHub's `mergeCommit`, Azure DevOps's `lastMergeCommit`, which is the one
+   commit that maps a semi-linear merge's source back to what is on the default branch - is in this
+   repository AND is an ancestor of the default branch tip that was read under the machine-wide lock. Not
+   the tip of an earlier fetch, and not a tip on some other branch. The host cannot free work by
+   assertion: whatever it says, the landing commit has to be on the default branch we can see.
+3. **One** pull request accounts for every commit git could not prove: each of them is in the list of
+   source commits the host gives for it, and none of them is outside the ancestry of that pull request's
+   last source commit. All of them together or none of them - so one commit made in the slot after the
+   merge holds the whole slot, which is exactly the point.
+
+The commands are read-only: `gh pr list --state merged --head <branch> --base <default>` and
+`az repos pr list --status completed --source-branch <branch> --target-branch <default>`, plus, for Azure
+DevOps, the pull request's own commits (`az repos pr list` leaves that field empty). The tool never
+creates, merges, comments on or closes anything.
+
+The branch names put to the host are the local branches that contain those commits, plus the name a
+branch's upstream says the remote knows it by. A commit on no local branch names no branch to ask about.
+
+### Checked by git only
+
+**"Checked by git only" means the host was NOT asked, or could not answer - so nothing it might have
+proven was used, and the commits stay held.** It is never a "no" from the host. The reason on the slot
+says which it was:
+
+- the remote is on no host cc-worktrees can ask;
+- `gh` or `az` is not on PATH;
+- the tool ran and failed - not signed in, no access to the repository, rate limited, offline;
+- it did not answer inside the network timeout (`CC_WORKTREES_NETWORK_TIMEOUT`, 120 seconds by default);
+- its answer could not be read;
+- the commits are on no local branch, or on more branches than the tool will put to a host (10).
+
+A host that was asked and simply has no pull request covering the work says so differently: *the host was
+asked and has no merged pull request that accounts for all of them*.
+
+### The answer names what proved the work
+
+`get`, `return`, `lease` and `destroy` say how the work in the slot was proven:
+
+```
+proved_by: git and the host
+host_proof[1]:
+  commit: 9a3c1f0e5b2d...
+  proved_by: github
+  detail: pull request #1 on an-owner/a-repo, merged as 3fe990344544 into main
+```
+
+`proved_by: git` with an empty `host_proof` is the ordinary case: git proved every commit on its own and
+no host was asked. Every commit the host freed is listed with the pull request that freed it, so "free"
+is never something to take on trust.
+
+
 ## What a slot is not
 
 - **Ignored files persist to the next holder.** A reset keeps every ignored file, because warm build
@@ -296,6 +388,25 @@ version; each is stated so nobody reads the rules above as covering it.
   `update-ref`** can move tracking refs at any moment (State).
 - **A reparse point that is not a link** (for example a cloud-files placeholder directory) is not descended
   into by the rule 5 walk, so a repository inside one is not seen.
+- **The host layer needs a branch name.** The host is asked about the local branches that still contain
+  the commits. Work committed on a detached HEAD and pushed with `git push origin HEAD:refs/heads/x`, with
+  no local branch left behind, names no branch, so it is checked by git only however it was merged.
+- **Work split across two merged pull requests is held.** One pull request must account for every commit
+  git could not prove. Taking each pull request's word for its own part would leave nothing that says the
+  slot holds no commit made after the last of them landed, so the rule does not do it.
+- **A merge that was reverted afterwards is still freed by the host.** The rule asks that the pull
+  request's landing commit is an ancestor of the current default tip; a `git revert` on top does not
+  remove it from the history, so the host frees work git alone would have held (rule 6 holds a reverted
+  patch). The content is still in the default branch's history, in the commit the pull request landed as,
+  so it can be read back from there - but it is not in the current tip and the slot is reset away from it.
+- **`release` does not ask the host.** A held slot being released pins every commit git cannot prove,
+  including one the host could have proven landed. That writes more refs than strictly needed and loses
+  nothing.
+- **Every commit must be in the list of source commits the host gives in one answer.** A pull request
+  whose commit list the host pages or truncates cannot account for all of them, so the slot is held.
+- **The list of source commits is the host's word.** The landing commit must be on the default branch we
+  can see, so a host cannot free work by assertion alone; which commits went into the pull request is not
+  independently checked against git.
 - **A repository path with a character outside printable ASCII cannot be printed as a command.** The output
   is pure ASCII by contract and a help line is written exactly as composed so it can be pasted, and the two
   cannot both hold. Measured: the renderer raises rather than print a command that would not work if pasted,
@@ -361,3 +472,8 @@ The tests use real git against a local bare repository. To run the hosted scenar
 testbed repository; credentials come from your own git setup. Those runs push only to branches named
 `cc-worktrees-test/<random>` and delete only the branches they created. When a hosted variable is not
 set, the run says so in capitals at the end: a skipped hosted run is not a pass.
+
+The host-layer tests open and merge REAL pull requests on those testbeds, so they also need `gh` signed
+in for GitHub and `az` with `AZURE_DEVOPS_EXT_PAT` set for Azure DevOps. They merge by squash, by rebase
+and by Azure DevOps semi-linear merge, and each merged branch is deleted by the merge that used it. The
+commits the host lands on a testbed's default branch stay there.
