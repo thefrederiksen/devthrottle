@@ -308,14 +308,15 @@ in `--json` alike. A real `return` of a slot whose two commits were squash-merge
 
 ```
 slot: wt01
-path: C:\...epo.worktrees\wt01
+path: C:\...
+epo.worktrees\wt01
 state: free
 base: main
-commit: 254dc03b147692f589a73e88cb954eb1a3711d87
+commit: adc45a77d66f09c9d4b7c2a162c92377bb53ddf0
 proved_by: git and the host
 host_proof[2]{commit,host,detail}:
-  714d7db46841088ecd424e5f225a24a007c94828,github,"pull request #62 on an-owner/a-repo, merged as 254dc03b1476 into main"
-  0fcc6e11dae2bc8402c98523155c7055f5a6266b,github,"pull request #62 on an-owner/a-repo, merged as 254dc03b1476 into main"
+  8ccd12f6105aa597af297c4ed771bb8e4d89c02c,github,"pull request #106 on an-owner/a-repo, merged as adc45a77d66f into main"
+  d3b53c2a1233de360f445875131b94d4c62f6990,github,"pull request #106 on an-owner/a-repo, merged as adc45a77d66f into main"
 ```
 
 `proved_by: git` with `host_proof[0]{...}:` is the ordinary case: git proved every commit on its own and
