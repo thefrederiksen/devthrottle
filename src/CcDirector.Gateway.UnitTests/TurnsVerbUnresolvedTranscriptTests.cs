@@ -26,25 +26,70 @@ public sealed class TurnsVerbUnresolvedTranscriptTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private static (SessionManager sm, Session session) NewSession()
+    /// <summary>
+    /// A session on a repository path that NO LOCATOR CAN RESOLVE A TRANSCRIPT FOR - on any machine,
+    /// whatever has ever been run on it.
+    ///
+    /// That path used to be <c>Path.GetTempPath()</c> itself, which was a claim about the machine rather
+    /// than a property of the test, and on SOREN_NORTH the claim was false: the Grok command line had once
+    /// been run from the temporary directory, so <c>~/.grok/sessions/C%3A%5C...%5CTemp</c> existed,
+    /// <see cref="Core.Grok.GrokSessionLocator"/> matched it by decoded working directory, the verb
+    /// correctly answered "ok", and the Grok case failed (issue #3029). On a machine that had never done
+    /// that, the same case passed only because the directory happened to be empty - green for a reason that
+    /// has nothing to do with the product, which is not a guard at all.
+    ///
+    /// So the repository path is now a directory THIS RUN creates under a name nothing else has used, and
+    /// removes afterwards. Every locator this verb can reach keys on something such a directory cannot
+    /// have:
+    /// <list type="bullet">
+    /// <item><description><see cref="Core.Grok.GrokSessionLocator"/> scans <c>~/.grok/sessions</c> for a
+    /// per-working-directory folder whose percent-decoded name equals the repository path. No agent has ever
+    /// run in a directory that did not exist a moment ago.</description></item>
+    /// <item><description><see cref="Core.Codex.CodexRolloutLocator"/> scans <c>~/.codex/sessions</c> for a
+    /// rollout whose <c>session_meta.cwd</c> equals it - the same argument.</description></item>
+    /// <item><description><see cref="Core.Pi.PiSessionLocator"/> resolves by the AGENT SESSION ID, which an
+    /// embedded test session does not have at all.</description></item>
+    /// </list>
+    /// A locator added later that keys on the working directory is covered by the same argument. One that
+    /// keys on a global store is NOT, which is why the store-backed agents are still deliberately left out
+    /// of the assertions below.
+    /// </summary>
+    private sealed class UnresolvableSession : IDisposable
     {
-        var sm = new SessionManager(new Core.Configuration.AgentOptions());
-        var session = sm.CreateEmbeddedSession(Path.GetTempPath(), null, new ExecuteActionTestBackend());
-        return (sm, session);
+        public SessionManager Manager { get; }
+        public Session Session { get; }
+        public string RepoPath { get; }
+
+        public UnresolvableSession()
+        {
+            RepoPath = Path.Combine(Path.GetTempPath(), "ccd-turns-unresolved-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(RepoPath);
+            Manager = new SessionManager(new Core.Configuration.AgentOptions());
+            Session = Manager.CreateEmbeddedSession(RepoPath, null, new ExecuteActionTestBackend());
+        }
+
+        /// <summary>Deletes what the run created. Not best-effort: the directory is this test's own, nothing
+        /// holds it open, and a failure to remove it is a real fault worth seeing rather than swallowing.</summary>
+        public void Dispose()
+        {
+            Manager.Dispose();
+            Directory.Delete(RepoPath, recursive: true);
+        }
     }
 
-    private static TurnsResponse Read(SessionManager sm, Session session)
+    private static TurnsResponse Read(UnresolvableSession fixture)
     {
-        var command = new DirectorCommand { CommandId = "t1", Verb = "turns", SessionId = session.Id.ToString() };
-        var result = SessionReadExecutor.Turns(sm, command);
+        var command = new DirectorCommand { CommandId = "t1", Verb = "turns", SessionId = fixture.Session.Id.ToString() };
+        var result = SessionReadExecutor.Turns(fixture.Manager, command);
         Assert.True(result.Ok);   // a failed READ still rides a successful command result - that is the trap
         return JsonSerializer.Deserialize<TurnsResponse>(result.BodyJson!, Json)!;
     }
 
     /// <summary>
     /// A supported non-Claude agent whose transcript has not been located yet. The session is embedded on a
-    /// throwaway repo path with a fresh id, so no locator can resolve a transcript for it - the exact state a
-    /// freshly-spawned Pi session is in before it writes its first turn.
+    /// repository path this run created and nothing has ever run in, with a fresh id, so no locator can
+    /// resolve a transcript for it - the exact state a freshly-spawned Pi session is in before it writes its
+    /// first turn.
     /// </summary>
     [Theory]
     [InlineData(Core.Agents.AgentKind.Pi)]
@@ -52,18 +97,14 @@ public sealed class TurnsVerbUnresolvedTranscriptTests
     [InlineData(Core.Agents.AgentKind.Grok)]
     public void Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(Core.Agents.AgentKind agent)
     {
-        var (sm, session) = NewSession();
-        try
-        {
-            session.AgentKind = agent;
+        using var fixture = new UnresolvableSession();
+        fixture.Session.AgentKind = agent;
 
-            var resp = Read(sm, session);
+        var resp = Read(fixture);
 
-            Assert.Equal("no_transcript", resp.Status);
-            Assert.False(string.IsNullOrWhiteSpace(resp.Error));   // and it says WHY, so a caller can log it
-            Assert.Empty(resp.Widgets);
-        }
-        finally { sm.Dispose(); }
+        Assert.Equal("no_transcript", resp.Status);
+        Assert.False(string.IsNullOrWhiteSpace(resp.Error));   // and it says WHY, so a caller can log it
+        Assert.Empty(resp.Widgets);
     }
 
     /// <summary>
@@ -75,16 +116,12 @@ public sealed class TurnsVerbUnresolvedTranscriptTests
     [Fact]
     public void Turns_AgentWithNoHistoryProvider_StillReportsUnsupported()
     {
-        var (sm, session) = NewSession();
-        try
-        {
-            session.AgentKind = Core.Agents.AgentKind.Cursor;
+        using var fixture = new UnresolvableSession();
+        fixture.Session.AgentKind = Core.Agents.AgentKind.Cursor;
 
-            var resp = Read(sm, session);
+        var resp = Read(fixture);
 
-            Assert.Equal("unsupported", resp.Status);
-        }
-        finally { sm.Dispose(); }
+        Assert.Equal("unsupported", resp.Status);
     }
 
     /// <summary>
@@ -112,20 +149,16 @@ public sealed class TurnsVerbUnresolvedTranscriptTests
     [InlineData(Core.Agents.AgentKind.Gemini)]
     public void Turns_ResolvedSourceWithNoConversation_ReportsEmptyHistory_NotOk(Core.Agents.AgentKind agent)
     {
-        var (sm, session) = NewSession();
-        try
-        {
-            session.AgentKind = agent;
+        using var fixture = new UnresolvableSession();
+        fixture.Session.AgentKind = agent;
 
-            var resp = Read(sm, session);
+        var resp = Read(fixture);
 
-            // Pinned to the EXACT status, not "anything but ok". Accepting either value would have passed
-            // just as happily on the no_transcript branch and proved nothing about the one under test.
-            Assert.Equal("empty_history", resp.Status);
-            Assert.False(string.IsNullOrWhiteSpace(resp.Error));
-            Assert.Empty(resp.Widgets);
-        }
-        finally { sm.Dispose(); }
+        // Pinned to the EXACT status, not "anything but ok". Accepting either value would have passed
+        // just as happily on the no_transcript branch and proved nothing about the one under test.
+        Assert.Equal("empty_history", resp.Status);
+        Assert.False(string.IsNullOrWhiteSpace(resp.Error));
+        Assert.Empty(resp.Widgets);
     }
 
     /// <summary>
@@ -137,25 +170,27 @@ public sealed class TurnsVerbUnresolvedTranscriptTests
     [Fact]
     public void Turns_ClaudeTranscriptThatExistsButIsEmpty_ReportsEmptyHistory_NotOk()
     {
-        var (sm, session) = NewSession();
-        var claudeId = Guid.NewGuid();
+        using var fixture = new UnresolvableSession();
+
+        // Put a REAL, empty transcript exactly where the reader will look for it, so the branch under
+        // test is the one that parses a present file - not the no_jsonl branch above it.
+        fixture.Session.ClaudeSessionId = Guid.NewGuid().ToString();
+        var jsonl = Core.Claude.ClaudeSessionReader.GetJsonlPath(fixture.Session.ClaudeSessionId, fixture.Session.RepoPath);
+
+        // Claude Code names its project folder after the working directory, and this run's working directory
+        // is one nothing else has used - so this folder is the run's OWN and the whole of it goes at the end.
+        // Deleting only the file would leave an empty folder in the developer's real ~/.claude/projects on
+        // every run, which the old shared temporary path never did because its folder already existed.
+        var projectFolder = Path.GetDirectoryName(jsonl)!;
+        Directory.CreateDirectory(projectFolder);
+        File.WriteAllText(jsonl, "");
         try
         {
-            // Put a REAL, empty transcript exactly where the reader will look for it, so the branch under
-            // test is the one that parses a present file - not the no_jsonl branch above it.
-            session.ClaudeSessionId = claudeId.ToString();
-            var jsonl = Core.Claude.ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
-            Directory.CreateDirectory(Path.GetDirectoryName(jsonl)!);
-            File.WriteAllText(jsonl, "");
-            try
-            {
-                var resp = Read(sm, session);
+            var resp = Read(fixture);
 
-                Assert.Equal("empty_history", resp.Status);
-                Assert.Empty(resp.Widgets);
-            }
-            finally { try { File.Delete(jsonl); } catch { /* best-effort */ } }
+            Assert.Equal("empty_history", resp.Status);
+            Assert.Empty(resp.Widgets);
         }
-        finally { sm.Dispose(); }
+        finally { Directory.Delete(projectFolder, recursive: true); }
     }
 }
