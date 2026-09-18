@@ -176,8 +176,9 @@ public sealed class SkillStoreTests : IDisposable
     public void Fleet_manager_skill_teaches_one_line_of_advice_when_filing_and_how_to_set_it()
     {
         // Step 7: the Fleet Manager writes one line of advice when it files a record - from what it knows and the
-        // Wingman does not - and can set it afterwards; the Gateway refuses a second line.
-        var body = BuiltInSkills.BodyFor("fleet-manager");
+        // Wingman does not - and can set it afterwards; the Gateway refuses a second line. Two phrases span a wrapped
+        // line, and a Windows checkout embeds the body with CRLF.
+        var body = Normalize(BuiltInSkills.BodyFor("fleet-manager"));
 
         Assert.Contains("**When you file a record, write one line of advice with it**", body);
         Assert.Contains("the owner's past\n  choices, the Mission, the other sessions", body);
