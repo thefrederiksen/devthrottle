@@ -124,7 +124,7 @@ def test_an_unknown_direction_is_a_usage_error_and_sends_nothing(monkeypatch, pl
 
     assert result.exit_code == 2
     out = plain(result.output)
-    assert "--to must be one of: fleet-manager, owner (got 'the-architect')." in out
+    assert "--to must be one of: fleet-manager, owner, me (got 'the-architect')." in out
     assert state["posts"] == []
 
 
@@ -134,7 +134,7 @@ def test_a_missing_direction_is_a_usage_error_and_sends_nothing(monkeypatch, pla
     result = runner.invoke(app, ["session", "hand-over", PLAIN_ID])
 
     assert result.exit_code == 2
-    assert "--to must be one of: fleet-manager, owner - it was not given." in plain(result.output)
+    assert "--to must be one of: fleet-manager, owner, me - it was not given." in plain(result.output)
     assert state["posts"] == []
 
 
@@ -174,6 +174,47 @@ def test_releasing_a_session_you_own_sends_to_owner_and_reports_the_user_has_it(
     assert "owner: you" in out
 
 
+def test_taking_a_session_sends_to_me_and_reports_the_new_owner(monkeypatch, plain):
+    """Issue #3096: a session takes a session that answers to the owner, on his direction. The command sends the
+    one body; the Gateway decides who may ask. Pinned here: `--to me` reaches the route unchanged, and the answer's
+    owner - which is the calling session, not the target - is what gets reported."""
+    taker = "a5000000-0000-4000-8000-000000000009"
+    state = _stub(monkeypatch, answer=_answer(
+        to="me", owner=taker,
+        sentence='Session "Widgets - invoice export" is yours now. When it stops, you are told instead of the owner.'))
+
+    result = runner.invoke(app, ["session", "hand-over", PLAIN_ID, "--to", "me"])
+
+    assert result.exit_code == 0, result.output
+    assert state["posts"] == [("gateway/fleet-manager/hand-over", {"session": PLAIN_ID, "to": "me"})]
+    out = plain(result.output)
+    assert "is yours now." in out
+    assert f"owner: {taker}" in out
+    # the next step offered is the way back to the owner, never a third session
+    assert f"cc-devthrottle session hand-over {PLAIN_ID} --to owner" in out
+
+
+def test_taking_answered_without_an_owner_exits_one_without_claiming_it(monkeypatch, plain):
+    """A take whose answer names no owner did not happen, and the command must not say it did."""
+    _stub(monkeypatch, answer=_answer(to="me", owner=None, sentence="It is yours now."))
+
+    result = runner.invoke(app, ["session", "hand-over", PLAIN_ID, "--to", "me"])
+
+    assert result.exit_code == 1
+    assert "ownerSessionId" in plain(result.output)
+
+
+def test_the_help_says_a_session_may_take_as_well_as_release(plain):
+    """An agent that reads the help learns both directions and the rule that binds them (issue #3096)."""
+    result = runner.invoke(app, ["session", "hand-over", "--help"])
+
+    assert result.exit_code == 0
+    out = " ".join(plain(result.output).split())
+    assert "--to me" in out
+    assert "THE ONLY OWNER A SESSION MAY NAME IS ITSELF" in out
+    assert "under a third session" in out
+
+
 def test_the_help_says_a_session_may_release_what_it_owns(plain):
     """An agent that reads the help learns the rule without hitting the refusal (issue #3086)."""
     result = runner.invoke(app, ["session", "hand-over", "--help"])
@@ -182,7 +223,7 @@ def test_the_help_says_a_session_may_release_what_it_owns(plain):
     out = " ".join(plain(result.output).split())
     assert "RELEASE WHAT IT OWNS" in out.upper()
     assert "--to owner" in out
-    assert "the owner's to direct" in out
+    assert "owner's to direct" in out
 
 
 def test_the_action_description_says_which_direction_a_session_may_hand_over(plain):
@@ -194,6 +235,8 @@ def test_the_action_description_says_which_direction_a_session_may_hand_over(pla
     row = next(a for a in rows if a["id"] == "session-hand-over")
     assert "release a session YOU own" in row["description"]
     assert "--to owner" in row["description"]
+    assert "--to me" in row["description"]
+    assert "never put under a third session" in row["description"]
 
 
 def test_the_action_is_listed_for_agents(plain):
@@ -204,4 +247,4 @@ def test_the_action_is_listed_for_agents(plain):
     rows = actions if isinstance(actions, list) else actions.get("actions", [])
     row = next(a for a in rows if a["id"] == "session-hand-over")
     assert row["mutatesState"] is True
-    assert row["command"] == "cc-devthrottle session hand-over <session> --to fleet-manager|owner [--json]"
+    assert row["command"] == "cc-devthrottle session hand-over <session> --to fleet-manager|owner|me [--json]"

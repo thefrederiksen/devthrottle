@@ -18,7 +18,8 @@ namespace CcDirector.Gateway.Tests;
 ///  - the account's marked Fleet Manager, with its own session key, takes to itself a session that answers to the
 ///    owner, and hands a session it owns back to the owner;
 ///  - it never takes a session another running session owns, and never reaches another account's session;
-///  - any session RELEASES a session it owns to the owner, and may not take one (issue #3086);
+///  - any session RELEASES a session it owns to the owner (issue #3086), and TAKES a session that answers to the
+///    owner to itself on his direction, but never one another live session holds (issue #3096);
 ///  - every other session key of the account is refused with <c>not_fleet_manager</c> and the reason;
 ///  - the owner's own browser still hands over as before.
 ///
@@ -306,9 +307,10 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
         Assert.Equal("not_fleet_manager", body.GetProperty("code").GetString());
         Assert.Equal($"Session {_plainId} may not hand session {target} over: it does not own that session, and it " +
                      $"is not this account's Fleet Manager session ({_fleetManagerId}). " +
-                     "A session may hand over a session it OWNS, and only to the owner (--to owner). " +
-                     "Taking a session, or handing one to the Fleet Manager, is the owner's to direct: he does it " +
-                     "from the Cockpit or the phone, or tells a session to do it on his word.",
+                     "A session may release a session it OWNS to the owner (--to owner), and may take a session " +
+                     "that answers to the owner TO ITSELF (--to me) when the owner has directed it. Handing a session " +
+                     "to the Fleet Manager is the owner's to direct, from the Cockpit or the phone. No session is ever " +
+                     "put under a third session.",
             body.GetProperty("error").GetString());
         Assert.Empty(_ownerChangesA);
     }
@@ -335,11 +337,81 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, status);
         Assert.Equal("not_fleet_manager", body.GetProperty("code").GetString());
         var error = body.GetProperty("error").GetString();
-        Assert.StartsWith($"Session {_architectId} owns session {_workerId}, but the only change of owner it may make " +
-                          $"on its own is to release it: cc-devthrottle session hand-over {_workerId} --to owner.", error);
-        Assert.Contains("A session may hand over a session it OWNS, and only to the owner (--to owner).", error);
+        Assert.StartsWith($"Session {_architectId} already owns session {_workerId}. It may release it: " +
+                          $"cc-devthrottle session hand-over {_workerId} --to owner.", error);
+        Assert.Contains("A session may release a session it OWNS to the owner (--to owner)", error);
         Assert.Empty(_ownerChangesA);
         Assert.Equal(_architectId, _rowsA[_workerId].ControllerSessionId);
+    }
+
+    // ---- a session TAKING a session on the owner's direction (issue #3096) -----------------------------------
+
+    [Fact]
+    public async Task A_session_takes_a_session_that_answers_to_the_owner_to_itself()
+    {
+        var (status, body) = await HandOverAsync(_architectKey, _secondPlainId, "me");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(_architectId, body.GetProperty("ownerSessionId").GetString());
+        Assert.Equal(_secondPlainId, Assert.Single(_ownerChangesA).SessionId);
+        Assert.Equal(_architectId, _rowsA[_secondPlainId].ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task A_session_may_not_take_a_session_another_running_session_owns()
+    {
+        var (status, body) = await HandOverAsync(_plainKey, _workerId, "me");
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Contains("which is still running, so it was not taken", body.GetProperty("error").GetString());
+        Assert.Empty(_ownerChangesA);
+        Assert.Equal(_architectId, _rowsA[_workerId].ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task A_session_may_not_take_another_accounts_session()
+    {
+        var (status, _) = await HandOverAsync(_architectKey, _foreignId, "me");
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Empty(_ownerChangesB);
+    }
+
+    [Fact]
+    public async Task A_session_id_as_the_direction_is_refused_as_an_unknown_direction()
+    {
+        var (status, body) = await HandOverAsync(_architectKey, _secondPlainId, _workerId);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("may never put one under a third session", body.GetProperty("error").GetString());
+        Assert.Empty(_ownerChangesA);
+    }
+
+    [Fact]
+    public async Task The_owner_takes_back_a_session_an_ordinary_session_owns()
+    {
+        var (status, _) = await HandOverAsync(_ownerA, _workerId, "owner");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Null(_rowsA[_workerId].ControllerSessionId);
+        await PushAAsync();
+
+        using var listed = await _ownerA.GetAsync("sessions");
+        var text = await listed.Content.ReadAsStringAsync();
+        var row = JsonDocument.Parse(text).RootElement.EnumerateArray()
+            .First(s => string.Equals(s.GetProperty("sessionId").GetString(), _workerId, StringComparison.OrdinalIgnoreCase));
+        Assert.False(row.GetProperty("hasLiveSupervisor").GetBoolean(),
+            "the owner has it back, so its turn end reaches him again");
+    }
+
+    [Fact]
+    public async Task The_owners_own_device_may_not_ask_to_take_a_session_to_me()
+    {
+        var (status, body) = await HandOverAsync(_ownerA, _secondPlainId, "me");
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("From the Cockpit or the phone you are the owner", body.GetProperty("error").GetString());
+        Assert.Empty(_ownerChangesA);
     }
 
     [Fact]

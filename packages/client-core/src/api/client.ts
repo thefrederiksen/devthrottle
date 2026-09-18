@@ -57,7 +57,9 @@ export interface SessionPin {
 
 /** The one change of owner offered on a session (see the C# SessionOwnerChangeDto). */
 export interface SessionOwnerChange {
-  /** "fleet-manager" or "owner" - what is sent as `to`. */
+  /** What is sent as `to`: "fleet-manager" or "owner" on the owner's own screens ("me" is a session's own
+   *  direction and never reaches a client of his). The Gateway decides which one a row offers and every word
+   *  of it; nothing here reads the value to decide anything. */
   to: string;
   label: string;
   title: string;

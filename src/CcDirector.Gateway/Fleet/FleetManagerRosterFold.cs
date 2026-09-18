@@ -11,9 +11,11 @@ namespace CcDirector.Gateway.Fleet;
 ///    already draws, collapsed under it. Every other row carries no pin and keeps its place.
 ///  - THE CHANGE OF OWNER. While the account has a live Fleet Manager, a session that asks the owner directly
 ///    (<see cref="FleetManagerSessions.AsksOwnerDirectly"/>) offers "Hand to the Fleet Manager", and a session the
-///    Fleet Manager owns directly offers "Hand back to me". Nothing else offers either: the Fleet Manager itself, a
-///    session another live session owns, a session that has ended. The route checks the same rules again, because a
-///    row can be a moment old.
+///    Fleet Manager owns directly offers "Hand back to me". A session ANY other live session owns offers "Hand back to
+///    me" as well, with or without a Fleet Manager (issue #3096) - that is the owner's undo for a session taken on his
+///    direction, and a taking feature whose undo is missing is a trap. Nothing else offers either: the Fleet Manager
+///    itself, a session that has ended, and - with no Fleet Manager marked - a session that already asks the owner,
+///    which has nowhere to be handed. The route checks the same rules again, because a row can be a moment old.
 /// </summary>
 internal static class FleetManagerRosterFold
 {
@@ -45,6 +47,20 @@ internal static class FleetManagerRosterFold
         BusyLabel = "Handing it back to you...",
     };
 
+    /// <summary>
+    /// The offer on a session ANOTHER live session owns (issue #3096). A session may now take a session on the owner's
+    /// direction, so every session a session holds carries the undo - without it the owner could watch a session go
+    /// quiet and have no way back from his own screens. The words do not name the holder: the row already shows it.
+    /// </summary>
+    public static SessionOwnerChangeDto TakeBack() => new()
+    {
+        To = SessionOwnerChangeDto.ToOwner,
+        Label = "Hand back to me",
+        Title = "This session stops answering to the session that owns it - that session will not hear from it again - "
+                + "and asks you directly instead.",
+        BusyLabel = "Handing it back to you...",
+    };
+
     /// <summary>The pin the live Fleet Manager wears.</summary>
     public static SessionPinDto Pin() => new()
     {
@@ -61,9 +77,14 @@ internal static class FleetManagerRosterFold
     public static SessionOwnerChangeDto? OwnerChangeFor(SessionDto session, string? fleetManagerId)
     {
         ArgumentNullException.ThrowIfNull(session);
-        if (string.IsNullOrEmpty(fleetManagerId) || FleetManagerSessions.IsGone(session)) return null;
+        if (FleetManagerSessions.IsGone(session)) return null;
         if (FleetManagerSessions.SameId(session.SessionId, fleetManagerId)) return null;
-        if (FleetManagerSessions.IsOwnedBy(session, fleetManagerId)) return HandBack();
+        if (!string.IsNullOrEmpty(fleetManagerId) && FleetManagerSessions.IsOwnedBy(session, fleetManagerId)) return HandBack();
+        // A session ANY other live session holds offers the undo, whether or not the account has a Fleet Manager
+        // (issue #3096): the owner takes it back. A dead owner is not a holder - that session already asks the owner.
+        if (session.HasLiveSupervisor) return TakeBack();
+        // Nothing to hand it TO without a live Fleet Manager, so no offer.
+        if (string.IsNullOrEmpty(fleetManagerId)) return null;
         return FleetManagerSessions.AsksOwnerDirectly(session, fleetManagerId) ? HandToFleetManager() : null;
     }
 

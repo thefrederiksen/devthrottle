@@ -15,7 +15,7 @@ namespace CcDirector.Gateway.Api;
 /// <summary>
 /// Hand over (the Fleet Manager mission, step 8):
 ///
-///   POST /gateway/fleet-manager/hand-over   { "session": "&lt;full id&gt;", "to": "fleet-manager" | "owner" }
+///   POST /gateway/fleet-manager/hand-over   { "session": "&lt;full id&gt;", "to": "fleet-manager" | "owner" | "me" }
 ///
 /// 200 answers <see cref="FleetHandOverResultDto"/>. A refusal answers { "error": "&lt;sentence&gt;" } with 400 (a bad
 /// request), 403 (a caller that may not hand this over), 404 (no such running session in this account), 409 (the session
@@ -28,8 +28,12 @@ namespace CcDirector.Gateway.Api;
 ///    session of its own account that answers to the owner, and hand a session it owns back to the owner - and nothing
 ///    more: it never takes a session another running session owns, and its key only ever reaches its own account's
 ///    roster. It does this only when the owner has asked; the Fleet Manager skill says so.
-///  - ANY SESSION RELEASING A SESSION IT OWNS, with <c>"to": "owner"</c> (issue #3086). That direction alone: giving
-///    work away puts it in front of the person, which is where everything lands by default, so it needs no permission.
+///  - ANY SESSION RELEASING A SESSION IT OWNS, with <c>"to": "owner"</c> (issue #3086): giving work away puts it in
+///    front of the person, which is where everything lands by default, so it needs no permission.
+///  - ANY SESSION TAKING A SESSION THAT ANSWERS TO THE OWNER, with <c>"to": "me"</c> (issue #3096), which it does on
+///    the owner's direction. <c>me</c> is the CALLING session, never an id, so a session can only ever name itself:
+///    no session is put under a third session. The owner's own device asking for <c>me</c> is refused and pointed at
+///    <c>owner</c>.
 ///
 /// Every other session key is refused by <see cref="FleetManagerHandOverService"/> with <c>code: "not_fleet_manager"</c>
 /// and a reason that says which direction is allowed, after <see cref="SessionKeyGuard"/> has let the one POST through.
