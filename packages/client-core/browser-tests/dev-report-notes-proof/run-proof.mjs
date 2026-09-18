@@ -60,6 +60,19 @@ try {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * What a host may have accepted on its window and its port from an honest page: exactly one ready, and any
+ * number of note-mode-changed (issue #3077 - the page says where note-taking stands whenever it moves). A
+ * forged send, a second ready, or anything else a report posted would break this.
+ */
+function onlyReadyAndNoteMode(accepted) {
+  return (
+    accepted[0] === "ready" &&
+    accepted.filter((type) => type === "ready").length === 1 &&
+    accepted.every((type) => type === "ready" || type === "note-mode-changed")
+  );
+}
 const scriptPath = join(here, "../../src/devreports/dev-report-notes.js");
 const port = Number(process.env.PORT || 8799);
 const contentTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
@@ -227,22 +240,26 @@ async function main() {
       conversation: await drawnInPage(page, "[data-drn=conversation]"),
       headings: await drawnInPage(page, ".drn-h"),
       addNote: await drawnInPage(page, "[data-drn=pick]"),
+      tray: await drawnInPage(page, ".drn-tray"),
       noteBox: await drawnInPage(page, "[data-drn=composer]"),
       queueAnswer: await drawnInPage(page, "[data-drn=queue-answer]"),
     };
     const buttons = await sendButtons(page);
     evidence.steps.hostedPageDraws = { pageDraws, sendButtons: buttons };
     check(
-      "O: hosted, the page draws no conversation and no Send - one conversation and one Send on the screen",
+      "O: hosted, the page draws no conversation, no Send and no tray - the report is the whole frame",
       pageDraws.queued === 0 && pageDraws.sent === 0 && pageDraws.replies === 0 && pageDraws.send === 0 &&
         pageDraws.payloadBox === 0 && pageDraws.conversation === 0 && pageDraws.headings === 0 &&
-        pageDraws.addNote === 1 && pageDraws.noteBox === 1 && pageDraws.queueAnswer === 1 &&
+        // ISSUE #3077: "Add a note" and the tray around it used to stay behind, floating over the report.
+        // They are the app's now; what remains in the page is the note box and each question's Queue button.
+        pageDraws.addNote === 0 && pageDraws.tray === 0 &&
+        pageDraws.noteBox === 1 && pageDraws.queueAnswer === 1 &&
         buttons.inPage === 0 && buttons.inApp === 1,
       JSON.stringify(evidence.steps.hostedPageDraws),
     );
 
     // ---- claim D: note a table cell with real mouse clicks.
-    await frame.locator("[data-drn=pick]").click();
+    await page.locator("#panel-add-note").click();
     await frame.locator("#results tbody tr:nth-child(2) td:nth-child(3)").click({ position: { x: 8, y: 8 } });
 
     // ---- claim P (first half): the note box is beside the cell, not over it.
@@ -255,11 +272,13 @@ async function main() {
         return null;
       };
       const r = (el) => { const b = el.getBoundingClientRect(); return { top: b.top, left: b.left, bottom: b.bottom, right: b.right, width: b.width, height: b.height }; };
-      const tray = inUi(".drn-tray");
       return {
         box: r(inUi("[data-drn=composer]")),
         cell: r(document.querySelector("#results tbody tr:nth-child(2) td:nth-child(3)")),
-        trayScrolls: tray.scrollHeight > tray.clientHeight,
+        // The tray used to be measured here, for not being a scrolling panel of its own. Hosted there is no
+        // tray at all now (issue #3077, claim O), so the only thing left in the frame that could scroll is
+        // the report - which is the stronger form of the same claim.
+        trayInPage: inUi(".drn-tray") !== null,
         pageScrollsSideways: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       };
     });
@@ -273,6 +292,9 @@ async function main() {
     await frame.locator("[data-drn=queue-answer]").click();
 
     // ---- claim F: queued, not sent - in the app's panel, the only conversation there is.
+    // The panel is drawn from a state-changed that crosses the port, so wait for the answer to have arrived
+    // rather than reading the panel in the same turn as the click that queued it.
+    await page.locator("#panel-queued").getByText("Wait for tomorrow").waitFor();
     const queuedText = await panel(page, "queued");
     const sentTextBefore = await panel(page, "sent");
     await page.screenshot({ path: join(here, "evidence-queued.png") });
@@ -325,7 +347,7 @@ async function main() {
       queuedAfter.includes("Wait for tomorrow") && queuedAfter.includes("Not taken - try again") && !queuedAfter.includes("Forty-two");
 
     // ---- claim P (second half): a note on a question's own heading never lands on the question.
-    await frame.locator("[data-drn=pick]").click();
+    await page.locator("#panel-add-note").click();
     await frame.locator("#questions h3").click();
     const overQuestion = await reportFrame(page).evaluate(() => {
       const inUi = (sel) => {
@@ -347,11 +369,11 @@ async function main() {
     const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
     evidence.steps.noteBoxPlacement = { overCell, overQuestion };
     check(
-      "P: the note box is drawn beside what the note is about, over neither it nor its question, and the hosted tray does not scroll",
+      "P: the note box is drawn beside what the note is about, over neither it nor its question, and no tray is in the frame at all",
       overCell.box.width > 0 && overCell.box.height > 0 && !overlaps(overCell.box, overCell.cell) &&
         overQuestion.box.width > 0 && !overlaps(overQuestion.box, overQuestion.heading) &&
         !overlaps(overQuestion.box, overQuestion.question) &&
-        overCell.trayScrolls === false && overCell.pageScrollsSideways === false,
+        overCell.trayInPage === false && overCell.pageScrollsSideways === false,
       JSON.stringify(evidence.steps.noteBoxPlacement),
     );
 
@@ -401,7 +423,7 @@ async function main() {
     );
 
     // ---- claim K: reload keeps the half-typed note, an answer edited after queueing, and the scroll position.
-    await frame.locator("[data-drn=pick]").click();
+    await page.locator("#panel-add-note").click();
     await frame.locator("#explain").click();
     await frame.locator("[data-drn=composer-text]").pressSequentially("half typed");
     await frame.locator("input[name=rerun][value=tonight]").check();
@@ -473,7 +495,9 @@ async function main() {
     }));
     const hf = hostile.frameLocator("#report");
     const visible = {
-      trayToggle: await hf.locator("[data-drn=toggle]").isVisible(),
+      // The tray's toggle was measured here until issue #3077 took the tray out of the hosted page. What is
+      // left in the page for a hostile report to try to hide is each question's Queue button - drawn in a
+      // shadow root with inline !important rules, exactly as the tray was.
       queueAnswer: await hf.locator("[data-drn=queue-answer]").isVisible(),
     };
     // Something that does get to run in the frame - here the proof driver, standing in for a script the
@@ -491,10 +515,12 @@ async function main() {
     await hostile.screenshot({ path: join(here, "evidence-hostile-report.png") });
     evidence.steps.hostileReport = { ran, visible, host: hostileHost };
     check(
-      "M: a report's script, handler and token snooping do not run behind a decoy head, its CSS cannot hide the tray, and only a token-bearing ready is taken",
+      "M: a report's script, handler and token snooping do not run behind a decoy head, its CSS cannot hide the Queue button, and only a token-bearing ready is taken",
       ran.script === null && ran.handler === null && ran.snoopedToken === null && ran.readMessage === null && !ran.tokenAttributeLeft &&
-        visible.trayToggle && visible.queueAnswer &&
-        JSON.stringify(hostileHost.accepted) === '["ready"]' &&
+        visible.queueAnswer &&
+        // The page also says where note-taking stands once it is hosted (issue #3077), so the accepted list
+        // holds the one ready and those - and nothing a report forged.
+        onlyReadyAndNoteMode(hostileHost.accepted) &&
         JSON.stringify(hostileHost.refused) === JSON.stringify(["send:only ready comes on the window", "ready:no token"]),
       JSON.stringify(evidence.steps.hostileReport),
     );
@@ -530,7 +556,7 @@ async function main() {
       beforeLoad.unexpectedLoads === 0 && beforeLoad.connected === true &&
         gotBeforeLoad.window === null && gotBeforeLoad.port === null &&
         !afterNavigation.connected && pushedAfterLoad === false && gotAfterLoad.window === null && gotAfterLoad.port === null &&
-        JSON.stringify(afterNavigation.accepted) === '["ready"]' &&
+        onlyReadyAndNoteMode(afterNavigation.accepted) &&
         afterNavigation.refused.includes("ready:no token") && afterNavigation.refused.includes("send:only ready comes on the window"),
       JSON.stringify(evidence.steps.navigatedAway),
     );

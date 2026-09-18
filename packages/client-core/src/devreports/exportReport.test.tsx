@@ -35,6 +35,7 @@ function emptySnapshot(): DevReportSnapshot {
     connected: false,
     sending: false,
     sendError: null,
+    noteMode: { picking: false, selectionQuote: null },
   };
 }
 

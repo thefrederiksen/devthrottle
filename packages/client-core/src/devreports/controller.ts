@@ -16,7 +16,14 @@
 import { gatewayErrorMessage, GatewayError } from "../api/client";
 import type { DevReportDetail, DevReportHtml, DevReportSendUpdate } from "./devReportsClient";
 import { DevReportFrameHost } from "./frameHost";
-import { emptyPageState, type DevReportItem, type DevReportPageState, type DevReportStatusUpdate } from "./protocol";
+import {
+  emptyPageState,
+  type DevReportItem,
+  type DevReportNoteMode,
+  type DevReportNoteModeRequest,
+  type DevReportPageState,
+  type DevReportStatusUpdate,
+} from "./protocol";
 import type { DevReportStateStore } from "./stateStore";
 import type { DevReportTheme } from "./theme";
 
@@ -44,6 +51,12 @@ export interface DevReportSnapshot {
   sending: boolean;
   /** Why the last send request failed, or null. */
   sendError: string | null;
+  /**
+   * Where note-taking stands in the page (issue #3077). The note controls are in the app's panel, so the
+   * panel draws itself from this: `picking` is true while the page is waiting for the reader to click what
+   * the note is about, and `selectionQuote` is the text they have selected in the report.
+   */
+  noteMode: DevReportNoteMode;
 }
 
 export interface DevReportControllerOptions {
@@ -82,6 +95,7 @@ export class DevReportController {
     connected: false,
     sending: false,
     sendError: null,
+    noteMode: { picking: false, selectionQuote: null },
   };
   private readonly listeners = new Set<() => void>();
   private loadingVersion: number | null = null;
@@ -101,8 +115,12 @@ export class DevReportController {
       restoreState: () => this.snapshot.pageState,
       onStateChanged: (state) => this.onStateChanged(state),
       onSend: (items) => void this.send(items),
+      onNoteModeChanged: (noteMode) => this.update({ noteMode }),
       onConnectedChange: (connected) => {
-        this.update({ connected });
+        // A page that is not connected cannot be picking, and there is nothing selected in it that this app
+        // could note. Leaving the panel saying "Cancel" after the page went away would offer an action that
+        // reaches nothing.
+        this.update(connected ? { connected } : { connected, noteMode: { picking: false, selectionQuote: null } });
         if (connected && this.snapshot.detail) this.pushGatewayWords(this.snapshot.detail);
       },
     });
@@ -145,6 +163,15 @@ export class DevReportController {
     }
   }
 
+  /**
+   * The panel's note controls (issue #3077): arm picking, open a note on the reader's selection, or cancel.
+   * The page answers with a note-mode-changed, so nothing here guesses what happened - including the case
+   * where there is no page connected and the request goes nowhere.
+   */
+  setNoteMode(mode: DevReportNoteModeRequest): void {
+    this.host.setNoteMode(mode);
+  }
+
   /** The conversation panel's Send: everything still queued, as the page's own Send would post it. */
   sendQueued(): Promise<void> {
     const items = this.snapshot.pageState.queued.map(({ pending: _pending, statusLabel: _label, ...item }) => item as DevReportItem);
@@ -172,7 +199,13 @@ export class DevReportController {
       const current = this.snapshot.loadedVersion;
       if (current !== null && page.version <= current) return;
       const saved = this.options.store.load(this.options.reportId, page.version);
-      this.update({ loadedVersion: page.version, pageState: saved ?? this.snapshot.pageState });
+      this.update({
+        loadedVersion: page.version,
+        pageState: saved ?? this.snapshot.pageState,
+        // A new page is a new document: nothing is armed and nothing is selected in it, whatever the last one
+        // was doing. It says so itself on its first restore, but not before the panel has been drawn once.
+        noteMode: { picking: false, selectionQuote: null },
+      });
       this.host.load(page.html);
     } finally {
       if (this.loadingVersion === version) this.loadingVersion = null;

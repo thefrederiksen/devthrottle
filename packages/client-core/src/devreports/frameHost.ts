@@ -11,6 +11,7 @@
 //   4. A fresh token per load. On the window, only a ready from the frame, with the current token and
 //      exactly one port, is accepted - and then the token is forgotten (one ready per load).
 //   5. Everything after that goes over that port, both ways. Nothing is ever posted to the frame's window.
+//      (That now includes note-mode, the app's note controls reaching into the page - issue #3077.)
 //   6. A frame load the host did not cause closes the port, and the frame is ignored until the host loads
 //      the report again.
 
@@ -19,6 +20,8 @@ import {
   parsePortMessage,
   parseReady,
   type DevReportItem,
+  type DevReportNoteMode,
+  type DevReportNoteModeRequest,
   type DevReportPageReply,
   type DevReportPageState,
   type DevReportStatusUpdate,
@@ -53,6 +56,8 @@ export interface DevReportFrameHostOptions {
   restoreState: () => DevReportPageState;
   onStateChanged: (state: DevReportPageState) => void;
   onSend: (items: DevReportItem[]) => void;
+  /** Where note-taking stands in the page, whenever it changes (issue #3077). */
+  onNoteModeChanged?: (noteMode: DevReportNoteMode) => void;
   onConnectedChange?: (connected: boolean) => void;
   /** Told about every message the host refused, for tests and diagnostics. */
   onRefused?: (why: string) => void;
@@ -149,6 +154,15 @@ export class DevReportFrameHost {
     return this.post("reply", { reply });
   }
 
+  /**
+   * Asks the page to arm a note, to open one on the reader's selection, or to cancel (issue #3077). The
+   * controls are in the app's panel; the anchor can only be picked inside the report, so this is how one
+   * reaches the other. False, and nothing sent, when there is no port to the loaded report.
+   */
+  setNoteMode(mode: DevReportNoteModeRequest): boolean {
+    return this.post("note-mode", { mode });
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -194,10 +208,11 @@ export class DevReportFrameHost {
     const message = parsePortMessage(data);
     if (!message) return this.refuse("a port message that is not a well-formed send or state-changed");
     if (message.type === "state-changed") this.options.onStateChanged(message.state);
+    else if (message.type === "note-mode-changed") this.options.onNoteModeChanged?.(message.noteMode);
     else this.options.onSend(message.items);
   }
 
-  private post(type: "restore" | "status" | "reply", payload: unknown): boolean {
+  private post(type: "restore" | "status" | "reply" | "note-mode", payload: unknown): boolean {
     if (!this.port) return false;
     this.port.postMessage(hostEnvelope(type, payload));
     return true;

@@ -173,6 +173,7 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | `ready` | `{ "questionIds": ["deploy-window"] }` | once, when the script has started |
 | `send` | `{ "items": [ item, ... ] }` | the owner pressed the UNHOSTED page's own Send; every item still in the queue, in order. A hosted page draws no Send and never posts this: the app sends the queue it already holds from `state-changed`, and tells the page what happened with `status`. |
 | `state-changed` | `{ "state": state }` | anything in the state changed - including a status or reply the host pushed |
+| `note-mode-changed` | `{ "picking": true, "selectionQuote": null }` | where note-taking stands: whether the page is waiting for a click, and what text is selected in the report. Sent on the first `restore`, whenever either changes, and whenever the host asks for a `note-mode`. Hosted only - unhosted the page draws those controls itself |
 
 ### Host to page
 
@@ -181,6 +182,7 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | `restore` | `{ "state": state }` | replaces the page's state, puts back what the inputs showed, and scrolls to the saved position. Also marks the host as connected. |
 | `status` | `{ "updates": [ { "id": "n3", "status": "held", "statusLabel": "Delivered when the agent finishes" } ] }` | the host's word on items, by id; an unknown id is skipped |
 | `reply` | `{ "reply": { "id": "r1", "text": "Fixed - see section 2", "at": "2026-09-16T10:00:00Z" } }` | adds the agent's reply to the page (same id replaces) |
+| `note-mode` | `{ "mode": "pick" }`, `{ "mode": "selection" }` or `{ "mode": "off" }` | starts a note: `pick` waits for the reader to click what the note is about, `selection` opens one on the text they have selected, `off` cancels. Any other mode is ignored |
 
 ### Send, and when an item counts as sent
 
@@ -234,18 +236,29 @@ The page counts as **hosted** once it has received a valid `restore`, and not a 
 a frame is not enough: a framed page whose host never answers is unhosted, and so is a plain file opened in
 a browser. The switch goes both ways and is driven by the restore alone.
 
-**Hosted, the app owns the conversation and the page draws only the note-taking parts:**
+**Hosted, the app owns everything except what must be in the document:**
 
 | The page draws | The page does NOT draw |
 |---|---|
-| the "Add a note" control and the "Note on selected text" control | the Queued list, the Sent list, the Replies list, and their headings |
-| the note box for what was tapped, with Queue note and Cancel | the Send button and its row |
-| each question's Queue button and its state line | the payload preview box |
+| the note box for what was tapped, with Queue note and Cancel | the Queued list, the Sent list, the Replies list, and their headings |
+| each question's Queue button and its state line | the Send button and its row, and the payload preview box |
+| | the notes tray - "Add a note", "Note on selected text", and the queued count |
 
 The parts it does not draw are taken out of the document, not merely hidden. They live ONCE, in the app's
 own panel - the Cockpit's rail, the phone's sheet - which is rendered from the state the page posts. The
 owner saw both at once and counted two conversations and two Send buttons, one of them permanently
 disabled; that is what this rule exists to stop.
+
+**The tray went the same way, and for the same reason (issue #3077).** Hosted, the page used to keep a pill
+pinned to a corner of the report holding "Notes (N queued)" and "Add a note": a count the app's panel was
+already showing, and a button sitting on top of the words at every width. The app holds both now and reaches
+the page with `note-mode`; the page answers with `note-mode-changed`, because picking ends BY ITSELF the
+moment the reader clicks what the note is about, and a panel that only heard its own request would leave
+"Cancel" on screen for ever.
+
+**The note BOX stays in the page, and that is the whole reason this is a message rather than a move.** A note
+points at something - a paragraph, a table cell, a part of a diagram - and only the document holds those. So
+the app arms a note and the page places the box against what was clicked.
 
 **Unhosted, the page draws the whole tray**, because there is nothing else on screen that could: the
 queued, sent and replies lists, and Send - which, with no host to post to, shows the exact `send` message

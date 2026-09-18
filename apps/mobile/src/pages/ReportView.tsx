@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { DevReportConversation } from "@devthrottle/client-core/devreports/DevReportConversation";
 import { DevReportViewer } from "@devthrottle/client-core/devreports/DevReportViewer";
@@ -39,14 +39,24 @@ export function ReportView() {
           onBackToSession={backToSession}
           renderConversation={(conversation) => (
             <>
+              <ArmedNote picking={conversation.noteMode.picking} onArmed={() => setSheetOpen(false)} />
               <button
                 type="button"
                 className="report-conversation-strip"
                 data-testid="report-conversation-open"
                 onClick={() => setSheetOpen(true)}
               >
-                Conversation - {conversation.queued.length} queued, {conversation.sent.length} sent,{" "}
-                {conversation.replies.length} {conversation.replies.length === 1 ? "reply" : "replies"}
+                {/* ARMED, THE STRIP SAYS WHAT TO DO (issue #3077). The note controls are in the sheet now, and
+                    the sheet has just got out of the way so the reader can reach the report - so this line,
+                    the only thing left on screen beside the report, carries the instruction. */}
+                {conversation.noteMode.picking ? (
+                  "Tap the paragraph, table cell or diagram part your note is about"
+                ) : (
+                  <>
+                    Conversation - {conversation.queued.length} queued, {conversation.sent.length} sent,{" "}
+                    {conversation.replies.length} {conversation.replies.length === 1 ? "reply" : "replies"}
+                  </>
+                )}
               </button>
               {sheetOpen && (
                 <div className="report-sheet-overlay" onClick={() => setSheetOpen(false)}>
@@ -81,4 +91,20 @@ export function ReportView() {
       )}
     </div>
   );
+}
+
+/**
+ * THE SHEET GETS OUT OF THE WAY WHEN A NOTE IS ARMED (issue #3077).
+ *
+ * The note controls live in the app's panel, which on a phone is a sheet over the report - so pressing "Add a
+ * note" in it leaves the reader looking at the panel they must now click THROUGH. The desktop has no such
+ * problem (its panel is beside the report), which is exactly why this belongs to the phone's frame and not to
+ * the shared panel. A component rather than an effect in the page, because the picking flag arrives in the
+ * viewer's render callback.
+ */
+function ArmedNote({ picking, onArmed }: { picking: boolean; onArmed: () => void }) {
+  useEffect(() => {
+    if (picking) onArmed();
+  }, [picking, onArmed]);
+  return null;
 }

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from "react-router-dom";
@@ -28,8 +29,17 @@ vi.mock("@devthrottle/client-core/devreports/DevReportList", () => ({
     </button>
   ),
 }));
+// The viewer is client-core's and is tested there. Here it only has to say which report it was handed, and
+// to PLACE THE SHELL'S OWN ACTIONS - the tab passes All reports and Full screen into the report's one bar
+// now (issue #3077), so a stand-in that dropped them would hide whether the tab still supplies them.
 vi.mock("@devthrottle/client-core/devreports/DevReportViewer", () => ({
-  DevReportViewer: ({ reportId }: { reportId: string }) => <div data-testid="fake-report-viewer">{reportId}</div>,
+  DevReportViewer: ({ reportId, leading, trailing }: { reportId: string; leading?: ReactNode; trailing?: ReactNode }) => (
+    <div data-testid="fake-report-bar">
+      {leading}
+      <span data-testid="fake-report-viewer">{reportId}</span>
+      {trailing}
+    </div>
+  ),
 }));
 vi.mock("@devthrottle/client-core/devreports/DevReportConversation", () => ({ DevReportConversation: () => null }));
 

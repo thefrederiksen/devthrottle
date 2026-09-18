@@ -468,6 +468,8 @@
     return isPlainObject(u) && isStr(u.id) && isStr(u.status) && isStr(u.statusLabel);
   }
 
+  var NOTE_MODES = ["pick", "selection", "off"];
+
   // Returns { type, payload } for a well-formed host message, or null for anything else.
   function parseInbound(data) {
     if (!isPlainObject(data) || data.channel !== CHANNEL || data.version !== VERSION) return null;
@@ -476,6 +478,10 @@
     if (data.type === "restore") return validState(p.state) ? { type: "restore", payload: p } : null;
     if (data.type === "status") return everyValid(p.updates, validStatusUpdate) ? { type: "status", payload: p } : null;
     if (data.type === "reply") return validReply(p.reply) ? { type: "reply", payload: p } : null;
+    // note-mode (issue #3077): the host's note controls live in ITS panel now, so arming a note is
+    // something the app asks this page to do. "pick" arms picking, "selection" opens a note on the text the
+    // reader has selected, "off" cancels. Anything else is not a note-mode message.
+    if (data.type === "note-mode") return NOTE_MODES.indexOf(p.mode) >= 0 ? { type: "note-mode", payload: p } : null;
     return null;
   }
 
@@ -966,13 +972,23 @@
     // Hosted or not, both ways. The page starts unhosted with the whole tray; the FIRST restore is what makes
     // it hosted (CONTRACT.md, "No host"), and that is when the conversation leaves the page. Being inside a
     // frame is not enough: a frame whose host never answers is unhosted and keeps its Send.
+    // HOSTED, THIS PAGE DRAWS NO TRAY AT ALL (issue #3077). It used to keep a floating pill in the corner of
+    // the report holding "Notes (N queued)" and "Add a note" - a count the app's panel was already showing,
+    // and a button, sitting on top of the report at every width. Both live in the app's panel now and reach
+    // this page over the port (note-mode), so the whole tray leaves the document; what stays is the note BOX,
+    // which has its own shadow host and has to be in here, because it is placed against the element the note
+    // is about.
+    //
+    // Unhosted nothing changes: there is no app to hold the controls, so the page draws the whole tray.
     function setHosted(on) {
       hosted = on;
       if (on) {
         if (conversation.parentNode) conversation.parentNode.removeChild(conversation);
+        if (trayRoot.host.parentNode) trayRoot.host.parentNode.removeChild(trayRoot.host);
         tray.classList.add("drn-hosted");
       } else {
         if (!conversation.parentNode) body.appendChild(conversation);
+        if (!trayRoot.host.parentNode) doc.body.appendChild(trayRoot.host);
         tray.classList.remove("drn-hosted");
       }
     }
@@ -1102,6 +1118,18 @@
         if (hovered) hovered.classList.remove("drn-hover");
         hovered = null;
       }
+      emitNoteMode();
+    }
+
+    // What the app's note controls need to draw themselves: whether this page is picking, and what text the
+    // reader has selected. Picking ends BY ITSELF when the reader clicks the thing the note is about, so a
+    // panel that only heard its own request would leave "Cancel" on screen for ever.
+    function emitNoteMode() {
+      if (!hosted) return;
+      post("note-mode-changed", {
+        picking: picking,
+        selectionQuote: lastSelection ? lastSelection.quote : null
+      });
     }
 
     function openDraft(anchor) {
@@ -1141,17 +1169,21 @@
         lastSelection = anchor;
         selectionBtn.removeAttribute("disabled");
         selectionBtn.textContent = "Note on \"" + anchor.quote.slice(0, 30) + (anchor.quote.length > 30 ? "..." : "") + "\"";
+        emitNoteMode();
       }
     });
 
-    selectionBtn.addEventListener("click", function () {
+    function noteOnSelection() {
       if (!lastSelection) return;
       var anchor = lastSelection;
       lastSelection = null;
       selectionBtn.setAttribute("disabled", "");
       selectionBtn.textContent = "Note on selected text";
+      emitNoteMode();
       openDraft(anchor);
-    });
+    }
+
+    selectionBtn.addEventListener("click", noteOnSelection);
 
     toggle.addEventListener("click", function () {
       setOpen(tray.classList.contains("drn-collapsed"));
@@ -1352,6 +1384,8 @@
         var draft = message.payload.state.draft;
         draftAnchorEl = draft ? findBySelector(doc, draft.anchor.selector) : null;
         render();
+        // The page has just become hosted, so the app's note controls exist and have nothing to draw from yet.
+        emitNoteMode();
       } else if (message.type === "status") {
         model.applyStatus(message.payload.updates);
         changed();
@@ -1359,6 +1393,12 @@
         model.addReply(message.payload.reply);
         setOpen(true);
         changed();
+      } else if (message.type === "note-mode") {
+        // The app's note controls, doing in here what they cannot do out there (issue #3077). A note has to
+        // point at something in this document, so the arming is the app's and the anchor is this page's.
+        if (message.payload.mode === "pick") setPicking(true);
+        else if (message.payload.mode === "off") setPicking(false);
+        else noteOnSelection();
       }
     }
 
