@@ -295,7 +295,7 @@ fix, as the builder said. The proof the fix worked is still pending: main's run 
 (`35288524962`) was in progress while this was written.
 
 **Nothing left behind, and no attribution.** Swept the whole scope diff (40,822 lines): no
-`Co-Authored-By`, no "Generated with", no robot footer, no mention of any assistant or vendor — the
+no attribution trailer of any kind, no generated-with footer, no robot footer, no mention of any assistant or vendor — the
 only hits on those vendor words name an agent kind the product runs. No `TODO`/`FIXME`/`HACK`/`XXX`, no
 `Console.WriteLine`/`Debug.WriteLine`/`Debugger.Break`, no `Skip =`, no `.only(`/`fit(`/`fdescribe(`. One
 `console.log` at `packages/client-core/browser-tests/dev-report-viewer-proof/run-proof.mjs`, which is a
