@@ -61,12 +61,12 @@ public sealed record WingmanNowConversation(bool Supported, IReadOnlyList<Histor
 /// own <see cref="SessionDto.EffectiveColor"/>. A second colour authority in this file would be free to disagree with
 /// the Sessions list about the same session, which is exactly the defect the dumb-client rule exists to prevent.
 ///
-/// WHAT THIS FOLD DOES NOT DECIDE YET. It rules on the stopped states the Wingman explained - needs you (sure and not
-/// sure), done, report and carrying on (slice 1) - and on the three with no explanation to show: being read, refused,
-/// and switched off (slice 2). Everything else folds to <see cref="WingmanNowStates.Other"/>, which wears the row's
-/// own label so the view is never blank. Just answered (slice 5) and the voice control (slice 6) arrive in their
-/// own slices, so a session that has just been answered reads as plain "working" until slice 5 separates them. An "other" answer is therefore not a claim that the row has no better state - it is a claim that
-/// this fold has not been taught one.
+/// WHAT THIS FOLD DOES NOT DECIDE. It rules on the stopped states the Wingman explained - needs you (sure and not
+/// sure), done, report and carrying on - on the three with no explanation to show - being read, refused, and
+/// switched off - on working, on just answered, and on the voice control. Everything else folds to
+/// <see cref="WingmanNowStates.Other"/>, which wears the row's own label so the view is never blank. An "other"
+/// answer is therefore not a claim that the row has no better state - it is a claim that this fold has not been
+/// taught one.
 /// </summary>
 public static class WingmanNowFold
 {
@@ -113,6 +113,26 @@ public static class WingmanNowFold
 
     /// <summary>The words over the next session waiting on him.</summary>
     public const string NextHeading = "Next that needs you";
+
+    /// <summary>The words on the control when there is audio to play.</summary>
+    public const string VoicePlayLabel = "Play";
+
+    /// <summary>The words on the control while the audio is being made. It is not a button - there is nothing to
+    /// press yet - and the words say what is happening rather than inviting a press that does nothing.</summary>
+    public const string VoicePreparingLabel = "Preparing audio...";
+
+    /// <summary>The offer when voice is off for this session. FROM NOW ON, because that is what it does: it is a
+    /// setting for the session, not a request to narrate the stop already on the screen.</summary>
+    public const string VoiceTurnOnLabel = "Read this session aloud from now on";
+
+    /// <summary>What to say after he turns it on when there IS a stop to read.</summary>
+    public const string VoiceAfterTurnOnThisStop =
+        "Voice is on for this session. This stop will be read aloud in a few seconds.";
+
+    /// <summary>What to say after he turns it on when there is NOT. Promising him this stop would be a promise
+    /// nothing can keep.</summary>
+    public const string VoiceAfterTurnOnNextStop =
+        "Voice is on for this session. The next stop will be read aloud.";
 
     /// <summary>The words on the way to it.</summary>
     public const string NextLinkText = "Go there";
@@ -293,6 +313,7 @@ public static class WingmanNowFold
             // colour, so "why this colour?" would open an explanation of a rule that did not run.
             ShowWhyColour = !string.Equals(state, WingmanNowStates.SwitchedOff, StringComparison.Ordinal),
             When = When(state, live, row, verdicts, answered),
+            Voice = Voice(state, row, live),
             VerdictId = live?.VerdictId,
             ReplyPlaceholder = ReplyPlaceholder(state),
         };
@@ -1015,6 +1036,45 @@ public static class WingmanNowFold
         // A first "word" longer than the whole limit has no boundary to cut on, so it is cut at the limit - an
         // unbroken 200-character token is a URL or a hash, and showing none of it is worse.
         return (cut > 0 ? text[..cut] : text[..LastWordsLength]).TrimEnd() + " ...";
+    }
+
+    /// <summary>
+    /// THE VOICE CONTROL: one of four offers, and the fourth is "nothing to offer".
+    ///
+    /// FOUR STATES ARE OFFERED NOTHING - being read, working, just answered, and the Wingman switched off. Three of
+    /// them have no stop on the screen to read aloud, and the fourth has no Wingman to read it. A control there
+    /// would be an affordance for something that is not there.
+    ///
+    /// THE PLAY OFFER IS THE VOICE FOLD'S OWN ANSWER, copied and not recomputed. Whether there is anything to play
+    /// is <see cref="VoiceDisplayFold"/>'s verdict, already on the row, and asking a second time here is how one
+    /// session comes to be "preparing audio" on one screen and silent on another.
+    ///
+    /// A ROW WITH NO VOICE VERDICT AT ALL offers nothing rather than guessing. The verdict is stamped by the
+    /// Gateway; a row that reaches this fold without one came from a caller that could not see the voice service,
+    /// and "no audio" is a claim that caller has not earned.
+    /// </summary>
+    private static WingmanNowVoiceDto Voice(string state, SessionDto? row, TurnVerdictDto? live)
+    {
+        if (row is null) return new WingmanNowVoiceDto();
+        if (state is WingmanNowStates.Reading or WingmanNowStates.Working
+                  or WingmanNowStates.JustAnswered or WingmanNowStates.SwitchedOff)
+            return new WingmanNowVoiceDto();
+
+        if (!row.VoiceMode)
+        {
+            return new WingmanNowVoiceDto
+            {
+                Kind = WingmanNowVoiceKinds.TurnOn,
+                Label = VoiceTurnOnLabel,
+                AfterTurnOnText = live is null ? VoiceAfterTurnOnNextStop : VoiceAfterTurnOnThisStop,
+            };
+        }
+
+        if (row.VoiceDisplay is not { } display) return new WingmanNowVoiceDto();
+
+        return display.CanPlay
+            ? new WingmanNowVoiceDto { Kind = WingmanNowVoiceKinds.Play, Label = VoicePlayLabel }
+            : new WingmanNowVoiceDto { Kind = WingmanNowVoiceKinds.Preparing, Label = VoicePreparingLabel };
     }
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;

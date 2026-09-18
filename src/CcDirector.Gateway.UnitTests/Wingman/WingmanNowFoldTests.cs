@@ -15,10 +15,8 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// own tests, and that the route really hands this fold a real row and a real store is proven through the handler in
 /// <see cref="WingmanNowRouteTests"/>, not here.
 ///
-/// WHAT IS NOT COVERED YET, said plainly rather than implied by silence: the voice control (slice 6). A row in that
-/// state folds to "other" today, and no test here pins that - pinning an interim answer would only have to be
-/// deleted by the slice that gives it its real one. Reading, failed, switched off, working and just answered ARE
-/// covered, below.
+/// EVERY STATE THIS FOLD RULES ON IS COVERED BELOW: needs you (sure and not sure), done, report, carrying on,
+/// reading, failed, switched off, working, just answered, and the voice control on each of them.
 ///
 /// PARKED SUITE. Gateway.UnitTests runs under -Parked.
 /// </summary>
@@ -1592,5 +1590,131 @@ public sealed class WingmanNowFoldTests
 
         Assert.Equal(WingmanNowStates.Working, now.State);
         Assert.Null(now.NextNeedsYou);
+    }
+
+    // ================================================================ slice 6: the voice control
+
+    /// <summary>A row with voice ON for the session and the Gateway's own verdict that there is a clip to play.</summary>
+    private static SessionDto WithVoice(SessionDto row, bool canPlay)
+    {
+        row.VoiceMode = true;
+        row.VoiceDisplay = new VoiceDisplay
+        {
+            Kind = canPlay ? "ready" : "preparing",
+            Tone = canPlay ? "green" : "yellow",
+            Label = canPlay ? "Voice ready" : "Voice on its way",
+            CanPlay = canPlay,
+        };
+        return row;
+    }
+
+    /// <summary>
+    /// WHETHER THERE IS ANYTHING TO PLAY IS THE VOICE FOLD'S ANSWER, copied and not recomputed here. A second
+    /// authority on that question is how one session comes to be "preparing audio" on one screen and silent on
+    /// another.
+    /// </summary>
+    [Fact]
+    public void Voice_on_with_a_clip_ready_offers_play()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        var now = Fold(WithVoice(Row(verdict), canPlay: true), verdict);
+
+        Assert.Equal(WingmanNowVoiceKinds.Play, now.Voice.Kind);
+        Assert.Equal("Play", now.Voice.Label);
+        Assert.Null(now.Voice.AfterTurnOnText);
+    }
+
+    /// <summary>While the clip is being made the control says what is happening rather than inviting a press that
+    /// would do nothing.</summary>
+    [Fact]
+    public void Voice_on_with_no_clip_yet_says_it_is_being_prepared()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        var now = Fold(WithVoice(Row(verdict), canPlay: false), verdict);
+
+        Assert.Equal(WingmanNowVoiceKinds.Preparing, now.Voice.Kind);
+        Assert.Equal("Preparing audio...", now.Voice.Label);
+    }
+
+    /// <summary>
+    /// WITH VOICE OFF THE OFFER IS A SETTING, not a request to narrate what is on the screen - "from now on" is
+    /// what the switch actually does. What follows says he will hear THIS stop, because there is one.
+    /// </summary>
+    [Fact]
+    public void Voice_off_offers_to_turn_it_on_and_promises_this_stop_when_there_is_one()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        var now = Fold(Row(verdict), verdict);
+
+        Assert.Equal(WingmanNowVoiceKinds.TurnOn, now.Voice.Kind);
+        Assert.Equal("Read this session aloud from now on", now.Voice.Label);
+        Assert.Equal("Voice is on for this session. This stop will be read aloud in a few seconds.",
+            now.Voice.AfterTurnOnText);
+    }
+
+    /// <summary>
+    /// WITH NO ACCEPTED STOP IT PROMISES THE NEXT ONE. There is nothing for the Wingman to read here - its answer
+    /// was refused - so promising him this stop would be a promise nothing can keep, which is the same broken
+    /// promise as a dead-end button in smaller print.
+    /// </summary>
+    [Fact]
+    public void Voice_off_promises_the_next_stop_when_there_is_nothing_to_read()
+    {
+        var now = FoldWith(FailedRow(), NoHistory);
+
+        Assert.Equal(WingmanNowStates.Failed, now.State);
+        Assert.Equal(WingmanNowVoiceKinds.TurnOn, now.Voice.Kind);
+        Assert.Equal("Voice is on for this session. The next stop will be read aloud.", now.Voice.AfterTurnOnText);
+    }
+
+    /// <summary>
+    /// FOUR STATES ARE OFFERED NOTHING, and a playable clip does not change that. Three have no stop on the screen
+    /// to read aloud and the fourth has no Wingman to read it, so a control there is an affordance for something
+    /// that is not there.
+    /// </summary>
+    [Fact]
+    public void The_states_with_nothing_to_read_aloud_offer_no_voice_control_even_with_a_clip_ready()
+    {
+        var reading = FoldWith(WithVoice(ReadingRow(), canPlay: true), NoHistory);
+        var working = FoldWith(WithVoice(WorkingRow(), canPlay: true), new[] { Superseded(Stopped.AddMinutes(1)) });
+        var answered = FoldWith(WithVoice(WorkingRow(), canPlay: true), new[] { AnsweredByOption() },
+            now: AnsweredAt.AddSeconds(20));
+        var switchedOff = FoldWith(WithVoice(Row(null), canPlay: true), NoHistory, switchedOff: true);
+
+        Assert.Equal(WingmanNowStates.Reading, reading.State);
+        Assert.Equal(WingmanNowStates.Working, working.State);
+        Assert.Equal(WingmanNowStates.JustAnswered, answered.State);
+        Assert.Equal(WingmanNowStates.SwitchedOff, switchedOff.State);
+
+        foreach (var view in new[] { reading, working, answered, switchedOff })
+        {
+            Assert.Equal(WingmanNowVoiceKinds.None, view.Voice.Kind);
+            Assert.Equal("", view.Voice.Label);
+            Assert.Null(view.Voice.AfterTurnOnText);
+        }
+    }
+
+    /// <summary>
+    /// A ROW WITH VOICE ON AND NO VERDICT ON IT OFFERS NOTHING RATHER THAN GUESSING. The verdict is the Gateway's
+    /// to stamp; a row that arrives without one came from a caller that could not see the voice service, and
+    /// "there is no audio" is a claim that caller has not earned.
+    /// </summary>
+    [Fact]
+    public void Voice_on_with_no_verdict_stamped_offers_nothing_rather_than_claiming_there_is_no_audio()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        var row = Row(verdict);
+        row.VoiceMode = true;
+        row.VoiceDisplay = null;
+
+        Assert.Equal(WingmanNowVoiceKinds.None, Fold(row, verdict).Voice.Kind);
+    }
+
+    /// <summary>The view is served for a session with no row at all, and offers no voice control on it - there is
+    /// nothing there to know whether voice is even on.</summary>
+    [Fact]
+    public void A_view_with_no_row_offers_no_voice_control()
+    {
+        Assert.Equal(WingmanNowVoiceKinds.None, FoldWith(null, NoHistory).Voice.Kind);
     }
 }
