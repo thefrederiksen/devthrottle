@@ -69,3 +69,96 @@ are history and are not edited.
   metadata only. That is phase 5 of this mission.
 - The retired-words guard's continued coverage of the workflow body was established by reading its
   file list, not by watching the guard fail on purpose.
+
+---
+
+# The second check, after the consistency test was added
+
+Run 18 September 2026 in the same worktree, at commit `04b4d2295` - the tip after the independent
+review's second finding was answered with
+`WorkflowStoreTests.Mission_step_table_in_the_conduct_matches_the_mission_definition` and its proof
+file. The Developer's own run is at `CONSISTENCY-TEST.md`; this is the Delivery Lead running it
+again, because a seat saying "done" is a claim.
+
+**This run found a failure that is NOT on the baseline, and that is worth more than the green run
+that followed it.** It is recorded first, in full, because the bar on this machine is "no failure
+outside the named list" and the honest thing to do with a breach is to write it down rather than
+re-run until it goes away.
+
+## Run 1 at `04b4d2295`
+
+```
+Failed!  - Failed:    10, Passed:  6324, Skipped:     2, Total:  6336, Duration: 5 m 33 s
+```
+
+Nine were the baseline's numbers 2 to 10. The tenth was not on the baseline at all:
+
+```
+CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests
+  .A_deferred_ring_types_nothing_and_does_not_move_the_message_towards_stuck
+```
+
+## What was done about it
+
+Three things, in this order, before any conclusion was drawn.
+
+**1. The class was run alone.**
+
+```
+> dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~FleetDoorbellTests -v n
+
+Test Run Successful.
+Total tests: 72
+     Passed: 72
+```
+
+All 72, including the one that failed, pass in isolation.
+
+**2. The mechanism was checked in the source rather than guessed at.**
+`src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellTests.cs` line 17 holds
+`private readonly GatewayDbTestHarness _harness = new();` - it is a database-backed test. Product
+issue 3029 records this exact intermittent class in this exact suite, and names its cause:
+`StatsConcurrencyTestDb.Dispose` calls `SqliteConnection.ClearAllPools()`, which is **process
+global**, so one class's teardown pulls another class's pooled connections while that class is still
+running. Its recorded symptom is "one database test fails per full run, a different one each time,
+all passing in isolation", which is precisely what happened here.
+
+**3. The whole suite was run again at the same commit.**
+
+```
+Failed!  - Failed:     9, Passed:  6325, Skipped:     2, Total:  6336, Duration: 4 m 50 s
+```
+
+Nine failures, every one on the baseline, and `FleetDoorbellTests` passed.
+
+## What that means, stated carefully
+
+The failure is a pre-existing intermittency in the suite's own database fixtures, not damage from
+this change. Three independent things support that and they are not the same evidence three times:
+the test passes alone, the class it belongs to is database-backed through the harness the known
+defect attacks, and it did not recur at the same commit. Nothing in this change touches messaging,
+the doorbell, or any database fixture.
+
+**What it also means is that `BASELINE.md` is incomplete as a bar.** Ten named failures is the right
+floor, but the real behaviour of this suite is "those ten, plus up to one database-backed test that
+fails in a full parallel run and passes alone". A seat that reads the baseline as an exhaustive list
+will, sooner or later, read a flake as damage - or, worse in the other direction, take a breach on
+trust because "it is probably the known flake". Neither is acceptable, and the answer is the one
+followed here: **run it alone, name the mechanism from the source, and re-run the suite** before
+calling anything pre-existing.
+
+That belongs on product issue 3029, which already records the mechanism and now has one more
+measured instance of it, on a named test, with the isolation run beside it.
+
+## The count reconciliation
+
+| Run | Total | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline, clean `origin/main` `c135d44b2` | 6336 | 6324 | 10 | 2 |
+| Branch tip `550af84f5` (before the consistency test) | 6335 | 6324 | 9 | 2 |
+| Branch tip `04b4d2295`, run 1 | 6336 | 6324 | 10 | 2 |
+| Branch tip `04b4d2295`, run 2 | 6336 | 6325 | 9 | 2 |
+
+The total returns to 6336 because the consistency test replaces, one for one, the fidelity test this
+change deletes. That is a coincidence of counts and not evidence on its own - the two tests are named
+in the diff and that is what says which went and which arrived.
