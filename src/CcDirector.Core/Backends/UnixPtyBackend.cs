@@ -21,6 +21,15 @@ public sealed class UnixPtyBackend : ISessionBackend
     private string _workingDir = string.Empty;
 
     public int ProcessId => _processHost?.ProcessId ?? 0;
+
+    /// <summary>
+    /// The directory this session was started in. <see cref="ISessionBackend.WorkingDirectory"/>
+    /// defaults to the empty string, and this backend never overrode it - so on macOS and Linux every
+    /// session reported no working directory at all, while the Windows backend reported the real one.
+    /// The value was already being stored here for the process start; only the accessor was missing.
+    /// </summary>
+    public string WorkingDirectory => _workingDir;
+
     public string Status => _status;
     public bool IsRunning => _processHost != null && !HasExited;
     public bool HasExited => _processHost == null || _status.StartsWith("Exited");

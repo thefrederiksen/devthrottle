@@ -1946,8 +1946,19 @@ public sealed class MutationProofPinGuardTests
     /// <summary>A scratch directory that removes itself.</summary>
     private sealed class TemporaryDirectory : IDisposable
     {
+        // THE CANONICAL TEMPORARY PATH, not the raw one, and this unit is the reason it matters most.
+        // These tests compare the pin location the SCRIPT derives (by asking git) against the one the
+        // GUARD derives (by combining onto the repository root). On macOS Path.GetTempPath answers
+        // /var/folders/... while /var is a symbolic link to /private/var, and git always answers with the
+        // resolved spelling - so the two derivations disagreed on the STRING while naming the very same
+        // file, and this unit's own arming check failed for a reason that had nothing to do with arming.
+        // Resolving the fixture root once means both sides are asked about one spelling of one directory.
+        // (CcDirector.Core.Tests.TestTempRoot: this file is compiled into that assembly alone - see
+        // Directory.Build.props - so the helper is in scope.)
         public string Path { get; } = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(), "cc-mutation-pin-tests", Guid.NewGuid().ToString("N"));
+            CcDirector.Core.Tests.TestTempRoot.Canonical(System.IO.Path.GetTempPath()),
+            "cc-mutation-pin-tests",
+            Guid.NewGuid().ToString("N"));
 
         public TemporaryDirectory() => Directory.CreateDirectory(Path);
 

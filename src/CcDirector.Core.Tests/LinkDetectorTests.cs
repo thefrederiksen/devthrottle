@@ -519,7 +519,9 @@ public class LinkDetectorTests
     // ResolvePath
     // ========================================================================
 
-    [Fact]
+    [WindowsOnlyFact("translating a Git Bash path like /c/Users/... into a drive letter is a Windows-only " +
+        "accommodation. It used to run on every platform, which is how a genuine macOS path such as /a/file.cs " +
+        "was being rewritten to A:\\file.cs - so this test passed on a Mac by asserting the defect.")]
     public void ResolvePath_UnixPath_ConvertsToWindows()
     {
         string result = LinkDetector.ResolvePath("/c/Users/test/file.txt", null);
@@ -538,9 +540,26 @@ public class LinkDetectorTests
     [Fact]
     public void ResolvePath_RelativePath_ResolvesAgainstRepo()
     {
-        string result = LinkDetector.ResolvePath("src/file.cs", @"C:\repo");
+        // The repo root has to be an absolute path FOR THIS PLATFORM, and the expectation has to use
+        // this platform's separator: a drive-letter root is a relative path off Windows, so the join
+        // produced something rooted in the test runner's own directory.
+        var repo = OperatingSystem.IsWindows() ? @"C:\repo" : "/repo";
+        var expected = Path.Combine(repo, "src", "file.cs");
 
-        Assert.Equal(@"C:\repo\src\file.cs", result);
+        string result = LinkDetector.ResolvePath("src/file.cs", repo);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void ResolvePath_AnAbsolutePathForThisPlatform_IsReturnedUnchanged()
+    {
+        // The second half of the macOS defect: the Git Bash "/c/path -> C:\path" rule matched ANY path
+        // whose second segment begins at index two, so the real path "/a/file.cs" was rewritten to
+        // "A:\file.cs". On Windows a drive-letter path must still come back untouched.
+        var absolute = OperatingSystem.IsWindows() ? @"C:\repo\file.cs" : "/a/file.cs";
+
+        Assert.Equal(absolute, LinkDetector.ResolvePath(absolute, "/somewhere/else"));
     }
 
     [Fact]

@@ -317,7 +317,10 @@ public sealed class TurnDetectionShadowRetentionTests : IDisposable
         Assert.Equal(2, ReadRows(path).Length);
     }
 
-    [Fact]
+    [WindowsOnlyFact("the arrangement needs a READER to block a WRITER, which is Windows share semantics. " +
+        "On macOS and Linux an open read handle does not prevent an append at all, so the append simply " +
+        "succeeds, both rows land, and the contention this budget bounds never occurs. Forcing a failure here " +
+        "with file permissions would prove something else - a refused open, not exhausted contention.")]
     public void An_append_past_the_contention_budget_loses_the_row_and_says_so()
     {
         // THE BOUND IS REAL AND IS NOT PRETENDED AWAY. The retry is bounded because it runs under

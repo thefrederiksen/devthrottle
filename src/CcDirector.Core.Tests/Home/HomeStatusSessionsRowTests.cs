@@ -37,6 +37,24 @@ public class HomeStatusSessionsRowTests
         return null;
     }
 
+    // THE "ANOTHER INSTALL" DETECTION COMPARES PATHS, so these have to be real paths for the platform
+    // under test. A backslash is an ordinary character in a Unix file name, not a separator, so off
+    // Windows the comparison could not see two different directories and the row never named the cause.
+    //
+    // Note what that did to the NEGATIVE case below: it asserts the row does NOT say "another install",
+    // which is trivially true when the detection cannot run at all. It was passing on macOS while
+    // proving nothing, which is why both are spelled per platform rather than only the one that failed.
+    private static string OurBin => OperatingSystem.IsWindows()
+        ? @"C:\Users\x\AppData\Local\cc-director\instances\slot-5\bin"
+        : "/Users/x/Library/Application Support/cc-director/instances/slot-5/bin";
+
+    private static string CommandFromAnotherInstall => OperatingSystem.IsWindows()
+        ? @"C:\Users\x\AppData\Local\cc-director\bin\cc-devthrottle.CMD"
+        : "/Users/x/Library/Application Support/cc-director/bin/cc-devthrottle";
+
+    private static string CommandFromOurOwnBin =>
+        Path.Combine(OurBin, OperatingSystem.IsWindows() ? "cc-devthrottle.CMD" : "cc-devthrottle");
+
     [Fact]
     public void NoVerdictYet_AddsNoRowAtAll()
     {
@@ -63,9 +81,7 @@ public class HomeStatusSessionsRowTests
     [Fact]
     public void DifferentInstall_TheDetailNamesTheRealCauseNotAGenericFailure()
     {
-        var status = BuildWith(Fault(
-            @"C:\Users\x\AppData\Local\cc-director\bin\cc-devthrottle.CMD",
-            @"C:\Users\x\AppData\Local\cc-director\instances\slot-5\bin"));
+        var status = BuildWith(Fault(CommandFromAnotherInstall, OurBin));
 
         // A user who has just been told "DevThrottle is down" has to be able to read this row and know
         // that neither the product nor the network is the problem.
@@ -78,8 +94,7 @@ public class HomeStatusSessionsRowTests
     {
         // Resolved from our OWN bin and still refused: repointing PATH would not repair this, so the row
         // must not imply it would.
-        var binDir = @"C:\Users\x\AppData\Local\cc-director\instances\slot-5\bin";
-        var status = BuildWith(Fault(binDir + @"\cc-devthrottle.CMD", binDir));
+        var status = BuildWith(Fault(CommandFromOurOwnBin, OurBin));
 
         var detail = SessionsRow(status)!.Detail;
         Assert.DoesNotContain("another install", detail, StringComparison.OrdinalIgnoreCase);

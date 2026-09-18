@@ -161,9 +161,20 @@ public class SessionNameTests
     [Fact]
     public void FolderName_TrimsTrailingSeparators()
     {
-        Assert.Equal("devthrottle", SessionName.FolderName(@"C:\repos\devthrottle"));
-        Assert.Equal("devthrottle", SessionName.FolderName(@"C:\repos\devthrottle\"));
-        Assert.Equal("devthrottle", SessionName.FolderName("C:/repos/devthrottle/"));
+        // Each spelling must be absolute for the platform under test. A drive-letter path is relative
+        // off Windows, so the folder name came back as the whole string instead of the last segment.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal("devthrottle", SessionName.FolderName(@"C:\repos\devthrottle"));
+            Assert.Equal("devthrottle", SessionName.FolderName(@"C:\repos\devthrottle\"));
+            Assert.Equal("devthrottle", SessionName.FolderName("C:/repos/devthrottle/"));
+        }
+        else
+        {
+            Assert.Equal("devthrottle", SessionName.FolderName("/repos/devthrottle"));
+            Assert.Equal("devthrottle", SessionName.FolderName("/repos/devthrottle/"));
+            Assert.Equal("devthrottle", SessionName.FolderName("/repos/devthrottle//"));
+        }
     }
 
     [Fact]

@@ -330,30 +330,57 @@ public static class LinkDetector
     }
 
     /// <summary>
-    /// Resolve a detected path to an absolute Windows path.
+    /// Resolve a detected path to an absolute path for THIS platform.
+    ///
+    /// This was Windows-only, and silently wrong everywhere else. Two faults, both of which made a
+    /// clicked link in a Mac session open nothing:
+    ///
+    /// A RELATIVE PATH HAD ITS SEPARATORS REWRITTEN. "src/file.cs" became "src\file.cs" and was joined
+    /// to the repository root, so the result named a SINGLE file called "src\file.cs" in the root
+    /// rather than a file in the "src" directory. A backslash is an ordinary, legal character in a Unix
+    /// file name, so nothing downstream could detect the mistake - the path simply did not exist.
+    ///
+    /// AN ABSOLUTE UNIX PATH COULD BE TURNED INTO A DRIVE LETTER. The "/c/path -&gt; C:\path" rule that
+    /// Git Bash output needs on Windows matched any path whose second segment starts at index two, so a
+    /// genuine macOS path like "/a/file.cs" was rewritten to "A:\file.cs".
+    ///
+    /// The Windows behaviour below is unchanged, including the Git Bash translation, which only makes
+    /// sense there.
     /// </summary>
     public static string ResolvePath(string path, string? repoPath)
     {
-        // Unix-style path /c/path -> C:\path
-        if (path.StartsWith("/") && path.Length >= 3 && path[2] == '/')
+        if (OperatingSystem.IsWindows())
         {
-            char driveLetter = char.ToUpper(path[1]);
-            string remainder = path.Substring(3).Replace('/', '\\');
-            return $"{driveLetter}:\\{remainder}";
+            // Unix-style path /c/path -> C:\path
+            if (path.StartsWith("/") && path.Length >= 3 && path[2] == '/')
+            {
+                char driveLetter = char.ToUpper(path[1]);
+                string remainder = path.Substring(3).Replace('/', '\\');
+                return $"{driveLetter}:\\{remainder}";
+            }
+
+            // Already an absolute Windows path
+            if (path.Length >= 2 && path[1] == ':')
+                return path;
+
+            // Relative path - resolve against repo path
+            if (repoPath != null)
+            {
+                string normalized = path.Replace('/', '\\');
+                return System.IO.Path.GetFullPath(System.IO.Path.Combine(repoPath, normalized));
+            }
+
+            // No repo path, return as-is
+            return path;
         }
 
-        // Already an absolute Windows path
-        if (path.Length >= 2 && path[1] == ':')
+        // macOS and Linux: there are no drive letters, and the separator is already the right one.
+        if (System.IO.Path.IsPathRooted(path))
             return path;
 
-        // Relative path - resolve against repo path
         if (repoPath != null)
-        {
-            string normalized = path.Replace('/', '\\');
-            return System.IO.Path.GetFullPath(System.IO.Path.Combine(repoPath, normalized));
-        }
+            return System.IO.Path.GetFullPath(System.IO.Path.Combine(repoPath, path));
 
-        // No repo path, return as-is
         return path;
     }
 
