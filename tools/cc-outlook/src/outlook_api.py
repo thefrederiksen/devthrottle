@@ -3,6 +3,7 @@
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional, List
 
 
@@ -26,6 +27,28 @@ def _to_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         dt = dt.astimezone()
     return dt.astimezone(timezone.utc)
+
+
+def _add_attachments(message, attachments: Optional[List[str]]) -> None:
+    """Attach local files to an outgoing message.
+
+    Shared by every outgoing path - send, draft, reply and forward - so an
+    attachment behaves identically whichever one is used.
+
+    Args:
+        message: O365 Message to attach the files to
+        attachments: File paths to attach; None or empty attaches nothing
+
+    Raises:
+        FileNotFoundError: one of the paths does not exist
+    """
+    if not attachments:
+        return
+
+    for file_path in attachments:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Attachment not found: {file_path}")
+        message.attachments.add(file_path)
 
 from O365 import Account
 from tzlocal import get_localzone
@@ -217,19 +240,14 @@ class OutlookClient:
         message.body_type = 'HTML' if html else 'text'
         message.importance = importance
 
-        # Add attachments
-        if attachments:
-            for file_path in attachments:
-                if os.path.exists(file_path):
-                    message.attachments.add(file_path)
-                else:
-                    raise FileNotFoundError(f"Attachment not found: {file_path}")
+        _add_attachments(message, attachments)
 
         message.send()
         return {'status': 'sent', 'to': to, 'subject': subject}
 
     def create_draft(self, to: List[str], subject: str, body: str,
-                     cc: Optional[List[str]] = None, html: bool = False) -> dict:
+                     cc: Optional[List[str]] = None, html: bool = False,
+                     attachments: Optional[List[str]] = None) -> dict:
         """
         Create a draft email.
 
@@ -239,9 +257,13 @@ class OutlookClient:
             body: Email body
             cc: List of CC recipients
             html: Whether body is HTML
+            attachments: List of file paths to attach
 
         Returns:
             Dict with draft info
+
+        Raises:
+            FileNotFoundError: an attachment path does not exist
         """
         mailbox = self.account.mailbox()
         message = mailbox.new_message()
@@ -254,6 +276,11 @@ class OutlookClient:
         message.body = body
         # Honor --html; O365 defaults the body type to HTML otherwise.
         message.body_type = 'HTML' if html else 'text'
+
+        # Attach BEFORE save_draft so the draft lands in Drafts carrying its
+        # attachments - the point of a draft is that it is complete and ready
+        # for a human to review and send.
+        _add_attachments(message, attachments)
 
         # Save as draft
         message.save_draft()
@@ -702,7 +729,8 @@ class OutlookClient:
     # =========================================================================
 
     def reply_message(self, message_id: str, body: str, reply_all: bool = False,
-                      send: bool = False, html: bool = False) -> dict:
+                      send: bool = False, html: bool = False,
+                      attachments: Optional[List[str]] = None) -> dict:
         """
         Create a draft reply (or send immediately) to a message.
 
@@ -712,9 +740,13 @@ class OutlookClient:
             reply_all: If True, reply to all recipients
             send: If True, send immediately instead of saving as draft
             html: If True, body is HTML
+            attachments: List of file paths to attach
 
         Returns:
             Dict with reply details
+
+        Raises:
+            FileNotFoundError: an attachment path does not exist
         """
         mailbox = self.account.mailbox()
         message = mailbox.get_message(object_id=message_id)
@@ -730,6 +762,8 @@ class OutlookClient:
         reply.body = body
         if html:
             reply.body_type = 'HTML'
+
+        _add_attachments(reply, attachments)
 
         if send:
             reply.send()
@@ -747,7 +781,8 @@ class OutlookClient:
             'reply_all': reply_all
         }
 
-    def forward_message(self, message_id: str, to: List[str], body: str = None) -> dict:
+    def forward_message(self, message_id: str, to: List[str], body: str = None,
+                        attachments: Optional[List[str]] = None) -> dict:
         """
         Forward a message.
 
@@ -755,9 +790,14 @@ class OutlookClient:
             message_id: Message ID to forward
             to: List of recipient emails
             body: Optional additional message
+            attachments: List of file paths to attach in addition to the
+                attachments the forwarded message already carries
 
         Returns:
             Dict with forward status
+
+        Raises:
+            FileNotFoundError: an attachment path does not exist
         """
         mailbox = self.account.mailbox()
         message = mailbox.get_message(object_id=message_id)
@@ -783,6 +823,8 @@ class OutlookClient:
                 forward.body_type = "HTML"
             else:
                 forward.body = body + "\n\n" + existing
+
+        _add_attachments(forward, attachments)
 
         forward.send()
 
@@ -897,15 +939,20 @@ class OutlookClient:
     def download_attachment(self, message_id: str, attachment_id: str,
                            save_path: str) -> dict:
         """
-        Download an attachment.
+        Download an attachment to disk.
 
         Args:
             message_id: Message ID
             attachment_id: Attachment ID
-            save_path: Path to save the file
+            save_path: Where to write the file. A path naming an existing
+                directory writes the attachment there under its own name.
 
         Returns:
-            Dict with download info
+            Dict with the attachment name, the path actually written, and its size
+
+        Raises:
+            ValueError: message, attachment, or output directory not found
+            RuntimeError: the attachment could not be written
         """
         mailbox = self.account.mailbox()
         # Attachments are only present when fetched with download_attachments=True.
@@ -925,11 +972,39 @@ class OutlookClient:
         if not target_attachment:
             raise ValueError(f"Attachment not found: {attachment_id}")
 
-        target_attachment.save(save_path)
+        # O365's Attachment.save(location, custom_name) wants location to be an
+        # EXISTING DIRECTORY, with the file name in custom_name. Handed a full file
+        # path it logs at debug level and returns False, writing nothing - so the
+        # directory and the name are split apart here, and the result is checked.
+        requested = Path(save_path)
+        if requested.is_dir():
+            directory, filename = requested, target_attachment.name
+        else:
+            directory, filename = requested.parent, requested.name
+
+        if not directory.is_dir():
+            raise ValueError(f"Output directory does not exist: {directory}")
+
+        if not filename:
+            raise ValueError(f"No file name to save the attachment as: {save_path}")
+
+        if not target_attachment.save(str(directory), custom_name=filename):
+            raise RuntimeError(
+                f"Failed to write attachment '{target_attachment.name}' to {directory}"
+            )
+
+        # save() sanitizes the file name, so the path asked for is not necessarily
+        # the path written. Report the one O365 recorded.
+        written = getattr(target_attachment, 'attachment', None)
+        if written is None:
+            raise RuntimeError(
+                f"Attachment '{target_attachment.name}' reported saved "
+                f"but recorded no path on disk"
+            )
 
         return {
             'name': target_attachment.name,
-            'path': save_path,
+            'path': str(written),
             'size': getattr(target_attachment, 'size', 0)
         }
 

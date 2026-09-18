@@ -10,6 +10,7 @@ Covers:
 """
 
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -173,6 +174,156 @@ class TestForwardMessageNote:
         forward.send.assert_called_once()
 
 
+class TestOutgoingAttachments:
+    """Regression tests for issue #2526.
+
+    Only `send` could carry an attachment. `draft` could not, so a draft could
+    never be built already carrying the file it is about - which is exactly what
+    a review-before-send workflow needs; the choice was to send unreviewed or to
+    ask a human to drag the file on. `reply --draft` and `forward` shared the gap.
+
+    The ordering assertions matter as much as the attach assertions: attaching
+    after save_draft/send would leave the draft in Drafts, or the mail in the
+    recipient's inbox, without the attachment.
+    """
+
+    def _existing_file(self, tmp_path, name="report.pdf"):
+        path = tmp_path / name
+        path.write_bytes(b"PDF")
+        return str(path)
+
+    def _call_order(self, mock):
+        return [name for name, _, _ in mock.mock_calls]
+
+    # --- draft -----------------------------------------------------------
+
+    def test_draft_attaches_before_saving(self, tmp_path):
+        client, message = _client_with_message()
+        path = self._existing_file(tmp_path)
+
+        client.create_draft(to=["a@example.com"], subject="s", body="b",
+                            attachments=[path])
+
+        message.attachments.add.assert_called_once_with(path)
+        order = self._call_order(message)
+        assert order.index("attachments.add") < order.index("save_draft")
+
+    def test_draft_attaches_every_file_given(self, tmp_path):
+        client, message = _client_with_message()
+        first = self._existing_file(tmp_path, "one.pdf")
+        second = self._existing_file(tmp_path, "two.pdf")
+
+        client.create_draft(to=["a@example.com"], subject="s", body="b",
+                            attachments=[first, second])
+
+        assert [c.args[0] for c in message.attachments.add.call_args_list] == [first, second]
+
+    def test_draft_without_attachments_attaches_nothing(self):
+        client, message = _client_with_message()
+
+        client.create_draft(to=["a@example.com"], subject="s", body="b")
+
+        message.attachments.add.assert_not_called()
+        message.save_draft.assert_called_once()
+
+    def test_draft_missing_attachment_raises_and_saves_no_draft(self, tmp_path):
+        client, message = _client_with_message()
+
+        with pytest.raises(FileNotFoundError):
+            client.create_draft(to=["a@example.com"], subject="s", body="b",
+                                attachments=[str(tmp_path / "nope.pdf")])
+
+        # No half-built draft is left behind in Drafts.
+        message.save_draft.assert_not_called()
+
+    # --- reply -----------------------------------------------------------
+
+    def _client_with_reply(self):
+        account = MagicMock()
+        original = MagicMock()
+        account.mailbox.return_value.get_message.return_value = original
+        return OutlookClient(account=account), original.reply.return_value
+
+    def test_reply_draft_attaches_before_saving(self, tmp_path):
+        client, reply = self._client_with_reply()
+        path = self._existing_file(tmp_path)
+
+        client.reply_message("id1", body="b", attachments=[path])
+
+        reply.attachments.add.assert_called_once_with(path)
+        order = self._call_order(reply)
+        assert order.index("attachments.add") < order.index("save_draft")
+
+    def test_reply_send_attaches_before_sending(self, tmp_path):
+        client, reply = self._client_with_reply()
+        path = self._existing_file(tmp_path)
+
+        client.reply_message("id1", body="b", send=True, attachments=[path])
+
+        reply.attachments.add.assert_called_once_with(path)
+        order = self._call_order(reply)
+        assert order.index("attachments.add") < order.index("send")
+
+    def test_reply_missing_attachment_raises_and_sends_nothing(self, tmp_path):
+        client, reply = self._client_with_reply()
+
+        with pytest.raises(FileNotFoundError):
+            client.reply_message("id1", body="b", send=True,
+                                 attachments=[str(tmp_path / "nope.pdf")])
+
+        reply.send.assert_not_called()
+        reply.save_draft.assert_not_called()
+
+    # --- forward ---------------------------------------------------------
+
+    def _client_with_forward(self):
+        account = MagicMock()
+        original = MagicMock()
+        account.mailbox.return_value.get_message.return_value = original
+        return OutlookClient(account=account), original.forward.return_value
+
+    def test_forward_attaches_before_sending(self, tmp_path):
+        client, forward = self._client_with_forward()
+        path = self._existing_file(tmp_path)
+
+        client.forward_message("id1", ["a@example.com"], attachments=[path])
+
+        forward.attachments.add.assert_called_once_with(path)
+        order = self._call_order(forward)
+        assert order.index("attachments.add") < order.index("send")
+
+    def test_forward_missing_attachment_raises_and_sends_nothing(self, tmp_path):
+        client, forward = self._client_with_forward()
+
+        with pytest.raises(FileNotFoundError):
+            client.forward_message("id1", ["a@example.com"],
+                                   attachments=[str(tmp_path / "nope.pdf")])
+
+        forward.send.assert_not_called()
+
+    # --- send (unchanged behavior, guarded through the shared helper) -----
+
+    def test_send_still_attaches(self, tmp_path):
+        client, message = _client_with_message()
+        path = self._existing_file(tmp_path)
+
+        client.send_message(to=["a@example.com"], subject="s", body="b",
+                            attachments=[path])
+
+        message.attachments.add.assert_called_once_with(path)
+        order = self._call_order(message)
+        assert order.index("attachments.add") < order.index("send")
+
+    def test_send_missing_attachment_raises_and_sends_nothing(self, tmp_path):
+        client, message = _client_with_message()
+
+        with pytest.raises(FileNotFoundError):
+            client.send_message(to=["a@example.com"], subject="s", body="b",
+                                attachments=[str(tmp_path / "nope.pdf")])
+
+        message.send.assert_not_called()
+
+
 class TestCreateEventTimezone:
     """Regression tests for the calendar-create timezone crash.
 
@@ -283,6 +434,46 @@ class TestFlagMessage:
             client.flag_message("id-1", flag_status="bogus")
 
 
+class FakeAttachment:
+    """Stands in for an O365 Attachment, honoring the save() contract of #2539.
+
+    O365's Attachment.save(location, custom_name) requires location to be an
+    EXISTING DIRECTORY. Given anything else it writes nothing and returns False,
+    and given no content it returns False as well. A double that accepts any
+    arguments and writes nothing cannot tell the fixed code from the broken code,
+    which is how the bug survived: the old test asserted only the call shape.
+    """
+
+    def __init__(self, attachment_id, name, content=b"CONTENT"):
+        self.attachment_id = attachment_id
+        self.name = name
+        self.content = content
+        self.attachment = None
+        self.on_disk = False
+        self.size = 0
+        self.save_calls = []
+
+    def save(self, location=None, custom_name=None):
+        self.save_calls.append((location, custom_name))
+        if not self.content:
+            return False
+        location = Path(location or '')
+        if not location.exists():
+            return False
+        # O365 sanitizes the name it is handed.
+        name = (custom_name or self.name).replace('/', '-').replace('\\', '')
+        try:
+            path = location / name
+            with path.open('wb') as handle:
+                handle.write(self.content)
+        except OSError:
+            return False
+        self.attachment = path
+        self.on_disk = True
+        self.size = path.stat().st_size
+        return True
+
+
 class TestListAttachments:
     """Regression tests for issue #530.
 
@@ -313,15 +504,104 @@ class TestListAttachments:
         assert result[0]["id"] == "att-1"
         assert result[0]["name"] == "invite.ics"
 
-    def test_download_attachment_requests_download(self):
+    def test_download_attachment_requests_download(self, tmp_path):
         client, mailbox = self._client()
-        att = MagicMock()
-        att.attachment_id = "att-1"
-        att.name = "invite.ics"
+        att = FakeAttachment("att-1", "invite.ics")
         mailbox.get_message.return_value.attachments = [att]
 
-        client.download_attachment("msg-1", "att-1", "C:/tmp/invite.ics")
+        client.download_attachment("msg-1", "att-1", str(tmp_path / "invite.ics"))
 
         _, kwargs = mailbox.get_message.call_args
         assert kwargs.get("download_attachments") is True
-        att.save.assert_called_once_with("C:/tmp/invite.ics")
+        # The directory goes in location and the file name in custom_name. This
+        # assertion used to require the whole path in location, which is the
+        # shape that silently wrote nothing (issue #2539).
+        assert att.save_calls == [(str(tmp_path), "invite.ics")]
+
+
+class TestDownloadAttachmentWritesTheFile:
+    """Regression tests for issue #2539.
+
+    download_attachment passed a full file path as O365's `location`, which wants
+    an existing directory. O365 wrote nothing and returned False; the False was
+    discarded and the requested path returned as though it had been written, so
+    the command printed a green success line and exited 0 having produced no file.
+
+    Every test here is written to FAIL against that old behavior: each one either
+    asserts bytes on disk at the reported path, or asserts that a failed write is
+    raised rather than reported as success.
+    """
+
+    def _client_with_attachment(self, att):
+        account = MagicMock()
+        client = OutlookClient(account=account)
+        account.mailbox.return_value.get_message.return_value.attachments = [att]
+        return client
+
+    def test_writes_the_file_and_reports_where_it_wrote_it(self, tmp_path):
+        att = FakeAttachment("att-1", "invite.ics", content=b"BEGIN:VCALENDAR")
+        client = self._client_with_attachment(att)
+        target = tmp_path / "invite.ics"
+
+        result = client.download_attachment("msg-1", "att-1", str(target))
+
+        # The file exists, holds the attachment's bytes, and is where we were told.
+        assert target.exists()
+        assert target.read_bytes() == b"BEGIN:VCALENDAR"
+        assert Path(result["path"]) == target
+        assert result["name"] == "invite.ics"
+        assert result["size"] == len(b"BEGIN:VCALENDAR")
+
+    def test_bare_file_name_writes_into_the_current_directory(self, tmp_path, monkeypatch):
+        # The no -o shape: cli.py passes the attachment's own name, with no
+        # directory part. This was broken the same way as the -o shape.
+        att = FakeAttachment("att-1", "invite.ics")
+        client = self._client_with_attachment(att)
+        monkeypatch.chdir(tmp_path)
+
+        result = client.download_attachment("msg-1", "att-1", "invite.ics")
+
+        written = Path(result["path"])
+        assert written.exists()
+        assert written.read_bytes() == b"CONTENT"
+        assert (tmp_path / "invite.ics").exists()
+
+    def test_directory_target_writes_under_the_attachment_name(self, tmp_path):
+        att = FakeAttachment("att-1", "invite.ics")
+        client = self._client_with_attachment(att)
+
+        result = client.download_attachment("msg-1", "att-1", str(tmp_path))
+
+        assert Path(result["path"]) == tmp_path / "invite.ics"
+        assert (tmp_path / "invite.ics").read_bytes() == b"CONTENT"
+
+    def test_reports_the_sanitized_name_o365_actually_used(self, tmp_path):
+        # O365 rewrites '/' in a name; the path asked for is then not the path
+        # written, and the old code reported the path asked for.
+        att = FakeAttachment("att-1", "report/2026.pdf")
+        client = self._client_with_attachment(att)
+
+        result = client.download_attachment("msg-1", "att-1", str(tmp_path))
+
+        assert Path(result["path"]) == tmp_path / "report-2026.pdf"
+        assert (tmp_path / "report-2026.pdf").exists()
+
+    def test_failed_write_raises_instead_of_reporting_success(self, tmp_path):
+        # Empty content makes O365's save() return False. The old code discarded
+        # that False and returned a success dict.
+        att = FakeAttachment("att-1", "invite.ics", content=b"")
+        client = self._client_with_attachment(att)
+
+        with pytest.raises(RuntimeError):
+            client.download_attachment("msg-1", "att-1", str(tmp_path / "invite.ics"))
+
+        assert not (tmp_path / "invite.ics").exists()
+
+    def test_missing_output_directory_raises(self, tmp_path):
+        att = FakeAttachment("att-1", "invite.ics")
+        client = self._client_with_attachment(att)
+
+        with pytest.raises(ValueError, match="Output directory does not exist"):
+            client.download_attachment("msg-1", "att-1", str(tmp_path / "nope" / "invite.ics"))
+
+        assert att.save_calls == []
