@@ -19,8 +19,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class FleetOutcomeStopIdentityPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20260917090709_AddTurnVerdictAnswerChoice";
-    private const string MigrationUnderTest = "20260917090809_AddFleetOutcomeStopIdentity";
+    private const string MigrationBefore = "20260917110509_AddTurnVerdictAnswerChoice";
+    private const string MigrationUnderTest = "20260917110609_AddFleetOutcomeStopIdentity";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {

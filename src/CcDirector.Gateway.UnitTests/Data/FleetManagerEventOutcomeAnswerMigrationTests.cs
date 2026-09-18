@@ -19,8 +19,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class FleetManagerEventOutcomeAnswerMigrationTests
 {
-    private const string SqliteBefore = "20260917090500_RemoveAssistantSettings";
-    private const string SqliteUnderTest = "20260917090600_AddFleetManagerEventOutcomeAnswer";
+    private const string SqliteBefore = "20260917110300_RemoveAssistantSettings";
+    private const string SqliteUnderTest = "20260917110400_AddFleetManagerEventOutcomeAnswer";
 
     [Fact]
     public void AddFleetManagerEventOutcomeAnswer_FromEmpty_AddsTheColumnsAndKeepsAnEventStoredBefore()
@@ -38,8 +38,8 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal("20260917090700_AddTurnVerdictAnswerChoice", all[index + 1]);
-            Assert.Equal("20260917090800_AddFleetOutcomeStopIdentity", all[index + 2]); // the only migrations after it
+            Assert.Equal("20260917110500_AddTurnVerdictAnswerChoice", all[index + 1]);
+            Assert.Equal("20260917110600_AddFleetOutcomeStopIdentity", all[index + 2]); // the only migrations after it
             Assert.Equal(index + 3, all.Count);
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
@@ -80,8 +80,8 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
     /// column. Read with no database.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20260917090600_AddFleetManagerEventOutcomeAnswer")]
-    [InlineData("postgres", "20260917090609_AddFleetManagerEventOutcomeAnswer")]
+    [InlineData("sqlite", "20260917110400_AddFleetManagerEventOutcomeAnswer")]
+    [InlineData("postgres", "20260917110409_AddFleetManagerEventOutcomeAnswer")]
     public void AddFleetManagerEventOutcomeAnswer_Designer_IsDiscoveredAndCarriesTheEventAnswerColumns(string provider, string id)
     {
         using var context = Context(provider);

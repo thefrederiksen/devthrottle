@@ -19,8 +19,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class RemoveAssistantSettingsPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20260917090409_AddFleetOutcomeAdvice";
-    private const string MigrationUnderTest = "20260917090509_RemoveAssistantSettings";
+    private const string MigrationBefore = "20260917110209_AddFleetOutcomeAdvice";
+    private const string MigrationUnderTest = "20260917110309_RemoveAssistantSettings";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {

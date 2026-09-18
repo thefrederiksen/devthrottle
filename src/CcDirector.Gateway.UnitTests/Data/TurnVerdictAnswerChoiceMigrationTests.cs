@@ -18,8 +18,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class TurnVerdictAnswerChoiceMigrationTests
 {
-    private const string SqliteBefore = "20260917090600_AddFleetManagerEventOutcomeAnswer";
-    private const string SqliteUnderTest = "20260917090700_AddTurnVerdictAnswerChoice";
+    private const string SqliteBefore = "20260917110400_AddFleetManagerEventOutcomeAnswer";
+    private const string SqliteUnderTest = "20260917110500_AddTurnVerdictAnswerChoice";
 
     [Fact]
     public void AddTurnVerdictAnswerChoice_FromEmpty_AddsTheColumnAndKeepsAVerdictStoredBefore()
@@ -37,7 +37,7 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal("20260917090800_AddFleetOutcomeStopIdentity", all[index + 1]); // the only migration after it
+            Assert.Equal("20260917110600_AddFleetOutcomeStopIdentity", all[index + 1]); // the only migration after it
             Assert.Equal(index + 2, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
@@ -74,8 +74,8 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
     /// columns. Read with no database.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20260917090700_AddTurnVerdictAnswerChoice")]
-    [InlineData("postgres", "20260917090709_AddTurnVerdictAnswerChoice")]
+    [InlineData("sqlite", "20260917110500_AddTurnVerdictAnswerChoice")]
+    [InlineData("postgres", "20260917110509_AddTurnVerdictAnswerChoice")]
     public void AddTurnVerdictAnswerChoice_Designer_IsDiscoveredAndCarriesTheAnswerColumn(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);

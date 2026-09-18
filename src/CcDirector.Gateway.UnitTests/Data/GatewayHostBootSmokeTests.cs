@@ -47,20 +47,20 @@ public sealed class GatewayHostBootSmokeTests
     private const string FleetManagerEventDeliveryPostgresMigration = "20260917110109_AddFleetManagerEventDelivery";
     private const string FleetManagerEventDeliverySqliteMigration = "20260917110100_AddFleetManagerEventDelivery";
     // Step 7: the Fleet Manager's advice and pick on a record, and the owner's note (a snooze from the walkthrough).
-    private const string FleetOutcomeAdvicePostgresMigration = "20260917090409_AddFleetOutcomeAdvice";
-    private const string FleetOutcomeAdviceSqliteMigration = "20260917090400_AddFleetOutcomeAdvice";
+    private const string FleetOutcomeAdvicePostgresMigration = "20260917110209_AddFleetOutcomeAdvice";
+    private const string FleetOutcomeAdviceSqliteMigration = "20260917110200_AddFleetOutcomeAdvice";
     // Step 9: the Assistant's two settings rows are deleted on both databases.
-    private const string RemoveAssistantSettingsPostgresMigration = "20260917090509_RemoveAssistantSettings";
-    private const string RemoveAssistantSettingsSqliteMigration = "20260917090500_RemoveAssistantSettings";
+    private const string RemoveAssistantSettingsPostgresMigration = "20260917110309_RemoveAssistantSettings";
+    private const string RemoveAssistantSettingsSqliteMigration = "20260917110300_RemoveAssistantSettings";
     // Steps 5 and 6 fixes: an owner's answer to a card is carried to the Fleet Manager as an event.
-    private const string FleetManagerEventOutcomeAnswerPostgresMigration = "20260917090609_AddFleetManagerEventOutcomeAnswer";
-    private const string FleetManagerEventOutcomeAnswerSqliteMigration = "20260917090600_AddFleetManagerEventOutcomeAnswer";
+    private const string FleetManagerEventOutcomeAnswerPostgresMigration = "20260917110409_AddFleetManagerEventOutcomeAnswer";
+    private const string FleetManagerEventOutcomeAnswerSqliteMigration = "20260917110400_AddFleetManagerEventOutcomeAnswer";
     // Step 7 fixes: a verdict's answer is stored with what was sent.
-    private const string TurnVerdictAnswerChoicePostgresMigration = "20260917090709_AddTurnVerdictAnswerChoice";
-    private const string TurnVerdictAnswerChoiceSqliteMigration = "20260917090700_AddTurnVerdictAnswerChoice";
+    private const string TurnVerdictAnswerChoicePostgresMigration = "20260917110509_AddTurnVerdictAnswerChoice";
+    private const string TurnVerdictAnswerChoiceSqliteMigration = "20260917110500_AddTurnVerdictAnswerChoice";
     // Steps 7 to 9, round 2 fixes: an outcome record stores the stop it is about.
-    private const string FleetOutcomeStopIdentityPostgresMigration = "20260917090809_AddFleetOutcomeStopIdentity";
-    private const string FleetOutcomeStopIdentitySqliteMigration = "20260917090800_AddFleetOutcomeStopIdentity";
+    private const string FleetOutcomeStopIdentityPostgresMigration = "20260917110609_AddFleetOutcomeStopIdentity";
+    private const string FleetOutcomeStopIdentitySqliteMigration = "20260917110600_AddFleetOutcomeStopIdentity";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>

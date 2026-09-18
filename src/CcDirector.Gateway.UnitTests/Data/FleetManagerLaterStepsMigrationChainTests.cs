@@ -21,21 +21,21 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
     [Theory]
     [InlineData("sqlite", new[]
     {
-        "20260917090300_AddFleetManagerEventDelivery",
-        "20260917090400_AddFleetOutcomeAdvice",
-        "20260917090500_RemoveAssistantSettings",
-        "20260917090600_AddFleetManagerEventOutcomeAnswer",
-        "20260917090700_AddTurnVerdictAnswerChoice",
-        "20260917090800_AddFleetOutcomeStopIdentity",
+        "20260917110100_AddFleetManagerEventDelivery",
+        "20260917110200_AddFleetOutcomeAdvice",
+        "20260917110300_RemoveAssistantSettings",
+        "20260917110400_AddFleetManagerEventOutcomeAnswer",
+        "20260917110500_AddTurnVerdictAnswerChoice",
+        "20260917110600_AddFleetOutcomeStopIdentity",
     })]
     [InlineData("postgres", new[]
     {
-        "20260917090309_AddFleetManagerEventDelivery",
-        "20260917090409_AddFleetOutcomeAdvice",
-        "20260917090509_RemoveAssistantSettings",
-        "20260917090609_AddFleetManagerEventOutcomeAnswer",
-        "20260917090709_AddTurnVerdictAnswerChoice",
-        "20260917090809_AddFleetOutcomeStopIdentity",
+        "20260917110109_AddFleetManagerEventDelivery",
+        "20260917110209_AddFleetOutcomeAdvice",
+        "20260917110309_RemoveAssistantSettings",
+        "20260917110409_AddFleetManagerEventOutcomeAnswer",
+        "20260917110509_AddTurnVerdictAnswerChoice",
+        "20260917110609_AddFleetOutcomeStopIdentity",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {

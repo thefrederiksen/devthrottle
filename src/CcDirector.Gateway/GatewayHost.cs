@@ -4340,7 +4340,7 @@ public sealed class GatewayHost : IAsyncDisposable
                         .Select(p => p.Session.SessionId)
                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
                     return GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
-                            _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry,
+                            _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages,
                             _tenantSettingsResolver.FleetManagerSessionId)
                         .Where(s => fresh.Contains(s.SessionId))
                         .ToList();
@@ -4366,7 +4366,7 @@ public sealed class GatewayHost : IAsyncDisposable
                         .Select(p => p.Session.SessionId)
                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
                     return GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
-                            _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry,
+                            _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages,
                             _tenantSettingsResolver.FleetManagerSessionId)
                         .Where(s => fresh.Contains(s.SessionId))
                         .ToList();

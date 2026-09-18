@@ -22,8 +22,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class RemoveAssistantSettingsMigrationTests
 {
-    private const string MigrationBefore = "20260917090400_AddFleetOutcomeAdvice";
-    private const string MigrationUnderTest = "20260917090500_RemoveAssistantSettings";
+    private const string MigrationBefore = "20260917110200_AddFleetOutcomeAdvice";
+    private const string MigrationUnderTest = "20260917110300_RemoveAssistantSettings";
 
     [Fact]
     public void RemoveAssistantSettings_RowsForTwoAccounts_DeletesOnlyTheAssistantKeys()
@@ -119,8 +119,8 @@ public sealed class RemoveAssistantSettingsMigrationTests
     /// holds to the current model and snapshot.) Read with no database.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20260917090500_RemoveAssistantSettings", "20260917090400_AddFleetOutcomeAdvice")]
-    [InlineData("postgres", "20260917090509_RemoveAssistantSettings", "20260917090409_AddFleetOutcomeAdvice")]
+    [InlineData("sqlite", "20260917110300_RemoveAssistantSettings", "20260917110200_AddFleetOutcomeAdvice")]
+    [InlineData("postgres", "20260917110309_RemoveAssistantSettings", "20260917110209_AddFleetOutcomeAdvice")]
     public void RemoveAssistantSettings_Designer_IsDiscoveredAndCarriesTheModelOfTheMigrationBefore(string provider, string id, string before)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);

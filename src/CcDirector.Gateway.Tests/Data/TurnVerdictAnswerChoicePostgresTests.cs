@@ -19,8 +19,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class TurnVerdictAnswerChoicePostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20260917090609_AddFleetManagerEventOutcomeAnswer";
-    private const string MigrationUnderTest = "20260917090709_AddTurnVerdictAnswerChoice";
+    private const string MigrationBefore = "20260917110409_AddFleetManagerEventOutcomeAnswer";
+    private const string MigrationUnderTest = "20260917110509_AddTurnVerdictAnswerChoice";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {
@@ -67,7 +67,7 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             var index = all.IndexOf(MigrationUnderTest);
             Assert.True(index > 0, $"'{MigrationUnderTest}' is not in the Postgres migration set.");
             Assert.Equal(MigrationBefore, all[index - 1]);
-            Assert.Equal("20260917090809_AddFleetOutcomeStopIdentity", all[index + 1]);
+            Assert.Equal("20260917110609_AddFleetOutcomeStopIdentity", all[index + 1]);
             Assert.Equal(index + 2, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }

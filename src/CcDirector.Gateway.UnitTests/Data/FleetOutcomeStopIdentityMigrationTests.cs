@@ -19,8 +19,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class FleetOutcomeStopIdentityMigrationTests
 {
-    private const string SqliteBefore = "20260917090700_AddTurnVerdictAnswerChoice";
-    private const string SqliteUnderTest = "20260917090800_AddFleetOutcomeStopIdentity";
+    private const string SqliteBefore = "20260917110500_AddTurnVerdictAnswerChoice";
+    private const string SqliteUnderTest = "20260917110600_AddFleetOutcomeStopIdentity";
 
     [Fact]
     public void AddFleetOutcomeStopIdentity_FromEmpty_AddsTheColumnsAndKeepsARecordFiledBefore()
@@ -75,8 +75,8 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
     /// and the provider's snapshot equals the model. Read with no database.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20260917090800_AddFleetOutcomeStopIdentity")]
-    [InlineData("postgres", "20260917090809_AddFleetOutcomeStopIdentity")]
+    [InlineData("sqlite", "20260917110600_AddFleetOutcomeStopIdentity")]
+    [InlineData("postgres", "20260917110609_AddFleetOutcomeStopIdentity")]
     public void AddFleetOutcomeStopIdentity_Designer_IsDiscoveredNewestAndCarriesTheCurrentModel(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);
