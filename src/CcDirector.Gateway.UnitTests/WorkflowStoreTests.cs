@@ -273,12 +273,12 @@ public sealed class WorkflowStoreTests : IDisposable
     private static string ApplyListedEdits(string skillBody)
     {
         var edited = ReplaceExactlyOnce(skillBody,
-            "> **THIS FILE IS THE ONLY PLACE THE RULES LIVE.",
-            "> **THIS WORKFLOW IS THE ONLY PLACE THE RULES LIVE.");
+            "THIS FILE HOLDS THE CONDUCT OF A RUN",
+            "THIS WORKFLOW HOLDS THE CONDUCT OF A RUN");
         return ReplaceExactlyOnce(edited,
-            "5. **A link to this file** for how to conduct itself.",
-            "5. **A pointer to this workflow** - `cc-devthrottle workflow instructions mission` - for how to\n" +
-            "   conduct itself.");
+            "5. **A link to this file** for the conduct of a run, and to the DevThrottle Method for the rules.",
+            "5. **A pointer to the DevThrottle Method** for the rules, and to this workflow -\n" +
+            "   `cc-devthrottle workflow instructions mission` - for how a run is conducted.");
     }
 
     private static string ReplaceExactlyOnce(string text, string from, string to)
