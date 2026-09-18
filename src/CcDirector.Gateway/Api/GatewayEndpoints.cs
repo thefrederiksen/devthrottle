@@ -5181,7 +5181,8 @@ internal static class GatewayEndpoints
         Snooze.SnoozeRegistry? snoozeRegistry, Fleet.HandRaiseRegistry? handRaises,
         Wingman.ITurnVerdictRowSource? turnVerdictRows, Wingman.SnoozeExpiryReJudge? snoozeExpiry,
         Messaging.IFleetInboxLineSource? inboxLines = null,
-        Func<TenantId, string?>? fleetManagerMark = null)
+        Func<TenantId, string?>? fleetManagerMark = null,
+        VoiceRowStamp.VoiceFacts? voiceFacts = null)
     {
         var fleet = new List<SessionDto>();
         if (pushedSessions is null) return fleet;
@@ -5195,6 +5196,21 @@ internal static class GatewayEndpoints
                 fleet.Add(s);
             }
         }
+        // THE VOICE FACTS GO ON BEFORE THE FOLD, NEVER AFTER IT - and that ordering is the whole of this
+        // parameter. Two of the facts the stamp writes (VoiceAudioReady, VoiceGenerating) are Gateway-owned:
+        // no Director ever pushes them, so a row read straight out of the push store carries false for both.
+        // SessionOrdering.IsVoicePreparing reads exactly those, and holds a voice session's row YELLOW while
+        // there is no audio - so a fold run before the stamp paints every stopped voice session "preparing
+        // voice", whatever it is really waiting for.
+        //
+        // The roster route has always stamped in this order (see the VoiceRowStamp.Apply call inside its
+        // assembly loop). GET /sessions/{sid}/wingman-now stamped AFTER this fold instead, which is why its
+        // pill was yellow for needs-you, done and report alike while the very same session's dot in the
+        // Sessions list was red or cyan: two orders, one question, two answers. A caller that hands no facts
+        // stamps none and gets the fold it got before.
+        if (voiceFacts is not null)
+            foreach (var s in fleet)
+                VoiceRowStamp.Apply(s, voiceFacts);
         StampFleetRolesAndFold(fleet, fleet, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
             tenant: tenant, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
             snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
@@ -6013,7 +6029,10 @@ internal static class GatewayEndpoints
     /// not depend on that list staying as it is.
     ///
     /// THE ROSTER ROW COMES FROM <see cref="FoldedAccountRoster"/> - the same fold the roster route serves - so the
-    /// pill's colour and the Sessions list's dot are the same value from the same place, never two answers.
+    /// pill's colour and the Sessions list's dot are the same value from the same place, never two answers. That
+    /// sentence was written before it was true: the voice facts were stamped onto the row AFTER this fold ran,
+    /// and the colour rule reads two of them, so the two screens disagreed about the same session by a whole
+    /// colour. They are handed to the fold now, which is the order the roster route has always used.
     /// </summary>
     internal static IResult ReadWingmanNow(
         HttpContext ctx,
@@ -6069,16 +6088,20 @@ internal static class GatewayEndpoints
         // THE WHOLE ROSTER, not just this session's row: the card that follows his answer points him at the next
         // session waiting on him, and it must be the one the Sessions list has at the top. Reading the same fold
         // once and handing the fold both is what makes a second answer impossible.
+        //
+        // THE VOICE VERDICT COMES FROM THE SAME STAMP THE ROSTER ROUTE USES - see VoiceRowStamp. The roster FOLD
+        // does not carry it (the /sessions handler stamps it inside its own assembly loop, BEFORE the fold), so
+        // without this the row below has no voice verdict at all. A caller that hands no facts stamps none, and
+        // the fold then offers nothing rather than claiming there is no audio.
+        //
+        // IT IS HANDED TO THE FOLD RATHER THAN APPLIED AFTERWARDS, and that is the fix for the pill's colour:
+        // the stamp writes the two readiness facts the colour rule reads, so stamping after the fold left every
+        // stopped voice session painted "preparing voice" yellow while its own row in the Sessions list was red
+        // or cyan. See the note at FoldedAccountRoster.
         var roster = FoldedAccountRoster(registry, pushedSessions, tenant.Value, snoozeRegistry, handRaises,
-            turnVerdictRows, snoozeExpiry);
+            turnVerdictRows, snoozeExpiry, voiceFacts: voiceFactsFor?.Invoke(tenant.Value));
         var row = roster.FirstOrDefault(s => string.Equals(s.SessionId, sid, StringComparison.OrdinalIgnoreCase));
 
-        // THE VOICE VERDICT COMES FROM THE SAME STAMP THE ROSTER ROUTE USES - see VoiceRowStamp. The roster FOLD
-        // does not carry it (the /sessions handler stamps it after the fold runs), so without this the row below
-        // has no voice verdict at all. A caller that hands no facts stamps none, and the fold then offers nothing
-        // rather than claiming there is no audio.
-        if (row is not null && voiceFactsFor is not null)
-            VoiceRowStamp.Apply(row, voiceFactsFor(tenant.Value));
         var verdicts = turnVerdicts.HistoryWithAnswers(tenant.Value, sid);
 
         // THE STORE IS READ INSIDE THE CALLER'S TENANT SCOPE. Its rows are partitioned by the context's ambient
