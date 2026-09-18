@@ -102,8 +102,12 @@ public static class CodexHookInstaller
     /// <summary>
     /// Ensure the hook script exists and our SessionStart entry is present in the user's Codex
     /// hooks.json. Returns true on success (the Director should then append
-    /// <see cref="BypassTrustFlag"/> to the Codex command); false if anything failed, in which case
-    /// the session still launches, just without the preamble hook.
+    /// <see cref="BypassTrustFlag"/> to the Codex command); false if anything failed. A false NO
+    /// LONGER launches the session without the preamble hook: without it the fleet preamble never
+    /// reaches the session, so <c>SessionManager.CreateSession</c> refuses to start it and says why.
+    ///
+    /// This comment used to end "the session still launches, just without the preamble hook", which
+    /// named the consequence exactly and then shipped it.
     /// </summary>
     public static bool EnsureInstalled() =>
         EnsureInstalled(DefaultScriptDirectory(), DefaultCodexHooksPath(), OperatingSystem.IsWindows());
@@ -219,6 +223,13 @@ public static class CodexHookInstaller
     }
 
     private static string DefaultScriptDirectory() => CcStorage.CodexHooks();
+
+    /// <summary>
+    /// Where the Codex hook is merged: <c>~/.codex/hooks.json</c>, or CODEX_HOME when that is set.
+    /// PUBLIC so a refusal can name the exact file rather than describing it - a person who has never
+    /// heard of a hook cannot act on "the Codex hook could not be merged", and can act on a path.
+    /// </summary>
+    public static string HooksJsonPath() => DefaultCodexHooksPath();
 
     private static string DefaultCodexHooksPath()
     {

@@ -112,8 +112,14 @@ public static class ClaudeHookInstaller
     /// <summary>
     /// Ensure the hook script and settings file exist under the per-user Director data dir,
     /// and return the absolute settings-file path to pass to Claude via <c>--settings</c>.
-    /// Returns null if the files could not be written, in which case the caller launches the
-    /// session without hook-based pointer tracking (the session still starts).
+    /// Returns null if the files could not be written. THE CALLER NO LONGER LAUNCHES ANYWAY: this
+    /// hook is both the session-pointer tracking and the channel that surfaces the fleet preamble,
+    /// so a null here means the session would not be told the rules it runs under, and
+    /// <c>SessionManager.CreateSession</c> refuses to start it and says why.
+    ///
+    /// This comment used to end "the session still starts", stated as a reassurance. It was the
+    /// defect: the third state was seen, its consequence understood well enough to write down, and
+    /// shipped as a note rather than fixed.
     /// </summary>
     public static string? EnsureInstalled() => EnsureInstalled(DefaultDirectory(), OperatingSystem.IsWindows());
 
@@ -147,6 +153,12 @@ public static class ClaudeHookInstaller
             return null;
         }
     }
+
+    /// <summary>
+    /// Where the Claude hook files are written - inside the Director's OWN per-user data directory,
+    /// not the user's Claude configuration. PUBLIC so a refusal can name the exact directory.
+    /// </summary>
+    public static string HookDirectory() => CcStorage.ClaudeHooks();
 
     private static string DefaultDirectory() => CcStorage.ClaudeHooks();
 
