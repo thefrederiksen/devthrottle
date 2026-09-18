@@ -1,0 +1,7 @@
+[
+ {"name":"unverified submit answered rung (the old rule)","old":"                default:\n                    return await TakeBackUnverifiedAsync(","new":"                default:\n                    if (unreadCount > 0) return new FleetRingResponse { Outcome = FleetRingOutcomes.Rung };\n                    return await TakeBackUnverifiedAsync("},
+ {"name":"empty composer after an unverified submit counted as rung","old":"        return DoorbellSafety.ReadComposer(target.Agent, frame) == ComposerReading.Empty\n            ? Deferred(target, FleetRingDeferReasons.NotSubmitted,","new":"        return DoorbellSafety.ReadComposer(target.Agent, frame) == ComposerReading.Empty\n            ? new FleetRingResponse { Outcome = FleetRingOutcomes.Rung } ?? Deferred(target, FleetRingDeferReasons.NotSubmitted,"},
+ {"name":"our line not erased","old":"            await target.EraseAsync(line.Length).ConfigureAwait(false);","new":""},
+ {"name":"anything in the composer erased","old":"        if (DoorbellSafety.ComposerHoldsExactly(target.Agent, frame, line))","new":"        if (DoorbellSafety.ReadComposer(target.Agent, frame) == ComposerReading.HoldsText)"},
+ {"name":"erase trusted without re-reading","old":"                if (DoorbellSafety.ReadComposer(target.Agent, target.TakeFrame()) == ComposerReading.Empty)","new":"                if (true)"}
+]

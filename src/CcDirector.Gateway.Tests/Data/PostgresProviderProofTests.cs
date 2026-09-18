@@ -201,11 +201,27 @@ public sealed class PostgresProviderProofTests
         var expected = new[]
         {
             ("account_trials", "subject"),
+            // The dev report natural keys (the dev reports mission). A report is found by (session, report
+            // file path) and an owner item by the page-minted id, both unique indexes matched for exact
+            // equality, so the two providers have to agree on what counts as the same key.
+            ("dev_report_items", "ClientItemId"),
+            ("dev_report_items", "SessionId"),
+            ("dev_reports", "Key"),
+            ("dev_reports", "SessionId"),
             ("device_credentials", "DeviceId"),
             ("device_credentials", "DeviceKeyHash"),
             ("device_import_markers", "SourcePath"),
             ("dictation_suggestion_dismissals", "Term"),
             ("dictation_suggestion_verdicts", "Term"),
+            // Main's column, from pull request 2997 (the fleet manager marks), which declares SessionId with
+            // collation "C" and did not add it here. Listed so the census runs to its end on the Message Load
+            // branch (postgres-proof-2.md) instead of stopping at the first name it does not know.
+            ("fleet_manager_marks", "SessionId"),
+            // The fleet message inbox (the Message Load mission): the minted message id, and the two session
+            // ids the inbox read and the sender's limits select on.
+            ("fleet_messages", "MessageId"),
+            ("fleet_messages", "RecipientSessionId"),
+            ("fleet_messages", "SenderSessionId"),
             ("known_repositories", "MachineKey"),
             ("known_repositories", "PathKey"),
             ("mission_notes", "Key"),

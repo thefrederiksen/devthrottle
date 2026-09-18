@@ -64,6 +64,13 @@ needs nothing beyond the Python standard library.
 }
 ```
 
+`reviewer_model` (optional, ClaudeCode only, a full model id such as `claude-fable-5-1` -
+not an alias like `opus`): the model the reviewer runs, set on its command line (the
+owner's default model is never changed). A reviewer of the
+author's own family is refused unless `reviewer_model` names a model different from the
+author's; the pull request then says the review came from the same family on a different
+model, which is a weaker check than another family (owner decision, 2026-09-16).
+
 `verify.surface`: `vercel-preview` (wait for the commit's preview and hand the verifier
 a sign-in bypass), `none` (no deployed surface; the verifier runs what it can), or
 `skip` (no verifier; the pull request shows SKIPPED and never merges by itself).
@@ -76,15 +83,21 @@ a sign-in bypass), `none` (no deployed surface; the verifier runs what it can), 
   Claude Code - open it once in the repository and accept; Codex - in
   `~/.codex/config.toml`: `[projects."<repo root>"]` with `trust_level = "trusted"`.
   cc-ship checks this before spawning and says exactly what to do.
-- For Vercel previews: `VERCEL_AUTOMATION_BYPASS_SECRET=<secret>` in
-  `<cc-director data>/config/credentials.env` (Vercel project Settings, Deployment
-  Protection, Protection Bypass for Automation). The verifier never sees the secret.
+- For Vercel previews: the cc-secrets entry `vercel-automation-bypass-secret` (the
+  secret from Vercel project Settings, Deployment Protection, Protection Bypass for
+  Automation), and curl 8.3 or newer. cc-ship runs its one curl call through
+  `cc-secrets run`, so neither cc-ship nor the verifier ever sees the secret, and it is
+  only ever sent over https to a `*.vercel.app` preview.
 - Install the launcher from a checkout that follows origin/main (see `install.py`):
 
 ```
 git worktree add --detach ../devthrottle-cc-ship-tool origin/main
-python3 ../devthrottle-cc-ship-tool/tools/cc-ship/install.py
+python3 ../devthrottle-cc-ship-tool/tools/cc-ship/install.py     # macOS
+python  ../devthrottle-cc-ship-tool/tools/cc-ship/install.py     # Windows (python3 does not exist there)
 ```
+
+On Windows the installer writes `cc-ship.cmd` (PowerShell, cmd) and an extensionless
+`cc-ship` (Git Bash, which sessions use).
 
 ## Run folder
 

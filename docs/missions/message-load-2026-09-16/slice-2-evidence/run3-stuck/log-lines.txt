@@ -1,0 +1,20 @@
+2026-09-17 02:26:30.099 [FleetMessageService] Send QUEUED: from=4f0a9705 to=51c00b73 kind=message exemption=None id=1a30a1162cfe4123ba1368e5d8f35082 len=51
+2026-09-17 02:26:40.033 [FleetDoorbellRinger] RingAsync: session=51c00b73-0ccf-46b4-82e4-a57dceacf317, unread=1
+2026-09-17 02:26:42.685 [FleetDoorbellRinger] RUNG: session=51c00b73-0ccf-46b4-82e4-a57dceacf317, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 02:26:42.687 [DirectorCommandRouter] ring sid=51c00b73-0ccf-46b4-82e4-a57dceacf317 director=doorbell-proof-director: stream status=Ok
+2026-09-17 02:26:42.691 [FleetDoorbell] RUNG: sid=51c00b73 trigger=settled unread=1 counted=1 ids=[1a30a1162cfe4123ba1368e5d8f35082]
+2026-09-17 02:27:51.938 [FleetDoorbellRinger] RingAsync: session=51c00b73-0ccf-46b4-82e4-a57dceacf317, unread=1
+2026-09-17 02:27:54.585 [FleetDoorbellRinger] RUNG: session=51c00b73-0ccf-46b4-82e4-a57dceacf317, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 02:27:54.586 [DirectorCommandRouter] ring sid=51c00b73-0ccf-46b4-82e4-a57dceacf317 director=doorbell-proof-director: stream status=Ok
+2026-09-17 02:27:54.587 [FleetDoorbell] RUNG: sid=51c00b73 trigger=heartbeat unread=1 counted=1 ids=[1a30a1162cfe4123ba1368e5d8f35082]
+2026-09-17 02:29:06.938 [FleetDoorbellRinger] RingAsync: session=51c00b73-0ccf-46b4-82e4-a57dceacf317, unread=1
+2026-09-17 02:29:09.587 [FleetDoorbellRinger] RUNG: session=51c00b73-0ccf-46b4-82e4-a57dceacf317, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 02:29:09.589 [DirectorCommandRouter] ring sid=51c00b73-0ccf-46b4-82e4-a57dceacf317 director=doorbell-proof-director: stream status=Ok
+2026-09-17 02:29:09.589 [FleetDoorbell] RUNG: sid=51c00b73 trigger=heartbeat unread=1 counted=1 ids=[1a30a1162cfe4123ba1368e5d8f35082]
+2026-09-17 02:30:21.939 [FleetDoorbell] STUCK: id=1a30a1162cfe4123ba1368e5d8f35082 to=51c00b73 from=4f0a9705 rings=3
+2026-09-17 02:30:21.947 [FleetMessageService] Send QUEUED: from=gateway to=4f0a9705 kind=system exemption=System id=f6d44ba91e0d4914bc3c580b9bef0dd4 len=335
+2026-09-17 02:30:21.949 [FleetDoorbellRinger] RingAsync: session=4f0a9705-8479-4c93-9c77-b7a7dccfa676, unread=1
+2026-09-17 02:30:25.608 [FleetMessageService] ReadInbox: sid=4f0a9705 unread=1 recent=0/0 truncated=False ids=[f6d44ba91e0d4914bc3c580b9bef0dd4]
+2026-09-17 02:30:25.800 [FleetDoorbellRinger] RUNG: session=4f0a9705-8479-4c93-9c77-b7a7dccfa676, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 02:30:25.800 [DirectorCommandRouter] ring sid=4f0a9705-8479-4c93-9c77-b7a7dccfa676 director=doorbell-proof-director: stream status=Ok
+2026-09-17 02:30:25.800 [FleetDoorbell] RUNG: sid=4f0a9705 trigger=heartbeat unread=1 counted=0 ids=[f6d44ba91e0d4914bc3c580b9bef0dd4]

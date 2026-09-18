@@ -33,6 +33,10 @@ public sealed class TurnVerdictServiceTests : IDisposable
     private static TurnEndSignal Signal(string sid = Sid, DateTime? at = null)
         => new(sid, "dir-1", Tenant, at ?? ObservedAt, IsNewTurn: true);
 
+    // A catch-up of the SAME stop, which is not a new turn: it joins the running judgement without clearing a rate limit
+    // wait, so the stop being judged keeps the wait it earns.
+    private static TurnEndSignal CatchUp(DateTime at) => new(Sid, "dir-1", Tenant, at, IsNewTurn: false);
+
     private static FakeTurnVerdictEnvironment Env() => new()
     {
         Screen = () => Screen(Sid, ReplyText, "> "),
@@ -71,7 +75,9 @@ public sealed class TurnVerdictServiceTests : IDisposable
             traces: new TurnVerdictTraceWriter((_, _) => { }),
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
-            isVoiceSession: (_, _) => false);
+            isVoiceSession: (_, _) => false,
+            fleetManagerSessionId: _ => null,
+            narrationPlan: _ => NarrationPlan.Allowed);
         var service = new TurnVerdictService(env);
 
         var held = await service.StartTurnEnd(Signal("child-1"));
@@ -242,8 +248,9 @@ public sealed class TurnVerdictServiceTests : IDisposable
 
         Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
         // The wait carries the settings' value, it comes before the one read, and the roster is read again
-        // after it and before the screen.
-        Assert.Equal(new[] { "state", "settle:1500", "state", "screen" }, env.Steps.ToArray());
+        // after it and before the screen. The last read is after the verdict: whether the session answers to the user, and
+        // so is owed the narration call.
+        Assert.Equal(new[] { "state", "settle:1500", "state", "screen", "state" }, env.Steps.ToArray());
     }
 
     /// <summary>
@@ -546,7 +553,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
         var sweep = service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
         Assert.True(await WaitUntil(() => env.JudgeCalls == 1));
         var observed = DateTime.UtcNow.AddMinutes(1);
-        var dropped = await service.StartTurnEnd(Signal(at: observed));
+        var dropped = await service.StartTurnEnd(CatchUp(observed));
         Assert.Equal(ActivityCauses.AlreadyJudging, dropped.SkipCause);   // control: one call for the stop
 
         release.SetResult();

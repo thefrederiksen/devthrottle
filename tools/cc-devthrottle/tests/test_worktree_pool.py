@@ -235,8 +235,8 @@ def test_pool_list_without_a_repository_asks_cc_worktrees_for_every_pool(real_po
 def test_without_pool_the_fleet_listing_is_used_and_cc_worktrees_is_never_run(monkeypatch):
     seen = {}
 
-    def fake_list_worktrees(json_output, repo=None, state=None):
-        seen.update({"json": json_output, "repo": repo, "state": state})
+    def fake_list_worktrees(json_output, repo=None, state=None, machine=None, fields=None):
+        seen.update({"json": json_output, "repo": repo, "state": state, "machine": machine, "fields": fields})
 
     def refuse(arguments):
         raise AssertionError(f"the fleet listing must not run cc-worktrees, but it ran {arguments}")
@@ -247,7 +247,13 @@ def test_without_pool_the_fleet_listing_is_used_and_cc_worktrees_is_never_run(mo
     result = runner.invoke(app, ["worktree", "list", "--repo", "devthrottle", "--state", "in-use"])
 
     assert result.exit_code == 0
-    assert seen == {"json": False, "repo": "devthrottle", "state": "in-use"}
+    assert seen == {
+        "json": False,
+        "repo": "devthrottle",
+        "state": "in-use",
+        "machine": None,
+        "fields": None,
+    }
 
 
 def test_state_is_refused_with_pool_rather_than_quietly_ignored():
@@ -259,13 +265,36 @@ def test_state_is_refused_with_pool_rather_than_quietly_ignored():
     assert "--state" in result.output
 
 
-def test_fields_is_refused_without_pool_rather_than_quietly_ignored(monkeypatch):
-    monkeypatch.setattr(repo_ops, "list_worktrees", lambda *a, **k: None)
+def test_fields_without_pool_goes_to_the_fleet_listing_and_never_to_cc_worktrees(monkeypatch):
+    """--fields names fields in BOTH listings, so it is passed on rather than refused.
+
+    The fleet listing has had its own --fields since this branch was cut; the pool listing has
+    its own set. Whichever listing is asked for gets the flag, and cc-worktrees is only ever run
+    for the pool one.
+    """
+    seen = {}
+
+    def fake_list_worktrees(json_output, repo=None, state=None, machine=None, fields=None):
+        seen.update({"fields": fields})
+
+    def refuse(arguments):
+        raise AssertionError(f"the fleet listing must not run cc-worktrees, but it ran {arguments}")
+
+    monkeypatch.setattr(repo_ops, "list_worktrees", fake_list_worktrees)
+    monkeypatch.setattr(worktree_pool_ops, "run", refuse)
 
     result = runner.invoke(app, ["worktree", "list", "--fields", "slot,state"])
 
+    assert result.exit_code == 0
+    assert seen == {"fields": "slot,state"}
+
+
+def test_machine_is_refused_with_pool_rather_than_quietly_ignored():
+    """--machine filters the FLEET listing; the pool is this machine's, so it has no meaning."""
+    result = runner.invoke(app, ["worktree", "list", "--pool", "--machine", "SOME-MACHINE"])
+
     assert result.exit_code == 2
-    assert "--fields" in result.output
+    assert "--machine" in result.output
 
 
 def test_a_usage_refusal_is_machine_readable_under_json():

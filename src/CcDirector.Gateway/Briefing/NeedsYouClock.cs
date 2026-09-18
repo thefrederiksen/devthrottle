@@ -35,6 +35,15 @@ public sealed class NeedsYouClock
 {
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), DateTime> _since = new();
 
+    /// <summary>What <see cref="Stamp"/> would answer right now, WITHOUT entering or leaving red. For a fold that must
+    /// not move this clock (the Wingman inspector's trace colour).</summary>
+    public DateTime? Peek(TenantId tenant, string sessionId, bool isRed)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        if (!isRed) return null;
+        return _since.TryGetValue((tenant, sessionId), out var since) ? since : DateTime.UtcNow;
+    }
+
     /// <summary>
     /// Apply the entry/hold/clear rule for one session and return the timestamp to stamp on
     /// its <see cref="Contracts.SessionDto.NeedsYouSince"/> (UTC), or null when it is not red.

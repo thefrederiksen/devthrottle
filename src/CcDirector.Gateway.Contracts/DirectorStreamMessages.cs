@@ -36,6 +36,14 @@ public sealed class DirectorStreamHello
     /// </summary>
     public bool PushesTurns { get; set; }
 
+    /// <summary>
+    /// This Director honours <see cref="PromptRequest.OnlyWhenWaitingForInput"/>: it checks the session is waiting for a
+    /// prompt, and types, under the input lock the owner's own keystrokes take (the Fleet Manager mission, step 4).
+    /// False from a build too old to have the check. The Gateway sends the Fleet Manager's events only to a Director
+    /// that says true, because an older one ignores the field and types whatever the session is doing.
+    /// </summary>
+    public bool ChecksIdleBeforeTyping { get; set; }
+
     /// <summary>Gateway Cleanup mission (tunnel-only): when the Director process started (UTC).</summary>
     public DateTime StartedAt { get; set; }
 

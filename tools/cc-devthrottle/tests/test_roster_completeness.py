@@ -44,7 +44,7 @@ def fleet(monkeypatch):
 
 def _row():
     return {"sessionId": SESSION_ID, "name": "worker", "machineName": "MACHINE_A",
-            "repoPath": r"D:\repo", "activityState": "Working"}
+            "repoPath": r"D:\repo", "activityState": "Working", "triageBucket": "active"}
 
 
 # ===== the caveat itself: three states, and absent is not complete =====
@@ -93,10 +93,14 @@ def test_failed_resolve_on_an_incomplete_roster_says_the_list_may_be_short(fleet
     with pytest.raises(typer.Exit):
         session_ops._resolve_target("abc123", command_name="cc-devthrottle session done")
 
-    out = capsys.readouterr().out
+    # An error: standard error only, so standard output stays the answer (docs/axi-standard.md).
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    out = captured.err
     assert "No session matches" in out
     assert "may be incomplete" in out
     assert "MACHINE_B" in out        # names the machine to go and look at
+    assert "cc-devthrottle session list" in out   # and what to run next
 
 
 def test_failed_resolve_on_a_complete_roster_stays_terse(fleet, capsys):
@@ -107,7 +111,9 @@ def test_failed_resolve_on_a_complete_roster_stays_terse(fleet, capsys):
     with pytest.raises(typer.Exit):
         session_ops._resolve_target("abc123", command_name="cc-devthrottle session done")
 
-    out = capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    out = captured.err
     assert "No session matches" in out
     assert "may be incomplete" not in out
 

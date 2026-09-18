@@ -34,6 +34,11 @@
 .verdict-summary {
   margin: 0;
 }
+.verdict-narration {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .verdict-question {
   font-style: italic;
 }
@@ -112,4 +117,11 @@
   margin: 0;
   font-size: 12px;
   opacity: 0.8;
+}
+
+/* A current refusal: what the Wingman made of this stop right now was refused by the Gateway. */
+.verdict-refused {
+  border-left: 3px solid #ef4444;
+  padding: 4px 8px;
+  font-weight: 600;
 }

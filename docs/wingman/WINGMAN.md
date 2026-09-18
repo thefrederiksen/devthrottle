@@ -244,7 +244,10 @@ conversation; the pushed roster and the verdict store are consulted as well and 
    flight. A stop refused here costs NO reads.
 2. The screen read, and its one full-grid hash.
 3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
-   asked. A stop answered here costs ONE read.
+   asked. A stop answered here costs ONE read. The one exception is a rate limit's named wait:
+   while one is held for the session, this check reads the stored conversation as well, to tell
+   whether the reply is still the stop the wait was named for, and a stop answered by that wait
+   has read both.
 4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
    conversation is read. A stop refused here costs ONE read.
 5. The conversation read.
@@ -266,7 +269,13 @@ Notes on individual steps, which add reasons and do not change the order or the 
 
 - **Held** is resolved across the account's WHOLE fresh roster in one snapshot, never off the
   session's own row. The push store nulls the role at ingest, so a check that read the row would
-  answer "not held" for every session on the fleet.
+  answer "not held" for every session on the fleet. A session held by the account's Fleet Manager (the
+  one session the account has marked with `cc-devthrottle fleet-manager set`) is the one exception for
+  the turn end and the snooze expiry: it is judged and its verdict stored under its own id, and it is
+  never narrated to the owner automatically and never shown to him as needing him (owner ruling,
+  2026-09-16). A person pressing Explain can still narrate any held session, as before.
+  Carrying that verdict to the Fleet Manager is step 4 of the Fleet Manager mission and is not built
+  yet.
 - **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and
   a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
   because somebody is listening to it, and a person's own request is not automatic at all.
@@ -336,7 +345,8 @@ snooze ran, that stop's verdict rules, and only a needs-you verdict brings the r
   word the Wingman may never answer with: it is a fact about the detector, not a state of the
   session, and an answer carrying it is rejected like any other unknown word.
 - **It never types, never snoozes, never closes, and never touches a working session or a held
-  one.** The held check is the FIRST check of all and runs before the screen is read.
+  one.** The held check is the FIRST check of all and runs before the screen is read. (A session the
+  account's Fleet Manager holds is judged on its turn end and snooze expiry - see the note on held above.)
 - **It is never a second colour authority.** One verdict, folded once on the Gateway, rendered
   verbatim by every client (the repository's law 7). A client never re-derives a colour, a label
   or a bucket.

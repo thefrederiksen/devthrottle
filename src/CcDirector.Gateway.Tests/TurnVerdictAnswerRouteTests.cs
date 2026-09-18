@@ -15,11 +15,12 @@ namespace CcDirector.Gateway.Tests;
 /// slice E). The bytes, the screen lock and the selection rules are proved by <c>TurnVerdictAnswerServiceTests</c>
 /// with a recording fake; what only a booted host can prove is what stands in front of them:
 ///
-///  - THE GUARD. A session key reaches the route - the answer is the ROUTE's refusal, never the guard's
-///    <c>session_key_out_of_scope</c> 403. A route missing from <c>SessionKeyGuard</c> passes every other test.
+///  - THE GUARD. A session key is refused by <c>SessionKeyGuard</c> before the route runs: answering a verdict types
+///    its option into the session, and no agent types into a session (the Message Load mission, inspection 1).
+///    Until 16 September 2026 a session key reached this route; the test below now asserts the opposite.
 ///  - THE TENANT. A session of another account answers exactly what an unknown session answers, byte for byte.
 ///  - THE JOIN, through the real handler: a verdict from another session in the same account is refused.
-///  - THE SHADOW. While the colours are off a session key may not answer; a device key still reaches the route.
+///  - THE SHADOW. While the colours are off a device key still reaches the route.
 ///
 /// No Director is connected to the tunnel here, so a request that clears every check reaches the screen read and
 /// is refused as unreadable. That refusal is the positive control: it can only be produced by the route itself,
@@ -152,21 +153,23 @@ public sealed class TurnVerdictAnswerRouteTests : IAsyncLifetime
     private static JsonElement Root(string body) => JsonDocument.Parse(body).RootElement.Clone();
 
     [Fact]
-    public async Task A_session_key_reaches_the_route_and_is_answered_by_the_route_not_by_the_guard()
+    public async Task A_session_key_is_refused_by_the_guard_with_the_queued_message_named()
     {
         _gateway.TenantSettingsResolver.SetTurnVerdictColourEnabled(_tenantA, true, DateTime.UtcNow);
         _gateway.TurnVerdicts.Store(_tenantA, _sessionId, Verdict("tv-answer-a"));
 
         var (status, body) = await Post(_sessionKeyInA, _sessionId, new { verdictId = "tv-answer-a", optionIndexes = new[] { 0 } });
 
-        // The guard's refusal is a 403 with code session_key_out_of_scope. This is the ROUTE's own refusal, which it
-        // reaches only after the tenant, the session, the join and the selection have passed: no Director is on
-        // the tunnel, so the screen cannot be read and nothing is sent.
-        Assert.DoesNotContain("session_key_out_of_scope", body);
-        Assert.Equal(HttpStatusCode.Conflict, status);
-        Assert.Equal(ActivityCauses.AnswerScreenUnreadable, Root(body).GetProperty("code").GetString());
-        Assert.False(Root(body).GetProperty("accepted").GetBoolean());
-        Assert.False(string.IsNullOrWhiteSpace(Root(body).GetProperty("reason").GetString()));
+        // The colours are on and the verdict is live, so the only thing that can stop the key is the guard.
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("session_key_out_of_scope", Root(body).GetProperty("code").GetString());
+        Assert.Equal(Util.AgentInputRefusal.Typing, Root(body).GetProperty("error").GetString());
+
+        // POSITIVE CONTROL: the owner's device key, on the same verdict, clears every check and reaches the screen
+        // read - no Director is on the tunnel, so the screen cannot be read and nothing is sent.
+        var device = await Post(_deviceA, _sessionId, new { verdictId = "tv-answer-a", optionIndexes = new[] { 0 } });
+        Assert.Equal(HttpStatusCode.Conflict, device.Status);
+        Assert.Equal(ActivityCauses.AnswerScreenUnreadable, Root(device.Body).GetProperty("code").GetString());
     }
 
     [Fact]
@@ -211,9 +214,10 @@ public sealed class TurnVerdictAnswerRouteTests : IAsyncLifetime
     {
         _gateway.TurnVerdicts.Store(_tenantA, _sessionId, Verdict("tv-answer-shadow"));
 
+        // The guard now refuses a session key before the route's own shadow rule is reached.
         var refused = await Post(_sessionKeyInA, _sessionId, new { verdictId = "tv-answer-shadow", optionIndexes = new[] { 0 } });
         Assert.Equal(HttpStatusCode.Forbidden, refused.Status);
-        Assert.Equal(ActivityCauses.AnswerShadowRecord, Root(refused.Body).GetProperty("code").GetString());
+        Assert.Equal("session_key_out_of_scope", Root(refused.Body).GetProperty("code").GetString());
 
         var device = await Post(_deviceA, _sessionId, new { verdictId = "tv-answer-shadow", optionIndexes = new[] { 0 } });
         Assert.Equal(ActivityCauses.AnswerScreenUnreadable, Root(device.Body).GetProperty("code").GetString());

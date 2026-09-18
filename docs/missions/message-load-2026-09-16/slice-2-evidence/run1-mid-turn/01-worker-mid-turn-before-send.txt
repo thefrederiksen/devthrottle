@@ -1,0 +1,43 @@
+# 01-worker-mid-turn-before-send - session 5cf8d982-e574-4336-a6fa-20a358064a21 (Proof - Worker) at 2026-09-17T06:21:10.4698200Z
+# director activity state: Working
+# visible screen rows:
+|
+|❯ Write the numbers from 1 to 250 as English words, one per line, with no other text.
+|
+|⏺ one
+|  two
+|  three
+|  four
+|  five
+|  six
+|  seven
+|  eight
+|  nine
+|  ten
+|  eleven
+|  twelve
+|  thirteen
+|  fourteen
+|  fifteen
+|  sixteen
+|  seventeen
+|  eighteen
+|  nineteen
+|  twenty
+|  twenty-one
+|  twenty-two
+|
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|❯
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for agents
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|

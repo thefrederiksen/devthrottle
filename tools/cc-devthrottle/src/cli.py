@@ -3,24 +3,28 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import List, Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from . import __version__
 from . import browser_ops
 from . import diag_ops
 from . import email_ops
+from . import fleet_manager_ops
+from . import fleet_ops
 from . import mission_ops
 from . import schedule_ops
 from . import settings_ops
 from . import setup_ops
 from . import skill_ops
 from . import workflow_ops
+from .usage_errors import AxiGroup
+# cc_shared is importable here: the ops modules above put tools/ on the path when run from source.
+from cc_shared import axi_output  # noqa: E402
 from .session_ops import (
-    ask_session,
     compact_session,
     hold_session,
     interrupt_session,
@@ -29,12 +33,15 @@ from .session_ops import (
     mark_done,
     prompt_session,
     raise_hand,
+    read_inbox,
     report_to_parent,
     read_session_buffer,
     rename_session,
     set_session_role,
     selftest as run_selftest,
+    show_live_state,
     send_message,
+    send_reply,
     spawn_session,
     stop_session,
     undo_done,
@@ -42,76 +49,104 @@ from .session_ops import (
 )
 
 app = typer.Typer(
+    cls=AxiGroup,
     name="cc-devthrottle",
     help="Unified DevThrottle command-line surface.",
     add_completion=False,
-    no_args_is_help=True,
+    # With no arguments the tool shows live state, not the help (docs/axi-standard.md, principle 8).
+    invoke_without_command=True,
 )
-session_app = typer.Typer(help="Manage running sessions.", add_completion=False)
-repo_app = typer.Typer(help="List the fleet's repositories.", add_completion=False)
+session_app = typer.Typer(cls=AxiGroup, help="Manage running sessions.", add_completion=False)
+repo_app = typer.Typer(cls=AxiGroup, help="List the fleet's repositories.", add_completion=False)
 worktree_app = typer.Typer(
+    cls=AxiGroup,
     # Two different things share this word, so the help says which is which. "list" is the FLEET
     # view, served by the Gateway, every machine. The other commands are this machine's pool of
     # reusable worktrees, and every one of them runs the cc-worktrees tool - see worktree_pool_ops.
-    help=(
-        "The fleet's worktrees (list), and this machine's pool of reusable ones "
-        "(get, return, lease, destroy, list --pool - each runs cc-worktrees)."
-    ),
+    help="The fleet's worktrees, and this machine's pool of reusable ones.",
     add_completion=False,
 )
 machine_app = typer.Typer(
-    help="Search and start applications on another computer.",
+    cls=AxiGroup,
+    help="List machines, search them, start applications and ask for restarts.",
     add_completion=False,
     no_args_is_help=True,
 )
 director_app = typer.Typer(
+    cls=AxiGroup,
     help="List the Directors this account is running, on every machine.",
     add_completion=False,
     no_args_is_help=True,
 )
 mission_app = typer.Typer(
-    help="Create and list Missions (the unit of work sessions attach to).",
+    cls=AxiGroup,
+    help="Create, list, attach and end Missions - the bodies of work sessions join.",
     add_completion=False,
     no_args_is_help=True,
 )
-message_app = typer.Typer(help="Send messages between sessions.", add_completion=False)
+message_app = typer.Typer(cls=AxiGroup, help="Send messages between sessions.", add_completion=False)
+fleet_manager_app = typer.Typer(
+    cls=AxiGroup,
+    help="Show, set, or clear which session is this account's one Fleet Manager.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 settings_app = typer.Typer(
+    cls=AxiGroup,
     help="Read and write CC Director settings.", add_completion=False, no_args_is_help=True
 )
 schedule_app = typer.Typer(
+    cls=AxiGroup,
     help="Manage Gateway schedules.", add_completion=False, no_args_is_help=True
 )
 workflow_app = typer.Typer(
-    help="Read and author fleet Workflows (cross-agent conduct stored on the Gateway).",
+    cls=AxiGroup,
+    help="Read and author the fleet's shared Workflows on the Gateway.",
     add_completion=False,
     no_args_is_help=True,
 )
 skill_app = typer.Typer(
-    help="Read and author fleet Skills (central capabilities held on the Gateway, fetched on use).",
+    cls=AxiGroup,
+    help="Read and author fleet Skills, held on the Gateway.",
     add_completion=False,
     no_args_is_help=True,
 )
 setup_app = typer.Typer(
+    cls=AxiGroup,
     help="Install, update, and repair DevThrottle.", add_completion=False, no_args_is_help=True
 )
 email_app = typer.Typer(
+    cls=AxiGroup,
     help="Send email to the account owner.", add_completion=False, no_args_is_help=True
 )
 diag_app = typer.Typer(
-    help="Run network diagnostics (Tailscale direct-vs-relay, speed results).",
+    cls=AxiGroup,
+    help="Run network diagnostics: direct or relayed, and speed.",
     add_completion=False,
     no_args_is_help=True,
 )
 autostart_app = typer.Typer(
-    help="Start the Gateway at login (issue #2022): on | off | status.",
+    cls=AxiGroup,
+    help="Start the Gateway at login: on, off, or status.",
     add_completion=False,
     no_args_is_help=True,
 )
 browser_app = typer.Typer(
+    cls=AxiGroup,
     # The verb stays "browser": it is the resource name agents already hold, in the actions registry
     # and in the attach command baked into the fold. The HELP says "profile", which is what the thing
     # actually is - a dedicated signed-in profile inside Chrome or Edge, not a browser we installed.
-    help="Manage DevThrottle's drivable browser profiles (signed in once, driven by an agent; machine-local).",
+    help="Manage this machine's browser profiles for agents to drive.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+fleet_app = typer.Typer(
+    cls=AxiGroup,
+    help=(
+        "The Fleet Manager's news, events, standing preferences and digest.\n\n"
+        "Stored news is a ready, finding or decision record; events are the stops and deaths of the "
+        "sessions it owns; the digest is what it reads at the start of a conversation."
+    ),
     add_completion=False,
     no_args_is_help=True,
 )
@@ -122,6 +157,7 @@ app.add_typer(machine_app, name="machine")
 app.add_typer(director_app, name="director")
 app.add_typer(mission_app, name="mission")
 app.add_typer(message_app, name="message")
+app.add_typer(fleet_manager_app, name="fleet-manager")
 app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(workflow_app, name="workflow")
@@ -131,9 +167,123 @@ app.add_typer(email_app, name="email")
 app.add_typer(diag_app, name="diag")
 app.add_typer(autostart_app, name="autostart")
 app.add_typer(browser_app, name="browser")
+app.add_typer(fleet_app, name="fleet")
 console = Console()
 
 _ACTIONS = [
+    {
+        "id": "fleet-digest",
+        "description": (
+            "Everything the Fleet Manager reads at the start of a conversation: open outcome records, the "
+            "sessions it owns with the Wingman's latest reading of each, and the standing preferences."
+        ),
+        "command": "cc-devthrottle fleet digest [--session <id>] [--json]",
+        "mutatesState": False,
+        "args": [{"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-events",
+        "description": (
+            "The events about sessions the Fleet Manager owns - each stop (with the Wingman's reading) or death - "
+            "kept until acknowledged, one page at a time with a cursor. A stop still waiting for its reading says so "
+            "and cannot be acknowledged yet. The Gateway also delivers them, at least once, as one prompt while the "
+            "Fleet Manager is waiting for a prompt."
+        ),
+        "command": "cc-devthrottle fleet events [--all] [--count N] [--cursor <nextCursor>] [--every-page] [--json]",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "fleet-ack",
+        "description": (
+            "Acknowledge Fleet Manager events by id once acted on (only the marked Fleet Manager may); --all closes "
+            "only the events delivered to this session; all or nothing when an id is unknown or is a stop still "
+            "waiting for its reading."
+        ),
+        "command": "cc-devthrottle fleet ack <id> [<id> ...] | cc-devthrottle fleet ack --all",
+        "mutatesState": True,
+        "args": [{"name": "id", "required": False}],
+    },
+    {
+        "id": "fleet-ready",
+        "description": "File a READY record: work ready for the owner, kept open until they answer it.",
+        "command": (
+            'cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high '
+            '--checks passed|failed|none --tested "<how>" --reviewed-by "<who>" '
+            '--change "<one sentence for a user>" [--session <id>]'
+        ),
+        "mutatesState": True,
+        "args": [{"name": "title", "required": True}, {"name": "pr", "required": True},
+                 {"name": "risk", "required": True}, {"name": "checks", "required": True},
+                 {"name": "tested", "required": True}, {"name": "reviewed_by", "required": True},
+                 {"name": "change", "required": True}, {"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-finding",
+        "description": "File a FINDING record: a finished report or investigation, answer first.",
+        "command": (
+            'cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"] '
+            "[--link <url> ...] [--session <id>]"
+        ),
+        "mutatesState": True,
+        "args": [{"name": "title", "required": True}, {"name": "answer", "required": True},
+                 {"name": "reason", "required": False}, {"name": "link", "required": False},
+                 {"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-decision",
+        "description": "File a DECISION record: a question only the owner can settle, with two or more options.",
+        "command": (
+            'cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>" '
+            '[--recommend "<a>"] [--why "<why>"] [--session <id>]'
+        ),
+        "mutatesState": True,
+        "args": [{"name": "title", "required": True}, {"name": "question", "required": True},
+                 {"name": "option", "required": True}, {"name": "recommend", "required": False},
+                 {"name": "why", "required": False}, {"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-outcomes",
+        "description": "List the account's outcome records, newest first (default: open).",
+        "command": "cc-devthrottle fleet outcomes [--status open|answered|all] [--kind ready|finding|decision] [--json]",
+        "mutatesState": False,
+        "args": [{"name": "status", "required": False}, {"name": "kind", "required": False}],
+    },
+    {
+        "id": "fleet-show",
+        "description": "Show one outcome record in full.",
+        "command": "cc-devthrottle fleet show <id> [--json]",
+        "mutatesState": False,
+        "args": [{"name": "id", "required": True}],
+    },
+    {
+        "id": "fleet-answer",
+        "description": "Close an outcome record with the owner's words, exactly. An answer is final.",
+        "command": 'cc-devthrottle fleet answer <id> "<the owner\'s words, exactly>"',
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}, {"name": "answer", "required": True}],
+    },
+    {
+        "id": "fleet-prefer",
+        "description": "Keep one of the owner's standing preferences, in their own words.",
+        "command": 'cc-devthrottle fleet prefer "<preference, verbatim>"',
+        "mutatesState": True,
+        "args": [{"name": "text", "required": True}],
+    },
+    {
+        "id": "fleet-preferences",
+        "description": "List the owner's standing preferences, oldest first.",
+        "command": "cc-devthrottle fleet preferences [--json]",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "fleet-forget",
+        "description": "Remove one standing preference.",
+        "command": "cc-devthrottle fleet forget <preference id>",
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}],
+    },
     {
         "id": "session-list",
         "description": "List every session in the fleet.",
@@ -369,6 +519,26 @@ _ACTIONS = [
         ],
     },
     {
+        "id": "director-restore",
+        "description": (
+            "Bring a drained fleet back onto a Director (after a restart, the NEW one). The DIRECTOR starts "
+            "every seat on its own credential, under the owner the seat had when it was captured - an owner "
+            "restarted in the same drain comes back first and is named by its new id. You name no owner and "
+            "cannot. Each seat that fails is reported on that seat and the rest carry on; a seat that came "
+            "back is never started twice. This is the restore step of the director-restart skill."
+        ),
+        "command": "cc-devthrottle director restore <workspace> --director <new director id> [--seat <id>] [--seed <id>=<path>] [--force-seat <id>] [--wait-seconds <n>]",
+        "mutatesState": True,
+        "args": [
+            {"name": "workspace", "required": True},
+            {"name": "director", "required": True},
+            {"name": "seat", "required": False},
+            {"name": "seed", "required": False},
+            {"name": "force-seat", "required": False},
+            {"name": "wait-seconds", "required": False},
+        ],
+    },
+    {
         "id": "machine-restart-request-status",
         "description": "Where one restart request stands, with the owner's or the Director's reason.",
         "command": "cc-devthrottle machine restart-request-status <machine> <request-id>",
@@ -402,8 +572,9 @@ _ACTIONS = [
             "Park a session so it stops asking for attention, for a set number of minutes. Defaults "
             "to THIS session. A session holding ITSELF is always mid-turn, so the hold is deferred "
             "automatically and lands when the turn ends - there is no separate verb for that, and the "
-            "reply says 'pending' when it deferred. Only the owner lifts a hold: releasing it, typing "
-            "or speaking into the session, or the timer expiring. Another agent's message does not."
+            "reply says 'pending' when it deferred. A hold ends when it is released, when the owner "
+            "types or speaks into the session, when the timer expires, or when the session starts work "
+            "nothing explains. Another agent's message does not end it."
         ),
         "command": "cc-devthrottle session hold [target] --minutes <n>",
         "mutatesState": True,
@@ -429,13 +600,9 @@ _ACTIONS = [
     {
         "id": "session-compact-continue",
         "description": (
-            "Compact a session's context and THEN send it a message - the rescue for a stuck session. A "
-            "session whose context window is full cannot read anything sent to it: every message is "
-            "swallowed and the tool reprints its context-limit line. This unblocks it and gets it moving "
-            "again, so a supervising agent can rescue a worker with nobody at its keyboard. The message "
-            "(default 'continue') is sent only once the compaction has actually FINISHED, never on a "
-            "timer. Tools that cannot report finishing are refused rather than guessed at - compact those "
-            "with session-compact and send the message yourself."
+            "Compact a session's context and THEN type a prompt into it - the owner's rescue for a stuck "
+            "session. The Gateway REFUSES this to every agent: only the owner types into a session. An "
+            "agent compacts with session-compact and then queues a message with message-send."
         ),
         "command": 'cc-devthrottle session compact-continue [target] ["<message>"]',
         "mutatesState": True,
@@ -483,27 +650,60 @@ _ACTIONS = [
     },
     {
         "id": "message-send",
-        "description": "Send a one-way message to a session, or broadcast to all sessions.",
-        "command": 'cc-devthrottle message send <target|all> "<message>"',
+        "description": (
+            "Queue a message for a session. You may message only the session that started you and the "
+            "sessions you started; the Gateway refuses anyone else, and limits you to 6 messages an hour "
+            "and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full "
+            "text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target "
+            "'all' queues one copy for each of your workers. Messages are rare - put what you would have "
+            "said in your report instead. --reply-wanted (one session only) asks for a reply without "
+            "waiting: it prints a correlation id, the reply arrives in your inbox, and if none arrives by "
+            "the deadline (--reply-by minutes, 60 by default) a no-reply notice arrives instead."
+        ),
+        "command": 'cc-devthrottle message send <target|all> "<message>" [--reply-wanted] [--reply-by <minutes>]',
         "mutatesState": True,
         "args": [
             {"name": "target", "required": True},
             {"name": "message", "required": True},
+            {"name": "reply-wanted", "required": False},
+            {"name": "reply-by", "required": False},
         ],
     },
     {
-        "id": "message-ask",
-        "description": "Ask one session a question and print its answer.",
-        "command": 'cc-devthrottle message ask <target> "<question>"',
+        "id": "message-reply",
+        "description": (
+            "Answer a message that asked for a reply. The id is the correlation id (or message id) "
+            "'message inbox' showed. The reply goes to whoever asked, whatever your relationship to it; "
+            "only the session the question was sent to may answer, once. It is not held to the message "
+            "limits, and a reply after the deadline still arrives."
+        ),
+        "command": 'cc-devthrottle message reply <id> "<answer>"',
         "mutatesState": True,
         "args": [
-            {"name": "target", "required": True},
-            {"name": "question", "required": True},
+            {"name": "id", "required": True},
+            {"name": "answer", "required": True},
+        ],
+    },
+    {
+        "id": "message-inbox",
+        "description": (
+            "Read THIS session's inbox: every unread message in full, each marked read by this call. "
+            "Reading is the acknowledgement - a message stays open until its recipient runs this. "
+            "A reply is shown with the question it answers, and a no-reply notice with the question that "
+            "went unanswered. "
+            "--all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost "
+            "can be recovered - for 24 hours, and only by asking."
+        ),
+        "command": "cc-devthrottle message inbox [--all] [--json]",
+        "mutatesState": True,
+        "args": [
+            {"name": "all", "required": False},
+            {"name": "json", "required": False},
         ],
     },
     {
         "id": "fleet-selftest",
-        "description": "Run an end-to-end fleet messaging smoke test.",
+        "description": "Windows only: check that a message to a throwaway worker is queued.",
         "command": "cc-devthrottle selftest",
         "mutatesState": True,
         "args": [],
@@ -832,6 +1032,30 @@ _ACTIONS = [
         "args": [],
     },
     {
+        "id": "fleet-manager-show",
+        "description": "Show which session this account has marked as its one Fleet Manager, or none.",
+        "command": "cc-devthrottle fleet-manager show",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "fleet-manager-set",
+        "description": (
+            "Mark a session as this account's one Fleet Manager, replacing any earlier mark. "
+            "With no session, marks the session running the command."
+        ),
+        "command": "cc-devthrottle fleet-manager set [<session>]",
+        "mutatesState": True,
+        "args": [{"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-manager-clear",
+        "description": "Remove this account's Fleet Manager mark.",
+        "command": "cc-devthrottle fleet-manager clear",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
         "id": "browser-list",
         "description": "List this machine's drivable browser profiles (name, browser, status, account).",
         "command": "cc-devthrottle browser list --json",
@@ -996,7 +1220,7 @@ def browser_signin(
     done: bool = typer.Option(False, "--done", help="Record that the human finished signing in."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Open the account page for a one-time hand sign-in, or (with --done) mark it complete."""
+    """Open a profile's sign-in page, or mark the sign-in done with --done."""
     browser_ops.signin_browser(name, done, json_output)
 
 
@@ -1014,7 +1238,7 @@ def browser_stop(
     name: str = typer.Argument(..., help="Browser name or id."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Close a running browser cleanly (its login is kept; start it again any time)."""
+    """Close a running browser cleanly; its login is kept."""
     browser_ops.stop_browser(name, json_output)
 
 
@@ -1022,7 +1246,10 @@ def browser_stop(
 def browser_attach(
     name: str = typer.Argument(..., help="Browser name or id."),
 ) -> None:
-    """Print ONLY the export lines, so: eval "$(cc-devthrottle browser attach 'Name')\"."""
+    """Print the export lines that attach the harness to a browser.
+
+    Only those lines, so: eval "$(cc-devthrottle browser attach 'Name')"
+    """
     browser_ops.attach_browser(name)
 
 
@@ -1047,47 +1274,89 @@ def browser_remove(
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(
         False, "--version", "-v", callback=_version_callback, is_eager=True, help="Show version."
     ),
 ) -> None:
     """Unified DevThrottle command-line surface."""
+    if ctx.invoked_subcommand is None:
+        show_live_state()
 
 
 @app.command()
 def actions(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """List agent-discoverable actions."""
+    """List the actions an agent can discover, with their commands."""
     if json_output:
         print(json.dumps({"actions": _ACTIONS}, indent=2))
         return
 
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("ACTION")
-    table.add_column("COMMAND")
-    for action in _ACTIONS:
-        table.add_row(str(action["id"]), str(action["command"]))
-    console.print(table)
+    # The AXI list shape (docs/axi-standard.md): every id and command in full, one row each. The old
+    # table wrapped long commands across rows at 80 columns and drew its borders in non-ASCII.
+    records = [
+        {
+            "id": action["id"],
+            "command": action["command"],
+            "changes-state": "yes" if action["mutatesState"] else "no",
+        }
+        for action in _ACTIONS
+    ]
+    changing = sum(1 for action in _ACTIONS if action["mutatesState"])
+    axi_output.write_blocks(
+        sys.stdout,
+        axi_output.format_count(
+            len(records),
+            breakdown=[("changes-state", changing), ("read-only", len(records) - changing)],
+        ),
+        axi_output.render_list("actions", ["id", "command", "changes-state"], records),
+        axi_output.format_help(["cc-devthrottle actions --json", "cc-devthrottle <group> <command> --help"]),
+    )
 
 
 @session_app.command("list")
 def session_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: needs-you, working, ready, snoozed, crashed."
+    ),
+    repo: str = typer.Option(None, "--repo", help="Only this repository: its folder name or full path."),
+    machine: str = typer.Option(None, "--machine", help="Only sessions on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,state,repo. "
+        "Valid: id, name, state, repo, machine, number, model, agent, mission, path.",
+    ),
 ) -> None:
-    """List every session running across the fleet."""
-    list_sessions(json_output)
+    """List every session in the fleet: id, name, state and repository."""
+    list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields)
 
 
 @repo_app.command("list")
 def repo_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
-    dirty: bool = typer.Option(False, "--dirty", help="Only repositories with uncommitted work."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    dirty: bool = typer.Option(False, "--dirty", help="Only repositories with uncommitted work (same as --state dirty)."),
+    state: str = typer.Option(None, "--state", help="Only these states, comma separated: dirty, clean."),
+    repo: str = typer.Option(None, "--repo", help="Only this repository: its folder name or full path."),
+    machine: str = typer.Option(None, "--machine", help="Only repositories on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: name,path,machine,state. "
+        "Valid: name, path, machine, state, branch, uncommitted, ahead, behind, behind-main, worktrees, "
+        "safe-to-reap, worktree-bytes, provider, org, remote, director, provisional.",
+    ),
 ) -> None:
-    """List the fleet's repositories with their state and worktree summary."""
+    """List the fleet's repositories: name, full path, machine and state."""
     from .repo_ops import list_repositories
 
-    list_repositories(json_output, dirty_only=dirty)
+    list_repositories(json_output, dirty_only=dirty, state=state, repo=repo, machine=machine, fields=fields)
 
 
 # The pooled-worktree commands below take their arguments exactly as cc-worktrees takes them and
@@ -1099,37 +1368,49 @@ _PASS_THROUGH = {"allow_extra_args": True, "ignore_unknown_options": True}
 
 @worktree_app.command("list")
 def worktree_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
     repo: str = typer.Option(
         None,
         "--repo",
-        help="Only this repository: its NAME for the fleet listing, its PATH with --pool.",
+        help="Only this repository: its folder name or full path for the fleet listing, its PATH with --pool.",
     ),
     state: str = typer.Option(
-        None, "--state", help="Fleet listing only. Filter: safe-to-reap, in-use, or needs-attention."
+        None,
+        "--state",
+        help="Fleet listing only. Only these states, comma separated: needs-attention, in-use, safe-to-reap, verifying.",
     ),
-    pool: bool = typer.Option(
-        False, "--pool", help="List this machine's cc-worktrees pool instead of the fleet."
+    machine: str = typer.Option(
+        None, "--machine", help="Fleet listing only. Only worktrees on this machine."
     ),
     fields: str = typer.Option(
         None,
         "--fields",
-        help="Pool listing only. Fields to show: repo,slot,path,state,holder,reason,updated.",
+        help="Fields to show, comma separated. Fleet listing default: path,repo,machine,state; valid: path, repo, "
+        "machine, state, branch, reason, sessions, bytes, last-activity, repo-path, director, data-age, provisional. "
+        "With --pool: repo, slot, path, state, holder, reason, updated.",
+    ),
+    pool: bool = typer.Option(
+        False, "--pool", help="List this machine's cc-worktrees pool instead of the fleet."
     ),
 ) -> None:
-    """List worktrees. By default the FLEET view - every machine's worktrees as the Gateway sees
-    them, with verdicts, sizes and which session is in each. With --pool, this machine's pool of
-    reusable worktrees, answered by cc-worktrees: slot, state (free, in-use, held), holder, reason.
-    """
-    from . import worktree_pool_ops
+    """List the fleet's worktrees, or this machine's pool of reusable ones with --pool.
 
+    The fleet view is every machine's worktrees as the Gateway sees them, with verdicts, sizes and
+    which session is in each. With --pool it is this machine's pool, answered by cc-worktrees:
+    slot, state (free, in-use, held), holder and reason.
+    """
     if pool:
-        if state is not None:
-            worktree_pool_ops.usage_error(
-                "--state filters the fleet listing and has no meaning for the pool",
-                ["cc-devthrottle worktree list --pool [--repo <path>] [--fields <a,b>]"],
-                json_output,
-            )
+        from . import worktree_pool_ops
+
+        for name, value in (("--state", state), ("--machine", machine)):
+            if value is not None:
+                worktree_pool_ops.usage_error(
+                    f"{name} filters the fleet listing and has no meaning for the pool",
+                    ["cc-devthrottle worktree list --pool [--repo <path>] [--fields <a,b>]"],
+                    json_output,
+                )
         arguments = ["list"]
         if repo is not None:
             arguments += ["--repo", repo]
@@ -1139,22 +1420,17 @@ def worktree_list(
             arguments += ["--json"]
         worktree_pool_ops.run_pool_command(arguments)
 
-    if fields is not None:
-        worktree_pool_ops.usage_error(
-            "--fields names the pool listing's fields and needs --pool",
-            ["cc-devthrottle worktree list --pool --fields <a,b>"],
-            json_output,
-        )
-
     from .repo_ops import list_worktrees
 
-    list_worktrees(json_output, repo=repo, state=state)
+    list_worktrees(json_output, repo=repo, state=state, machine=machine, fields=fields)
 
 
 @worktree_app.command("get", context_settings=_PASS_THROUGH)
 def worktree_get(ctx: typer.Context) -> None:
-    """Hand out a free pooled worktree on this machine, or create a new slot beside the repository
-    while the pool is under its size. Runs: cc-worktrees get.
+    """Take a free pooled worktree to work in. Runs: cc-worktrees get.
+
+    A free slot is handed out, or a new one is created beside the repository while the pool is
+    under its size.
 
       cc-devthrottle worktree get --repo <path> --holder <text> [--pool-size N] [--json]
     """
@@ -1165,9 +1441,10 @@ def worktree_get(ctx: typer.Context) -> None:
 
 @worktree_app.command("return", context_settings=_PASS_THROUGH)
 def worktree_return(ctx: typer.Context) -> None:
-    """Give a pooled worktree back. It is reset and freed only when cc-worktrees can prove its work
-    landed; otherwise it is held with the reason and nothing in it is touched. Runs: cc-worktrees
-    return.
+    """Give a pooled worktree back. Runs: cc-worktrees return.
+
+    It is reset and freed only when cc-worktrees can prove its work landed; otherwise it is held
+    with the reason and nothing in it is touched.
 
       cc-devthrottle worktree return <path-or-slot> --lease <id> [--repo <path>] [--json]
     """
@@ -1189,8 +1466,10 @@ def worktree_lease(ctx: typer.Context) -> None:
 
 @worktree_app.command("destroy", context_settings=_PASS_THROUGH)
 def worktree_destroy(ctx: typer.Context) -> None:
-    """Remove one pooled worktree. A dry run unless --yes, and refused whatever the recorded state
-    says unless the work is proven landed at that moment. Runs: cc-worktrees destroy.
+    """Remove one pooled worktree. Runs: cc-worktrees destroy.
+
+    A dry run unless --yes, and refused whatever the recorded state says unless the work is proven
+    landed at that moment.
 
       cc-devthrottle worktree destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] [--repo <path>] [--json]
     """
@@ -1201,22 +1480,75 @@ def worktree_destroy(ctx: typer.Context) -> None:
 
 @machine_app.command("list")
 def machine_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: online, offline, too-old."
+    ),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: name,state,version. "
+        "Valid: name, state, version, pid, started, last-seen.",
+    ),
 ) -> None:
-    """List the computers you can search and start applications on."""
+    """List the machines you can search and start applications on.
+
+    Shows each machine's name, state and launcher version.
+    """
     from .machine_ops import list_machines
 
-    list_machines(json_output)
+    list_machines(json_output, state=state, fields=fields)
 
 
 @director_app.command("list")
 def director_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: online, wobbly, offline, stopped."
+    ),
+    machine: str = typer.Option(None, "--machine", help="Only Directors on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,machine,state. "
+        "Valid: id, name, machine, state, version, pid, user, started, last-seen.",
+    ),
 ) -> None:
-    """List every Director this account is running, with the id to pass to 'session spawn --director'."""
+    """List every Director this account runs, with the id 'session spawn' takes.
+
+    Pass that id to 'cc-devthrottle session spawn <repo> --director <id>'.
+    """
     from .machine_ops import list_directors
 
-    list_directors(json_output)
+    list_directors(json_output, state=state, machine=machine, fields=fields)
+
+
+@director_app.command("restore")
+def director_restore(
+    workspace: str = typer.Argument(..., help="The workspace the drain recorded (the id in its restore commands)."),
+    director: str = typer.Option(..., "--director", help="The Director that brings the seats back - after a restart, the NEW one. See 'director list'."),
+    seat: List[str] = typer.Option([], "--seat", help="Only this seat (its captured session id). Repeat for several. Default: every seat decided restore that has not come back."),
+    seed: List[str] = typer.Option([], "--seed", help="<captured session id>=<path>: start that seat from this seed file instead of its handover. Repeatable."),
+    force_seat: List[str] = typer.Option([], "--force-seat", help="Start this seat (its captured session id) even though an earlier start of it MAY have landed. Only after checking the session list. Repeatable."),
+    wait_seconds: int = typer.Option(600, "--wait-seconds", help="How long to wait for every seat's answer. 0 asks and does not wait, and exits 3 (accepted, not waited)."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+) -> None:
+    """Bring a drained fleet back: the Director starts each seat under its old owner.
+
+    Owners come from what the Gateway captured, never from you: an owner restarted in the same drain
+    comes back first and is named by its new id. Each seat that fails is reported and the rest carry on.
+    A seat still running is not started again, and one whose earlier start may have landed needs --force-seat.
+
+    Exit 0 means every seat asked for came back. Exit 1: a seat failed or is still pending.
+    Exit 3: --wait-seconds 0 - accepted, not waited, so nothing is known to have come back.
+    """
+    from .machine_ops import restore_workspace
+
+    restore_workspace(workspace, director, seat, seed, wait_seconds, json_output, force_seat)
 
 
 @machine_app.command("apps")
@@ -1225,11 +1557,14 @@ def machine_apps(
     query: str = typer.Argument(None, help="Filter by name. Omit to list everything installed."),
     count: int = typer.Option(100, "--count", "-n", help="Largest number of results to return."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    fields: str = typer.Option(
+        None, "--fields", help="Fields to show, comma separated. Default and valid: name, source, path."
+    ),
 ) -> None:
     """List the applications installed on another computer."""
     from .machine_ops import list_apps
 
-    list_apps(machine, query, count, json_output)
+    list_apps(machine, query, count, json_output, fields)
 
 
 @machine_app.command("files")
@@ -1239,6 +1574,9 @@ def machine_files(
     count: int = typer.Option(200, "--count", "-n", help="Largest number of results to return."),
     seconds: int = typer.Option(20, "--seconds", "-s", help="How long the search may run before it reports what it found."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    fields: str = typer.Option(
+        None, "--fields", help="Fields to show, comma separated. Default and valid: name, size, modified, path."
+    ),
 ) -> None:
     """Find files by name across every drive on another computer.
 
@@ -1247,7 +1585,7 @@ def machine_files(
     """
     from .machine_ops import search_files
 
-    search_files(machine, query, count, seconds, json_output)
+    search_files(machine, query, count, seconds, json_output, fields)
 
 
 @machine_app.command("restart-capability")
@@ -1272,8 +1610,9 @@ def machine_restart_request(
     director: Optional[str] = typer.Option(None, "--director", help="Which Director on that computer, when it runs several."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
-    """Ask for a Director restart. The machine scrutinises; the owner accepts once; then it runs alone.
+    """Ask for a Director restart on one machine; the owner accepts it once.
 
+    The machine scrutinises the request first; once accepted, the restart runs alone.
     A request, not a restart: it creates a pending record, refused on the spot when the machine cannot
     be restarted or another request is already pending. The direct restart stays refused to a session.
     """
@@ -1340,10 +1679,10 @@ def prompt(
         False, "--no-submit", help="Type the text but do not press Enter - leave it in the composer."
     ),
 ) -> None:
-    """Send raw text into a session, as if you had typed it.
+    """Type raw text into a session. REFUSED to agents: only the owner may type.
 
-    Unlike `message send`, the text is NOT framed with a sender - the session sees exactly what
-    you passed. Use `message send` for agent-to-agent messages, and this to drive a session.
+    The Gateway refuses this to every session key and says what to do instead - queue a message
+    with `message send`, which the recipient reads when it is free.
     """
     prompt_session(target, text, no_submit=no_submit)
 
@@ -1354,7 +1693,7 @@ def interrupt(
         None, help="Session to interrupt. Defaults to THIS session (CC_SESSION_ID)."
     ),
 ) -> None:
-    """Stop what a session is currently doing."""
+    """Interrupt a session. REFUSED to agents: only the owner interrupts a session."""
     interrupt_session(target)
 
 
@@ -1371,12 +1710,15 @@ def report(
 
     This is the last step of delegated work, not a courtesy. Your parent asked you to do something;
     getting back to them is part of doing it - so you send it yourself, in your own words, the moment
-    your turn ends. It INTERRUPTS them, deliberately: a parent that took ownership of a session took
-    on being interrupted when that work comes back, and the alternative - a flag they have to
-    remember to look at - is how finished work sits quiet with nobody ever told.
+    your turn ends. It is QUEUED in their inbox, never typed into them: when they are not working, one
+    doorbell line tells them to run 'cc-devthrottle message inbox', and it stays open until they read
+    it. It is still held to the six-an-hour message limit, but not to the ten-minute spacing.
 
     If NO live parent owns you, the USER does, and nothing is sent: you are already red and in his
     queue, so that red is your report. Leave your answer in this session where he will read it.
+
+    If a FLEET MANAGER owns you, nothing is sent either: the Gateway tells it that you stopped, with the
+    Wingman's reading, when it is next waiting for a prompt.
     """
     report_to_parent(summary, target)
 
@@ -1391,7 +1733,9 @@ def raise_(
     ),
     clear: bool = typer.Option(False, "--clear", help="Take the hand back down - the decision was answered."),
 ) -> None:
-    """Put your hand up to the session driving you, when you cannot go on without an answer.
+    """Put your hand up to the session driving you when you are blocked.
+
+    Use it when you cannot go on without an answer.
 
     A supervised session - a worker with a live supervisor, or a scheduled run - is quiet toward the
     owner by construction: it parks on every screen when it stops and it has no channel to him. This
@@ -1412,6 +1756,15 @@ def workers(
     target: Optional[str] = typer.Option(
         None, "--target", help="Whose workers to list. Defaults to THIS session (CC_SESSION_ID)."
     ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: the Gateway's rows for these sessions, a bare array."
+    ),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,state,hand,need. "
+        "Valid: id, name, state, repo, machine, number, model, agent, mission, path, hand, need.",
+    ),
 ) -> None:
     """List the sessions you are driving, and which of them have their hand up.
 
@@ -1419,7 +1772,7 @@ def workers(
     This is that read in one line - who you are driving, what state each is in, and what any of them
     is blocked on.
     """
-    list_my_workers(target)
+    list_my_workers(target, json_output=json_output, fields=fields)
 
 
 @session_app.command()
@@ -1440,9 +1793,10 @@ def hold(
     session holds ITSELF, since it is mid-turn - is DEFERRED automatically: it applies the moment
     the turn finishes, and the reply tells you so with `pending`.
 
-    ONLY THE OWNER LIFTS A HOLD - by releasing it, by typing or speaking into the session, or by
-    the --minutes timer running out. Another agent messaging the session, or the terminal simply
-    repainting, no longer un-holds it, so a hold you set actually lasts as long as you asked for.
+    A hold ends when it is released, when the owner types or speaks into the session, when the
+    --minutes timer runs out, or when the session starts work the Director cannot attribute to
+    anyone. Another agent's message does NOT end it: the doorbell that announces a message is
+    agent-origin work, and the owner decided on 17 September 2026 that it leaves the hold in place.
     """
     hold_session(target, release=release, minutes=minutes)
 
@@ -1478,12 +1832,17 @@ def compact_continue(
         "continue", help="What to send once the compaction finishes. Defaults to 'continue'."
     ),
 ) -> None:
-    """Compact a session's context, then send it a message - the rescue for a STUCK session.
+    """Compact a session's context, then send it a message to get it moving.
+
+    This is the rescue for a STUCK session.
 
     A session whose context window is full cannot read anything you send it: every message is
     swallowed and the tool just reprints its context-limit line. Compaction is the only thing that
-    unblocks it, and this verb also gets it moving again afterwards, so a supervising agent can
-    rescue a worker with nobody at its keyboard.
+    unblocks it, and this verb also gets it moving again afterwards.
+
+    THE OWNER'S TOOL. The message it sends afterwards is typed into the session, so the Gateway
+    refuses this verb to every session key (an agent may not type into a session). An agent rescuing
+    its own worker runs `cc-devthrottle session compact` and queues a message instead.
 
     The message is sent only once the compaction has actually FINISHED - never on a timer. A prompt
     fired while the tool is still summarizing gets swallowed exactly like the ones that were lost
@@ -1502,7 +1861,10 @@ def buffer(
         None, help="Session to read. Defaults to THIS session (CC_SESSION_ID)."
     ),
 ) -> None:
-    """Print what a session's terminal is showing - how you see what a session is actually doing."""
+    """Print what a session's terminal is showing right now.
+
+    This is how you see what a session is actually doing.
+    """
     read_session_buffer(target)
 
 
@@ -1589,8 +1951,8 @@ def done(
 ) -> None:
     """Flag a session for deletion (defaults to the current session).
 
-    Does NOT kill the session now - it is flagged, and the owning Director's reaper removes it
-    within about a minute once the grace window passes and it is no longer working. Use this at
+    Does NOT kill the session now - it is flagged, and the owning Director's reaper removes it on
+    a sweep after the grace period, once it is no longer working. Use this at
     the end of an unattended run that has nothing left for the user, so the session tears itself
     down instead of lingering in the fleet.
 
@@ -1640,9 +2002,10 @@ def spawn(
         "--controlled-by",
         help="WHO OWNS the new session. REQUIRED when you spawn from inside a session - there is no "
         "default, because who a session answers to is too important to be decided by an environment "
-        "variable. Pass 'self' to own it yourself (it stays quiet and reports back to you), an explicit "
-        "session id to hand it to another session, or 'none' (same as --standalone) to spawn a peer that "
-        "answers to the USER. A person spawning from the desktop or the Cockpit needs none of this: a "
+        "variable. Pass 'self' to own it yourself (it stays quiet and reports back to you), or 'none' (same "
+        "as --standalone) to spawn a peer that answers to the USER. An explicit session id is accepted only "
+        "when it is your own: the Gateway refuses a session that names another session as the owner, "
+        "because the owner is who the new session may message. A person spawning from the desktop or the Cockpit needs none of this: a "
         "session a person opens is the user's.",
     ),
     why: Optional[str] = typer.Option(
@@ -1701,11 +2064,41 @@ def spawn(
         "its PINNED version. Unknown run ids are rejected.",
     ),
 ) -> None:
-    """Open a new session - here, on another computer with --machine, or on one Director with --director."""
+    """Open a new session here, on another machine, or on one named Director.
+
+    Use --machine for another computer, or --director for one named Director.
+    """
     spawn_session(
         repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
         machine, mission, workflow_run, director,
     )
+
+
+@fleet_manager_app.command("show")
+def fleet_manager_show(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": <id or null>}."),
+) -> None:
+    """Show which session is this account's Fleet Manager, or none."""
+    fleet_manager_ops.show(json_output)
+
+
+@fleet_manager_app.command("set")
+def fleet_manager_set(
+    session: Optional[str] = typer.Argument(
+        None, help="The session to mark: its number, an id prefix, or its name. Omit to mark this session."
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": <id>}."),
+) -> None:
+    """Mark a session as this account's one Fleet Manager, replacing any earlier mark."""
+    fleet_manager_ops.set_mark(session, json_output)
+
+
+@fleet_manager_app.command("clear")
+def fleet_manager_clear(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": null}."),
+) -> None:
+    """Remove this account's Fleet Manager mark."""
+    fleet_manager_ops.clear(json_output)
 
 
 @mission_app.command("create")
@@ -1718,7 +2111,9 @@ def mission_create(
 
 @mission_app.command("list")
 def mission_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
     show_all: bool = typer.Option(
         False,
         "--all",
@@ -1729,11 +2124,22 @@ def mission_list(
     state: Optional[str] = typer.Option(
         None,
         "--state",
-        help="Show only this state: active, complete, or removed. Overrides --all.",
+        help="Show only this state: active, complete, removed, or all. Overrides --all.",
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="Only missions whose name contains this text, ignoring case."
+    ),
+    fields: Optional[str] = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,state. "
+        "Valid: id, name, state, why, why-updated, state-changed, run.",
     ),
 ) -> None:
-    """List the Missions on the Gateway (active ones by default)."""
-    mission_ops.list_missions(json_output, state=state or ("all" if show_all else None))
+    """List the Missions on the Gateway (active ones by default): id, name and state."""
+    mission_ops.list_missions(
+        json_output, state=state or ("all" if show_all else None), name=name, fields=fields
+    )
 
 
 @mission_app.command("rename")
@@ -1743,7 +2149,7 @@ def mission_rename(
     ),
     name: str = typer.Argument(..., help="The new display name."),
 ) -> None:
-    """Rename a Mission. Its id does not change, so every attached session stays attached."""
+    """Rename a Mission; its id stays, so attached sessions stay attached."""
     mission_ops.rename_mission(mission, name)
 
 
@@ -1753,7 +2159,10 @@ def mission_complete(
         ..., help="The Mission to complete: its id, an id prefix, or part of its name."
     ),
 ) -> None:
-    """Mark a Mission as finished. It leaves the default list but is kept - this is the outcome."""
+    """Mark a Mission as finished; it leaves the default list but is kept.
+
+    This is the ending to use when the work is done.
+    """
     mission_ops.end_mission(mission, "complete")
 
 
@@ -1763,7 +2172,10 @@ def mission_remove(
         ..., help="The Mission to remove: its id, an id prefix, or part of its name."
     ),
 ) -> None:
-    """Remove a Mission that should not exist (a duplicate, a mistake). Soft: the record is kept."""
+    """Remove a Mission that should not exist; soft, so the record is kept.
+
+    For a duplicate or a mistake. Use 'mission complete' for finished work.
+    """
     mission_ops.end_mission(mission, "removed")
 
 
@@ -1793,7 +2205,7 @@ def mission_attach(
         "bulk re-parent cannot be undone in one step.",
     ),
 ) -> None:
-    """Attach a session that already exists to a Mission (moving it if it already had one)."""
+    """Attach an existing session to a Mission, moving it from any other."""
     mission_ops.attach_session(session, mission, with_children)
 
 
@@ -1811,9 +2223,9 @@ def mission_detach(
 def diag_network(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
-    """Server-side network check: per connected device, direct-vs-DERP-relay + latency, plus UDP/NAT.
+    """Check each device's network path from the Gateway.
 
-    Runs on the Gateway with no phone and no app open - the check an agent uses to tell "warming up on
+    Per connected device: direct-vs-DERP-relay and latency, plus UDP/NAT health. Runs on the Gateway with no phone and no app open - the check an agent uses to tell "warming up on
     the relay" apart from "genuinely slow".
     """
     diag_ops.show_network(json_output)
@@ -1823,21 +2235,20 @@ def diag_network(
 def diag_results(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
-    """Recent speed-test results users submitted from the app or Cockpit (newest first)."""
+    """Show recent speed-test results from the app or Cockpit."""
     diag_ops.show_results(json_output)
 
 
 @message_app.command("send")
 def message_send(
-    target: str = typer.Argument(..., help="Target session id, id prefix, or name - or 'all' for your team."),
-    message: str = typer.Argument(..., help="The message text to send."),
+    target: str = typer.Argument(..., help="Target session id, id prefix, or name - or 'all' for your workers."),
+    message: str = typer.Argument(..., help="The message text. It may span lines; it is read, never typed."),
     everyone: bool = typer.Option(
         False,
         "--everyone",
-        help="Broadcast to the WHOLE fleet, not just your own team. Every message interrupts the "
-        "receiving agent, so this is gated by the Gateway Hub: it needs a human-issued grant (--grant) "
-        "and a --reason, and is refused otherwise (issue #1229). Without this flag, 'all' reaches only "
-        "your team - the sessions in your Mission, or (solo) the same repository on the same machine.",
+        help="Queue a copy for EVERY session in the account, not just your workers. It needs a "
+        "human-issued grant (--grant) and a --reason, and is refused otherwise (issue #1229). Without "
+        "this flag, 'all' reaches only the sessions you started.",
     ),
     reason: Optional[str] = typer.Option(
         None,
@@ -1849,30 +2260,80 @@ def message_send(
         "--grant",
         help="A human-issued broadcast grant id authorizing a fleet-wide broadcast (--everyone).",
     ),
-) -> None:
-    """Send a message to one session, or to your team when TARGET is 'all' (add --everyone for the whole fleet)."""
-    send_message(target, message, everyone=everyone, reason=reason, grant=grant)
-
-
-@message_app.command("ask")
-def message_ask(
-    target: str = typer.Argument(..., help="Target session id, id prefix, or name (single session)."),
-    question: str = typer.Argument(..., help="The question to ask."),
-    timeout_ms: int = typer.Option(
-        120000, "--timeout-ms", help="How long to wait for the answer, in milliseconds."
+    reply_wanted: bool = typer.Option(
+        False,
+        "--reply-wanted",
+        help="Ask the recipient for a reply. The Gateway gives the message a correlation id, printed "
+        "here; the reply arrives in your inbox, and if none comes by the deadline a no-reply notice "
+        "arrives instead. Nothing waits for it. One session only, not 'all'.",
+    ),
+    reply_by: Optional[int] = typer.Option(
+        None,
+        "--reply-by",
+        help="Minutes the recipient has to reply, with --reply-wanted: 1 to 1440, 60 when omitted.",
     ),
 ) -> None:
-    """Ask TARGET the QUESTION and print the answer."""
-    ask_session(target, question, timeout_ms)
+    """Queue a message for your supervisor or a worker ('all' for every worker).
+
+    Nothing is typed into the recipient; it reads the message from its inbox when it is free. The
+    Gateway refuses any other recipient, and more than 6 messages an hour or 1 per recipient every
+    10 minutes - put what you would have said in your report instead.
+
+    Add --everyone (with --reason and --grant) to reach the whole fleet; it is queued the same way.
+
+    Add --reply-wanted to ask for a reply without waiting for it; answer one with 'message reply'.
+
+    Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting.
+    """
+    send_message(target, message, everyone=everyone, reason=reason, grant=grant,
+                 reply_wanted=reply_wanted, reply_by=reply_by)
+
+
+@message_app.command("reply")
+def message_reply(
+    reply_id: str = typer.Argument(
+        ..., metavar="ID",
+        help="The correlation id (or message id) of the message you are answering, from 'message inbox'.",
+    ),
+    text: str = typer.Argument(..., help="The answer. It may span lines; it is read, never typed."),
+) -> None:
+    """Answer a message that asked for a reply; the answer goes to whoever asked.
+
+    Only the session the question was sent to may answer it, once. A reply is not held to the message
+    limits, and one sent after the deadline still arrives. Nothing is typed into the asker; it reads
+    the reply from its inbox.
+    """
+    send_reply(reply_id, text)
+
+
+@message_app.command("inbox")
+def message_inbox(
+    include_read: bool = typer.Option(
+        False,
+        "--all",
+        help="Also show the messages you read in the last 24 hours, newest first, at most 200. A read "
+        "marks messages read before their text reaches you, so if a read failed part way they are "
+        "gone from the plain inbox: this is the only way to get them back, and only for 24 hours after "
+        "that read.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Read your unread messages in full, which marks them read.
+
+    Reading is the acknowledgement: the sender's message stays open until you read it. A message that
+    wants a reply shows its correlation id and the command to answer it; a reply shows the question it
+    answers; a no-reply notice says which question got no answer by its deadline.
+    """
+    read_inbox(include_read=include_read, json_output=json_output)
 
 
 @app.command()
 def selftest(
     timeout_ms: int = typer.Option(
-        25000, "--timeout-ms", help="How long the ask step waits for the responder."
+        25000, "--timeout-ms", help="Kept for callers that still pass it; nothing waits any more."
     ),
 ) -> None:
-    """Run the fleet messaging self-test against the local Director."""
+    """Windows only: check that a message to a throwaway worker is queued."""
     run_selftest(timeout_ms)
 
 
@@ -1942,7 +2403,7 @@ def skill_main(
         help="Override the Gateway base URL.",
     ),
 ) -> None:
-    """Read and author fleet Skills (central capabilities held on the Gateway, fetched on use)."""
+    """Read and author fleet Skills, held on the Gateway."""
     skill_ops.set_gateway_override(gateway)
 
 
@@ -1961,9 +2422,10 @@ def skill_get(
         None, "--version", "-v", help="A specific published version instead of the current one."
     ),
 ) -> None:
-    """Print a Skill's full instructions - run this when you are ABOUT TO USE the skill, and follow
-    what it says. Supporting files are written to this machine and their paths printed after the
-    body. Fails loudly if the Gateway cannot be reached; never proceed from memory."""
+    """Print a Skill's full instructions; run it just before using it.
+
+    Follow what it says. Supporting files are written to this machine and their paths printed after
+    the body. Fails loudly if the Gateway cannot be reached; never proceed from memory."""
     skill_ops.get_skill(skill_id, version)
 
 
@@ -1999,7 +2461,10 @@ def skill_pull(
         help="A specific version (default: the draft if one exists, else the published version).",
     ),
 ) -> None:
-    """Pull a Skill into a directory (skill.json + SKILL.md + its files at their own paths) for editing."""
+    """Pull a Skill into a directory for editing.
+
+    Writes skill.json, SKILL.md, and every supporting file at its own relative path.
+    """
     skill_ops.pull_skill(skill_id, directory, version)
 
 
@@ -2012,7 +2477,7 @@ def skill_push(
         False, "--force", help="Push without a hash sidecar, overwriting deliberately."
     ),
 ) -> None:
-    """Push a directory as the Skill's DRAFT. No agent sees it until you publish."""
+    """Push a directory as a Skill's draft; unseen until published."""
     skill_ops.push_skill(skill_id, directory, note, force)
 
 
@@ -2020,7 +2485,7 @@ def skill_push(
 def skill_publish(
     skill_id: str = typer.Argument(..., help="The skill id."),
 ) -> None:
-    """Publish the Skill's draft - live for every agent on every machine on its next fetch."""
+    """Publish a Skill's draft; every agent gets it on its next fetch."""
     skill_ops.publish_skill(skill_id)
 
 
@@ -2029,7 +2494,7 @@ def skill_clone(
     skill_id: str = typer.Argument(..., help="The skill to copy."),
     new_id: str = typer.Argument(..., help="The new skill id."),
 ) -> None:
-    """Clone a Skill into one of your own - how a read-only built-in is customized."""
+    """Clone a Skill into one you own; how a built-in is customized."""
     skill_ops.clone_skill(skill_id, new_id)
 
 
@@ -2045,7 +2510,7 @@ def skill_enable(
 def skill_disable(
     skill_id: str = typer.Argument(..., help="The skill id."),
 ) -> None:
-    """Switch a Skill off - left out of every briefing, fetch refused, nothing deleted."""
+    """Switch a Skill off: out of briefings, fetch refused, kept."""
     skill_ops.set_skill_enabled(skill_id, False)
 
 
@@ -2054,7 +2519,7 @@ def skill_delete(
     skill_id: str = typer.Argument(..., help="The skill id."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation."),
 ) -> None:
-    """Archive a Skill (never a built-in). Its versions remain readable by explicit version."""
+    """Archive a Skill (never a built-in); its versions stay readable."""
     skill_ops.delete_skill(skill_id, yes)
 
 
@@ -2066,7 +2531,7 @@ def workflow_main(
         help="Override the Gateway base URL.",
     ),
 ) -> None:
-    """Read and author fleet Workflows (cross-agent conduct stored on the Gateway)."""
+    """Read and author the fleet's shared Workflows on the Gateway."""
     workflow_ops.set_gateway_override(gateway)
 
 
@@ -2097,7 +2562,7 @@ def workflow_instructions(
         None, "--version", "-v", help="A specific pinned version instead of the published one."
     ),
 ) -> None:
-    """Print the Workflow's raw instruction markdown - fetch this and FOLLOW it as your conduct."""
+    """Print a Workflow's raw instructions; fetch this and FOLLOW it."""
     workflow_ops.print_instructions(workflow_id, version)
 
 
@@ -2118,7 +2583,10 @@ def workflow_pull(
         None, "--version", "-v", help="A specific version (default: the draft if one exists, else the published version)."
     ),
 ) -> None:
-    """Pull a Workflow into a directory (workflow.json + instructions.md + helpers/) for editing."""
+    """Pull a Workflow into a directory for editing.
+
+    Writes workflow.json, instructions.md, and the helper files under helpers/.
+    """
     workflow_ops.pull_workflow(workflow_id, directory, version)
 
 
@@ -2134,7 +2602,7 @@ def workflow_push(
         "may overwrite another author's edit).",
     ),
 ) -> None:
-    """Push a Workflow directory to the Gateway as a draft (creates the Workflow if new)."""
+    """Push a Workflow directory as a draft; creates it if new."""
     workflow_ops.push_workflow(workflow_id, directory, note, force)
 
 
@@ -2142,7 +2610,7 @@ def workflow_push(
 def workflow_publish(
     workflow_id: str = typer.Argument(..., help="The workflow id."),
 ) -> None:
-    """Publish the draft - it becomes the version every machine and agent reads."""
+    """Publish a Workflow's draft; every agent reads it from then on."""
     workflow_ops.publish_workflow(workflow_id)
 
 
@@ -2153,7 +2621,7 @@ def workflow_materialize(
         None, "--version", "-v", help="A specific published version (default: the current one)."
     ),
 ) -> None:
-    """Write the Workflow's instructions and helper files to this machine's cache and print the paths."""
+    """Write a Workflow's files to this machine and print the paths."""
     workflow_ops.materialize_workflow(workflow_id, version)
 
 
@@ -2168,7 +2636,7 @@ def workflow_runs(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """List workflow runs (one row per execution of a workflow), newest first."""
+    """List workflow runs, one per execution, newest first."""
     workflow_ops.list_runs(workflow, status, json_output)
 
 
@@ -2177,7 +2645,7 @@ def workflow_run(
     run_id: str = typer.Argument(..., help="The run id."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Show one workflow run: pinned version, lifecycle, acceptance, criteria, participants, proof."""
+    """Show one workflow run: version, status, criteria and proof."""
     workflow_ops.show_run(run_id, json_output)
 
 
@@ -2185,7 +2653,7 @@ def workflow_run(
 def workflow_enable(
     workflow_id: str = typer.Argument(..., help="The workflow id."),
 ) -> None:
-    """Turn a Workflow back ON - it returns to every agent's briefing; runs and seats resume."""
+    """Turn a Workflow back on; runs and seats resume."""
     workflow_ops.set_workflow_enabled(workflow_id, True)
 
 
@@ -2193,7 +2661,7 @@ def workflow_enable(
 def workflow_disable(
     workflow_id: str = typer.Argument(..., help="The workflow id (built-ins included)."),
 ) -> None:
-    """Turn a Workflow OFF - hidden from agents' briefings, no new runs or seats; nothing deleted."""
+    """Turn a Workflow off: no new runs or seats; nothing deleted."""
     workflow_ops.set_workflow_enabled(workflow_id, False)
 
 
@@ -2206,7 +2674,7 @@ def workflow_clone(
     workflow_id: str = typer.Argument(..., help="The source workflow id (e.g. mission)."),
     new_id: str = typer.Argument(..., help="The id for the clone (a fresh slug, never a built-in id)."),
 ) -> None:
-    """Clone a Workflow's published content into a new editable Workflow you own.
+    """Clone a Workflow into a new editable Workflow you own.
 
     The sanctioned way to customize a built-in: the clone copies the steps, instructions, and
     helper files into version 1 of the new id, immediately published and fully editable, with
@@ -2220,16 +2688,29 @@ def workflow_delete(
     workflow_id: str = typer.Argument(..., help="The workflow id."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
 ) -> None:
-    """Archive a custom Workflow (built-ins can never be deleted; version history remains)."""
+    """Archive a custom Workflow (never a built-in); history remains."""
     workflow_ops.delete_workflow(workflow_id, yes)
 
 
 @schedule_app.command("list")
 def schedule_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    enabled: Optional[bool] = typer.Option(
+        None, "--enabled/--disabled", help="Only enabled schedules, or only disabled ones."
+    ),
+    machine: Optional[str] = typer.Option(None, "--machine", help="Only schedules that run on this machine."),
+    fields: Optional[str] = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,enabled,next-run. "
+        "Valid: id, name, enabled, next-run, machine, kind, cron, run-at, time-zone, work-list, path, "
+        "last-fired, last-status, notify, created.",
+    ),
 ) -> None:
-    """List every schedule on the Gateway."""
-    schedule_ops.list_jobs(json_output)
+    """List every schedule: id, name, whether enabled, and next run."""
+    schedule_ops.list_jobs(json_output, enabled=enabled, machine=machine, fields=fields)
 
 
 @schedule_app.command("get")
@@ -2379,7 +2860,7 @@ def setup_doctor(
 def autostart_on(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Start the Gateway when you log in (issue #2022)."""
+    """Start the Gateway when you log in."""
     setup_ops.run_autostart("on", json_output)
 
 
@@ -2425,13 +2906,165 @@ def email_owner(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the send result as JSON."),
 ) -> None:
-    """Send ONE email to the account owner (single recipient - no way to address anyone else).
+    """Send one email to the account owner, the only recipient there can be.
 
-    Passes only a subject, body, and any attachments to the Gateway, which relays it to the cloud
+    There is no way to address anyone else. Passes only a subject, body, and any attachments to the Gateway, which relays it to the cloud
     with your account token; the cloud resolves the owner and sends. Use it to escalate from an
     unattended or scheduled run, or to send yourself a report to read offline.
     """
     email_ops.send_owner(subject, body, html, attach, json_output)
+
+
+# ---- fleet: the Fleet Manager's records, preferences and digest ---------------------------------------
+
+_JSON_OPT = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON.")
+_SESSION_ABOUT = typer.Option(
+    None, "--session", "-s",
+    help="The session this is about: id, id prefix, number, or exact name.",
+)
+
+
+@fleet_app.command("ready")
+def fleet_ready(
+    title: str = typer.Argument(..., help="One line naming what is ready."),
+    pr: str = typer.Option(..., "--pr", help="The full pull request link."),
+    risk: str = typer.Option(..., "--risk", help="low, medium or high."),
+    checks: str = typer.Option(..., "--checks", help="passed, failed or none."),
+    tested: str = typer.Option(..., "--tested", help="How it was tested."),
+    reviewed_by: str = typer.Option(..., "--reviewed-by", help="Who reviewed it."),
+    change: str = typer.Option(..., "--change", help="One sentence on what changed, for a user."),
+    session: Optional[str] = _SESSION_ABOUT,
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """File a READY record: work that is ready for the owner."""
+    fleet_ops.file_ready(title, pr, risk, checks, tested, reviewed_by, change, session, json_output)
+
+
+@fleet_app.command("finding")
+def fleet_finding(
+    title: str = typer.Argument(..., help="One line naming what was found."),
+    answer: str = typer.Option(..., "--answer", help="The answer, first."),
+    reason: Optional[str] = typer.Option(None, "--reason", help="The reason."),
+    link: Optional[List[str]] = typer.Option(None, "--link", help="A full link to a report (repeatable)."),
+    session: Optional[str] = _SESSION_ABOUT,
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """File a FINDING record: a report or investigation that is finished."""
+    fleet_ops.file_finding(title, answer, reason, link, session, json_output)
+
+
+@fleet_app.command("decision")
+def fleet_decision(
+    title: str = typer.Argument(..., help="One line naming the decision."),
+    question: str = typer.Option(..., "--question", help="The question."),
+    option: Optional[List[str]] = typer.Option(None, "--option", help="One option (give two or more)."),
+    recommend: Optional[str] = typer.Option(None, "--recommend", help="The option you recommend, exactly as given."),
+    why: Optional[str] = typer.Option(None, "--why", help="Why you recommend it."),
+    session: Optional[str] = _SESSION_ABOUT,
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """File a DECISION record: something only the owner can settle."""
+    fleet_ops.file_decision(title, question, option, recommend, why, session, json_output)
+
+
+@fleet_app.command("outcomes")
+def fleet_outcomes(
+    status: str = typer.Option("open", "--status", help="open, answered or all."),
+    kind: Optional[str] = typer.Option(None, "--kind", help="ready, finding or decision."),
+    count: int = typer.Option(50, "--count", "-n", help="Largest number of records on one page (1-200)."),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="Continue after an earlier page: its nextCursor."),
+    every_page: bool = typer.Option(False, "--all", help="Follow every page to the end and list every record."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """List the account's outcome records, newest first.
+
+    One page at a time, or every page with --all.
+    """
+    fleet_ops.list_outcomes(status, kind, count, json_output, cursor=cursor, every_page=every_page)
+
+
+@fleet_app.command("show")
+def fleet_show(
+    outcome_id: str = typer.Argument(..., metavar="ID", help="The record's id, or the start of it."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Show one outcome record in full."""
+    fleet_ops.show_outcome(outcome_id, json_output)
+
+
+@fleet_app.command("answer")
+def fleet_answer(
+    outcome_id: str = typer.Argument(..., metavar="ID", help="The record's id, or the start of it."),
+    words: str = typer.Argument(..., metavar="ANSWER", help="The owner's words, exactly as they said them."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Close a record with the owner's answer. An answered record is never re-answered."""
+    fleet_ops.answer_outcome(outcome_id, words, json_output)
+
+
+@fleet_app.command("digest")
+def fleet_digest(
+    session: Optional[str] = typer.Option(
+        None, "--session", "-s",
+        help="The Fleet Manager session (default: this session). Id, id prefix, number, or exact name.",
+    ),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Everything the Fleet Manager reads at the start of a conversation."""
+    fleet_ops.digest(session, json_output)
+
+
+@fleet_app.command("events")
+def fleet_events(
+    show_all: bool = typer.Option(False, "--all", help="Include acknowledged events (newest first)."),
+    count: int = typer.Option(50, "--count", "-n", help="Largest number of events on one page (1-200)."),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="Continue after an earlier page: its nextCursor."),
+    every_page: bool = typer.Option(False, "--every-page", help="Follow every page to the end and list every event."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """List the stops and deaths of sessions a Fleet Manager owns.
+
+    Unacknowledged ones oldest first, one page at a time.
+    """
+    fleet_ops.list_events(show_all, count, json_output, cursor=cursor, every_page=every_page)
+
+
+@fleet_app.command("ack")
+def fleet_ack(
+    event_ids: Optional[List[str]] = typer.Argument(
+        None, metavar="[ID]...", help="The event ids, or the start of each."),
+    ack_all: bool = typer.Option(False, "--all", help="Acknowledge every unacknowledged event delivered to this session."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Acknowledge events once you have acted on them.
+
+    Nothing is acknowledged if one id is unknown.
+    """
+    fleet_ops.acknowledge_events(event_ids, ack_all, json_output)
+
+
+@fleet_app.command("prefer")
+def fleet_prefer(
+    text: str = typer.Argument(..., help="The owner's preference, in their own words."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Keep one of the owner's standing preferences, exactly as given."""
+    fleet_ops.add_preference(text, json_output)
+
+
+@fleet_app.command("preferences")
+def fleet_preferences(json_output: bool = _JSON_OPT) -> None:
+    """List the owner's standing preferences, oldest first."""
+    fleet_ops.list_preferences(json_output)
+
+
+@fleet_app.command("forget")
+def fleet_forget(
+    preference_id: str = typer.Argument(..., metavar="ID", help="The preference's id, or the start of it."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Remove one standing preference."""
+    fleet_ops.forget_preference(preference_id, json_output)
 
 
 if __name__ == "__main__":

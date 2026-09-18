@@ -1,0 +1,1123 @@
+{
+  "actions": [
+    {
+      "id": "session-list",
+      "description": "List every session in the fleet.",
+      "command": "cc-devthrottle session list",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "autostart-status",
+      "description": "Show whether the Gateway starts at login, and the per-OS mechanism.",
+      "command": "cc-devthrottle autostart status",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "autostart-on",
+      "description": "Start the Gateway when you log in (Windows Run key / macOS launch agent / Linux systemd --user).",
+      "command": "cc-devthrottle autostart on",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "autostart-off",
+      "description": "Do not start the Gateway at login.",
+      "command": "cc-devthrottle autostart off",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "session-whoami",
+      "description": "Show this session's id, name, machine, and repository.",
+      "command": "cc-devthrottle session whoami",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "session-rename-current",
+      "description": "Rename the current session using CC_SESSION_ID.",
+      "command": "cc-devthrottle session rename \"<new name>\"",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "new_name",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "session-rename-target",
+      "description": "Rename a session selected by full id, id prefix, or exact name.",
+      "command": "cc-devthrottle session rename <target> \"<new name>\"",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "target",
+          "required": true
+        },
+        {
+          "name": "new_name",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "session-spawn",
+      "description": "Open a new session. By default on the local Director; --machine <name> starts it on another computer, and --director <id-or-name> starts it on ONE named Director (a machine runs several, and only this says which).",
+      "command": "cc-devthrottle session spawn <repo> [--machine <name>] [--director <id-or-name>]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "repo",
+          "required": true
+        },
+        {
+          "name": "machine",
+          "required": false
+        },
+        {
+          "name": "director",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "director-list",
+      "description": "List every Director this account is running, on every machine, with the id and name that 'session spawn --director' accepts. A machine appears once per named Director instance.",
+      "command": "cc-devthrottle director list",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "mission-list",
+      "description": "List the ACTIVE Missions on the Gateway - the named bodies of work sessions attach to. Add --all (or --state complete|removed) to include ones that have been ended.",
+      "command": "cc-devthrottle mission list",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "mission-create",
+      "description": "Create a Mission record on the Gateway and print its id.",
+      "command": "cc-devthrottle mission create \"<name>\"",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "name",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "mission-attach",
+      "description": "Attach a session that already exists to a Mission, moving it if it already had one. Add --with-children to bring everything that session controls.",
+      "command": "cc-devthrottle mission attach <session> <mission>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "session",
+          "required": true
+        },
+        {
+          "name": "mission",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "mission-detach",
+      "description": "Detach a session from its Mission, leaving it attached to nothing.",
+      "command": "cc-devthrottle mission detach <session>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "session",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "mission-rename",
+      "description": "Rename a Mission. Its id does not change, so every attached session stays attached and its WHY is kept.",
+      "command": "cc-devthrottle mission rename <mission> \"<new name>\"",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "mission",
+          "required": true
+        },
+        {
+          "name": "name",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "mission-complete",
+      "description": "Mark a Mission as FINISHED. It leaves the default list and is kept as a record - this is the ending to use when the work is done.",
+      "command": "cc-devthrottle mission complete <mission>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "mission",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "mission-remove",
+      "description": "Remove a Mission that should not exist - a duplicate, a mistake, an abandoned idea. NOT an outcome: use complete for finished work. Soft, so the record is kept and can be reopened.",
+      "command": "cc-devthrottle mission remove <mission>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "mission",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "mission-reopen",
+      "description": "Return a completed or removed Mission to active.",
+      "command": "cc-devthrottle mission reopen <mission>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "mission",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "machine-list",
+      "description": "List the computers this account can search and start applications on. A computer appears once cc-launcher is running on it and has registered with the Gateway.",
+      "command": "cc-devthrottle machine list",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "machine-apps",
+      "description": "List the applications installed on another computer. Omit the query to list everything. The names it returns are what 'machine launch --app' accepts.",
+      "command": "cc-devthrottle machine apps <machine> [query] [--count <n>]",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "machine",
+          "required": true
+        },
+        {
+          "name": "query",
+          "required": false
+        },
+        {
+          "name": "count",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "machine-files",
+      "description": "Find files by name across every drive on another computer. Use * and ? to match patterns; a query containing a directory separator is matched against the whole path. The search is bounded by a result count AND a time limit, and reports which one stopped it when it ends early - so check the truncation before treating the answer as complete.",
+      "command": "cc-devthrottle machine files <machine> <query> [--count <n>] [--seconds <s>]",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "machine",
+          "required": true
+        },
+        {
+          "name": "query",
+          "required": true
+        },
+        {
+          "name": "count",
+          "required": false
+        },
+        {
+          "name": "seconds",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "machine-restart-capability",
+      "description": "Ask whether one computer can complete a Director restart, BEFORE draining it. Changes nothing: no command is sent, no connection opened and no signal raised. It answers with a verdict and the reason - and separately with whether that machine's launcher would refuse a restart while sessions are still live, which is not the same question. A drain that cannot end in a restart is a fleet-wide close with paperwork, so ask first.",
+      "command": "cc-devthrottle machine restart-capability <machine>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "machine",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "machine-restart-request",
+      "description": "ASK for a Director restart on one computer, in your own words. This restarts nothing: it creates a request the owner accepts once, after the Gateway has checked that the machine can actually be restarted (refused on the spot otherwise, naming why). While one request is pending for a machine a second is refused, and a request nobody accepts expires after thirty minutes. After the accept the Director drains itself, restarts and restores alone.",
+      "command": "cc-devthrottle machine restart-request <machine> --reason \"<why>\" [--director <id>]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "machine",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "required": true
+        },
+        {
+          "name": "director",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "director-restore",
+      "description": "Bring a drained fleet back onto a Director (after a restart, the NEW one). The DIRECTOR starts every seat on its own credential, under the owner the seat had when it was captured - an owner restarted in the same drain comes back first and is named by its new id. You name no owner and cannot. Each seat that fails is reported on that seat and the rest carry on; a seat that came back is never started twice. This is the restore step of the director-restart skill.",
+      "command": "cc-devthrottle director restore <workspace> --director <new director id> [--seat <id>] [--seed <id>=<path>] [--force-seat <id>] [--wait-seconds <n>]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "workspace",
+          "required": true
+        },
+        {
+          "name": "director",
+          "required": true
+        },
+        {
+          "name": "seat",
+          "required": false
+        },
+        {
+          "name": "seed",
+          "required": false
+        },
+        {
+          "name": "force-seat",
+          "required": false
+        },
+        {
+          "name": "wait-seconds",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "machine-restart-request-status",
+      "description": "Where one restart request stands, with the owner's or the Director's reason.",
+      "command": "cc-devthrottle machine restart-request-status <machine> <request-id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "machine",
+          "required": true
+        },
+        {
+          "name": "request-id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "machine-launch",
+      "description": "Start an application on another computer, by catalogue name (--app) or by absolute path (--path). A name that matches several applications is refused rather than guessed at, so nothing unintended starts on a machine nobody is sitting at.",
+      "command": "cc-devthrottle machine launch <machine> --app \"<name>\" | --path <path>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "machine",
+          "required": true
+        },
+        {
+          "name": "app",
+          "required": false
+        },
+        {
+          "name": "path",
+          "required": false
+        },
+        {
+          "name": "args",
+          "required": false
+        },
+        {
+          "name": "cwd",
+          "required": false
+        },
+        {
+          "name": "headless",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "session-hold",
+      "description": "Park a session so it stops asking for attention, for a set number of minutes. Defaults to THIS session. A session holding ITSELF is always mid-turn, so the hold is deferred automatically and lands when the turn ends - there is no separate verb for that, and the reply says 'pending' when it deferred. A hold ends when it is released, when the owner types or speaks into the session, when the timer expires, or when the session starts work nothing explains. Another agent's message does not end it.",
+      "command": "cc-devthrottle session hold [target] --minutes <n>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "target",
+          "required": false
+        },
+        {
+          "name": "minutes",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "session-compact",
+      "description": "Compact a session's context and send it NOTHING afterwards. Compaction SUMMARIZES the conversation, so the session keeps what it has learned - unlike clearing, which throws it away. This is the housekeeping verb: use it on a session whose context is filling up but which is still working fine. It frees room and leaves the session where it was. For a session that is STUCK, use session-compact-continue instead. Waits for the compaction to finish, so it can take a minute or two.",
+      "command": "cc-devthrottle session compact [target]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "target",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "session-compact-continue",
+      "description": "Compact a session's context and THEN type a prompt into it - the owner's rescue for a stuck session. The Gateway REFUSES this to every agent: only the owner types into a session. An agent compacts with session-compact and then queues a message with message-send.",
+      "command": "cc-devthrottle session compact-continue [target] [\"<message>\"]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "target",
+          "required": false
+        },
+        {
+          "name": "message",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "session-stop",
+      "description": "End a session NOW and print what actually happened to it. Ends the agent process on the machine that owns the session and removes its row. Use session done instead when it is fine for the session to finish what it is doing first. A reason is REQUIRED and is recorded with the stop: any session may stop any other in the account, and the recorded reason is what makes that safe to allow. It does NOT touch files - uncommitted changes in the session's worktree are left exactly as they were, and the answer says where they are. Stopping something already stopped SUCCEEDS, and the answer says whether no process was running or nothing in the account carries that identifier at all.",
+      "command": "cc-devthrottle session stop <target> --reason \"<why>\"",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "target",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "session-done-undo",
+      "description": "Take a pending deletion back off a session - the cure for having flagged the wrong one. Defaults to THIS session. Needs no reason: a stop carries one because it is destructive, and this is the safe direction.",
+      "command": "cc-devthrottle session done [target] --undo",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "target",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "session-hold-release",
+      "description": "Release a hold, bringing a parked session back into the normal roster.",
+      "command": "cc-devthrottle session hold [target] --release",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "target",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "message-send",
+      "description": "Queue a message for a session. You may message only the session that started you and the sessions you started; the Gateway refuses anyone else, and limits you to 6 messages an hour and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target 'all' queues one copy for each of your workers. Messages are rare - put what you would have said in your report instead. --reply-wanted (one session only) asks for a reply without waiting: it prints a correlation id, the reply arrives in your inbox, and if none arrives by the deadline (--reply-by minutes, 60 by default) a no-reply notice arrives instead.",
+      "command": "cc-devthrottle message send <target|all> \"<message>\" [--reply-wanted] [--reply-by <minutes>]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "target",
+          "required": true
+        },
+        {
+          "name": "message",
+          "required": true
+        },
+        {
+          "name": "reply-wanted",
+          "required": false
+        },
+        {
+          "name": "reply-by",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "message-reply",
+      "description": "Answer a message that asked for a reply. The id is the correlation id (or message id) 'message inbox' showed. The reply goes to whoever asked, whatever your relationship to it; only the session the question was sent to may answer, once. It is not held to the message limits, and a reply after the deadline still arrives.",
+      "command": "cc-devthrottle message reply <id> \"<answer>\"",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "answer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "message-inbox",
+      "description": "Read THIS session's inbox: every unread message in full, each marked read by this call. Reading is the acknowledgement - a message stays open until its recipient runs this. A reply is shown with the question it answers, and a no-reply notice with the question that went unanswered. --all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost can be recovered - for 24 hours, and only by asking.",
+      "command": "cc-devthrottle message inbox [--all] [--json]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "all",
+          "required": false
+        },
+        {
+          "name": "json",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "fleet-selftest",
+      "description": "Windows only: check that a message to a throwaway worker is queued.",
+      "command": "cc-devthrottle selftest",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "settings-show",
+      "description": "Display current CC Director settings.",
+      "command": "cc-devthrottle settings show",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "settings-get",
+      "description": "Get a CC Director setting by dotted key.",
+      "command": "cc-devthrottle settings get <key>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "key",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "settings-set",
+      "description": "Set a CC Director setting by dotted key.",
+      "command": "cc-devthrottle settings set <key> <value>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "key",
+          "required": true
+        },
+        {
+          "name": "value",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "settings-list",
+      "description": "List all available CC Director setting keys.",
+      "command": "cc-devthrottle settings list",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "settings-path",
+      "description": "Show the local CC Director config file path.",
+      "command": "cc-devthrottle settings path",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "schedule-list",
+      "description": "List Gateway schedules.",
+      "command": "cc-devthrottle schedule list",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "schedule-get",
+      "description": "Show one Gateway schedule in full.",
+      "command": "cc-devthrottle schedule get <id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "schedule-runs",
+      "description": "Show run history for a Gateway schedule.",
+      "command": "cc-devthrottle schedule runs <id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "schedule-create",
+      "description": "Create a Gateway schedule.",
+      "command": "cc-devthrottle schedule create --name <name> --machine <machine> --repo <repo> --cron <expr> --tz <tz> --seed <prompt>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "name",
+          "required": true
+        },
+        {
+          "name": "machine",
+          "required": true
+        },
+        {
+          "name": "repo",
+          "required": true
+        },
+        {
+          "name": "cron_or_at",
+          "required": true
+        },
+        {
+          "name": "tz",
+          "required": true
+        },
+        {
+          "name": "seed_or_worklist",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "schedule-run",
+      "description": "Fire a Gateway schedule immediately.",
+      "command": "cc-devthrottle schedule run <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "schedule-enable",
+      "description": "Enable a Gateway schedule.",
+      "command": "cc-devthrottle schedule enable <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "schedule-disable",
+      "description": "Disable a Gateway schedule.",
+      "command": "cc-devthrottle schedule disable <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "schedule-delete",
+      "description": "Delete a Gateway schedule.",
+      "command": "cc-devthrottle schedule delete <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "schedule-endpoint",
+      "description": "Show the Gateway endpoint used by schedule commands.",
+      "command": "cc-devthrottle schedule endpoint",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "skill-list",
+      "description": "List the fleet's Skills - central capabilities held on the Gateway, one line each.",
+      "command": "cc-devthrottle skill list",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "skill-get",
+      "description": "Print a Skill's full instructions - run this when you are ABOUT TO USE it, and follow what it says.",
+      "command": "cc-devthrottle skill get <id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "version",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "skill-show",
+      "description": "Show one Skill's metadata without its body.",
+      "command": "cc-devthrottle skill show <id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "version",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "skill-versions",
+      "description": "Show a Skill's version history.",
+      "command": "cc-devthrottle skill versions <id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "skill-pull",
+      "description": "Pull a Skill into a directory (skill.json + SKILL.md + its files at their own paths) for editing.",
+      "command": "cc-devthrottle skill pull <id> --dir \"<dir>\"",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "dir",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "skill-push",
+      "description": "Push a directory as the Skill's DRAFT. No agent sees it until you publish.",
+      "command": "cc-devthrottle skill push <id> --dir \"<dir>\" [--note \"<what changed>\"]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "dir",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "skill-publish",
+      "description": "Publish a Skill's draft - live for every agent on every machine, immediately.",
+      "command": "cc-devthrottle skill publish <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "skill-clone",
+      "description": "Clone a Skill into one of your own - how a read-only built-in is customized.",
+      "command": "cc-devthrottle skill clone <id> <new-id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "new-id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "skill-enable",
+      "description": "Make a Skill available again - back in every agent's briefing.",
+      "command": "cc-devthrottle skill enable <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "skill-disable",
+      "description": "Switch a Skill off - left out of every briefing, fetch refused, nothing deleted.",
+      "command": "cc-devthrottle skill disable <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-list",
+      "description": "List the fleet's Workflows (cross-agent conduct stored on the Gateway).",
+      "command": "cc-devthrottle workflow list",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "workflow-instructions",
+      "description": "Print a Workflow's raw instruction markdown - fetch this and FOLLOW it as your conduct.",
+      "command": "cc-devthrottle workflow instructions <id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "version",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "workflow-show",
+      "description": "Show one Workflow's metadata, steps, and outcome criteria.",
+      "command": "cc-devthrottle workflow show <id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "version",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "workflow-versions",
+      "description": "Show a Workflow's version history.",
+      "command": "cc-devthrottle workflow versions <id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-pull",
+      "description": "Pull a Workflow into a directory (workflow.json + instructions.md + helpers/) for editing.",
+      "command": "cc-devthrottle workflow pull <id> --dir \"<dir>\"",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "dir",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-push",
+      "description": "Push an edited Workflow directory to the Gateway as a draft (creates the Workflow if new).",
+      "command": "cc-devthrottle workflow push <id> --dir \"<dir>\" [--note \"<what changed>\"]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "dir",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-publish",
+      "description": "Publish a Workflow's draft - it becomes the version every machine and agent reads.",
+      "command": "cc-devthrottle workflow publish <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-materialize",
+      "description": "Write a Workflow's instructions and helper files to this machine's cache and print the paths.",
+      "command": "cc-devthrottle workflow materialize <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "version",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "workflow-runs",
+      "description": "List workflow runs (one row per execution; the governance outcome spine).",
+      "command": "cc-devthrottle workflow runs",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "workflow",
+          "required": false
+        },
+        {
+          "name": "status",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "workflow-run-show",
+      "description": "Show one workflow run: pinned version, lifecycle, acceptance, criteria, participants.",
+      "command": "cc-devthrottle workflow run <run id>",
+      "mutatesState": false,
+      "args": [
+        {
+          "name": "run_id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-enable",
+      "description": "Turn a Workflow back ON (returns to agents' briefings; runs and seats resume).",
+      "command": "cc-devthrottle workflow enable <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-disable",
+      "description": "Turn a Workflow OFF - hidden from agents' briefings, no new runs or seats; nothing deleted.",
+      "command": "cc-devthrottle workflow disable <id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-clone",
+      "description": "Clone a Workflow's published content into a new editable Workflow you own (the way to customize a built-in).",
+      "command": "cc-devthrottle workflow clone <id> <new-id>",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "new-id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow-delete",
+      "description": "Archive a custom Workflow (built-ins can never be deleted; history remains).",
+      "command": "cc-devthrottle workflow delete <id> --yes",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "email-owner",
+      "description": "Email the account owner (single recipient); optional file attachments. The escalation channel for unattended runs.",
+      "command": "cc-devthrottle email owner --subject \"<subject>\" --body \"<text>\" [--attach <file>]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "subject",
+          "required": true
+        },
+        {
+          "name": "body",
+          "required": false
+        },
+        {
+          "name": "html",
+          "required": false
+        },
+        {
+          "name": "attach",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "setup-status",
+      "description": "Show local DevThrottle setup status.",
+      "command": "cc-devthrottle setup status",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "setup-install",
+      "description": "Install or repair DevThrottle from the latest GitHub release.",
+      "command": "cc-devthrottle setup install",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "setup-update",
+      "description": "Update DevThrottle through the setup engine.",
+      "command": "cc-devthrottle setup update",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "setup-repair",
+      "description": "Repair DevThrottle through the setup engine.",
+      "command": "cc-devthrottle setup repair",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "setup-doctor",
+      "description": "Show local DevThrottle setup diagnostics and repair guidance.",
+      "command": "cc-devthrottle setup doctor --json",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "fleet-manager-show",
+      "description": "Show which session this account has marked as its one Fleet Manager, or none.",
+      "command": "cc-devthrottle fleet-manager show",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "fleet-manager-set",
+      "description": "Mark a session as this account's one Fleet Manager, replacing any earlier mark. With no session, marks the session running the command.",
+      "command": "cc-devthrottle fleet-manager set [<session>]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "session",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "fleet-manager-clear",
+      "description": "Remove this account's Fleet Manager mark.",
+      "command": "cc-devthrottle fleet-manager clear",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "browser-list",
+      "description": "List this machine's drivable browser profiles (name, browser, status, account).",
+      "command": "cc-devthrottle browser list --json",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "browser-create",
+      "description": "Register a new drivable browser profile (does not launch it).",
+      "command": "cc-devthrottle browser create --name \"Center Consulting\" --browser chrome",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "browser-signin",
+      "description": "Open the account page for a one-time human sign-in; add --done to mark it complete.",
+      "command": "cc-devthrottle browser signin \"Center Consulting\"",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "browser-start",
+      "description": "Launch a profile if it is down, then print how to attach the harness.",
+      "command": "cc-devthrottle browser start \"Center Consulting\"",
+      "mutatesState": true,
+      "args": []
+    },
+    {
+      "id": "browser-attach",
+      "description": "Print the BU_NAME/BU_CDP_URL export lines to attach browser-harness to a profile.",
+      "command": "eval \"$(cc-devthrottle browser attach 'Center Consulting')\"",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "browser-stop",
+      "description": "Close a running browser profile cleanly (its login is kept).",
+      "command": "cc-devthrottle browser stop \"Center Consulting\"",
+      "mutatesState": true,
+      "args": []
+    }
+  ]
+}

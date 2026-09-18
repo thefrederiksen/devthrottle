@@ -1,0 +1,12 @@
+import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
+import { rows, shimFetch } from "./rows";
+shimFetch();
+const { SessionRoster } = await import("<repo>/apps/cockpit/src/sessions/SessionRoster");
+const { StopSessionProvider } = await import("<repo>/apps/cockpit/src/sessions/StopSessionProvider");
+createRoot(document.getElementById("root")!).render(
+  <MemoryRouter><StopSessionProvider>
+    <SessionRoster sessions={rows() as never} directors={[]} portByDirector={new Map()} selectedId={undefined}
+      view="my-order" error={null} onView={() => {}} onNewSession={() => {}} />
+  </StopSessionProvider></MemoryRouter>,
+);

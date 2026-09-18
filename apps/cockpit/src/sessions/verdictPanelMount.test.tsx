@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 
@@ -27,6 +27,7 @@ vi.mock("./VoiceTab", () => ({ VoiceTab: () => <div /> }));
 vi.mock("./SourceControlTab", () => ({ SourceControlTab: () => <div /> }));
 vi.mock("./QueuePanel", () => ({ QueuePanel: () => <div /> }));
 vi.mock("./ScreenshotsPanel", () => ({ ScreenshotsPanel: () => <div /> }));
+vi.mock("@devthrottle/client-core/sessions/WingmanTab", () => ({ WingmanTab: () => <div /> }));
 
 import { SessionDetail } from "./SessionDetail";
 
@@ -69,17 +70,37 @@ function Shell({ sessions }: { sessions: SessionDto[] }) {
 
 afterEach(() => cleanup());
 
+function renderDetail() {
+  render(
+    <MemoryRouter initialEntries={[`/sessions/${SID}`]}>
+      <Routes>
+        <Route element={<Shell sessions={[judged()]} />}>
+          <Route path="/sessions/:sessionId" element={<SessionDetail />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
 describe("the Cockpit session view", () => {
-  it("mounts the shared verdict panel for a judged row", () => {
-    render(
-      <MemoryRouter initialEntries={[`/sessions/${SID}`]}>
-        <Routes>
-          <Route element={<Shell sessions={[judged()]} />}>
-            <Route path="/sessions/:sessionId" element={<SessionDetail />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
-    );
+  it.each(["Terminal", "Chat", "Voice", "Source Control"])(
+    "does not show the verdict panel on the %s tab",
+    (name) => {
+      renderDetail();
+      // Visit Wingman first, so a panel that stayed mounted after leaving it would also go red.
+      fireEvent.click(screen.getByRole("tab", { name: "Wingman" }));
+      fireEvent.click(screen.getByRole("tab", { name }));
+
+      expect(screen.queryByRole("region", { name: "Wingman verdict" })).toBeNull();
+      expect(screen.queryByText("Claude Code said")).toBeNull();
+    },
+  );
+
+  it("shows the shared verdict panel for a judged row on the Wingman tab", () => {
+    renderDetail();
+    expect(screen.queryByRole("region", { name: "Wingman verdict" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Wingman" }));
 
     expect(screen.getByRole("region", { name: "Wingman verdict" })).toBeTruthy();
     expect(screen.getByText("Claude Code said")).toBeTruthy();

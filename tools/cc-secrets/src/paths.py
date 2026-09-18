@@ -46,13 +46,6 @@ def ensure_home() -> Path:
     the tool log after the folder is private (the log lives inside it).
     """
     global _checked_home
-    if sys.platform == "darwin":
-        # Review of pull request 2891: on macOS an access control list can let another account read a file whose
-        # mode is 0600, and nothing here reads those lists yet. Refuse until that is built and tested on a Mac.
-        raise permissions.StorePermissionError(
-            "cc-secrets does not run on macOS yet. There, a file's access control list can let another account "
-            "read it even when its permissions look private, and cc-secrets does not check those lists yet. "
-            "Nothing was read or written.")
     home = secrets_home()
     if _checked_home == home:
         return home

@@ -71,6 +71,29 @@ public sealed class PromptRequest
     public bool MenuGuard { get; set; }
 
     /// <summary>
+    /// TYPE THIS ONLY IF THE SESSION IS WAITING FOR A PROMPT RIGHT NOW (the Fleet Manager mission, step 4). When
+    /// true, the DIRECTOR - the one process that knows the session's state at the moment it types - refuses the
+    /// prompt unless the session is <c>Idle</c> or <c>WaitingForInput</c> at that instant, and answers
+    /// <see cref="PromptResponse.RefusedBusy"/> instead. Nothing is typed and no Enter is pressed. A session that is
+    /// working, starting, waiting on a permission question, or exited is refused.
+    ///
+    /// It exists for text the product sends on its own - the Fleet Manager's events - which must never land in a
+    /// turn the owner has just started. A Gateway reading the pushed state and then sending cannot promise that: the
+    /// owner can submit between the read and the send. The Director checks and types in the same step, and holds the
+    /// session's input from the check to the prompt's Enter (at most five seconds): the owner's keystrokes in that time
+    /// are written after the prompt, in order. A send that cannot finish in that time is abandoned, the text it typed is
+    /// removed from the composer, and it is answered <see cref="PromptResponse.RefusedBusy"/>. It is also refused, with
+    /// <see cref="PromptResponse.RefusedFor"/> saying which, while the owner has unsent text in the composer, and for a
+    /// session whose terminal submits a whole turn in one call: that call cannot be taken back, so the bound could not
+    /// be kept, and such a session is never typed into this way.
+    ///
+    /// A Director older than this field ignores it and types. So a sender that relies on it sends only to a Director
+    /// whose Hello said <see cref="DirectorStreamHello.ChecksIdleBeforeTyping"/>, and counts an accepted answer without
+    /// <see cref="PromptResponse.IdleChecked"/> as refused. Off by default: every other caller is unchanged.
+    /// </summary>
+    public bool OnlyWhenWaitingForInput { get; set; }
+
+    /// <summary>
     /// A client's CLAIM about which characters of <see cref="Text"/> came from which transcript (source logging,
     /// 2026-09-05). A browser composer tracks the ranges its dictation occupies as the person edits around them
     /// and sends them here, so a turn that mixes typing and speech still says WHICH characters were spoken.
@@ -149,6 +172,36 @@ public sealed class PromptResponse
     /// cannot work this out for itself - it does not know the account's language - so the Gateway states it.
     /// </summary>
     public string? BlockedSpokenLanguage { get; set; }
+
+    /// <summary>
+    /// True when this prompt was NOT typed because the caller asked for
+    /// <see cref="PromptRequest.OnlyWhenWaitingForInput"/> and the session was not waiting for a prompt at the moment
+    /// the Director would have typed it. <see cref="ActivityState"/> says what it was. A refusal, not a failure: it
+    /// rides a success with <see cref="Accepted"/> false, and the caller tries again at the session's next idle moment.
+    /// </summary>
+    public bool RefusedBusy { get; set; }
+
+    /// <summary>
+    /// When <see cref="RefusedBusy"/> is true, which refusal it was, as a fixed word the sender can act on:
+    /// <see cref="RefusedForOwnerDraft"/> - the owner has typed text into the session's composer and not sent it, so
+    /// nothing is typed after it until the owner submits; <see cref="RefusedForOneCallSubmit"/> - the session's terminal
+    /// submits a whole turn in one call that cannot be taken back, so a guarded prompt is never sent to it. Null for
+    /// every other refusal (the session was not waiting, other input was being sent, or the send was abandoned).
+    /// </summary>
+    public string? RefusedFor { get; set; }
+
+    /// <summary><see cref="RefusedFor"/>: the owner has unsent text in the composer.</summary>
+    public const string RefusedForOwnerDraft = "owner-draft";
+
+    /// <summary><see cref="RefusedFor"/>: the session's terminal submits in one call that cannot be taken back.</summary>
+    public const string RefusedForOneCallSubmit = "one-call-submit";
+
+    /// <summary>
+    /// True when the Director checked <see cref="PromptRequest.OnlyWhenWaitingForInput"/> before typing. False on an
+    /// accepted prompt means the Director did not check it (it is older than the field), so the text was typed
+    /// whatever the session was doing - and a sender that asked for the check counts that answer as refused.
+    /// </summary>
+    public bool IdleChecked { get; set; }
 }
 
 /// <summary>

@@ -88,11 +88,12 @@ def _current_run(cwd: Path) -> dict:
     return run
 
 
-def _run_state() -> str:
+def _run_state() -> str | None:
+    """The current run's state, or None when there is no run to describe."""
     try:
         return _current_run(Path.cwd())["state"]
     except Exception:
-        return runstore.FAILED  # no run to describe: the command itself failed
+        return None
 
 
 def summary(run: dict) -> dict:
@@ -155,7 +156,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             err = engine.internal_error(exc)
         # A refused command leaves the run as it was: report the run's real state.
-        _print({"state": _run_state(), **err.as_dict(), "next_step": err.help}, as_json)
+        state = _run_state()
+        if state is None:
+            state = runstore.FAILED
+            if "cc-ship continue" in err.help:  # there is no run to continue
+                err.help = "No run exists. Fix the cause, then run cc-ship start again."
+        _print({"state": state, **err.as_dict(), "next_step": err.help}, as_json)
         return err.exit_code
     _print(summary(run), as_json)
     return EXIT_ERROR if run["state"] == runstore.FAILED else EXIT_OK

@@ -66,7 +66,8 @@ internal sealed class FleetDisplayStateExecutor : ISessionCommandArea
             request.TriageBucket,
             request.NeedsYouSince,
             request.SnoozeUntil,
-            request.SnoozeExpired);
+            request.SnoozeExpired,
+            request.InboxLine);
 
         // Reconcile the raw hold mirror on THIS reliable, change-gated channel - not only on the one-shot
         // hold mirror the Gateway fires alongside its own edges. The Gateway folds a real HoldState every
@@ -81,7 +82,7 @@ internal sealed class FleetDisplayStateExecutor : ISessionCommandArea
             case HoldStates.None: session.ApplyGatewayHold(HoldState.None); break;
         }
 
-        FileLog.Write($"[FleetDisplayStateExecutor] set-display-state: session={guid}, color={request.EffectiveColor ?? "(cleared)"}, label={request.StateLabel ?? "(none)"}, hold={request.HoldState ?? "(unchanged)"}");
+        FileLog.Write($"[FleetDisplayStateExecutor] set-display-state: session={guid}, color={request.EffectiveColor ?? "(cleared)"}, label={request.StateLabel ?? "(none)"}, inboxLine={request.InboxLine ?? "(none)"}, hold={request.HoldState ?? "(unchanged)"}");
         return DirectorCommandResult.Success();
     }
 }

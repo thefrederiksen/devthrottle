@@ -1,0 +1,16 @@
+08:42:03.433 gateway listening at http://127.0.0.1:65196; ring grace 00:01:00, stuck after 3 rings
+08:42:03.744 director tunnel connected
+08:42:03.793 /Users/soren/ReposFred/devthrottle-message-load/docs/missions/message-load-2026-09-16/slice-2-evidence/fix-round/run2: manager dd4f1781-0d58-4268-a157-68703b3dd7b6, worker 4f28aac9-edf4-4e26-a58c-def0e9799fb7 (controller dd4f1781-0d58-4268-a157-68703b3dd7b6)
+08:43:04.722 captured run2/00-worker-ready
+08:43:04.976 captured run2/01-owner-draft
+08:43:04.981 POST /sessions/4f28aac9-edf4-4e26-a58c-def0e9799fb7/message as dd4f1781-0d58-4268-a157-68703b3dd7b6 -> 200 queued e6a0a6bc22814ed495f9aea638077eea 
+08:43:04.982 message sent while the owner's draft is in the composer: e6a0a6bc22814ed495f9aea638077eea
+08:43:54.984 captured run2/02-owner-draft-after-50-seconds
+08:43:56.240 owner erased the draft and left three spaces
+08:43:56.251 captured frame run2/02b-whitespace-draft.json: cursor (27,5) visible=True
+08:43:56.251 captured run2/02b-whitespace-draft
+08:44:31.262 whitespace draft: 2 composer-holds-text deferrals in 35 seconds
+08:44:31.263 captured run2/02c-whitespace-draft-after-35-seconds
+08:44:31.264 owner cleared the spaces
+08:44:34.085 captured run2/03-doorbell-after-clear
+08:44:36.888 record read at 2026-09-17T08:44:36.7089090Z

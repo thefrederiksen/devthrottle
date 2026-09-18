@@ -163,20 +163,24 @@ public sealed class BatchTranscriptionPipeline : IDisposable
     }
 
     /// <summary>
-    /// Transcribe one complete audio blob to RAW text using the resolved method, with NO dictionary
-    /// correction. This is the transcription half of <see cref="TranscribeAsync"/> on its own, for
-    /// callers that batch-transcribe several segments and then run the dictionary corrector ONCE on
-    /// the assembled concatenation (the phone recorder, issue #591) - so the assembled transcript is
-    /// provably the per-segment raw concatenation plus dictionary edits only, never a per-segment
-    /// reword. Same single transport: ONE batch POST to <c>{baseUrl}/audio/transcriptions</c> with the
-    /// resolved key and model. Throws on a provider error (a missing transcript is a real failure the
-    /// caller must surface, never paper over).
+    /// Transcribe one complete audio blob using the resolved method, with NO dictionary correction,
+    /// and return BOTH texts: the model's full output (<see cref="PartTranscript.Raw"/>), what survived
+    /// the evidence gate (<see cref="PartTranscript.Delivered"/>), and the sentences the gate removed.
+    /// This is the transcription half of <see cref="TranscribeAsync"/> on its own, for callers that run
+    /// the dictionary corrector themselves - the Gateway transcription service, and the phone recorder
+    /// that corrects the assembled concatenation ONCE (issue #591).
+    ///
+    /// It was called TranscribeRawAsync and returned only the gated text (issue #2926). Every production
+    /// surface went through it, so the stored raw transcript was the delivered one and no removal by
+    /// the gate could be seen in the record. It returns the whole part now so the caller cannot store
+    /// the wrong half without naming it. Same single transport: ONE batch POST to
+    /// <c>{baseUrl}/audio/transcriptions</c> per part. Throws on a provider error.
     /// </summary>
     /// <param name="audio">The complete audio segment bytes (already gated upstream).</param>
     /// <param name="fileName">Filename hint for the multipart upload; its extension tells the server how to decode the bytes.</param>
     /// <param name="routing">The resolved method: base URL, key, and model from the Gateway routing resolver.</param>
     /// <param name="ct">Cancellation token.</param>
-    public async Task<string> TranscribeRawAsync(
+    public async Task<PartTranscript> TranscribeUncorrectedAsync(
         byte[] audio, string fileName, ResolvedTranscription routing, CancellationToken ct = default,
         IProgress<TranscriptionProgress>? progress = null)
     {
@@ -185,8 +189,10 @@ public sealed class BatchTranscriptionPipeline : IDisposable
         if (audio.Length == 0)
             throw new ArgumentException("audio blob is empty; the Audio Completeness Gate must run before transcription", nameof(audio));
 
-        FileLog.Write($"[BatchTranscriptionPipeline] TranscribeRawAsync: bytes={audio.Length}, mode={routing.Mode.ToConfigString()}, model={routing.Model}");
-        return (await TranscribeBatchAsync(audio, fileName, routing, ct, progress)).Delivered;
+        FileLog.Write($"[BatchTranscriptionPipeline] TranscribeUncorrectedAsync: bytes={audio.Length}, mode={routing.Mode.ToConfigString()}, model={routing.Model}");
+        var part = await TranscribeBatchAsync(audio, fileName, routing, ct, progress);
+        FileLog.Write($"[BatchTranscriptionPipeline] TranscribeUncorrectedAsync: raw len={part.Raw.Length}, delivered len={part.Delivered.Length}, dropped={part.Dropped.Count}");
+        return part;
     }
 
     /// <summary>

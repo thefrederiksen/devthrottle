@@ -10,6 +10,29 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 }
 
 /// <summary>
+/// The sentences an agent reads when it tries to type into a session (the Message Load mission, ruling 17).
+/// Held once so the guard's refusal and the compaction route's refusal say the same thing.
+/// </summary>
+public static class AgentInputRefusal
+{
+    /// <summary>What to do instead, said once and appended to every refusal below.</summary>
+    public const string Instead =
+        "To reach a session you started, or the session that started you, send a queued message: " +
+        "cc-devthrottle message send <session> \"<text>\" - it is read when that session is free.";
+
+    /// <summary>A session key asked to type into, interrupt or escape a session, to fan a prompt out, or to
+    /// answer a judged stop (which types the verdict's option into the session).</summary>
+    public const string Typing =
+        "An agent may not type into, interrupt or escape another session: only the owner does that, from his " +
+        "own screens. " + Instead;
+
+    /// <summary>A session key asked to compact a session and then send it a prompt.</summary>
+    public const string CompactContinue =
+        "An agent may compact a session but may not send it a prompt afterwards: typing into a session is the " +
+        "owner's alone. Compact it with cc-devthrottle session compact, then " + Instead;
+}
+
+/// <summary>
 /// What a SESSION KEY may call on the Gateway (Remove-the-network-port mission, phase 1b).
 ///
 /// This began as the Gateway twin of the Director's ControlApiGuard.CheckSessionChild (deleted with the Director's listener; this guard is the surviving one), and it is written the same way and
@@ -25,7 +48,7 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 /// agent's work, and admission is not.
 ///
 /// BEHAVES - allowed. The FLEET WORK an agent's command line does: see the roster, find repositories and
-/// worktrees and machines, read a session's terminal, message/prompt/interrupt/hold/rename another session,
+/// worktrees and machines, read a session's terminal, queue a message for / hold / rename another session,
 /// spawn one, take a mission or a role, mark itself done, and read and publish the fleet's shared skills and
 /// workflows. It may also END a session outright - see the paragraph on stopping below. Plus CONFIGURATION,
 /// in both directions: a Director's settings, the application's own settings
@@ -42,6 +65,14 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 /// configuration at all: the
 /// diagnostics surface, and voice, dictation and transcription DATA - note the distinction from the voice
 /// SETTINGS above, which say how the product should behave and are therefore allowed.
+///
+/// TYPING INTO A SESSION IS NOT BEHAVING, IT IS THE OWNER'S (the Message Load mission, 16 September 2026).
+/// Prompt, interrupt, escape and the raw fan-out were on the allowed side until then. Every one of them put
+/// keystrokes into a session mid-turn, and the owner ordered that stopped: an agent now reaches another
+/// session only through a queued message, and only a session it started or the one that started it. These
+/// four are refused by <see cref="IsAgentInput"/> with a sentence that says so, and so is the fifth found by the
+/// first inspection of that mission: answering a judged stop, which types the verdict's chosen option into the
+/// session exactly as a prompt would.
 ///
 /// WHAT CHANGED, AND WHY THIS PARAGRAPH WAS REWRITTEN RATHER THAN AMENDED. Phase 1b refused the whole
 /// <c>/directors</c> surface bar two sub-paths, and said so here in prose. The owner's ruling reverses that
@@ -91,6 +122,12 @@ public static class SessionKeyGuard
         for (var i = 0; i < segments.Length; i++)
             segments[i] = segments[i].ToLowerInvariant();
 
+        // NO AGENT TYPES INTO A SESSION (the Message Load mission, ruling 17). Checked before the allow list and
+        // refused with its own sentence, because an agent told only "may not call POST /sessions/x/prompt" does
+        // not learn that a queued message is what it should send instead.
+        if (IsAgentInput(verb, segments))
+            return SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
+
         if (IsAllowed(verb, segments))
             return SessionKeyVerdict.Allow;
 
@@ -98,6 +135,28 @@ public static class SessionKeyGuard
             $"a session key may not call {verb} {p}; it may run the fleet's agent routes and configure the " +
             "product - settings and handovers - but never the admission surface: device enrollment, account " +
             "identity, Director registration, or force-killing a Director");
+    }
+
+    /// <summary>
+    /// The routes that put keystrokes into a running session: a raw prompt, Ctrl+C, Escape, and the fan-out
+    /// that sends one prompt to many sessions. All four were open to a session key until the Message Load
+    /// mission, and each is a way round the inbox - a gate with a side door is not a gate. The owner's own
+    /// screens reach them with a device key, which this guard never sees, so they are unchanged for him.
+    ///
+    /// ANSWERING A JUDGED STOP is the fifth (inspection 1 of the Message Load mission, ruling 1). The route sends
+    /// the verdict's chosen option into the session through the same prompt channel, so an agent that could call
+    /// it could type into another session whenever a verdict was live. It is matched as its one literal
+    /// four-segment shape; the feedback route beside it writes only our own record and stays allowed.
+    ///
+    /// Compact-and-continue is the sixth such path; it shares its route with a plain compaction, so the route
+    /// refuses it where it can read the body.
+    /// </summary>
+    private static bool IsAgentInput(string verb, string[] s)
+    {
+        if (verb != "POST") return false;
+        if (s.Length == 3 && s[0] == "sessions" && s[2] is "prompt" or "interrupt" or "escape") return true;
+        if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "answer") return true;
+        return s.Length == 1 && s[0] == "fanout";
     }
 
     private static bool IsAllowed(string verb, string[] s)
@@ -130,6 +189,9 @@ public static class SessionKeyGuard
                 // Every restart request in the account, so an agent can see what is pending before it
                 // asks. The same class of read as the machine-scoped list below, one level up.
                 case "gateway/director-restart-requests":
+                // The calling session's OWN message inbox (the Message Load mission). There is no session id in
+                // the path: the route reads the inbox of the key that called it and no other.
+                case "fleet/inbox":
                     return true;
             }
 
@@ -155,6 +217,13 @@ public static class SessionKeyGuard
             // path, so it cannot see a tenant's settings; the two halves add up at the route.
             if (s.Length == 3 && s[0] == "sessions"
                 && (s[2] == "turn-verdict" || s[2] == "turn-verdicts")) return true;
+
+            // A session's OWN dev reports (issue #2958): the list and one report, which the agent reads to see
+            // the owner's notes and their state. The route itself refuses a session key naming any session but
+            // its own, and a report of another session; the guard cannot read an identifier, so it cannot.
+            // The OWNER's reads under /dev-reports are deliberately NOT here: a session key is never the owner.
+            if (s.Length == 3 && s[0] == "sessions" && s[2] == "dev-reports") return true;
+            if (s.Length == 4 && s[0] == "sessions" && s[2] == "dev-reports") return true;
 
             // One mission, one workflow run. Scheduled jobs are handled by IsScheduleRoute below, which
             // owns every /cron shape in one place rather than splitting the reads away from the writes.
@@ -190,6 +259,9 @@ public static class SessionKeyGuard
             // surface is split between configuration and admission.
             if (IsBrowserRoute(verb, s)) return true;
 
+            // The Fleet Manager's stored news, preferences and digest. See IsFleetManagerRoute.
+            if (IsFleetManagerRoute(verb, s)) return true;
+
             // Configuration, read side. A Director's settings, the application's own settings, and the
             // handovers on a Director - all three by the owner's ruling that an agent configures the product.
             if (IsDirectorSettings(s)) return true;
@@ -202,54 +274,60 @@ public static class SessionKeyGuard
         // ---------- Fleet actions ----------
         if (verb == "POST")
         {
-            // Talk to a session: prompt it, interrupt it, park it, give it a role or a mission, ask it to
-            // compact, or flag it finished. Every one of these names a session in the path, and the tenant
-            // binding keeps it inside the calling account.
+            // Act on a session: queue it a message, park it, give it a role or a mission, ask it to compact,
+            // or flag it finished. Every one of these names a session in the path, and the tenant binding keeps
+            // it inside the calling account. Typing into it - prompt, interrupt, escape - is refused above.
             if (s.Length == 3 && s[0] == "sessions")
             {
                 switch (s[2])
                 {
-                    case "prompt":
-                    // An agent-to-agent message: a prompt the Gateway frames with the CALLING session's own
-                    // name, so the recipient knows who sent it. Allowed for the same reason "prompt" is, and
-                    // it is strictly the narrower of the two - the sender cannot be chosen by the caller.
+                    // A queued message into another session's inbox. Nothing is typed; who may be written to,
+                    // and how often, is the route's ruling (FleetMessagePolicy), because it needs the roster.
                     case "message":
-                    case "interrupt":
-                    case "escape":
                     case "hold":
                     case "role":
                     case "mission":
                     case "request-deletion":
                     case "compact-context":
+                    // RAISE A HAND to your supervisor (`session raise`, issue #2662). It was missing from this list,
+                    // so every agent's raise was refused, and it is the report channel of the Message Load mission
+                    // (inspection 1, ruling 3). A key may raise only its OWN hand; the route checks that, because a
+                    // guard never reads the id segment.
+                    case "needs-manager":
                     // STOP a session, now (mission "Stop a session", Ruling 4: any session may stop any
                     // other in the same account, and there is no parent-child restriction). The reason is
                     // what makes this affordable, and the reason requirement lives on the ROUTE, not here:
                     // a guard is a pure function on a method and a path and cannot see a body. See the
                     // refusal of the bare DELETE /sessions/{sid} below for how the two halves add up.
                     case "stop":
+                    // PUBLISH a dev report for this session (issue #2958). Its own session only - the route refuses
+                    // any other id - and the owner's send, list and read under /dev-reports stay refused to every
+                    // session key, because a session key is never the owner.
+                    case "dev-reports":
                         return true;
                 }
                 return false;
             }
 
-            // ANSWER a judged stop: the one server-owned write path for a verdict's options (the
-            // Wingman-on-every-turn mission, slice E). No wider than "prompt" above - it writes into one session
-            // of the caller's own account, and strictly narrower, because the bytes are the verdict's own options
-            // and the route refuses them unless the live screen is still the one the verdict was formed on.
-            // Matched as one literal four-segment shape, so nothing hung off it later is reachable by accident.
-            if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "answer") return true;
+            // ANSWERING a judged stop is NOT here: it types the verdict's option into the session, so it is agent
+            // input and IsAgentInput refuses it above (the Message Load mission, inspection 1). It was on this list
+            // from the Wingman-on-every-turn mission, slice E, until 16 September 2026.
 
-            // REPORT a judged stop wrong (slice G). Its own literal four-segment shape, listed beside the answer
-            // rather than folded into a "turn-verdict/{anything}" prefix, for the reason the reads are listed as
-            // two literals: an allow list that widens by pattern stops being an allow list, and the next word
-            // hung off this path has to be classified here before anything can reach it.
+            // REPORT a judged stop wrong (slice G). Its own literal four-segment shape, rather than a
+            // "turn-verdict/{anything}" prefix, for the reason the reads are listed as two literals: an allow
+            // list that widens by pattern stops being an allow list, and the next word hung off this path has to
+            // be classified here before anything can reach it.
             //
-            // It is narrower than the answer beside it: it writes one row of our own record and reaches nothing
-            // outside the Gateway - no bytes, no screen, no session. Whether the route SERVES a session key is
+            // It writes one row of our own record and reaches nothing outside the Gateway - no bytes, no screen,
+            // no session. Whether the route SERVES a session key is
             // still the route's decision and not this one: while an account's colours are off its verdicts are a
             // shadow record and the route refuses a session key, exactly as the reads do. A guard is a pure
             // function on a method and a path and cannot see a tenant's settings; the two halves add up there.
             if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "feedback") return true;
+
+            // REPLY on one of this session's own dev reports (issue #2958). One literal five-segment shape; the
+            // route checks the session and the report are the caller's own.
+            if (s.Length == 5 && s[0] == "sessions" && s[2] == "dev-reports" && s[4] == "replies") return true;
 
             // THE ADMINISTRATOR READ OF THOSE CORRECTIONS IS A DIFFERENT SURFACE AND IS NOT HERE:
             // GET /gateway/admin/turn-verdict-feedback serves the daily corpus pull, which is a server with no
@@ -260,11 +338,14 @@ public static class SessionKeyGuard
             // call it would read every account's corrections, which is the opposite of what a session credential
             // is for.
 
-            // A message to the agent's own team (the fanout the fleet's "message send all" uses), and the
-            // team-resolving front door onto it - which is what the command line actually calls, because
-            // working out who is on the team is the Gateway's ruling to make, not the caller's.
-            if (Join(s) == "fanout") return true;
+            // A queued message to each of the agent's own workers ("message send all"). Working out who they are
+            // is the Gateway's ruling to make, not the caller's. The raw /fanout beside it types into sessions
+            // and is refused above.
             if (Join(s) == "fleet/broadcast") return true;
+
+            // An answer to a message that asked for one (the Message Load mission, slice 3). The id is in the body;
+            // who may answer, and to whom it goes, is the Gateway's ruling, and the answer is queued, never typed.
+            if (Join(s) == "fleet/reply") return true;
 
             // Create a mission - the unit of work sessions attach to.
             if (Join(s) == "missions") return true;
@@ -293,6 +374,9 @@ public static class SessionKeyGuard
 
             // Capture a Director's live fleet into a workspace - the first act of a drain.
             if (IsWorkspaceRoute(verb, s)) return true;
+
+            // File a Fleet Manager record, answer one, keep a standing preference.
+            if (IsFleetManagerRoute(verb, s)) return true;
 
             // Create a scheduled job, or run one now.
             if (IsScheduleRoute(verb, s)) return true;
@@ -378,10 +462,57 @@ public static class SessionKeyGuard
             // Delete a workspace, on the same terms as the skills and workflows beside it.
             if (IsWorkspaceRoute(verb, s)) return true;
 
+            // Forget a Fleet Manager standing preference.
+            if (IsFleetManagerRoute(verb, s)) return true;
+
             return false;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The Fleet Manager shapes under <c>/gateway/fleet-manager</c> (the Fleet Manager mission, step 3): the
+    /// stored news (Ready, Finding, Decision), the owner's standing preferences, the digest, and (step 4) the
+    /// events about sessions a Fleet Manager owns and their acknowledgement.
+    ///
+    /// A session key reaches these because the Fleet Manager IS a session: it files a record the moment
+    /// something is ready, answers it with the owner's words, and reads the digest at the start of every
+    /// conversation, all with its own key. Each route resolves the caller's account itself, so a record of
+    /// another account is not found. Nothing here admits anyone or changes an account's identity.
+    ///
+    /// Every shape is matched as a LITERAL at its exact length, verb by verb - including the answer verb, a
+    /// literal fifth segment - so a new word hung off this prefix is refused until somebody classifies it here.
+    /// </summary>
+    private static bool IsFleetManagerRoute(string verb, string[] s)
+    {
+        if (s.Length < 3 || s[0] != "gateway" || s[1] != "fleet-manager") return false;
+        var read = verb is "GET" or "HEAD";
+
+        switch (s[2])
+        {
+            case "outcomes":
+                // /gateway/fleet-manager/outcomes - list, or file one.
+                if (s.Length == 3) return read || verb == "POST";
+                // /gateway/fleet-manager/outcomes/{id} - read one.
+                if (s.Length == 4) return read;
+                // /gateway/fleet-manager/outcomes/{id}/answer - close one with the owner's words.
+                return s.Length == 5 && s[4] == "answer" && verb == "POST";
+            case "preferences":
+                // /gateway/fleet-manager/preferences - list, or keep one.
+                if (s.Length == 3) return read || verb == "POST";
+                // /gateway/fleet-manager/preferences/{id} - forget one.
+                return s.Length == 4 && verb == "DELETE";
+            case "digest":
+                return s.Length == 3 && read;
+            case "events":
+                // /gateway/fleet-manager/events - list the events about sessions a Fleet Manager owns.
+                if (s.Length == 3) return read;
+                // /gateway/fleet-manager/events/ack - acknowledge them.
+                return s.Length == 4 && s[3] == "ack" && verb == "POST";
+            default:
+                return false;
+        }
     }
 
     /// <summary>
@@ -415,6 +546,12 @@ public static class SessionKeyGuard
 
         // /gateway/workspaces/{id} - read, store, delete.
         if (s.Length == 3) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
+
+        // /gateway/workspaces/{id}/restore - ask a Director to bring a drained fleet back (the Message Load
+        // mission, slice 6). A session drives a restore exactly as it drives a drain, and this grants it no
+        // owner-naming power: the Director names each seat's owner from the facts this Gateway captured, and
+        // the session that asked is recorded as the parent, never as anybody's owner.
+        if (s.Length == 4 && s[3] == "restore") return verb is "POST";
 
         return false;
     }
@@ -523,6 +660,10 @@ public static class SessionKeyGuard
         // is the line this whole set is drawn on.
         "gateway/turn-verdict-judge" => true,
         "gateway/turn-verdict-colour" => true,
+        // Which session is the account's Fleet Manager. It says which session's Workers the Wingman judges -
+        // how the product behaves - and admits nobody: the mark names a session already inside the account.
+        // The Fleet Manager sets it through the command line, so a session key must reach it.
+        "gateway/fleet-manager" => true,
         _ => false,
     };
 

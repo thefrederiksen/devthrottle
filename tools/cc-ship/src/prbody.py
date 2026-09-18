@@ -36,6 +36,9 @@ def testing_section(verify: dict | None, step_state: str, checks: list[str],
                     evidence = evidence.replace(name, f"[{name}]({url})")
             lines.append(f"| {_cell(s['name'])} | {s['result'].upper()} | "
                          f"{'yes' if s['live'] else 'no'} | {evidence} |")
+    if links:
+        folder = next(iter(links.values())).rsplit("/", 1)[0].replace("/blob/", "/tree/", 1)
+        lines.append(f"\nAll evidence ({len(links)} files): [{folder.split('/runs/', 1)[1]}]({folder})")
     lines.append("")
     if checks_state == "skipped":
         lines.append("Local checks: SKIPPED - .ship.yaml on main declares none")
@@ -63,6 +66,10 @@ def review_section(run: dict, owner_decisions: list[dict]) -> list[str]:
         label = {"keep": "OWNER KEPT", "drop": "OWNER DROPPED", "fix": "OWNER SAID FIX"}[d["decision"]]
         note = f' (owner: "{_cell(d["note"])}")' if d["note"] else ""
         lines.append(f"- {label}: {_cell(d['title'])}{note}")
+    if any(h.get("same_family") for h in history):
+        lines.append(f"Note: the reviewer is the author's agent family ({run['author_agent']}) on a "
+                     f"different model than the author ({run.get('author_model') or 'unknown'}), "
+                     "as .ship.yaml on main allows. This is a weaker check than another family.")
     lines.append("Pre-answered by mission brief: none")
     return lines
 

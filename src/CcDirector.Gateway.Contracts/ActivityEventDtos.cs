@@ -201,6 +201,12 @@ public static class ActivityEventTypes
     /// detail carries the two verdict ids and never a word of the screen.</summary>
     public const string TurnVerdictExpired = "turn-verdict-expired";
 
+    /// <summary>An expiry the carrying-on clock wrote was UNDONE: the session owns a live session again, so a
+    /// "continues-alone" verdict was stored in the expiry's place and the clock started again from that moment
+    /// (the owner's ruling, 2026-09-17). The cause is <see cref="ActivityCauses.CarryingOnAgain"/>; the detail
+    /// carries the two verdict ids and never a word of the screen.</summary>
+    public const string TurnVerdictExpiryUndone = "turn-verdict-expiry-undone";
+
     /// <summary>A snooze's clock ran out and the Wingman ruled on what that means (ruling 10): nothing happened
     /// while it ran, or a stop happened and its verdict rules, or a stop happened with no verdict covering it and
     /// the judge is being asked now, or a verdict was already being formed and the answer is on its way. The cause
@@ -235,7 +241,7 @@ public static class ActivityEventTypes
         SupervisorFaultDetected, SupervisorWaiting, SupervisorContinueSent, SupervisorRecovered,
         SupervisorEscalated, SupervisorStoodDown,
         TurnVerdictJudged, TurnVerdictReused, TurnVerdictFailed, TurnVerdictSkipped, TurnVerdictCancelled,
-        TurnVerdictExpired, TurnVerdictSnoozeExpiry, TurnVerdictAnswered, TurnVerdictAnswerRefused,
+        TurnVerdictExpired, TurnVerdictExpiryUndone, TurnVerdictSnoozeExpiry, TurnVerdictAnswered, TurnVerdictAnswerRefused,
         TurnVerdictAnswerUnconfirmed, TurnVerdictFeedbackRefused,
     };
 }
@@ -353,16 +359,25 @@ public static class ActivityCauses
     /// <summary>This account already has as many judgements in flight as its ceiling allows.</summary>
     public const string InFlightCap = "in-flight-cap";
 
-    /// <summary>A judgement for this same session is already in flight, so a second stop is not queued.</summary>
+    /// <summary>A judgement for this same session is already in flight, so a second stop joins it and asks the judge
+    /// nothing of its own.</summary>
     public const string AlreadyJudging = "already-judging";
 
     /// <summary>A voice narration's speech re-attempt found no verdict it could reuse. A re-attempt never asks the
     /// judge, so it gives up for that stop instead of making a second model call for it.</summary>
     public const string ReattemptNeverJudges = "reattempt-never-judges";
 
+    /// <summary>A stop was waiting for this session's judgement when the Gateway began shutting down, so it was never
+    /// judged. It still leaves a cancelled row under this cause.</summary>
+    public const string Shutdown = "shutdown";
+
     /// <summary>A "continues-alone" verdict passed its carrying-on deadline - the announced next wake-up plus two
     /// minutes, or ten minutes after it was judged - with no Working transition in between.</summary>
     public const string CarryingOnExpired = "carrying-on-expired";
+
+    /// <summary>A session whose carrying-on clock had already run out owns a LIVE session again - one in the fresh
+    /// roster that has not exited and is not snoozed - so it is carrying on after all and its expiry was undone.</summary>
+    public const string CarryingOnAgain = "carrying-on-again";
 
     /// <summary>A snooze's clock ran out and no turn had ended since it was set, so the row came back calm and
     /// nobody was asked anything (ruling 10). The common case, and the whole point of the rule.</summary>
@@ -471,7 +486,8 @@ public static class ActivityCauses
         TransientTransport, RateLimited, ContextFull, NonRecoverable, UnclassifiedFault,
         MenuOwnsScreen, RetryCeiling,
         JudgeAnswered, ScreenUnchanged, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
-        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, CarryingOnExpired,
+        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, Shutdown, CarryingOnExpired,
+        CarryingOnAgain,
         SnoozeNothingNew, SnoozeVerdictRules, SnoozeReJudgeRequested, SnoozeReadInFlight,
         OwnerAnswered, AnswerMalformed, AnswerSessionNotFound, AnswerShadowRecord, AnswerVerdictNotFound, AnswerVerdictFailed,
         AnswerVerdictSuperseded, AnswerSelectionRefused, AnswerScreenUnreadable, AnswerScreenChanged,

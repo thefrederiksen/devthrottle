@@ -1,0 +1,43 @@
+# 01-worker-after-three-rings - session 1cf708f7-2fbf-46f2-bccd-28316494f7a7 (Proof - Worker) at 2026-09-17T06:15:02.2090750Z
+# director activity state: WaitingForInput
+# visible screen rows:
+|
+|
+|❯ [DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox
+|
+|⏺ IGNORED
+|
+|✻ Brewed for 2s · done 2:11 AM
+|
+|❯ [DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox
+|
+|⏺ IGNORED
+|
+|✻ Churned for 1s · done 2:11 AM
+|
+|❯ [DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox
+|
+|⏺ IGNORED
+|
+|✻ Churned for 1s · done 2:12 AM
+|
+|❯ [DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox
+|
+|⏺ IGNORED
+|
+|✻ Sautéed for 1s · done 2:14 AM
+|
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|❯
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|

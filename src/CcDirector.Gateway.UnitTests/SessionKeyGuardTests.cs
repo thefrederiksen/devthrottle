@@ -26,6 +26,8 @@ public sealed class SessionKeyGuardTests
     // served is the route's decision - while an account's colours are off these serve a device key only -
     // because a guard is a pure function on a method and a path and cannot see a tenant's settings.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts")]
     [InlineData("GET", "/repositories")]
     [InlineData("GET", "/worktrees")]
@@ -58,30 +60,40 @@ public sealed class SessionKeyGuardTests
     // Workspaces (issue #2722): the named set of seats a drain captures and a restore reads.
     [InlineData("GET", "/gateway/workspaces")]
     [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06")]
+    // The calling session's own message inbox (the Message Load mission).
+    [InlineData("GET", "/fleet/inbox")]
     public void The_read_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
     [Theory]
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/prompt")]
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/interrupt")]
+    // A queued message into another session's inbox (the Message Load mission). Who may be written to is the
+    // route's ruling, because it needs the roster; the guard only lets the request reach it.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/message")]
+    [InlineData("POST", "/fleet/broadcast")]
+    // An answer to a message that asked for one (slice 3). Who may answer, and to whom, is the route's ruling.
+    [InlineData("POST", "/fleet/reply")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/hold")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/role")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/mission")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/compact-context")]
+    // `session raise` (issue #2662). Refused to every agent until the Message Load mission's inspection 1, ruling 3;
+    // whose hand may be raised is the route's check.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/needs-manager")]
     // Mission "Stop a session", Ruling 4: any session may stop any other in the same account, because the
     // stop carries a reason and is audited. Ruling 6: and the polite flag comes off the way it went on.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/stop")]
-    // Answer a judged stop - the one write path for a verdict's options.
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
-    // Report a judged stop WRONG (the Wingman-on-every-turn mission, slice G). Narrower than the answer beside
-    // it: it writes one row of our own record and reaches nothing outside the Gateway. Whether the route SERVES
+    // Report a judged stop WRONG (the Wingman-on-every-turn mission, slice G). It writes one row of our own
+    // record and reaches nothing outside the Gateway. (Answering one is refused - see the agent input set below.) Whether the route SERVES
     // a session key is still the route's own decision - while the account's colours are off its verdicts are a
     // shadow record and the route refuses one, exactly as the reads do.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
+    // Dev reports (issue #2958): a session publishes and replies on its OWN reports. The route refuses any other
+    // session id; the guard cannot read one.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies")]
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("PATCH", "/sessions/11111111-1111-1111-1111-111111111111")]
-    [InlineData("POST", "/fanout")]
     [InlineData("POST", "/missions")]
     // The third verb on a record a session key can already create and read: rename it, set its WHY,
     // and end it (complete / removed) or reopen it. An agent that can open a mission but can never
@@ -97,8 +109,68 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/workspaces")]
     [InlineData("PUT", "/gateway/workspaces/director-restart-2026-09-06")]
     [InlineData("DELETE", "/gateway/workspaces/director-restart-2026-09-06")]
+    // Ask a Director to restore a drained fleet (the Message Load mission, slice 6). A session drives the
+    // restore as it drives the drain; the Director names the owners, from the capture.
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore")]
     public void The_action_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
+
+    // ---------- No agent types into a session (the Message Load mission, ruling 17) ----------
+    //
+    // These four were on the ALLOWED list above until 16 September 2026. Each put keystrokes into a running
+    // session, and each was a way round the inbox. They are refused with a sentence that names the queued
+    // message, because an agent told only "may not call POST /sessions/x/prompt" does not learn what to do.
+
+    [Theory]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/prompt")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/interrupt")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/escape")]
+    [InlineData("POST", "/fanout")]
+    // Answering a judged stop types the verdict's option into the session (inspection 1, ruling 1). It was on
+    // the allowed list above until the slice 1 fix round.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
+    [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/Turn-Verdict/ANSWER/")]
+    // Case is folded before matching, as ASP.NET routing folds it; an upper-cased path is the same route.
+    [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/PROMPT")]
+    [InlineData("post", "/fanout/")]
+    public void Typing_into_a_session_is_refused_with_the_queued_message_named(string method, string path)
+    {
+        var verdict = SessionKeyGuard.Check(method, path);
+        Assert.False(verdict.Allowed, $"{method} {path} must be refused to a session key");
+        Assert.Equal(AgentInputRefusal.Typing, verdict.Reason);
+        Assert.Contains("cc-devthrottle message send", verdict.Reason);
+    }
+
+    [Theory]
+    // The shapes beside the refused ones stay as they were: a plain compaction (its continue prompt is refused
+    // by the route, which can read the body), a queued message, and a GET of the buffer.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/compact-context")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/message")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/buffer")]
+    // Reporting a judged stop wrong writes only our own record, and reading a verdict types nothing.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict")]
+    public void The_neighbours_of_the_refused_input_routes_are_unchanged(string method, string path)
+        => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should still be allowed");
+
+    [Fact]
+    public void Reading_another_sessions_inbox_by_id_is_not_a_route_a_session_key_reaches()
+    {
+        // The inbox has no session id in its path on purpose. A shape that named one would let a key read - and
+        // so acknowledge - someone else's messages; if such a route is ever added it is refused until classified.
+        Assert.False(SessionKeyGuard.Check("GET", "/fleet/inbox/11111111-1111-1111-1111-111111111111").Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/fleet/inbox").Allowed);
+    }
+
+    [Fact]
+    public void The_reply_route_is_allowed_only_in_its_one_shape()
+    {
+        // Slice 3: the id is in the body, so a shape carrying one in the path, or a read of the route, is not a route
+        // a session key reaches.
+        Assert.True(SessionKeyGuard.Check("POST", "/fleet/reply").Allowed);
+        Assert.False(SessionKeyGuard.Check("GET", "/fleet/reply").Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/fleet/reply/0123456789abcdef0123456789abcdef").Allowed);
+    }
 
     // ---------- The routes the SHIPPED CLIENTS actually call ----------
     //
@@ -145,9 +217,48 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06")]
     [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restart")]
     [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06/seats")]
+    [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06/restore")]
+    [InlineData("PUT", "/gateway/workspaces/director-restart-2026-09-06/restore")]
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore/now")]
+    // What a restore did is written only by the Director running it (inspection 7, ruling 1). A session never.
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore/marks")]
     public void Workspace_shapes_the_Gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a routed workspace shape and must not be authorized");
+
+    // The Fleet Manager mission, step 3: the Fleet Manager is a session, and files, answers and reads its
+    // records with its own key.
+    [Theory]
+    [InlineData("GET", "/gateway/fleet-manager/outcomes")]
+    [InlineData("POST", "/gateway/fleet-manager/outcomes")]
+    [InlineData("GET", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001")]
+    [InlineData("POST", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/answer")]
+    [InlineData("GET", "/gateway/fleet-manager/preferences")]
+    [InlineData("POST", "/gateway/fleet-manager/preferences")]
+    [InlineData("DELETE", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002")]
+    [InlineData("GET", "/gateway/fleet-manager/digest")]
+    [InlineData("GET", "/gateway/fleet-manager/events")]
+    [InlineData("POST", "/gateway/fleet-manager/events/ack")]
+    public void The_fleet_manager_routes_are_allowed(string method, string path)
+        => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
+
+    // Only the shapes the Gateway maps, each with its own verb. A word hung off the prefix later is refused
+    // until somebody classifies it. (GET and PUT on the bare prefix are the account's mark, allowed above.)
+    [Theory]
+    [InlineData("DELETE", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001")]
+    [InlineData("PUT", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001")]
+    [InlineData("GET", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/answer")]
+    [InlineData("POST", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/reopen")]
+    [InlineData("DELETE", "/gateway/fleet-manager/preferences")]
+    [InlineData("POST", "/gateway/fleet-manager/digest")]
+    [InlineData("GET", "/gateway/fleet-manager/purge")]
+    [InlineData("POST", "/gateway/fleet-manager/events")]
+    [InlineData("DELETE", "/gateway/fleet-manager/events")]
+    [InlineData("GET", "/gateway/fleet-manager/events/ack")]
+    [InlineData("POST", "/gateway/fleet-manager/events/5b1c2d3e-0000-4000-8000-000000000001")]
+    [InlineData("POST", "/gateway/fleet-manager/events/ack/all")]
+    public void Fleet_manager_shapes_the_gateway_does_not_route_stay_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");
 
     [Fact]
     public void Restarting_a_Director_is_still_refused_even_though_capturing_its_fleet_is_not()
@@ -233,6 +344,9 @@ public sealed class SessionKeyGuardTests
     // judged, and whether the verdicts reach its screens. Both say how the product BEHAVES.
     [InlineData("PUT", "/gateway/turn-verdict-judge")]
     [InlineData("PUT", "/gateway/turn-verdict-colour")]
+    // The account's Fleet Manager mark: read it, and set or clear it (both are the one PUT).
+    [InlineData("GET", "/gateway/fleet-manager")]
+    [InlineData("PUT", "/gateway/fleet-manager")]
     // Handovers: list, read one, write one, remove one. Moving a session needs the first three.
     [InlineData("GET", "/directors/d-1/handovers")]
     [InlineData("GET", "/directors/d-1/handovers/content")]
@@ -337,6 +451,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts")]
     [InlineData("POST", "/gateway/turn-verdict-judge")]
     [InlineData("DELETE", "/gateway/turn-verdict-colour")]
+    // Clearing the Fleet Manager mark is a PUT with a null id, so no other verb is a route there.
+    [InlineData("POST", "/gateway/fleet-manager")]
+    [InlineData("DELETE", "/gateway/fleet-manager")]
+    [InlineData("PUT", "/gateway/fleet-manager/anything")]
     // And nothing hung off a verdict path later is reachable by accident - the allow matches a length
     // of exactly three segments.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/options")]
@@ -356,6 +474,18 @@ public sealed class SessionKeyGuardTests
     // the daily corpus pull - so a session key reaching it would be a session credential reading an operator
     // surface. Named here rather than left to the default deny, so the census says the route exists and that
     // this guard refuses it.
+    // Dev reports (issue #2958): the OWNER routes. A session key is never the owner - it may not list the
+    // account's reports, read one through the owner surface, fetch its bytes, or send notes and answers into a
+    // session as if the owner had. And nothing hung off the session routes is reachable by accident.
+    [InlineData("GET", "/dev-reports")]
+    [InlineData("GET", "/dev-reports/22222222-2222-2222-2222-222222222222")]
+    [InlineData("GET", "/dev-reports/22222222-2222-2222-2222-222222222222/html")]
+    [InlineData("POST", "/dev-reports/22222222-2222-2222-2222-222222222222/send")]
+    [InlineData("PUT", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports")]
+    [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/send")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies/again")]
     [InlineData("GET", "/gateway/admin/turn-verdict-feedback")]
     [InlineData("POST", "/gateway/admin/turn-verdict-feedback")]
     // Somebody else's Director process lifecycle on another machine.
@@ -390,6 +520,10 @@ public sealed class SessionKeyGuardTests
     // allowed above now. Deleting a SESSION is different and stays refused - `request-deletion` is the
     // verb an agent has for that, and it is a request rather than an execution.
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111")]
+    // The Wingman inspector's read (phase 2). It serves raw terminal screens, conversations, the whole prompt and the
+    // judge's raw answer, so it is the account's devices' only - never a session key's, whatever the colour switch
+    // says. It is deliberately NOT on the allow list, and its handler refuses a session key on its own as well.
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/wingman-stops")]
     // The diagnostics and reporting surfaces.
     [InlineData("GET", "/diag/loadmetrics")]
     [InlineData("GET", "/gateway/reports/morning")]

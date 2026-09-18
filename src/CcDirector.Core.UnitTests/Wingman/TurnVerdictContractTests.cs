@@ -839,6 +839,91 @@ public sealed class TurnVerdictContractTests
         Assert.Contains("no spoken section", result.FailureReason);
     }
 
+    // ================================================================= a refusal keeps its words (slice I)
+
+    public static IEnumerable<object[]> ReadableRefusals()
+    {
+        // The field checks that refused most of 16 September's silent stops, each on otherwise readable JSON.
+        yield return new object[] { "receipt not found", Answer(verdict: TurnVerdictVocabulary.Finished,
+            evidence: "I rewrote the whole retention module from scratch.", label: "Retention sweep done", risk: "none") };
+        yield return new object[] { "finishedKind on the wrong verdict", Answer(verdict: TurnVerdictVocabulary.ContinuesAlone,
+            evidence: ReportEvidence, label: "Carrying on", risk: "none", finishedKind: "done") };
+        yield return new object[] { "exactly one option", Answer(verdict: TurnVerdictVocabulary.Finished,
+            evidence: ReportEvidence, label: "Retention sweep done", risk: "none",
+            options: new object[] { new { key = "Commit", send = "commit it", recommended = true, note = "Commits the sweep." } }) };
+        yield return new object[] { "options null", Answer(verdict: TurnVerdictVocabulary.Finished,
+            evidence: ReportEvidence, label: "Retention sweep done", risk: "none", optionsNull: true) };
+        yield return new object[] { "menu the wrong type", Answer(verdict: TurnVerdictVocabulary.Finished,
+            evidence: ReportEvidence, label: "Retention sweep done", risk: "none", menu: new[] { "not", "an", "object" }) };
+        yield return new object[] { "over-long option", Answer(verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: ReportEvidence, label: "Commit it?", risk: "none",
+            options: new object[]
+            {
+                new { key = new string('k', TurnVerdictContract.MaxOptionKeyChars + 1), send = "yes", recommended = true, note = "Commits." },
+                new { key = "No", send = "no", recommended = false, note = "Leaves it." },
+            }) };
+    }
+
+    [Theory]
+    [MemberData(nameof(ReadableRefusals))]
+    public void ParseAndValidate_ReadableJsonRefusedOnAFieldCheck_StaysRefused_ButKeepsItsSpokenText(string why, string answer)
+    {
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed, why + ": expected a refusal");
+        Assert.False(string.IsNullOrWhiteSpace(result.FailureReason), why);
+        // The row-facing fields stay empty: the refusal still stands for everything that acts.
+        Assert.Equal("", result.Verdict);
+        Assert.Equal("", result.Label);
+        Assert.Empty(result.Options);
+        // And the words the judge wrote for the ear are kept.
+        Assert.Equal(
+            "Retention timer. The sweep now deletes rows older than seven days and the test covers it. Nothing is needed from you.",
+            result.Spoken);
+        Assert.True(TurnVerdictContract.IsReadableJsonObject(answer), why);
+    }
+
+    [Fact]
+    public void ParseAndValidate_RefusedAnswer_KeepsItsSpokenText_CutAtTheSameBoundAsAnAcceptedOne()
+    {
+        var answer = Answer(verdict: TurnVerdictVocabulary.Finished,
+            evidence: "a sentence the agent never wrote", label: "Retention sweep done", risk: "none",
+            spoken: string.Concat(Enumerable.Repeat("alpha ", 400)));
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.True(result.Spoken.Length <= TurnVerdictContract.MaxSpokenChars, $"{result.Spoken.Length} characters");
+        Assert.True(result.Spoken.Length > TurnVerdictContract.MaxSpokenChars - 6, "more than one word was lost");
+        Assert.EndsWith("alpha", result.Spoken);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("the verdict is finished and nothing is needed")]
+    [InlineData("{\"verdict\": \"finished\", \"spoken\": \"cut off mid")]
+    [InlineData("[\"an array, not an object\"]")]
+    public void ParseAndValidate_AnswerThatIsNotAJsonObject_CarriesNoSpokenText(string raw)
+    {
+        var result = TurnVerdictContract.ParseAndValidate(raw, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Equal("", result.Spoken);
+        Assert.False(TurnVerdictContract.IsReadableJsonObject(raw));
+    }
+
+    [Fact]
+    public void IsReadableJsonObject_AbsorbsFencesAndPreamble_ExactlyAsValidationDoes()
+    {
+        var json = Answer(verdict: TurnVerdictVocabulary.Finished, evidence: ReportEvidence,
+            label: "Retention sweep done", risk: "none");
+
+        Assert.True(TurnVerdictContract.IsReadableJsonObject("```json\n" + json + "\n```"));
+        Assert.True(TurnVerdictContract.IsReadableJsonObject("Here is my answer: " + json));
+        Assert.False(TurnVerdictContract.ParseAndValidate("```json\n" + json + "\n```", ReportStop(), Model, ObservedAt).Failed);
+    }
+
     [Fact]
     public void ParseAndValidate_OverLongFields_AreCutAtTheLastWholeWord()
     {
@@ -1636,7 +1721,8 @@ public sealed class TurnVerdictContractTests
         // a check that cannot fail. The inspector proved it by setting Version back to "v2" with the
         // revised prompt still in place; the test stayed green, so the wording revision it exists to force
         // would have shipped unstamped. Pinning the literal is what makes the next revision deliberate.
-        Assert.Equal("v2.1", TurnVerdictContract.Version);
+        // v2.2 (slice I) changed validation only: a readable refusal keeps its spoken text. The prompt is v2.1's.
+        Assert.Equal("v2.2", TurnVerdictContract.Version);
 
         var major = TurnVerdictContract.Version.Split('.')[0];
         Assert.Equal("v2", major);

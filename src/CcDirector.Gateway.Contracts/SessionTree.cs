@@ -97,8 +97,8 @@ public static class SessionTree
     /// can go more than one level deep (an Architect's Manager's Workers), and every level is kept.
     ///
     /// THE CROSS-DIRECTOR RULE, stated once for every shell and both orders: the tree is built over the
-    /// WHOLE list, never per machine. A session may supervise a session on another machine (the command
-    /// line's --controlled-by takes any session id, and the Gateway resolves liveness fleet-wide), so a
+    /// WHOLE list, never per machine. A session may supervise a session on another machine (the owner
+    /// named at spawn may live on any Director, and the Gateway resolves liveness fleet-wide), so a
     /// child nests under its parent wherever the parent lives, and a child on another machine says so on
     /// its own row (see <see cref="IsOnAnotherMachine"/>). A view that groups by machine groups the ROOTS.
     ///
@@ -256,6 +256,27 @@ public static class SessionTree
             StringComparison.Ordinal);
     }
 
+    /// <summary>The crew word for a session that needs a person.</summary>
+    public const string CrewStateNeedsYou = "needs-you";
+
+    /// <summary>The crew word for a session that is not stopped.</summary>
+    public const string CrewStateWorking = "working";
+
+    /// <summary>The crew word for a session that has stopped and is quiet (parked, or supervised and done).</summary>
+    public const string CrewStateStopped = "stopped";
+
+    /// <summary>
+    /// ONE session's word in its crew line: <see cref="CrewStateNeedsYou"/>, <see cref="CrewStateWorking"/> or
+    /// <see cref="CrewStateStopped"/>. The crew line counts these words, and the Fleet Manager's digest prints
+    /// them per session, so the two cannot disagree about what a session under someone is doing.
+    /// </summary>
+    public static string CrewState(SessionDto s) => SessionOrdering.Classify(s) switch
+    {
+        SessionOrdering.TriageBucket.NeedsYou => CrewStateNeedsYou,
+        SessionOrdering.TriageBucket.OnHold => CrewStateStopped,
+        _ => CrewStateWorking,
+    };
+
     /// <summary>
     /// The crew summary for a collapsed row. Pass EVERY session under the root -
     /// <c>DescendantsOf(tree, root).Select(d =&gt; d.Session)</c> - not just the direct children: a crew
@@ -266,9 +287,9 @@ public static class SessionTree
     {
         var kids = crew as IReadOnlyList<SessionDto> ?? crew.ToList();
 
-        var needsYou = kids.Count(s => SessionOrdering.Classify(s) == SessionOrdering.TriageBucket.NeedsYou);
-        var working = kids.Count(s => SessionOrdering.Classify(s) == SessionOrdering.TriageBucket.Active);
-        var stopped = kids.Count(s => SessionOrdering.Classify(s) == SessionOrdering.TriageBucket.OnHold);
+        var needsYou = kids.Count(s => CrewState(s) == CrewStateNeedsYou);
+        var working = kids.Count(s => CrewState(s) == CrewStateWorking);
+        var stopped = kids.Count(s => CrewState(s) == CrewStateStopped);
 
         DateTime? since = null;
         foreach (var s in kids.Prepend(root))

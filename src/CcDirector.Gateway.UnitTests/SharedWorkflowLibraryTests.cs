@@ -120,14 +120,14 @@ public sealed class SharedWorkflowLibraryTests : IDisposable
             workflows.Publish("acme-flow");
 
             var mine = workflows.ListPublished();
-            Assert.Equal(4, mine.Count); // three shared built-ins + my own
+            Assert.Equal(5, mine.Count); // four shared built-ins + my own
             Assert.Contains(mine, w => w.Id == "acme-flow" && !w.IsBuiltIn);
         }
 
         using (_tenant.Enter(TenantB))
         {
             var theirs = workflows.ListPublished();
-            Assert.Equal(3, theirs.Count); // the shared built-ins ONLY - never another tenant's workflow
+            Assert.Equal(4, theirs.Count); // the shared built-ins ONLY - never another tenant's workflow
             Assert.DoesNotContain(theirs, w => w.Id == "acme-flow");
             Assert.Null(workflows.GetPublished("acme-flow"));
             Assert.Null(workflows.GetInstructions("acme-flow", null));
@@ -195,7 +195,7 @@ public sealed class SharedWorkflowLibraryTests : IDisposable
         var workflows = new WorkflowStore(db);
 
         var catalog = workflows.ListPublished();
-        Assert.Equal(3, catalog.Count);
+        Assert.Equal(4, catalog.Count);
         Assert.Contains(catalog, w => w.Id == "mission");
         Assert.Equal(BuiltInWorkflows.InstructionsFor("mission"), workflows.GetInstructions("mission", null));
     }

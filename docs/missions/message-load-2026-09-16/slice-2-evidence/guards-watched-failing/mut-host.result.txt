@@ -1,0 +1,10 @@
+== MUTATION settled edge not wired to the doorbell: exit=1
+    Failed!  - Failed:     2, Passed:     1, Skipped:     0, Total:     3, Duration: 22 s - CcDirector.Gateway.Tests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.FleetDoorbellRouteTests.A_working_session_is_not_rung_and_its_settled_edge_rings_it_with_the_unread_count [10 s]
+    Failed CcDirector.Gateway.Tests.FleetDoorbellRouteTests.A_deferred_answer_is_not_recorded_as_a_ring [10 s]
+== MUTATION the Director's answer is ignored (always rung): exit=1
+    Failed!  - Failed:     1, Passed:     2, Skipped:     0, Total:     3, Duration: 2 s - CcDirector.Gateway.Tests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.FleetDoorbellRouteTests.A_deferred_answer_is_not_recorded_as_a_ring [307 ms]
+== MUTATION ring sent with no count: exit=1
+    Failed!  - Failed:     1, Passed:     2, Skipped:     0, Total:     3, Duration: 2 s - CcDirector.Gateway.Tests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.FleetDoorbellRouteTests.A_working_session_is_not_rung_and_its_settled_edge_rings_it_with_the_unread_count [586 ms]

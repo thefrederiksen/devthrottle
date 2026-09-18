@@ -11,6 +11,14 @@ from contracts import ACTIONS, REVIEW_EXAMPLE
 DONE_COMMAND = 'cc-devthrottle session done --reason "cc-ship {role} finished"'
 
 
+def finish_steps(output: Path, role: str, indent: str = "    ") -> str:
+    """How every spawned session ends: flag itself done, THEN write its done marker."""
+    marker = output.with_name(output.name + ".done")
+    return (f"{indent}{DONE_COMMAND.format(role=role)}\n\n"
+            f"Only if that command succeeded, write the single word done to this file, "
+            f"and then stop:\n\n{indent}{marker}")
+
+
 def reviewer_brief(
     *,
     repo: Path,
@@ -106,9 +114,9 @@ there are none; "line" may be null):
 {json.dumps(REVIEW_EXAMPLE, indent=2)}
 ```
 
-Use ASCII only. Then run this command, and stop:
+Use ASCII only. Then run this command:
 
-    {DONE_COMMAND.format(role="reviewer")}
+{finish_steps(output, "reviewer")}
 """
 
 
@@ -123,7 +131,7 @@ The file {output} does not match the required shape:
 
 Rewrite {output} so that every problem above is gone, keeping {keep}. Then run:
 
-    {DONE_COMMAND.format(role=role)}
+{finish_steps(output, role)}
 """
 
 
@@ -234,7 +242,7 @@ in exactly this shape (placeholder values):
 {json.dumps(VERIFY_EXAMPLE, indent=2)}
 ```
 
-Use ASCII only. Then run this command, and stop:
+Use ASCII only. Then run this command:
 
-    {DONE_COMMAND.format(role="verifier")}
+{finish_steps(output, "verifier")}
 """

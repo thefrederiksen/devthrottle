@@ -16,8 +16,15 @@ public sealed record UpdateOptions
     /// <summary>The running build's version (from the entry assembly).</summary>
     public required Version CurrentVersion { get; init; }
 
-    /// <summary>The path a new build must overwrite (exe on Windows, .app on macOS).</summary>
+    /// <summary>The path a new build must overwrite (the executable on Windows and Linux, the .app on macOS).</summary>
     public required string InstallTarget { get; init; }
+
+    /// <summary>
+    /// The operating system and processor to pick a download for, in place of the running machine's.
+    /// Null in the product. Tests set it so the choice of download can be proved for every platform on
+    /// whichever machine runs them.
+    /// </summary>
+    internal (OSPlatform Os, Architecture Arch)? PlatformOverride { get; init; }
 
     public string Owner { get; init; } = GitHubRepositoryDefaults.Owner;
     public string Repo { get; init; } = GitHubRepositoryDefaults.Repository;
@@ -158,12 +165,12 @@ public sealed class UpdateService
                 return UpdatePhase.UpToDate;
             }
 
-            var assetName = AssetNameFor(GetOSPlatform(), RuntimeInformation.OSArchitecture);
-            if (assetName is null)
-            {
-                FileLog.Write($"[UpdateService] No asset mapping for {RuntimeInformation.OSDescription}/{RuntimeInformation.OSArchitecture}; skipping.");
-                return UpdatePhase.UpToDate;
-            }
+            // A platform with no asset name is NOT skipped here any more. It used to return "up to date"
+            // before looking at anything and before writing anything down, so a Linux Director showed
+            // "not checked yet" for ever while offering a check that silently did nothing. It now checks
+            // like every other platform and concludes NoBuildForThisPlatform below, which says what it is.
+            var (os, arch) = _options.PlatformOverride ?? (GetOSPlatform(), RuntimeInformation.OSArchitecture);
+            var assetName = AssetNameFor(os, arch);
 
             var state = loaded = UpdaterState.Load();
             state.LastCheckedAt = DateTimeOffset.UtcNow;
@@ -201,7 +208,7 @@ public sealed class UpdateService
                 return Conclude(state, UpdatePhase.Staged, versionText);
             }
 
-            var assetUrl = FindAssetUrl(release.RootElement, assetName);
+            var assetUrl = assetName is null ? null : FindAssetUrl(release.RootElement, assetName);
             var manifestUrl = FindAssetUrl(release.RootElement, ManifestAssetName);
 
             // These two used to be ONE test, and the pair reported "up to date". They are not the same
@@ -214,6 +221,14 @@ public sealed class UpdateService
                 FileLog.Write($"[UpdateService] Release {tag} has no manifest yet; its downloads have not been attached. "
                               + "Not up to date and not a failure - worth another look shortly.");
                 return Conclude(state, UpdatePhase.ReleaseNotReady, versionText);
+            }
+
+            if (assetName is null)
+            {
+                var platform = $"{RuntimeInformation.OSDescription} on {arch}";
+                FileLog.Write($"[UpdateService] No Director build is published for {platform}; this machine cannot update itself.");
+                return Conclude(state, UpdatePhase.NoBuildForThisPlatform, versionText,
+                    $"no Director build is published for {platform}");
             }
 
             if (assetUrl is null)
@@ -300,8 +315,12 @@ public sealed class UpdateService
         }
         else
         {
-            // Windows: the asset is the single-file exe itself.
+            // Windows and Linux: the asset is the single-file executable itself. A download is written
+            // without the executable bit, and on Linux the relauncher starts this very file, so it must
+            // be made runnable or the install fails at the moment the old Director has already exited.
             stagedExecutable = assetPath;
+            if (!OperatingSystem.IsWindows())
+                MakeExecutable(stagedExecutable);
         }
 
         return new StagedUpdate(version, stagedExecutable, _options.InstallTarget);
@@ -367,6 +386,8 @@ public sealed class UpdateService
             return "cc-director-win-x64.exe";
         if (os == OSPlatform.OSX && arch == Architecture.Arm64)
             return "cc-director-mac-arm64.zip";
+        if (os == OSPlatform.Linux && arch == Architecture.X64)
+            return "cc-director-linux-x64";
         return null;
     }
 

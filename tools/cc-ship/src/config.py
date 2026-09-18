@@ -9,6 +9,7 @@ Shape:
   "checks": ["npm --prefix website run lint", "..."],
   "rules": ["No secrets ...", "..."],
   "reviewer_agent": "Codex",
+  "reviewer_model": "claude-fable-5-1",      (optional; ClaudeCode only; full model id)
   "verifier_agent": "ClaudeCode",
   "verify": {"surface": "vercel-preview" | "none" | "skip"},
   "docs_only_paths": ["*.md", "docs/**"],
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,6 +41,7 @@ class ShipConfig:
     surface: str
     docs_only_paths: list[str]
     high_paths: list[str] = field(default_factory=list)
+    reviewer_model: str | None = None
 
 
 def _bad(detail: str) -> ShipError:
@@ -63,7 +66,7 @@ def parse(text: str) -> ShipConfig:
     if not isinstance(data, dict):
         raise _bad("the top level must be an object")
     known = {"checks", "rules", "reviewer_agent", "verifier_agent", "verify",
-             "docs_only_paths", "risk"}
+             "docs_only_paths", "risk", "reviewer_model"}
     unknown = sorted(set(data) - known)
     if unknown:
         raise _bad(f"unknown keys: {', '.join(unknown)}")
@@ -79,6 +82,16 @@ def parse(text: str) -> ShipConfig:
     risk = data.get("risk", {})
     if not isinstance(risk, dict):
         raise _bad("'risk' must be an object")
+    reviewer_model = data.get("reviewer_model")
+    if reviewer_model is not None:
+        # A full id only: the author's model is reported as a full id, and an alias such
+        # as "opus" could name the author's own model without the comparison noticing.
+        if not (isinstance(reviewer_model, str)
+                and re.fullmatch(r"claude-[a-z0-9.-]+(\[[a-z0-9]+\])?", reviewer_model, re.I)):
+            raise _bad("'reviewer_model' must be a full model id such as claude-fable-5-1; an "
+                       "alias such as opus cannot be compared with the author's model")
+        if reviewer != "ClaudeCode":
+            raise _bad("'reviewer_model' can be set only when reviewer_agent is ClaudeCode")
     return ShipConfig(
         checks=_string_list(data, "checks"),
         rules=_string_list(data, "rules"),
@@ -87,6 +100,7 @@ def parse(text: str) -> ShipConfig:
         surface=verify["surface"],
         docs_only_paths=_string_list(data, "docs_only_paths"),
         high_paths=_string_list(risk, "high_paths"),
+        reviewer_model=reviewer_model,
     )
 
 

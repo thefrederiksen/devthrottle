@@ -66,6 +66,22 @@ public sealed record TurnVerdictSettings
     /// <see cref="JudgeTimeoutSeconds"/> for the ruling this follows and why it is not wider.</summary>
     public const int DefaultJudgeTimeoutSeconds = 30;
 
+    /// <summary>
+    /// The deadline of the ONE re-attempt a stop somebody is listening to may get (slice I, owner ruling
+    /// 2026-09-16): a voice session, or a person pressing explain, whose first call timed out or answered
+    /// something that is not a JSON object. Sixty seconds is the old translator's deadline, which the owner named.
+    /// Not a per-account setting: it binds only that one re-attempt, and every other call keeps
+    /// <see cref="JudgeTimeoutSeconds"/>.
+    /// </summary>
+    public const int ListenedToReattemptTimeoutSeconds = 60;
+
+    /// <summary>
+    /// How long the narration call (slice J) may take: the old translator's sixty seconds, the same deadline a
+    /// listened-to stop's judge re-attempt gets. The judge's spoken text is already playable while it runs, so a
+    /// call that runs out only leaves that text in place.
+    /// </summary>
+    public const int NarrationCallTimeoutSeconds = 60;
+
     /// <summary>The shipped defaults, as one value.</summary>
     public static readonly TurnVerdictSettings Defaults = new();
 }

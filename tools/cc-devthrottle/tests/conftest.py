@@ -40,6 +40,33 @@ def plain():
     return strip_ansi
 
 
+@pytest.fixture(params=["colour terminal", "not a terminal", "narrow colour terminal"])
+def either_console(request, monkeypatch):
+    """Run the test on a colour terminal, on a console that is not a terminal, and on a narrow colour terminal.
+
+    For the sentences the Gateway writes and this tool only QUOTES - a refusal, a note - `plain` is the
+    wrong tool: those must reach the reader verbatim, so the test asserts on the raw output, and it has to
+    hold whether or not the console styles. The continuous integration job forces colour, a developer's
+    captured run usually does not, and a test that ran only one way hid exactly this: the console coloured
+    the "6" in "the limit is 6".
+
+    It has to hold whatever the width, too (inspection 6, ruling 3). The console wraps a long line by
+    inserting line breaks, and a sentence with a break inside it is no longer the sentence the Gateway sent.
+    That was hidden while every run was wide: a terminal named "dumb" makes the console ignore the width it
+    was given and wrap at 80, and the broadcast refusal row - a full session id, a label and the sentence -
+    was split. The narrow run proves it on any machine. The height is set beside the width because the
+    console honours a fixed size only when both are given; without it, TERM=dumb wins.
+    """
+    from rich.console import Console
+    from src import session_ops
+
+    terminal = request.param != "not a terminal"
+    width = 40 if request.param == "narrow colour terminal" else 500
+    console = Console(force_terminal=terminal, color_system="standard" if terminal else None, width=width, height=25)
+    monkeypatch.setattr(session_ops, "console", console)
+    return request.param
+
+
 @pytest.fixture(autouse=True)
 def inside_a_session(monkeypatch):
     """Run every test as if it were inside a DevThrottle session with a Gateway.

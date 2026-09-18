@@ -1,5 +1,6 @@
 """How cc-ship decides a spawned session has finished, crashed or stalled (issue 2935)."""
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -84,10 +85,10 @@ def test_wait_for_output_WorkedThenIdleWithNoOutput_Stalled(tmp_path, monkeypatc
 
 
 def test_wait_for_output_IdleBeforeEverWorking_NotStalled(tmp_path, monkeypatch, clock):
-    # A session waits for its first prompt before it works; that idle time is not a stall.
+    # A session waits for its first prompt before it works; a short idle start is not a stall.
     fake = _FakeFleet([_row("WaitingForInput")] * 50)
     monkeypatch.setattr(fleet, "find_session", fake.find)
-    result = fleet.wait_for_output("s1", tmp_path / "out.json", 300, poll_seconds=10)
+    result = fleet.wait_for_output("s1", tmp_path / "out.json", 120, poll_seconds=10)
     assert result.outcome == fleet.TIMED_OUT
 
 
@@ -159,3 +160,214 @@ def test_wait_for_output_StallSpansSeparateCalls_Stalled(tmp_path, monkeypatch, 
     assert first.outcome == fleet.TIMED_OUT
     second = fleet.wait_for_output("s1", tmp_path / "out.json", 60, poll_seconds=10, watch=watch)
     assert second.outcome == fleet.STALLED
+
+
+def test_wait_for_output_NeverSeenWorkingForFiveMinutes_Stalled(tmp_path, monkeypatch, clock):
+    # Live, 2026-09-16: three reviewers stopped at once on a usage-limit screen, went idle
+    # before any poll saw them working, and would have waited out the 45-minute limit.
+    watch = {"started": clock[0]}
+    fake = _FakeFleet([_row("WaitingForInput")] * 100)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", tmp_path / "out.json", 3600, poll_seconds=10, watch=watch)
+    assert result.outcome == fleet.STALLED
+    assert "never seen working" in result.reason
+    assert clock[0] - watch["started"] >= fleet.NEVER_WORKED_SECONDS
+
+
+def test_wait_for_output_ReapedBeforeAnyPollButMarkerWritten_Finished(tmp_path, monkeypatch, clock):
+    # Live, 2026-09-16: a reviewer wrote its review, flagged itself done and was reaped
+    # while the author was not inside cc-ship wait; it was wrongly called a crash.
+    out = tmp_path / "review.json"
+    out.write_text("{}", encoding="ascii")
+    fleet.done_marker(out).write_text("done", encoding="ascii")
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", out, 60, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED
+
+
+def test_wait_for_output_OutputButNoMarkerAndGone_StillCrashed(tmp_path, monkeypatch, clock):
+    out = tmp_path / "review.json"
+    out.write_text("{}", encoding="ascii")
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", out, 60, poll_seconds=10)
+    assert result.outcome == fleet.CRASHED
+
+
+def test_wait_for_output_MarkerFromBeforeCorrection_DoesNotCount(tmp_path, monkeypatch, clock):
+    out = tmp_path / "review.json"
+    fleet.done_marker(out).write_text("done", encoding="ascii")
+    out.write_text("{}", encoding="ascii")
+    later = max(out.stat().st_mtime, fleet.done_marker(out).stat().st_mtime) + 60
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", out, 60, poll_seconds=10, written_after=later)
+    assert result.outcome == fleet.CRASHED
+
+
+def test_briefs_EverySessionWritesItsMarkerAfterSessionDone(tmp_path):
+    import briefs
+    out = tmp_path / "review-r1.json"
+    text = briefs.reviewer_brief(repo=tmp_path, base="a", head="b", intent=tmp_path / "i.md",
+                                 diff=tmp_path / "d.patch", decisions=[], output=out,
+                                 repo_rules=[], first_reviewed_head=None)
+    done_at = text.index("cc-devthrottle session done")
+    assert text.index(str(fleet.done_marker(out))) > done_at
+    fix = briefs.correction_brief(out, ["x"], 1, "reviewer")
+    assert str(fleet.done_marker(out)) in fix
+    verify_out = tmp_path / "verify.json"
+    vtext = briefs.verifier_brief(repo=tmp_path, intent=tmp_path / "i.md", preview_url=None,
+                                  browser_state=None, evidence_dir=tmp_path, output=verify_out)
+    assert str(fleet.done_marker(verify_out)) in vtext
+
+
+def test_command_WindowsCmdShim_FullPathUsed(monkeypatch):
+    # Issue 2961: Windows does not find a .cmd file from its bare name.
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.CMD")
+    assert fleet.command(["session", "list"]) == [r"C:\bin\cc-devthrottle.CMD", "session", "list"]
+
+
+def test_command_CmdShimWithQuoteInArgument_Refused(monkeypatch):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    with pytest.raises(fleet.FleetError, match="safely"):
+        fleet.command(["session", "stop", "s1", "--reason", 'said "no"'])
+
+
+@pytest.mark.parametrize("arg", [r"C:\work\R&D", r"C:\work\a^b", "a|b", "a<b", "a>b"])
+def test_command_CmdShimWithCmdMetacharacter_Refused(monkeypatch, arg):
+    # Stall fix round 3: Python quotes only arguments with spaces, so these reach cmd.exe bare.
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    with pytest.raises(fleet.FleetError, match="cmd.exe"):
+        fleet.command(["session", "spawn", arg])
+
+
+@pytest.mark.parametrize("arg", ["Test Mission - Reviewer - ship fix/R&D", r"C:\my work\R&D",
+                                 "a ^ b", 'x | y'])
+def test_command_CmdShimWithMetacharacterInsideQuotes_Allowed(monkeypatch, arg):
+    # Stall fix round 4: an argument with a space is quoted, where these are literal.
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    assert fleet.command(["session", "spawn", "--name", arg])[-1] == arg
+    assert " " in subprocess.list2cmdline([arg]) and subprocess.list2cmdline([arg]).startswith('"')
+
+
+@pytest.mark.parametrize("arg", ["50% done", "say \"hi\" now"])
+def test_command_CmdShimPercentOrQuoteEvenWithSpace_Refused(monkeypatch, arg):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    with pytest.raises(fleet.FleetError, match="cmd.exe"):
+        fleet.command(["session", "stop", "x", "--reason", arg])
+
+
+def test_command_CmdShimWithEveryArgumentCcShipReallyPasses_Allowed(monkeypatch, tmp_path):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    brief = r"C:\Users\soren\AppData\Local\cc-director\ship\runs\20260916-1\brief-review-r1.md"
+    args = ["session", "spawn", r"D:\ReposFred\devthrottle_internal-x", "--agent", "Codex",
+            "--controlled-by", "0d9b30df-9bc9-4e93-ba42-811bf0449103",
+            "--name", "cc-ship - take a finished change to merged on main - Reviewer - ship docs/fix",
+            "--prompt", f"Read the file {brief} and follow it exactly. It is your whole task."]
+    assert fleet.command(args)[1:] == args
+    assert fleet.command(["session", "stop", "x", "--reason", "cc-ship: HEAD moved; the round restarts"])
+
+
+def test_command_RealProgramWithQuote_Allowed(monkeypatch):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: "/usr/local/bin/cc-devthrottle")
+    assert fleet.command(["x", 'a "b"'])[-1] == 'a "b"'
+
+
+def test_command_NotOnPath_FailsLoudly(monkeypatch):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: None)
+    with pytest.raises(fleet.FleetError, match="not on PATH"):
+        fleet.command(["session", "list"])
+
+
+def test_write_launchers_Windows_CmdAndGitBashLauncher(tmp_path):
+    # Issue 2961: Git Bash, the shell sessions use on Windows, runs only the POSIX launcher.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import install
+    written = install.write_launchers(tmp_path, Path("C:/Python311/python.exe"),
+                                      Path("D:/tool/main.py"), windows=True)
+    assert [p.name for p in written] == ["cc-ship.cmd", "cc-ship"]
+    assert (tmp_path / "cc-ship").read_bytes().startswith(b"#!/bin/sh\n")
+    assert b"\r" not in (tmp_path / "cc-ship").read_bytes()
+    assert b"%*" in (tmp_path / "cc-ship.cmd").read_bytes()
+
+
+def test_wait_for_output_MissingFromOneListThenBack_NotGone(tmp_path, monkeypatch, clock):
+    # Live, 2026-09-16: the fleet list briefly left out a working reviewer.
+    out = tmp_path / "review.json"
+    fake = _FakeFleet([_row(), None, None, _row(), _row(pending=True)], output=out, write_at=4)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED
+
+
+def test_wait_for_output_MissingForAFullMinute_Crashed(tmp_path, monkeypatch, clock):
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", tmp_path / "review.json", 600, poll_seconds=10)
+    assert result.outcome == fleet.CRASHED
+    assert len(result.observations) >= 7  # T, T+10 ... T+60: a full minute, not one poll
+
+
+def test_wait_for_output_MissingButFinishedWithMarker_FinishedAtOnce(tmp_path, monkeypatch, clock):
+    out = tmp_path / "review.json"
+    out.write_text("{}", encoding="ascii")
+    fleet.done_marker(out).write_text("done", encoding="ascii")
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED and len(result.observations) == 1
+
+
+def test_wait_for_output_MissingConfirmationSpansSeparateCalls(tmp_path, monkeypatch, clock):
+    # The watch reaches the next cc-ship wait through run.json, so round-trip it as JSON,
+    # and give the second call a slice SHORTER than the window: only carried state can
+    # make it CRASHED.
+    import json
+    watch = {}
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    first = fleet.wait_for_output("s1", tmp_path / "r.json", 50, poll_seconds=10, watch=watch)
+    assert first.outcome == fleet.TIMED_OUT
+    watch = json.loads(json.dumps(watch))
+    second = fleet.wait_for_output("s1", tmp_path / "r.json", 20, poll_seconds=10, watch=watch)
+    assert second.outcome == fleet.CRASHED
+
+
+def test_wait_for_output_MissingFiftySecondsThenBack_NotGone(tmp_path, monkeypatch, clock):
+    # Pins the window's length: fifty seconds missing is not yet gone.
+    out = tmp_path / "review.json"
+    rows = [_row()] + [None] * 6 + [_row(), _row(pending=True)]
+    fake = _FakeFleet(rows, output=out, write_at=8)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED
+
+
+def test_wait_for_output_SecondBriefOmissionLater_StartsANewWindow(tmp_path, monkeypatch, clock):
+    # Pins the reset: a row that came back clears the clock, so a later single omission
+    # is not added to the first one.
+    out = tmp_path / "review.json"
+    rows = [_row(), None] + [_row()] * 7 + [None, _row(), _row(pending=True)]
+    fake = _FakeFleet(rows, output=out, write_at=11)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED
+
+
+def test_spawn_session_ClaudeModel_SetOnTheCommandLineNotTheDefault(monkeypatch, clock):
+    seen = {}
+    def fake_run(args, timeout=120):
+        seen["args"] = args
+        return "id: 11111111-2222-3333-4444-555555555555\n"
+    monkeypatch.setattr(fleet, "_run", fake_run)
+    fleet.spawn_session(Path("."), "ClaudeCode", "me", "n", Path("b"), model="claude-fable-5-1")
+    i = seen["args"].index("--args")
+    assert seen["args"][i + 1] == "--dangerously-skip-permissions --model claude-fable-5-1"
+
+
+def test_spawn_session_ModelForCodex_Refused(monkeypatch, clock):
+    with pytest.raises(fleet.FleetError, match="only for ClaudeCode"):
+        fleet.spawn_session(Path("."), "Codex", "me", "n", Path("b"), model="gpt-5")
+
+
+def test_spawn_session_NoModel_NoArgsOverride(monkeypatch, clock):
+    seen = {}
+    monkeypatch.setattr(fleet, "_run", lambda args, timeout=120: seen.setdefault("a", args) and
+                        "id: 11111111-2222-3333-4444-555555555555\n")
+    fleet.spawn_session(Path("."), "Codex", "me", "n", Path("b"))
+    assert "--args" not in seen["a"]

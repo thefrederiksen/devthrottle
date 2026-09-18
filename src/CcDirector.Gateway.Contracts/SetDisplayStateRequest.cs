@@ -47,4 +47,8 @@ public sealed class SetDisplayStateRequest
     /// stamps a real value, so blank only occurs for an older Gateway that does not send this field).
     /// </summary>
     public string? HoldState { get; set; }
+
+    /// <summary>The Gateway's row line (<see cref="SessionDto.InboxLine"/>): what waits in the session's fleet
+    /// inbox, in finished words, or null when nothing does. Stored and rendered verbatim; null clears it.</summary>
+    public string? InboxLine { get; set; }
 }

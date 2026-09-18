@@ -75,7 +75,7 @@ public sealed class TurnVerdictOwnedSessionsTests
         {
             Screen = () => TurnVerdictTestDoubles.Screen("architect", reply, "> "),
             Conversation = _ => TurnVerdictTestDoubles.Reply("run the migration", reply),
-            Owned = sid => sid == "architect" ? new OwnedSessionsFacts(Working: 2, Stopped: 1, NeedYou: 0, LastActivityAtUtc: T0) : null,
+            Owned = sid => sid == "architect" ? new OwnedSessionsFacts(Working: 2, Live: 3, Stopped: 1, NeedYou: 0, LastActivityAtUtc: T0) : null,
         };
         var service = new TurnVerdictService(env);
 

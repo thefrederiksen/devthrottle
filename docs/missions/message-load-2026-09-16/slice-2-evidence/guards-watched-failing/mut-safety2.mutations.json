@@ -1,0 +1,11 @@
+[
+ {"name":"continuation rows ignored","old":"onPrompt.Length == 0 && continuation.All(string.IsNullOrWhiteSpace)","new":"onPrompt.Length == 0"},
+ {"name":"unframed prompt accepted","old":"                if (!IsRule(rows[prompt - 1])) break;","new":"                if (!IsRule(rows[prompt - 1]) && prompt < 0) break;"},
+ {"name":"exited not checked","old":"        if (facts.Exited)\n","new":"        if (facts.Exited && facts.Frames is null)\n"},
+ {"name":"product retained text not checked","old":"        if (facts.ProductMayHaveLeftText)\n","new":"        if (facts.ProductMayHaveLeftText && facts.Frames is null)\n"},
+ {"name":"director working state not checked","old":"        if (facts.DirectorSaysWorking)\n","new":"        if (facts.DirectorSaysWorking && facts.Frames is null)\n"},
+ {"name":"no terminal grid not checked","old":"        if (!facts.HasTerminalGrid)\n","new":"        if (!facts.HasTerminalGrid && facts.Frames is null)\n"},
+ {"name":"codex hidden cursor accepted","old":"        if (!frame.CursorVisible || frame.CursorRow < 0","new":"        if (frame.CursorRow < 0"},
+ {"name":"blank screen read as a screen","old":"        if (rows.Count == 0 || rows.All(string.IsNullOrWhiteSpace))\n","new":"        if (rows.Count == 0)\n"},
+ {"name":"one frame accepted","old":"        if (facts.Frames is null || facts.Frames.Count < 2)","new":"        if (facts.Frames is null || facts.Frames.Count < 1)"}
+]

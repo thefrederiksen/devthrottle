@@ -308,15 +308,18 @@ def test_run_setup_cli_release_lookup_failure_reaches_the_user(monkeypatch, caps
     monkeypatch.setattr(setup_ops, "_locate_setup_cli", lambda: None)
     monkeypatch.setattr(setup_ops, "_current_platform", lambda: ("linux", "x64"))
     monkeypatch.setattr(setup_ops.urllib.request, "urlopen", _raise_http_error(403))
-    monkeypatch.setattr(setup_ops, "console", setup_ops.Console(width=500))
-
     with pytest.raises(typer.Exit) as exc:
         setup_ops.run_setup_cli("install", "workstation")
 
     assert exc.value.exit_code == 1
-    output = plain(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    # An error belongs on standard error (docs/axi-standard.md, principle 6); standard output stays
+    # clean so a `--json` caller never has to parse around it.
+    assert captured.out == ""
+    output = plain(captured.err)
     assert "HTTP 403" in output
     assert "/releases/latest" in output
+    assert "help[1]:\n  cc-devthrottle setup doctor" in output
 
 
 def test_no_legacy_hard_coded_tool_lists_remain():
@@ -328,11 +331,10 @@ def test_no_legacy_hard_coded_tool_lists_remain():
 def test_run_autostart_rejects_unknown_verb():
     # The one home per OS lives behind the setup CLI (issue #2022); this passthrough only accepts the
     # three real verbs and fails loud on anything else rather than shelling a nonsense command.
-    import typer
+    from src.usage_errors import CommandUsageError
 
-    with pytest.raises(typer.Exit) as exc:
+    with pytest.raises(CommandUsageError):
         setup_ops.run_autostart("bogus")
-    assert exc.value.exit_code == 2
 
 
 def test_run_autostart_shells_to_setup_cli_autostart(monkeypatch):

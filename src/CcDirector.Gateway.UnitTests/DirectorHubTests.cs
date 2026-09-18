@@ -162,6 +162,24 @@ public sealed class DirectorHubTests : IDisposable
     }
 
     [Fact]
+    public void Hello_RecordsWhetherThisDirectorChecksASessionIsWaitingBeforeTyping()
+    {
+        // The Fleet Manager's events are sent only to a Director that said so; an older one would type into a working
+        // session whatever it was asked.
+        var caps = new CcDirector.Gateway.Streaming.TurnPushCapabilityRegistry();
+        var newBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), turnPushCapabilities: caps) { Context = new FakeHubCallerContext("conn-1") };
+        var oldBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), turnPushCapabilities: caps) { Context = new FakeHubCallerContext("conn-2") };
+
+        newBuild.Hello(new DirectorStreamHello { DirectorId = "dir-new", Version = "test", PushesTurns = true, ChecksIdleBeforeTyping = true });
+        oldBuild.Hello(new DirectorStreamHello { DirectorId = "dir-old", Version = "test", PushesTurns = true });
+
+        Assert.True(caps.ChecksIdleBeforeTyping(TenantId.Local, "dir-new"));
+        Assert.False(caps.ChecksIdleBeforeTyping(TenantId.Local, "dir-old"));
+        Assert.False(caps.ChecksIdleBeforeTyping(TenantId.Local, "dir-never-seen"));
+        Assert.False(caps.ChecksIdleBeforeTyping(new TenantId("11111111-1111-1111-1111-111111111111"), "dir-new"));
+    }
+
+    [Fact]
     public void Hello_WithNothingStoredForThisDirector_SaysSo_RatherThanStayingSilent()
     {
         // An empty list that the Gateway VOUCHES for is a fact the Director acts on: it pushes every

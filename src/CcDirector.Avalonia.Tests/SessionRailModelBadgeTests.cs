@@ -1,3 +1,4 @@
+using Avalonia.Headless.XUnit;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
@@ -16,6 +17,12 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class SessionRailModelBadgeTests
 {
+    // WHY [AvaloniaFact] AND NOT [Fact]: SessionViewModel builds
+    // its brushes in a static initialiser, and building a brush is an Avalonia property write that verifies
+    // it is on the dispatcher's thread. A plain [Fact] gets whatever thread xUnit hands it, so whether that
+    // succeeds depends on whether another class in this assembly has already started a headless session - and
+    // a static initialiser that throws once stays thrown for the rest of the process. These run ON the
+    // dispatcher thread instead. Same reason as SessionRailStateTests, where the accident actually fired.
     private static Session Bare()
     {
         var session = new Session(
@@ -25,7 +32,7 @@ public sealed class SessionRailModelBadgeTests
         return session;
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BeforeTheFirstTurn_TheBadgeSaysTheModelHasNotArrived_NotThatThereIsNone()
     {
         // A Claude session can report its model, so a blank badge here would be a fact the rail failed to
@@ -37,7 +44,7 @@ public sealed class SessionRailModelBadgeTests
         Assert.Contains("No model recorded yet", vm.AgentModelTooltip);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void ARecordedModel_ShowsShortenedOnTheBadgeAndInFullInTheTooltip()
     {
         var session = Bare();
@@ -54,7 +61,7 @@ public sealed class SessionRailModelBadgeTests
         Assert.Contains("claude-fable-5", vm.AgentModelTooltip);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void AMidSessionModelSwitch_ReachesTheRail()
     {
         // The failure this guards is not a wrong string, it is a stale one: the model is re-read at
@@ -75,7 +82,7 @@ public sealed class SessionRailModelBadgeTests
         Assert.Equal("fable-5", vm.ModelLabel);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void AFailedRead_LeavesTheLastKnownModelStanding_AndSaysNothingNew()
     {
         // A read that could not be taken (torn records, agent restarting) is a missed read, not evidence

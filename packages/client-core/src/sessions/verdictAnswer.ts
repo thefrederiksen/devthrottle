@@ -38,7 +38,12 @@ export interface TurnVerdict {
   menu?: TurnVerdictMenu | null;
   options: TurnVerdictOption[];
   risk: string;
+  /** The narration call's faithful retelling of this stop, saved onto the verdict a few seconds after it is judged, for
+   *  every session that answers to the user. Null or absent until it arrives, and when the call failed. Shown verbatim. */
+  narration?: string | null;
   failed?: boolean;
+  /** Why the Gateway refused the judge's answer, on a failed record. Shown verbatim. */
+  failureReason?: string | null;
   /** When this verdict stopped describing the screen it was formed on, or null/absent while it still does. Only
    *  the history read ever carries it: the latest read and the roster fold never return a superseded record at
    *  all, so a verdict with this set came from the history. */

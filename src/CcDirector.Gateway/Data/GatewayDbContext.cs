@@ -304,6 +304,44 @@ public sealed class GatewayDbContext : DbContext
     /// cleared when a session works again, kept seven days.</summary>
     public DbSet<TurnVerdictTraceEntity> TurnVerdictTraces => Set<TurnVerdictTraceEntity>();
 
+    /// <summary>Dev reports (<c>dev_reports</c>, issue #2958): one row per report an agent published for its own
+    /// session. Written only through <see cref="DevReports.DevReportStore"/>.</summary>
+    public DbSet<DevReportEntity> DevReports => Set<DevReportEntity>();
+
+    /// <summary>Every published version of a dev report, bytes as sent (<c>dev_report_versions</c>).</summary>
+    public DbSet<DevReportVersionEntity> DevReportVersions => Set<DevReportVersionEntity>();
+
+    /// <summary>The owner's notes and answers on a dev report, with their delivery state (<c>dev_report_items</c>).</summary>
+    public DbSet<DevReportItemEntity> DevReportItems => Set<DevReportItemEntity>();
+
+    /// <summary>The agent's replies on a dev report (<c>dev_report_replies</c>).</summary>
+    public DbSet<DevReportReplyEntity> DevReportReplies => Set<DevReportReplyEntity>();
+
+    /// <summary>The fleet message inbox (<c>fleet_messages</c>, the Message Load mission): one row per message,
+    /// held until the recipient reads it. The row IS the delivery - nothing is typed into the recipient's
+    /// terminal. Kept thirty days, matching the activity ledger.</summary>
+    public DbSet<FleetMessageEntity> FleetMessages => Set<FleetMessageEntity>();
+
+    /// <summary>The news the Fleet Manager brought the owner (<c>fleet_outcomes</c>, the Fleet Manager mission,
+    /// step 3): one Ready, Finding or Decision per row, open until the owner answers it. Belongs to the account,
+    /// so a restarted or moved Fleet Manager sees and answers what the old one filed.</summary>
+    public DbSet<FleetOutcomeEntity> FleetOutcomes => Set<FleetOutcomeEntity>();
+
+    /// <summary>The owner's standing preferences for the Fleet Manager (<c>fleet_preferences</c>), each stored in
+    /// the owner's own words.</summary>
+    public DbSet<FleetPreferenceEntity> FleetPreferences => Set<FleetPreferenceEntity>();
+
+    /// <summary>Every session this account has ever marked as its Fleet Manager (<c>fleet_manager_marks</c>), so
+    /// the digest still finds the sessions an earlier Fleet Manager started. Only ever added to.</summary>
+    public DbSet<FleetManagerMarkEntity> FleetManagerMarks => Set<FleetManagerMarkEntity>();
+    /// <summary>The events about sessions a Fleet Manager owns (<c>fleet_manager_events</c>, step 4): one stop or
+    /// death per row, kept until the Fleet Manager acknowledges it.</summary>
+    public DbSet<FleetManagerEventEntity> FleetManagerEvents => Set<FleetManagerEventEntity>();
+
+    /// <summary>The sessions the Gateway last saw alive while the account's Fleet Manager owned them
+    /// (<c>fleet_manager_owned_sessions</c>, step 4), so a death is raised even across a Gateway restart.</summary>
+    public DbSet<FleetManagerOwnedSessionEntity> FleetManagerOwnedSessions => Set<FleetManagerOwnedSessionEntity>();
+
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
     /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
     /// Tenant-scoped: an absent row means "no override" and the typed resolver returns the operator global
@@ -743,9 +781,52 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Cause).HasMaxLength(64);
             b.Property(e => e.VerdictId).HasMaxLength(64);
             b.Property(e => e.ReplacedVerdictId).HasMaxLength(64);
+            b.Property(e => e.RowColour).HasMaxLength(32);
             // The inspector reads one session newest-first; the purge cuts on time across every session.
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.RecordedAtUtc });
             b.HasIndex(e => new { e.TenantId, e.RecordedAtUtc });
+        });
+
+        // ---- dev reports (issue #2958): the report, its versions, the owner's items, the agent's replies -----
+
+        modelBuilder.Entity<DevReportEntity>(b =>
+        {
+            b.ToTable("dev_reports");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Status).HasMaxLength(32);
+            // Publishing the same key again for the same session is a new version of the same report, never a
+            // second report - so the natural key is unique, led by the tenant.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.Key }).IsUnique();
+        });
+
+        modelBuilder.Entity<DevReportVersionEntity>(b =>
+        {
+            b.ToTable("dev_report_versions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.ByteHash).HasMaxLength(64);
+            b.Property(e => e.Status).HasMaxLength(32);
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.Version }).IsUnique();
+        });
+
+        modelBuilder.Entity<DevReportItemEntity>(b =>
+        {
+            b.ToTable("dev_report_items");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.Status).HasMaxLength(32);
+            // The client item id is the idempotency key: an id already accepted is the same item.
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.ClientItemId }).IsUnique();
+            // A turn end drains everything held for one session, across its reports.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.Status });
+        });
+
+        modelBuilder.Entity<DevReportReplyEntity>(b =>
+        {
+            b.ToTable("dev_report_replies");
+            b.HasKey(e => e.Id);
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.AtUtc });
         });
 
         modelBuilder.Entity<TurnVerdictFeedbackEntity>(b =>
@@ -760,6 +841,98 @@ public sealed class GatewayDbContext : DbContext
             // "What was corrected on this session?" and the retention cut.
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.ReportedAtUtc });
             b.HasIndex(e => new { e.TenantId, e.ReportedAtUtc });
+        });
+
+        // ---- the fleet message inbox: one row per message, read by the recipient ----------------------
+
+        modelBuilder.Entity<FleetMessageEntity>(b =>
+        {
+            b.ToTable("fleet_messages");
+            // Tenant-leading, like every key on this model. The message id is minted by the Gateway, so it
+            // cannot collide; the tenant leads so the key and the global filter agree.
+            b.HasKey(e => new { e.TenantId, e.MessageId });
+            b.Property(e => e.MessageId).HasMaxLength(32);
+            b.Property(e => e.RecipientSessionId).HasMaxLength(64);
+            b.Property(e => e.SenderSessionId).HasMaxLength(64);
+            b.Property(e => e.SenderName).HasMaxLength(256);
+            b.Property(e => e.SenderMachine).HasMaxLength(256);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.TextHash).HasMaxLength(64);
+            b.Property(e => e.CorrelationId).HasMaxLength(32);
+            b.Property(e => e.InReplyToMessageId).HasMaxLength(32);
+            // The inbox read: one recipient's unread messages, oldest first. Also serves "has this recipient
+            // an unread identical message from this sender", which narrows on the recipient first.
+            b.HasIndex(e => new { e.TenantId, e.RecipientSessionId, e.ReadAtUtc, e.CreatedAtUtc });
+            // The sender's limits: how many it sent in the last hour, and when it last wrote to one recipient.
+            b.HasIndex(e => new { e.TenantId, e.SenderSessionId, e.CreatedAtUtc });
+            // Retention cuts on the created moment across every session.
+            b.HasIndex(e => new { e.TenantId, e.CreatedAtUtc });
+            // The no-reply sweep (slice 3): messages whose reply deadline has passed. Only messages that asked
+            // for a reply have a deadline, so the heartbeat's scan reads those alone.
+            b.HasIndex(e => new { e.TenantId, e.ReplyByUtc });
+        });
+
+        // ---- the Fleet Manager: the news it brought the owner, and the owner's standing preferences --------
+
+        modelBuilder.Entity<FleetOutcomeEntity>(b =>
+        {
+            b.ToTable("fleet_outcomes");
+            // The id is minted by the Gateway (GatewayMintedKeyEntity), never supplied by a caller, so it cannot be
+            // squatted and needs no tenant in the key. The tenant filter still decides who can see the row.
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.Status).HasMaxLength(16);
+            b.Property(e => e.FiledBy).HasMaxLength(64);
+            b.Property(e => e.AboutSessionId).HasMaxLength(64);
+            b.Property(e => e.AnsweredBy).HasMaxLength(64);
+            b.Property(e => e.AnsweredByRole).HasMaxLength(16);
+            // "The account's open records, newest first" is the read every start of a conversation makes.
+            b.HasIndex(e => new { e.TenantId, e.Status, e.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<FleetPreferenceEntity>(b =>
+        {
+            b.ToTable("fleet_preferences");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.CreatedBy).HasMaxLength(64);
+            b.HasIndex(e => new { e.TenantId, e.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<FleetManagerMarkEntity>(b =>
+        {
+            b.ToTable("fleet_manager_marks");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            // One row per session per account: marking the same session again moves LastMarkedAtUtc only.
+            b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
+        });
+
+        modelBuilder.Entity<FleetManagerEventEntity>(b =>
+        {
+            b.ToTable("fleet_manager_events");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.AddressedTo).HasMaxLength(64);
+            b.Property(e => e.DeliveredTo).HasMaxLength(64);
+            b.Property(e => e.VerdictId).HasMaxLength(64);
+            b.Property(e => e.DirectorId).HasMaxLength(256);
+            // "The account's unacknowledged events, oldest first" is the read every delivery and every digest makes.
+            b.HasIndex(e => new { e.TenantId, e.AcknowledgedAtUtc, e.CreatedAtUtc });
+            b.HasIndex(e => new { e.TenantId, e.SessionId });
+        });
+
+        modelBuilder.Entity<FleetManagerOwnedSessionEntity>(b =>
+        {
+            b.ToTable("fleet_manager_owned_sessions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.FleetManagerSessionId).HasMaxLength(64);
+            b.Property(e => e.DirectorId).HasMaxLength(256);
+            // One row per owned session per account.
+            b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
+            // The reconcile reads "every owned session still believed alive".
+            b.HasIndex(e => new { e.TenantId, e.EndedAtUtc });
         });
 
         modelBuilder.Entity<SessionHistoryEntity>(b =>
@@ -1173,6 +1346,16 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictFeedbackEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictTraceEntity>(modelBuilder);
+        ApplyTenantScope<DevReportEntity>(modelBuilder);
+        ApplyTenantScope<DevReportVersionEntity>(modelBuilder);
+        ApplyTenantScope<DevReportItemEntity>(modelBuilder);
+        ApplyTenantScope<DevReportReplyEntity>(modelBuilder);
+        ApplyTenantScope<FleetMessageEntity>(modelBuilder);
+        ApplyTenantScope<FleetOutcomeEntity>(modelBuilder);
+        ApplyTenantScope<FleetPreferenceEntity>(modelBuilder);
+        ApplyTenantScope<FleetManagerMarkEntity>(modelBuilder);
+        ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
+        ApplyTenantScope<FleetManagerOwnedSessionEntity>(modelBuilder);
 
         ApplyCommonSubsetConventions(modelBuilder);
 
@@ -1244,6 +1427,32 @@ public sealed class GatewayDbContext : DbContext
             // selects a session's history on - both compared byte-ordinally, for the reasons above.
             modelBuilder.Entity<TurnVerdictTraceEntity>().Property(e => e.TraceId).UseCollation("C");
             modelBuilder.Entity<TurnVerdictTraceEntity>().Property(e => e.SessionId).UseCollation("C");
+            // dev reports: the session id, the report key and the client item id are caller-supplied strings in
+            // unique natural keys - byte-ordinal, so the two providers agree on what is "the same report" and
+            // "the same item".
+            modelBuilder.Entity<DevReportEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<DevReportEntity>().Property(e => e.Key).UseCollation("C");
+            modelBuilder.Entity<DevReportItemEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<DevReportItemEntity>().Property(e => e.ClientItemId).UseCollation("C");
+            // fleet_messages: the minted message id is the key, and the recipient and sender session ids are
+            // what the inbox read and the sender's limits select on - all compared byte-ordinally, as above.
+            modelBuilder.Entity<FleetMessageEntity>().Property(e => e.MessageId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageEntity>().Property(e => e.RecipientSessionId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageEntity>().Property(e => e.SenderSessionId).UseCollation("C");
+            // fleet_outcomes: the kind and the status are closed words the reads select on - compared
+            // byte-ordinally so both providers select the same rows.
+            modelBuilder.Entity<FleetOutcomeEntity>().Property(e => e.Kind).UseCollation("C");
+            modelBuilder.Entity<FleetOutcomeEntity>().Property(e => e.Status).UseCollation("C");
+            // fleet_manager_marks: the session id is an exact key the unique index and the digest compare on.
+            modelBuilder.Entity<FleetManagerMarkEntity>().Property(e => e.SessionId).UseCollation("C");
+            // fleet_manager_events: the kind and the session ids are compared byte-ordinally for the same reason.
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.Kind).UseCollation("C");
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.DeliveredTo).UseCollation("C");
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.VerdictId).UseCollation("C");
+            // fleet_manager_owned_sessions: the session ids are exact keys, compared byte-ordinally.
+            modelBuilder.Entity<FleetManagerOwnedSessionEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<FleetManagerOwnedSessionEntity>().Property(e => e.FleetManagerSessionId).UseCollation("C");
             // Known-repository lookups use these normalized values as exact indexed predicates. Pin both
             // to byte-ordinal equality so SQLite and Postgres select the same bounded candidate set.
             modelBuilder.Entity<KnownRepositoryEntity>().Property(e => e.MachineKey).UseCollation("C");

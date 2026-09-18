@@ -23,18 +23,21 @@ from typing import Any, Dict, List, Optional
 
 import requests
 import typer
-from rich import box
 from rich.console import Console
-from rich.table import Table
 
 # Make cc_shared importable when running from source, matching the existing cc-* tools.
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
 
-from cc_shared import gateway  # noqa: E402
+from cc_shared import axi_output, gateway  # noqa: E402
+from . import axi_cli  # noqa: E402
 
-console = Console()
+from . import usage_errors  # noqa: E402
+
+# soft_wrap: a sentence is never broken across lines at the console width. An id or a session name
+# split in two cannot be read back or pasted; tables still fit their columns.
+console = Console(soft_wrap=True)
 err_console = Console(stderr=True)
 
 TIMEOUT_SECONDS = 10
@@ -149,7 +152,13 @@ class MissionClient:
         """
         path = "/missions" if not state else f"/missions?state={state}"
         data = self._ok_or_raise(self._request("GET", path))
-        return list(data) if isinstance(data, list) else []
+        # Absent is not empty: an answer that is not a list of missions must never read as "no missions".
+        if not isinstance(data, list):
+            raise GatewayError(
+                f"the Gateway at {self.base_url} answered {path} with no list of missions; "
+                "this tool will not report that as no missions."
+            )
+        return data
 
     def patch(self, mission_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
         """Change a mission: its why, its name, or its state. Returns MissionPatchResultDto."""
@@ -160,8 +169,7 @@ class MissionClient:
 def _resolve_mission(query: str) -> Dict[str, Any]:
     """Resolve a Mission by full id, id prefix, or a case-insensitive name match.
 
-    'mission list' prints SHORT ids, so requiring the full identifier would mean copying it out of a
-    JSON dump every time. Only the typing is relaxed: the id that finally reaches the Gateway is the
+    Typing a whole id is slow, so a prefix or part of the name is enough. Only the typing is relaxed: the id that finally reaches the Gateway is the
     full one from the caller's OWN mission list, and the Gateway resolves it inside the caller's own
     tenant regardless of what was typed here.
     """
@@ -169,13 +177,17 @@ def _resolve_mission(query: str) -> Dict[str, Any]:
     # addressable - reopening one, or correcting its name, is exactly when you reach for it, and
     # resolving against the default active-only list would answer "no mission matches" for a record
     # that is plainly there.
+    wanted = query.strip()
+    if not wanted:
+        axi_cli.usage_error(
+            "no mission was named. "
+            "Pass a mission id, an id prefix, or part of its name. See them with: cc-devthrottle mission list --all",
+        )
     try:
         missions = MissionClient().list_all(state="all")
     except GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"could not read the missions to find '{wanted}': {err}", [axi_cli.CHECK_GATEWAY])
 
-    wanted = query.strip()
     lowered = wanted.lower()
     exact = [m for m in missions if (_field(m, "missionId", "MissionId") or "").lower() == lowered]
     if exact:
@@ -187,18 +199,21 @@ def _resolve_mission(query: str) -> Dict[str, Any]:
         or lowered in (_field(m, "missionName", "MissionName") or "").lower()
     ]
     if not matches:
-        console.print(
-            f"[red]No mission matches '{wanted}'.[/red] "
-            "Run cc-devthrottle mission list to see the missions on the Gateway."
+        axi_cli.fail(
+            f"No mission matches '{wanted}'. Pass the id of a mission the list below shows.",
+            ["cc-devthrottle mission list --all"],
         )
-        raise typer.Exit(1)
     if len(matches) > 1:
-        console.print(f"[yellow]'{wanted}' is ambiguous - {len(matches)} missions match:[/yellow]")
-        for m in matches:
-            mid = _field(m, "missionId", "MissionId") or "-"
-            console.print(f"  {_short_id(mid)}  {_field(m, 'missionName', 'MissionName') or '-'}")
-        console.print("Re-run with a longer id prefix or the exact name.")
-        raise typer.Exit(1)
+        # FULL ids: the caller's next move is to paste one back, and a shortened id can be ambiguous too.
+        listed = "; ".join(
+            f"{_field(m, 'missionId', 'MissionId') or '-'} {_field(m, 'missionName', 'MissionName') or '-'}"
+            for m in matches
+        )
+        axi_cli.fail(
+            f"'{wanted}' is ambiguous - {len(matches)} missions match: {listed}. "
+            "Re-run with one of these full mission ids.",
+            ["cc-devthrottle mission list --all"],
+        )
     return matches[0]
 
 
@@ -211,74 +226,297 @@ def _field(record: Dict[str, Any], *names: str) -> Optional[str]:
     return None
 
 
-def _short_id(value: Optional[str]) -> str:
-    if not value:
-        return "-"
-    return value.split("-")[0] if "-" in value else value
-
-
 def create_mission(name: str) -> None:
     """Create a Mission record on the Gateway and print its id."""
+    if not name.strip():
+        axi_cli.usage_error(
+            "the mission name is blank. "
+            'Pass a name: cc-devthrottle mission create "<name>"',
+        )
     try:
         resp = MissionClient().create(name)
     except GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"no mission was created: {err}", [axi_cli.CHECK_GATEWAY])
 
-    mid = _field(resp, "missionId", "MissionId")
+    mid = _field(resp, "missionId", "MissionId") if isinstance(resp, dict) else None
     if not mid:
-        console.print("[red]Error:[/red] the Gateway did not return a mission id.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            "the Gateway did not return a mission id, so whether the mission was created is unknown. Look for it before creating it again.",
+            ["cc-devthrottle mission list"],
+        )
 
-    label = _field(resp, "missionName", "MissionName") or name
-    console.print(f"[green]Created[/green] mission ({label}).")
-    console.print(f"id: {mid}")
-    console.print(
-        f'Attach a session at spawn:  cc-devthrottle session spawn <repo> --mission {mid}'
+    # The Gateway stores the name trimmed (MissionStore.Create), so the returned name must be exactly the
+    # trimmed request; any other name is not the mission that was asked for.
+    label = axi_cli.confirmed(
+        resp, ("missionName", "MissionName"), f"creating mission {mid}", ["cc-devthrottle mission list"],
+        accept=lambda v: isinstance(v, str) and v == name.strip(),
     )
+    console.print(f"[green]Created[/green] mission ({axi_cli.shown(label)}).")
+    console.print(f"id: {mid}")
+    axi_cli.print_next([
+        f"cc-devthrottle session spawn <repo> --mission {axi_cli.bare(mid, '<mission-id>')} --controlled-by self",
+        f"cc-devthrottle mission attach <session-id> {axi_cli.bare(mid, '<mission-id>')}",
+        "cc-devthrottle mission list",
+    ])
 
 
-def list_missions(json_output: bool, state: Optional[str] = None) -> None:
-    """List the Missions on the Gateway - active ones unless `state` asks for otherwise."""
-    try:
-        missions = MissionClient().list_all(state=state)
-    except GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
+# Every state a mission can be in, in the order the count line names them.
+MISSION_STATES = ("active", "complete", "removed")
+
+# What `mission list --state` accepts: one state, or "all" (the same values the Gateway accepts).
+MISSION_STATE_FILTERS = MISSION_STATES + ("all",)
+
+# Every field `mission list --fields` accepts, and the three shown when it is not given. The why is
+# free text that runs to hundreds of characters, so it is asked for, never shown by default.
+MISSION_LIST_FIELDS = ("id", "name", "state", "why", "why-updated", "state-changed", "run")
+MISSION_LIST_DEFAULT_FIELDS = ("id", "name", "state")
+
+
+_usage_error = usage_errors.usage_error
+
+
+def _mission_state(mission: Dict[str, Any]) -> str:
+    """The mission's state as the Gateway sent it. A missing or unknown state is a broken answer and
+    fails loudly: listing it under a guessed state would put finished work in the active list."""
+    raw = mission.get("state", mission.get("State"))
+    if raw not in MISSION_STATES:
+        mid = _shown_id(mission.get("missionId", mission.get("MissionId")))
+        shown = "missing" if raw is None else axi_output.format_value(raw) if isinstance(raw, str) else axi_output.escape_ascii(repr(raw))
+        print(
+            f"Error: the Gateway returned mission {mid} with state {shown}; "
+            f"this tool knows only {', '.join(MISSION_STATES)}. --json shows the raw rows.",
+            file=sys.stderr,
+        )
         raise typer.Exit(1)
+    return raw
+
+
+def _shown_id(mid: Any) -> str:
+    """A mission id from the Gateway, as one line of ASCII for an error sentence."""
+    return axi_output.escape_ascii(str(mid))
+
+
+def _bad_mission(mid: Any, what: str, row: Optional[int] = None) -> None:
+    """Refuse a mission row the Gateway would never send, naming the mission and what is wrong with it."""
+    where = f" (row {row})" if row is not None else ""
+    print(
+        f"Error: the Gateway returned mission {_shown_id(mid)} with {what}{where}. "
+        "This tool will not list it as if it were sound; --json shows the raw rows.",
+        file=sys.stderr,
+    )
+    raise typer.Exit(1)
+
+
+def _describe(value: Any) -> str:
+    return "null" if value is None else f"a {type(value).__name__}"
+
+
+def _require_mission_rows(missions: List[Any]) -> None:
+    """Every row must be a mission this tool can name: an object with a mission id and a name.
+
+    A row that is not an object, a mission with no id or no name, a mission whose name is blank (the
+    Gateway refuses a blank name on create and on rename), or a mission with any other field missing or
+    of the wrong kind is a broken answer and fails loudly. Filtering
+    it would silently drop a Gateway row, and rendering it would crash or show a mission nobody can
+    address. Two rows with one id are refused too: the id is what every other verb addresses.
+    """
+    seen = set()
+    for index, mission in enumerate(missions):
+        row = index + 1
+        if not isinstance(mission, dict):
+            print(
+                f"Error: the Gateway returned a mission row that is not an object (row {row}, "
+                f"{type(mission).__name__}). --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+        mid = mission.get("missionId", mission.get("MissionId"))
+        if not isinstance(mid, str) or not mid.strip():
+            print(
+                f"Error: the Gateway returned a mission with no mission id (row {row}). "
+                "This tool will not list a mission it cannot name; --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+        if mid.lower() in seen:
+            _bad_mission(mid, "an id that an earlier row already has", row)
+        seen.add(mid.lower())
+        name = mission.get("missionName", mission.get("MissionName"))
+        if not isinstance(name, str):
+            print(
+                f"Error: the Gateway returned mission {_shown_id(mid)} with no mission name (row {row}). "
+                "This tool will not list or filter a mission without its name; --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+        if not name.strip():
+            _bad_mission(mid, "a blank mission name; the Gateway never stores one", row)
+        # Every other field is checked here too, before any filter runs, so a broken row fails on every
+        # path that reads the rows - never only when its field happens to be on screen.
+        _mission_state(mission)
+        for field in _CHECKED_MISSION_FIELDS:
+            _MISSION_READERS[field](mission)
+
+
+def _mission_text(mission: Dict[str, Any], names: tuple, *, nullable: bool, blank_ok: bool) -> Optional[str]:
+    """The value of one mission field, checked where it is read.
+
+    The Gateway always sends every field of MissionDto, so a missing key is a broken answer, never an
+    empty value. Null is accepted only where the DTO is nullable, and blank text only where it means
+    something (an empty why is the owner's "unset").
+    """
+    mid = mission.get("missionId", mission.get("MissionId"))
+    key = next((name for name in names if name in mission), None)
+    if key is None:
+        _bad_mission(mid, f"no {names[0]}")
+    value = mission[key]
+    if value is None:
+        if nullable:
+            return None
+        _bad_mission(mid, f"{names[0]} null; it is always text")
+    if not isinstance(value, str):
+        expected = "text or null" if nullable else "text"
+        _bad_mission(mid, f"{names[0]} {_describe(value)}; it must be {expected}")
+    if not blank_ok and not value.strip():
+        _bad_mission(mid, f"a blank {names[0]}; the Gateway never sends one")
+    return value
+
+
+# How each `mission list` field is read from a MissionDto (origin/main, CcDirector.Gateway.Contracts).
+# MissionName, Why and State are non-nullable strings; the three others are nullable. The id and name are
+# checked by _require_mission_rows itself and the state by _mission_state, so they are read as checked.
+_MISSION_READERS = {
+    "id": lambda m: m.get("missionId", m.get("MissionId")),
+    "name": lambda m: m.get("missionName", m.get("MissionName")),
+    "why": lambda m: _mission_text(m, ("why", "Why"), nullable=False, blank_ok=True),
+    "why-updated": lambda m: _mission_text(m, ("whyUpdatedAt", "WhyUpdatedAt"), nullable=True, blank_ok=False),
+    "state-changed": lambda m: _mission_text(
+        m, ("stateChangedAt", "StateChangedAt"), nullable=True, blank_ok=False
+    ),
+    "run": lambda m: _mission_text(m, ("workflowRunId", "WorkflowRunId"), nullable=True, blank_ok=False),
+}
+
+
+_CHECKED_MISSION_FIELDS = ("why", "why-updated", "state-changed", "run")
+
+
+def _mission_record(mission: Dict[str, Any], state: str, chosen_fields: List[str]) -> Dict[str, object]:
+    """The fields `mission list` shows, for one mission, each checked as it is read. Ids and names are
+    never shortened."""
+    return {f: state if f == "state" else _MISSION_READERS[f](mission) for f in chosen_fields}
+
+
+def _matches_name(mission: Dict[str, Any], name: str) -> bool:
+    """--name matches any part of the mission name, ignoring case."""
+    return name.strip().lower() in mission.get("missionName", mission.get("MissionName")).lower()
+
+
+def list_missions(
+    json_output: bool,
+    state: Optional[str] = None,
+    *,
+    name: Optional[str] = None,
+    fields: Optional[str] = None,
+) -> None:
+    """List the Missions on the Gateway - active ones unless `state` asks for otherwise.
+
+    `state` is one of active, complete, removed, or all; None means the Gateway's default, active only.
+    `name` keeps only missions whose name contains it, ignoring case.
+    """
+    # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the Gateway holds.
+    if json_output and fields is not None:
+        _usage_error(axi_cli.FIELDS_WITH_JSON)
+    chosen_fields = usage_errors.parse_fields(fields, MISSION_LIST_FIELDS, MISSION_LIST_DEFAULT_FIELDS)
+    if state is not None and state not in MISSION_STATE_FILTERS:
+        _usage_error(
+            f"unknown --state value '{axi_output.escape_ascii(state)}'. "
+            f"Valid states: {', '.join(MISSION_STATE_FILTERS)}"
+        )
+    if name is not None and not name.strip():
+        _usage_error("--name needs a value.")
 
     if json_output:
+        # The Gateway is asked exactly what it was always asked, so the unfiltered answer is byte for
+        # byte what it was. --name narrows that same bare array; it never changes its shape.
+        try:
+            missions = MissionClient().list_all(state=state)
+        except GatewayError as err:
+            axi_cli.fail(f"could not read the missions: {err}", [axi_cli.CHECK_GATEWAY])
+        if name is not None:
+            # Filtering reads the rows, so every row is checked in full first; the unfiltered answer is not.
+            _require_mission_rows(missions)
+            missions = [m for m in missions if _matches_name(m, name)]
+        # Plain print, not console.print: Rich wraps long values when stdout is not a terminal.
         print(json.dumps(missions, indent=2))
         return
 
-    if not missions:
-        if state and state != "active":
+    # The plain list asks for every mission once, so it can say how many the filter left out.
+    try:
+        everything = MissionClient().list_all(state="all")
+    except GatewayError as err:
+        axi_cli.fail(f"could not read the missions: {err}", [axi_cli.CHECK_GATEWAY])
+    _require_mission_rows(everything)
+    states = [_mission_state(m) for m in everything]
+
+    # No --state means the Gateway's default view, active only - itself a filter, so the count line
+    # says how many missions it left out.
+    wanted = None if state == "all" else (state or "active")
+    filtered = wanted is not None or name is not None
+    rows = [
+        (m, st)
+        for m, st in zip(everything, states)
+        if (wanted is None or st == wanted) and (name is None or _matches_name(m, name))
+    ]
+
+    records = [_mission_record(m, st, chosen_fields) for m, st in rows]
+    # No rows means no breakdown at all: the helper refuses an empty one, and "count: 0" says it all.
+    breakdown = [(s, n) for s in MISSION_STATES if (n := sum(1 for _, st in rows if st == s))] or None
+    blocks = [
+        axi_output.format_count(len(rows), total=len(everything) if filtered else None, breakdown=breakdown),
+        axi_output.render_list("missions", chosen_fields, records),
+    ]
+
+    if not rows:
+        if not everything:
+            blocks.append("No missions on the Gateway.")
+        else:
             # Say WHICH list is empty. "No missions" under a filter would read as "you have none at
             # all", which is a different and much more alarming statement.
-            console.print(f"No missions with state '{state}'.")
-        else:
-            console.print(
-                "No active missions on the Gateway. "
-                "Create one with 'cc-devthrottle mission create <name>', "
-                "or see finished ones with 'cc-devthrottle mission list --all'."
-            )
-        return
-
-    table = Table(show_header=True, header_style="bold", box=box.ASCII)
-    table.add_column("Id")
-    table.add_column("Name")
-    table.add_column("State")
-    table.add_column("Why")
-
-    for mission in missions:
-        mid = _field(mission, "missionId", "MissionId")
-        name = _field(mission, "missionName", "MissionName") or "-"
-        mstate = _field(mission, "state", "State") or "active"
-        why = _field(mission, "why", "Why") or ""
-        # A mission with no WHY is FLAGGED, not blank - the same rule the Cockpit card follows. A
+            conditions = []
+            if wanted is not None:
+                conditions.append(f"state '{wanted}'")
+            if name is not None:
+                conditions.append(f"a name containing '{axi_output.escape_ascii(name.strip())}'")
+            blocks.append(f"No missions with {' and '.join(conditions)}.")
+    elif "why" not in chosen_fields:
+        # A mission with no WHY is FLAGGED, not hidden - the same rule the Cockpit card follows. A
         # mission whose reason nobody wrote down is the thing worth noticing in this list.
-        why_cell = why if why else "[yellow]no why set[/yellow]"
-        table.add_row(_short_id(mid) if mid else "-", name, mstate, why_cell)
-    console.print(table)
+        unset = sum(1 for m, _ in rows if not _MISSION_READERS["why"](m).strip())
+        if unset:
+            noun = "mission has" if unset == 1 else "missions have"
+            blocks.append(f"{unset} of these {noun} no why set.")
+
+    blocks.append(axi_output.format_help(_mission_list_help(rows, bool(everything), wanted, name, chosen_fields)))
+    axi_output.write_blocks(sys.stdout, *blocks)
+
+
+def _mission_list_help(
+    rows: List[Any], any_missions: bool, wanted: Optional[str], name: Optional[str], chosen_fields: List[str]
+) -> List[str]:
+    """Concrete next commands. Runtime values are placeholders, never guessed."""
+    if not rows:
+        if not any_missions:
+            return ["cc-devthrottle mission create <name>"]
+        return ["cc-devthrottle mission list --all", "cc-devthrottle mission list --help"]
+    commands = []
+    if wanted == "active":
+        commands.append("cc-devthrottle mission list --all")
+    if list(chosen_fields) == list(MISSION_LIST_DEFAULT_FIELDS):
+        commands.append("cc-devthrottle mission list --fields " + ",".join(MISSION_LIST_FIELDS))
+    commands.append("cc-devthrottle mission list --json")
+    commands.append("cc-devthrottle mission attach <session> <id>")
+    commands.append("cc-devthrottle session spawn <repo> --controlled-by self --mission <id>")
+    return commands
 
 
 def _patch_mission(mission_query: str, body: Dict[str, Any], command_name: str) -> Dict[str, Any]:
@@ -286,15 +524,41 @@ def _patch_mission(mission_query: str, body: Dict[str, Any], command_name: str) 
     mission = _resolve_mission(mission_query)
     mission_id = _field(mission, "missionId", "MissionId")
     if not mission_id:
-        console.print("[red]Error:[/red] the Gateway returned a mission with no id.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"the Gateway returned a mission with no id for '{mission_query}', so it cannot be changed.",
+            ["cc-devthrottle mission list --all --json"],
+        )
 
     try:
         resp = MissionClient().patch(mission_id, body)
     except GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"could not {command_name} mission {mission_id}: {err}",
+            ["cc-devthrottle mission list --all", axi_cli.CHECK_GATEWAY],
+        )
 
+    # The changed mission is what every report below names; an answer without it cannot say what happened.
+    changed = _patched_mission(resp)
+    what = f"{command_name} mission {mission_id}"
+    check = ["cc-devthrottle mission list --all"]
+    if not changed:
+        axi_cli.fail(
+            f"the Gateway's answer to {what} did not include the mission, so whether it changed is unknown.",
+            check,
+        )
+    # Every value the command reports is read from the returned mission, so each one asked for must be
+    # there and must be what was asked: the id of this mission, and the new name or state. Only the
+    # REQUEST is trimmed, the way the Director trims what it stores (MissionStore.Rename); the returned
+    # value is compared as given, so a name the Director could not have stored ("New name ") fails.
+    axi_cli.confirmed(
+        changed, ("missionId", "MissionId"), what, check,
+        accept=lambda v: isinstance(v, str) and v.lower() == mission_id.lower(),
+    )
+    for key, wanted in body.items():
+        axi_cli.confirmed(
+            changed, (key, key[:1].upper() + key[1:]), what, check,
+            accept=lambda v, wanted=wanted: isinstance(v, str) and v == str(wanted).strip(),
+        )
     resp["_before"] = mission
     return resp
 
@@ -313,44 +577,52 @@ def _print_patch_note(resp: Dict[str, Any]) -> None:
     """
     note = _field(resp, "note", "Note")
     if note:
-        console.print(f"[yellow]Note:[/yellow] {note}")
+        console.print(f"[yellow]Note:[/yellow] {axi_cli.shown(note)}")
 
 
 def rename_mission(mission_query: str, new_name: str) -> None:
     """Rename a Mission. Its id does not change, so nothing attached to it moves."""
     if not new_name.strip():
-        console.print("[red]Error:[/red] a mission name cannot be blank.")
-        raise typer.Exit(1)
+        axi_cli.usage_error(
+            "the new mission name is blank. "
+            'Pass a name: cc-devthrottle mission rename <mission-id> "<new name>"',
+        )
 
     resp = _patch_mission(mission_query, {"missionName": new_name}, "rename")
     before = _field(resp.get("_before", {}), "missionName", "MissionName") or "(unnamed)"
-    after = _field(_patched_mission(resp), "missionName", "MissionName") or new_name.strip()
+    after = _field(_patched_mission(resp), "missionName", "MissionName")
+    mid = _field(resp.get("_before", {}), "missionId", "MissionId")
 
     # NAME THE OLD NAME. A rename that reports only the new one hides which mission moved, which is
     # the same failure the attach command avoids by naming the mission a session LEFT.
-    console.print(f'[green]Renamed[/green] "{before}" to "{after}".')
+    console.print(f'[green]Renamed[/green] "{axi_cli.shown(before)}" to "{axi_cli.shown(after)}".')
     console.print("Its id is unchanged, so every attached session stays attached.")
     _print_patch_note(resp)
+    axi_cli.print_next([
+        "cc-devthrottle session list --fields id,name,state,mission",
+        f"cc-devthrottle mission attach <session-id> {axi_cli.bare(mid, '<mission-id>')}",
+    ])
 
 
 def end_mission(mission_query: str, state: str) -> None:
     """Complete or remove a Mission (both are endings; both are reversible)."""
-    resp = _patch_mission(mission_query, {"state": state}, state)
+    resp = _patch_mission(mission_query, {"state": state}, "complete" if state == "complete" else "remove")
     mission = _patched_mission(resp)
     name = _field(mission, "missionName", "MissionName") or "(unnamed)"
-    mid = _field(mission, "missionId", "MissionId") or ""
+    mid = _field(mission, "missionId", "MissionId")
 
     verb = "Completed" if state == "complete" else "Removed"
-    console.print(f"[green]{verb}[/green] mission {name} ({_short_id(mid)}).")
+    console.print(f"[green]{verb}[/green] mission {axi_cli.shown(name)} ({mid}).")
     _print_patch_note(resp)
 
     # SAY WHERE IT WENT, and how to get it back. An ending that reports only success leaves the owner
     # unable to find the record afterwards - and the Cockpit has no archive view yet, so the command
     # line is currently the ONLY way to see it again.
-    console.print(
-        f"It is out of the default list. See it with 'cc-devthrottle mission list --state {state}', "
-        f"or bring it back with 'cc-devthrottle mission reopen {_short_id(mid)}'."
-    )
+    console.print("It is out of the default list.")
+    axi_cli.print_next([
+        f"cc-devthrottle mission list --state {axi_cli.bare(state, '<state>')}",
+        f"cc-devthrottle mission reopen {axi_cli.bare(mid, '<mission-id>')}",
+    ])
 
 
 def reopen_mission(mission_query: str) -> None:
@@ -358,8 +630,13 @@ def reopen_mission(mission_query: str) -> None:
     resp = _patch_mission(mission_query, {"state": "active"}, "reopen")
     mission = _patched_mission(resp)
     name = _field(mission, "missionName", "MissionName") or "(unnamed)"
-    console.print(f"[green]Reopened[/green] mission {name}. It is back in the default list.")
+    mid = _field(mission, "missionId", "MissionId")
+    console.print(f"[green]Reopened[/green] mission {axi_cli.shown(name)} ({mid}). It is back in the default list.")
     _print_patch_note(resp)
+    axi_cli.print_next([
+        "cc-devthrottle mission list",
+        f"cc-devthrottle mission attach <session-id> {axi_cli.bare(mid, '<mission-id>')}",
+    ])
 
 
 # ===== Attach and detach (issue #2387) =====================================================
@@ -422,14 +699,50 @@ def _apply_mission(session_id: str, mission_id: Optional[str]) -> Dict[str, Any]
     body: Dict[str, Any] = {}
     if mission_id:
         body["missionId"] = mission_id
-    resp = gateway.post_json(f"sessions/{session_id}/mission", body)
+    resp = gateway.post_json(f"sessions/{gateway.path_segment(session_id)}/mission", body)
     if not isinstance(resp, dict):
-        return {}
+        # Absent is not success: an answer that says nothing cannot be reported as "Attached".
+        raise gateway.GatewayError(
+            "the Gateway's answer was not a mission change, so whether the session moved is unknown."
+        )
     session = resp.get("session", resp.get("Session"))
-    if isinstance(session, dict):
-        for key in ("workflowId", "WorkflowId", "workflowVersion", "WorkflowVersion"):
-            if key in session and key not in resp:
-                resp[key] = session[key]
+    # The returned session row is the confirmation: it must be this session, now carrying the mission
+    # asked for - or none, on a detach. {} or a row without the session says nothing happened.
+    what = "attach" if mission_id else "detach"
+    if not isinstance(session, dict):
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the {what} did not include the session, so whether it moved is unknown."
+        )
+    returned_sid = session.get("sessionId", session.get("SessionId"))
+    if not isinstance(returned_sid, str) or returned_sid.lower() != session_id.lower():
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the {what} named session {returned_sid!r}, not {session_id}, "
+            "so whether the session moved is unknown."
+        )
+    # ABSENT IS NOT DETACHED. The Director writes missionId on every session row, as null when there is
+    # none, so a row without the field is a missing answer - not a session with no mission.
+    has_mid = "missionId" in session or "MissionId" in session
+    if not has_mid:
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the {what} did not say which mission the session is now on, "
+            "so whether the session moved is unknown."
+        )
+    returned_mid = session.get("missionId", session.get("MissionId"))
+    if mission_id and not (isinstance(returned_mid, str) and returned_mid.lower() == mission_id.lower()):
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the attach gave the session mission {returned_mid!r}, not {mission_id}, "
+            "so the session was not attached."
+        )
+    # CLEARED MEANS NULL OR EMPTY. Any other value that is there - 0, false, an empty list - is not a
+    # cleared mission id, so it does not confirm the detach.
+    if not mission_id and not axi_cli.is_cleared(returned_mid):
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the detach still gives the session mission {returned_mid!r}, "
+            "so the session was not detached."
+        )
+    for key in ("workflowId", "WorkflowId", "workflowVersion", "WorkflowVersion"):
+        if key in session and key not in resp:
+            resp[key] = session[key]
     return resp
 
 
@@ -455,6 +768,15 @@ def _previous_mission(
         _field(roster_row, "missionId", "MissionId"),
         _field(roster_row, "missionName", "MissionName"),
     )
+
+
+def _previous_mission_is_exact(resp: Dict[str, Any]) -> bool:
+    """True when the answer itself says what the session left - previousMissionId present, null included.
+
+    The Gateway's POST /sessions/{sid}/mission answer (MissionAttachResultDto) does not carry it, so for
+    a Gateway-relayed change the previous mission comes from the roster snapshot, which can lag a change
+    made moments earlier. A snapshot can name what was left; it cannot prove nothing was."""
+    return "previousMissionId" in resp or "PreviousMissionId" in resp
 
 
 def _seat_moved(resp: Dict[str, Any]) -> bool:
@@ -486,13 +808,14 @@ def _print_seat_note(resp: Dict[str, Any]) -> None:
     """
     note = _field(resp, "seatNote", "SeatNote")
     if note:
-        console.print(f"[yellow]Note:[/yellow] {note}")
+        console.print(f"[yellow]Note:[/yellow] {axi_cli.shown(note)}")
 
 
 def _session_label(session: Dict[str, Any]) -> str:
+    """A session's name and FULL id, ASCII-safe. The id is what a follow-up command needs, so it is never cut."""
     sid = _field(session, "sessionId", "SessionId") or ""
     name = _field(session, "name", "Name") or "(unnamed)"
-    return f"{name} ({gateway.short_id(sid)})"
+    return f"{axi_cli.ascii_text(name)} ({sid})"
 
 
 def attach_session(target: str, mission_query: str, with_children: bool) -> None:
@@ -503,24 +826,38 @@ def attach_session(target: str, mission_query: str, with_children: bool) -> None
     mission_id = _field(mission, "missionId", "MissionId")
     mission_name = _field(mission, "missionName", "MissionName") or "(unnamed)"
     if not mission_id:
-        console.print("[red]Error:[/red] the Gateway returned a mission with no id.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"the Gateway returned a mission with no id for '{mission_query}', so nothing can be attached to it.",
+            ["cc-devthrottle mission list --all --json"],
+        )
 
     chosen = session_ops.resolve_session(target, command_name="cc-devthrottle mission attach")
     session_id = _field(chosen, "sessionId", "SessionId")
 
     targets = [chosen]
     if with_children:
-        sessions, _, _, _ = session_ops.fleet_or_exit()
+        sessions, complete, reason, _ = session_ops.fleet_or_exit()
+        # A roster with rows missing cannot say which sessions this one controls: a missing Manager
+        # takes its Workers out of the tree with it, and the attach would report success over a split
+        # pod. So an incomplete roster refuses before anything is attached.
+        if complete is not True:
+            axi_cli.fail(
+                f"the fleet roster could not be read in full{(' - ' + reason) if reason else ''}, so "
+                f"the sessions {session_id} controls cannot all be found. Nothing was attached.",
+                ["cc-devthrottle session list",
+                 f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} "
+                 f"{axi_cli.bare(mission_id, '<mission-id>')}"],
+            )
+        session_ops.controller_fields_or_exit(sessions)
         targets.extend(_controlled_subtree(sessions, session_id))
         console.print(
-            f"Attaching {len(targets)} session(s) to mission [bold]{mission_name}[/bold] "
-            f"({_short_id(mission_id)}):"
+            f"Attaching {len(targets)} session(s) to mission [bold]{axi_cli.shown(mission_name)}[/bold] "
+            f"({mission_id}):"
         )
         for s in targets:
-            console.print(f"  {_session_label(s)}")
+            console.print(f"  {axi_cli.shown(_session_label(s))}")
 
-    failed = 0
+    failed: List[str] = []
     seat_moved_any = False
     # The command that re-reads the conduct the sessions are NOW under. Filled from the first move that
     # reports a workflow and version; the placeholder stands only when the destination seats nobody, which
@@ -534,16 +871,18 @@ def attach_session(target: str, mission_query: str, with_children: bool) -> None
             # Keep going. A partial attach is honest and repeatable; abandoning the rest of the tree
             # because one session's Director is unreachable would leave the pod split with no record
             # of where it stopped.
-            console.print(f"[red]Failed:[/red] {_session_label(s)} - {err}")
-            failed += 1
+            sys.stdout.flush()
+            print(axi_cli.ascii_text(f"Failed: {_session_label(s)} - {err}"), file=sys.stderr)
+            failed.append(sid)
             continue
 
         previous_id, previous = _previous_mission(resp, s)
         moved_from = ""
         if previous_id and previous_id.lower() != mission_id.lower():
-            moved_from = f" (moved from {previous or _short_id(previous_id)})"
+            moved_from = f" (moved from {previous or previous_id})"
         console.print(
-            f"[green]Attached[/green] {_session_label(s)} to {mission_name}{moved_from}."
+            f"[green]Attached[/green] {axi_cli.shown(_session_label(s))} to "
+            f"{axi_cli.shown(mission_name)}{axi_cli.shown(moved_from)}."
         )
         if _seat_moved(resp):
             seat_moved_any = True
@@ -564,7 +903,13 @@ def attach_session(target: str, mission_query: str, with_children: bool) -> None
         )
 
     if failed:
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"{len(failed)} of {len(targets)} session(s) were not attached to mission {mission_id}: "
+            + ", ".join(failed) + ". Each failure is printed above. Attaching again is safe.",
+            [f"cc-devthrottle mission attach <session-id> {axi_cli.bare(mission_id, '<mission-id>')}"],
+        )
+    steps = [f"cc-devthrottle mission detach {session_id}", "cc-devthrottle session list --fields id,name,state,mission"]
+    axi_cli.print_next(steps)
 
 
 def detach_session(target: str) -> None:
@@ -577,17 +922,32 @@ def detach_session(target: str) -> None:
     try:
         resp = _apply_mission(session_id, None)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"could not detach session {session_id}: {err}",
+            ["cc-devthrottle session list --fields id,name,state,mission"],
+        )
 
     previous_id, previous = _previous_mission(resp, chosen)
-    if not previous_id:
+    if not previous_id and _previous_mission_is_exact(resp):
         # Say what is true rather than claiming a change: the session was already attached to nothing.
-        console.print(f"{_session_label(chosen)} was not attached to a mission; nothing changed.")
+        console.print(f"{axi_cli.shown(_session_label(chosen))} was not attached to a mission; nothing changed.")
         _print_seat_note(resp)
+        axi_cli.print_next([f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} <mission-id>"])
+        return
+    if not previous_id:
+        # The answer does not say what the session left, and the roster read before the call is a
+        # snapshot: "on no mission" there can predate an attach made moments ago. So the only fact is
+        # the one the answer confirms - it is on no mission now - and whether that changed is unknown.
+        console.print(
+            f"[green]Detached[/green] {axi_cli.shown(_session_label(chosen))}: it is now attached to no mission. "
+            "The roster read before the call showed it on none, but that read can lag, so whether it "
+            "was attached before is unknown."
+        )
+        _print_seat_note(resp)
+        axi_cli.print_next([f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} <mission-id>"])
         return
     console.print(
-        f"[green]Detached[/green] {_session_label(chosen)} from {previous or _short_id(previous_id)}."
+        f"[green]Detached[/green] {axi_cli.shown(_session_label(chosen))} from {axi_cli.shown(previous or previous_id)}."
     )
     if _seat_moved(resp):
         # Detach clears the mission's seat with it. A session that has LEFT a mission cannot still be
@@ -599,3 +959,7 @@ def detach_session(target: str) -> None:
             "mission's workflow run."
         )
     _print_seat_note(resp)
+    axi_cli.print_next([
+        f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} {axi_cli.bare(previous_id, '<mission-id>')}",
+        "cc-devthrottle mission list",
+    ])

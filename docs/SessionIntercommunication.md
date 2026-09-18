@@ -3,6 +3,16 @@
 How one running session talks to another running session, across the whole
 fleet, by relaying through its own Director.
 
+> **STALE TRANSPORT - read `docs/FleetMessaging.md` for how messages work today (17 September 2026).**
+> This is the July design for issue #705, kept as history. The Message Load mission (16-17 September
+> 2026) replaced its delivery model. A message is no longer typed into the receiving session or framed
+> into its prompt: it is a record in the recipient's inbox on the Gateway, one fixed doorbell line tells
+> the recipient to run `cc-devthrottle message inbox` when it is not working, and reading marks it
+> read. A session may message only the session that started it and the sessions it started, six an
+> hour. The blocking ask-and-reply of section 8 was removed; replies are queued with
+> `message send --reply-wanted` and `message reply`. Sections 5, 7 and 8 below describe the retired
+> transport and are NOT true of the product.
+
 Status: design / proposed. This document is the specification for the task
 breakdown in issue #705.
 
@@ -140,6 +150,8 @@ Director avoids that entirely, and it needs no new credential at spawn.
 
 ## 5. End-to-end flow of one message
 
+*Retired transport (see the note at the top): messages are queued, not typed.*
+
 The complete path of "a session on machine A messages a session on machine B."
 
 ```
@@ -230,6 +242,8 @@ Gateway's existing broadcast route.
 
 ## 7. What a received message looks like
 
+*Retired (see the note at the top): the recipient reads the message from `cc-devthrottle message inbox`; nothing is framed into its prompt.*
+
 When a session receives a message, it does not just see raw text. It sees a
 framed message that tells it who is talking:
 
@@ -251,6 +265,8 @@ in this version.
 ---
 
 ## 8. The one genuinely new capability: ask and reply
+
+*Retired (see the note at the top): the blocking ask was removed on 16 September 2026; a question is a queued message with `--reply-wanted`, and the reply lands in the asker's inbox.*
 
 Everything above is one-way: you send a message and it lands. The existing
 prompt mechanism cannot return the other agent's answer to you. That

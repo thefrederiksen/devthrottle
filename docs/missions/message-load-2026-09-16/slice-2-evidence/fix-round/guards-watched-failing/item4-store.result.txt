@@ -1,0 +1,15 @@
+== MUTATION marks saved before the notices are staged: exit=1
+    Failed!  - Failed:     3, Passed:    26, Skipped:     0, Total:    29, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_sweep_after_a_crash_marks_and_notifies_exactly_once [41 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_notice_that_cannot_be_written_leaves_the_message_open [60 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_failure_between_the_stuck_mark_and_its_notice_persists_neither [56 ms]
+== MUTATION save moved ahead of the failure point: exit=1
+    Failed!  - Failed:     1, Passed:    28, Skipped:     0, Total:    29, Duration: 5 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_failure_between_the_stuck_mark_and_its_notice_persists_neither [74 ms]
+== MUTATION notice never staged: exit=1
+    Failed!  - Failed:     5, Passed:    24, Skipped:     0, Total:    29, Duration: 4 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_sweep_after_a_crash_marks_and_notifies_exactly_once [138 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_read_undoes_stuck_and_nothing_further_is_rung_or_sent [177 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_message_is_not_rung_a_fourth_time [64 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_mark_and_the_notice_carry_the_same_moment [49 ms]

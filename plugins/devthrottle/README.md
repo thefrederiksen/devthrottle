@@ -20,7 +20,7 @@ gateway. The skill hands the user the steps and stops there. It does not downloa
 installer and it does not pipe a remote script into a shell, deliberately.
 
 **`devthrottle-sessions`** - how one session reaches the others: list what is running
-across your machines, name this session, message another one, ask one a question and
-wait for the answer, open a new session, and close one down.
+across your machines, name this session, send one of the rare queued messages and read
+the inbox, ask for a reply without waiting for it, open a new session, and close one down.
 
 MIT licensed. Source: <https://github.com/thefrederiksen/devthrottle>

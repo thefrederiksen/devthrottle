@@ -119,8 +119,8 @@ Commit and push on the branch as you go. Write your notes to
 messages as they actually printed, the suite numbers you actually ran, whether the phone shares the
 I4 defect and how you established it, and - named honestly - what your tests still do not cover
 (pixels and a real browser are not yours; say so). Then send your manager (`e7ea69df`) ONE
-single-line message saying you are done and pointing at that file. Fleet messages truncate at the
-first newline.
+single-line message saying you are done and pointing at that file. The detail belongs in the
+file, not the message.
 
 ## Pushing, when you are not the only seat on this branch
 

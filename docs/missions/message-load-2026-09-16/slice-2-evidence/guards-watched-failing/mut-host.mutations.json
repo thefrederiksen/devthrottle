@@ -1,0 +1,5 @@
+[
+ {"name":"settled edge not wired to the doorbell","old":"                        _fleetDoorbell.OnSettled(tenant, signal.SessionId);","new":"                        _ = signal.SessionId;"},
+ {"name":"the Director's answer is ignored (always rung)","old":"            return Api.DirectorCommandRouter.ReadBody<FleetRingResponse>(result);","new":"            return new FleetRingResponse { Outcome = FleetRingOutcomes.Rung };"},
+ {"name":"ring sent with no count","old":"                new FleetRingRequest { UnreadCount = unreadCount }, ct)","new":"                new FleetRingRequest { UnreadCount = 0 }, ct)"}
+]

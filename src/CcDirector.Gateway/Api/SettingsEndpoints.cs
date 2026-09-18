@@ -38,6 +38,8 @@ namespace CcDirector.Gateway.Api;
 ///   PUT  /gateway/spoken-language        body { "language": "en|fr|es" }
 ///   PUT  /gateway/spoken-language/voice  body { "language": "en|fr|es", "voice": "<id>" }
 ///   GET+PUT /gateway/injected-text              (per-account agent-launch text; issue #2057)
+///   GET+PUT /gateway/fleet-manager              (the account's one Fleet Manager session, or none;
+///                                                PUT { "sessionId": "<id>" | null })
 ///
 ///   DENIED ON HOSTED (process-global, no tenant dimension):
 ///   GET+PUT /gateway/transcription-mode         (single-valued process-global provider fact)
@@ -237,6 +239,57 @@ internal static class SettingsEndpoints
             catch (JsonException ex)
             {
                 FileLog.Write($"[SettingsEndpoints] PUT /gateway/turn-verdict-judge bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
+        });
+
+        // WHICH SESSION IS THIS ACCOUNT'S FLEET MANAGER (Fleet Manager mission). One session id per account, or
+        // none. The Wingman judges the sessions that session directly owns; nothing else about a session - not
+        // the workflow it is seated on - makes it the Fleet Manager. Read by the turn-end seat at every stop, so a
+        // change applies to the next stop with no Gateway restart.
+        //
+        // ONE PUT SETS AND CLEARS: { "sessionId": "<id>" } marks that session, { "sessionId": null } removes the
+        // mark. A body with no "sessionId" at all is REFUSED rather than read as either, for the reason the
+        // switches above give: guessing answers "saved" for a choice nobody made.
+        app.MapGet("/gateway/fleet-manager", (HttpContext ctx) =>
+        {
+            var t = GatewayEndpoints.ResolveReadTenant(ctx, host.TenantBoundary);
+            if (t is null) return TenantRequired();
+            return Results.Json(new { sessionId = host.TenantSettingsResolver.FleetManagerSessionId(t.Value) });
+        });
+
+        app.MapPut("/gateway/fleet-manager", async (HttpContext ctx) =>
+        {
+            var t = GatewayEndpoints.ResolveReadTenant(ctx, host.TenantBoundary);
+            if (t is null) return TenantRequired();
+            try
+            {
+                var body = await JsonNode.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted);
+                if (body is not JsonObject obj || !obj.TryGetPropertyValue("sessionId", out var value))
+                    return Results.BadRequest(new { error = "body { \"sessionId\": \"<session id>\" | null } is required" });
+
+                if (value is null)
+                {
+                    var removed = host.TenantSettingsResolver.ClearFleetManagerSessionId(t.Value);
+                    FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id cleared (removed={removed}) for tenant={t.Value.ToLogString()}");
+                    return Results.Json(new { sessionId = (string?)null });
+                }
+
+                var raw = value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : null;
+                if (raw is null || !Guid.TryParse(raw, out _))
+                    return Results.BadRequest(new { error = "\"sessionId\" must be a full session id or null" });
+
+                var now = DateTime.UtcNow;
+                host.TenantSettingsResolver.SetFleetManagerSessionId(t.Value, raw, now);
+                var stored = host.TenantSettingsResolver.FleetManagerSessionId(t.Value);
+                // The history beside the mark: the digest still finds the sessions an earlier Fleet Manager started.
+                host.FleetManagerMarks.Record(t.Value, stored!, now);
+                FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id set to {stored} for tenant={t.Value.ToLogString()}");
+                return Results.Json(new { sessionId = stored });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/fleet-manager bad JSON: {ex.Message}");
                 return Results.BadRequest(new { error = "invalid JSON" });
             }
         });

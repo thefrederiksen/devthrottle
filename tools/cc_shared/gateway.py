@@ -59,11 +59,16 @@ class GatewayError(RuntimeError):
     know whether the command had been carried out, because the one thing that tells the two apart was
     thrown away one line after it was read. The status travels WITH the failure rather than being
     guessed at from the wording of the sentence.
+
+    `body` is the parsed JSON of a refused answer, or None when there was no answer or it was not
+    JSON. The sentence alone is not always everything a caller must show: a refused dev report
+    carries a LIST of shape-check errors beside it, and the tool has to print every one.
     """
 
-    def __init__(self, message: str, status: Optional[int] = None):
+    def __init__(self, message: str, status: Optional[int] = None, body: Any = None):
         super().__init__(message)
         self.status = status
+        self.body = body
 
 
 def gateway_base_url() -> str:
@@ -279,9 +284,14 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: float
             fault = (err.headers.get(FAULT_HEADER) or "") if err.headers else ""
         except AttributeError:
             fault = ""
+        try:
+            parsed = json.loads(detail) if detail else None
+        except ValueError:
+            parsed = None
         raise GatewayError(
             _error_message(detail, err.code, fault_is_director=(fault == FAULT_DIRECTOR)),
             status=err.code,
+            body=parsed,
         ) from err
     except urllib.error.URLError as err:
         raise GatewayError(
@@ -341,6 +351,10 @@ def patch_json(path: str, body: dict, timeout: float = 30) -> Any:
     return _request("PATCH", path, body, timeout=timeout)
 
 
+def put_json(path: str, body: dict, timeout: float = 30) -> Any:
+    return _request("PUT", path, body, timeout=timeout)
+
+
 def delete(path: str, timeout: float = 30) -> Any:
     return _request("DELETE", path, None, timeout=timeout)
 
@@ -372,10 +386,20 @@ def get_fleet() -> Tuple[List[Dict[str, Any]], Optional[bool], Optional[str], Op
     Every verdict here is FOLDED ON THE GATEWAY and printed verbatim. Deciding what "offline" means
     for completeness is a ruling, and rulings do not live in a client.
     """
-    body = get_json("sessions?envelope=true") or []
+    body = get_json("sessions?envelope=true")
+    # An older Director serves the bare array, and that is still a roster.
     if isinstance(body, list):
         return body, None, None, None
-    sessions = body.get("sessions") or []
+    # Anything else that is not an envelope carrying a list is NOT an empty roster. Absent is not
+    # empty: reading a missing field as "no sessions" would tell the caller nothing is running.
+    if not isinstance(body, dict):
+        raise GatewayError(
+            f"the Gateway's session list answer was not a list or an envelope (got {type(body).__name__})."
+        )
+    sessions = body.get("sessions")
+    if not isinstance(sessions, list):
+        shown = "missing" if sessions is None else f"a {type(sessions).__name__}"
+        raise GatewayError(f"the Gateway's session list answer has no list of sessions (the field is {shown}).")
     complete = body.get("rosterComplete")
     reason = body.get("rosterIncompleteReason")
     stale = body.get("rosterStaleAnswerCaution")

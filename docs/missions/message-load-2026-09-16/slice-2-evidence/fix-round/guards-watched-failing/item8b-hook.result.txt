@@ -1,0 +1,10 @@
+== MUTATION hook never called: exit=1
+    Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 681 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.The_before_Enter_hook_runs_before_the_Enter_and_only_once [84 ms]
+== MUTATION hook called after the Enter: exit=1
+    Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 673 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.The_before_Enter_hook_runs_before_the_Enter_and_only_once [89 ms]
+== MUTATION hook called before the echo check: exit=1
+    Failed!  - Failed:     2, Passed:     7, Skipped:     0, Total:     9, Duration: 694 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.The_before_Enter_hook_runs_before_the_Enter_and_only_once [90 ms]
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.The_before_Enter_hook_does_not_run_when_nothing_echoed [85 ms]

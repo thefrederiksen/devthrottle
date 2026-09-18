@@ -55,7 +55,7 @@ your need:
   step-by-step screenshots of the setup wizard.
 - **[Features Overview](../features/01-overview.md)** - the user-facing features,
   with screenshots of the running app.
-- **[Tools Overview](../tools/01-overview.md)** - every `cc-*` command-line tool
+- **[Tools Overview](../tools/01-overview.md)** - every shipped `cc-*` command-line tool
   and how to use it.
 - **[Control API](../api/01-control-api.md)** - the REST interface for driving a
   Director programmatically.

@@ -38,7 +38,8 @@ public sealed class TurnVerdictDto
     public string PackageKind { get; set; } = "";
 
     /// <summary>True when the answer was refused. The reason is in <see cref="FailureReason"/> and
-    /// every field below is at its default.</summary>
+    /// every field below is at its default - except <see cref="Spoken"/>, which a refusal of readable JSON
+    /// keeps (contract v2.2).</summary>
     public bool Failed { get; set; }
 
     /// <summary>Why the answer was refused, in plain words, when <see cref="Failed"/> is true.</summary>
@@ -80,7 +81,11 @@ public sealed class TurnVerdictDto
     /// <summary>The same content for the ear, about thirty seconds. It does NOT open with the session
     /// name: from contract v2.1 the judge is told not to write one, and the name is prefixed from the
     /// record when the audio is assembled, because the judge got it wrong often enough to matter.
-    /// Produced for every owned stop; audio is synthesised only when somebody is listening.</summary>
+    /// Produced for every owned stop; audio is synthesised only when somebody is listening.
+    ///
+    /// KEPT ON A REFUSED RECORD when the judge answered readable JSON and a field check refused it (contract
+    /// v2.2): the refusal stands for the row, and voice still plays these words. Empty on a refusal only when
+    /// the answer was not a JSON object, or the judge timed out or was rate limited.</summary>
     public string Spoken { get; set; } = "";
 
     /// <summary>The agent's announced next wake-up (UTC) when the stop's package carried one, else null. The
@@ -108,6 +113,15 @@ public sealed class TurnVerdictDto
     /// before the field existed carries null.
     /// </summary>
     public string? FinishedKind { get; set; }
+
+    /// <summary>
+    /// THE NARRATION: the faithful retelling of this stop, written by the narration call (the old version 9 fidelity
+    /// instructions) and saved onto the record when it answers - a few seconds after the verdict itself. Made for every
+    /// stop of a session that answers to the user, voice mode or not, so it can always be READ; voice mode speaks this
+    /// same text. Null until the call answers, when the call failed, and for a session another session owns (a Worker
+    /// under a live owner), whose stops are read by that owner rather than by the user.
+    /// </summary>
+    public string? Narration { get; set; }
 }
 
 /// <summary>The picker on the screen that a "keys" answer selects from.</summary>

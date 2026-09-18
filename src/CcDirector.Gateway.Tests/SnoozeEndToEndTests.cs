@@ -343,7 +343,7 @@ public sealed class SnoozeEndToEndTests : IAsyncLifetime
         _gw.SnoozeRegistry.Snooze("s8", DateTime.UtcNow.AddHours(12), fake.DirectorId);
         Assert.True((await GetSession("s8")).OnHold); // snoozed to start
 
-        fake.SetActivity("s8", "Working"); // an agent's message woke it
+        fake.SetActivity("s8", "Working"); // woken by work the Director does not attribute to a send (no origin)
         await fake.RePushAsync();
 
         Assert.False(_gw.SnoozeRegistry.Contains("s8")); // the snooze is gone, deleted by work
@@ -360,6 +360,37 @@ public sealed class SnoozeEndToEndTests : IAsyncLifetime
         Assert.Equal("red", settled.EffectiveColor);
         Assert.Equal("needsYou", settled.TriageBucket);
         Assert.False(settled.SnoozeExpired); // came back by WORK, not by timer expiry - so no badge
+    }
+
+    [Fact]
+    public async Task A_doorbell_on_a_snoozed_session_leaves_it_snoozed_and_the_owner_typing_ends_it()
+    {
+        // The Message Load mission, ruling 15 (inspection 4, ruling 8): the fleet doorbell is agent-origin, so
+        // the work it starts does not end the owner's snooze. The owner's half of the law is unchanged: when he
+        // types, the snooze is over.
+        await SetDefaultMinutes(1);
+        var fake = await StartFakeAsync("s9", onHold: true);
+        var baseline = DateTime.UtcNow;
+        _gw.SnoozeRegistry.Snooze("s9", DateTime.UtcNow.AddHours(12), fake.DirectorId, ownerTurnBaselineUtc: baseline);
+
+        fake.SetActivity("s9", "Working");
+        fake.SetWorkingOrigin("s9", WorkingOrigins.Agent); // the doorbell's line started this turn
+        await fake.RePushAsync();
+        Assert.True(_gw.SnoozeRegistry.Contains("s9"));
+
+        fake.SetActivity("s9", "WaitingForInput");
+        fake.SetWorkingOrigin("s9", null);
+        await fake.RePushAsync();
+        var settled = await GetSession("s9");
+        Assert.True(settled.OnHold); // still snoozed after the doorbell turn
+
+        fake.SetActivity("s9", "Working");
+        fake.SetWorkingOrigin("s9", WorkingOrigins.Owner);
+        fake.SetLastOwnerTurn("s9", baseline.AddSeconds(5)); // the owner typed
+        await fake.RePushAsync();
+
+        Assert.False(_gw.SnoozeRegistry.Contains("s9"));
+        Assert.False((await GetSession("s9")).OnHold);
     }
 
     [Fact]
@@ -715,6 +746,7 @@ public sealed class SnoozeEndToEndTests : IAsyncLifetime
 
         /// <summary>The other fact a Director reports: what it is doing.</summary>
         public void SetActivity(string sid, string activityState) { lock (_gate) _sessions[sid].ActivityState = activityState; }
+        public void SetWorkingOrigin(string sid, string? origin) { lock (_gate) _sessions[sid].WorkingOrigin = origin; }
 
         /// <summary>It died rather than finished (issue #959). A crash is NOT an ActivityState - a crashed
         /// session is "Exited" like any other - so it is a separate fact the Director reports, and the fold
@@ -848,6 +880,8 @@ public sealed class SnoozeEndToEndTests : IAsyncLifetime
             // the owner typing - so a Clone that drops it makes a real behaviour untestable while looking
             // fine. This hand-written field list has no compiler to catch that; add new fields here.
             LastOwnerTurnAtUtc = s.LastOwnerTurnAtUtc,
+            // Who started the current work (the Message Load mission, ruling 15) - the same warning applies.
+            WorkingOrigin = s.WorkingOrigin,
             CreatedAt = s.CreatedAt,
             LastActivityAt = s.LastActivityAt,
         };

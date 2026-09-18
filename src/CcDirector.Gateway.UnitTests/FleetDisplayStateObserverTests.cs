@@ -94,6 +94,39 @@ public sealed class FleetDisplayStateObserverTests
     }
 
     /// <summary>
+    /// THE ROW LINE RIDES THE SAME PUSH (Message Load mission, slice 4). The desktop cannot read the inbox, so the
+    /// Gateway's line must be in the payload, and a line that changes with nothing else changing - a message
+    /// arriving, a stuck age ticking over - must go down again. Clearing it must go down too.
+    /// </summary>
+    [Fact]
+    public void TheInboxLine_IsCarriedDown_AndAChangeToItAloneIsPushed()
+    {
+        var sender = new RecordingSender();
+        var s1 = Session("s1");
+        var fleet = new List<(string, SessionDto)> { ("dir-A", s1) };
+        string? line = "2 messages waiting";
+        var observer = new FleetDisplayStateObserver(
+            () => fleet,
+            sessions => { StubFold(sessions); foreach (var s in sessions) s.InboxLine = line; },
+            sender.SendAsync);
+
+        observer.Sweep();
+        observer.Sweep();
+        Assert.Equal("2 messages waiting", Assert.Single(sender.Sent).Payload.InboxLine);
+
+        line = "1 message stuck, unread for 16 minutes";
+        observer.Sweep();
+        Assert.Equal(2, sender.Sent.Count);
+        Assert.Equal("1 message stuck, unread for 16 minutes", sender.Sent[^1].Payload.InboxLine);
+        Assert.Equal("red", sender.Sent[^1].Payload.EffectiveColor);
+
+        line = null;
+        observer.Sweep();
+        Assert.Equal(3, sender.Sent.Count);
+        Assert.Null(sender.Sent[^1].Payload.InboxLine);
+    }
+
+    /// <summary>
     /// THE STAMP STORM the per-tenant gate exists to prevent (issue #1966). On the hosted Gateway the sweep
     /// runs one pass PER TENANT (GatewayHost wraps Sweep in ITenantPass.ForEachTenant), each pass seeing only
     /// that tenant's fleet. With a SINGLE flat gate, tenant t2's pass would prune s1 (not in t2's live set)

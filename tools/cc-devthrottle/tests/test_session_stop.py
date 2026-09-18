@@ -114,17 +114,18 @@ def _stop(target, *reason_args):
 
 
 @pytest.fixture(autouse=True)
-def wide_console(monkeypatch):
-    """Render into a wide console so no assertion depends on where the terminal wrapped a line.
+def narrow_console(monkeypatch):
+    """Render into a console far narrower than any sentence, so every test proves the stop output
+    is never wrapped.
 
-    Rich wraps to the console width, so a sentence that is one line on a wide terminal arrives in the
-    capture with a newline through the middle of it. Asserting on the raw capture would pin the width
-    of whatever machine the test ran on rather than the words the reader sees. Wrapping is the
-    terminal's business; these tests are about the words and the exit code.
+    These tests used to force a WIDE console instead, and still failed on Windows with Rich 14.3.2
+    and FORCE_COLOR=1: six assertions found a Gateway sentence split across two lines. The output is
+    now printed unwrapped, whatever the width, and a narrow console is what shows that. Every other
+    setting - colour, terminal detection - is left to the environment the suite runs in.
     """
     from rich.console import Console
 
-    monkeypatch.setattr(session_ops, "console", Console(width=200))
+    monkeypatch.setattr(session_ops, "console", Console(width=20))
 
 
 # ===== the three verdicts: every one of them is a success =====
@@ -142,6 +143,8 @@ def test_a_stopped_session_prints_the_headline_then_every_detail_line_and_exits_
     assert calls[0]["body"] == {"reason": "it was editing the wrong repository"}
     out = plain(result.output)
     assert f"stopped {SHORT_ID} - process 51884 ended, row removed" in out
+    # Printable ASCII is printed as it is (axi_cli.ascii_text), so a Windows path keeps single
+    # backslashes; only a character that is not printable ASCII is escaped.
     assert r"the worktree C:\Repos\thing was left untouched" in out
     assert "reason: it was editing the wrong repository" in out
 
@@ -208,9 +211,12 @@ def test_an_ambiguous_target_is_still_an_error(gateway_stub, plain):
 
     assert result.exit_code != 0
     assert not calls, "an ambiguous target was stopped anyway - one of two sessions was guessed at"
-    out = plain(result.output)
-    assert "is ambiguous - 2 matches" in out
+    assert result.stdout == ""
+    out = plain(result.stderr)
+    assert "is ambiguous - 2 sessions match" in out
     assert "cc-devthrottle session stop" in out
+    # Full ids, so the caller can paste one back without it being ambiguous all over again.
+    assert SESSION_ID in out and OTHER_ID in out
 
 
 # ===== the reason: refused here, and refused again by the Gateway in its own words =====
@@ -431,7 +437,9 @@ def test_an_empty_details_list_prints_nothing_beyond_the_headline(gateway_stub, 
 
     assert result.exit_code == 0
     printed = [line for line in plain(result.output).splitlines() if line.strip()]
-    assert printed == ["stopped 9c41e7a2 - process 51884 ended, row removed"]
+    # The headline, then only the help[] block: nothing invented in between.
+    assert printed[0] == "stopped 9c41e7a2 - process 51884 ended, row removed"
+    assert printed[1].startswith("help[")
 
 
 def test_an_answer_with_no_headline_is_reported_as_no_answer_rather_than_as_a_success(
@@ -478,7 +486,7 @@ def delete_stub(monkeypatch):
 
 
 def test_undo_calls_the_cancel_route_for_this_session_and_needs_no_reason(delete_stub, plain):
-    calls = delete_stub({"cancelled": True})
+    calls = delete_stub({"pendingDeletion": False})
 
     result = runner.invoke(app, ["session", "done", "--undo"])
 
@@ -488,7 +496,7 @@ def test_undo_calls_the_cancel_route_for_this_session_and_needs_no_reason(delete
 
 
 def test_undo_takes_an_explicit_target_too(delete_stub):
-    calls = delete_stub({"cancelled": True})
+    calls = delete_stub({"pendingDeletion": False})
 
     result = runner.invoke(app, ["session", "done", SESSION_ID, "--undo"])
 
@@ -500,7 +508,7 @@ def test_undo_does_not_post_a_deletion_request(delete_stub, monkeypatch):
     # The two directions share a route name, and confusing them would be catastrophic in the one
     # direction that matters: an --undo that FLAGGED the session would delete the very session the
     # caller was rescuing.
-    delete_stub({"cancelled": True})
+    delete_stub({"pendingDeletion": False})
 
     def must_not_post(path, body=None, timeout=30):
         raise AssertionError(f"--undo posted to {path} instead of clearing the flag")
@@ -515,7 +523,7 @@ def test_undo_does_not_post_a_deletion_request(delete_stub, monkeypatch):
 def test_undo_with_a_reason_is_refused_rather_than_silently_dropping_it(delete_stub, plain):
     # The decision, stated: --undo with --reason is a contradiction, and it is refused. Dropping the
     # reason would let the caller believe something was recorded that never was.
-    calls = delete_stub({"cancelled": True})
+    calls = delete_stub({"pendingDeletion": False})
 
     result = runner.invoke(app, ["session", "done", "--undo", "--reason", "changed my mind"])
 
@@ -534,7 +542,7 @@ def test_plain_done_still_flags_the_session(monkeypatch, plain):
     monkeypatch.setattr(
         session_ops.gateway,
         "post_json",
-        lambda path, body=None, timeout=30: posted.append((path, body)) or {},
+        lambda path, body=None, timeout=30: posted.append((path, body)) or {"pendingDeletion": True},
     )
 
     result = runner.invoke(app, ["session", "done", "--reason", "finished"])
@@ -815,3 +823,45 @@ def test_the_json_flag_is_declared_on_stop():
         if isinstance(param, typer.models.OptionInfo):
             names.extend(param.param_decls or [])
     assert "--json" in names
+
+
+# ===== every Gateway sentence is one line of ASCII =====
+
+
+def test_stop_GatewaySentencesWithNewlinesAndNonAscii_AreOneAsciiLineEach(gateway_stub, plain):
+    # The inspection's reproduction: a headline with a newline in it and a detail with a tab and a
+    # non-ASCII letter must neither split their lines nor leave the output non-ASCII.
+    gateway_stub({"verdict": "stopped", "headline": "stopp\u00e9d\nsecond", "details": ["worktree na\u00efve\tleft"]})
+
+    result = _stop(SESSION_ID, "--reason", "test")
+
+    assert result.exit_code == 0
+    assert result.output.isascii(), result.output
+    # The two Gateway lines, each one line, then only the help[] block.
+    assert plain(result.output).splitlines()[:3] == ["stopp\\u00e9d\\nsecond", "worktree na\\u00efve\\tleft", "help[2]:"]
+
+
+def test_stop_GatewayFailureSentence_IsOneAsciiLine(gateway_stub, plain):
+    gateway_stub(session_ops.gateway.GatewayError("the Director on S\u00d8REN\nsaid [/tmp/x] no", status=502))
+
+    result = _stop(SESSION_ID, "--reason", "test")
+
+    assert result.exit_code == 1
+    assert result.output.isascii(), result.output
+    first = plain(result.output).splitlines()[0]
+    assert first == (
+        "Outcome unknown: the Director on S\\u00d8REN\\nsaid [/tmp/x] no "
+        "This cannot say whether the session is still running."
+    ), result.output
+
+
+def test_undo_GatewayFailureSentence_IsOneAsciiLine(delete_stub, plain):
+    delete_stub(session_ops.gateway.GatewayError("caf\u00e9\nbroken [/x]"))
+
+    result = runner.invoke(app, ["session", "done", "--undo"])
+
+    assert result.exit_code == 1
+    assert result.output.isascii(), result.output
+    lines = plain(result.output).splitlines()
+    assert lines[0] == f"Error: could not clear the deletion flag on session {SESSION_ID}: caf\\u00e9\\nbroken [/x]"
+    assert lines[1].startswith("help[")

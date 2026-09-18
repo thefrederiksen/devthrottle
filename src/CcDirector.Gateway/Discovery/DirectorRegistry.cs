@@ -240,7 +240,34 @@ public sealed class DirectorRegistry : IDisposable
     /// the field) and centralising it here would silently change it.
     /// </summary>
     private bool TryRemoveEntry(DirectorKey key, out DirectorDto? removed)
-        => _directors.TryRemove(key, out removed);
+    {
+        var present = _directors.TryRemove(key, out removed);
+        if (present) _registeredBy.TryRemove(key, out _);
+        return present;
+    }
+
+    /// <summary>
+    /// The credential each stream-registered Director said Hello on (<see cref="Util.AuthMiddleware.RegisteringCredential"/>),
+    /// by (tenant, id). Not a second identity: it is the device key the hub already authenticated and bound this
+    /// Director id to, kept so an HTTP route can ask whether its caller is that Director (the Message Load
+    /// mission, inspection 11). Several Directors on one machine share one device key, so one credential may
+    /// register several ids. Cleared with the entry.
+    /// </summary>
+    private readonly ConcurrentDictionary<DirectorKey, string> _registeredBy = new();
+
+    /// <summary>
+    /// True when <paramref name="directorId"/> is registered in <paramref name="tenant"/> AND its stream Hello was
+    /// authenticated by <paramref name="credential"/>. False for a null credential, an unknown Director, or a
+    /// Director registered some other way (a file or an HTTP registration carries no credential).
+    /// </summary>
+    public bool IsRegisteredByCredential(TenantId tenant, string directorId, string? credential)
+    {
+        if (string.IsNullOrEmpty(directorId) || string.IsNullOrEmpty(credential)) return false;
+        var key = new DirectorKey(tenant, directorId);
+        return _directors.ContainsKey(key)
+               && _registeredBy.TryGetValue(key, out var registered)
+               && string.Equals(registered, credential, StringComparison.Ordinal);
+    }
 
     // ===== HTTP path =====
 
@@ -308,7 +335,7 @@ public sealed class DirectorRegistry : IDisposable
     /// is a rejected Hello at the hub, not a registration under a guessed owner.
     /// </summary>
     public DirectorDto RegisterFromStream(string directorId, string machineName, string user, string version, int pid, DateTime startedAt, TenantId tenant,
-        string displayName = "")
+        string displayName = "", string? registeredByCredential = null)
     {
         if (string.IsNullOrEmpty(directorId))
             throw new ArgumentException("directorId is required", nameof(directorId));
@@ -357,6 +384,10 @@ public sealed class DirectorRegistry : IDisposable
             };
             existed = existing is not null;
             _directors[key] = dto;
+            // The credential this Hello authenticated with. A reconnect on another key re-binds the id to it; a
+            // registration that names none leaves no binding, so nothing can prove itself to be this Director.
+            if (registeredByCredential is not null) _registeredBy[key] = registeredByCredential;
+            else _registeredBy.TryRemove(key, out _);
         }
         _stateReporting.TryAdd(directorId, true);
         if (!existed)

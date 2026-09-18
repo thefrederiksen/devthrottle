@@ -25,13 +25,13 @@ public sealed class WorkflowStoreTests : IDisposable
     public void Dispose() => _h.Dispose();
 
     [Fact]
-    public void Seeds_the_three_built_ins_in_shipped_order()
+    public void Seeds_the_four_built_ins_in_shipped_order()
     {
         var store = new WorkflowStore(_h.Open());
 
         var workflows = store.ListPublished();
 
-        Assert.Equal(new[] { "mission", "standalone", "standalone-with-review" },
+        Assert.Equal(new[] { "mission", "standalone", "standalone-with-review", "fleet-manager" },
             workflows.Select(w => w.Id).ToArray());
         Assert.All(workflows, w =>
         {
@@ -52,11 +52,11 @@ public sealed class WorkflowStoreTests : IDisposable
         var store = new WorkflowStore(_h.Open());
 
         var workflows = store.ListPublished();
-        Assert.Equal(3, workflows.Count);
+        Assert.Equal(4, workflows.Count);
         Assert.All(workflows, w => Assert.Equal(1, w.Version));
 
         using var ctx = _h.Open().CreateContext();
-        Assert.Equal(3, ctx.WorkflowVersions.Count());
+        Assert.Equal(4, ctx.WorkflowVersions.Count());
     }
 
     [Fact]
@@ -76,12 +76,52 @@ public sealed class WorkflowStoreTests : IDisposable
         _ = new WorkflowStore(_h.Open());
 
         using var ctx = _h.Open().CreateContext();
-        foreach (var id in new[] { "mission", "standalone", "standalone-with-review" })
+        foreach (var id in new[] { "mission", "standalone", "standalone-with-review", "fleet-manager" })
         {
             var version = ctx.WorkflowVersions.Single(v => v.WorkflowId == id);
             Assert.Equal(BuiltInWorkflows.InstructionsFor(id), version.InstructionsMarkdown);
             Assert.Equal(WorkflowVersionStatus.Published, version.Status);
         }
+    }
+
+    [Fact]
+    public void Every_built_in_ships_a_non_empty_instruction_body()
+    {
+        // The comparison above cannot see an empty resource: the shipped body and the stored row would
+        // both be empty, and an empty conduct would be served silently to every seat.
+        var ids = BuiltInWorkflows.All().Select(w => w.Id).ToArray();
+        Assert.Contains("fleet-manager", ids);
+
+        foreach (var id in ids)
+            Assert.False(string.IsNullOrWhiteSpace(BuiltInWorkflows.InstructionsFor(id)),
+                $"Built-in workflow '{id}' ships an empty instruction body.");
+    }
+
+    [Fact]
+    public void Fleet_manager_conduct_learns_of_stops_from_events_and_never_asks_for_reports()
+    {
+        // The owner ruled (2026-09-16) that the sessions a Fleet Manager starts never report to it: the Gateway's
+        // events carry each stop, with the Wingman's reading, and the Fleet Manager acknowledges them by id.
+        var body = BuiltInWorkflows.InstructionsFor("fleet-manager");
+
+        Assert.Contains("[Fleet Manager events]", body);
+        Assert.Contains("acknowledge", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("event ids you have handled", body);
+        Assert.DoesNotContain("devthrottle session report", body);
+        Assert.DoesNotContain("`session report`", body);
+        Assert.DoesNotContain("emporary", body);
+    }
+
+    [Fact]
+    public void Fleet_manager_conduct_leaves_a_stop_waiting_for_its_reading_alone_and_reads_every_event()
+    {
+        // Step 4, round 3: a stop still waiting for its reading is neither acted on nor acknowledged, and the digest
+        // may say more events remain. The phrases span wrapped lines, and a Windows checkout embeds the body with CRLF.
+        var body = Normalize(BuiltInWorkflows.InstructionsFor("fleet-manager"));
+
+        Assert.Contains("Leave alone any stop still waiting\n   for the Wingman's reading - do not act on it and do not acknowledge it", body);
+        Assert.Contains("A stop still waiting for the Wingman's reading is not yours to act on yet.", body);
+        Assert.Contains("If\n   the digest says more remain, read the rest before you act.", body);
     }
 
     [Fact]

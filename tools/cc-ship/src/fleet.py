@@ -5,10 +5,12 @@ fleet exactly the way any other session does and needs no credentials of its own
 
 A spawned session has FINISHED only when BOTH are true:
   - the output file it was told to write exists, and
-  - the session has been SEEN flagged done (pendingDeletion). Leaving the fleet list
-    counts only after the flag was seen: the Director keeps a flagged session listed
-    for 30 seconds, far longer than one poll, so a real finish is always observed
-    with its flag. A session that vanishes without that is a crash, output or not.
+  - the session has said it is done: it was SEEN flagged done (pendingDeletion), or it
+    wrote its done marker (<output>.done), which the brief has it write only after its
+    `session done` command succeeded. The marker matters because the Director reaps a
+    flagged session 30 seconds later, and nobody may be polling in that window (the
+    author runs `cc-ship wait` when it chooses). A session that vanishes with neither
+    is a crash, output or not.
 A session that leaves the fleet list without the flag, or is reported crashed, has
 FAILED. A session that was seen working and then sits idle with no output
 and no done flag has STALLED - for example it stopped on an error it could not get
@@ -19,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -36,14 +39,60 @@ TIMED_OUT = "timed-out"
 # no done flag before it counts as stalled (it ended its turn without doing the job).
 STALL_SECONDS = 90
 
+# A session that has not been seen working this long after it was spawned never got
+# going (for example the agent stopped at once on a usage-limit screen) and is stalled
+# too. Prompt delivery takes seconds; five minutes is far beyond it.
+NEVER_WORKED_SECONDS = 300
+
+# The fleet list can briefly leave out a live session (a Director that is slow to
+# answer the Gateway). Missing once proves nothing: a session counts as gone only
+# after it has been missing on every poll for this long. Seen live, 2026-09-16: a
+# reviewer that was working and then finished was called gone twice.
+GONE_CONFIRM_SECONDS = 60
+
 
 class FleetError(RuntimeError):
     """A fleet command failed; the message carries the command's own output."""
 
 
+# cmd.exe re-reads the arguments of a .cmd file. A quote, a percent sign (expanded even
+# inside quotes) or a line break is never safe. & | < > ^ are safe only inside quotes,
+# and Python quotes an argument only when it contains a space or a tab, so C:\work\R&D
+# would reach cmd.exe bare and split the command.
+_NEVER_SAFE_FOR_CMD = set('"%\n\r')
+_SAFE_ONLY_QUOTED_FOR_CMD = set("&|<>^")
+
+
+def _cmd_misreads(arg: str) -> bool:
+    if _NEVER_SAFE_FOR_CMD & set(arg):
+        return True
+    quoted = arg == "" or " " in arg or "\t" in arg
+    return not quoted and bool(_SAFE_ONLY_QUOTED_FOR_CMD & set(arg))
+
+
+def command(args: list[str]) -> list[str]:
+    """The full command line for cc-devthrottle.
+
+    On Windows cc-devthrottle is a .cmd file, and Windows only finds a bare name that
+    ends in .exe, so the full path is looked up first (issue 2961). A .cmd file's
+    arguments pass through cmd.exe, so any argument it would misread is refused.
+    """
+    path = shutil.which(CLI)
+    if path is None:
+        raise FleetError(f"{CLI} is not on PATH; cc-ship reaches the fleet through it.")
+    if path.lower().endswith((".cmd", ".bat")):
+        bad = [a for a in args if _cmd_misreads(a)]
+        if bad:
+            raise FleetError(f"cannot pass {bad[0]!r} safely to {path}: cmd.exe would misread "
+                             "it (a quote, a percent sign, a line break, or & | < > ^ in text "
+                             "without a space). Rename the folder or branch so it has none.")
+    return [path, *args]
+
+
 def _run(args: list[str], timeout: int = 120) -> str:
     proc = subprocess.run(
-        [CLI, *args], capture_output=True, text=True, timeout=timeout
+        command(args), capture_output=True, text=True, timeout=timeout,
+        encoding="utf-8", errors="replace",
     )
     if proc.returncode != 0:
         raise FleetError(
@@ -53,14 +102,27 @@ def _run(args: list[str], timeout: int = 120) -> str:
     return proc.stdout
 
 
+# The command-line arguments a Claude Code session gets when cc-ship names its model.
+# The Director adds its own session id and hook settings after these.
+CLAUDE_ARGS_WITH_MODEL = "--dangerously-skip-permissions --model {model}"
+
+
 def spawn_session(
-    repo: Path, agent: str, controlled_by: str, name: str, brief: Path
+    repo: Path, agent: str, controlled_by: str, name: str, brief: Path,
+    model: str | None = None,
 ) -> str:
     """Open a tracked session whose whole task is the brief FILE. Returns its id.
 
-    The prompt is one short line pointing at the brief: long spawn prompts can
-    fail to arrive, and fleet text truncates at the first newline.
+    The prompt is one short line pointing at the brief: the brief holds the
+    detail, and the prompt only says where to find it. A model can be
+    named for Claude Code only; the session's model is set on its command line, so
+    the owner's default model is never changed.
     """
+    extra = []
+    if model is not None:
+        if agent != "ClaudeCode":
+            raise FleetError(f"cc-ship can name a model only for ClaudeCode, not {agent}")
+        extra = ["--args", CLAUDE_ARGS_WITH_MODEL.format(model=model)]
     prompt = f"Read the file {brief} and follow it exactly. It is your whole task."
     try:
         out = _run([
@@ -69,6 +131,7 @@ def spawn_session(
             "--controlled-by", controlled_by,
             "--name", name,
             "--prompt", prompt,
+            *extra,
         ])
     except FleetError as exc:
         # A Gateway timeout does not mean the spawn failed: the session may exist
@@ -122,6 +185,11 @@ def stop_session(session_id: str, reason: str) -> str:
     return _run(["session", "stop", session_id, "--reason", reason])
 
 
+def done_marker(output: Path) -> Path:
+    """The file a session writes after `session done` succeeded (see the module note)."""
+    return output.with_name(output.name + ".done")
+
+
 @dataclass
 class WaitResult:
     outcome: str  # FINISHED, CRASHED, STALLED or TIMED_OUT
@@ -162,15 +230,18 @@ def wait_for_output(
     so a correction turn is only finished once the file has been rewritten.
 
     watch carries what has been observed across separate calls (cc-ship waits in
-    slices of a few minutes, in separate processes): seen_working, seen_done and
-    idle_since (a time.time() value). It is updated in place; pass the same dict
+    slices of a few minutes, in separate processes): seen_working, seen_done,
+    idle_since and started (time.time() values; started defaults to the first call). It is updated in place; pass the same dict
     back on the next call, or a stalled session would never be recognised.
     """
 
-    def output_ready() -> bool:
-        if not output.exists():
+    def fresh(path: Path) -> bool:
+        if not path.exists():
             return False
-        return written_after is None or output.stat().st_mtime > written_after
+        return written_after is None or path.stat().st_mtime > written_after
+
+    def output_ready() -> bool:
+        return fresh(output)
 
     observations: list[dict] = []
     deadline = time.monotonic() + timeout_seconds
@@ -179,14 +250,32 @@ def wait_for_output(
     watch.setdefault("seen_working", False)
     watch.setdefault("seen_done", False)
     watch.setdefault("idle_since", None)
+    watch.setdefault("started", time.time())
+    watch.setdefault("missing_since", None)
     while True:
         row = find_session(session_id)
         ready = output_ready()
+        watch["seen_done"] = (watch["seen_done"] or fresh(done_marker(output))
+                              or bool(row and row.get("pendingDeletion")))
         outcome, reason = classify(ready, row, watch["seen_done"])
-        watch["seen_done"] = watch["seen_done"] or bool(row and row.get("pendingDeletion"))
+        if row is not None:
+            watch["missing_since"] = None
+        elif outcome == CRASHED:
+            watch["missing_since"] = watch["missing_since"] or time.time()
+            missing_for = time.time() - watch["missing_since"]
+            if missing_for < GONE_CONFIRM_SECONDS:
+                outcome = None
+                reason = (f"not in the fleet list for {int(missing_for)}s; confirming it is gone "
+                          f"(after {GONE_CONFIRM_SECONDS}s)")
         if outcome is None and row is not None:
             if row["activityState"] == "Working":
                 watch["seen_working"], watch["idle_since"] = True, None
+            elif (not watch["seen_working"] and not ready and not row.get("pendingDeletion")
+                  and time.time() - watch["started"] >= NEVER_WORKED_SECONDS):
+                screen = session_screen(session_id)[-800:]
+                outcome = STALLED
+                reason = (f"session was never seen working in {NEVER_WORKED_SECONDS}s after it "
+                          f"was spawned; its screen ends: {screen}")
             elif watch["seen_working"] and not ready and not row.get("pendingDeletion"):
                 watch["idle_since"] = watch["idle_since"] or time.time()
                 if time.time() - watch["idle_since"] >= STALL_SECONDS:

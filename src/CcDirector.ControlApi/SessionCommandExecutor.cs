@@ -97,6 +97,9 @@ internal static class SessionCommandExecutor
         // a loopback debug port and a profile directory on this disk - so the Gateway never drives one; it
         // carries the command to the Director that does.
         new BrowserExecutor(),
+        // The Message Load mission, slice 2: the doorbell. The Gateway asks; this Director checks the live screen
+        // and types the one line only when that is safe.
+        new FleetDoorbellExecutor(),
     };
 
     /// <summary>
@@ -234,7 +237,39 @@ internal static class SessionCommandExecutor
             request.AgentDriven ? SubmissionRoutes.FleetMessage
             : !string.IsNullOrWhiteSpace(request.DeliveryUploadId) ? SubmissionRoutes.GatewayDictation
             : SubmissionRoutes.GatewayPrompt);
-        if (request.AppendEnter)
+        // ONLY WHEN WAITING FOR A PROMPT (the Fleet Manager's events): the session makes the check and holds its input
+        // from the check to the Enter, so the owner's keystrokes are written after the prompt. It refuses a session that
+        // is not waiting, one whose owner has unsent text in the composer, and one whose terminal submits in one call;
+        // a send it abandons has its text removed from the composer and is refused. A Gateway
+        // reading a pushed state seconds old cannot promise either. A refusal is a success with Accepted false, so the
+        // events wait.
+        if (request.OnlyWhenWaitingForInput)
+        {
+            var sent = await session.SendTextOnlyWhenWaitingForInputAsync(
+                request.Text, provenance, effectiveSource, origin, request.AppendEnter);
+            if (sent.Exited)
+                return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
+            if (!sent.Accepted)
+            {
+                FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: REFUSED session={session.Id}: {sent.Reason}");
+                return DirectorCommandResult.Success(Serialize(new PromptResponse
+                {
+                    Accepted = false,
+                    RefusedBusy = true,
+                    IdleChecked = true,
+                    SentAt = DateTime.UtcNow,
+                    ActivityState = sent.ActivityState.ToString(),
+                    Error = sent.Reason,
+                    RefusedFor = sent.RefusedFor switch
+                    {
+                        PromptRefusal.OwnerDraft => PromptResponse.RefusedForOwnerDraft,
+                        PromptRefusal.OneCallSubmit => PromptResponse.RefusedForOneCallSubmit,
+                        _ => null,
+                    },
+                }));
+            }
+        }
+        else if (request.AppendEnter)
             await session.SendTextAsync(request.Text, provenance, effectiveSource, origin);
         else
             session.SendInput(Encoding.UTF8.GetBytes(request.Text), origin, provenance);
@@ -245,6 +280,7 @@ internal static class SessionCommandExecutor
             SentAt = DateTime.UtcNow,
             BufferCursor = bufferCursor,
             ActivityState = session.ActivityState.ToString(),
+            IdleChecked = request.OnlyWhenWaitingForInput,
         };
         return DirectorCommandResult.Success(Serialize(response));
     }
@@ -557,7 +593,13 @@ internal static class SessionCommandExecutor
             }
         }
 
-        sessionManager.RemoveSession(guid);
+        // The removal can DECLINE, and there is one reason it does: the session was running in a pooled
+        // cc-worktrees worktree and that tool would not take the worktree back, so the row is kept with
+        // the tool's reason on it. Read what actually happened rather than asserting it - a stop that
+        // reported "row removed" about a row still on the screen is the same false report this whole
+        // answer shape exists to stop.
+        var rowRemoved = sessionManager.RemoveSession(guid);
+        var pooledHeld = rowRemoved ? null : sessionManager.GetSession(guid)?.PooledWorktreeHeldReason;
 
         var result = new DirectorStopResult
         {
@@ -565,10 +607,11 @@ internal static class SessionCommandExecutor
             // distinguish "ended a live process" from "there was nothing running"; the honest fields below
             // are why they no longer have to.
             Killed = true,
-            Removed = true,
+            Removed = rowRemoved,
             ProcessId = processId,
             ProcessEnded = processEnded,
-            RowRemoved = true,
+            RowRemoved = rowRemoved,
+            PooledWorktreeHeldReason = pooledHeld,
             WorktreePath = worktreePath,
             WorktreeHadUncommittedChanges = worktreeDirty,
             // WHAT WAS ESTABLISHED IS STILL REPORTED. Under stoppedNotDescribed the process identifier read
@@ -591,7 +634,8 @@ internal static class SessionCommandExecutor
             + $"pid={(result.ProcessId?.ToString() ?? "none")}, processEnded={result.ProcessEnded}, "
             + $"rowRemoved={result.RowRemoved}, worktree={worktreePath ?? "none"}, "
             + $"worktreeProbe={ProbeOutcome(worktreeDirty)}"
-            + (notDescribed is null ? "" : $", notDescribed={notDescribed}"));
+            + (notDescribed is null ? "" : $", notDescribed={notDescribed}")
+            + (pooledHeld is null ? "" : $", pooledWorktreeHeld={pooledHeld}"));
         return DirectorCommandResult.Success(Serialize(result));
     }
 

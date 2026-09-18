@@ -43,6 +43,15 @@ internal static class TurnVerdictJudge
 /// one session's answer. The roster arrives with every role and liveness answer nulled by the push store, so
 /// asking the row first would be blind - see <see cref="VoiceModeAllSweep"/> for the same rule on the sweep.
 ///
+/// TWO ANSWERS, NOT ONE (Fleet Manager ruling, 2026-09-16). <see cref="TurnVerdictSessionState.Held"/> is "a live
+/// owning session holds this one", and it is what narration reads: a held session is never read aloud to the owner.
+/// <see cref="TurnVerdictSessionState.OwnedByFleetManager"/> says that owner is the account's Fleet Manager, and then
+/// the session is still JUDGED automatically and its verdict stored under its own session id, like any other - while
+/// it stays held for narration and for the owner's colour. Nothing here carries that verdict to the Fleet Manager;
+/// that is step 4 of the Fleet Manager mission and is not built yet. Only the DIRECT live controller counts: a Worker under an Architect the
+/// Fleet Manager started is held by that Architect and is not read. The Fleet Manager is the one session the
+/// ACCOUNT has marked (<see cref="FleetManagerSessions"/>); no workflow seat stands in for that mark.
+///
 /// GAP, STATED: THE UNIVERSE IS THE FRESH ROSTER. An owning session whose stream has gone quiet past the freshness
 /// horizon is absent from it, so a session it owns resolves as not held and is judged. That fails toward the owner
 /// (the session is read), which is the direction the fold itself fails in.
@@ -51,13 +60,23 @@ internal static class TurnVerdictHeldCheck
 {
     /// <summary>The one session's facts and held answer, both out of this one roster. The roster is the push
     /// store's deep copy, so stamping roles on it touches nothing the store holds.</summary>
-    public static TurnVerdictSessionState Resolve(IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string sessionId)
+    /// <param name="fleetManagerSessionId">The session this account has marked as its Fleet Manager, or null when
+    /// it has marked none - then every held session is held for judging too.</param>
+    public static TurnVerdictSessionState Resolve(
+        IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string sessionId, string? fleetManagerSessionId)
     {
         ArgumentNullException.ThrowIfNull(roster);
         var sessions = roster.Select(r => r.Session).Where(s => s is not null).ToList();
         FleetRoleResolver.Stamp(sessions);
         var session = sessions.FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.Ordinal));
-        return new TurnVerdictSessionState(session, session?.HasLiveSupervisor == true);
+        var held = session?.HasLiveSupervisor == true;
+        // HasLiveSupervisor already proved the controller is in this roster and alive, so the controller found here
+        // is the live one. Asked only for a held session: an unheld session has no owner to be read for.
+        var ownedByFleetManager = held && FleetManagerSessions.IsFleetManager(sessions.FirstOrDefault(
+            s => string.Equals(s.SessionId, session!.ControllerSessionId, StringComparison.Ordinal)), fleetManagerSessionId);
+        if (ownedByFleetManager)
+            FileLog.Write($"[TurnVerdictHeldCheck] Resolve: sid={sessionId} is held by Fleet Manager {session!.ControllerSessionId} - judged and stored, not narrated");
+        return new TurnVerdictSessionState(session, held, ownedByFleetManager);
     }
 }
 
@@ -104,6 +123,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly Func<TenantId, SpokenLanguage> _language;
     private readonly Func<string?> _customSpokenRules;
     private readonly Func<TenantId, string, bool> _isVoiceSession;
+    private readonly Func<TenantId, string?> _fleetManagerSessionId;
+    private readonly Func<TenantId, NarrationPlan> _narrationPlan;
     private readonly ActivityEventStore? _ledger;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
@@ -112,6 +133,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// through <see cref="TurnVerdictJudge.BuildBrain"/>, so the brain carries the settings' timeout.</param>
     /// <param name="customSpokenRules">The account's own narration instructions, or null when it uses the
     /// shipped default.</param>
+    /// <param name="fleetManagerSessionId">The session an account has marked as its Fleet Manager, or null. Production
+    /// reads the account's <c>fleet_manager_session_id</c> setting.</param>
     public GatewayTurnVerdictEnvironment(
         Func<TenantId, TurnVerdictSettings> settings,
         PushedSessionStore pushedSessions,
@@ -125,6 +148,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         Func<TenantId, SpokenLanguage> language,
         Func<string?> customSpokenRules,
         Func<TenantId, string, bool> isVoiceSession,
+        Func<TenantId, string?> fleetManagerSessionId,
+        Func<TenantId, NarrationPlan> narrationPlan,
         ActivityEventStore? ledger = null,
         Func<TenantId, IDisposable>? enterTenantScope = null,
         Func<DateTime>? nowUtc = null)
@@ -141,6 +166,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         _language = language ?? throw new ArgumentNullException(nameof(language));
         _customSpokenRules = customSpokenRules ?? throw new ArgumentNullException(nameof(customSpokenRules));
         _isVoiceSession = isVoiceSession ?? throw new ArgumentNullException(nameof(isVoiceSession));
+        _fleetManagerSessionId = fleetManagerSessionId ?? throw new ArgumentNullException(nameof(fleetManagerSessionId));
+        _narrationPlan = narrationPlan ?? throw new ArgumentNullException(nameof(narrationPlan));
         _ledger = ledger;
         _enterTenantScope = enterTenantScope;
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
@@ -149,7 +176,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     public TurnVerdictSettings Settings(TenantId tenant) => _settings(tenant);
 
     public TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId)
-        => TurnVerdictHeldCheck.Resolve(_pushedSessions.SnapshotFresh(tenant, _streamStale), sessionId);
+        => TurnVerdictHeldCheck.Resolve(
+            _pushedSessions.SnapshotFresh(tenant, _streamStale), sessionId, _fleetManagerSessionId(tenant));
 
     public async Task<ScreenGridResponse?> ReadScreenGridAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)
     {
@@ -178,9 +206,22 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     public string JudgeModel(TenantId tenant) => _judgeModel(tenant);
 
-    public async Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, CancellationToken ct)
+    public async Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
     {
-        var settings = _settings(tenant);
+        // The brain is built with THIS call's deadline: the account's own for a first attempt, the wider one for
+        // the single re-attempt a listened-to stop may get. Built through the same builder either way.
+        var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
+        var model = _judgeModel(tenant);
+        using var brain = _judgeBrain(tenant, settings);
+        var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
+        return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
+    }
+
+    public async Task<TurnVerdictJudgeAnswer> AskNarratorAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
+    {
+        // The same model and the same builder as the judge, with the narration call's own deadline: slice I measured
+        // the old translator's prompt on this model, and a second provider would be a second thing to keep working.
+        var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
         var model = _judgeModel(tenant);
         using var brain = _judgeBrain(tenant, settings);
         var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
@@ -199,6 +240,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     public int Invalidate(TenantId tenant, string sessionId) => _store.Invalidate(tenant, sessionId);
 
     public bool IsVoiceSession(TenantId tenant, string sessionId) => _isVoiceSession(tenant, sessionId);
+
+    public NarrationPlan PlanForNarration(TenantId tenant) => _narrationPlan(tenant);
 
     public Task DelayAsync(TimeSpan delay, CancellationToken ct) => Task.Delay(delay, ct);
 
@@ -223,6 +266,9 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// <summary>Hands the trace to the writer: one non-blocking queue write that cannot throw, so the verdict path
     /// neither waits for the copy nor sees its faults. The writer logs and counts a drop or a failed write.</summary>
     public void RecordTrace(TenantId tenant, TurnVerdictTrace trace) => _traces.Enqueue(tenant, trace);
+
+    /// <summary>A trace the seat could not hand in at all: logged and counted by the writer, with the other losses.</summary>
+    public void TraceNotKept(TenantId tenant, TurnVerdictTrace trace, string cause) => _traces.NotKept(trace, cause);
 
     public DateTime NowUtc() => _nowUtc();
 }

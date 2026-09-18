@@ -1,0 +1,15 @@
+[
+ {"name":"no working marker check","old":"        if (ShowsWorking(rows))\n","new":"        if (false && ShowsWorking(rows))\n"},
+ {"name":"composer text ignored (always empty)","old":"                return onPrompt.Length == 0 && continuation.All(string.IsNullOrWhiteSpace)","new":"                return true"},
+ {"name":"continuation rows ignored","old":"onPrompt.Length == 0 && continuation.All(string.IsNullOrWhiteSpace)","new":"onPrompt.Length == 0"},
+ {"name":"no menu detection for Claude","old":"        return Bottom(rows).Any(IsMenuHint) || rows.Any(IsSelectedOption)\n            ? ComposerReading.MenuOpen\n            : ComposerReading.NotFound;","new":"        return ComposerReading.NotFound;"},
+ {"name":"unframed prompt accepted","old":"                if (!IsRule(rows[prompt - 1])) break;","new":"                if (false) break;"},
+ {"name":"only the first frame checked","old":"        foreach (var frame in facts.Frames)\n","new":"        foreach (var frame in facts.Frames.Take(1))\n"},
+ {"name":"exited not checked","old":"        if (facts.Exited)\n","new":"        if (false)\n"},
+ {"name":"product retained text not checked","old":"        if (facts.ProductMayHaveLeftText)\n","new":"        if (false)\n"},
+ {"name":"director working state not checked","old":"        if (facts.DirectorSaysWorking)\n","new":"        if (false)\n"},
+ {"name":"codex placeholder accepted wherever the cursor is","old":"        var cursorAtStart = frame.CursorCol <= 2;","new":"        var cursorAtStart = true;"},
+ {"name":"codex hidden cursor accepted","old":"        if (!frame.CursorVisible || frame.CursorRow < 0","new":"        if (frame.CursorRow < 0"},
+ {"name":"blank screen read as a screen","old":"        if (rows.Count == 0 || rows.All(string.IsNullOrWhiteSpace))\n","new":"        if (rows.Count == 0)\n"},
+ {"name":"unknown agent read as claude","old":"            _ => ComposerReading.NotFound,\n        };\n    }\n\n    private static ComposerReading ReadClaudeComposer","new":"            _ => ReadClaudeComposer(frame.Rows ?? []),\n        };\n    }\n\n    private static ComposerReading ReadClaudeComposer"}
+]

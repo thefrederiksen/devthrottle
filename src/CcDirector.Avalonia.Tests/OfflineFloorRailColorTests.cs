@@ -1,3 +1,4 @@
+using Avalonia.Headless.XUnit;
 using CcDirector.Core.Sessions;
 using Xunit;
 
@@ -13,9 +14,15 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class OfflineFloorRailColorTests
 {
+    // WHY [AvaloniaFact]/[AvaloniaTheory] AND NOT [Fact]/[Theory]: SessionViewModel builds
+    // its brushes in a static initialiser, and building a brush is an Avalonia property write that verifies
+    // it is on the dispatcher's thread. A plain [Fact] gets whatever thread xUnit hands it, so whether that
+    // succeeds depends on whether another class in this assembly has already started a headless session - and
+    // a static initialiser that throws once stays thrown for the rest of the process. These run ON the
+    // dispatcher thread instead. Same reason as SessionRailStateTests, where the accident actually fired.
     // ----- ONLINE: render the Gateway stamp verbatim, compute nothing (unchanged behaviour) -----
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData("blue")]
     [InlineData("red")]
     [InlineData("yellow")]
@@ -32,7 +39,7 @@ public sealed class OfflineFloorRailColorTests
             gatewayOffline: false, gatewayStamp: stamp, localActivity: ActivityState.Working, gatewaySettled: false));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Online_NoStamp_NotYetSettled_IsNeutralUnknown()
     {
         // The tunnel just connected and the first push has not arrived yet - the normal warm-up. Show the
@@ -41,7 +48,7 @@ public sealed class OfflineFloorRailColorTests
             gatewayOffline: false, gatewayStamp: null, localActivity: ActivityState.Working, gatewaySettled: false));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Online_NoStamp_Settled_IsTheMagentaUnstampedSentinel()
     {
         // Connected and settled past the grace, yet still no stamp: the push seam is not delivering (issue
@@ -55,7 +62,7 @@ public sealed class OfflineFloorRailColorTests
 
     // ----- OFFLINE FLOOR: blue when working, red otherwise, ignoring the stale stamp -----
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData(ActivityState.Working)]
     [InlineData(ActivityState.Starting)]
     public void Offline_Working_IsBlue(ActivityState state)
@@ -66,7 +73,7 @@ public sealed class OfflineFloorRailColorTests
             gatewayOffline: true, gatewayStamp: "yellow", localActivity: state, gatewaySettled: false));
     }
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData(ActivityState.WaitingForInput)]
     [InlineData(ActivityState.WaitingForPerm)]
     [InlineData(ActivityState.Idle)]
@@ -79,7 +86,7 @@ public sealed class OfflineFloorRailColorTests
             gatewayOffline: true, gatewayStamp: "yellow", localActivity: state, gatewaySettled: false));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Offline_IgnoresTheStaleStampEntirely()
     {
         // Whatever the Gateway last stamped before it dropped, the offline floor is a pure function of local
@@ -91,7 +98,7 @@ public sealed class OfflineFloorRailColorTests
 
     // ----- OFFLINE FLOOR + SNOOZE: an explicit user hold survives a tunnel flap, never flattens to red -----
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData(ActivityState.WaitingForInput)]
     [InlineData(ActivityState.WaitingForPerm)]
     [InlineData(ActivityState.Idle)]
@@ -104,7 +111,7 @@ public sealed class OfflineFloorRailColorTests
             gatewayOffline: true, gatewayStamp: "grey", localActivity: state, gatewaySettled: false, isHeld: true));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Offline_Held_NoStamp_FallsBackToGrey()
     {
         // Held but somehow no frozen stamp: still render snoozed-grey, never red.
@@ -112,7 +119,7 @@ public sealed class OfflineFloorRailColorTests
             gatewayOffline: true, gatewayStamp: null, localActivity: ActivityState.Idle, gatewaySettled: false, isHeld: true));
     }
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData(ActivityState.Working)]
     [InlineData(ActivityState.Starting)]
     public void Offline_Held_ButWorking_IsStillBlue(ActivityState state)
@@ -123,7 +130,7 @@ public sealed class OfflineFloorRailColorTests
             gatewayOffline: true, gatewayStamp: "grey", localActivity: state, gatewaySettled: false, isHeld: true));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Offline_NotHeld_IdleSession_IsStillRed()
     {
         // The carve-out is ONLY for an explicit hold; an ordinary idle session with no snooze stays red.

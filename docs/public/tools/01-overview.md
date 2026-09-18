@@ -1,561 +1,132 @@
 # Tools Overview
 
-DevThrottle includes command-line tools for document conversion, media processing, email, browser automation, social media, desktop automation, fleet/session workflows, and AI workflows. All tools are installed to `%LOCALAPPDATA%\cc-director\bin\` and are available on your PATH.
+The DevThrottle installer puts nine command-line tools on your PATH. They are the shipped set: every tool with `"ship": true` in `tools/registry.json`, and the same nine listed in `src/CcDirector.Core/Tools/tools-manifest.json`. The Director checks their health on the Home screen and in the Tools tab of Settings, and repairs a broken install.
 
-## Quick Reference
+The repository holds more `cc-*` tools than these. They build from source for development but are not installed, so they are not documented here.
 
-### Documents
+Every tool answers `--help` with its full command list. A longer reference with selected help for each tool is in [docs/cli-reference.md](../../cli-reference.md), and the website documentation is at https://devthrottle.com/docs/cli/overview.
 
-| Tool | Description | Requirements |
-|------|-------------|--------------|
-| cc-pdf | Markdown to PDF with themes | Chrome/Chromium |
-| cc-html | Markdown to HTML with themes | None |
-| cc-word | Markdown to Word (.docx) with themes | None |
-| cc-excel | CSV/JSON/Markdown to formatted Excel workbooks | None |
-| cc-powerpoint | Markdown to PowerPoint presentations | None |
-
-### Email
-
-| Tool | Description | Requirements |
-|------|-------------|--------------|
-| cc-gmail | Gmail CLI: read, send, search, labels, calendar, contacts | Google OAuth |
-| cc-outlook | Outlook CLI: email, calendar, attachments, folders | Azure OAuth |
-
-### Fleet and Sessions
-
-| Tool | Description | Requirements |
-|------|-------------|--------------|
-| cc-devthrottle | Unified DevThrottle command surface for fleet, sessions, messages, settings, Gateway schedules, and setup | Running Director session or Gateway, depending on subcommand |
-
-### Web and Social
-
-| Tool | Description | Requirements |
-|------|-------------|--------------|
-| cc-browser | Browser automation with persistent connections | Chrome Extension |
-| cc-fox-browser | Anti-detection browser automation (Camoufox/Firefox) | Node.js, Camoufox |
-| cc-reddit | Reddit automation with human-like delays | Playwright, cc-browser |
-| cc-twitter | Twitter/X CLI: post, reply, thread, like, retweet, timeline | Twitter API v2 credentials |
-| cc-facebook | Facebook Page CLI: post, comment, reply, list via Graph API | Facebook App + Page Access Token |
-| cc-youtube | YouTube CLI: upload, comment, reply, list via Data API v3 | Google OAuth (YouTube Data API) |
-| cc-crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers; not shipped (dev-only, build from repo) |
-| cc-websiteaudit | Website SEO/security/AI readiness audit | Node.js, Chrome (not yet built) |
-| cc-brandingrecommendations | Branding action plans from audit data | Node.js |
-
-### Desktop Automation
-
-| Tool | Description | Requirements |
-|------|-------------|--------------|
-| cc-click | Windows UI automation: click, type, screenshot | Windows, .NET |
-| cc-trisight | 3-tier UI element detection (UIA + OCR + pixel) | Windows, .NET |
-| cc-computer | AI desktop agent with screenshot-in-the-loop | Windows, .NET, OPENAI_API_KEY |
-
-### Media
-
-| Tool | Description | Requirements |
-|------|-------------|--------------|
-| cc-image | Image generation, analysis, OCR | OPENAI_API_KEY |
-| cc-voice | Text-to-speech (OpenAI TTS) | OPENAI_API_KEY |
-| cc-whisper | Audio transcription and translation | OPENAI_API_KEY |
-| cc-video | Video info, audio extraction, screenshots, frames | FFmpeg |
-| cc-transcribe | Video/audio transcription with screenshots | FFmpeg, OPENAI_API_KEY |
-| cc-photos | Photo scanning, duplicates, AI descriptions | OPENAI_API_KEY |
-| cc-youtube-info | YouTube transcript/metadata extraction | None |
-
-### Data and Utilities
-
-| Tool | Description | Requirements |
-|------|-------------|--------------|
-| cc-vault | Personal vault: contacts, tasks, goals, docs, RAG | None |
-| cc-hardware | System hardware info (RAM, CPU, GPU, disk) | None |
-| cc-comm-queue | Communication Manager approval queue | None |
-| cc-docgen | C4 architecture diagrams from YAML | Graphviz; not shipped (dev-only, build from repo) |
-| cc-posthog | PostHog analytics: page views, funnels, events, recordings | PostHog account + API key |
+| Tool | What it does | What it needs |
+|------|--------------|---------------|
+| cc-pdf | Markdown to PDF, and PDF back to Markdown, with themes | Chrome or Chromium |
+| cc-html | Markdown to HTML, and HTML back to Markdown, with themes | Nothing |
+| cc-word | Markdown to Word, and Word back to Markdown, with themes | Nothing |
+| cc-gmail | Gmail: read, search, send, labels, calendar, contacts | A one-time `auth` |
+| cc-outlook | Outlook: read, search, send, attachments, folders, calendar | A one-time `auth` |
+| cc-image | Describe an image, read the text in it, resize and convert | `DEVTHROTTLE_API_KEY` for describe and ocr on the default engine |
+| cc-vault | Personal vault: contacts, tasks, goals, ideas, documents, with search | A model key for search and ask |
+| cc-secrets | Use a stored password without the model ever seeing it | Entries you add by hand |
+| cc-devthrottle | The fleet: sessions, messages, missions, workflows, skills, schedules, setup | A DevThrottle session for the fleet commands |
 
 ---
 
-## Documents
+## Documents: cc-pdf, cc-html, cc-word
 
-### cc-pdf
-
-Convert Markdown to PDF with built-in themes.
+All three take the same two commands, `from-markdown` and `to-markdown`, and share one set of themes.
 
 ```bash
-cc-pdf report.md -o report.pdf
-cc-pdf report.md -o report.pdf --theme boardroom
-cc-pdf report.md -o report.pdf --page-size a4 --margin 1in
+cc-pdf from-markdown report.md -o report.pdf --theme boardroom
+cc-html from-markdown report.md -o report.html --theme paper
+cc-word from-markdown report.md -o report.docx --theme boardroom
+cc-pdf from-markdown report.md -o report.pdf --page-size letter --margin 1in
+cc-pdf to-markdown report.pdf -o report.md
 ```
 
-**Themes:** boardroom, terminal, paper (default), spark, thesis, obsidian, blueprint
-
-**Options:** `-o` output file, `--theme` theme name, `--css` custom CSS, `--page-size` a4/letter, `--margin` page margin
-
-### cc-html
-
-Convert Markdown to styled HTML with built-in themes.
-
-```bash
-cc-html report.md -o report.html
-cc-html report.md -o report.html --theme terminal
-```
-
-**Themes:** boardroom, terminal, paper (default), spark, thesis, obsidian, blueprint
-
-**Options:** `-o` output file, `--theme` theme name, `--css` custom CSS
-
-### cc-word
-
-Convert Markdown to Word (.docx) documents with built-in themes.
-
-```bash
-cc-word report.md -o report.docx
-cc-word report.md -o report.docx --theme boardroom
-```
-
-**Themes:** boardroom, terminal, paper (default), spark, thesis, obsidian, blueprint
-
-**Options:** `-o` output file, `--theme` theme name
-
-### cc-excel
-
-Convert CSV, JSON, and Markdown tables to formatted Excel workbooks with themes, charts, and formulas.
-
-```bash
-cc-excel from-csv sales.csv -o sales.xlsx --theme boardroom
-cc-excel from-json data.json -o report.xlsx
-cc-excel from-markdown report.md -o report.xlsx --all-tables
-cc-excel from-csv sales.csv -o chart.xlsx --chart bar --chart-x 0 --chart-y 1
-cc-excel from-csv sales.csv -o report.xlsx --summary all --highlight scale
-cc-excel from-spec workbook.json -o output.xlsx
-```
-
-**Subcommands:** `from-csv`, `from-json`, `from-markdown`, `from-spec`
-
-### cc-powerpoint
-
-Convert Markdown to PowerPoint presentations.
-
-```bash
-cc-powerpoint slides.md -o deck.pptx --theme boardroom
-```
-
-Use `---` to separate slides. First `# Title` becomes the title slide.
+- `-o` is required on `from-markdown`; on `to-markdown` it defaults to the input name with `.md`.
+- `--theme`: boardroom, paper (the default), terminal, blueprint, thesis, spark, obsidian. `cc-pdf --themes` lists them.
+- `--page-size` (a4 by default, or letter) and `--margin` (1in by default): cc-pdf only.
+- `--css` a custom style sheet and `--strict-assets` fail when a local image cannot be embedded: cc-pdf and cc-html.
+- `--force` overwrites an existing output, `--no-clobber` skips it, `--quiet` hides progress.
 
 ---
 
-## Email
+## Email: cc-gmail and cc-outlook
 
-### cc-outlook
-
-Outlook CLI with email and calendar support via Microsoft Graph API.
+Sign in once with `auth`; after that both work without prompts. `--account` picks between signed-in accounts and `accounts` manages them.
 
 ```bash
-cc-outlook list --unread
-cc-outlook read <message_id>
-cc-outlook search "project update"
-cc-outlook reply <message_id>
-cc-outlook forward <message_id>
-cc-outlook calendar events -d 14
-cc-outlook calendar today
-cc-outlook calendar search "standup"
-cc-outlook folders
-cc-outlook attachments <message_id>
-```
-
-### cc-gmail
-
-Gmail CLI with multi-account support.
-
-```bash
-cc-gmail list --unread
-cc-gmail read <message_id>
+cc-gmail list
 cc-gmail search "from:someone@example.com"
-cc-gmail reply <message_id>
-cc-gmail labels
-cc-gmail stats
-cc-gmail calendar
-cc-gmail contacts
+cc-gmail send --to someone@example.com --subject "Hi" --body "..."
+cc-outlook list
+cc-outlook reply <message_id> --body "..." --send
+cc-outlook calendar today
 ```
+
+- Both: `auth`, `list`, `read`, `send`, `draft`, `reply`, `search`, `delete`, `archive`, `move`, `recipients`, `profile`, `calendar`.
+- `reply` saves a draft unless you pass `--send`.
+- cc-gmail also has `drafts`, `count`, `untrash`, `archive-before`, `labels`, `label-stats`, `label-create`, `stats` and `contacts`.
+- cc-outlook also has `forward`, `flag`, `categorize`, `unarchive`, `attachments`, `download-attachment`, `folders` and `create-folder`.
 
 ---
 
-## Fleet and Sessions
-
-### cc-devthrottle
-
-Unified DevThrottle command surface.
+## Images: cc-image
 
 ```bash
-cc-devthrottle actions --json
+cc-image describe photo.png
+cc-image describe ./screenshots --recursive
+cc-image ocr scan.png
+cc-image resize big.png -o small.png --width 800
+cc-image convert image.png -o image.webp
+cc-image info photo.png
+```
+
+By default `describe` and `ocr` run through the DevThrottle API and need `DEVTHROTTLE_API_KEY`; `--engine` picks another engine. `describe` on a folder catalogs every image to JSON and CSV. `resize`, `convert` and `info` run locally with no key.
+
+---
+
+## Vault: cc-vault
+
+```bash
+cc-vault init
+cc-vault tasks add "Follow up with the pilot customer"
+cc-vault contacts search "name"
+cc-vault search "kickoff meeting notes" --hybrid
+cc-vault ask "what did we decide about pricing?"
+cc-vault backup
+```
+
+Groups: `contacts`, `tasks`, `goals`, `ideas`, `docs`, `health`, `posts`, `lists`, `tags`, `library`, `catalog`, `graph`, `config`. Also `search`, `ask`, `link`, `unlink`, `links`, `context`, `stats`, `backup`, `restore`, `repair-vectors`. The vault's data is stored on your machine; `search` and `ask` need `OPENAI_API_KEY`, and `cc-vault config show` says whether it is set.
+
+---
+
+## Passwords: cc-secrets
+
+Lets a session use a password without the model ever seeing it. It protects against accidental exposure (transcripts, logs, output, screenshots), not against a hostile program running as the same user.
+
+```bash
+cc-secrets add devlinux                      # you, in PowerShell or cmd
+cc-secrets list
+cc-secrets run devlinux -- sudo -S apt-get update
+cc-secrets login github-work --browser center-consulting
+cc-secrets log
+```
+
+- `add`, `remove` and `list --all` are for you and are refused inside a DevThrottle session. `add` reads the password from a hidden prompt or from a pipe, never from an argument. Git Bash cannot hide typing, so a typed password is refused there; piping works.
+- `run` supplies the password on standard input (the default), in one environment variable (`--via env`), or through an askpass helper (`--via askpass`), and returns the output with the password removed.
+- `login` fills and submits the login form in a Director-owned browser profile, only on an address the entry allows, and only inside a DevThrottle session.
+- `log` shows the audit log: time, entry, session, command, outcome and detail (`--json` adds the machine). Never a password.
+- The store is a plain JSON file private to your user: `%LOCALAPPDATA%\cc-director\secrets` on Windows, `~/.cc-director/secrets` on Linux. On macOS the store is not supported yet, so no entry can be added or used there.
+
+The full guide, including the limits, is at https://devthrottle.com/docs/cli/secrets.
+
+---
+
+## The fleet: cc-devthrottle
+
+```bash
 cc-devthrottle session list
 cc-devthrottle session whoami
-cc-devthrottle session rename "Dev Throttle Review"
-cc-devthrottle session rename 9b2f "Frontend Review"
-cc-devthrottle message send 9b2f "Can you run the focused test?"
-cc-devthrottle message ask 9b2f "What is your status?"
-cc-devthrottle session spawn D:\path\to\repo --prompt "Run the tests."
-cc-devthrottle settings get screenshots.source_directory
+cc-devthrottle message inbox
+cc-devthrottle message send <session> "Main is red - hold your rebase." --reply-wanted
+cc-devthrottle message reply <correlation-id> "Holding."
+cc-devthrottle session spawn D:\path\to\repo --prompt "Run the tests." --standalone --why "..."
 cc-devthrottle schedule list
 cc-devthrottle setup status
-cc-devthrottle selftest
 ```
 
-The one-argument rename form renames the current session using `CC_SESSION_ID`.
-Settings commands read and write `config.json`. Schedule commands manage Gateway cron jobs.
-Setup commands inspect, install, update, and repair the local DevThrottle tool installation.
+Groups: `session`, `message`, `mission`, `director`, `machine`, `repo`, `worktree`, `workflow`, `skill`, `schedule`, `browser`, `diag`, `autostart`, `email`, `settings`, `setup`, plus the top-level `actions` and `selftest`.
 
----
+The fleet commands call the Gateway with the session's own key (`CC_GATEWAY_URL` and `CC_GATEWAY_SESSION_KEY`), which a Director attached to a Gateway puts into every session it launches. Local commands such as `setup status` and `actions` work in any terminal. When you spawn from inside a session, say who owns the new one: `--controlled-by self` or `--standalone` with `--why`.
 
-## Web and Social
-
-### cc-browser
-
-Browser automation via Chrome Extension + Native Messaging with persistent connections.
-
-```bash
-cc-browser daemon
-cc-browser connections open myconnection
-cc-browser navigate --url "https://example.com"
-cc-browser snapshot --interactive
-cc-browser click --ref e3
-cc-browser type --ref e4 --text "hello"
-cc-browser screenshot
-cc-browser connections close myconnection
-```
-
-### cc-fox-browser
-
-Anti-detection browser automation using Camoufox (custom Firefox). Bypasses Cloudflare Turnstile and other bot detection that blocks Chromium-based automation. Same API as cc-browser.
-
-```bash
-cc-fox-browser daemon
-cc-fox-browser start --workspace upwork
-cc-fox-browser navigate --url "https://www.upwork.com"
-cc-fox-browser snapshot --interactive
-cc-fox-browser click --ref e3
-cc-fox-browser type --ref e4 --text "hello"
-cc-fox-browser tabs
-cc-fox-browser stop
-```
-
-**Port:** 9380 (cc-browser uses 9280)
-
-**Profiles:** Persistent per workspace at `%LOCALAPPDATA%\cc-fox-browser\camoufox-{workspace}\`
-
-**When to use:** Sites with Cloudflare Turnstile or aggressive bot detection that blocks cc-browser.
-
-### cc-reddit
-
-Reddit automation with human-like delays and random jitter.
-
-```bash
-cc-reddit status
-cc-reddit feed
-cc-reddit post <url>
-cc-reddit create <subreddit> --title "Title" --body "Body text"
-cc-reddit comment <url> --text "Comment text"
-cc-reddit reply <url> --text "Reply text"
-```
-
-**Important:** Always use cc-reddit for Reddit operations. Never use cc-browser directly with Reddit.
-
-### cc-twitter
-
-Twitter/X CLI using Twitter API v2 with OAuth 1.0a.
-
-```bash
-cc-twitter auth                              # Store API credentials
-cc-twitter status                            # Show auth status and account info
-cc-twitter post "Tweet content"              # Create a tweet
-cc-twitter reply "Reply text" --to <url>     # Reply to a tweet
-cc-twitter thread "First" "Second" "Third"   # Post a multi-tweet thread
-cc-twitter like <tweet_url>                  # Like a tweet
-cc-twitter retweet <tweet_url>               # Retweet
-cc-twitter timeline --count 20               # Show home timeline
-cc-twitter mentions --count 10               # Show mentions
-cc-twitter delete <tweet_url>                # Delete own tweet
-```
-
-**Setup:** Register an app at developer.x.com, generate API Key, API Secret, Access Token, and Access Token Secret. Run `cc-twitter auth` to store them.
-
-### cc-facebook
-
-Facebook Page management via Graph API v19.0. Supports page posting only (personal profile posting is restricted by Meta).
-
-```bash
-cc-facebook auth                             # Store App ID, Secret, Page Token, Page ID
-cc-facebook status                           # Show auth status and page info
-cc-facebook pages                            # List managed pages
-cc-facebook post "Message" --link <url>      # Create a page post
-cc-facebook comment <post_url> "Comment"     # Comment on a post
-cc-facebook reply <comment_id> "Reply"       # Reply to a comment
-cc-facebook list --count 10                  # List recent page posts
-cc-facebook delete <post_id>                 # Delete a post
-```
-
-**Setup:** Create a Facebook App at developers.facebook.com, obtain a long-lived Page Access Token with `pages_manage_posts` permission. Run `cc-facebook auth` to store credentials.
-
-### cc-youtube
-
-YouTube CLI using YouTube Data API v3 with OAuth 2.0.
-
-```bash
-cc-youtube auth                              # Run OAuth flow (requires credentials.json)
-cc-youtube status                            # Show auth status and channel info
-cc-youtube upload video.mp4 --title "Title" --description "Desc" --privacy public
-cc-youtube list --count 10                   # List channel's videos
-cc-youtube comments <video_url> --count 20   # List comments on a video
-cc-youtube comment <video_url> "Comment"     # Comment on a video
-cc-youtube reply <comment_id> "Reply"        # Reply to a comment
-cc-youtube delete <video_id>                 # Delete a video
-```
-
-**Setup:** Enable YouTube Data API v3 in Google Cloud Console, download `credentials.json` to the config directory. Run `cc-youtube auth` to complete OAuth flow.
-
-### cc-crawl4ai
-
-AI-ready web crawler that converts pages to clean markdown.
-
-**Not shipped:** not part of the installed product (not in the "ship" allowlist in
-tools/registry.json). It stays in the repo and is buildable for dev with
-`scripts/build-all-tools.ps1 -Tool cc-crawl4ai`.
-
-```bash
-cc-crawl4ai crawl "https://example.com" -o page.md
-cc-crawl4ai crawl <url> --fit --stealth
-cc-crawl4ai batch urls.txt -o ./output/
-```
-
-### cc-websiteaudit
-
-Comprehensive website auditing across SEO, security, structured data, and AI readiness.
-
-**Status:** Source exists but not yet built.
-
-```bash
-cc-websiteaudit example.com -o report.pdf
-cc-websiteaudit example.com --format json -o audit.json
-cc-websiteaudit example.com --modules technical-seo,security
-```
-
-**Modules:** technical-seo, on-page-seo, security, structured-data, ai-readiness
-
-### cc-brandingrecommendations
-
-Produces prioritized, week-by-week branding action plans from website audit data.
-
-```bash
-cc-brandingrecommendations --audit audit.json -o plan.md
-cc-brandingrecommendations --audit audit.json --budget high --industry saas
-```
-
----
-
-## Desktop Automation
-
-Three tools work together for AI-powered desktop automation:
-
-```
-cc-computer (AI Agent - the "brain")
-    +-- uses TrisightCore (3-tier detection library)
-    +-- calls cc-click for actions
-
-cc-trisight (Detection CLI - the "eyes")
-    +-- UI Automation + OCR + Pixel Analysis
-
-cc-click (Automation CLI - the "hands")
-    +-- Click, type, screenshot, read text, window management
-```
-
-### cc-computer
-
-AI desktop automation agent with screenshot-in-the-loop verification.
-
-```bash
-cc-computer "Open Notepad and type Hello World"
-cc-computer    # Interactive REPL mode
-```
-
-### cc-trisight
-
-Three-tier UI element detection for Windows.
-
-```bash
-trisight detect --window "Notepad" --annotate --output annotated.png
-```
-
-### cc-click
-
-Low-level Windows UI automation.
-
-```bash
-cc-click click <element>
-cc-click type <text>
-cc-click screenshot
-cc-click read-text <element>
-cc-click list-windows
-cc-click list-elements <window>
-```
-
----
-
-## Media
-
-### cc-transcribe
-
-Transcribe video/audio with timestamps and extract screenshots at content changes.
-
-```bash
-cc-transcribe video.mp4
-cc-transcribe video.mp4 -o ./output/ --no-screenshots
-```
-
-### cc-image
-
-Image generation, analysis, and OCR using OpenAI.
-
-**Status:** BROKEN - needs rebuild.
-
-```bash
-cc-image generate "A sunset over mountains" -o sunset.png
-cc-image describe image.png
-cc-image ocr screenshot.png
-```
-
-### cc-voice
-
-Text-to-speech using OpenAI TTS.
-
-```bash
-cc-voice "Hello, world!" -o hello.mp3 --voice nova
-```
-
-**Voices:** alloy, echo, fable, nova, onyx (default), shimmer
-
-### cc-whisper
-
-Audio transcription and translation using OpenAI Whisper.
-
-```bash
-cc-whisper transcribe audio.mp3 -o transcript.txt
-cc-whisper translate foreign-audio.mp3
-```
-
-### cc-video
-
-Video utilities powered by FFmpeg.
-
-```bash
-cc-video info video.mp4
-cc-video audio video.mp4 -o audio.mp3
-cc-video screenshots video.mp4
-cc-video frame video.mp4 --timestamp 01:30
-```
-
-### cc-photos
-
-Photo organization with duplicate detection, screenshot identification, and AI descriptions.
-
-```bash
-cc-photos source add "D:\Photos" --category private --label "Family"
-cc-photos scan
-cc-photos discover
-cc-photos dupes --cleanup
-cc-photos analyze --limit 50
-cc-photos search "beach vacation"
-cc-photos exclude
-```
-
-### cc-youtube-info
-
-Extract transcripts, metadata, and chapters from YouTube videos.
-
-```bash
-cc-youtube-info transcript <url> -o transcript.txt
-cc-youtube-info info <url> --json
-cc-youtube-info chapters <url>
-```
-
----
-
-## Data and Utilities
-
-### cc-hardware
-
-Query system hardware information.
-
-```bash
-cc-hardware          # All hardware summary
-cc-hardware gpu      # GPU info
-cc-hardware --json   # JSON output
-```
-
-### cc-vault
-
-Personal data vault with contacts, documents, tasks, goals, ideas, and RAG-powered search.
-
-```bash
-cc-vault search "query"
-cc-vault ask "question"
-cc-vault contacts list --account personal
-cc-vault contacts show <id>
-cc-vault contacts search "name"
-cc-vault docs import file.pdf
-cc-vault lists list
-cc-vault backup
-cc-vault stats
-```
-
-### cc-comm-queue
-
-CLI for adding content to the Communication Manager approval queue.
-
-```bash
-cc-comm-queue add linkedin post "Content..." --persona acmeflow
-cc-comm-queue list --status pending
-cc-comm-queue status
-```
-
-### cc-docgen
-
-Generate C4 architecture diagrams from YAML manifest files.
-
-**Not shipped:** not part of the installed product (not in the "ship" allowlist in
-tools/registry.json). It stays in the repo and is buildable for dev with
-`scripts/build-all-tools.ps1 -Tool cc-docgen`. Requires Graphviz.
-
-```bash
-cc-docgen generate --manifest ./docs/architecture.yaml
-```
-
-### cc-posthog
-
-PostHog analytics CLI for querying page views, funnels, events, and session recordings.
-
-```bash
-cc-posthog init                          # Configure API key and project
-cc-posthog status                        # Project status and connection health
-cc-posthog views --last 7d               # Page view counts by URL
-cc-posthog sources --last 30d            # Traffic sources
-cc-posthog visitors --last 30d           # Daily unique visitors
-cc-posthog pages --last 7d               # Top pages by path
-cc-posthog funnel --last 30d             # Conversion funnel analysis
-cc-posthog events --last 7d              # Recent events
-cc-posthog event-counts --last 7d        # Event counts by name
-cc-posthog recordings --last 7d          # Session recordings
-cc-posthog recording <id>               # Events in a recording
-cc-posthog report --last 30d --json      # Comprehensive report
-cc-posthog compare views --projects a,b  # Cross-project comparison
-cc-posthog export events --json          # Export raw events
-cc-posthog export funnel --csv           # Export funnel data
-```
-
-**Global options:** `--project` / `-p`, `--last` / `-l`, `--json` / `-j`, `--csv`, `--count` / `-n`
-
-**Setup:** Requires a PostHog account and Personal API Key. Run `cc-posthog init` to configure.
-
-## Environment Variables
-
-```bash
-# Required for AI-powered tools
-set OPENAI_API_KEY=your-key-here
-```
+Messages are rare and they queue. A session may message only the session that started it and the sessions it started, at most six an hour; anything else is refused with "put it in your report". Nothing is typed into a working session: when the recipient is free, one doorbell line tells it to run `cc-devthrottle message inbox`. Nobody waits for an answer - ask with `--reply-wanted`, and the reply arrives in your inbox. See `docs/FleetMessaging.md`.

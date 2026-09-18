@@ -18,9 +18,10 @@ public sealed record SkillDefinition(
 /// on the Gateway rather than a release every user has to take.
 ///
 /// This list is the SEED SOURCE, not the served set: the seeder writes these into the skill store at
-/// startup and the endpoints read the store. Adding a fourth skill does NOT belong here - it is a row
-/// in the register, authored through the Cockpit or the command line. This list exists only so a
-/// brand-new Gateway has the skills DevThrottle considers part of the product.
+/// startup and the endpoints read the store. A skill that is not part of the product does NOT belong
+/// here - it is a row in the register, authored through the Cockpit or the command line. This list
+/// exists only so a brand-new Gateway has the skills DevThrottle considers part of the product; the
+/// Fleet Manager's commands are one of those, because every account has a Fleet Manager (issue #2933).
 /// </summary>
 public static class BuiltInSkills
 {
@@ -39,7 +40,8 @@ public static class BuiltInSkills
         new SkillDefinition(
             Id: "fleet-comms",
             Name: "Fleet communication",
-            Summary: "Talk to other sessions across the fleet: list, rename, message, ask, and open sessions.",
+            Summary: "List, rename and open sessions across the fleet, and the rare queued message: who you may " +
+                     "message, the inbox, and replies.",
             Triggers: new[]
             {
                 "message another session", "talk to another session", "ask another session",
@@ -67,6 +69,17 @@ public static class BuiltInSkills
             {
                 "what do we call", "what is the right word", "glossary", "vocabulary", "naming",
                 "is it hold or snooze", "controller or supervisor",
+            }),
+
+        new SkillDefinition(
+            Id: "fleet-manager",
+            Name: "Fleet Manager",
+            Summary: "The Fleet Manager's commands: start and own sessions, read the Wingman's reading of " +
+                     "each stop, answer, snooze and close, and what is not built yet.",
+            Triggers: new[]
+            {
+                "fleet manager", "you are the fleet manager", "what's waiting on me",
+                "take me through them", "what did I miss",
             }),
     };
 

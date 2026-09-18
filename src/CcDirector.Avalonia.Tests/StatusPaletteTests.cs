@@ -1,4 +1,5 @@
-﻿using Avalonia.Media;
+﻿using Avalonia.Headless.XUnit;
+using Avalonia.Media;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -18,9 +19,14 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class StatusPaletteTests
 {
+    // WHY [AvaloniaFact]/[AvaloniaTheory] AND NOT [Fact]/[Theory]: reading a brush's Colour is an Avalonia
+    // property read, and it verifies it is on the dispatcher's thread. A plain [Fact] gets whatever thread
+    // xUnit hands it, which is the dispatcher's only until another class in this assembly starts a headless
+    // session - so the answer depends on who ran first. These run ON the dispatcher thread instead. Same
+    // reason as SessionRailStateTests, where that ordering accident actually fired on Windows.
     // The canonical table, spelled out literally rather than referencing the constants - a test that
     // reads the value it is checking proves nothing.
-    [Theory]
+    [AvaloniaTheory]
     [InlineData("red", "#EF4444")]          // red-500
     [InlineData("blue", "#3B82F6")]         // blue-500
     [InlineData("green", "#22C55E")]        // green-500
@@ -37,7 +43,7 @@ public sealed class StatusPaletteTests
         Assert.Equal(expectedHex, StatusPalette.HexFor(foldColor));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BrushFor_TheStrayHexesThatDied_AreInThePaletteNowhere()
     {
         // Every hex that a private palette once used for a name the canonical table also names.
@@ -51,7 +57,7 @@ public sealed class StatusPaletteTests
             Assert.DoesNotContain(stray, live);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BrushFor_Unknown_IsARealFoldColour_AndRendersTheOneGrey()
     {
         // "unknown" is EMITTED by the fold for an activity state it does not recognise, so this is a
@@ -61,7 +67,7 @@ public sealed class StatusPaletteTests
         Assert.True(StatusPalette.Knows("unknown"));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BrushFor_Unstamped_IsTheMagentaSentinel_NeverGrey()
     {
         // "unstamped" is the desktop's OWN sentinel (SessionViewModel.UnstampedSentinel): connected and
@@ -74,7 +80,7 @@ public sealed class StatusPaletteTests
         Assert.Equal(StatusPalette.Broken, StatusPalette.HexFor("unstamped"));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BrushFor_ANameTheFoldNeverEmits_IsTheBrokenSentinel_NeverGrey()
     {
         // Grey MEANS snoozed-or-exited. So a colour we do not know must never render grey - that
@@ -98,7 +104,7 @@ public sealed class StatusPaletteTests
     /// how the desktop came to have five palettes in the first place. If anyone teaches the fold a new
     /// colour without teaching this palette, this goes red and names the colour.
     /// </summary>
-    [Fact]
+    [AvaloniaFact]
     public void EveryColourTheRealFoldCanEmit_IsKnownToThePalette()
     {
         var emitted = EveryColourTheRealFoldCanEmit();
@@ -119,7 +125,7 @@ public sealed class StatusPaletteTests
     /// fold and assert SessionColorPalette knows every colour it can emit, so the canonical map is provably
     /// exhaustive over the fold - not just the desktop table.
     /// </summary>
-    [Fact]
+    [AvaloniaFact]
     public void EveryColourTheRealFoldCanEmit_IsKnownToTheCanonicalMap()
     {
         var emitted = EveryColourTheRealFoldCanEmit();
@@ -172,7 +178,7 @@ public sealed class StatusPaletteTests
         return emitted;
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BrushFor_IsCaseInsensitive()
     {
         // The names cross the wire. SessionOrdering.RawActivityColor being a case-SENSITIVE switch
@@ -181,7 +187,7 @@ public sealed class StatusPaletteTests
         Assert.Same(StatusPalette.BrushFor("supporting"), StatusPalette.BrushFor("Supporting"));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Error_IsNotNeedsYouRed()
     {
         // Issue #959. A session that DIED must never read as one that is merely waiting on you.

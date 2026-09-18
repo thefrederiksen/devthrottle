@@ -389,9 +389,14 @@ interface SessionRowProps {
   onOpenSession: (sessionId: string | null | undefined) => void;
 }
 
-// One clickable session row: number badge, primary label, a short context line, machine chip, and the
-// live state label - all colored by the ONE shared effective-color rule so the row agrees with the rail
-// and the Fleet Map. Clicking (or Enter/Space) opens the session.
+// One clickable session row: number badge, primary label, machine chip, and the live state label - all
+// colored by the ONE shared effective-color rule so the row agrees with the rail and the Fleet Map.
+// Clicking (or Enter/Space) opens the session.
+//
+// There is deliberately no line under the name. It used to print lastStatusReason, the DIRECTOR's reason
+// for its local colour, written before the Wingman judges the turn. The Director only knows running or
+// stopped, so every stopped row read "needs you" - under a purple "Carrying on" state and under a snoozed
+// one. The state label on the right is the Gateway's word and already says what the session is doing.
 function SessionRow({ session: s, label, role = null, onOpenSession }: SessionRowProps) {
   // A real session row paints the Gateway-stamped dot hex, not the local COLORS table (which is only for
   // the mission-card accent and the priority-legend swatches below, none of which have a session).
@@ -400,7 +405,6 @@ function SessionRow({ session: s, label, role = null, onOpenSession }: SessionRo
   const num = s.number;
   const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
   const machine = (s.machineName ?? "").trim();
-  const context = (s.lastStatusReason ?? "").trim();
 
   return (
     <div
@@ -423,7 +427,6 @@ function SessionRow({ session: s, label, role = null, onOpenSession }: SessionRo
           <span className="msn-sname">{label}</span>
           {role !== null && <span className={`msn-rolebadge ${role.toLowerCase()}`}>{role}</span>}
         </div>
-        {context.length > 0 && <div className="msn-rmeta">{context}</div>}
       </div>
       {machine.length > 0 && <span className="msn-machine">{machine}</span>}
       <span className="msn-state" style={{ color: hex }}>

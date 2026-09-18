@@ -1,0 +1,3 @@
+== MUTATION transcript witness ignores the rows already there: exit=1
+    Failed!  - Failed:     1, Passed:    16, Skipped:     0, Total:    17, Duration: 32 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.An_older_doorbell_already_on_screen_does_not_prove_a_discarded_line_was_submitted [< 1 ms]

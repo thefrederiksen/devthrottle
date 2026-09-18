@@ -302,6 +302,46 @@ public sealed class SessionCommandExecutorTests
         finally { sm.Dispose(); }
     }
 
+    // ---------- set-display-state carries the row line (Message Load mission, slice 4) ----------
+
+    [Fact]
+    public async Task DispatchAsync_SetDisplayState_StoresTheInboxLine_AndMapEchoesItVerbatim()
+    {
+        // The desktop rail reads ControlEndpoints.Map, never the inbox. The Gateway's words must land on the
+        // session, come back out of Map unchanged, and a later stamp without a line must clear them.
+        var (sm, session, _) = NewSession();
+        try
+        {
+            async Task Stamp(string? line)
+            {
+                var command = new DirectorCommand
+                {
+                    Verb = "set-display-state",
+                    SessionId = session.Id.ToString(),
+                    PayloadJson = JsonSerializer.Serialize(new SetDisplayStateRequest
+                    {
+                        EffectiveColor = "red",
+                        StateLabel = "Needs you",
+                        TriageBucket = "needsYou",
+                        InboxLine = line,
+                    }, Json),
+                };
+                var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
+                Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+            }
+
+            await Stamp("1 message stuck, unread for 20 minutes; 2 messages waiting");
+            Assert.Equal("1 message stuck, unread for 20 minutes; 2 messages waiting", session.GatewayInboxLine);
+            Assert.Equal("1 message stuck, unread for 20 minutes; 2 messages waiting",
+                ControlEndpoints.Map(session, directorId: "").InboxLine);
+
+            await Stamp(null);
+            Assert.Null(session.GatewayInboxLine);
+            Assert.Null(ControlEndpoints.Map(session, directorId: "").InboxLine);
+        }
+        finally { sm.Dispose(); }
+    }
+
     // ---------- set-display-state reconciles the raw hold mirror (inspection finding 3) ----------
 
     [Fact]

@@ -5,7 +5,43 @@
    the padded main pane. */
 
 .fmap {
-  max-width: 1500px;
+  max-width: 1900px;
+}
+
+/* The map (or list, or missions board) on the left; the colour legend on the right, always on screen. Below
+   1100px the panel folds away and the header's "What do the colours mean?" button stands in for it. */
+.fmap-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+  align-items: start;
+}
+
+.fmap-main {
+  min-width: 0;
+}
+
+.fmap-legend-panel {
+  position: sticky;
+  top: 12px;
+}
+
+.fmap-legend-btn {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .fmap-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fmap-legend-panel {
+    display: none;
+  }
+
+  .fmap-legend-btn {
+    display: inline-block;
+  }
 }
 
 /* ---- header ---- */
@@ -646,28 +682,6 @@
 }
 
 /* ---- legend ---- */
-.fmap-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 14px;
-  padding: 0 2px;
-  font-size: 11.5px;
-  color: var(--text-dim);
-}
-
-.fmap-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.fmap-legend-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .fmap-dot.working {
     animation: none;
@@ -692,4 +706,41 @@
   font-size: 10.5px;
   font-weight: 600;
   color: var(--warn);
+}
+
+/* The ownership tree on the map (the Sessions list's rule, owner ruling 2026-09-14): a parent card
+   carries the Sessions list's chevron in its gutter and a crew line while collapsed; its crew renders
+   under it while expanded. The gutter is reserved only on parent cards, so an ordinary card does not
+   move. */
+.fmap-tree {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.fmap-tree-parent > .fmap-card {
+  padding-left: 26px;
+}
+
+.fmap-chevron {
+  left: 5px;
+  top: 10px;
+}
+
+.fmap-kids {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-left: 14px;
+}
+
+/* Past three levels the indent stops; the connector rail on each child card keeps the level readable. */
+.fmap-kids-flat {
+  margin-left: 0;
+}
+
+.fmap-card-crew {
+  margin-top: 7px;
 }

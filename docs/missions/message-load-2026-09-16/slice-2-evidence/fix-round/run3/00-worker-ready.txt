@@ -1,0 +1,43 @@
+# 00-worker-ready - session 30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa (Proof - Worker) at 2026-09-17T08:38:10.6755770Z
+# director activity state: Working
+# visible screen rows:
+|  ninety-nine
+|  one hundred
+|  one hundred one
+|  one hundred two
+|  one hundred three
+|  one hundred four
+|  one hundred five
+|  one hundred six
+|  one hundred seven
+|  one hundred eight
+|  one hundred nine
+|  one hundred ten
+|  one hundred eleven
+|  one hundred twelve
+|  one hundred thirteen
+|  one hundred fourteen
+|  one hundred fifteen
+|  one hundred sixteen
+|  one hundred seventeen
+|  one hundred eighteen
+|  one hundred nineteen
+|  one hundred twenty
+|  READY
+|
+|✻ Churned for 6s · done 4:38 AM
+|
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|❯
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|

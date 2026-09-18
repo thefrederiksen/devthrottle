@@ -7,6 +7,8 @@ import { Terminal } from "./pages/Terminal";
 import { Chat } from "./pages/Chat";
 import { FileView } from "./pages/FileView";
 import { VoiceMode } from "./pages/VoiceMode";
+import { Reports } from "./pages/Reports";
+import { ReportView } from "./pages/ReportView";
 import { Assistant } from "./pages/Assistant";
 import { Settings } from "./pages/Settings";
 import { Recorder } from "./pages/Recorder";
@@ -204,6 +206,11 @@ const router = createBrowserRouter(
             { path: "/session/:sessionId/chat", element: <Chat /> },
             { path: "/session/:sessionId/terminal", element: <Terminal /> },
             { path: "/session/:sessionId/voice", element: <VoiceMode /> },
+            // Dev reports (dev reports mission, phase 3): the session's reports, and one report full screen
+            // with its conversation in a bottom sheet. The list, the frame and the conversation are the
+            // shared client-core view the Cockpit's Reports tab also mounts.
+            { path: "/session/:sessionId/reports", element: <Reports /> },
+            { path: "/session/:sessionId/reports/:reportId", element: <ReportView /> },
             // Local Files (Phase 3): the full-screen file viewer. Reached from a clicked file path in
             // the session's Chat or Terminal; the absolute path rides as ?path=. Not a tab in ViewTabs
             // (it is a leaf view of the session, dismissed with Back), matching the Cockpit modal.

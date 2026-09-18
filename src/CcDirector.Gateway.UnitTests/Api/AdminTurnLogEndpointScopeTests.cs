@@ -21,6 +21,7 @@ namespace CcDirector.Gateway.Tests.Api;
 /// anyway. Switching capture OFF is never blocked, whatever it names, because refusing a withdrawal is the
 /// same failure arriving from the other side.
 /// </summary>
+[Collection(AdminServiceTokenCollection.Name)]
 public sealed class AdminTurnLogEndpointScopeTests : IDisposable
 {
     private const string Token = "test-admin-service-token-77c2";

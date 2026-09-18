@@ -45,6 +45,13 @@ public enum WorktreeSafetyReason
 
     // --- Needs-attention reasons (never auto-removed) ---
 
+    /// <summary>
+    /// The directory is a slot in a cc-worktrees pool. It belongs to that tool, which holds the lease
+    /// on it and is the only thing that knows whether the work in it has landed - so the Director
+    /// never removes it, whatever git says about it.
+    /// </summary>
+    CcWorktreesPoolSlot,
+
     /// <summary>The repository's primary checkout - never removed.</summary>
     PrimaryCheckout,
 
@@ -94,6 +101,14 @@ public sealed record WorktreeFacts
 
     /// <summary>True when a live session's working directory is this worktree - it is held back from reaping.</summary>
     public bool HasLiveSession { get; init; }
+
+    /// <summary>
+    /// True when this directory is a slot in a cc-worktrees pool (or the Director could not establish
+    /// that it is not - see <see cref="CcWorktreesPoolSlots"/>). A pool slot is never the Director's to
+    /// remove: cc-worktrees owns it and holds the lease, and the proof that its commits reached the
+    /// remote is the tool's, not this evaluator's.
+    /// </summary>
+    public bool IsCcWorktreesPoolSlot { get; init; }
 }
 
 /// <summary>

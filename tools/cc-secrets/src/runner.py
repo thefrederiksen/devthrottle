@@ -3,7 +3,8 @@
 Three ways to supply the secret, chosen by the caller:
 
 - stdin:   the secret and a newline are written to the command's standard input (for `sudo -S`).
-- env:     the secret is placed in one named environment variable of the command only.
+- env:     the secret is placed in one named environment variable of the command only. Several entries can
+           be supplied to one command this way, each in its own variable (an API key and its secret, say).
 - askpass: SUDO_ASKPASS, SSH_ASKPASS and GIT_ASKPASS point at a helper that fetches the secret from a
            one-shot loopback listener guarded by a random per-run token.
 
@@ -25,7 +26,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 from . import filelog
 from .errors import InputError
@@ -109,24 +110,45 @@ def _resolve_program(command: List[str]) -> List[str]:
 def run_with_secret(entry: Entry, command: List[str], via: str, env_name: str = DEFAULT_ENV_NAME,
                     timeout_seconds: float = 600) -> RunResult:
     """Run `command` with the entry's secret supplied `via` stdin, env or askpass."""
+    return run_with_secrets([(entry, env_name)], command, via, timeout_seconds)
+
+
+def run_with_secrets(supplied: List[Tuple[Entry, str]], command: List[str], via: str,
+                     timeout_seconds: float = 600) -> RunResult:
+    """Run `command` with each (entry, variable name) supplied. Several entries are only supplied by env, each in
+    its own variable. A timeout of 0 means no limit."""
     if not command:
         raise InputError("No command was given. Put it after '--', for example: run devlinux -- sudo -S true")
     if via not in VIA_CHOICES:
         raise InputError(f"--via must be one of: {', '.join(VIA_CHOICES)}")
-    filelog.write(f"[runner] run_with_secret: entry={entry.name}, via={via}, program={Path(command[0]).name}")
+    if not supplied:
+        raise InputError("No entry was given.")
+    if len(supplied) > 1 and via != "env":
+        raise InputError("Several entries can only be supplied with --via env, each in its own variable.")
+    names = [env for _, env in supplied]
+    # Windows environment variable names ignore letter case: FOO_BAR and foo_bar are one variable there.
+    compared = [n.upper() for n in names] if sys.platform == "win32" else names
+    if len(set(compared)) != len(compared):
+        raise InputError(f"Two entries would go into the same variable ({', '.join(names)}). Give each its own.")
+    label = ",".join(entry.name for entry, _ in supplied)
+    filelog.write(f"[runner] run_with_secrets: entries={label}, via={via}, program={Path(command[0]).name}")
 
-    secret = entry.secret.reveal()
-    SCRUBBER.add(secret, entry.username)
+    for entry, _ in supplied:
+        if not entry.is_setting:
+            SCRUBBER.add(entry.secret.reveal(), entry.username)
+    secret = supplied[0][0].secret.reveal()
     argv = _resolve_program(command)
     env = dict(os.environ)
     stdin_data = None
     listener = None
     temp_dir = None
+    timeout: Optional[float] = None if timeout_seconds == 0 else timeout_seconds
     try:
         if via == "stdin":
             stdin_data = (secret + "\n").encode("utf-8")
         elif via == "env":
-            env[env_name] = secret
+            for entry, variable in supplied:
+                env[variable] = entry.secret.reveal()
         else:
             listener = _AskpassListener(secret)
             temp_dir = tempfile.TemporaryDirectory(prefix="cc-secrets-askpass-")
@@ -149,7 +171,7 @@ def run_with_secret(entry: Entry, command: List[str], via: str, env_name: str = 
             env=env,
         )
         try:
-            out, err = process.communicate(input=stdin_data, timeout=timeout_seconds)
+            out, err = process.communicate(input=stdin_data, timeout=timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
             process.kill()
@@ -160,7 +182,7 @@ def run_with_secret(entry: Entry, command: List[str], via: str, env_name: str = 
             stderr=SCRUBBER.decode_scrubbed(err),
             timed_out=timed_out,
         )
-        filelog.write(f"[runner] run_with_secret: entry={entry.name}, exit={result.exit_code}, timedOut={timed_out}")
+        filelog.write(f"[runner] run_with_secrets: entries={label}, exit={result.exit_code}, timedOut={timed_out}")
         return result
     finally:
         if listener is not None:

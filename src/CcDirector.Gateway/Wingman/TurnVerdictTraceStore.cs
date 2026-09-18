@@ -27,6 +27,9 @@ public static class TurnVerdictTraceOutcomes
     public const string Reused = "reused";
     /// <summary>The carrying-on clock ran out and a needed-you verdict replaced the carrying-on one.</summary>
     public const string Expired = "expired";
+    /// <summary>The clock's expiry was UNDONE: the session owns a live session again, so a carrying-on verdict
+    /// replaced the expired one and the clock started again (the owner's ruling, 2026-09-17).</summary>
+    public const string ExpiryUndone = "expiry-undone";
     /// <summary>A stop that stood down before anything was read or asked. Its cause says why. No verdict.</summary>
     public const string Skipped = "skipped";
     /// <summary>The session worked while the verdict was being formed, so nothing was stored. No verdict.</summary>
@@ -65,6 +68,9 @@ public sealed record TurnVerdictTrace
     public string? RawReply { get; init; }
     public bool RawReplyTruncated { get; init; }
     public TurnVerdictDto? Verdict { get; init; }
+    public string? RowColour { get; init; }
+    public string? RowLabel { get; init; }
+    public DateTime? ClockDeadlineUtc { get; init; }
 }
 
 /// <summary>
@@ -186,6 +192,9 @@ public sealed class TurnVerdictTraceStore
                 RawReply = trace.RawReply,
                 RawReplyTruncated = trace.RawReplyTruncated,
                 VerdictJson = trace.Verdict is null ? null : SerializeVerdict(trace.Verdict),
+                RowColour = trace.RowColour,
+                RowLabel = trace.RowLabel,
+                ClockDeadlineUtc = trace.ClockDeadlineUtc,
             });
             ctx.SaveChanges();
         }
@@ -313,6 +322,9 @@ public sealed class TurnVerdictTraceStore
                 RawReply = row.RawReply,
                 RawReplyTruncated = row.RawReplyTruncated,
                 Verdict = row.VerdictJson is null ? null : JsonSerializer.Deserialize<TurnVerdictDto>(row.VerdictJson, JsonOptions),
+                RowColour = row.RowColour,
+                RowLabel = row.RowLabel,
+                ClockDeadlineUtc = row.ClockDeadlineUtc,
             };
         }
         catch (JsonException ex)

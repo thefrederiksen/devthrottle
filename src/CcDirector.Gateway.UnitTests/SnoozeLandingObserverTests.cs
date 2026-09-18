@@ -100,6 +100,9 @@ public sealed class SnoozeLandingObserverTests : IDisposable
         // red "needs you", never grey "Snoozed". (This deliberately reverses the old rule that Working was
         // not an edge; the background-churn need that rule feared is a separate future state, not a snooze
         // surviving work.)
+        // ONE EXCEPTION since 17 September 2026 (the Message Load mission, ruling 15): work the Director reports
+        // as started by an agent-origin send keeps the snooze - see the tests at the end of this class. This
+        // push carries no origin, which is the case the law above still governs.
         var (reg, obs) = Make();
         reg.Snooze("s1", _now.AddHours(12), "dir-1");
 
@@ -280,5 +283,96 @@ public sealed class SnoozeLandingObserverTests : IDisposable
         obs.ObserveSnapshot(null);
 
         Assert.Empty(reg.Entries());
+    }
+
+    // ---------- The Message Load mission, ruling 15 (inspection 4, ruling 8): a doorbell does not end a snooze ----------
+
+    private static SessionDto Working(string sid, string? origin, DateTime? ownerTurn = null) =>
+        new() { SessionId = sid, ActivityState = "Working", WorkingOrigin = origin, LastOwnerTurnAtUtc = ownerTurn };
+
+    [Theory]
+    [InlineData("Working")]
+    [InlineData("Starting")]
+    public void Work_started_by_an_agent_origin_send_leaves_an_armed_snooze_armed(string activity)
+    {
+        // The fleet doorbell typed its line into a snoozed session and the agent is reading its inbox.
+        var (reg, obs) = Make();
+        reg.Snooze("s1", _now.AddHours(12), "dir-1");
+
+        obs.Observe(new SessionDto { SessionId = "s1", ActivityState = activity, WorkingOrigin = "agent" });
+
+        var entry = Assert.Single(reg.Entries());
+        Assert.Equal(_now.AddHours(12), entry.SnoozeUntilUtc);
+    }
+
+    [Fact]
+    public void The_armed_snooze_is_still_there_when_the_agent_origin_turn_settles()
+    {
+        var (reg, obs) = Make();
+        reg.Snooze("s1", _now.AddHours(12), "dir-1");
+
+        obs.Observe(Working("s1", WorkingOrigins.Agent));
+        obs.Observe(Session("s1", "WaitingForInput"));
+
+        Assert.Equal(_now.AddHours(12), Assert.Single(reg.Entries()).SnoozeUntilUtc);
+    }
+
+    [Fact]
+    public void Work_the_owner_started_still_ends_an_armed_snooze()
+    {
+        var (reg, obs) = Make();
+        reg.Snooze("s1", _now.AddHours(12), "dir-1");
+
+        obs.Observe(Working("s1", WorkingOrigins.Owner));
+
+        Assert.Empty(reg.Entries());
+    }
+
+    [Fact]
+    public void Work_no_submission_explains_still_ends_an_armed_snooze()
+    {
+        // The 17 July 2026 law for everything the ruling does not name: the agent started on its own, or a
+        // Director too old to say who started it.
+        var (reg, obs) = Make();
+        reg.Snooze("s1", _now.AddHours(12), "dir-1");
+
+        obs.Observe(Working("s1", origin: null));
+
+        Assert.Empty(reg.Entries());
+    }
+
+    [Theory]
+    [InlineData("Agent")]
+    [InlineData("agent ")]
+    [InlineData("robot")]
+    public void Only_the_exact_agent_literal_spares_the_snooze(string origin)
+    {
+        var (reg, obs) = Make();
+        reg.Snooze("s1", _now.AddHours(12), "dir-1");
+
+        obs.Observe(Working("s1", origin));
+
+        Assert.Empty(reg.Entries());
+    }
+
+    [Fact]
+    public void The_owner_typing_during_an_agent_origin_turn_ends_the_snooze()
+    {
+        var (reg, obs) = Make();
+        var baseline = DateTime.UtcNow;
+        reg.Snooze("s1", _now.AddHours(12), "dir-1", ownerTurnBaselineUtc: baseline);
+
+        obs.Observe(Working("s1", WorkingOrigins.Agent));
+        Assert.Single(reg.Entries());
+        obs.Observe(Working("s1", WorkingOrigins.Agent, ownerTurn: baseline.AddSeconds(5)));
+
+        Assert.Empty(reg.Entries());
+    }
+
+    [Fact]
+    public void The_origin_literals_are_the_ones_the_Director_sends()
+    {
+        Assert.Equal("owner", WorkingOrigins.Owner);
+        Assert.Equal("agent", WorkingOrigins.Agent);
     }
 }

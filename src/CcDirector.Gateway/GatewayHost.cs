@@ -286,6 +286,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Pairing.SessionKeyRegistry SessionKeys { get; }
 
+    /// <summary>Every session each account has ever marked as its Fleet Manager (the Fleet Manager mission,
+    /// step 3). Written when the mark is set; read by the Fleet Manager digest.</summary>
+    internal Fleet.FleetManagerMarkHistory FleetManagerMarks { get; }
+
     /// <summary>The Gateway's record of what each utterance upload transcribed (inspection finding I2-03), spent
     /// by the prompt route when a prompt claims to be that utterance. One per process, shared by the utterance
     /// completion route that writes it and the prompt route that spends it. In memory by design.</summary>
@@ -537,6 +541,61 @@ public sealed class GatewayHost : IAsyncDisposable
     /// and then assert what the route hands to each kind of caller.</summary>
     internal Wingman.TurnVerdictStore TurnVerdicts => _turnVerdicts;
 
+    /// <summary>The fleet message inbox (the Message Load mission). Exposed for the route tests.</summary>
+    internal Messaging.FleetMessageStore FleetMessages => _fleetMessages;
+
+    /// <summary>The Gateway database, for the doorbell's end-to-end proof, which reads the ring and stuck columns.</summary>
+    internal Data.GatewayDatabase GatewayDatabaseForTests => _gatewayDb;
+
+    /// <summary>The mobile Speak marks, for the doorbell's dictation-lock wiring test.</summary>
+    internal Transcription.TranscribingSessions TranscribingSessionsForTests => _transcribingSessions;
+
+    /// <summary>The doorbell (the Message Load mission, slice 2). Exposed for the tests and the end-to-end proof.</summary>
+    internal Messaging.FleetDoorbell FleetDoorbell => _fleetDoorbell;
+
+    /// <summary>Send <c>ring</c> to one Director and read its answer. Null when it could not be reached or refused.</summary>
+    private async Task<FleetRingResponse?> RingDirectorAsync(
+        TenantId tenant, string directorId, string sessionId, int unreadCount, CancellationToken ct)
+    {
+        using (_tenantBoundary.EnterScope(tenant))
+        {
+            var result = await Api.DirectorCommandRouter.TrySendAsync(
+                SendCommandAsync, directorId, FleetDoorbellVerbs.Ring, sessionId,
+                new FleetRingRequest { UnreadCount = unreadCount }, ct).ConfigureAwait(false);
+            if (result is null) return null;
+            if (result.Status != DirectorCommandStatus.Ok)
+            {
+                FileLog.Write($"[GatewayHost] ring FAILED: sid={sessionId} director={directorId}: {Api.DirectorCommandRouter.DescribeFailure(result)}");
+                return null;
+            }
+            return Api.DirectorCommandRouter.ReadBody<FleetRingResponse>(result);
+        }
+    }
+
+    /// <summary>The doorbell heartbeat's timer callback: one tick at a time, never throws.</summary>
+    private void SweepFleetDoorbell()
+    {
+        if (Interlocked.CompareExchange(ref _fleetDoorbellInFlight, 1, 0) != 0)
+            return;
+        _ = RunFleetDoorbellSweepAsync();
+    }
+
+    private async Task RunFleetDoorbellSweepAsync()
+    {
+        try
+        {
+            await _fleetDoorbell.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] fleet doorbell heartbeat FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _fleetDoorbellInFlight, 0);
+        }
+    }
+
     /// <summary>
     /// The auth-boundary tenant binder. Exposed to the test assembly so an isolation test can enter the same
     /// tenant scope a real request or tunnel connection would, and drive the production loop code inside it.
@@ -688,11 +747,35 @@ public sealed class GatewayHost : IAsyncDisposable
     /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
     /// two turn-verdict routes.</summary>
     private readonly Wingman.TurnVerdictStore _turnVerdicts;
+    private readonly Messaging.FleetMessageStore _fleetMessages;
+    private readonly Messaging.FleetMessageService _fleetMessageService;
+    private readonly Messaging.FleetMessageRetentionSweep _fleetMessageRetentionSweep;
+    // The Message Load mission, slice 2: the doorbell - rung on each session's settled edge and on this heartbeat.
+    private readonly Messaging.FleetDoorbell _fleetDoorbell;
+    private System.Threading.Timer? _fleetDoorbellTimer;
+    private int _fleetDoorbellInFlight;
+
+    /// <summary>
+    /// Test seam: when false, <see cref="StartAsync"/> does not start the doorbell heartbeat, so a test-spun host
+    /// never sends <c>ring</c> to a fake Director on its own. The settled-edge ring and a test's direct
+    /// <see cref="FleetDoorbell"/> calls are unaffected. Production never touches it. Mirrors
+    /// <see cref="TurnEndWatcher.SweepEnabled"/>.
+    /// </summary>
+    internal static bool FleetDoorbellHeartbeatEnabled = true;
+
+    /// <summary>
+    /// Test and proof seam: the limits the doorbell schedules with. Null (always, in production) means
+    /// <see cref="Messaging.FleetMessageLimits.Default"/>. The end-to-end proof shortens the ring grace here so
+    /// three rings do not take fifteen minutes, and says so in its evidence.
+    /// </summary>
+    internal static Messaging.FleetMessageLimits? FleetDoorbellLimitsOverride;
     /// <summary>The Wingman inspector's record: every judgement kept whole - package, prompt, raw reply, verdict -
     /// appended by the turn-end seat and never cleared when a session works again. Seven days.</summary>
     private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
     /// <summary>Writes the inspector's traces off the verdict path, so a verdict never waits for its copy.</summary>
     private readonly Wingman.TurnVerdictTraceWriter _turnVerdictTraceWriter;
+    private readonly Wingman.TurnVerdictTraceRowStamp _turnVerdictTraceRowStamp;
+    private readonly Fleet.DisplayFold _displayFold;
     /// <summary>How long shutdown waits for queued traces to be written before the database is disposed.</summary>
     private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
@@ -851,6 +934,28 @@ public sealed class GatewayHost : IAsyncDisposable
     // somebody has to remember.
     private Rules.RuleTurnEndLauncher? _ruleLauncher;
 
+    // Dev reports (issue #2958): the record of what agents published and the owner answered, and the delivery
+    // that holds the owner's items while a session works and drains them at its turn end.
+    private readonly DevReports.DevReportStore _devReports;
+    private readonly DevReports.DevReportDelivery _devReportDelivery;
+    // The lifetime a claimed dev report send runs on: cancelled in StopAsync, never by a request (phase 2 inspection,
+    // Medium 1 - a browser that goes away must not strand the owner's items mid-send).
+    private readonly CancellationTokenSource _devReportSendLifetime = new();
+    private readonly DevReports.DevReportTurnEndLauncher _devReportLauncher;
+    private readonly DevReports.DevReportSettleSweep _devReportSettleSweep;
+    private System.Threading.Timer? _devReportSettleTimer;
+    private int _devReportSettleSweepInFlight;
+
+    /// <summary>
+    /// Test seam: overrides the dev report settle sweep schedule (both the first tick and the period). Null in
+    /// production and never assigned outside tests. It exists so a hosted test can watch the TIMER deliver what a
+    /// reconnect left held, in well under the real 30 seconds - and turns red if the timer is not started.
+    /// </summary>
+    internal static TimeSpan? DevReportSettleSweepScheduleForTests;
+
+    /// <summary>Test-only: the dev report record, so a hosted test can leave an item in the state a crash leaves it.</summary>
+    internal DevReports.DevReportStore DevReportsForTest => _devReports;
+
     // The turn log: one self-contained record per turn end, on the machines an administrator has switched
     // capture on for. It rides the SAME boundary as the supervisor and the rules engine but is deliberately
     // NOT part of either - the turns worth capturing most are the ones they never acted on, and a log living
@@ -863,6 +968,13 @@ public sealed class GatewayHost : IAsyncDisposable
     // The turn-verdict seat (the Wingman-on-every-turn mission, slice C). Built once, shared by the turn-end
     // boundary, the voice narration and the explain route, so one stop is one judgement whoever asks first.
     private Wingman.TurnVerdictService? _turnVerdictService;
+    // The Fleet Manager's events (the Fleet Manager mission, step 4): the store the routes and the digest read, and
+    // the service that records a stop or a death of a session a Fleet Manager owns and delivers it at the Fleet
+    // Manager only while it is waiting for a prompt.
+    private Fleet.FleetManagerEventStore? _fleetManagerEventStore;
+    private Fleet.FleetManagerEventService? _fleetManagerEvents;
+    private Fleet.FleetManagerEventSweep? _fleetManagerEventSweep;
+    private Timer? _fleetManagerEventTimer;
     // Voice mode is a standing intent, not a one-time action: a tenant that is in voice mode wants EVERY one
     // of its sessions narrating, including the ones that do not exist yet. This timer is how that intent
     // reaches them - it walks each tenant that has voice mode on and switches on any session that is not a
@@ -879,6 +991,20 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Test-only: the turn-verdict seat, so a test on a real host can read what a stop was judged.
     /// Null until StartAsync builds it.</summary>
     internal Wingman.TurnVerdictService? TurnVerdictServiceForTest => _turnVerdictService;
+
+    /// <summary>The live turn-verdict seat, built if it is not yet, so a hosted test can drive a judgement or an expiry
+    /// through the production environment and the production trace writer.</summary>
+    internal Wingman.TurnVerdictService EnsureTurnVerdictServiceForTest() => EnsureTurnVerdictService();
+
+    /// <summary>The trace writer, so a hosted test that waits for a trace can say what became of it when it never arrives.</summary>
+    internal Wingman.TurnVerdictTraceWriter TurnVerdictTraceWriterForTest => _turnVerdictTraceWriter;
+
+    /// <summary>The trace colour stamp exactly as the host wired it, so a hosted test can prove the trace and the display
+    /// push take their fold inputs from one place through the production wiring, not through a stamp it built itself.</summary>
+    internal Wingman.TurnVerdictTraceRowStamp TurnVerdictTraceRowStampForTest => _turnVerdictTraceRowStamp;
+
+    /// <summary>The display push's voice-waiting clock, so that hosted test can start a wait that has already given up.</summary>
+    internal Wingman.VoiceWaitingClock VoiceWaitingClockForTest => _voiceWaitingClock;
 
     /// <summary>Test-only: the turn-end watcher, so an isolation test can drive a real session-state
     /// transition (Working -&gt; Waiting) into the REAL onTurnEnd / onSessionWorking callbacks rather than a
@@ -1379,6 +1505,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // session rather than with its Director's account-wide key. Same database and the same stored-hash
         // shape as the device registry above, because it is the same kind of credential one hop further in.
         SessionKeys = new Pairing.SessionKeyRegistry(_gatewayDb, GatewayHostedMode.IsHosted);
+        FleetManagerMarks = new Fleet.FleetManagerMarkHistory(_gatewayDb);
         // The account-to-tenant resolver (Hosted Multi-Tenancy increment 1): owns the tenants mapping table
         // and mints/looks up a tenant from a verified account subject. Built over the EF database; wired into
         // the hosted enrollment boundary (which validates the account token and stamps the resolved tenant on
@@ -1587,72 +1714,25 @@ public sealed class GatewayHost : IAsyncDisposable
         // nothing needed him on a machine he could have acted on immediately. The auto-dismiss sweeper still
         // takes AmbientSnapshotFresh and must: acting ON a session needs recent data, whereas TELLING THE
         // OWNER about one needs a reachable machine. Two questions, two snapshots.
+        // THE FOLD'S INPUTS ARE CHOSEN IN ONE PLACE, Fleet.DisplayFold, for this push and for the Wingman inspector's
+        // trace colour alike - see that class for why, and for the only three things the two callers may differ in.
+        // Everything the comments above say about the push's inputs (the ambient tenant, the voice partition guard, the
+        // clocks, the known roster to prune to) is now implemented there.
+        _displayFold = new Fleet.DisplayFold(
+            voice: () => _voiceService,
+            needsYou: _needsYouClock,
+            voiceWaiting: _voiceWaitingClock,
+            snoozes: _snoozeRegistry,
+            handRaises: _handRaises,
+            snoozeExpiry: () => _snoozeExpiry,
+            pushed: PushedSessions,
+            enterScope: tenant => _tenantBoundary.EnterScope(tenant),
+            // Message Load mission, slice 4: the row line, from the same inbox the roster reads. The store is built
+            // further down this constructor, so it is read at fold time.
+            inboxLines: () => _fleetMessages);
         FleetDisplayState = new Fleet.FleetDisplayStateObserver(
             AmbientSnapshotConnected,
-            sessions => EnrichVoiceThenFoldForPush(
-                sessions,
-                // MTR-10 Gap D: read the AMBIENT tenant of this per-tenant display pass, byte-identical to the
-                // ROSTER's own enrichment (the roster map below resolves the REQUEST tenant and passes it to
-                // IsGenerating/HasVoice). This fold runs inside a tenant scope in both drivers - the periodic
-                // sweep wraps it in _tenantPass.ForEachTenant, and the DirectorHub push runs in the bound
-                // tenant's scope - so _tenantPass.Current is the owning tenant, never null on hosted. The earlier
-                // code read TenantId.Local, which #1973 made stale: the tenant-partitioned voice service IS live
-                // on hosted, and a Local read there is an EMPTY partition, folding VoiceAudioReady=false for
-                // every session and holding every voice-mode session permanently "Preparing voice" (yellow) on
-                // the push-only desktop while the roster served red. A null Current is a DENY (false), never a
-                // Local fall back, so an unscoped pass discloses nothing.
-                //
-                // WHY THE FIRST ATTEMPT (abf581ff) REGRESSED THE PUSH: the ambient tenant is whatever tenant a
-                // Director is BOUND to, which need not be a minted voice partition. WingmanVoiceService REFUSES
-                // to name a partition for such a tenant - IsGenerating/HasVoice THROW ArgumentException for it -
-                // and this fold runs synchronously inside DirectorHub.PushSnapshot (which scopes the whole handler
-                // to the bound tenant). An unminted-tenant Director's snapshot push therefore threw straight out
-                // of PushSnapshot as a HubException and took the WHOLE fleet's display push down. The guard makes
-                // an unnameable ambient tenant answer the design-documented "no voice state at all" (false)
-                // instead of throwing - see WingmanVoiceService.CanNameVoicePartition. Minted account tenants
-                // (production) and Local (self-host) are nameable, so Gap D's per-tenant read is unchanged there.
-                voiceGeneratingFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.IsGenerating(t, sid) == true,
-                voiceAudioReadyFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.HasVoice(t, sid) == true,
-                // The needs-you clock is partitioned per tenant too (Gap C coupled state): pass this pass's
-                // owning tenant so a session id shared across accounts keeps a per-tenant "waiting since".
-                tenant: _tenantPass.Current ?? TenantId.Local,
-                needsYouStampFor: (tenant, sid, isRed) => _needsYouClock.Stamp(tenant, sid, isRed),
-                handRaises: _handRaises,
-                snoozeRegistry: _snoozeRegistry,
-                // Same tenant guard as the two booleans above: an ambient tenant that cannot name a voice
-                // partition answers "no voice state at all" rather than throwing out of PushSnapshot.
-                voiceUnavailableFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                        ? _voiceService?.VoiceUnavailableFor(t, sid)
-                        : null,
-                nothingToNarrateFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.NothingToNarrateFor(t, sid) == true,
-                directorCannotSendConversationFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.DirectorCannotSendConversationFor(t, sid) == true,
-                narrationAbandonedFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.NarrationAbandonedFor(t, sid) == true,
-                voiceWaitingStampFor: (sid, waiting) => _tenantPass.Current is { } t
-                    ? _voiceWaitingClock.Stamp(t, sid, waiting)
-                    : null,
-                // Slice D: the same verdict source the roster folds from, so the desktop is pushed the same colour
-                // and label every browser gets.
-                turnVerdictRows: _turnVerdictRows,
-                // Slice F: the same snooze memory, so the push and the roster see ONE expiry edge between them.
-                snoozeExpiry: _snoozeExpiry,
-                // And the ACCOUNT'S roster for it to prune to, not this one Director's push. Ids only: a
-                // membership question does not need a session cloned to answer it, and this is the hot path.
-                // KNOWN, not connected: a Director that has gone quiet still has its sessions on the roster, so
-                // dropping them here would read "I cannot see it this second" as "it is gone".
-                snoozeRosterSessionIds: _tenantPass.Current is { } snoozeTenant
-                    ? PushedSessions.KnownSessionIds(snoozeTenant)
-                    : null),
+            sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
@@ -1833,20 +1913,66 @@ public sealed class GatewayHost : IAsyncDisposable
         // through, resolved at call time (the dictionary-screening precedent) - summarisation is a
         // background digest, and the fast leg is the cheap one. The per-pass caps live in the sweep.
         _sessionHistory = new History.SessionHistoryStore(_gatewayDb);
+        _devReports = new DevReports.DevReportStore(_gatewayDb);
+        _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
+            route: (tenant, directorId) =>
+            {
+                var director = Registry.Get(tenant, directorId);
+                if (director is null) return null;
+                Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
+                return new Api.SessionVerbClient(director, sendCommand);
+            },
+            sendLifetime: _devReportSendLifetime.Token,
+            enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
+        _devReportLauncher = new DevReports.DevReportTurnEndLauncher(_devReportDelivery);
+        _devReportSettleSweep = new DevReports.DevReportSettleSweep(
+            _tenantBoundary, TenantRegistry, _tenantContext, _devReports, _devReportDelivery);
         _knownRepositories = new History.KnownRepositoryStore(_gatewayDb);
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
         _turnVerdictTraces = new Wingman.TurnVerdictTraceStore(_gatewayDb);
-        _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append);
+        _fleetManagerEventStore = new Fleet.FleetManagerEventStore(_gatewayDb);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
+        // The Message Load mission: the fleet message inbox, the one service that decides and writes a send, and
+        // its thirty-day purge, run on the same timer tick as the judged-stop purge above.
+        _fleetMessages = new Messaging.FleetMessageStore(_gatewayDb);
+        _fleetMessageService = new Messaging.FleetMessageService(_fleetMessages);
+        _fleetMessageRetentionSweep = new Messaging.FleetMessageRetentionSweep(
+            _tenantBoundary, TenantRegistry, _tenantContext, _fleetMessages, Messaging.FleetMessageLimits.Default.Retention);
+        // The doorbell asks the owning Director to ring. It resolves the session from the pushed roster and sends
+        // the ring down the tunnel; the heartbeat pass runs once per tenant inside that tenant's scope, so the
+        // tunnel send resolves the Director in the right partition.
+        _fleetDoorbell = new Messaging.FleetDoorbell(
+            _fleetMessages,
+            _fleetMessageService,
+            locate: (tenant, sid) => PushedSessions.TryLocate(tenant, sid, _streamStaleAfter) is { } loc
+                ? new Messaging.FleetRingTarget(loc.DirectorId, loc.Session.ActivityState ?? "", loc.Session.Name)
+                : null,
+            ring: RingDirectorAsync,
+            forEachTenant: (pass, ct) => _tenantPass.ForEachTenantAsync(
+                () => _tenantPass.Current is { } t ? pass(t) : Task.CompletedTask, ct),
+            limits: FleetDoorbellLimitsOverride,
+            // The dictation lock (inspection 4, ruling 9): a transcription running for the session, the phone's
+            // Speak mark (upload and transcription, with its own idle backstop), or a PENDING dictation record -
+            // the same facts the session's dictation status reads. The PENDING record never expires by design,
+            // so a dictation that never completes holds the doorbell until it is delivered or abandoned.
+            dictationInFlight: (tenant, sid) => _transcribingSessions.IsActivelyTranscribing(tenant, sid)
+                                               || _transcribingSessions.IsTranscribing(tenant, sid)
+                                               || _dictationUploads.ForTenant(tenant).IsSessionLocked(sid));
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
         // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
         // per-tenant seam as the retention above.
         _turnVerdictRows = new Wingman.TurnVerdictRowSource(
             _tenantSettingsResolver.TurnVerdict, _turnVerdicts, () => _turnVerdictService);
+        // The colour each stop produced is folded as its trace is written, on the writer's thread (the Wingman
+        // inspector, phase 2), from the same verdict source and the same fold the display push uses.
+        _turnVerdictTraceRowStamp = new Wingman.TurnVerdictTraceRowStamp(
+            tenant => PushedSessions.SnapshotConnected(tenant), _turnVerdictRows, _displayFold.Record);
+        _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append,
+            stamp: _turnVerdictTraceRowStamp.Stamp);
         _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, EnsureTurnVerdictService);
         // Slice F (ruling 10): a snooze expiry re-judges. The JUDGEMENT is fire and forget - the fold is the hot
@@ -2659,7 +2785,27 @@ public sealed class GatewayHost : IAsyncDisposable
     /// session however the Gateway was started.
     /// </summary>
     private Wingman.TurnVerdictService EnsureTurnVerdictService()
-        => _turnVerdictService ??= new Wingman.TurnVerdictService(EnsureTurnVerdictEnvironment());
+    {
+        if (_turnVerdictService is { } built) return built;
+        var seat = new Wingman.TurnVerdictService(EnsureTurnVerdictEnvironment());
+        SubscribeFleetManagerEvents(seat);
+        return _turnVerdictService = seat;
+    }
+
+    /// <summary>The Fleet Manager's events (step 4) hear EVERY reading the seat finishes - at a turn end or at a
+    /// snooze expiry. Made where the seat is built, once. The handler reads the events service when it fires, so the
+    /// seat being built before that service (it is) loses nothing.</summary>
+    private void SubscribeFleetManagerEvents(Wingman.TurnVerdictService seat)
+        => seat.ReadingCompleted += completed => _fleetManagerEvents?.OnReadingCompleted(completed);
+
+    /// <summary>Run the Fleet Manager events reconcile for every account now. For host tests.</summary>
+    internal Task ReconcileFleetManagerEventsForTestAsync() => _fleetManagerEventSweep!.SweepAsync();
+
+    /// <summary>The Fleet Manager events service, for host tests to wait on its work.</summary>
+    internal Fleet.FleetManagerEventService? FleetManagerEventsForTest => _fleetManagerEvents;
+
+    /// <summary>The Fleet Manager events store, for host tests to read what was stored.</summary>
+    internal Fleet.FleetManagerEventStore? FleetManagerEventStoreForTest => _fleetManagerEventStore;
 
     private Wingman.GatewayTurnVerdictEnvironment? _turnVerdictEnvironment;
 
@@ -2718,8 +2864,36 @@ public sealed class GatewayHost : IAsyncDisposable
                     : active;
             },
             isVoiceSession: (tenant, sid) => _voiceService?.IsVoiceSession(tenant, sid) ?? false,
+            // The ACCOUNT's Fleet Manager mark: the one session whose direct Workers are judged while held.
+            fleetManagerSessionId: _tenantSettingsResolver.FleetManagerSessionId,
+            narrationPlan: ResolveNarrationPlan,
             ledger: _activityEvents,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
+
+    /// <summary>
+    /// Whether this account's plan includes the Wingman's narration: the account subject its tenant maps to, that
+    /// subject's entitlement, and <see cref="Wingman.NarrationPlanRule"/> for the answer. A read that throws is a
+    /// read that could not be made - Unknown, never "needs Pro", so a paying account is never told it must upgrade
+    /// because the database hiccuped.
+    /// </summary>
+    private Wingman.NarrationPlan ResolveNarrationPlan(TenantId tenant)
+    {
+        if (!GatewayHostedMode.IsHosted)
+            return Wingman.NarrationPlanRule.Decide(hosted: false, subject: null, decision: null);
+        try
+        {
+            var subject = TenantRegistry.SubjectForTenant(tenant);
+            var decision = string.IsNullOrWhiteSpace(subject) ? null : EntitlementRegistry.Evaluate(subject, DateTime.UtcNow);
+            var plan = Wingman.NarrationPlanRule.Decide(hosted: true, subject, decision);
+            FileLog.Write($"[GatewayHost] ResolveNarrationPlan: tenant={tenant.ToLogString()} outcome={decision?.Outcome.ToString() ?? "no subject"} tier={decision?.Tier ?? "none"} plan={plan}");
+            return plan;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] ResolveNarrationPlan FAILED: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {ex.Message} - the plan is Unknown");
+            return Wingman.NarrationPlan.Unknown;
+        }
+    }
 
     /// <summary>
     /// Wire the session supervisor (issue #915) to the live Gateway. Every leg reuses machinery that already
@@ -2936,6 +3110,27 @@ public sealed class GatewayHost : IAsyncDisposable
             catch (Exception ex) { FileLog.Write($"[GatewayHost] turn-log retention sweep FAILED: {ex.Message}"); }
         }, null, TimeSpan.FromMinutes(5), TimeSpan.FromHours(6));
 
+        _fleetManagerEvents = new Fleet.FleetManagerEventService(_fleetManagerEventStore!,
+            new Fleet.GatewayFleetManagerEventEnvironment(PushedSessions, _streamStaleAfter,
+                route: (tenant, directorId) =>
+                {
+                    var director = Registry.Get(tenant, directorId);
+                    if (director is null) return null;
+                    Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
+                    return new Api.SessionVerbClient(director, sendCommand);
+                },
+                mark: _tenantSettingsResolver.FleetManagerSessionId,
+                checksIdleBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
+                directorShutDown: (tenant, directorId) => Registry.Get(tenant, directorId)?.StoppedAtUtc is not null,
+                enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)));
+        // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
+        // and then on the heartbeat's cadence, per account.
+        _fleetManagerEventSweep = new Fleet.FleetManagerEventSweep(_tenantBoundary, TenantRegistry, _tenantContext,
+            _fleetManagerEvents);
+        if (Fleet.FleetManagerEventSweep.Enabled)
+            _fleetManagerEventTimer = new Timer(_ => _ = _fleetManagerEventSweep.SweepSafeAsync(), null,
+                TimeSpan.FromSeconds(5), Fleet.FleetManagerEventSweep.Interval);
+
         _turnEndWatcher = new TurnEndWatcher(
             onTurnEnd: signal =>
             {
@@ -2958,6 +3153,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 // instantaneous, but it puts the read ahead of our own keystroke rather than behind it.
                 // Returns immediately; nothing below waits on it.
                 _turnLogRecorder?.OnTurnEnd(signal);
+
+                // The Fleet Manager's events (step 4), the ONE turn-end hook, BEFORE the reading starts: a stop of a
+                // session the account's Fleet Manager owns is STORED here, synchronously, and waits for the reading
+                // below (which reaches it through the seat's ReadingCompleted); the Fleet Manager's own turn end is
+                // where what it is owed is delivered. It never throws.
+                _fleetManagerEvents?.OnTurnEnd(signal, wingmanRunning: _turnVerdictService is not null);
 
                 // The turn verdict (the Wingman-on-every-turn mission, slice C). AFTER the turn log, so the capture
                 // is ahead of this screen read. It returns immediately: the settle, the read and the judgement run
@@ -2988,6 +3189,20 @@ public sealed class GatewayHost : IAsyncDisposable
                     FileLog.Write($"[GatewayHost] turn-end spend emit FAILED: sid={signal.SessionId}: {ex.Message}");
                 }
 
+                // The doorbell (the Message Load mission, slice 2): the turn just ended, so if this session has a
+                // message due, ask its Director to ring now rather than at the next heartbeat. Returns at once;
+                // the ring runs in the background inside this tenant's scope. The Director still decides whether it
+                // is safe - this edge is known to be a repaint one time in six (issue 2853).
+                try
+                {
+                    using (_tenantBoundary.EnterScope(tenant))
+                        _fleetDoorbell.OnSettled(tenant, signal.SessionId);
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[GatewayHost] turn-end doorbell FAILED: sid={signal.SessionId}: {ex.Message}");
+                }
+
                 // Session supervision (issue #915): evaluate this idle transition for a terminating transport
                 // fault and, if there is one, recover it. Runs for EVERY session, not just voice ones, and is
                 // isolated so a supervision fault never breaks the voice refresh below. It returns
@@ -3014,6 +3229,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 // RuleTurnEndLauncher, which holds the tenant scope, the fire-and-forget and the isolation,
                 // and which the feature's own guards can therefore see. It never throws.
                 _ruleLauncher?.OnTurnEnd(tenant, signal.DirectorId, signal.SessionId);
+
+                // Dev reports (issue #2958): everything the owner sent while this session worked goes in now, as
+                // one prompt. A catch-up turn end after a restart drains what the database still holds. Fire and
+                // forget, never throws - see DevReportTurnEndLauncher.
+                _devReportLauncher.OnTurnEnd(tenant, signal.SessionId, signal.IsNewTurn);
 
                 // Voice sessions (issue #531): the turn just finished on its own, so re-make the
                 // spoken summary + audio in the background. It is then "voice ready" in the session
@@ -3062,10 +3282,19 @@ public sealed class GatewayHost : IAsyncDisposable
                 // engine incapable of sending into a session that is working.
                 if (tenant.IsValid)
                     _sessionSupervisor?.OnSessionWorking(tenant, sid);
+                // The Fleet Manager's events (step 4): an owned session seen working is remembered alive, so its
+                // death is raised even across a restart.
+                if (tenant.IsValid)
+                    _fleetManagerEvents?.OnSessionWorking(tenant, sid, directorId);
             },
             // Gateway Cleanup mission, Phase 2: under stream mode the catch-up / reconcile reads the push
             // store instead of HTTP-pulling each Director's session list (no dial).
-            pushedSessions: PushedSessions);
+            pushedSessions: PushedSessions,
+            // The Fleet Manager's events (step 4): a session a Fleet Manager owns has exited or crashed. The watcher
+            // is where every feed's state transitions meet and are taken once, so this is raised once per exit.
+            onSessionExited: (tenant, sid, directorId) => _fleetManagerEvents?.OnSessionExited(tenant, sid, directorId),
+            // And one its Director removed from its list: the row is gone, so what the Gateway last knew answers.
+            onSessionRemoved: (tenant, sid, directorId) => _fleetManagerEvents?.OnSessionRemoved(tenant, sid, directorId));
         // First tick = the startup catch-up sweep; then the 15s reconcile poll for
         // Directors that never push (file-discovered locals, old builds).
         _turnEndWatcher.Start();
@@ -3424,10 +3653,14 @@ public sealed class GatewayHost : IAsyncDisposable
             governanceAudit: _governanceAudit,
             // The Wingman-on-every-turn mission: the store GET /sessions/{sid}/turn-verdict(s) serve from.
             turnVerdicts: _turnVerdicts,
+            // The Wingman inspector: the record GET /sessions/{sid}/wingman-stops serves from.
+            turnVerdictTraces: _turnVerdictTraces,
             // Slice D: the verdict source the roster and GET /sessions/{sid} fold from.
             turnVerdictRows: _turnVerdictRows,
             // Slice F: the same snooze memory the display push folds with, so one expiry is one edge.
             snoozeExpiry: _snoozeExpiry,
+            // Message Load mission, slice 4: the inbox the roster and GET /sessions/{sid} fold the row line from.
+            inboxLines: _fleetMessages,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -3466,11 +3699,11 @@ public sealed class GatewayHost : IAsyncDisposable
             // same translator (and verdict cache) the narration path uses, so an unchanged screen is
             // answered from the cached per-turn verdict without a second model call.
             wingmanTranslator: _voiceService?.Translator,
-            // Remove-the-network-port mission, phase 2: the fleet-message steward for POST
-            // /sessions/{sid}/message. Its own instance, on its own options, because it keeps per-sender
-            // counters and windows: sharing one with a Director in the same process would let two paths spend
-            // each other's budget, and on hosted there is no Director in the process to share with anyway.
-            messageSteward: new Core.Fleet.MessageSteward(new Core.Configuration.MessageStewardOptions()),
+            // The Message Load mission: POST /sessions/{sid}/message, POST /fleet/broadcast and GET /fleet/inbox
+            // write and read the inbox through this one service. It replaced the per-process message steward.
+            fleetMessages: _fleetMessageService,
+            // The Message Load mission, inspection 7, ruling 3: the spawn door records a restore's create by its token.
+            workspaces: _workspaces,
             requestShutdown: () =>
             {
                 var handler = OnShutdownRequested;
@@ -3880,7 +4113,11 @@ public sealed class GatewayHost : IAsyncDisposable
             directorId => _tenantPass.Current is { } tenant
                 ? PushedSessions.ConnectedFleet(tenant, directorId)
                 : (Streaming.FleetObservation.Unknown, Array.Empty<Contracts.SessionDto>()),
-            directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null);
+            directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null,
+            (directorId, order, ct) => Api.DirectorCommandRouter.TrySendAsync(
+                SendCommandAsync, directorId, Contracts.WorkspaceRestoreVerbs.Restore, "", order, ct),
+            (ctx, directorId) => _tenantPass.Current is { } tenant
+                && Registry.IsRegisteredByCredential(tenant, directorId, Util.AuthMiddleware.RegisteringCredential(ctx)));
         Api.SkillEndpoints.Map(_app, _skills);
 
         // The standing instructions an account gives about its sessions, and the record of every firing
@@ -4020,6 +4257,28 @@ public sealed class GatewayHost : IAsyncDisposable
         // labelled corpus lives in another repository and is pulled by a job holding no account credential, so
         // this is the only path an owner label has out of the database.
         AdminTurnVerdictFeedbackEndpoint.Map(_app, _turnVerdicts, TenantRegistry);
+
+        // The Fleet Manager's stored news, its standing preferences, and its start-of-conversation digest (the
+        // Fleet Manager mission, step 3). Account-scoped client routes under /gateway, gated by the host-wide
+        // middleware; each shape a session key may reach is listed in SessionKeyGuard, and the routes themselves
+        // then allow only the account's marked Fleet Manager session or the owner's own device.
+        FleetManagerEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            outcomes: new Fleet.FleetOutcomeStore(_gatewayDb),
+            preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
+            events: _fleetManagerEventStore!,
+            digest: new FleetDigestSources(
+                FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
+                    _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages,
+                    _tenantSettingsResolver.FleetManagerSessionId),
+                SessionInAccount: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid) is not null,
+                LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
+                FormerFleetManagers: tenant => FleetManagerMarks.List(tenant).Select(m => m.SessionId).ToList(),
+                // Read when asked: the event service is built after the routes are mapped.
+                EventsDeliveryNote: tenant => _fleetManagerEvents?.DeliveryNote(tenant)),
+            access: new FleetManagerAccess(
+                MarkedSessionId: _tenantSettingsResolver.FleetManagerSessionId,
+                LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid)));
 
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account
@@ -4165,6 +4424,11 @@ public sealed class GatewayHost : IAsyncDisposable
             directorSessions: (tenant, directorId) => PushedSessions.GetLastKnown(tenant, directorId),
             findSession: (tenant, sessionId) => PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session,
             sendCommand: (directorId, command, ct) => SendCommandAsync(directorId, command, ct));
+        // Dev reports (issue #2958): four session routes (publish, list, read, reply - a session key, its own
+        // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
+        // SessionKeyGuard allow list; the owner routes deliberately are not.
+        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary);
+
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),
             listForMachine: (tenant, machine) => DirectorRestartRequests.List(tenant, machine),
@@ -4374,6 +4638,16 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdictWatchdogTimer = new System.Threading.Timer(_ => SweepTurnVerdictWatchdog(), null,
             TurnVerdictWatchdogInterval, TurnVerdictWatchdogInterval);
         FileLog.Write($"[GatewayHost] carrying-on clock started: every {TurnVerdictWatchdogInterval.TotalSeconds:0}s");
+        if (FleetDoorbellHeartbeatEnabled)
+        {
+            _fleetDoorbellTimer = new System.Threading.Timer(_ => SweepFleetDoorbell(), null,
+                Messaging.FleetDoorbell.HeartbeatInterval, Messaging.FleetDoorbell.HeartbeatInterval);
+            FileLog.Write($"[GatewayHost] fleet doorbell heartbeat started: every {Messaging.FleetDoorbell.HeartbeatInterval.TotalSeconds:0}s, grace {_fleetDoorbell.Limits.RingGrace}, stuck after {_fleetDoorbell.Limits.StuckAfterRings} rings");
+        }
+        else
+        {
+            FileLog.Write("[GatewayHost] fleet doorbell heartbeat NOT started (test seam)");
+        }
 
         // The prompt log's retention purge (CR-3b): same footing as the other bounded stores. The window
         // resolves from the deployment mode - hosted is always the product default; self-host may override
@@ -4399,6 +4673,14 @@ public sealed class GatewayHost : IAsyncDisposable
         _sessionHistoryTimer = new System.Threading.Timer(_ => SweepSessionHistory(), null,
             SessionHistorySweepStartupDelay, SessionHistorySweepInterval);
         FileLog.Write($"[GatewayHost] session history sweep started: every {SessionHistorySweepInterval.TotalMinutes:0}m, interrupted after {History.SessionHistorySweep.InterruptedThreshold.TotalMinutes:0}m of silence, retention {History.SessionHistorySweep.Retention.TotalDays:0} days");
+
+        // Dev reports (issue #2958, phase 2 review High 1 and High 2): settle every session still holding items. The
+        // turn-end watcher raises nothing for a session that exits, or for a Director that reconnects with its
+        // session already waiting - the state it last saw - so THIS timer is what reaches those sessions.
+        var devReportSettleSchedule = DevReportSettleSweepScheduleForTests ?? DevReports.DevReportSettleSweep.Interval;
+        _devReportSettleTimer = new System.Threading.Timer(_ => SweepDevReportSettle(), null,
+            devReportSettleSchedule, devReportSettleSchedule);
+        FileLog.Write($"[GatewayHost] dev report settle sweep started: every {devReportSettleSchedule.TotalSeconds:0.###}s");
 
         // MTR-15 cancellation cutoff: the hosted active-tenant entitlement sweep. Forces a fresh entitlement
         // read for every tenant with a live lease every ~60s and revokes any that has become NotEntitled, so a
@@ -4715,7 +4997,13 @@ public sealed class GatewayHost : IAsyncDisposable
         Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
         // Slice F: the ACCOUNT'S whole roster as session ids, for that memory to prune to. The push carries ONE
         // Director's sessions, and pruning to those would drop every other Director's watch on every push.
-        IReadOnlyCollection<string>? snoozeRosterSessionIds = null)
+        IReadOnlyCollection<string>? snoozeRosterSessionIds = null,
+        // Message Load mission, slice 4: the same inbox the roster folds the row line from, so the desktop is
+        // pushed the line every browser gets.
+        Messaging.IFleetInboxLineSource? inboxLines = null,
+        // See StampFleetRolesAndFold. The two clocks above are chosen by the caller; only Fleet.DisplayFold calls this in
+        // production, and it chooses them once for both of its callers.
+        bool writes = true)
     {
         foreach (var s in sessions)
         {
@@ -4749,7 +5037,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 waitingSince: s.VoiceWaitingSince);
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
-            handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds);
+            handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds,
+            inboxLines: inboxLines, writes: writes);
     }
 
     /// <summary>
@@ -4893,6 +5182,15 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             FileLog.Write($"[GatewayHost] turn verdict retention sweep FAILED: {ex.Message}");
         }
+        // The fleet message purge rides the same tick, on its own try, so one failing never skips the other.
+        try
+        {
+            await _fleetMessageRetentionSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] fleet message retention sweep FAILED: {ex.Message}");
+        }
         finally
         {
             Interlocked.Exchange(ref _turnVerdictRetentionInFlight, 0);
@@ -5005,6 +5303,33 @@ public sealed class GatewayHost : IAsyncDisposable
         finally
         {
             Interlocked.Exchange(ref _sessionHistorySweepInFlight, 0);
+        }
+    }
+
+    /// <summary>
+    /// The dev report settle timer callback (issue #2958) - a boundary: it owns the overlap guard and the try/catch so
+    /// a sweep failure never crashes the timer thread. One sweep at a time; a slow tunnel send makes the next tick skip.
+    /// </summary>
+    private void SweepDevReportSettle()
+    {
+        if (Interlocked.CompareExchange(ref _devReportSettleSweepInFlight, 1, 0) != 0)
+            return;
+        _ = RunDevReportSettleSweepAsync();
+    }
+
+    private async Task RunDevReportSettleSweepAsync()
+    {
+        try
+        {
+            await _devReportSettleSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] dev report settle sweep FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _devReportSettleSweepInFlight, 0);
         }
     }
 
@@ -5142,6 +5467,33 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Director that holds the tunnel open and answers nothing cancels the InvokeAsync below rather than
     /// hanging forever. Do not add a second timeout here; two would drift.
     /// </summary>
+    /// <summary>
+    /// Whether a session can take the owner's dev report items now (issue #2958, PLAN-phase-2.md rules 3 and 4),
+    /// from the Gateway's own records - never by dialing the session. Live on the fresh roster and waiting for
+    /// input: idle. Live and working: busy. Exited on the roster, or absent from it with an ending on its history
+    /// row: ended. Absent with no ending - its machine is merely not connected - is busy, so its items are held.
+    /// </summary>
+    private DevReports.DevReportSessionLiveness DevReportSessionLiveness(TenantId tenant, string sessionId)
+    {
+        var located = PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter);
+        if (located is { } loc)
+        {
+            var state = loc.Session.ActivityState ?? "";
+            if (state is "Exited" or "Failed")
+                return new(DevReports.DevReportSessionReach.Ended, null, $"the roster shows the session {state}");
+            if (state is "WaitingForInput" or "Idle")
+                return new(DevReports.DevReportSessionReach.Idle, loc.DirectorId, $"waiting for input on director {loc.DirectorId}");
+            return new(DevReports.DevReportSessionReach.Busy, loc.DirectorId, $"the roster shows the session {state}");
+        }
+
+        Contracts.WorkHistorySessionDto? history;
+        using (_tenantBoundary.EnterScope(tenant))
+            history = _sessionHistory.Get(sessionId);
+        if (!string.IsNullOrEmpty(history?.EndingKind))
+            return new(DevReports.DevReportSessionReach.Ended, null, $"not on the roster, and its history says {history.EndingKind}");
+        return new(DevReports.DevReportSessionReach.Busy, null, "not on the roster, and nothing says it ended - its machine is not connected");
+    }
+
     public async Task<DirectorCommandResult?> SendCommandAsync(string directorId, DirectorCommand command, CancellationToken ct = default)
     {
         if (command is null) throw new ArgumentNullException(nameof(command));
@@ -5219,11 +5571,16 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _activityRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] activity retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictWatchdogTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] carrying-on clock timer dispose error: {ex.Message}"); }
+        try { _fleetDoorbellTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet doorbell timer dispose error: {ex.Message}"); }
+        _fleetDoorbellTimer = null;
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
         _promptRetentionTimer = null;
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }
         try { _sessionHistoryTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session history timer dispose error: {ex.Message}"); }
         _sessionHistoryTimer = null;
+        try { _devReportSettleTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report settle timer dispose error: {ex.Message}"); }
+        try { _devReportSendLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report send lifetime cancel error: {ex.Message}"); }
+        _devReportSettleTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;
         _turnVerdictWatchdogTimer = null;
@@ -5275,6 +5632,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // ladder holding a token and re-sending into a fleet this process no longer owns.
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
+        try { _fleetManagerEventTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events timer dispose error: {ex.Message}"); }
+        try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
         // THE INSPECTOR'S TRACES, in the order that keeps them: first the verdict flights the service just cancelled are
         // let finish, so each hands in its cancelled trace while the writer still takes them; then the writer is drained
         // before the database below is disposed. Both waits are bounded, so a stuck judge or a database that will not

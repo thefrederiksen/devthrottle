@@ -1,0 +1,12 @@
+08:45:04.007 gateway listening at http://127.0.0.1:49189; ring grace 00:01:00, stuck after 3 rings
+08:45:04.623 director tunnel connected
+08:45:04.774 /Users/soren/ReposFred/devthrottle-message-load/docs/missions/message-load-2026-09-16/slice-2-evidence/fix-round/run4-snooze: manager e3034028-6dff-45a8-b4bf-8b37502ba116, worker 1140bf90-20b6-4613-afc8-2e3ee45cc976 (controller e3034028-6dff-45a8-b4bf-8b37502ba116)
+08:46:05.856 captured run4-snooze/00-worker-ready
+08:46:05.872 worker snoozed until 2026-09-17T20:46:05.8572540Z
+08:46:05.909 POST /sessions/1140bf90-20b6-4613-afc8-2e3ee45cc976/message as e3034028-6dff-45a8-b4bf-8b37502ba116 -> 200 queued c275dc4653d54f529b3a668b809bb0bd 
+08:46:19.408 doorbell rung; worker working origin now 'agent'
+08:46:41.661 captured run4-snooze/01-after-the-doorbell-turn
+08:46:41.664 after the doorbell turn: snoozed=True, until 2026-09-17T20:46:05.8572540Z
+08:46:44.226 owner typed; worker working origin 'owner', owner turn 2026-09-17T08:46:44.2258700Z
+08:46:44.226 snooze ended by the owner's turn
+08:46:48.316 captured run4-snooze/02-after-the-owner-typed

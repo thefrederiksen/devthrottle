@@ -8,6 +8,7 @@ run always ends in one honest state (runstore) with a next_step for the author.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -138,30 +139,72 @@ def _session_name(run: dict, role: str) -> str:
     return f"{mission} - {role} - ship {run['branch']}"
 
 
-def _reviewer_agent(run: dict, cfg: config.ShipConfig) -> str:
+def _base_model(model: str | None) -> str | None:
+    """One spelling per model for the same-model check: claude-opus-5[1m] is
+    claude-opus-5, and a dated id such as claude-haiku-4-5-20251001 (how a transcript
+    records claude-haiku-4-5) is its undated form."""
+    if not model:
+        return None
+    base = model.split("[", 1)[0].strip().lower()
+    return re.sub(r"-\d{8}$", "", base)
+
+
+def _author_model(run: dict) -> str | None:
+    row = fleet.find_session(run["author_session"])
+    return ((row or {}).get("modelDisplay") or {}).get("modelId")
+
+
+def _reviewer_agent(run: dict, cfg: config.ShipConfig) -> tuple[str, str | None]:
+    """The reviewer's agent and model. The author never certifies its own work: the
+    reviewer is another agent family, or - only when the repository names a reviewer
+    model on main - the same family running a DIFFERENT model (owner decision,
+    2026-09-16, recorded on every pull request it reviews)."""
     agent = cfg.reviewer_agent or AUTHOR_FAMILY_DEFAULT_REVIEWER.get(run["author_agent"], "ClaudeCode")
-    if agent == run["author_agent"]:
+    model = cfg.reviewer_model
+    if agent != run["author_agent"]:
+        return agent, model
+    if model is None:
         raise ShipError(
             "same-family",
-            f"The reviewer would be {agent}, the same agent family as the author. "
-            "The author never certifies its own work.",
-            "Set reviewer_agent in .ship.yaml on main to a different family than the author's.",
+            f"The reviewer would be {agent}, the same agent family as the author, on the same "
+            "model. The author never certifies its own work.",
+            "Set reviewer_agent in .ship.yaml on main to a different family, or set "
+            "reviewer_model to a different model than the author's.",
         )
-    return agent
+    author_model = _author_model(run)
+    if author_model is None:
+        raise ShipError(
+            "author-model-unknown",
+            "The reviewer is the author's agent family, and the author's model is not reported "
+            "yet, so cc-ship cannot prove the reviewer runs a different model.",
+            "Finish one turn in the author session (the fleet reports its model at turn end), "
+            "then run: cc-ship continue",
+        )
+    if _base_model(author_model) == _base_model(model):
+        raise ShipError(
+            "same-model",
+            f"The reviewer would run {model}, the same model as the author ({author_model}).",
+            "Set reviewer_model in .ship.yaml on main to a different model, then run: cc-ship continue",
+        )
+    run["author_model"] = author_model
+    return agent, model
 
 
-def _spawn(run: dict, role: str, agent: str, brief: Path, output: Path) -> None:
+def _spawn(run: dict, role: str, agent: str, brief: Path, output: Path,
+           model: str | None = None) -> None:
     root = gitops.main_repo_root(_repo(run))
     trust.require_trust(agent, root)
     name = _session_name(run, role)
-    session_id = fleet.spawn_session(_repo(run), agent, run["author_session"], name, brief)
+    session_id = fleet.spawn_session(_repo(run), agent, run["author_session"], name, brief,
+                                     model=model)
     record = {
-        "role": role, "id": session_id, "name": name, "agent": agent,
+        "role": role, "id": session_id, "name": name, "agent": agent, "model": model,
         "brief": str(brief), "output": str(output), "started": time.time(),
-        "corrections": 0, "replaced": False, "written_after": None, "watch": {},
+        "corrections": 0, "replaced": False, "written_after": None,
+        "watch": {"started": time.time()},
     }
     run["session"] = record
-    run["sessions"].append({k: record[k] for k in ("role", "id", "name", "agent")})
+    run["sessions"].append({k: record[k] for k in ("role", "id", "name", "agent", "model")})
 
 
 def _stop_session_quietly(session_id: str, reason: str) -> None:
@@ -323,7 +366,7 @@ def _step_checks(run: dict) -> bool:
 def _step_review(run: dict) -> dict:
     repo = _repo(run)
     cfg = config.load_from_main(repo)
-    agent = _reviewer_agent(run, cfg)
+    agent, model = _reviewer_agent(run, cfg)
     dirty = _worktree_dirty(run)
     if dirty:
         return dirty
@@ -345,7 +388,8 @@ def _step_review(run: dict) -> dict:
         repo_rules=cfg.rules, first_reviewed_head=run["first_reviewed_head"],
     ), encoding="utf-8")
     output.unlink(missing_ok=True)
-    _spawn(run, "Reviewer", agent, brief, output)
+    fleet.done_marker(output).unlink(missing_ok=True)
+    _spawn(run, "Reviewer", agent, brief, output, model=model)
     run["review_round"] = rnd
     if run["first_reviewed_head"] is None:
         run["first_reviewed_head"] = head
@@ -393,7 +437,10 @@ def _review_done(run: dict, review: dict) -> dict:
         prev = run["history"][-1]
         prev["fixed_next_round"] = [t for k, t in prev["pending_fix"] if k not in current_keys]
     run["history"].append({
-        "round": rnd, "agent": run["session"]["agent"], "session": run["session"]["id"],
+        "round": rnd, "session": run["session"]["id"],
+        "agent": (f"{run['session']['agent']} ({run['session']['model']})"
+                  if run["session"].get("model") else run["session"]["agent"]),
+        "same_family": run["session"]["agent"] == run["author_agent"],
         "found": len(open_findings), "notes": notes, "suppressed": suppressed,
         "pending_fix": [], "fixed_next_round": [],
     })
@@ -524,6 +571,7 @@ def _step_verify(run: dict) -> bool:
     folder = _folder(run)
     output = folder / "verify.json"
     output.unlink(missing_ok=True)
+    fleet.done_marker(output).unlink(missing_ok=True)
     preview_url = None
     state_file = None
     if cfg.surface == "vercel-preview" and not docs_only:
@@ -602,6 +650,7 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
         return advance(run)
     if result.outcome in (fleet.CRASHED, fleet.STALLED):
         if session["replaced"]:
+            run["session"] = None
             return _fail(run, ShipError(
                 "session-failed",
                 f"The {role.lower()} failed twice ({result.reason}).",
@@ -613,6 +662,7 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
         # One replacement (issue 2935, "Run state"). The partial output of the failed
         # session is removed so only the replacement's file can count.
         output.unlink(missing_ok=True)
+        fleet.done_marker(output).unlink(missing_ok=True)
         if role == "Verifier":
             run["phase"] = "verify"
             run["session"] = None
@@ -621,7 +671,8 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
                 run["session"]["replaced"] = True
                 runstore.save(run)
             return run
-        _spawn(run, role, session["agent"], Path(session["brief"]), output)
+        _spawn(run, role, session["agent"], Path(session["brief"]), output,
+               model=session.get("model"))
         run["session"]["replaced"] = True
         return _set(run, WORKING, f"The {role.lower()} failed ({result.reason}); a replacement "
                                   f"is working ({run['session']['name']}). Run: cc-ship wait")
@@ -644,19 +695,52 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
             _fail(run, err)
             raise err
         session["corrections"] += 1
-        fleet.clear_done_flag(session["id"])
+        if fleet.find_session(session["id"]) is None:
+            # Already reaped (it finished while nobody was polling): nobody is left to
+            # correct, so a fresh session redoes the work, within the same limit.
+            return _redo_in_fresh_session(run, session, output)
+        try:
+            fleet.clear_done_flag(session["id"])
+        except fleet.FleetError:
+            if fleet.find_session(session["id"]) is not None:
+                raise  # the session is there: this failure is real, show it
+            return _redo_in_fresh_session(run, session, output)  # reaped just now
+        fleet.done_marker(output).unlink(missing_ok=True)
         fix = _folder(run) / f"correction-{role.lower()}-r{run['review_round']}-{session['corrections']}.md"
         fix.write_text(briefs.correction_brief(output, problems, session["corrections"],
                                                role.lower()),
                        encoding="utf-8")
         session["written_after"] = time.time()
-        session["watch"] = {"seen_working": session["watch"].get("seen_working", False)}
+        # A correction is a new turn: the clock for "never got going" starts again.
+        session["watch"] = {"seen_working": session["watch"].get("seen_working", False),
+                            "started": time.time()}
         fleet.prompt_session(session["id"], f"Read the file {fix} and follow it exactly.")
         return _set(run, WORKING, f"The {role.lower()}'s file was invalid; it is correcting it "
                                   f"({session['corrections']} of {MAX_CORRECTIONS}). Run: cc-ship wait")
     if role == "Reviewer":
         return _review_done(run, data)
     return _verify_done(run, data)
+
+
+def _redo_in_fresh_session(run: dict, old: dict, output: Path) -> dict:
+    role = old["role"]
+    output.unlink(missing_ok=True)
+    fleet.done_marker(output).unlink(missing_ok=True)
+    if role == "Verifier":
+        _drop_verifier(run, "cc-ship: verifier gone before its correction")
+        run["phase"] = "verify"
+        run["session"] = None
+        advance(run)  # a fresh cookie and brief for the fresh verifier
+    else:
+        _spawn(run, role, old["agent"], Path(old["brief"]), output, model=old.get("model"))
+    if run.get("session"):
+        run["session"]["corrections"] = old["corrections"]
+        run["session"]["replaced"] = old["replaced"]
+        return _set(run, WORKING,
+                    f"The {role.lower()}'s file was invalid and the session was already gone; a "
+                    f"fresh session is redoing it ({old['corrections']} of {MAX_CORRECTIONS}). "
+                    "Run: cc-ship wait")
+    return run
 
 
 def wait(run: dict, slice_seconds: float = WAIT_SLICE_SECONDS) -> dict:

@@ -15,7 +15,8 @@ import "./verdictPanel.css";
 // The Wingman-on-every-turn mission, slice E. ONE copy, mounted by the Cockpit session view and the phone
 // session screen; the desktop does not mount it (the Director wire carries colour and label only).
 //
-// In order: the risk, when there is one; the receipt - the agent's own words, open; the label; the summary;
+// In order: the risk, when there is one; the receipt - the agent's own words, open; the label; the narration when the
+// Gateway has saved one, otherwise the judge's summary;
 // the options as buttons wired to the answer route; and "this is wrong", wired by slice G to the feedback route.
 //
 // A ROW THAT CARRIES NO VERDICT STILL SHOWS THE LAST ONE, from the history read, COLLAPSED and with only "This
@@ -26,6 +27,12 @@ import "./verdictPanel.css";
 // was formed on has moved on, so its options no longer mean what they meant, and the answer route would refuse
 // them anyway. What is still true about a superseded verdict is what it SAID, which is what a correction is
 // about.
+//
+// A CURRENT REFUSAL IS SHOWN AS A REFUSAL. When the row's stamp is "failed" and it carries the failed record, that
+// record IS what the Wingman made of this stop right now: the panel shows it as refused, with the Gateway's own
+// failure reason verbatim, and never as superseded - the session has not gone back to work. The history is not read
+// for it, because the row already carries the newest record (the slice I inspection found the history read answering
+// with that same failed record, rendered as superseded).
 //
 // "THIS IS WRONG" OPENS A PICKER OF THE CLOSED WORDS, and the words are the vocabulary's own spellings - see
 // verdictVocabulary.ts for why that list is here at all and what stops it drifting from the Gateway's. The panel
@@ -59,9 +66,12 @@ export interface VerdictPanelProps {
 export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelProps) {
   const row = session as TurnVerdictRow;
   const live = row.verdictState === "judged" ? row.turnVerdict ?? null : null;
+  const refusedNow =
+    row.verdictState === "failed" && row.turnVerdict?.failed === true ? row.turnVerdict : null;
+  const carried = live ?? refusedNow;
   const [past, setPast] = useState<TurnVerdict | null>(null);
   const [pastRefusal, setPastRefusal] = useState<string | null>(null);
-  const verdict = live ?? past;
+  const verdict = carried ?? past;
   const verdictId = verdict?.verdictId ?? "";
   const agentName = (session.agentToolDisplay ?? "").trim() || "Agent tool not reported";
 
@@ -94,7 +104,7 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
   // rather than swallowed: "the read was refused" and "this session was never judged" are different facts, and a
   // panel that rendered nothing for both would hide the first behind the second.
   useEffect(() => {
-    if (live !== null || row.sessionId !== sessionId) {
+    if (carried !== null || row.sessionId !== sessionId) {
       setPast(null);
       setPastRefusal(null);
       return;
@@ -119,7 +129,7 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
       current = false;
       abort.abort();
     };
-  }, [sessionId, live, row.sessionId]);
+  }, [sessionId, carried, row.sessionId]);
 
   if (row.sessionId !== sessionId) return null;
 
@@ -138,6 +148,9 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
   // history describes a screen that has moved on, so the panel offers no answer on it - one decision, made
   // here, rather than a condition on each control below.
   const answerable = live !== null;
+  // What the row carries now, answerable or refused, as against a record read out of the history.
+  const current = carried !== null;
+  const refused = verdict.failed === true;
 
   const menu = verdict.menu ?? null;
   const options = verdict.options ?? [];
@@ -186,9 +199,17 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
 
   return (
     <section
-      className={`verdict-panel${answerable ? "" : " verdict-panel-past"}`}
-      aria-label={answerable ? "Wingman verdict" : "Wingman verdict, superseded"}
+      className={`verdict-panel${current ? "" : " verdict-panel-past"}`}
+      aria-label={
+        !current ? "Wingman verdict, superseded" : refused ? "Wingman verdict, refused" : "Wingman verdict"
+      }
     >
+      {refused && (
+        <div className="verdict-refused" role="note">
+          Refused: {verdict.failureReason ?? ""}
+        </div>
+      )}
+
       {verdict.risk && verdict.risk !== "none" && (
         <div className="verdict-risk" role="note">
           Risk: {verdict.risk}
@@ -198,14 +219,20 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
       {verdict.evidence && (
         /* STARTS CLOSED for a record read out of the history: the session has moved on, and what is being
             shown is what the Wingman SAID rather than what it is waiting on. One tap to open; nothing removed. */
-        <details className="verdict-receipt" open={answerable}>
+        <details className="verdict-receipt" open={current}>
           <summary>{agentName} said</summary>
           <blockquote className="verdict-evidence">{verdict.evidence}</blockquote>
         </details>
       )}
 
-      <div className="verdict-label">{verdict.label}</div>
-      {verdict.summary && <p className="verdict-summary">{verdict.summary}</p>}
+      {verdict.label && <div className="verdict-label">{verdict.label}</div>}
+      {/* THE NARRATION, WHEN IT HAS ARRIVED, IS THE DESCRIPTION (owner ruling, 2026-09-17): the faithful retelling the
+          Gateway saved onto this verdict. Until then, or when its call failed, the judge's short summary stands in. */}
+      {verdict.narration ? (
+        <p className="verdict-narration">{verdict.narration}</p>
+      ) : (
+        verdict.summary && <p className="verdict-summary">{verdict.summary}</p>
+      )}
 
       {answerable && menu?.question && <div className="verdict-question">{menu.question}</div>}
 
@@ -258,7 +285,7 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
         </div>
       )}
 
-      {!answerable && (
+      {!current && (
         <p className="verdict-superseded" role="note">
           This session has gone back to work, so this is the last thing the Wingman said about it rather than
           what it is waiting on now. It can still be reported wrong.

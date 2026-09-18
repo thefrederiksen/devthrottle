@@ -1,0 +1,13 @@
+# command output the agent received at 2026-09-17T06:30:25.641Z:
+count: 1 unread (now marked read)
+message 1 of 1
+  id: f6d44ba91e0d4914bc3c580b9bef0dd4
+  from: the Gateway
+  kind: system
+  sent: 2026-09-17T06:30:21.940669Z
+  text:
+    Your message 1a30a1162cfe4123ba1368e5d8f35082 to Proof - Worker (51c00b73) is stuck: its doorbell rang 3 times, 1 minute apart, and the session has not read its inbox. The message stays in that inbox and is delivered if the session reads it. Do not send it again. If you needed an answer, carry on without it and say so in your report.
+help[3]:
+  cc-devthrottle message inbox --all
+  cc-devthrottle message send <id> "<message>"
+  cc-devthrottle session report "<what you did>"

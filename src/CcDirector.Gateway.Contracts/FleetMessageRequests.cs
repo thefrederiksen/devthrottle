@@ -1,8 +1,8 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// Body of <c>POST /sessions/{sid}/message</c> - one agent sending one message to one session
-/// (Remove-the-network-port mission, phase 2).
+/// Body of <c>POST /sessions/{sid}/message</c> - one session writing one message into another session's
+/// inbox (Remove-the-network-port mission, phase 2; queued since the Message Load mission).
 ///
 /// THERE IS NO SENDER FIELD, AND ITS ABSENCE IS THE POINT. The sender is the session whose key
 /// authenticated the request, read from the authenticated identity and never from this body. The
@@ -13,29 +13,216 @@ namespace CcDirector.Gateway.Contracts;
 /// </summary>
 public sealed class FleetMessageRequest
 {
-    /// <summary>The message body. The sender header and (for a one-way message) the reply hint are
-    /// added by the Gateway.</summary>
+    /// <summary>The message body, exactly as it should be read. It may span many lines: it is written to the
+    /// recipient's inbox and never typed into a terminal.</summary>
     public string Text { get; set; } = "";
 
     /// <summary>
-    /// True for <c>message ask</c>: hold the response open until the recipient finishes and return what
-    /// it printed. It also DROPS the reply hint from the frame - the asker is already waiting and reads
-    /// the answer from the recipient's own output, so telling the recipient to send a separate reply
-    /// makes it answer into a channel nobody is listening on.
+    /// "message" (the default) or "report" - a worker telling its supervisor what it did. Any other value is
+    /// refused. The kinds a broadcast or a system notice carry are decided by the Gateway, never here.
+    /// </summary>
+    public string? Kind { get; set; }
+
+    /// <summary>
+    /// Ask the recipient for a reply (slice 3, ruling 10). The message gets a correlation id and a reply deadline;
+    /// the recipient answers with <c>message reply</c>, and the answer lands in the sender's inbox. Nobody waits:
+    /// if no reply arrives by the deadline, the Gateway puts one no-reply notice in the sender's inbox.
+    /// </summary>
+    public bool ReplyWanted { get; set; }
+
+    /// <summary>
+    /// The reply deadline in minutes from now, with <see cref="ReplyWanted"/>. Omitted: 60. The Gateway refuses a
+    /// value outside 1 to 1440, and refuses this field without <see cref="ReplyWanted"/>.
+    /// </summary>
+    public int? ReplyByMinutes { get; set; }
+
+    /// <summary>
+    /// RETIRED with <c>message ask</c> (the Message Load mission, ruling 10). It is still read so that an
+    /// older command line asking to wait is REFUSED with a sentence rather than silently queued and answered
+    /// with an empty "answer". No agent waits for another agent any more.
     /// </summary>
     public bool WaitForIdle { get; set; }
-
-    /// <summary>How long to wait when <see cref="WaitForIdle"/> is set. Default 120000 (2 minutes).</summary>
-    public int TimeoutMs { get; set; } = 120_000;
 }
 
 /// <summary>
-/// Body of <c>POST /fleet/broadcast</c> - one message to the sender's own TEAM (the fleet's
-/// "message send all").
+/// What <c>POST /sessions/{sid}/message</c> answers, and one row of what <c>POST /fleet/broadcast</c>
+/// answers (the Message Load mission, slice 1).
 ///
-/// Like <see cref="FleetMessageRequest"/> it carries no sender: the team is resolved from the
-/// authenticated session's own roster row, which is also the only way the scope decision and the
-/// recipient list can be guaranteed to be about the same session.
+/// "QUEUED", NEVER "DELIVERED". The message is written to the recipient's inbox; the recipient reads it when
+/// it is next free. Nothing here claims the recipient has seen it.
+/// </summary>
+public sealed class FleetMessageSendResponse
+{
+    /// <summary>"queued" (written to the inbox), "duplicate" (dropped: an identical message is already
+    /// waiting unread), or "refused" (not written; <see cref="Error"/> says why).</summary>
+    public string Status { get; set; } = "";
+
+    /// <summary>The session the message was for.</summary>
+    public string RecipientSessionId { get; set; } = "";
+
+    /// <summary>The written message's id, when <see cref="Status"/> is "queued".</summary>
+    public string? MessageId { get; set; }
+
+    /// <summary>Why nothing was queued, when <see cref="Status"/> is "refused". Named <c>error</c> on the wire
+    /// so every client that reads a refusal sentence from <c>error</c> reads this one.</summary>
+    public string? Error { get; set; }
+
+    /// <summary>A sentence about an outcome that is not a refusal - why a duplicate was dropped.</summary>
+    public string? Note { get; set; }
+
+    /// <summary>The correlation id (slice 3). On a send that asked for a reply: the id the recipient replies to,
+    /// and the one a reply and a no-reply notice will carry. On a dropped duplicate: the waiting copy's, when it
+    /// asked for a reply. On a reply: the original's.</summary>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>When the wanted reply is due (UTC), on a send that asked for one.</summary>
+    public DateTime? ReplyByUtc { get; set; }
+
+    /// <summary>On a reply: the id of the message it answers.</summary>
+    public string? InReplyToMessageId { get; set; }
+}
+
+/// <summary>
+/// Body of <c>POST /fleet/reply</c> - one session answering a message that asked for a reply (the Message Load
+/// mission, slice 3, ruling 10). Like <see cref="FleetMessageRequest"/> it carries no sender and no recipient: the
+/// sender is the session whose key made the call, and the recipient is whoever sent the original.
+/// </summary>
+public sealed class FleetReplyRequest
+{
+    /// <summary>The correlation id or the message id of the message being answered, as <c>message inbox</c> showed it.</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>The answer, exactly as it should be read. It may span many lines.</summary>
+    public string Text { get; set; } = "";
+}
+
+/// <summary>What a notice in an inbox is about (slice 3). The Gateway decides it; a client only shows it.</summary>
+public static class FleetInboxNotices
+{
+    /// <summary>A message that asked for a reply got none by its deadline. The row's
+    /// <see cref="FleetInboxMessageDto.InReplyTo"/> names the question.</summary>
+    public const string NoReply = "no-reply";
+}
+
+/// <summary>The question a reply or a no-reply notice is about, as its original sender reads it (slice 3).</summary>
+public sealed class FleetInboxQuestionDto
+{
+    /// <summary>The question's message id.</summary>
+    public string MessageId { get; set; } = "";
+
+    /// <summary>The question's correlation id.</summary>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>The session the question was sent to. Null when the question is no longer kept.</summary>
+    public string? ToSessionId { get; set; }
+
+    /// <summary>The question's full text. Null when it is no longer kept (thirty-day retention).</summary>
+    public string? Text { get; set; }
+
+    /// <summary>When the question was sent, when it is still kept.</summary>
+    public DateTime? SentAtUtc { get; set; }
+
+    /// <summary>The question's reply deadline, when it is still kept.</summary>
+    public DateTime? ReplyByUtc { get; set; }
+
+    /// <summary>True on a reply written after the question's deadline.</summary>
+    public bool Late { get; set; }
+}
+
+/// <summary>What <c>POST /fleet/broadcast</c> answers (the Message Load mission, slice 1).</summary>
+public sealed class FleetBroadcastResponse
+{
+    /// <summary>One row per recipient the broadcast was considered for.</summary>
+    public List<FleetMessageSendResponse> Results { get; set; } = new();
+
+    /// <summary>True when the whole broadcast was refused before any recipient was considered.</summary>
+    public bool Denied { get; set; }
+
+    /// <summary>Why, when <see cref="Denied"/> is true.</summary>
+    public string? DeniedReason { get; set; }
+
+    /// <summary>A note about an accepted broadcast that reached nobody - "You have no workers to message."</summary>
+    public string? Warning { get; set; }
+}
+
+/// <summary>One message as the recipient reads it from <c>GET /fleet/inbox</c>.</summary>
+public sealed class FleetInboxMessageDto
+{
+    public string MessageId { get; set; } = "";
+
+    /// <summary>The sending session's id, or null for a notice from the Gateway itself.</summary>
+    public string? FromSessionId { get; set; }
+
+    /// <summary>The sender's name when it sent, or null.</summary>
+    public string? FromName { get; set; }
+
+    /// <summary>The sender's machine when it sent, or null.</summary>
+    public string? FromMachine { get; set; }
+
+    /// <summary>message, report, team, everyone, reply or system.</summary>
+    public string Kind { get; set; } = "";
+
+    /// <summary>The full text, exactly as sent.</summary>
+    public string Text { get; set; } = "";
+
+    public DateTime SentAtUtc { get; set; }
+
+    /// <summary>When it was read. For a message returned as unread this is the moment of this read.</summary>
+    public DateTime? ReadAtUtc { get; set; }
+
+    /// <summary>True when the sender asked for a reply (slice 3). Answer with <see cref="ReplyHint"/>.</summary>
+    public bool ReplyWanted { get; set; }
+
+    /// <summary>The correlation id: on a message that wants a reply, the id to reply to; on a reply or a no-reply
+    /// notice, the question's.</summary>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>When the wanted reply is due (UTC), on a message that wants one.</summary>
+    public DateTime? ReplyByUtc { get; set; }
+
+    /// <summary>The command that answers this message, on a message that wants a reply.</summary>
+    public string? ReplyHint { get; set; }
+
+    /// <summary>What a notice is about - one of <see cref="FleetInboxNotices"/> - or null.</summary>
+    public string? Notice { get; set; }
+
+    /// <summary>On a reply (kind <c>reply</c>) or a no-reply notice: the question it is about.</summary>
+    public FleetInboxQuestionDto? InReplyTo { get; set; }
+}
+
+/// <summary>What <c>GET /fleet/inbox</c> answers: the calling session's own inbox.</summary>
+public sealed class FleetInboxResponse
+{
+    /// <summary>The session whose inbox this is - always the caller.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>How many messages were unread before this read. Every one of them is in <see cref="Unread"/>
+    /// and is now marked read.</summary>
+    public int UnreadCount { get; set; }
+
+    /// <summary>The messages that were unread, oldest first, in full.</summary>
+    public List<FleetInboxMessageDto> Unread { get; set; } = new();
+
+    /// <summary>Messages read earlier in the last 24 hours, newest first, at most 200 - only when the caller
+    /// asked with <c>all=true</c>. This is how a read whose answer was lost is recovered.</summary>
+    public List<FleetInboxMessageDto> Recent { get; set; } = new();
+
+    /// <summary>How many messages were read in the last 24 hours, before the 200-row cap. Zero unless the caller
+    /// asked with <c>all=true</c>.</summary>
+    public int RecentTotal { get; set; }
+
+    /// <summary>True when <see cref="RecentTotal"/> is more than <see cref="Recent"/> holds - the answer is the
+    /// newest 200 of them.</summary>
+    public bool Truncated { get; set; }
+}
+
+/// <summary>
+/// Body of <c>POST /fleet/broadcast</c> - one message to each of the sender's own WORKERS (the fleet's
+/// "message send all"; the Message Load mission narrowed it from the sender's team).
+///
+/// Like <see cref="FleetMessageRequest"/> it carries no sender: the workers are the roster rows that name
+/// the AUTHENTICATED session as their controller, so the recipient list can only ever be about the session
+/// whose key made the call.
 ///
 /// It is a DIFFERENT TYPE from the Director's <see cref="FleetBroadcastRequest"/> rather than a reuse of
 /// it, and the difference is the whole point: that one carries a caller-supplied FromSessionId, which is
@@ -44,19 +231,102 @@ public sealed class FleetMessageRequest
 /// </summary>
 public sealed class FleetTeamBroadcastRequest
 {
-    /// <summary>The message body. Framed with the sender's header by the Gateway.</summary>
+    /// <summary>The message body. Each worker's inbox gets one copy, with the sender recorded beside it.</summary>
     public string Text { get; set; } = "";
 
     /// <summary>
-    /// Reach the whole ACCOUNT rather than the sender's team. Refused unless <see cref="Reason"/> and a
+    /// Reach the whole ACCOUNT rather than the sender's workers. Refused unless <see cref="Reason"/> and a
     /// valid human-issued <see cref="GrantId"/> accompany it - an agent cannot mint its own grant, so
     /// this cannot become the default way to talk to the fleet.
     /// </summary>
     public bool Everyone { get; set; }
 
-    /// <summary>Why this message needs to reach beyond the sender's team. Required with <see cref="Everyone"/>.</summary>
+    /// <summary>Why this message needs to reach beyond the sender's workers. Required with <see cref="Everyone"/>.</summary>
     public string? Reason { get; set; }
 
     /// <summary>The human-issued broadcast grant authorizing <see cref="Everyone"/>.</summary>
     public string? GrantId { get; set; }
+}
+
+/// <summary>
+/// The doorbell verb (the Message Load mission, slice 2), spelled once for the Gateway that sends it and the
+/// Director that answers it. The Gateway asks; the Director - the only party that can see the terminal -
+/// decides whether it is safe to type the one doorbell line, and answers <see cref="FleetRingOutcomes.Rung"/>
+/// or <see cref="FleetRingOutcomes.Deferred"/> with a reason.
+/// </summary>
+public static class FleetDoorbellVerbs
+{
+    /// <summary>Ask the owning Director to ring one session's doorbell. Payload: <see cref="FleetRingRequest"/>.</summary>
+    public const string Ring = "ring";
+}
+
+/// <summary>Payload of the <c>ring</c> verb.</summary>
+public sealed class FleetRingRequest
+{
+    /// <summary>How many messages wait unread in the session's inbox. The doorbell line says this number and
+    /// nothing else about the messages - their text is never typed.</summary>
+    public int UnreadCount { get; set; }
+}
+
+/// <summary>The two answers to <c>ring</c>.</summary>
+public static class FleetRingOutcomes
+{
+    /// <summary>The doorbell line was typed and submitted.</summary>
+    public const string Rung = "rung";
+
+    /// <summary>Nothing was typed; <see cref="FleetRingResponse.Reason"/> says why. The Gateway asks again later.</summary>
+    public const string Deferred = "deferred";
+}
+
+/// <summary>Why a Director deferred a ring. One code per reason so the Gateway log can be counted.</summary>
+public static class FleetRingDeferReasons
+{
+    /// <summary>The agent is in the middle of a turn.</summary>
+    public const string Working = "working";
+
+    /// <summary>The composer holds text - most likely the owner's unsent words.</summary>
+    public const string ComposerHoldsText = "composer-holds-text";
+
+    /// <summary>An interactive menu or dialog owns the terminal (issue 2842); a typed line would pick an option.</summary>
+    public const string MenuOpen = "menu-open";
+
+    /// <summary>The session has exited or failed. Nothing is ever typed into it.</summary>
+    public const string Exited = "exited";
+
+    /// <summary>The screen could not be read, or its layout is not one the check recognises. Unknown is never
+    /// treated as empty.</summary>
+    public const string ScreenUnreadable = "screen-unreadable";
+
+    /// <summary>The line was typed and left the composer, but the screen showed no turn. Not a ring.</summary>
+    public const string NotSubmitted = "not-submitted";
+
+    /// <summary>The line was typed but its submit was not verified, and the composer still holds text: the line is
+    /// left there, never erased. Not a ring; the message stays due, and the next ring is deferred as
+    /// <see cref="ComposerHoldsText"/> until the owner clears the composer.</summary>
+    public const string Parked = "parked";
+
+    /// <summary>The owner's dictation for this session is in flight (the Gateway's dictation lock). Decided by the
+    /// Gateway itself, which holds the lock, before any Director is asked.</summary>
+    public const string Dictation = "dictation";
+
+    /// <summary>Every deferral reason, including the Gateway's own. The Gateway refuses a Director's answer whose
+    /// reason is not here.</summary>
+    public static IReadOnlyList<string> All { get; } =
+        [Working, ComposerHoldsText, MenuOpen, Exited, ScreenUnreadable, NotSubmitted, Parked, Dictation];
+
+    /// <summary>True when <paramref name="reason"/> is exactly one of <see cref="All"/>.</summary>
+    public static bool IsKnown(string? reason) => reason is not null && All.Contains(reason, StringComparer.Ordinal);
+}
+
+/// <summary>The Director's answer to <c>ring</c>.</summary>
+public sealed class FleetRingResponse
+{
+    /// <summary>One of <see cref="FleetRingOutcomes"/>.</summary>
+    public string Outcome { get; set; } = "";
+
+    /// <summary>One of <see cref="FleetRingDeferReasons"/> when deferred; empty when rung.</summary>
+    public string Reason { get; set; } = "";
+
+    /// <summary>The same reason as a sentence, for the log.</summary>
+    public string Detail { get; set; } = "";
 }

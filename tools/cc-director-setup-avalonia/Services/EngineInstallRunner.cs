@@ -304,6 +304,12 @@ public sealed class EngineInstallRunner
         {
             InstallFinalizer.EnsureMacUserBinOnPath();
         }
+        else if (OperatingSystem.IsLinux())
+        {
+            // The app menu entry. Without it a Linux install placed the Director and left nothing to click.
+            var entry = LinuxDesktopEntry.Install(_layout);
+            SetupLog.Write($"[EngineInstallRunner] FinalizeInstall: Linux app menu entry written={entry}");
+        }
     }
 
     private static string FormatSize(long bytes) =>

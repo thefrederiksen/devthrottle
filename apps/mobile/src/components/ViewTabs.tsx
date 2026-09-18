@@ -8,7 +8,9 @@ import { Link } from "react-router-dom";
 // /session/:id/voice (Voice mode) routes. It renders as its own full-width row below the title so the
 // three tabs share the width equally.
 
-export type SessionView = "terminal" | "chat" | "voice";
+// Reports (dev reports mission, phase 3) lists the session's dev reports; an open report is its own
+// full-screen route under it, like the file viewer.
+export type SessionView = "terminal" | "chat" | "voice" | "reports";
 
 export interface ViewTabsProps {
   sessionId: string | undefined;
@@ -42,6 +44,15 @@ export function ViewTabs({ sessionId, active }: ViewTabsProps) {
         to={`/session/${sid}/voice`}
       >
         Voice mode
+      </Link>
+      <Link
+        className={`view-tab${active === "reports" ? " active" : ""}`}
+        role="tab"
+        aria-selected={active === "reports"}
+        data-testid="session-tab-reports"
+        to={`/session/${sid}/reports`}
+      >
+        Reports
       </Link>
     </div>
   );

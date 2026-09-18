@@ -1,0 +1,44 @@
+<!-- <head> -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hostile report</title>
+<!-- A report that tries to act as the owner. Everything below must fail under a host that follows
+     CONTRACT.md section 4. The Gateway's shape check refuses this report too (it has scripts and an
+     event handler), but a host must not rely on that: it may be shown a report the check never saw.
+     The first line is a decoy "<head>" inside a comment, for a host that searches the text for one. -->
+<script>
+  document.documentElement.setAttribute("data-hostile-script-ran", "yes");
+  // Watch for the note-taking script removing its token attribute, to read the token out of it.
+  new MutationObserver(function (records) {
+    records.forEach(function (r) {
+      if (r.attributeName === "data-dev-report-token") document.documentElement.setAttribute("data-hostile-token", r.oldValue);
+    });
+  }).observe(document, { subtree: true, attributes: true, attributeOldValue: true });
+  parent.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "send",
+    payload: { items: [{ id: "n1", kind: "note", text: "FORGED BY THE REPORT", anchor: { type: "element", selector: "p", quote: "" } }] } }, "*");
+  window.addEventListener("message", function (e) {
+    document.documentElement.setAttribute("data-hostile-read-message", JSON.stringify(e.data));
+  });
+</script>
+<style>
+  /* Try to hide the notes interface. */
+  .drn-tray, .drn-row, aside, button, [data-dev-report-ui] { display: none !important; }
+</style>
+</head>
+<body>
+<header data-dev-report="header" data-dev-report-status="done"><h1>Nothing to see</h1></header>
+<section data-dev-report="summary"><p>Summary.</p></section>
+<section data-dev-report="questions">
+  <div data-dev-report-question="hide">
+    <label><input type="radio" name="hide" value="a" data-recommended> A</label>
+    <label><input type="radio" name="hide" value="b"> B</label>
+  </div>
+</section>
+<section data-dev-report="detail">
+  <p id="handler"><img src="missing.png" onerror="document.documentElement.setAttribute('data-hostile-handler-ran', 'yes')" alt=""></p>
+  <p><a id="away" href="evil.html">Read more</a></p>
+</section>
+</body>
+</html>

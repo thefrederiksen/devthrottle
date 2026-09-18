@@ -34,7 +34,7 @@ from landed import NotLanded
 from statelock import file_lock, machine_lock
 
 HOME_ENV = "CC_WORKTREES_HOME"
-STATE_VERSION = 4
+STATE_VERSION = 5
 FREE, IN_USE, HELD = "free", "in-use", "held"
 STATES = (FREE, IN_USE, HELD)
 SLOT_NAME = re.compile(r"wt[0-9]{2,}")
@@ -149,12 +149,12 @@ def _atomic_write(path: Path, text: str) -> None:
 
 def _lost_entry(path: Path, reason: str = STATE_LOST) -> dict:
     return {"path": str(path), "state": HELD, "holder": None, "lease": None, "reason": reason,
-            "updated": _now(), "gitdir": None, **{key: None for key in MARK_KEYS}}
+            "updated": _now(), "gitdir": None, "stash": None, **{key: None for key in MARK_KEYS}}
 
 
 MARK_KEYS = ("reflog_position", "reflog_commit", "reflog_nonce", "reflog_file_dev", "reflog_file_ino",
              "reflog_file_size", "reflog_file_sha256")
-ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir", *MARK_KEYS}
+ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir", "stash", *MARK_KEYS}
 COMMIT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 NONCE = re.compile(r"[0-9a-f]{32}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -177,6 +177,8 @@ def _check_entry(repo: Path, name: str, entry: object) -> None:
         raise _InvalidState(f"{name}: updated is not text")
     if not all(_optional_text(entry[key]) for key in ("holder", "lease", "reason", "gitdir")):
         raise _InvalidState(f"{name}: holder, lease, reason or gitdir is not text")
+    if entry["stash"] is not None and not (isinstance(entry["stash"], str) and COMMIT_ID.fullmatch(entry["stash"])):
+        raise _InvalidState(f"{name}: the recorded refs/stash is not a commit")
     position, commit, nonce = entry["reflog_position"], entry["reflog_commit"], entry["reflog_nonce"]
     numbers = [entry[key] for key in ("reflog_file_dev", "reflog_file_ino", "reflog_file_size")]
     digest = entry["reflog_file_sha256"]
@@ -402,11 +404,14 @@ def _reset_to_tip(pool: Pool, name: str, tip: landed.RemoteTip | None) -> tuple[
     entry = pool.slots[name]
     path = Path(entry["path"])
     try:
-        checked = landed.check(path, pool.repo, tip, entry["gitdir"], _mark(entry), name)
+        checked = landed.check(path, pool.repo, tip, entry["gitdir"], _mark(entry), name, entry["stash"])
         mark = landed.reset(path, pool.repo, checked)
     except NotLanded as ex:
         return None, str(ex)
     _record_mark(entry, checked.gitdir, mark)
+    # The slot is handed out again here, so its stash record is written again: this is the value the
+    # check proved was still there, last of all under HEAD.lock, never a fresh read of refs/stash.
+    entry["stash"] = checked.stash
     # The pins go only after the reset they permitted has succeeded, in the same locked section.
     try:
         landed.drop_pins(pool.repo, checked.pins)
@@ -502,11 +507,20 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
                 + (f" ({e['reason']})" if e["reason"] else "")
                 for n, e in sorted(pool.slots.items()))
             raise ToolError("pool-full", f"pool full ({len(pool.slots)} of {pool_size}): {taken}",
-                            [f"cc-worktrees list --repo {repo}", "cc-worktrees return <path> --lease <lease>"],
+                            [f"cc-worktrees list --repo {repo}", "cc-worktrees return <path> --lease <lease>",
+                             f"cc-worktrees release <slot> --repo {repo} --confirm-abandon"],
                             exit_code=EXIT_POOL_FULL)
 
+        try:
+            # A name whose pins still stand was released with work nothing could prove landed. Handing
+            # it out again would give the new slot the old one's commits to prove, so it is skipped.
+            retired = landed.slots_with_pins(repo)
+        except NotLanded as ex:
+            raise ToolError("create-failed", f"no slot was created: {ex}",
+                            [f"cc-worktrees list --repo {repo}"]) from ex
         number = 1
-        while f"wt{number:02d}" in pool.slots or (slots_dir(repo) / f"wt{number:02d}").exists():
+        while (f"wt{number:02d}" in pool.slots or (slots_dir(repo) / f"wt{number:02d}").exists()
+               or f"wt{number:02d}" in retired):
             number += 1
         name = f"wt{number:02d}"
         path = slots_dir(repo) / name
@@ -518,13 +532,16 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
                             [f"cc-worktrees list --repo {repo}"]) from ex
         try:
             gitdir, mark = landed.mark_new_slot(path, repo, tip.commit)
+            # The stash the repository has at the moment the slot is handed out. refs/stash is shared
+            # with every other worktree, so only a move away from this value says anything about it.
+            stash = landed.stash_value(repo)
         except NotLanded as ex:
             pool.slots[name] = _lost_entry(path, f"created, but not proven sound: {ex}")
             pool.save()
             raise ToolError("create-failed", f"{name} was created but is held: {ex}",
                             [f"cc-worktrees list --repo {repo}"]) from ex
         entry = _lost_entry(path)
-        entry.update(state=IN_USE, holder=holder, lease=_new_lease(), reason=None)
+        entry.update(state=IN_USE, holder=holder, lease=_new_lease(), reason=None, stash=stash)
         _record_mark(entry, gitdir, mark)
         pool.slots[name] = entry
         pool.save()
@@ -636,13 +653,15 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
             _hold(pool, name, reason)
             pool.save()
             return ToolError("held", f"{name} was not destroyed and is held: {reason}",
-                             [f"git -C {path} status", f"git -C {path} log --oneline -5"], exit_code=EXIT_HELD,
+                             [f"git -C {path} status", f"git -C {path} log --oneline -5",
+                              f"cc-worktrees release {name} --repo {repo} --confirm-abandon"],
+                             exit_code=EXIT_HELD,
                              details={**_slot_view(pool, name), "dry_run": not yes, "removed": False})
 
         if tip is None:
             raise refuse(fetch_reason)
         try:
-            checked = landed.check(path, repo, tip, entry["gitdir"], _mark(entry), name)
+            checked = landed.check(path, repo, tip, entry["gitdir"], _mark(entry), name, entry["stash"])
         except NotLanded as ex:
             raise refuse(str(ex)) from ex
         view = {**_slot_view(pool, name), "dry_run": not yes, "removed": False}
@@ -663,6 +682,62 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
                             [f"git -C {repo} for-each-ref {landed.pin_prefix(name)}"]) from ex
         view["removed"] = True
         return view
+
+
+RELEASE_NOTE_PINNED = ("the work this slot could not prove landed is kept for ever by the refs listed "
+                       "below: read one with git log <ref>, and take it back with git branch <name> <ref>")
+RELEASE_NOTE_NONE = ("nothing in this slot was unproven, so nothing needed pinning; the directory and "
+                     "the ignored files in it are gone")
+
+
+def release_slot(target: str, repo_opt: str | None) -> dict:
+    """Put a HELD slot back in the pool. The only command that may, and never implicitly.
+
+    Everything a ref can keep is pinned under refs/cc-worktrees/<slot>/ first, and anything that
+    cannot be pinned - an uncommitted or untracked file, an edit git status cannot see, a repository
+    of its own - refuses the whole release. Then the worktree directory is removed, ignored files with
+    it, and the slot leaves the pool. Nothing is ever deleted: no object, no pin, no branch.
+    """
+    home = state_home()
+    with machine_lock(home):
+        repo, name = resolve_target(home, target, repo_opt)
+        _require_held(load(home, repo), name)
+    with _fetched(home, repo) as (fetched, fetch_reason), machine_lock(home):
+        # A tip is not required: with no answer from the remote nothing can be proven landed, so every
+        # commit in the slot is pinned instead. The release never needs to free anything.
+        tip, _ = _tip_under_lock(repo, fetched, fetch_reason)
+        pool = load(home, repo)
+        entry = _require_held(pool, name)
+        path = Path(entry["path"])
+        view = {"repo": str(pool.repo), "slot": name, "path": entry["path"]}
+        try:
+            done = landed.release(path, repo, tip, entry["gitdir"], _mark(entry), name, entry["stash"])
+        except NotLanded as ex:
+            _hold(pool, name, f"not released: {ex}")
+            pool.save()
+            raise ToolError("not-released", f"{name} was not released and is still held: {ex}",
+                            [f"git -C {path} status", f"cc-worktrees list --repo {repo}"],
+                            exit_code=EXIT_HELD, details={**view, "removed": False}) from ex
+        del pool.slots[name]
+        pool.save()
+        # pinned is every pin the slot has now, which is what the list below shows; pinned_now is the
+        # part this release wrote. A commit an earlier check already pinned counts in the first and not
+        # the second, and "pinned: 0" beside a list of pins would read as a contradiction.
+        return {**view, "removed": done.removed, "pinned": len(done.pins), "pinned_now": len(done.pinned),
+                "proven": len(done.proven),
+                "pins": [{"ref": ref, "commit": commit} for ref, commit in done.pins],
+                "gone": list(done.gone),
+                "note": RELEASE_NOTE_PINNED if done.pins else RELEASE_NOTE_NONE}
+
+
+def _require_held(pool: Pool, name: str) -> dict:
+    entry = pool.entry(name)
+    if entry["state"] != HELD:
+        raise ToolError("not-held", f"{name} is {entry['state']}, not held; release only puts a held slot "
+                                    f"back in the pool",
+                        [f"cc-worktrees list --repo {pool.repo}",
+                         f"cc-worktrees return {entry['path']} --lease <lease>"])
+    return entry
 
 
 def list_slots(repo_opt: str | None) -> list[dict]:

@@ -1,0 +1,8 @@
+[
+ {"name":"nudge ladder restored (Enter on every quiet poll)","old":"            if (turnStarted())\n            {\n                FileLog.Write($\"[{driverTag}] DoorbellSubmit: submitted, the screen shows the turn\");\n                return DoorbellSubmitOutcome.Verified;\n            }\n","new":"            if (turnStarted())\n            {\n                FileLog.Write($\"[{driverTag}] DoorbellSubmit: submitted, the screen shows the turn\");\n                return DoorbellSubmitOutcome.Verified;\n            }\n            backend.Write(DoorbellEnter);\n"},
+ {"name":"Escape pressed on an echo miss","old":"            FileLog.Write($\"[{driverTag}] DoorbellSubmit: the line never echoed - Enter NOT pressed\");\n","new":"            FileLog.Write($\"[{driverTag}] DoorbellSubmit: the line never echoed - Enter NOT pressed\");\n            backend.Write([0x1B]);\n"},
+ {"name":"Enter pressed without an echo","old":"        if (!echoed)\n        {","new":"        if (!echoed && false)\n        {"},
+ {"name":"verified by the Enter alone","old":"        backend.Write(DoorbellEnter);\n        for (var i = 0; i < watchPolls; i++)","new":"        backend.Write(DoorbellEnter);\n        return DoorbellSubmitOutcome.Verified;\n        for (var i = 0; i < watchPolls; i++)"},
+ {"name":"last look ignored","old":"        if (!mayTypeNow())\n            return DoorbellSubmitOutcome.NotTyped;","new":""},
+ {"name":"rendered composer not a witness","old":" || composerShowsLine();","new":";"}
+]

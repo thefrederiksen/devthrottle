@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hostile report - meta refresh</title>
+<!-- Passes the shape check. Takes the frame to a page on another origin by itself, with no click, a few seconds
+     after it loads: that page's scripts run, and it must get nothing from the host and be able to send nothing. -->
+<meta http-equiv="refresh" content="4; url=__EVIL__/evil.html?from=meta-refresh">
+</head>
+<body>
+<header data-dev-report="header" data-dev-report-status="done"><h1>Hostile report (meta refresh)</h1></header>
+<section data-dev-report="summary"><p>This page navigates itself away four seconds after it loads.</p></section>
+<section data-dev-report="questions"><p data-dev-report-no-questions>No questions - nothing needed from you.</p></section>
+<section data-dev-report="detail"><p id="refresh-detail">Wait for it.</p></section>
+</body>
+</html>

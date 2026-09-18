@@ -6,12 +6,17 @@ protection at rest:
 - Windows: the folder's access list has inheritance removed and grants the current user alone; files
   created inside it inherit that single grant from the moment they exist.
 - Linux: the folder is 0700 and each file is created 0600.
-- macOS: REFUSED for now (paths.ensure_home). An access control list there can let another account read a
-  file whose mode is 0600, and these lists are not checked yet (review of pull request 2891).
+- macOS: the same modes, AND no access control list entry that allows anyone but this user, AND a volume
+  that does not ignore ownership (on one that does, every account opens every file, so it is refused). An
+  access control list entry can let another account read a file whose mode is 0600 (review of pull request
+  2891), and a file created in a folder whose list has an inheritable entry is born carrying it, whatever
+  mode it was created with. Tightening strips the whole list (chmod -N) and sets the mode. A new file is checked the moment it
+  exists, before a byte is written, and refused if it inherited anything.
 
 Every access checks the permissions, tightens them when they have been loosened (and logs that it did),
-and refuses to go on if they are still open to anyone else. Checking on Windows reads the access list
-directly through the Windows security API, so it costs no subprocess; tightening runs icacls.
+and refuses to go on if they are still open to anyone else. Checking reads the access list directly through
+the operating system's own interface (the Windows security API, the macOS acl functions), so it costs no
+subprocess; tightening runs icacls on Windows and chmod on macOS.
 
 What this does not stop, stated plainly: an administrator or root can read any file on the machine, and
 any process running as this same user - an agent's shell included - can read it too. The rule that the
@@ -22,11 +27,12 @@ the user the agent runs as.
 from __future__ import annotations
 
 import os
+import platform
 import stat
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import FrozenSet, List, NamedTuple, Optional, Tuple
 
 from .errors import CcSecretsError
 
@@ -222,15 +228,255 @@ def _tighten_windows_file(path: Path) -> None:
 
 
 # --------------------------------------------------------------------------------------------------
+# macOS
+# --------------------------------------------------------------------------------------------------
+
+_ACL_TYPE_EXTENDED = 0x00000100
+_ACL_FIRST_ENTRY = 0
+_ACL_NEXT_ENTRY = -1
+_ACL_EXTENDED_ALLOW = 1
+_ACL_EXTENDED_DENY = 2
+# acl_flag_t values from <sys/acl.h>.
+_MAC_ACL_FLAGS = {"inherited": 1 << 4, "file_inherit": 1 << 5, "directory_inherit": 1 << 6,
+                  "limit_inherit": 1 << 7, "only_inherit": 1 << 8}
+_ID_TYPE_UID = 0
+_ID_TYPE_GID = 1
+_MNT_IGNORE_OWNERSHIP = 0x00200000
+_ENOENT = 2
+_user_uuid_cache: Optional[bytes] = None
+_mac_api_cache = None
+
+
+class MacAccessEntry(NamedTuple):
+    """One entry of a macOS access control list, read through the system's acl entry functions."""
+    allow: bool
+    identifier: str
+    who: str
+    flags: FrozenSet[str]
+
+
+def _mac_api():
+    global _mac_api_cache
+    if _mac_api_cache is not None:
+        return _mac_api_cache
+    import ctypes
+    import ctypes.util
+
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    void_p, c_int = ctypes.c_void_p, ctypes.c_int
+    signatures = {
+        "acl_get_file": ([ctypes.c_char_p, c_int], void_p),
+        "acl_get_entry": ([void_p, c_int, ctypes.POINTER(void_p)], c_int),
+        "acl_get_tag_type": ([void_p, ctypes.POINTER(c_int)], c_int),
+        "acl_get_qualifier": ([void_p], void_p),
+        "acl_get_flagset_np": ([void_p, ctypes.POINTER(void_p)], c_int),
+        "acl_get_flag_np": ([void_p, c_int], c_int),
+        "acl_free": ([void_p], c_int),
+        "mbr_uid_to_uuid": ([ctypes.c_uint32, void_p], c_int),
+        "mbr_uuid_to_id": ([void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(c_int)], c_int),
+    }
+    signatures[_statfs_symbol(platform.machine())] = ([ctypes.c_char_p, void_p], c_int)
+    for name, (argtypes, restype) in signatures.items():
+        function = getattr(libc, name)
+        function.argtypes, function.restype = argtypes, restype
+    _mac_api_cache = (ctypes, libc, _statfs_structure(ctypes))
+    return _mac_api_cache
+
+
+def _statfs_symbol(machine: str) -> str:
+    """The libc symbol whose result has the layout _statfs_structure declares, for a process on `machine`.
+
+    <sys/mount.h> declares statfs with __DARWIN_INODE64, so a C compiler links arm64 to plain `statfs` (only
+    the 64-bit inode layout exists there) and x86_64 to `statfs$INODE64`; plain `statfs` on x86_64 is the
+    legacy layout, where offset 64 is f_fsid, not f_flags (second review of pull request 2960). A process
+    under Rosetta reports x86_64 here, which is what it is.
+    """
+    if machine == "arm64":
+        return "statfs"
+    if machine == "x86_64":
+        return "statfs$INODE64"
+    raise StorePermissionError(f"cc-secrets does not know how to read volume flags on a {machine} Mac.")
+
+
+def _statfs_structure(ctypes):
+    class StatFs(ctypes.Structure):
+        # struct statfs from <sys/mount.h> in its 64-bit inode layout (__DARWIN_STRUCT_STATFS64).
+        _fields_ = [("f_bsize", ctypes.c_uint32), ("f_iosize", ctypes.c_int32), ("f_blocks", ctypes.c_uint64),
+                    ("f_bfree", ctypes.c_uint64), ("f_bavail", ctypes.c_uint64), ("f_files", ctypes.c_uint64),
+                    ("f_ffree", ctypes.c_uint64), ("f_fsid", ctypes.c_int32 * 2), ("f_owner", ctypes.c_uint32),
+                    ("f_type", ctypes.c_uint32), ("f_flags", ctypes.c_uint32), ("f_fssubtype", ctypes.c_uint32),
+                    ("f_fstypename", ctypes.c_char * 16), ("f_mntonname", ctypes.c_char * 1024),
+                    ("f_mntfromname", ctypes.c_char * 1024), ("f_flags_ext", ctypes.c_uint32),
+                    ("f_reserved", ctypes.c_uint32 * 7)]
+
+    return StatFs
+
+
+def _uuid_text(raw: bytes) -> str:
+    import uuid
+
+    return str(uuid.UUID(bytes=raw)).upper()
+
+
+def current_user_uuid() -> str:
+    """The directory-services identifier of the user this process runs as, as macOS keeps it in an access list."""
+    return _uuid_text(_current_user_uuid_bytes())
+
+
+def _current_user_uuid_bytes() -> bytes:
+    global _user_uuid_cache
+    if _user_uuid_cache is not None:
+        return _user_uuid_cache
+    ctypes, libc, _ = _mac_api()
+    buffer = (ctypes.c_ubyte * 16)()
+    rc = libc.mbr_uid_to_uuid(os.getuid(), buffer)
+    if rc != 0:
+        raise StorePermissionError(f"Could not look up the identifier of user {os.getuid()} (error {rc}).")
+    _user_uuid_cache = bytes(buffer)
+    return _user_uuid_cache
+
+
+def _describe_mac_identity(api, qualifier: int, raw: bytes) -> str:
+    """'user NAME' or 'group NAME' for a message. Used only to word a refusal, never to decide one."""
+    import grp
+    import pwd
+
+    ctypes, libc, _ = api
+    number = ctypes.c_uint32()
+    kind = ctypes.c_int()
+    if libc.mbr_uuid_to_id(qualifier, ctypes.byref(number), ctypes.byref(kind)) != 0:
+        return f"unresolved identifier {_uuid_text(raw)}"
+    try:
+        if kind.value == _ID_TYPE_UID:
+            return f"user {pwd.getpwuid(number.value).pw_name}"
+        if kind.value == _ID_TYPE_GID:
+            return f"group {grp.getgrgid(number.value).gr_name}"
+    except KeyError:
+        pass
+    return f"identifier {_uuid_text(raw)} (id {number.value}, type {kind.value})"
+
+
+def mac_access_entries(path: Path) -> List[MacAccessEntry]:
+    """The access control list of `path`, empty when it has none.
+
+    Read entry by entry through acl_get_entry and its companions, not by parsing acl_to_text: that text
+    prints names unescaped (a name may contain the separator) and drops the permissions field of an entry
+    that has none, so a parser can be made to fail on a folder that should simply be judged (review of pull
+    request 2960).
+    """
+    api = _mac_api()
+    ctypes, libc, _ = api
+    acl = libc.acl_get_file(os.fsencode(str(path)), _ACL_TYPE_EXTENDED)
+    if not acl:
+        error = ctypes.get_errno()
+        if error == _ENOENT:
+            return []
+        raise StorePermissionError(f"Could not read the access control list of {path} ({os.strerror(error)}).")
+    entries: List[MacAccessEntry] = []
+    try:
+        entry = ctypes.c_void_p()
+        which = _ACL_FIRST_ENTRY
+        while libc.acl_get_entry(acl, which, ctypes.byref(entry)) == 0:
+            which = _ACL_NEXT_ENTRY
+            tag = ctypes.c_int()
+            if libc.acl_get_tag_type(entry, ctypes.byref(tag)) != 0:
+                raise StorePermissionError(f"Could not read an access control list entry type of {path}.")
+            if tag.value not in (_ACL_EXTENDED_ALLOW, _ACL_EXTENDED_DENY):
+                raise StorePermissionError(f"{path} has an access control list entry of unknown type {tag.value}.")
+            qualifier = libc.acl_get_qualifier(entry)
+            if not qualifier:
+                raise StorePermissionError(f"Could not read who an access control list entry of {path} is for.")
+            try:
+                raw = ctypes.string_at(qualifier, 16)
+                who = _describe_mac_identity(api, qualifier, raw)
+            finally:
+                libc.acl_free(qualifier)
+            flagset = ctypes.c_void_p()
+            if libc.acl_get_flagset_np(entry, ctypes.byref(flagset)) != 0:
+                raise StorePermissionError(f"Could not read the flags of an access control list entry of {path}.")
+            flags = frozenset(name for name, bit in _MAC_ACL_FLAGS.items() if libc.acl_get_flag_np(flagset, bit) == 1)
+            entries.append(MacAccessEntry(tag.value == _ACL_EXTENDED_ALLOW, _uuid_text(raw), who, flags))
+    finally:
+        libc.acl_free(acl)
+    return entries
+
+
+def _mac_acl_problem(path: Path) -> Optional[str]:
+    """Why the access control list of `path` lets someone else in, or None.
+
+    Any entry that ALLOWS anyone but this user is a problem, whatever permissions it lists (none included),
+    and whether it applies to the path itself or is only passed on to new files (an inherit-only entry on the
+    folder is exactly how a new file is born open). Deny entries and entries for this user take nothing away
+    from privacy.
+    """
+    user = current_user_uuid()
+    for entry in mac_access_entries(path):
+        if entry.allow and entry.identifier != user:
+            how = " (inherited)" if "inherited" in entry.flags else ""
+            return f"{path} has an access control list entry{how} that allows {entry.who}, not only this user"
+    return None
+
+
+def _read_volume(ctypes, statfs_function, structure, path: Path):
+    """Call `statfs_function` on `path` and read the result as `structure`, refusing a result that does not
+    describe this path's volume - so a symbol and a layout that do not match fail loudly instead of reading
+    some other field as the flags. The call writes into a buffer larger than any statfs layout, so a
+    mismatch can never overrun it."""
+    buffer = ctypes.create_string_buffer(8192)
+    if statfs_function(os.fsencode(str(path)), buffer) != 0:
+        error = ctypes.get_errno()
+        raise StorePermissionError(f"Could not read the volume of {path} ({os.strerror(error)}).")
+    info = structure.from_buffer_copy(buffer.raw[:ctypes.sizeof(structure)])
+    expected = os.statvfs(path)
+    consistent = (info.f_fsid[1] == info.f_type and info.f_bsize == expected.f_frsize
+                  and info.f_iosize == expected.f_bsize and info.f_mntonname.startswith(b"/"))
+    if not consistent:
+        raise StorePermissionError(
+            f"The volume information read for {path} does not match the volume (block sizes {info.f_bsize} and "
+            f"{info.f_iosize}, expected {expected.f_frsize} and {expected.f_bsize}), so its ownership setting "
+            "cannot be trusted. Nothing was read or written.")
+    return info
+
+
+def _mac_volume_problem(path: Path) -> Optional[str]:
+    """Why the volume holding `path` cannot keep anything private, or None.
+
+    With "Ignore ownership on this volume" set (an external drive, or a disk image attached by a user, which
+    macOS mounts that way by default) every account is treated as the owner of every file, so neither the
+    mode nor the owner means anything there (review of pull request 2960).
+    """
+    ctypes, libc, structure = _mac_api()
+    info = _read_volume(ctypes, getattr(libc, _statfs_symbol(platform.machine())), structure, path)
+    if info.f_flags & _MNT_IGNORE_OWNERSHIP:
+        volume = info.f_mntonname.decode("utf-8", "replace")
+        return (f"{path} is on {volume}, a volume set to ignore ownership, where every account can open every "
+                "file whatever its permissions")
+    return None
+
+
+def _tighten_mac(path: Path, mode: int) -> None:
+    result = subprocess.run(["/bin/chmod", "-N", str(path)], capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        raise StorePermissionError(f"chmod -N {path} failed: {(result.stdout + result.stderr).strip()}")
+    os.chmod(path, mode)
+
+
+# --------------------------------------------------------------------------------------------------
 # macOS and Linux
 # --------------------------------------------------------------------------------------------------
 
 def _posix_problem(path: Path) -> Optional[str]:
+    if sys.platform == "darwin":
+        problem = _mac_volume_problem(path)
+        if problem is not None:
+            return problem
     info = os.stat(path)
     if info.st_uid != os.getuid():
         return f"{path} is owned by another user"
     if info.st_mode & 0o077:
         return f"{path} has mode {stat.S_IMODE(info.st_mode):o}; group and others must have no access"
+    if sys.platform == "darwin":
+        return _mac_acl_problem(path)
     return None
 
 
@@ -279,6 +525,8 @@ def ensure_private_folder(folder: Path) -> Optional[str]:
         )
     if sys.platform == "win32":
         _tighten_windows_folder(folder)
+    elif sys.platform == "darwin":
+        _tighten_mac(folder, 0o700)
     else:
         os.chmod(folder, 0o700)
     remaining = folder_problem(folder)
@@ -296,6 +544,8 @@ def ensure_private_file(path: Path) -> Optional[str]:
         return None
     if sys.platform == "win32":
         _tighten_windows_file(path)
+    elif sys.platform == "darwin":
+        _tighten_mac(path, 0o600)
     else:
         os.chmod(path, 0o600)
     remaining = file_problem(path)
@@ -308,7 +558,9 @@ def create_private_file(path: Path) -> int:
     """Create a new file that is private from its first byte, and return its descriptor.
 
     The caller must already have made the parent folder private: on Windows the file takes the folder's
-    single grant by inheritance at creation, and on macOS and Linux it is created with mode 0600.
+    single grant by inheritance at creation, and on macOS and Linux it is created with mode 0600. On macOS a
+    file also takes the folder's inheritable access control list entries, whatever its mode, so the new file
+    is checked before anything is written and refused (and removed) if it carries one that lets anyone else in.
     """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
     descriptor = os.open(path, flags, 0o600)

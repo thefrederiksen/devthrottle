@@ -29,7 +29,7 @@ Written up 2026-08-07 after this fleet hit the same defect eight times in one da
 | an empty roster row | nothing to say |
 | an error category | the answer the component actually produced |
 
-And the honest reason it goes unnoticed: **the tool usually makes the weaker claim cheap and the stronger claim effortful.** `message send` reports delivery in one command; `message ask` waits for the agent's own answer. Two careful sessions used only the first, all night, without noticing.
+And the honest reason it goes unnoticed: **the tool usually makes the weaker claim cheap and the stronger claim effortful.** `message send` reported delivery in one command; the blocking ask (since removed) waited for the agent's own answer. Two careful sessions used only the first, all night, without noticing. Today `message send` answers only "queued", and the stronger claim is a reply you asked for with `--reply-wanted` and read from your inbox.
 
 ## The eight that cost a day
 

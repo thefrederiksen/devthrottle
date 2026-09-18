@@ -33,6 +33,9 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     public Func<string, StoredConversation?> Conversation = _ => null;
     public Func<string, CancellationToken, Task<string>> Judge = (_, _) => Task.FromResult(CannotTell("The session stopped."));
     public Func<string, bool> VoiceSession = _ => false;
+    /// <summary>The account's plan answer for the narration. Allowed by default, as on a self-host Gateway.</summary>
+    public Func<NarrationPlan> Plan = () => NarrationPlan.Allowed;
+    public NarrationPlan PlanForNarration(TenantId tenant) => Plan();
     public SpokenLanguage LanguageValue = SpokenLanguages.English;
     public string? Custom { get; set; }
 
@@ -92,12 +95,40 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     public string? CustomSpokenRules() => Custom;
     public string JudgeModel(TenantId tenant) => Model;
 
-    public async Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, CancellationToken ct)
+    /// <summary>The deadline the seat passed on each judge call, in order.</summary>
+    public readonly ConcurrentQueue<TimeSpan> JudgeTimeouts = new();
+
+    public async Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
     {
         Interlocked.Increment(ref _judgeCalls);
         Prompts.Enqueue(prompt);
+        JudgeTimeouts.Enqueue(timeout);
         var raw = await Judge(prompt, ct).ConfigureAwait(false);
         return new TurnVerdictJudgeAnswer(raw, Model, 0.2);
+    }
+
+    /// <summary>
+    /// The narration call's answer (slice J). By default it answers with NO WORDS, which the product treats as a
+    /// failed call that leaves the judge's text in place - so every test written before the narration call existed
+    /// still describes what a listener hears when that call gives nothing. A test about the call sets this.
+    /// </summary>
+    public Func<string, CancellationToken, Task<string>> Narrator = (_, _) => Task.FromResult("");
+
+    private int _narratorCalls;
+    /// <summary>How many narration calls were made. Never counted as judge calls.</summary>
+    public int NarratorCalls => _narratorCalls;
+    /// <summary>The prompt of each narration call, in order.</summary>
+    public readonly ConcurrentQueue<string> NarratorPrompts = new();
+    /// <summary>The deadline passed on each narration call, in order.</summary>
+    public readonly ConcurrentQueue<TimeSpan> NarratorTimeouts = new();
+
+    public async Task<TurnVerdictJudgeAnswer> AskNarratorAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _narratorCalls);
+        NarratorPrompts.Enqueue(prompt);
+        NarratorTimeouts.Enqueue(timeout);
+        var raw = await Narrator(prompt, ct).ConfigureAwait(false);
+        return new TurnVerdictJudgeAnswer(raw, Model, 0.3);
     }
 
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId)
@@ -174,10 +205,24 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// particular trace write and act while it is held.</summary>
     public Action<TurnVerdictTrace>? BeforeRecordTrace;
 
+    /// <summary>When set, every trace is also handed to this real writer, exactly as the production environment hands it
+    /// over - so a test can assert what reached the store, and a closed writer refuses it as it would at shutdown.</summary>
+    public TurnVerdictTraceWriter? TraceWriter;
+
     public void RecordTrace(TenantId tenant, TurnVerdictTrace trace)
     {
         BeforeRecordTrace?.Invoke(trace);
         Traces.Enqueue(trace);
+        TraceWriter?.Enqueue(tenant, trace);
+    }
+
+    /// <summary>Every trace the seat could not hand in, with its cause, in order.</summary>
+    public readonly ConcurrentQueue<(TurnVerdictTrace Trace, string Cause)> NotKept = new();
+
+    public void TraceNotKept(TenantId tenant, TurnVerdictTrace trace, string cause)
+    {
+        NotKept.Enqueue((trace, cause));
+        TraceWriter?.NotKept(trace, cause);
     }
 
     /// <summary>The seat's clock. Replace it to move time without waiting.</summary>

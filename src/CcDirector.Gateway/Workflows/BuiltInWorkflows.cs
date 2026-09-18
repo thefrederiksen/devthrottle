@@ -26,9 +26,10 @@ public sealed record WorkflowDefinition(
     IReadOnlyList<WorkflowStep> Steps);
 
 /// <summary>
-/// The workflows the Gateway ships with (issue #1617). These are the three shapes of work this fleet
+/// The workflows the Gateway ships with (issue #1617). The first three are the shapes of work this fleet
 /// already runs by hand, written down so they can be seen and chosen rather than being implied by
-/// which skill file an agent happened to read.
+/// which skill file an agent happened to read. The fourth is the Fleet Manager's own conduct (issue
+/// #2933): one per account, so it ships with the product rather than living in one account's library.
 ///
 /// They are BUILT IN and read-only at this step, on purpose. The Gateway is the home for workflows -
 /// it serves them, and every Director asks it rather than carrying a private copy - but authoring and
@@ -132,6 +133,41 @@ public static class BuiltInWorkflows
                     Doer: "Reviewer",
                     Reviewer: null,
                     Done: "The reviewer passed it, and the pull request is merged."),
+            }),
+
+        new WorkflowDefinition(
+            Id: "fleet-manager",
+            Name: "Fleet Manager",
+            Summary: "The one session the owner talks to. It starts and owns the sessions that do the work, "
+                   + "acts on the Wingman's reading of every stop, and brings back only three kinds of news: "
+                   + "ready, found, or needs your decision.",
+            WhenToUse: "The owner's Fleet Manager session, one per account. Not for any other session.",
+            HumanCheckpoint: "Only for a Ready, a Finding or a Decision - product, scope, money and anything "
+                           + "irreversible always go to the owner.",
+            Steps: new[]
+            {
+                new WorkflowStep(
+                    Name: "Take the request",
+                    Description: "Work out the repository and the shape - a change, a report, or a Mission - and "
+                               + "write the instructions with the owner's words unchanged as the intent.",
+                    Doer: "Fleet Manager",
+                    Reviewer: null,
+                    Done: "A session it owns has started on the instructions."),
+                new WorkflowStep(
+                    Name: "Act on each stop",
+                    Description: "Read the Wingman's reading of every stop of the sessions it owns and act on it: "
+                               + "answer inside the owner's mandate, recover once, or raise a Decision. It never "
+                               + "does the work and never summarises a session itself.",
+                    Doer: "Fleet Manager",
+                    Reviewer: null,
+                    Done: "Every stop is answered, recovered, or open as a Decision for the owner."),
+                new WorkflowStep(
+                    Name: "Bring back the outcome",
+                    Description: "Judge the finished work, then bring the owner a Ready or a Finding and carry out "
+                               + "the answer: merge, send back, or close once the work has landed.",
+                    Doer: "Fleet Manager",
+                    Reviewer: "Owner",
+                    Done: "The owner has answered and the answer is carried out."),
             }),
     };
 

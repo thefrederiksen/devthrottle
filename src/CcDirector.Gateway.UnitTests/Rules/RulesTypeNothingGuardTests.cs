@@ -375,22 +375,28 @@ public sealed class RulesTypeNothingGuardTests
             ". They are the same, so the traversal is not traversing.");
     }
 
-    /// <summary>The types allowed to CALL the send seam directly. Three, named, and no more: the verb client
-    /// itself - whose older tuple-returning method is now a wrapper over the seam - and two callers that write
-    /// a DURABLE RECORD of what they did to a session and so need the three outcomes the wrapper's boolean
-    /// cannot carry: this feature's production wiring, and the answer route's tunnel channel (the
-    /// Wingman-on-every-turn mission, slice E), whose ledger says "refused" only when nothing left the Gateway
-    /// and "unconfirmed" when the bytes went out unanswered. Every other caller in the Gateway goes through the
-    /// wrapper.</summary>
+    /// <summary>The types allowed to CALL the send seam directly. Five, named, and no more: the verb client
+    /// itself - whose older tuple-returning method is now a wrapper over the seam - and four callers that
+    /// need the three outcomes the wrapper's boolean cannot carry: this feature's production wiring, and the
+    /// answer route's tunnel channel (the Wingman-on-every-turn mission, slice E), whose ledger says "refused"
+    /// only when nothing left the Gateway and "unconfirmed" when the bytes went out unanswered. The fourth is the
+    /// dev report delivery (issue #2958), for the same reason: an owner's held item stays held only when nothing
+    /// left the Gateway, and a send that went out unanswered is recorded "sent, not confirmed" and never typed a
+    /// second time. The fifth is the Fleet Manager's event delivery (the Fleet Manager mission, step 4), which
+    /// types ONE prompt into an idle Fleet Manager session at its turn-end boundary and records the events as
+    /// delivered only on an accepted send - a send nothing confirmed must leave them owed, and a send that never
+    /// left must say so in the log. Every other caller in the Gateway goes through the wrapper.</summary>
     private static readonly string[] AllowedDirectCallersOfTheSeam =
     {
         "CcDirector.Gateway.Api.SessionVerbClient",
         "CcDirector.Gateway.Api.TunnelTurnVerdictAnswerChannel",
+        "CcDirector.Gateway.DevReports.DevReportDelivery",
+        "CcDirector.Gateway.Fleet.GatewayFleetManagerEventEnvironment",
         "CcDirector.Gateway.Rules.GatewayRuleEnvironment",
     };
 
     [Fact]
-    public void The_send_seam_has_exactly_three_direct_callers_and_all_are_named()
+    public void The_send_seam_has_exactly_four_direct_callers_and_all_are_named()
     {
         // This test used to say that every method reaching the prompt verb called it itself, and that the
         // day that stopped being true it would fail and whoever read it would find out here. That day is
@@ -399,8 +405,9 @@ public sealed class RulesTypeNothingGuardTests
         //
         // So the fact is restated rather than loosened. A guard that merely permitted indirection would
         // permit any number of new routes to the keystroke to appear unnoticed, which is the opposite of
-        // what it is for. The DIRECT callers of the seam are named, and a fourth one fails this test - as the
-        // answer route's channel did, until it was classified above.
+        // what it is for. The DIRECT callers of the seam are named, and an unnamed one fails this test - as the
+        // answer route's channel, the dev report delivery and the Fleet Manager's event delivery did, until each
+        // was classified above.
         var module = GatewayModule();
         var callers = TypesOf(MethodsReaching(module, TypingSeam, _ => true).Distinct(StringComparer.Ordinal));
 

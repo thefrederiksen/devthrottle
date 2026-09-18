@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Message Load Mission</title>
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1f24; --muted: #5d6470; --line: #e3e0d8;
+  --accent: #1f5f8b; --accent-soft: #e6f0f7; --warn: #8a5a00; --warn-soft: #fff4dc;
+  --good: #1f6b43; --good-soft: #e5f4ec; --bad: #9b2c2c; --bad-soft: #fbe9e9; --code: #f3f1ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b; --panel: #1d2026; --ink: #e8e6e1; --muted: #a0a6b0; --line: #2e323a;
+    --accent: #7fb6de; --accent-soft: #1d2d3a; --warn: #e6b45c; --warn-soft: #33291a;
+    --good: #7cc79c; --good-soft: #1b2e24; --bad: #e08a8a; --bad-soft: #3a1f1f; --code: #23262d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171b; --panel: #1d2026; --ink: #e8e6e1; --muted: #a0a6b0; --line: #2e323a;
+  --accent: #7fb6de; --accent-soft: #1d2d3a; --warn: #e6b45c; --warn-soft: #33291a;
+  --good: #7cc79c; --good-soft: #1b2e24; --bad: #e08a8a; --bad-soft: #3a1f1f; --code: #23262d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.6 Georgia, "Iowan Old Style", "Times New Roman", serif; }
+.wrap { max-width: 900px; margin: 0 auto; padding: 40px 16px 80px; }
+header { border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 26px; }
+.kicker { font: 600 12px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: 36px; line-height: 1.15; margin: 10px 0 8px; }
+.sub { color: var(--muted); font-size: 17px; margin: 0; }
+.meta { font: 13px/1.5 system-ui, sans-serif; color: var(--muted); margin-top: 12px; }
+h2 { font-size: 25px; margin: 44px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 18px; margin: 24px 0 6px; }
+p, li { max-width: 74ch; }
+code, pre { font: 13.5px/1.5 Consolas, "SFMono-Regular", Menlo, monospace; background: var(--code); border-radius: 4px; }
+code { padding: 1px 5px; }
+pre { padding: 12px 14px; overflow-x: auto; border: 1px solid var(--line); }
+.box { padding: 14px 18px; border-radius: 4px; margin: 14px 0; }
+.info { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+.warn { background: var(--warn-soft); border-left: 4px solid var(--warn); }
+.good { background: var(--good-soft); border-left: 4px solid var(--good); }
+.bad { background: var(--bad-soft); border-left: 4px solid var(--bad); }
+.box p { margin: 6px 0; }
+blockquote { margin: 14px 0; padding: 10px 18px; border-left: 4px solid var(--line); color: var(--muted); font-style: italic; }
+table { width: 100%; border-collapse: collapse; font: 14px/1.45 system-ui, sans-serif; margin: 12px 0; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.tablewrap { overflow-x: auto; }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 18px; margin: 14px 0; }
+.item h3 { margin-top: 0; }
+.tag { display: inline-block; font: 600 11px/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase;
+  padding: 4px 7px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); margin-right: 6px; vertical-align: middle; }
+.tag.good { background: var(--good-soft); color: var(--good); }
+.lbl { font: 600 13px/1.4 system-ui, sans-serif; color: var(--muted); }
+.flow { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 14px 0; font: 14px/1.5 system-ui, sans-serif; }
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
+.step b { display: block; color: var(--accent); }
+@media (max-width: 600px) { h1 { font-size: 28px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Mission brief, draft for the owner</div>
+  <h1>Message Load: fewer messages, and none that interrupt</h1>
+  <p class="sub">What the mission is for, what I intend to build, and the five questions only you can answer.</p>
+  <div class="meta">Architect session 120 (8fdb130e) on devthrottle-mac-mini. Written 16 September 2026. Branch <code>mission/message-load</code>, worktree <code>~/ReposFred/devthrottle-message-load</code>, cut from origin/main at 66609c3c. No messages sent, nothing committed, no product code changed.</div>
+</header>
+
+<h2>1. The mission, in one paragraph</h2>
+
+<p>Sessions send each other too many messages, and every one of them lands in the middle of the receiving session's work. You said so this morning:</p>
+
+<blockquote>"You have been sending out messages and you really need to stop doing that. ... It needs to be much harder to do this. Messages interrupt what we do and it's really detrimental to the other sessions. ... reduce messaging and probably also implement the queue ... like Kun's firstmate does."</blockquote>
+
+<p>When this mission is finished: a session can message only the sessions it is responsible for, and only a few times an hour. A message never lands mid-work. It waits in a queue and reaches the session at a safe moment, and you can see, on every screen, that it is waiting. The Fleet Manager mission will use this same queue to instruct its sessions, so this is the one channel, not one of two.</p>
+
+<h2>2. What happens today, and why it hurts</h2>
+
+<div class="box bad">
+<p><b>There is no queue anywhere.</b> When a session runs <code>cc-devthrottle message send</code>, the Gateway types the text straight into the other session's terminal and presses Enter, whatever that session is doing. It checks only that the session has not exited.</p>
+<p><b>The receiving agent is redirected mid-task.</b> Claude Code does not drop text typed while it is working. It holds it and hands it to the model the moment the current tool calls finish, inside the same turn. So the message arrives in the middle of whatever the session was doing and changes its course.</p>
+<p><b>Nobody knows what it does to your unsent text.</b> Open issue 2845: a 19-session fleet stalled for most of a day because a supervisor refused to message sessions that held your unsent approvals.</p>
+<p><b>Messages are one line.</b> Newlines are collapsed. Long messages sit half-typed in the composer and are never sent (the Tutorials mission deadlock of 4 August).</p>
+<p><b>No record.</b> The Gateway keeps no message. A log line and a count are all that exists. Nobody can say afterwards who sent what to whom.</p>
+<p><b>Every session is told to do it.</b> The preamble every session reads at start-up teaches <code>message send</code> and <code>message ask</code> as ordinary tools. The fleet-comms skill says "message those sessions freely".</p>
+</div>
+
+<p>One rule is already on the books that this mission reverses: on 13 September you ruled that a worker's <code>session report</code> interrupts its supervisor deliberately, because "a signal nobody is obliged to read is a signal that does not exist". The design below keeps that principle. Delivery is automatic, so nobody has to remember to look. It just happens at a safe moment instead of mid-work.</p>
+
+<h2>3. What I want to build</h2>
+
+<p>Six pieces. Each is small, and each is listed with why it exists. The design copies firstmate where firstmate has already solved the problem, and the one thing this product already does right: a snooze asked for while a session is working waits until the work ends before it lands. The queue uses the same idea.</p>
+
+<div class="item">
+<h3><span class="tag">1</span> A durable inbox on the Gateway</h3>
+<p>Every message becomes a record: sender, recipient, text, when it was sent, when it was read. Multi-line text is allowed. The record survives a Director restart and a Gateway restart. The send succeeds when the record is written, not when text reaches a terminal. This is also the audit trail that does not exist today.</p>
+</div>
+
+<div class="item">
+<h3><span class="tag">2</span> A doorbell, not the message</h3>
+<p>The Director types only one short fixed line into the session: "2 messages waiting. Run cc-devthrottle message inbox." The session reads the full text from its inbox. A fixed line cannot be cut at a newline, cannot sit half-typed, and a duplicate does no harm. Nothing is typed into a dead terminal.</p>
+</div>
+
+<div class="item">
+<h3><span class="tag">3</span> The Director decides when it is safe</h3>
+<p>The doorbell is rung only when the session is not working and its composer is empty. The Director decides this, not the Gateway, because the Director can see the terminal. Today's "turn ended" signal is still unreliable (one in six blue flips is a repaint, issue 2853), and the Director is the only place that can check the screen before typing. If your unsent text is in the composer, the doorbell waits.</p>
+</div>
+
+<div class="item">
+<h3><span class="tag">4</span> Read means read, and unread gets chased</h3>
+<p>A message is open until the recipient runs the inbox command. If it stays unread, the Director rings again once per grace period, while the session is idle and the composer is empty. After three unanswered rings the message is marked stuck: the session's row says so, and the sender is told. This catches "delivered but never seen", which today fails silently.</p>
+</div>
+
+<div class="item">
+<h3><span class="tag">5</span> Replies without waiting</h3>
+<p><code>message ask</code>, which blocks the sender for up to two minutes and returns a scrape of the other session's screen, is removed for agents. In its place, a message can ask for a reply. The reply arrives in the sender's own inbox, and if none comes by the deadline the sender is told. The sender never sits blocked.</p>
+</div>
+
+<div class="item">
+<h3><span class="tag">6</span> Much harder to send</h3>
+<p>The Gateway refuses a message unless the recipient is the session that started the sender, or a session the sender started. Hard rate limits on top. Exact duplicates are dropped. Over the limit, the refusal says "put it in your report". The preamble and the fleet-comms skill are rewritten to say: messages are rare, they queue, and most sessions cannot send one at all. Only you can interrupt a session, from your own screens.</p>
+</div>
+
+<h3>How a message travels afterwards</h3>
+<div class="flow">
+  <div class="step"><b>Send</b> A Manager runs <code>cc-devthrottle message send &lt;worker&gt; "..."</code>. The Gateway checks the Manager started that worker and the Manager is under its hourly limit. It writes the record and answers "queued".</div>
+  <div class="step"><b>Wait</b> The worker is mid-build. Nothing is typed. The worker's row on the Director, Cockpit and phone says "1 message waiting".</div>
+  <div class="step"><b>Ring</b> The worker finishes its turn and its composer is empty. The Director types the one-line doorbell.</div>
+  <div class="step"><b>Read</b> The worker runs <code>cc-devthrottle message inbox</code>, gets the full text, and the record is marked read. The row line clears.</div>
+  <div class="step"><b>Chase</b> If the worker never reads it, the Director rings again after the grace period, then again, then marks it stuck and tells the Manager.</div>
+</div>
+
+<h3>What stays out of this mission</h3>
+<ul>
+  <li>Outcomes reported by scripts instead of the model ("a pull request opened", "a session died"). They will ride on this queue, in a later mission.</li>
+  <li>Any new screen. Visibility is one line on the session row, on the Director, Cockpit and phone.</li>
+  <li>Fixing turn detection. The mission works around it by checking the screen; the turn-detection mission fixes the signal itself.</li>
+  <li>The whole-fleet broadcast grant machinery from issue 1229. It stays as it is.</li>
+</ul>
+
+<h2>4. Questions for you</h2>
+
+<p>My recommendation is first on each. "All recommended" is a complete answer.</p>
+
+<div class="item">
+<h3>1. Who may send</h3>
+<p><span class="tag good">Recommended</span> The strict form, as firstmate does it: a session may message only the session that started it and the sessions it started. No Mission-wide sends. <code>send all</code> only from a supervisor to its own workers. A session nobody started can message nobody. If you want one session to tell another something, you say it in that session yourself.</p>
+<p><span class="lbl">Alternative</span> Also allow sessions in the same Mission to message each other, rate-limited.</p>
+</div>
+
+<div class="item">
+<h3>2. Does any agent ever interrupt</h3>
+<p><span class="tag good">Recommended</span> No. Never, not even with a grant. Only you interrupt, from your own screens. This reverses the 13 September ruling that a worker's report interrupts deliberately. Reports go through the queue too.</p>
+<p><span class="lbl">Alternative</span> Keep one urgent path that needs a human grant, like the whole-fleet broadcast today.</p>
+</div>
+
+<div class="item">
+<h3>3. How rare</h3>
+<p><span class="tag good">Recommended</span> Six messages per hour per sender. One per recipient per ten minutes. Exact duplicates dropped. Grace period before a second ring: five minutes. Stuck after three rings.</p>
+<p><span class="lbl">Alternative</span> Give me different numbers. They are constants and can be changed later without redesign.</p>
+</div>
+
+<div class="item">
+<h3>4. Scope</h3>
+<p><span class="tag good">Recommended</span> Exactly the six pieces in section 3, plus the rewritten preamble and skill, plus the one line on the session row. Nothing more.</p>
+<p><span class="lbl">Alternative</span> Add the script-reported outcomes now, or add an inbox screen on the Cockpit.</p>
+</div>
+
+<div class="item">
+<h3>5. A baseline number</h3>
+<p>The hosted Gateway's activity events table can count messages per recipient per day for the last 30 days. It would let the report say "from N a day to M". Can a worker query that database, or should I skip the measurement?</p>
+</div>
+
+<h2>5. Where the facts come from</h2>
+
+<div class="tablewrap">
+<table>
+<tr><th>Claim</th><th>Source</th></tr>
+<tr><td>Text is typed and Enter pressed, with only an "exited" check</td><td><code>SessionCommandExecutor.cs:196-250</code>, <code>TerminalSubmit.cs:81-168</code> on origin/main</td></tr>
+<tr><td>No queue; the old auto-drain was deleted because it waited for a state nothing sets</td><td><code>Session.cs:2967-2984</code></td></tr>
+<tr><td>Claude Code holds mid-turn input and feeds it after the current tool calls</td><td>Claude Code interactive mode documentation</td></tr>
+<tr><td>Report interrupts deliberately, 13 September ruling</td><td><code>session_ops.py:480-487</code>, <code>docs/new_architecture/sessions.html:488-493</code></td></tr>
+<tr><td>Snooze already waits for the work to end before landing</td><td><code>SnoozeRegistry.cs:83-107</code>, <code>SnoozeLandingObserver.cs:129</code></td></tr>
+<tr><td>Turn-end signal unreliable</td><td>Issue 2853; turn-detection mission of 15 September</td></tr>
+<tr><td>Unsent composer text at risk</td><td>Issue 2845</td></tr>
+<tr><td>Firstmate: inbox file, doorbell, read acknowledgement, re-ring, no blocking asks</td><td><code>devthrottle_internal/docs/research/firstmate/handover-fleet-manager-and-message-load.html</code></td></tr>
+<tr><td>Full survey notes</td><td><code>docs/missions/message-load-2026-09-16/findings.md</code> on the mission branch</td></tr>
+</table>
+</div>
+
+</div>
+</body>
+</html>
