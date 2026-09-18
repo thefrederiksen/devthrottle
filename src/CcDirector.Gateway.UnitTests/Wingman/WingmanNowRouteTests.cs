@@ -230,10 +230,11 @@ public sealed class WingmanNowRouteTests : IDisposable
 
     private IResult Read(Caller caller, string sid, TurnVerdictStore? verdicts, PushedSessionStore? pushed,
         SessionTurnStore? turns = null, Func<TenantId, TurnVerdictSettings>? settings = null,
-        TimeSpan? streamStale = null, Func<TenantId, VoiceRowStamp.VoiceFacts>? voiceFacts = null)
+        TimeSpan? streamStale = null, Func<TenantId, VoiceRowStamp.VoiceFacts>? voiceFacts = null,
+        Func<TenantId, string, bool>? startedBySchedule = null)
         => GatewayEndpoints.ReadWingmanNow(Request(caller), sid, SelfHostBoundary(), _registry, pushed, verdicts,
             turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null, settings, streamStale,
-            voiceFacts);
+            voiceFacts, startedBySchedule);
 
     /// <summary>This account's pushed roster with voice turned ON for the session - a Director-owned fact, which
     /// is why it arrives on the push and not from a lookup.</summary>
@@ -823,6 +824,56 @@ public sealed class WingmanNowRouteTests : IDisposable
         // And nothing is claimed about a stop it is not in.
         Assert.Null(now.Needs);
         Assert.Null(now.CalmCard);
+    }
+
+    /// <summary>
+    /// THE ROUTE ASKS WHETHER A SCHEDULE STARTED THIS SESSION, AND ASKS ABOUT THE RIGHT ONE.
+    ///
+    /// <see cref="WingmanNowFoldTests"/> proves what the fold says when it is TOLD a schedule started the session.
+    /// Nothing there watches whether the route asks at all: a handler that never looked would leave every one of
+    /// those green while the card on the screen still said a bare "at 6:00 AM". So this drives the real handler
+    /// and reads both the word it served and the arguments it asked with.
+    /// </summary>
+    [Fact]
+    public void A_working_session_a_schedule_started_is_served_who_asked_it()
+    {
+        var askedAt = Stopped.AddMinutes(2);
+        var turns = ConversationHolding(("User", "Run the daily hygiene audit and report only on drift."));
+        var asked = new List<(TenantId Tenant, string SessionId)>();
+
+        var now = BodyOf(Read(Caller.Device, Sid, StoreHolding(null), PushedWorking(), turns,
+            streamStale: TimeSpan.FromMinutes(5),
+            startedBySchedule: (tenant, sid) =>
+            {
+                asked.Add((tenant, sid));
+                return string.Equals(sid, Sid, StringComparison.Ordinal);
+            }));
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Equal("A schedule", now.LastAsked!.By);
+        Assert.Equal("A schedule, at", now.LastAsked.WhenLead);
+        // The account it resolved and the session it was asked about, not some other pair.
+        Assert.Equal((Account, Sid), Assert.Single(asked));
+    }
+
+    /// <summary>
+    /// THE CONTROL BESIDE IT: the same session, with nothing that names a schedule, says nothing about who asked.
+    /// Without this, the test above would pass just as well on a route that wrote "A schedule" onto everything.
+    /// </summary>
+    [Fact]
+    public void A_working_session_no_schedule_names_is_served_no_asker()
+    {
+        var turns = ConversationHolding(("User", "Run the daily hygiene audit and report only on drift."));
+
+        var never = BodyOf(Read(Caller.Device, Sid, StoreHolding(null), PushedWorking(), turns,
+            streamStale: TimeSpan.FromMinutes(5), startedBySchedule: (_, _) => false));
+        Assert.Null(never.LastAsked!.By);
+        Assert.Equal("at", never.LastAsked.WhenLead);
+
+        // And a Gateway handed no way to look claims nothing either, rather than guessing in either direction.
+        var unasked = BodyOf(Read(Caller.Device, Sid, StoreHolding(null), PushedWorking(), turns,
+            streamStale: TimeSpan.FromMinutes(5)));
+        Assert.Null(unasked.LastAsked!.By);
     }
 
     /// <summary>The message the owner sent, read out of the STORED conversation, with his own name on it because

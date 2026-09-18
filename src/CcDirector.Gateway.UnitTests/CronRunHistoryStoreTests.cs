@@ -1,6 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using CcDirector.Gateway;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
 
@@ -41,6 +42,35 @@ public sealed class CronRunHistoryStoreTests : IDisposable
         Assert.Equal(2, runs.Count);
         Assert.Equal("sid-b", runs[0].SessionId); // newest first
         Assert.Equal("sid-a", runs[1].SessionId);
+    }
+
+    /// <summary>
+    /// A RECORDED FIRE NAMES THE SESSION IT STARTED, AND THAT IS HOW THE WINGMAN TAB KNOWS A SCHEDULE ASKED.
+    ///
+    /// The Now view's working state says who asked a session - "A schedule, at 6:00 AM" tells the owner nobody is
+    /// waiting on it. This is the fact behind that word, and it is a record rather than a reading of the row.
+    /// </summary>
+    [Fact]
+    public void StartedSession_IsTrueForASessionAFireNamedAndFalseForOneItDidNot()
+    {
+        var store = new CronRunHistoryStore(_h.Open(), LegacyPath());
+        store.Append("cj_1", Run("sid-a"));
+
+        Assert.True(store.StartedSession(TenantId.Local, "sid-a"));
+        Assert.False(store.StartedSession(TenantId.Local, "sid-b"));
+    }
+
+    /// <summary>Nothing is claimed about a session that is not asked about, and nothing throws on the empty
+    /// arguments a caller can reach this with.</summary>
+    [Fact]
+    public void StartedSession_AnswersFalseForNothingToLookFor()
+    {
+        var store = new CronRunHistoryStore(_h.Open(), LegacyPath());
+        store.Append("cj_1", Run("sid-a"));
+
+        Assert.False(store.StartedSession(TenantId.Local, ""));
+        Assert.False(store.StartedSession(TenantId.Local, "   "));
+        Assert.False(store.StartedSession(default, "sid-a"));
     }
 
     [Fact]

@@ -1240,6 +1240,28 @@ public sealed class WingmanNowFoldTests
         Assert.NotEqual(row.CreatedAt, now.When.AtUtc);
     }
 
+    /// <summary>
+    /// A STORED STOP THAT CARRIES NO SUPERSEDING MOMENT STILL MEANS THIS SESSION HAS STOPPED BEFORE - so its
+    /// creation is not the start of this stretch either, and nothing is claimed.
+    ///
+    /// This is the case the emptiness check inside FirstStretchSince exists for, and it is the only one that
+    /// reaches it: where a superseding moment IS recorded, it answers first and the check is never asked. Without
+    /// the check this row reports the session's whole age - three days - as the length of a stretch that began
+    /// somewhere nothing here can see.
+    /// </summary>
+    [Fact]
+    public void A_working_row_with_a_stop_behind_it_but_no_superseding_moment_invents_no_duration()
+    {
+        var row = WorkingRow();
+        row.CreatedAt = Stopped.AddDays(-3);
+        var stopped = Verdict(TurnVerdictVocabulary.NeededYou);   // stored, and carrying no SupersededAtUtc
+
+        var now = FoldWith(row, new[] { new AnsweredTurnVerdict(stopped, null) });
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Null(now.When);
+    }
+
     /// <summary>A row with no creation moment and no stop behind it knows nothing about when the stretch began.
     /// The pill still says Working; no number is invented.</summary>
     [Fact]
