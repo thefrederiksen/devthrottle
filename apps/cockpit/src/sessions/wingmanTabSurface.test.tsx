@@ -51,8 +51,8 @@ const NOW: WingmanNow = {
     recommends: null,
     question: null,
     options: [
-      { index: 0, key: "Commit and deploy", note: "It commits the fixes and deploys them.", recommended: true },
-      { index: 1, key: "Do not commit", note: "Nothing is committed or deployed.", recommended: false },
+      { index: 0, number: 1, key: "Commit and deploy", note: "It commits the fixes and deploys them.", recommended: true },
+      { index: 1, number: 2, key: "Do not commit", note: "Nothing is committed or deployed.", recommended: false },
     ],
   },
   canAnswerByOption: true,

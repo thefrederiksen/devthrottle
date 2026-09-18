@@ -14,7 +14,7 @@ import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { wingmanNowActions } from "./wingmanNowActions";
 
 const SID = "6e4a7c30-0000-4000-8000-000000000070";
-const OPTION = { index: 1, key: "Allow the merge", note: null, recommended: true };
+const OPTION = { index: 1, number: 1, key: "Allow the merge", note: null, recommended: true };
 
 const GO = { openTerminal: () => {}, goToSession: () => {}, openSettings: () => {}, openStop: () => {} };
 

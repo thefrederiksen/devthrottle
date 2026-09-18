@@ -216,6 +216,22 @@
   font-size: 13px;
 }
 
+/* The Gateway's warning that this stop's answer cannot be taken back. It is about the STOP, so it is drawn once,
+   above the options, in the attention colour - a warning repeated on every option stops being read. */
+.wnow-options-final {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--attention);
+}
+
+.wnow-options-final .wnow-option-undo {
+  margin-left: 0;
+}
+
 /* What a write action answered, shown beside the control that started it. A refusal is the Gateway's sentence in
    the attention colour; an accepted action is a quiet line. */
 .wnow-outcome {

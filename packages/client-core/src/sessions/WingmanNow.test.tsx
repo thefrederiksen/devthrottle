@@ -95,11 +95,12 @@ const NEEDS_YOU = base({
     options: [
       {
         index: 1,
+        number: 1,
         key: "Allow the merge",
         note: "It runs the merge itself. This lands the release notes on main and cannot be undone by the session.",
         recommended: true,
       },
-      { index: 2, key: "I will merge it myself", note: "It waits for you. Nothing changes until you merge.", recommended: false },
+      { index: 2, number: 2, key: "I will merge it myself", note: "It waits for you. Nothing changes until you merge.", recommended: false },
     ],
   },
   canAnswerByOption: true,
@@ -706,15 +707,14 @@ describe("Now - the options are buttons, and they say so", () => {
       ...NEEDS_YOU,
       needs: {
         ...NEEDS_YOU.needs!,
-        options: [
-          { ...NEEDS_YOU.needs!.options[0], cannotBeUndone: "This cannot be undone." },
-          NEEDS_YOU.needs!.options[1],
-        ],
+        riskFlag: "This cannot be undone.",
+        riskLine: "This cannot be undone.",
+        confirmBeforeSending: true,
       },
     });
     render(<WingmanNow now={now} at={AT} actions={{ onAnswerOption }} />);
 
-    // The warning is on the option before anything is clicked.
+    // The warning is on the card, once, before anything is clicked - not repeated on every option.
     expect(screen.getAllByText("This cannot be undone.").length).toBe(1);
 
     // The first click asks instead of sending.
@@ -742,7 +742,7 @@ describe("Now - the options are buttons, and they say so", () => {
     expect(screen.queryByText("Send it anyway")).toBeNull();
   });
 
-  it("shows the number the Gateway sent for the reader, and the answer route's own index only while there is none", () => {
+  it("shows the number the Gateway folded for the reader, never the answer route's own index", () => {
     const { container, rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
     expect([...container.querySelectorAll(".wnow-option-index")].map((n) => n.textContent)).toEqual(["1", "2"]);
 
@@ -751,8 +751,8 @@ describe("Now - the options are buttons, and they say so", () => {
       needs: {
         ...NEEDS_YOU.needs!,
         options: [
-          { index: 0, key: "Commit and deploy", note: null, recommended: true, displayNumber: 1 },
-          { index: 1, key: "Do not commit", note: null, recommended: false, displayNumber: 2 },
+          { index: 0, number: 1, key: "Commit and deploy", note: null, recommended: true },
+          { index: 1, number: 2, key: "Do not commit", note: null, recommended: false },
         ],
       },
     });

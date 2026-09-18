@@ -232,6 +232,9 @@ export function WingmanNow({
                 options={now.needs.options ?? []}
                 canAnswer={now.canAnswerByOption}
                 busy={answer.busy}
+                riskFlag={now.needs.riskFlag}
+                riskLine={now.needs.riskLine}
+                confirmBeforeSending={now.needs.confirmBeforeSending}
                 onAnswer={
                   actions.onAnswerOption
                     ? // THE VERDICT IDENTIFIER IS AT THE ROOT. It sat inside `needs` here, which is not where
@@ -463,31 +466,46 @@ function Speaker() {
  * recommended option with a small tag only, so the eye had no first choice. And it showed nothing at all on an
  * option that cannot be undone.
  *
- * THE WARNING IS THE GATEWAY'S WORDS OR IT IS NOTHING. `option.cannotBeUndone` is a finished sentence folded on the
- * Gateway; when it is absent this draws no warning and asks nothing, because a client that decided for itself which
- * answers are dangerous would be ruling in the Gateway's place. Only the two words on the confirm buttons are this
- * file's, like every other button on the screen.
+ * THE WARNING IS THE GATEWAY'S WORDS OR IT IS NOTHING. `riskFlag` and `riskLine` are finished sentences folded on
+ * the Gateway, and `confirmBeforeSending` is its ruling that this stop is worth an interruption; when they are absent
+ * this draws no warning and asks nothing, because a client that decided for itself which answers are dangerous would
+ * be ruling in the Gateway's place. The warning is about the STOP, not one option, which is where the Gateway puts
+ * it. Only the two words on the confirm buttons are this file's, like every other button on the screen.
  */
 function Options({
   options,
   canAnswer,
   busy,
+  riskFlag,
+  riskLine,
+  confirmBeforeSending,
   onAnswer,
 }: {
   options: WingmanNowOption[];
   canAnswer: boolean;
   busy: boolean;
+  riskFlag?: string | null;
+  riskLine?: string | null;
+  confirmBeforeSending?: boolean;
   onAnswer?: (option: WingmanNowOption) => void;
 }) {
   // The option waiting on a second click, by its index. Only ever an option the Gateway marked as final.
   const [asking, setAsking] = useState<number | null>(null);
   const live = canAnswer && onAnswer !== undefined;
+  // THE WARNING IS ABOUT THE STOP, NOT ONE OPTION - that is where the Gateway folds it, so it is drawn once above
+  // the options rather than repeated on each of them, and it is what makes a click ask before it sends.
+  const warning = confirmBeforeSending === true ? (riskFlag ?? null) : null;
   return (
     <>
       {live && <p className="wnow-options-how">Click an option to send it as your answer.</p>}
+      {live && warning != null && (
+        <p className="wnow-options-final">
+          <b className="wnow-option-undo">{warning}</b>
+          {riskLine != null && riskLine !== warning && <span>{riskLine}</span>}
+        </p>
+      )}
       <ul className="wnow-options">
         {options.map((option) => {
-          const warning = option.cannotBeUndone ?? null;
           return (
             <li key={option.index}>
               <button
@@ -506,19 +524,18 @@ function Options({
                   onAnswer(option);
                 }}
               >
-                <span className="wnow-option-index">{option.displayNumber ?? option.index}</span>
+                <span className="wnow-option-index">{option.number}</span>
                 <span className="wnow-option-body">
                   <span className="wnow-option-key">
                     {option.key}
                     {option.recommended && <b className="wnow-option-mark">RECOMMENDED</b>}
-                    {warning != null && <b className="wnow-option-undo">{warning}</b>}
                   </span>
                   {option.note != null && <span className="wnow-option-note">{option.note}</span>}
                 </span>
               </button>
               {asking === option.index && warning != null && (
                 <div className="wnow-option-ask" role="alert">
-                  <span>{warning}</span>
+                  <span>{riskLine ?? warning}</span>
                   <button
                     type="button"
                     className="wnow-btn wnow-btn-primary"
