@@ -1449,6 +1449,17 @@ internal static class GatewayEndpoints
 
                 var baseUrl = DeriveDirectorBaseUrl(ctx, d);
                 var gatewayBaseUrl = DeriveGatewayBaseUrl(ctx);
+                // This request's voice facts, bound to its account once rather than per row, and handed to
+                // the ONE stamp below. See VoiceRowStamp.
+                var voiceFacts = new VoiceRowStamp.VoiceFacts(
+                    Generating: voiceGeneratingFor is null ? null : sid => voiceGeneratingFor(reqTenant.Value, sid),
+                    AudioReady: voiceAudioReadyFor is null ? null : sid => voiceAudioReadyFor(reqTenant.Value, sid),
+                    Unavailable: voiceUnavailableFor is null ? null : sid => voiceUnavailableFor(reqTenant.Value, sid),
+                    NothingToNarrate: nothingToNarrateFor is null ? null : sid => nothingToNarrateFor(reqTenant.Value, sid),
+                    DirectorCannotSendConversation: directorCannotSendConversationFor is null ? null : sid => directorCannotSendConversationFor(reqTenant.Value, sid),
+                    NarrationAbandoned: narrationAbandonedFor is null ? null : sid => narrationAbandonedFor(reqTenant.Value, sid),
+                    ServedViaFallback: servedViaFallbackFor is null ? null : sid => servedViaFallbackFor(reqTenant.Value, sid),
+                    WaitingStamp: voiceWaitingStampFor is null ? null : (sid, waiting) => voiceWaitingStampFor(reqTenant.Value, sid, waiting));
                 foreach (var s in sessions)
                 {
                     // Defect 13: the ROLE UNIVERSE is the UNFILTERED fleet, and it is collected HERE -
@@ -1567,48 +1578,18 @@ internal static class GatewayEndpoints
                     // field. Never reach for a Director-owned one because it happens to be the shape you
                     // want - that trade is a rendered pixel now for an unanswerable row forever.
 
-                    // Issue #553: surface the two voice readiness booleans the color rule and the /m
-                    // client read directly. VoiceGenerating = the wingman is producing this session's
-                    // spoken summary now; VoiceAudioReady = the gateway has fetchable, playable audio
-                    // (the SINGLE truthful "there is voice you can play right now" signal). VoiceGenerating
-                    // is the only "preparing voice" hold; VoiceAudioReady controls playback affordances.
-                    if (voiceGeneratingFor is not null)
-                        s.VoiceGenerating = voiceGeneratingFor(reqTenant.Value, s.SessionId);
-                    if (voiceAudioReadyFor is not null)
-                        s.VoiceAudioReady = voiceAudioReadyFor(reqTenant.Value, s.SessionId);
-                    // Issue #939: when the gateway could not keep this session's voice because hosted AI
-                    // is unavailable (out of credits / cap / no key), stamp the ONE shared message so the
-                    // owning UI shows the consistent add-credit / add-key state instead of a silently
-                    // missing play triangle. Null (voice fine) leaves the field unset.
-                    if (voiceUnavailableFor is not null && voiceUnavailableFor(reqTenant.Value, s.SessionId) is Core.HostedAi.HostedAiState reason)
-                        s.VoiceUnavailable = HostedAi.HostedAiHttp.Dto(reason);
-                    // The FOLDED voice-mode display verdict the Voice screen renders VERBATIM. Every piece
-                    // of ruling the phone used to do for itself - the badge, the message, and crucially
-                    // whether a "Generate narration" button appears - is decided HERE, from the facts just
-                    // stamped plus the "nothing to narrate" marker, so a dumb client never has to guess (the
-                    // guess is what put a dead-end Generate button next to a red "unavailable" badge). This
-                    // is the law: the Gateway rules, the client renders (docs/new_architecture/sessions.html).
-                    // Issue #2576: the wait-for-voice clock. Stamped from the SAME facts the fold
-                    // immediately below reads, so the elapsed time on the row and the words on the row can
-                    // never disagree about whether this session is waiting at all. It is a SECOND clock
-                    // beside NeedsYouSince because that one is stamped only on RED and a session waiting
-                    // for voice is YELLOW - which is why nothing could say "48 minutes" when it mattered.
-                    var voiceAgentWorking = string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase)
-                                         || string.Equals(s.ActivityState, "Starting", StringComparison.OrdinalIgnoreCase);
-                    s.VoiceWaitingSince = voiceWaitingStampFor?.Invoke(
-                        reqTenant.Value, s.SessionId,
-                        Wingman.VoiceDisplayFold.IsWaitingForVoice(s.VoiceMode, s.VoiceAudioReady, voiceAgentWorking));
-                    s.VoiceDisplay = Wingman.VoiceDisplayFold.Fold(
-                        voiceMode: s.VoiceMode,
-                        agentWorking: voiceAgentWorking,
-                        hasAudio: s.VoiceAudioReady,
-                        generating: s.VoiceGenerating,
-                        unavailable: voiceUnavailableFor?.Invoke(reqTenant.Value, s.SessionId),
-                        nothingToNarrate: nothingToNarrateFor?.Invoke(reqTenant.Value, s.SessionId) ?? false,
-                        directorCannotSendConversation: directorCannotSendConversationFor?.Invoke(reqTenant.Value, s.SessionId) ?? false,
-                        narrationAbandoned: narrationAbandonedFor?.Invoke(reqTenant.Value, s.SessionId) ?? false,
-                        servedViaFallback: servedViaFallbackFor?.Invoke(reqTenant.Value, s.SessionId) ?? false,
-                        waitingSince: s.VoiceWaitingSince);
+                    // Issue #553's two voice readiness booleans - VoiceGenerating (the wingman is producing
+                    // this session's spoken summary now) and VoiceAudioReady (the SINGLE truthful "there is
+                    // voice you can play right now" signal) - are stamped by the same call below, because
+                    // everything it folds reads them off the row.
+                    // THE VOICE VERDICT, and every fact behind it, through the ONE stamp - see VoiceRowStamp
+                    // for why there is exactly one. It carries issue #939's shared "no credit / no key"
+                    // message, issue #2576's wait-for-voice clock, and the folded display verdict the Voice
+                    // screen renders VERBATIM: the badge, the message, and crucially whether a "Generate
+                    // narration" button appears. That last one is the law working - the Gateway rules and
+                    // the client renders (docs/new_architecture/sessions.html) - because the phone guessing
+                    // it is what put a dead-end Generate button beside a red "unavailable" badge.
+                    VoiceRowStamp.Apply(s, voiceFacts);
                     // Orange "Transcribing..." while a dictated utterance is uploading/transcribing in
                     // the background for this session (mobile Speak -> Send released the screen). Stamped
                     // BEFORE the NeedsYouSince clock below so the EffectiveColor fold already sees orange
@@ -3110,7 +3091,18 @@ internal static class GatewayEndpoints
         app.MapGet("/sessions/{sid}/wingman-now", (HttpContext ctx, string sid)
             => ReadWingmanNow(ctx, sid, tenantBoundary, registry, pushedSessions, turnVerdicts, sessionTurns,
                 snoozeRegistry, handRaises, turnVerdictRows, snoozeExpiry, turnVerdictSettings,
-                streamStaleResolved));
+                streamStaleResolved,
+                // The same voice facts the roster route binds, from the same delegates - so this view and the
+                // Sessions list read one verdict about one session rather than two.
+                tenant => new VoiceRowStamp.VoiceFacts(
+                    Generating: voiceGeneratingFor is null ? null : s => voiceGeneratingFor(tenant, s),
+                    AudioReady: voiceAudioReadyFor is null ? null : s => voiceAudioReadyFor(tenant, s),
+                    Unavailable: voiceUnavailableFor is null ? null : s => voiceUnavailableFor(tenant, s),
+                    NothingToNarrate: nothingToNarrateFor is null ? null : s => nothingToNarrateFor(tenant, s),
+                    DirectorCannotSendConversation: directorCannotSendConversationFor is null ? null : s => directorCannotSendConversationFor(tenant, s),
+                    NarrationAbandoned: narrationAbandonedFor is null ? null : s => narrationAbandonedFor(tenant, s),
+                    ServedViaFallback: servedViaFallbackFor is null ? null : s => servedViaFallbackFor(tenant, s),
+                    WaitingStamp: voiceWaitingStampFor is null ? null : (s, waiting) => voiceWaitingStampFor(tenant, s, waiting))));
 
         // ANSWER A JUDGED STOP (the Wingman-on-every-turn mission, slice E; ruling 12). The ONE server-owned write
         // path for a verdict's options: the owner's tap, never the Wingman. TurnVerdictAnswerService holds the rules
@@ -6012,7 +6004,8 @@ internal static class GatewayEndpoints
         Wingman.ITurnVerdictRowSource? turnVerdictRows,
         Wingman.SnoozeExpiryReJudge? snoozeExpiry,
         Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null,
-        TimeSpan? streamStaleAfter = null)
+        TimeSpan? streamStaleAfter = null,
+        Func<Core.Tenancy.TenantId, VoiceRowStamp.VoiceFacts>? voiceFactsFor = null)
     {
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid}");
         var tenant = ResolveReadTenant(ctx, tenantBoundary);
@@ -6055,6 +6048,13 @@ internal static class GatewayEndpoints
         var roster = FoldedAccountRoster(registry, pushedSessions, tenant.Value, snoozeRegistry, handRaises,
             turnVerdictRows, snoozeExpiry);
         var row = roster.FirstOrDefault(s => string.Equals(s.SessionId, sid, StringComparison.OrdinalIgnoreCase));
+
+        // THE VOICE VERDICT COMES FROM THE SAME STAMP THE ROSTER ROUTE USES - see VoiceRowStamp. The roster FOLD
+        // does not carry it (the /sessions handler stamps it after the fold runs), so without this the row below
+        // has no voice verdict at all. A caller that hands no facts stamps none, and the fold then offers nothing
+        // rather than claiming there is no audio.
+        if (row is not null && voiceFactsFor is not null)
+            VoiceRowStamp.Apply(row, voiceFactsFor(tenant.Value));
         var verdicts = turnVerdicts.HistoryWithAnswers(tenant.Value, sid);
 
         // THE STORE IS READ INSIDE THE CALLER'S TENANT SCOPE. Its rows are partitioned by the context's ambient

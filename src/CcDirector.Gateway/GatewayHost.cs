@@ -5118,34 +5118,24 @@ public sealed class GatewayHost : IAsyncDisposable
     {
         foreach (var s in sessions)
         {
-            s.VoiceGenerating = voiceGeneratingFor(s.SessionId);
-            s.VoiceAudioReady = voiceAudioReadyFor(s.SessionId);
-            // The REASON there is no voice, carried on the push exactly as the roster carries it. Without
-            // these two the pushed row holds only the two readiness booleans, so the desktop can be told
-            // "no audio" but never WHY - and SessionOrdering.VoiceHoldLabel, which renders the reason the
-            // Gateway already folded, has nothing to render and falls back to "Preparing voice" forever.
-            // The roster path stamps both (GatewayEndpoints); this is the same stamp so the two surfaces
-            // cannot say different things about one session. Null delegates leave the fields unset, which
-            // is the pre-existing behaviour and keeps every non-production caller compiling unchanged.
-            var unavailable = voiceUnavailableFor?.Invoke(s.SessionId);
-            if (unavailable is Core.HostedAi.HostedAiState reason)
-                s.VoiceUnavailable = HostedAi.HostedAiHttp.Dto(reason);
-            var working = string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase)
-                       || string.Equals(s.ActivityState, "Starting", StringComparison.OrdinalIgnoreCase);
-            // The clock is stamped from the SAME facts the fold below reads, so the elapsed time and the
-            // words can never disagree about whether this session is waiting at all.
-            s.VoiceWaitingSince = voiceWaitingStampFor?.Invoke(
-                s.SessionId, Wingman.VoiceDisplayFold.IsWaitingForVoice(s.VoiceMode, s.VoiceAudioReady, working));
-            s.VoiceDisplay = Wingman.VoiceDisplayFold.Fold(
-                voiceMode: s.VoiceMode,
-                agentWorking: working,
-                hasAudio: s.VoiceAudioReady,
-                generating: s.VoiceGenerating,
-                unavailable: unavailable,
-                nothingToNarrate: nothingToNarrateFor?.Invoke(s.SessionId) ?? false,
-                directorCannotSendConversation: directorCannotSendConversationFor?.Invoke(s.SessionId) ?? false,
-                narrationAbandoned: narrationAbandonedFor?.Invoke(s.SessionId) ?? false,
-                waitingSince: s.VoiceWaitingSince);
+            // THE SAME STAMP THE ROSTER ROUTE USES - the two readiness booleans the Director never sets, the
+            // REASON there is no voice, the waiting clock, and the folded verdict - so the two surfaces cannot
+            // say different things about one session. Without the reason the pushed row would hold only the
+            // booleans, and the desktop could be told "no audio" but never WHY: SessionOrdering.VoiceHoldLabel
+            // renders the reason the Gateway folded, and with none to render it falls back to "Preparing
+            // voice" forever (#1843).
+            //
+            // This path is handed no served-via-fallback fact, and passing none is what it did before: that
+            // notice is the roster's, and inventing a "false" here would be this path answering a question it
+            // cannot see.
+            Api.VoiceRowStamp.Apply(s, new Api.VoiceRowStamp.VoiceFacts(
+                Generating: voiceGeneratingFor,
+                AudioReady: voiceAudioReadyFor,
+                Unavailable: voiceUnavailableFor,
+                NothingToNarrate: nothingToNarrateFor,
+                DirectorCannotSendConversation: directorCannotSendConversationFor,
+                NarrationAbandoned: narrationAbandonedFor,
+                WaitingStamp: voiceWaitingStampFor));
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
             handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds,

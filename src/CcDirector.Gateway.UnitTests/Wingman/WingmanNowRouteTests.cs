@@ -230,9 +230,33 @@ public sealed class WingmanNowRouteTests : IDisposable
 
     private IResult Read(Caller caller, string sid, TurnVerdictStore? verdicts, PushedSessionStore? pushed,
         SessionTurnStore? turns = null, Func<TenantId, TurnVerdictSettings>? settings = null,
-        TimeSpan? streamStale = null)
+        TimeSpan? streamStale = null, Func<TenantId, VoiceRowStamp.VoiceFacts>? voiceFacts = null)
         => GatewayEndpoints.ReadWingmanNow(Request(caller), sid, SelfHostBoundary(), _registry, pushed, verdicts,
-            turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null, settings, streamStale);
+            turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null, settings, streamStale,
+            voiceFacts);
+
+    /// <summary>This account's pushed roster with voice turned ON for the session - a Director-owned fact, which
+    /// is why it arrives on the push and not from a lookup.</summary>
+    private PushedSessionStore PushedWithVoiceOn()
+    {
+        _registry.RegisterFromStream(DirectorId, "SOREN_NORTH", "u", "test", 1, DateTime.UtcNow, Account);
+        var pushed = new PushedSessionStore();
+        pushed.RegisterConnection(Account, DirectorId, "conn-now");
+        Assert.True(pushed.ApplySnapshot(Account, DirectorId, "conn-now", 1, new List<SessionDto>
+        {
+            new()
+            {
+                SessionId = Sid,
+                Name = "Wingman Inspector - Manager",
+                Agent = "ClaudeCode",
+                ActivityState = "WaitingForInput",
+                WaitingSince = Stopped,
+                LastActivityAt = Stopped,
+                VoiceMode = true,
+            },
+        }));
+        return pushed;
+    }
 
     // ---------------------------------------------------------------- the refusals
 
@@ -387,6 +411,42 @@ public sealed class WingmanNowRouteTests : IDisposable
         Assert.Equal("Next that needs you", now.NextNeedsYou!.Heading);
         Assert.Equal(other, now.NextNeedsYou.SessionId);
         Assert.Equal("Dev Reports - Architect", now.NextNeedsYou.Name);
+    }
+
+    /// <summary>
+    /// THE VOICE VERDICT IS STAMPED ON THIS ROUTE'S ROW BY THE SAME STAMP THE ROSTER ROUTE USES.
+    ///
+    /// The roster FOLD does not carry it - the /sessions handler stamps it after the fold runs - so this route
+    /// has to stamp it too, and the whole point of this slice is that it does so through the one shared stamp
+    /// rather than a third copy of the call. The control below is what makes that visible: handed no facts, the
+    /// same row and the same request offer nothing, because a route that cannot see the voice service has not
+    /// earned the claim that there is no audio.
+    /// </summary>
+    [Fact]
+    public void The_voice_control_is_served_from_the_shared_stamp_and_offers_nothing_without_it()
+    {
+        var verdicts = StoreHolding(NeedsYouVerdict());
+        var pushed = PushedWithVoiceOn();
+
+        // CONTROL: no facts, no claim.
+        Assert.Equal(WingmanNowVoiceKinds.None,
+            BodyOf(Read(Caller.Device, Sid, verdicts, pushed)).Voice.Kind);
+
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed,
+            voiceFacts: _ => new VoiceRowStamp.VoiceFacts(AudioReady: _ => true)));
+
+        Assert.Equal(WingmanNowVoiceKinds.Play, now.Voice.Kind);
+        Assert.Equal("Play", now.Voice.Label);
+    }
+
+    /// <summary>With the clip not made yet the same route says so, from the same stamp.</summary>
+    [Fact]
+    public void The_voice_control_says_the_clip_is_being_prepared_when_there_is_none_yet()
+    {
+        var now = BodyOf(Read(Caller.Device, Sid, StoreHolding(NeedsYouVerdict()), PushedWithVoiceOn(),
+            voiceFacts: _ => new VoiceRowStamp.VoiceFacts(AudioReady: _ => false)));
+
+        Assert.Equal(WingmanNowVoiceKinds.Preparing, now.Voice.Kind);
     }
 
     /// <summary>A session this account knows about whose stop has never been judged is not an error - it is the

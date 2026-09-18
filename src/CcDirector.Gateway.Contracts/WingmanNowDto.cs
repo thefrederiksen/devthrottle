@@ -140,6 +140,48 @@ public sealed class WingmanNowResponse
     /// one, which is the one moment "and now go there" is worth anything to him.
     /// </summary>
     public WingmanNowNextDto? NextNeedsYou { get; set; }
+
+    /// <summary>The voice control at the top of the view. Never null - one of its kinds is "nothing to offer".</summary>
+    public WingmanNowVoiceDto Voice { get; set; } = new();
+}
+
+/// <summary>
+/// THE VOICE CONTROL, as one finished offer rather than the facts to work one out from.
+///
+/// The Voice screen was the last place a client ruled for itself, and the cost is on the record: with no reason
+/// handed down it guessed, and put a hopeful "Generate narration now" button beside a red "Voice unavailable"
+/// badge - a button that could never succeed. This view never repeats that. It is told which of four things to
+/// draw and what the words are.
+/// </summary>
+public sealed class WingmanNowVoiceDto
+{
+    /// <summary>
+    /// One of <see cref="WingmanNowVoiceKinds"/>: <c>play</c> (there is audio to play), <c>preparing</c> (it is
+    /// being made), <c>turn-on</c> (voice is off for this session and may be turned on), or <c>none</c> (nothing
+    /// to offer at all, and the client draws no control).
+    /// </summary>
+    public string Kind { get; set; } = WingmanNowVoiceKinds.None;
+
+    /// <summary>The words on the control, or empty when there is no control.</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>
+    /// What to say once he turns voice on, already finished - null for every other kind.
+    ///
+    /// It differs on whether there is a stop to read: a session that has just stopped hears THIS stop in a few
+    /// seconds, and one that has not will hear the next. Saying the first to a session with nothing to read would
+    /// promise audio that never arrives, which is the same broken promise in smaller print.
+    /// </summary>
+    public string? AfterTurnOnText { get; set; }
+}
+
+/// <summary>The four kinds of voice control, named in one place so a rule and the fold cannot spell one two ways.</summary>
+public static class WingmanNowVoiceKinds
+{
+    public const string Play = "play";
+    public const string Preparing = "preparing";
+    public const string TurnOn = "turn-on";
+    public const string None = "none";
 }
 
 /// <summary>
