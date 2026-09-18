@@ -160,6 +160,9 @@ internal static class SessionStopFold
                 RowRemoved = known && answer.RowRemoved,
                 WorktreePath = known ? answer.WorktreePath : null,
                 WorktreeHadUncommittedChanges = known ? answer.WorktreeHadUncommittedChanges : null,
+                PooledWorktreeHeldReason = known && !string.IsNullOrWhiteSpace(answer.PooledWorktreeHeldReason)
+                    ? answer.PooledWorktreeHeldReason!.Trim()
+                    : null,
                 Reason = reason,
                 StoppedBy = stoppedBy,
                 Killed = answer.Killed,
@@ -167,17 +170,26 @@ internal static class SessionStopFold
             };
             // Under the older-Director cause there is no worktree to name, and Ruling 2's sentence must never
             // be invented. The reason line always belongs - it is the CALLER's words, which this Gateway knows.
-            AddDetails(undescribed, undescribed.WorktreePath, undescribed.WorktreeHadUncommittedChanges, reason);
+            AddDetails(undescribed, undescribed.WorktreePath, undescribed.WorktreeHadUncommittedChanges, reason,
+                undescribed.PooledWorktreeHeldReason);
             return undescribed;
         }
 
+        // A ROW THAT WAS KEPT ON PURPOSE IS NOT A ROW THAT WAS NEVER THERE. When the Director reports a
+        // held pooled worktree it is saying it HAD a row, still has it, and why - so the "no row was
+        // left to remove" sentence, which says the opposite, must not be reached.
+        var heldWorktree = (answer.PooledWorktreeHeldReason ?? "").Trim();
         var headline = answer.Verdict == SessionStopVerdict.Stopped
             ? (answer.RowRemoved
                 ? $"stopped {shortId} - process {answer.ProcessId} ended, row removed"
-                : $"stopped {shortId} - process {answer.ProcessId} ended, no row was left to remove")
+                : heldWorktree.Length > 0
+                    ? $"stopped {shortId} - process {answer.ProcessId} ended; the row was kept because its pooled worktree is held"
+                    : $"stopped {shortId} - process {answer.ProcessId} ended, no row was left to remove")
             : (answer.RowRemoved
                 ? $"already stopped {shortId} - no process was running; the row it left behind has been cleared"
-                : $"already stopped {shortId} - no process was running, and no row was left to remove");
+                : heldWorktree.Length > 0
+                    ? $"already stopped {shortId} - no process was running; the row was kept because its pooled worktree is held"
+                    : $"already stopped {shortId} - no process was running, and no row was left to remove");
 
         var response = new SessionStopResponse
         {
@@ -190,13 +202,15 @@ internal static class SessionStopFold
             RowRemoved = answer.RowRemoved,
             WorktreePath = answer.WorktreePath,
             WorktreeHadUncommittedChanges = answer.WorktreeHadUncommittedChanges,
+            PooledWorktreeHeldReason = heldWorktree.Length > 0 ? heldWorktree : null,
             Reason = reason,
             StoppedBy = stoppedBy,
             Killed = answer.Killed,
             Removed = answer.Removed,
         };
 
-        AddDetails(response, answer.WorktreePath, answer.WorktreeHadUncommittedChanges, reason);
+        AddDetails(response, answer.WorktreePath, answer.WorktreeHadUncommittedChanges, reason,
+            response.PooledWorktreeHeldReason);
         return response;
     }
 
@@ -226,7 +240,8 @@ internal static class SessionStopFold
 
         // No worktree line: there is no session, so there is no worktree, and inventing "no worktree" would
         // be a claim about a machine nobody asked.
-        AddDetails(response, worktreePath: null, worktreeHadUncommittedChanges: null, reason: reason);
+        AddDetails(response, worktreePath: null, worktreeHadUncommittedChanges: null, reason: reason,
+            pooledWorktreeHeldReason: null);
         return response;
     }
 
@@ -240,8 +255,17 @@ internal static class SessionStopFold
     /// values are falsy in every language this answer passes through.
     /// </summary>
     private static void AddDetails(
-        SessionStopResponse response, string? worktreePath, bool? worktreeHadUncommittedChanges, string? reason)
+        SessionStopResponse response, string? worktreePath, bool? worktreeHadUncommittedChanges, string? reason,
+        string? pooledWorktreeHeldReason)
     {
+        // The pooled worktree line goes FIRST when there is one: it is the reason the row is still on
+        // the screen, and it is the only line that asks the reader to do something.
+        if (!string.IsNullOrWhiteSpace(pooledWorktreeHeldReason))
+            response.Details.Add(
+                $"the pooled worktree was not returned and is held - {pooledWorktreeHeldReason.Trim()}. "
+                + "Nothing in it was touched. The session row was kept so this is visible; stopping it "
+                + "again removes the row and leaves the worktree held.");
+
         if (!string.IsNullOrWhiteSpace(worktreePath))
         {
             var tail = worktreeHadUncommittedChanges switch

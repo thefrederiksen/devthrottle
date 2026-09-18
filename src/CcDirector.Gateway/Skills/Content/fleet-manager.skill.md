@@ -22,8 +22,12 @@ Say the gaps plainly; never act as if a missing piece exists.
 | Outcome records (Ready, Finding, Decision) that stay open until answered | Built. `fleet ready`, `fleet finding`, `fleet decision`, `fleet answer` (below). Only the account's marked Fleet Manager session, or the owner on their own phone or browser, may use them. |
 | One digest command for the start of a conversation | Built. `fleet digest` (below). It holds every open record, and the oldest 200 unacknowledged events; it says when more events remain. |
 | Seeing the sessions an earlier Fleet Manager started | Built. After a reset or a move, `fleet digest` lists them with the id of the earlier Fleet Manager that still owns them. |
+| Where you run, and being started, restarted or moved | Built, and it is the owner's, not yours. The owner chooses the agent and the computer, and starts, restarts or moves you, in Settings on the Fleet Manager tab. There is no command for it, and the Gateway refuses those routes to a session key. A restart or a move starts a new Fleet Manager session but does NOT mark it yet: the old one stays the marked Fleet Manager - it can still file what it is working on - until its Director reports it idle and it has been closed. Only then does the mark move, and the new one is sent ONE `marked` event telling it so. A new session started that way is told to wait: it does nothing, and the Gateway refuses it the Fleet Manager commands, until that event arrives. The old one is never closed while it is working or waiting for the owner. |
+| The owner's Fleet Manager page | Built, in the Cockpit. It draws your conversation, a card for each record you filed, what is waiting on the owner, the sessions you own and the Ready cards answered today. When the owner presses a card's button, ONE Gateway call answers that record with the button's words and queues them to you as an `answered` event (below): `Merge: <title>`, `Send it back: <title>. <their words>`, `Got it: <title>`, or a Decision's option text. It reaches you only while you are idle, it is kept until you acknowledge it, and a restarted Fleet Manager is sent it too. The record is already answered when you read it - act on the words, do not answer the record again, then acknowledge the event. There is no command for the page; it refuses a session key. |
+| The owner's walkthrough ("Take me through them") | Built, in the Cockpit. One open record at a time, in the "Waiting on you" order: the Wingman's reading of that record's session, **your one line of advice**, the session's last lines, and the Wingman's answer buttons, with the session's pick and yours both marked. An answer goes straight to the session and is then recorded on the record as the owner's answer, in the option's own words - it is NOT typed to you, so read it in `fleet digest` (`answered`). A snooze keeps the record open and writes an `ownerNote` on it. Close is offered only when the Gateway can see the session's work has landed, and is recorded as the answer `Close the session.` A record about no session, or whose session has no current reading, is answered with its card's buttons, exactly as on the page. There is no command for the walkthrough; it refuses a session key. |
 | Being told when a pull request is opened or merged, or a report is written | Not built yet - a later part of phase 1. Read the session when its stop says so. |
-| Handing an existing session over to you | Not built. A session an earlier Fleet Manager started stays owned by that earlier session until hand over is built; you can see it, but it raises no events for you. Say so when they ask. |
+| Pinned first in the owner's session list | Built. You are the first row of the owner's session list in the Cockpit and on the phone, marked "Fleet Manager", with the sessions you own collapsed under you. |
+| Handing an existing session over to you, or back to the owner | Built. The owner hands a session over from the Cockpit: the "Hand sessions to the Fleet Manager..." list on the Fleet Manager page, or "Hand to the Fleet Manager" and "Hand back to me" in a session's menu. You may make the same change with your own key, and only when the owner has asked you to (for example "take over those sessions", or "give that one back to me"): `cc-devthrottle session hand-over <session> --to fleet-manager` takes a session that asks the owner directly, and `cc-devthrottle session hand-over <session> --to owner` hands a session you own back to the owner. Never take a session on your own initiative. The Gateway refuses you a session another running session owns, a session of another account, and every other session's key. The moment a session is handed to you, its stops and its death come to you as events and it stops going red for the owner; handed back, they stop coming to you. A session another running session owns is never handed over. A session an earlier Fleet Manager started can be handed to you once that earlier one has ended. |
 
 ## The start-of-conversation routine
 
@@ -44,8 +48,8 @@ conversation:
   you. It is never cut short; if the records and the counts ever disagree the command fails instead.
 - `sessions` - the sessions you own AND the sessions an earlier Fleet Manager started, each with its
   state (`needs-you`, `working`, `stopped`), its `owner` (the Fleet Manager session that controls it),
-  and what the Wingman last read for it. A row whose owner is not you has not been handed over to you
-  - that is a later step. `fleet digest --json` has the rest: each session's `turnVerdict`,
+  and what the Wingman last read for it. A row whose owner is not you has not been handed over to you;
+  it becomes yours only when the owner hands it over, or asks you to take it (the table above). `fleet digest --json` has the rest: each session's `turnVerdict`,
   `stateLabel`, `missionName` and `uncommittedCount`.
 - `preferences` - the owner's standing preferences, in their own words.
 - `events` - the stops and deaths of sessions you own that nobody has acknowledged yet, oldest
@@ -79,9 +83,20 @@ that starts with this line:
 One prompt carries at most 200 events. When more are owed it says how many more wait; they come
 at your next idle moment. A stop is not sent while it is still waiting for its reading.
 
-Each event in it has its id, whether it is a `stop` or `died`, the session's id and full name, and
-for a stop the Wingman's reading of it: the verdict, `finishedKind`, label, summary, risk,
+Each event in it has its id and its kind. A `stop` or `died` event has the session's id and full
+name, and for a stop the Wingman's reading of it: the `verdictId` (the identity of that stop), the verdict, `finishedKind`, label, summary, risk,
 `answerVia`, options, `agentRecommends` and the evidence, copied exactly between `<<<` and `>>>`.
+Two more kinds come the same way:
+
+- **`answered`** - the owner pressed a button on one of your cards. It names the `record` (id and
+  title), the session the record was about, and the owner's words, copied exactly between `<<<`
+  and `>>>`. The record is already answered: carry the words out as if the owner had said them to
+  you, do not `fleet answer` it again, then acknowledge the event. The first line counts them:
+  `... and 1 card answered by the owner since your last turn.`
+- **`marked`** - the account's mark has just moved to you after a restart or a move. The first line
+  then begins `[Fleet Manager events] You are now this account's Fleet Manager.` Run
+  `cc-devthrottle workflow instructions fleet-manager` and follow it, then `cc-devthrottle fleet digest`,
+  then acknowledge the event. It is sent only to the session it names.
 
 - **Start from the Wingman's reading in the event.** Act on it as the conduct says. Do not open the
   session's screen to find out what happened.
@@ -151,15 +166,38 @@ from your prose. **File one the moment something is ready, found, or needs a dec
 moment the owner answers. Never keep an open item only in the conversation.**
 
 ```
-cc-devthrottle fleet ready "<title>" --pr <full link> --risk low|medium|high --checks passed|failed|none --tested "<how>" --reviewed-by "<who>" --change "<one sentence for a user>" --session <session>
-cc-devthrottle fleet finding "<title>" --answer "<the answer>" --reason "<why>" --link <report> --session <session>
-cc-devthrottle fleet decision "<title>" --question "<question>" --option "<a>" --option "<b>" --recommend "<a>" --why "<why>" --session <session>
+cc-devthrottle fleet ready "<title>" --pr <full link> --risk low|medium|high --checks passed|failed|none --tested "<how>" --reviewed-by "<who>" --change "<one sentence for a user>" --session <session> --verdict <verdictId>
+cc-devthrottle fleet finding "<title>" --answer "<the answer>" --reason "<why>" --link <report> --session <session> --verdict <verdictId>
+cc-devthrottle fleet decision "<title>" --question "<question>" --option "<a>" --option "<b>" --recommend "<a>" --why "<why>" --session <session> --verdict <verdictId>
+cc-devthrottle fleet ready ... --session <session> --advice "<one line of advice>" --pick "<option key>"
+cc-devthrottle fleet advise <id> "<one line of advice>" --pick "<option key>"
 cc-devthrottle fleet outcomes
 cc-devthrottle fleet show <id>
 cc-devthrottle fleet answer <id> "<the owner's words, exactly>"
 ```
 
 - `--session` is the session the news is about; leave it off when there is none.
+- **When you file a record from a stop event, give that event's `verdictId` with `--verdict`.** It
+  names the stop the record is about, and goes with `--session`. The owner can then answer the
+  record with the session's own buttons in the walkthrough, and only an answer to THAT stop closes
+  it - an answer to a later stop of the same session never does. A record filed without `--verdict`
+  (a finding or a ready that is not about one stop) is answered through its own card. The Gateway
+  refuses a `verdictId` it does not hold, or one about another session.
+- **When you file a record, write one line of advice with it** (`--advice`, on `fleet ready`,
+  `fleet finding` and `fleet decision`). Use what you know and the Wingman does not: the owner's past
+  choices, the Mission, the other sessions. Never repeat the Wingman's reading, and never rewrite
+  the session's words - the owner sees those beside your line. The owner reads it in the
+  walkthrough, under "The Fleet Manager says".
+- **One line.** The Gateway refuses a line break, and more than 300 characters, with a sentence
+  saying why; shorten it and send it again.
+- `--pick` names the Wingman option you would choose for that session, by its key, exactly as the
+  reading's `options` show it. It goes with `--advice`, and it must be one of the options of the
+  session's CURRENT reading - the Gateway refuses anything else and lists the keys. The owner sees
+  your pick and the session's own pick marked side by side.
+- `fleet advise <id>` writes or replaces the advice (and the pick) on an open record afterwards -
+  when the picture changes, or when you filed it before the Wingman had read the stop. Leaving
+  `--pick` out clears the pick. Only you may write advice; the owner's own device is refused. An
+  answered record is not changed.
 - `fleet answer` takes the owner's words exactly as they said them. An answer is final: a record that
   is already answered is refused, never re-answered - even when the owner answered it at the same
   moment on their phone. The record keeps who answered: `owner` or `fleet-manager`. A Decision's answer
@@ -168,6 +206,10 @@ cc-devthrottle fleet answer <id> "<the owner's words, exactly>"
   there are more it says `count: <shown> of <total>` and prints `nextCursor:` - pass that to
   `--cursor` for the next page, or use `--all` to list every page. `fleet digest` is the complete
   list of open records.
+- `fleet digest` also lists `answered`: every record answered in the last 24 hours, with who
+  answered and the words. That is how you learn what the owner decided in the walkthrough, where
+  nothing is typed to you. An answer of `Close the session.` means the owner closed that session.
+  An open record's `ownerNote` says what the owner did without answering it (a snooze).
 
 ## Standing preferences
 

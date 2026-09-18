@@ -73,6 +73,22 @@ public sealed class TerminalVerificationResult
 /// </summary>
 public sealed record ScreenSegment(string Text, string? Fg, string? Bg, bool Bold);
 
+/// <summary>How an owner change (<see cref="Session.SetController"/>) ended.</summary>
+public enum OwnerChangeOutcome
+{
+    /// <summary>The owner changed, and the change is on disk.</summary>
+    Changed,
+
+    /// <summary>The owner was already the one asked for; nothing changed.</summary>
+    AlreadySo,
+
+    /// <summary>The owner is no longer the one the change expected, so nothing changed.</summary>
+    OwnerMoved,
+}
+
+/// <summary>An owner change's outcome, with the reason when it was refused.</summary>
+public sealed record OwnerChangeResult(OwnerChangeOutcome Outcome, string? Reason);
+
 /// <summary>
 /// Represents a single Claude session. Delegates process management to an ISessionBackend.
 /// Session handles metadata, activity state, and routing - backend handles process I/O.
@@ -180,12 +196,72 @@ public sealed class Session : IDisposable
     /// group header. Same for every member of a group; null for a solo session.</summary>
     public string? GroupName { get; internal set; }
 
-    /// <summary>When this session was spawned to be controlled by ANOTHER session (issue #815) -
-    /// a "Supporting" sub-agent - the id of the controlling session; null for a normal session.
-    /// Set ONLY at birth and immutable afterwards (stamped by the create/restore paths, like
-    /// <see cref="GroupId"/>). Drives the recessive "Supporting" status color, which is honored
-    /// only while the controlling session still exists; a red "needs you" still breaks through.</summary>
+    /// <summary>When this session is controlled by ANOTHER session (issue #815) - a "Supporting"
+    /// sub-agent - the id of the controlling session (its OWNER); null for a normal session, which the
+    /// user owns. Stamped at birth by the create/restore paths, and changed afterwards only by the
+    /// Gateway's hand over (<see cref="SetController"/>, the Fleet Manager mission, step 8). Drives the
+    /// recessive "Supporting" status color, which is honored only while the controlling session still
+    /// exists; a red "needs you" still breaks through.</summary>
     public Guid? ControllerSessionId { get; internal set; }
+
+    /// <summary>Raised after <see cref="SetController"/> changed the owner, so the change is pushed to the
+    /// Gateway at once instead of waiting for the next full re-push.</summary>
+    public event Action? OnControllerChanged;
+
+    /// <summary>Held while an owner change is compared, stored and written to disk, so two changes of one session never
+    /// interleave.</summary>
+    private readonly object _ownerGate = new();
+
+    /// <summary>
+    /// Change which session owns this one (the Fleet Manager mission, step 8) - COMPARE AND SET: the owner becomes
+    /// <paramref name="controllerSessionId"/> (nobody when null) only if it is still <paramref name="expectedOwner"/>,
+    /// the owner the Gateway checked before it decided (nobody when null). The compare, the change and the write to
+    /// disk happen under one lock, so of two changes sent at once exactly one finds the owner it expected.
+    ///
+    /// <paramref name="writeToDisk"/> makes the change durable and throws when it cannot; the change is then undone, the
+    /// exception is rethrown, and nothing is raised - an owner change that is not on disk did not happen. Null when the
+    /// caller keeps no record on disk (a test). <see cref="OnControllerChanged"/> is raised only after the write
+    /// succeeded, outside the lock.
+    /// </summary>
+    public OwnerChangeResult SetController(Guid? expectedOwner, Guid? controllerSessionId, Action<Session>? writeToDisk)
+    {
+        if (controllerSessionId == Id)
+            throw new ArgumentException($"session {Id} cannot own itself", nameof(controllerSessionId));
+        Guid? previous;
+        lock (_ownerGate)
+        {
+            previous = ControllerSessionId;
+            if (previous != expectedOwner)
+            {
+                var reason = $"session {Id} is owned by {OwnerName(previous)}, not by {OwnerName(expectedOwner)} as the change expected";
+                FileLog.Write($"[Session] {Id} SetController REFUSED: {reason}");
+                return new OwnerChangeResult(OwnerChangeOutcome.OwnerMoved, reason);
+            }
+            if (previous == controllerSessionId)
+            {
+                FileLog.Write($"[Session] {Id} SetController: already owned by {OwnerName(controllerSessionId)}");
+                return new OwnerChangeResult(OwnerChangeOutcome.AlreadySo, null);
+            }
+            ControllerSessionId = controllerSessionId;
+            try
+            {
+                writeToDisk?.Invoke(this);
+            }
+            catch (Exception ex)
+            {
+                ControllerSessionId = previous;
+                FileLog.Write($"[Session] {Id} SetController FAILED: the owner change to {OwnerName(controllerSessionId)} " +
+                              $"could not be written to disk and was undone: {ex.Message}");
+                throw;
+            }
+        }
+        FileLog.Write($"[Session] {Id} SetController: owner {OwnerName(previous)} -> {OwnerName(controllerSessionId)}");
+        try { OnControllerChanged?.Invoke(); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnControllerChanged handler threw: {ex.Message}"); }
+        return new OwnerChangeResult(OwnerChangeOutcome.Changed, null);
+    }
+
+    private static string OwnerName(Guid? owner) => owner?.ToString() ?? "(the user)";
 
     /// <summary>True when this session is a controlled sub-agent (issue #815) - it carries a
     /// <see cref="ControllerSessionId"/>. Whether the recessive "Supporting" color is actually
@@ -529,6 +605,31 @@ public sealed class Session : IDisposable
 
     public string RepoPath { get; }
     public string WorkingDirectory { get; }
+
+    /// <summary>
+    /// The pooled worktree this session was handed when its repository has the pooled-worktree setting
+    /// turned on, or null for every other session - which is every session by default.
+    ///
+    /// When it is set, <see cref="RepoPath"/> and <see cref="WorkingDirectory"/> are the SLOT, because
+    /// that is where the agent is working and every consumer of those properties means "where the
+    /// session is". The repository the slot came from is <c>PooledWorktree.Repo</c>.
+    ///
+    /// The LEASE is the reason this is kept on the session at all: close is the only moment it is
+    /// needed, and without it cc-worktrees has no evidence the holder let go and will not take the
+    /// slot back.
+    /// </summary>
+    public Git.PooledWorktree? PooledWorktree { get; internal set; }
+
+    /// <summary>
+    /// Why cc-worktrees did NOT take the pooled worktree back when this session closed, in the tool's
+    /// own words - or null when there was nothing to return or it came back free.
+    ///
+    /// A held slot keeps whatever is in it and this session's row stays, so the reason is in front of
+    /// the person who closed it. Nothing is forced, retried with a stronger flag, or destroyed on the
+    /// strength of it.
+    /// </summary>
+    public string? PooledWorktreeHeldReason { get; internal set; }
+
     public SessionStatus Status { get; internal set; }
     public DateTimeOffset CreatedAt { get; }
     public string? ClaudeArgs { get; }
@@ -1549,15 +1650,11 @@ public sealed class Session : IDisposable
     ///  - The Exes payload does carry it (ExesEndpoints, beside effectiveColor/stateLabel), and that one
     ///    genuinely is carrying: the live page renders the fold.
     ///
-    /// ONE PRESENTATION READER IS LEFT, AND IT IS NOT THIS FIELD - it is the wire copy, SessionDto
-    /// .StatusColor, at LoopbackCarModeFleet.ToInfo: <c>StateLabel ?? (EffectiveColor ?? StatusColor)</c>,
-    /// which Car Mode SPEAKS. It is a fallback chain that ends at the Director's cooked colour, so on paper
-    /// a client still renders a Director decision. It appears unreachable - SessionOrdering.StateLabel
-    /// returns a non-empty literal on every arm, and the Gateway stamps it for every session in the fleet
-    /// pass - but "appears unreachable" is not a proof, and the one hole (a blank DictationStatus returns
-    /// blank) is real. NOT changed here: what Car Mode says when the fold's label is blank is a question
-    /// about Car Mode's spoken output, not about this field, and it is raised with the Architect rather
-    /// than guessed at.
+    /// NO SCREEN OR VOICE RENDERS THE WIRE COPY. The Cockpit and the phone render the Gateway's fold
+    /// (EffectiveColor and StateLabel; SessionOrdering.StateLabel is pinned never blank by
+    /// StateLabelIsNeverBlankTests). The only client reader of SessionDto.StatusColor is the phone's voice screen,
+    /// which compares it between two polls to notice that a session changed (useVoiceMode's sameSession) and
+    /// shows nothing from it.
     /// </summary>
     public string StatusColor { get; private set; } = "blue";
 

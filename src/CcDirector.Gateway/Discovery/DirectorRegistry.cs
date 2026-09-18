@@ -251,7 +251,8 @@ public sealed class DirectorRegistry : IDisposable
     /// by (tenant, id). Not a second identity: it is the device key the hub already authenticated and bound this
     /// Director id to, kept so an HTTP route can ask whether its caller is that Director (the Message Load
     /// mission, inspection 11). Several Directors on one machine share one device key, so one credential may
-    /// register several ids. Cleared with the entry.
+    /// register several ids, and one id is never shared by two credentials: the FIRST credential to register an
+    /// id keeps it (see <see cref="BoundToAnotherCredential"/>). Cleared when the entry is removed, and only then.
     /// </summary>
     private readonly ConcurrentDictionary<DirectorKey, string> _registeredBy = new();
 
@@ -268,6 +269,29 @@ public sealed class DirectorRegistry : IDisposable
                && _registeredBy.TryGetValue(key, out var registered)
                && string.Equals(registered, credential, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// True when this account's <paramref name="directorId"/> is already bound to a credential and it is NOT
+    /// <paramref name="credential"/> - that is, when a Hello on <paramref name="credential"/> would be refused.
+    /// The hub asks this BEFORE it touches any connection state, so a refused Hello leaves nothing behind; the
+    /// rule itself lives in <see cref="RegisterFromStream"/>, which refuses the same case under the gate.
+    ///
+    /// A null or empty credential is NO STATEMENT, not a different key: it never takes a binding, so it never
+    /// trips this. That is the self-hosted path, where an unauthenticated registration carries no credential.
+    /// </summary>
+    public bool IsBoundToAnotherCredential(TenantId tenant, string directorId, string? credential)
+        => !string.IsNullOrEmpty(directorId) && BoundToAnotherCredential(new DirectorKey(tenant, directorId), credential);
+
+    /// <summary>
+    /// THE rule, in one place, read by both the public question above and the write below: this id already
+    /// belongs to some other credential. Deliberately does not ask whether an entry is present - the binding is
+    /// cleared with the entry (<see cref="TryRemoveEntry"/>), so a binding without an entry is not a state this
+    /// class produces, and refusing on the binding alone is the fail-CLOSED direction if one ever appeared.
+    /// </summary>
+    private bool BoundToAnotherCredential(DirectorKey key, string? credential)
+        => !string.IsNullOrEmpty(credential)
+           && _registeredBy.TryGetValue(key, out var bound)
+           && !string.Equals(bound, credential, StringComparison.Ordinal);
 
     // ===== HTTP path =====
 
@@ -333,6 +357,10 @@ public sealed class DirectorRegistry : IDisposable
     /// tenant's own entry and is structurally incapable of naming another tenant's, however the client chose
     /// its director id. It is never read from the Hello payload, and there is no default: an unresolved tenant
     /// is a rejected Hello at the hub, not a registration under a guessed owner.
+    ///
+    /// Inspection 12, finding 1: THROWS <see cref="DirectorIdBoundToAnotherCredentialException"/> when
+    /// <paramref name="registeredByCredential"/> is not the credential this account's entry for this id is
+    /// already bound to. The caller closes the connection; nothing about the existing entry changes.
     /// </summary>
     public DirectorDto RegisterFromStream(string directorId, string machineName, string user, string version, int pid, DateTime startedAt, TenantId tenant,
         string displayName = "", string? registeredByCredential = null)
@@ -361,6 +389,21 @@ public sealed class DirectorRegistry : IDisposable
         bool existed;
         lock (_livenessGate)
         {
+            // A DIRECTOR ID BELONGS TO THE CREDENTIAL THAT FIRST REGISTERED IT (inspection 12, finding 1).
+            // A Hello on ANOTHER key of the same account is refused here rather than taking the id over. The
+            // binding is what a route asks when it needs to know whether its caller really is that Director,
+            // so a last-writer-wins binding was no check at all: a second workstation key could say Hello as
+            // the real Director and then write every restore mark under its name. The same credential re-binds
+            // freely - that is an ordinary reconnect - and the binding is cleared only when the entry is
+            // removed (TryRemoveEntry), which is how a legitimately re-enrolled Director takes its id back.
+            // Checked under the SAME gate as the write, so two Hellos racing cannot both pass it.
+            if (BoundToAnotherCredential(key, registeredByCredential))
+            {
+                FileLog.Write($"[DirectorRegistry] RegisterFromStream REFUSED: id={directorId}, tenant={tenant.Value}: "
+                              + "already registered on another device key of this account");
+                throw new DirectorIdBoundToAnotherCredentialException(tenant, directorId);
+            }
+
             _directors.TryGetValue(key, out var existing);
             dto = new DirectorDto
             {
@@ -384,10 +427,12 @@ public sealed class DirectorRegistry : IDisposable
             };
             existed = existing is not null;
             _directors[key] = dto;
-            // The credential this Hello authenticated with. A reconnect on another key re-binds the id to it; a
-            // registration that names none leaves no binding, so nothing can prove itself to be this Director.
+            // The credential this Hello authenticated with, recorded the FIRST time and refreshed by that same
+            // credential afterwards - the refusal above is what makes "first" mean anything. A registration that
+            // names none (the self-hosted, unauthenticated path) leaves whatever binding is already there
+            // untouched: a binding is cleared ONLY when the entry is removed, never by a later Hello, or a
+            // credential-less Hello would be a way to unbind an id and then claim it.
             if (registeredByCredential is not null) _registeredBy[key] = registeredByCredential;
-            else _registeredBy.TryRemove(key, out _);
         }
         _stateReporting.TryAdd(directorId, true);
         if (!existed)

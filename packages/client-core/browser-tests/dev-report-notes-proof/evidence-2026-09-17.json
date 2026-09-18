@@ -17,62 +17,117 @@
           "rerun"
         ]
       },
-      "token": "e14bb5dd5d97dadc0ed32911a48d5ca5"
+      "token": "3bb6aa701469d77cbb04e3322b84affc"
     },
-    "sendPayloadTheHostGot": {
-      "channel": "devthrottle.dev-report",
-      "version": 1,
-      "type": "send",
-      "payload": {
-        "items": [
-          {
-            "id": "n1",
-            "kind": "note",
-            "text": "Forty-two failures cannot be right - the suite has twelve tests.",
-            "anchor": {
-              "type": "table-cell",
-              "selector": "#results > tbody > tr:nth-of-type(2) > td:nth-of-type(3)",
-              "quote": "42",
-              "rowLabel": "Gateway",
-              "columnLabel": "Failures"
-            }
-          },
-          {
-            "id": "a2",
-            "kind": "answer",
-            "questionId": "rerun",
-            "question": "Should the failed suite be rerun tonight?",
-            "optionValue": "tomorrow",
-            "optionLabel": "Wait for tomorrow - nothing is blocked",
-            "comment": "The database is back tomorrow morning."
-          }
-        ]
+    "hostedPageDraws": {
+      "pageDraws": {
+        "queued": 0,
+        "sent": 0,
+        "replies": 0,
+        "send": 0,
+        "payloadBox": 0,
+        "conversation": 0,
+        "headings": 0,
+        "addNote": 1,
+        "noteBox": 1,
+        "queueAnswer": 1
       },
-      "token": "e14bb5dd5d97dadc0ed32911a48d5ca5"
+      "sendButtons": {
+        "inApp": 1,
+        "inPage": 0,
+        "total": 1
+      }
+    },
+    "sendPayloadTheAppCarried": {
+      "items": [
+        {
+          "id": "n-429a95b4963e0d544d5cffe5d3ce31ff",
+          "kind": "note",
+          "text": "Forty-two failures cannot be right - the suite has twelve tests.",
+          "anchor": {
+            "type": "table-cell",
+            "selector": "#results > tbody > tr:nth-of-type(2) > td:nth-of-type(3)",
+            "quote": "42",
+            "rowLabel": "Gateway",
+            "columnLabel": "Failures"
+          }
+        },
+        {
+          "id": "a-3150f881935ddf71d480f9da5fe2dd04",
+          "kind": "answer",
+          "questionId": "rerun",
+          "question": "Should the failed suite be rerun tonight?",
+          "optionValue": "tomorrow",
+          "optionLabel": "Wait for tomorrow - nothing is blocked",
+          "comment": "The database is back tomorrow morning."
+        }
+      ]
+    },
+    "noteBoxPlacement": {
+      "overCell": {
+        "box": {
+          "top": 386.703125,
+          "left": 793.703125,
+          "bottom": 522.6875,
+          "right": 1113.703125,
+          "width": 320,
+          "height": 135.984375
+        },
+        "cell": {
+          "top": 341.703125,
+          "left": 793.703125,
+          "bottom": 378.703125,
+          "right": 1067,
+          "width": 273.296875,
+          "height": 37
+        },
+        "trayScrolls": false,
+        "pageScrollsSideways": false
+      },
+      "overQuestion": {
+        "box": {
+          "top": 546.390625,
+          "left": 167,
+          "bottom": 682.375,
+          "right": 487,
+          "width": 320,
+          "height": 135.984375
+        },
+        "heading": {
+          "top": 336,
+          "left": 167,
+          "bottom": 364.078125,
+          "right": 1067,
+          "width": 900,
+          "height": 28.078125
+        },
+        "question": {
+          "top": 336,
+          "left": 167,
+          "bottom": 538.390625,
+          "right": 1067,
+          "width": 900,
+          "height": 202.390625
+        }
+      }
     },
     "reloadRightAfterPushes": {
-      "sent": "Table cell - row \"Gateway\", column \"Failures\": \"42\"Forty-two failures cannot be right - the suite has twelve tests.Held - delivered when the agent finishes its turn",
-      "queued": "Answer: Should the failed suite be rerun tonight?Wait for tomorrow - nothing is blocked - The database is back tomorrow morning.Not taken - try againRemove",
-      "replies": "2026-09-16T12:00:00ZYou are right - the fixture double-counted. Fixed in section 1."
+      "sent": "Table cell - row \"Gateway\", column \"Failures\": \"42\"\nForty-two failures cannot be right - the suite has twelve tests.\nHeld - delivered when the agent finishes its turn",
+      "queued": "Answer: Should the failed suite be rerun tonight?\nWait for tomorrow - nothing is blocked - The database is back tomorrow morning.\nNot taken - try again",
+      "replies": "2026-09-16T10:00:00Z\nYou are right - the fixture double-counted. Fixed in section 1."
     },
     "resend": {
-      "channel": "devthrottle.dev-report",
-      "version": 1,
-      "type": "send",
-      "payload": {
-        "items": [
-          {
-            "id": "a2",
-            "kind": "answer",
-            "questionId": "rerun",
-            "question": "Should the failed suite be rerun tonight?",
-            "optionValue": "tomorrow",
-            "optionLabel": "Wait for tomorrow - nothing is blocked",
-            "comment": "The database is back tomorrow morning."
-          }
-        ]
-      },
-      "token": "12113b77fbd24d42a159339c900d5e3d"
+      "items": [
+        {
+          "id": "a-3150f881935ddf71d480f9da5fe2dd04",
+          "kind": "answer",
+          "questionId": "rerun",
+          "question": "Should the failed suite be rerun tonight?",
+          "optionValue": "tomorrow",
+          "optionLabel": "Wait for tomorrow - nothing is blocked",
+          "comment": "The database is back tomorrow morning."
+        }
+      ]
     },
     "afterReload": {
       "scrollY": 300,
@@ -89,7 +144,7 @@
         "payload": {
           "items": [
             {
-              "id": "a1",
+              "id": "a-a1ec0b88aa80310ebed0a0b0801564fa",
               "kind": "answer",
               "questionId": "rerun",
               "question": "Should the failed suite be rerun tonight?",
@@ -157,10 +212,12 @@
     "A: the report is in a sandboxed frame that cannot reach its host",
     "B: the page announces ready with the host's token and its question ids",
     "C: the recommended option is preselected",
-    "F: queued items show as queued and not as sent",
+    "O: hosted, the page draws no conversation and no Send - one conversation and one Send on the screen",
+    "F: queued items show as queued and not as sent, in the app's panel",
     "D: the note names the table cell by selector, text, row and column",
     "E: the answer carries the question, the chosen option and the comment",
-    "G: one send carries both items, and they stay queued, waiting, until the host confirms",
+    "G: one Send carries both items, and they stay queued until the host confirms",
+    "P: the note box is drawn beside what the note is about, over neither it nor its question, and the hosted tray does not scroll",
     "J: a reload straight after the host's status and reply keeps both",
     "H: statuses and the reply show verbatim; a refused item stays queued with the reason and is the only thing sent again",
     "I: malformed, foreign and unknown messages are ignored",

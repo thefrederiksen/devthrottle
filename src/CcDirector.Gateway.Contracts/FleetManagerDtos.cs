@@ -68,9 +68,35 @@ public sealed class FleetOutcomeFileRequest
     /// <summary>The session the news is about, when there is one.</summary>
     public string? SessionId { get; set; }
 
+    /// <summary>The stop the news is about: the id of the Wingman verdict in the event the record is filed from.
+    /// Optional, and only with <see cref="SessionId"/>; it must be a verdict of that session. The Gateway stores it with
+    /// the verdict's turn end, and only a record that names its stop is closed by an answer sent to the session.</summary>
+    public string? VerdictId { get; set; }
+
     public FleetReadyDetails? Ready { get; set; }
     public FleetFindingDetails? Finding { get; set; }
     public FleetDecisionDetails? Decision { get; set; }
+
+    /// <summary>The Fleet Manager's ONE line of advice for the owner (step 7): what it knows and the Wingman does
+    /// not. Optional. A line break or more than 300 characters is refused.</summary>
+    public string? Advice { get; set; }
+
+    /// <summary>The key of the Wingman option the Fleet Manager would pick for the record's session (step 7).
+    /// Optional, and only with <see cref="Advice"/>; it must be one of the options of the session's current
+    /// reading.</summary>
+    public string? FleetManagerPick { get; set; }
+}
+
+/// <summary>The body of <c>PUT /gateway/fleet-manager/outcomes/{id}/advice</c> (step 7): the Fleet Manager's one
+/// line of advice for an open record, and optionally its pick. Replaces what was there; a missing pick clears
+/// it.</summary>
+public sealed class FleetOutcomeAdviceRequest
+{
+    /// <summary>One line, at most 300 characters.</summary>
+    public string? Advice { get; set; }
+
+    /// <summary>The key of one of the Wingman's options for the record's session, or null for no pick.</summary>
+    public string? Pick { get; set; }
 }
 
 /// <summary>The body of <c>POST /gateway/fleet-manager/outcomes/{id}/answer</c>.</summary>
@@ -93,6 +119,12 @@ public sealed class FleetOutcomeDto
 
     /// <summary>The session the news is about, or null.</summary>
     public string? SessionId { get; set; }
+
+    /// <summary>The id of the Wingman verdict - the stop - the record was filed about, or null when it names no stop.</summary>
+    public string? VerdictId { get; set; }
+
+    /// <summary>That verdict's turn end, stored when the record was filed, or null.</summary>
+    public DateTime? VerdictTurnEndObservedAtUtc { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
 
@@ -119,6 +151,22 @@ public sealed class FleetOutcomeDto
 
     /// <summary>On an answered decision: whether the answer was one of the options. Null otherwise.</summary>
     public bool? AnswerMatchedOption { get; set; }
+
+    /// <summary>The Fleet Manager's one line of advice, or null (step 7).</summary>
+    public string? Advice { get; set; }
+
+    /// <summary>The key of the Wingman option the Fleet Manager picked, as it was given, or null (step 7).</summary>
+    public string? FleetManagerPick { get; set; }
+
+    /// <summary>When the advice was last written, or null.</summary>
+    public DateTime? AdviceSetAtUtc { get; set; }
+
+    /// <summary>What the owner did about this record without answering it (a snooze), in the Gateway's words, or
+    /// null (step 7).</summary>
+    public string? OwnerNote { get; set; }
+
+    /// <summary>When <see cref="OwnerNote"/> was written, or null.</summary>
+    public DateTime? OwnerNoteAtUtc { get; set; }
 }
 
 /// <summary>The body of <c>POST /gateway/fleet-manager/preferences</c>.</summary>
@@ -224,6 +272,15 @@ public sealed class FleetDigestDto
 
     public FleetOutcomeCounts OutcomeCounts { get; set; } = new();
     public FleetOwnedSessionCounts OwnedSessionCounts { get; set; } = new();
+
+    /// <summary>The records answered in the last <see cref="AnsweredWithinHours"/> hours, newest answer first, at most
+    /// 50 (step 7): what the owner decided - on a card, in the walkthrough, or through the Fleet Manager - with the
+    /// words and who gave them. An open record's own <see cref="FleetOutcomeDto.OwnerNote"/> says what the owner did
+    /// without answering (a snooze).</summary>
+    public List<FleetOutcomeDto> RecentlyAnswered { get; set; } = new();
+
+    /// <summary>The window <see cref="RecentlyAnswered"/> covers.</summary>
+    public int AnsweredWithinHours { get; set; }
 
     /// <summary>The OLDEST unacknowledged events about sessions a Fleet Manager owns, delivered or not, up to one page
     /// of 200 (step 4). A stop still waiting for its reading is among them and says so. When

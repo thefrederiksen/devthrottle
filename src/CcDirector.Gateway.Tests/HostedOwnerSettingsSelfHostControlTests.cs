@@ -248,10 +248,14 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
             case "gateway/ai-provider":
                 foreach (var expected in new[]
                          {
-                             "provider", "wingmanModel", "wingmanFastModel", "carModeModel",
-                             "carModeEndPhrase", "transcriptionModel", "ttsModel", "ttsVoice", "voices",
+                             "provider", "wingmanModel", "wingmanFastModel", "transcriptionModel", "ttsModel",
+                             "ttsVoice", "voices",
                          })
                     Assert.Contains(expected, properties);
+                // The Assistant's fleet-brain model and the Car Mode end phrase left the product with the
+                // Assistant (the Fleet Manager mission, step 9); the read must not carry them any more.
+                Assert.DoesNotContain("carModeModel", properties);
+                Assert.DoesNotContain("carModeEndPhrase", properties);
                 Assert.Equal("devthrottle", root.GetProperty("provider").GetString());
                 Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("wingmanModel").GetString()));
                 break;
@@ -292,8 +296,6 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
                 // a write rather than a no-op.
                 data.Add(hosted, "PUT", "gateway/ai/wingman-model", "{\"model\":\"devthrottle/wingman-fast\"}", "wingman-model", "devthrottle/wingman-fast");
                 data.Add(hosted, "PUT", "gateway/ai/wingman-fast-model", "{\"model\":\"devthrottle/wingman\"}", "wingman-fast-model", "devthrottle/wingman");
-                data.Add(hosted, "PUT", "gateway/ai/car-mode-model", "{\"model\":\"devthrottle/wingman\"}", "car-mode-model", "devthrottle/wingman");
-                data.Add(hosted, "PUT", "gateway/ai/car-mode-end-phrase", "{\"phrase\":\"finished here\"}", "car-mode-end-phrase", "finished here");
                 data.Add(hosted, "PUT", "gateway/ai/tts-model", "{\"model\":\"hosted-speech\"}", "tts-model", "hosted-speech");
             }
             return data;
@@ -324,8 +326,6 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
         "tts-voice" => _gateway.TenantSettingsResolver.TtsVoice(TenantId.Local, TranscriptionModeConfig.Get()),
         "wingman-model" => _gateway.TenantSettingsResolver.WingmanModel(TenantId.Local, TranscriptionModeConfig.Get(), WingmanModelRole.Thinking).Value,
         "wingman-fast-model" => _gateway.TenantSettingsResolver.WingmanModel(TenantId.Local, TranscriptionModeConfig.Get(), WingmanModelRole.Fast).Value,
-        "car-mode-model" => _gateway.TenantSettingsResolver.CarModeModel(TenantId.Local).Value,
-        "car-mode-end-phrase" => _gateway.TenantSettingsResolver.CarModeEndPhrase(TenantId.Local),
         "tts-model" => _gateway.TenantSettingsResolver.TtsModel(TenantId.Local, TranscriptionModeConfig.Get()),
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, "no read-back written for this setting"),
     };

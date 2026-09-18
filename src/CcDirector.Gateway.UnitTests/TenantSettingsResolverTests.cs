@@ -29,51 +29,18 @@ public sealed class TenantSettingsResolverTests
     // needed, which still proves the cells are stored separately.
 
     [Fact]
-    public void CarModeModel_OverrideSet_ReturnsOverride()
-    {
-        using var h = new GatewayDbTestHarness();
-        var r = NewResolver(h);
-
-        r.SetCarModeModel(TenantA, "devthrottle/wingman", Now);
-
-        Assert.Equal("devthrottle/wingman", r.CarModeModel(TenantA).Value);
-    }
-
-    [Fact]
-    public void CarModeModel_NoOverride_ReturnsOperatorGlobalDefault()
-    {
-        using var h = new GatewayDbTestHarness();
-        var r = NewResolver(h);
-
-        Assert.Equal(CarModeModelConfig.Resolve(), r.CarModeModel(TenantA));
-    }
-
-    [Fact]
-    public void CarModeModel_CatalogIdOverride_FallsForwardToOperatorGlobalDefault()
-    {
-        using var h = new GatewayDbTestHarness();
-        var r = NewResolver(h);
-
-        // The Included AI revert-proof (issue #1360): a catalog-id Car Mode override saved by an older
-        // release must not reach the proxy - it would bill credits on an internal feature.
-        r.SetCarModeModel(TenantA, "zai-org/GLM-5.2", Now);
-
-        Assert.Equal(CarModeModelConfig.Resolve(), r.CarModeModel(TenantA));
-    }
-
-    [Fact]
     public void OneTenantsOverride_DoesNotLeakToAnother_WhoGetsTheGlobalDefault()
     {
         using var h = new GatewayDbTestHarness();
         var r = NewResolver(h);
 
-        // The thinking id: distinct from the fast-id operator default, so a leak is visible.
-        r.SetCarModeModel(TenantA, "devthrottle/wingman", Now);
+        // The thinking id on the FAST role: distinct from the fast-id operator default, so a leak is visible.
+        r.SetWingmanModel(TenantA, WingmanModelRole.Fast, "devthrottle/wingman", Now);
 
         // Tenant B never set an override: it must get the OPERATOR global default, never tenant A's value.
-        Assert.Equal("devthrottle/wingman", r.CarModeModel(TenantA).Value);
-        Assert.Equal(CarModeModelConfig.Resolve(), r.CarModeModel(TenantB));
-        Assert.NotEqual("devthrottle/wingman", r.CarModeModel(TenantB).Value);
+        Assert.Equal("devthrottle/wingman", r.WingmanModel(TenantA, Mode, WingmanModelRole.Fast).Value);
+        Assert.Equal(WingmanModelConfig.Resolve(Mode, WingmanModelRole.Fast), r.WingmanModel(TenantB, Mode, WingmanModelRole.Fast));
+        Assert.NotEqual("devthrottle/wingman", r.WingmanModel(TenantB, Mode, WingmanModelRole.Fast).Value);
     }
 
     [Fact]
@@ -138,12 +105,12 @@ public sealed class TenantSettingsResolverTests
     }
 
     [Fact]
-    public void SetCarModeModel_Empty_Throws()
+    public void SetTtsModel_Empty_Throws()
     {
         using var h = new GatewayDbTestHarness();
         var r = NewResolver(h);
 
-        Assert.Throws<ArgumentException>(() => r.SetCarModeModel(TenantA, "   ", Now));
+        Assert.Throws<ArgumentException>(() => r.SetTtsModel(TenantA, "   ", Now));
     }
 
     [Fact]

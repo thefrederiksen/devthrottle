@@ -1357,6 +1357,11 @@ public sealed class ControlApiHost : IAsyncDisposable
             // changes, so an idle session pushes nothing.
             session.OnUncommittedCountChanged += _ =>
                 _streamClient?.NotifyDelta(ControlEndpoints.Map(session, DirectorId));
+
+            // A change of owner (the Gateway's hand over, the Fleet Manager mission, step 8). The Gateway reads the
+            // owner off the pushed row to decide whose stops these are, so it must not wait for the re-push.
+            session.OnControllerChanged += () =>
+                _streamClient?.NotifyDelta(ControlEndpoints.Map(session, DirectorId));
         }
 
         _sessionManager.OnSessionCreated += session =>

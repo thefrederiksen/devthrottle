@@ -118,10 +118,24 @@ public sealed class FleetManagerEventStore
     public const string KindStop = "stop";
     public const string KindDied = "died";
 
+    /// <summary>The account's mark has moved to the session this event is addressed to: it is now the Fleet Manager
+    /// (a restart or a move, once the old one has closed). Delivered only to that session.</summary>
+    public const string KindMarked = "marked";
+
+    /// <summary>The owner answered a card: the record and the owner's words, kept until the Fleet Manager
+    /// acknowledges them.</summary>
+    public const string KindAnswered = "answered";
+
     public const string StatusUnacknowledged = "unacknowledged";
     public const string StatusAll = "all";
 
-    public static readonly IReadOnlyList<string> Kinds = new[] { KindStop, KindDied };
+    public static readonly IReadOnlyList<string> Kinds = new[] { KindStop, KindDied, KindMarked, KindAnswered };
+
+    /// <summary>What a <c>marked</c> event tells the new Fleet Manager, exactly.</summary>
+    public const string MarkedDetail =
+        "The account's Fleet Manager mark has moved to you. "
+        + "You are now this account's Fleet Manager. Run `cc-devthrottle workflow instructions fleet-manager` and follow it "
+        + "exactly, then run `cc-devthrottle fleet digest` to see where things stand.";
     public static readonly IReadOnlyList<string> Statuses = new[] { StatusUnacknowledged, StatusAll };
 
     /// <summary>The page when the caller names no count, and the most one read returns.</summary>
@@ -401,6 +415,102 @@ public sealed class FleetManagerEventStore
     }
 
     /// <summary>
+    /// Stage the one "you are now the Fleet Manager" event on a context the caller owns, so it commits in the caller's
+    /// transaction together with the mark. Null, and nothing staged, when that session was already told. Not saved.
+    /// </summary>
+    internal static FleetManagerEventEntity? AddMarkedIn(GatewayDbContext ctx, string fleetManagerSessionId, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(fleetManagerSessionId)) throw new ArgumentException("the Fleet Manager session is required");
+        var sid = fleetManagerSessionId.Trim();
+        if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid))
+        {
+            FileLog.Write($"[FleetManagerEventStore] marked event: sid={sid} - already told, not stored again");
+            return null;
+        }
+        var entity = new FleetManagerEventEntity
+        {
+            Kind = KindMarked,
+            SessionId = sid,
+            SessionName = FleetManagerPlacementService.SessionName,
+            AddressedTo = sid,
+            Detail = MarkedDetail,
+            CreatedAtUtc = Utc(nowUtc),
+        };
+        entity.TenantId = ctx.ActiveTenant!;
+        ctx.FleetManagerEvents.Add(entity);
+        return entity;
+    }
+
+    /// <summary>
+    /// Tell <paramref name="fleetManagerSessionId"/> that the account's mark has moved to it. Stored once per session:
+    /// a second call for the same session changes nothing and returns null.
+    /// </summary>
+    /// <exception cref="ArgumentException">The session is missing.</exception>
+    public FleetManagerEventDto? RecordMarked(TenantId tenant, string fleetManagerSessionId, DateTime nowUtc)
+    {
+        FileLog.Write($"[FleetManagerEventStore] RecordMarked: tenant={tenant.ToLogString()}, sid={fleetManagerSessionId}");
+        try
+        {
+            if (string.IsNullOrWhiteSpace(fleetManagerSessionId)) throw new ArgumentException("the Fleet Manager session is required");
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var entity = AddMarkedIn(ctx, fleetManagerSessionId, nowUtc);
+                if (entity is null) return null;
+                ctx.SaveChanges();
+                FileLog.Write($"[FleetManagerEventStore] RecordMarked: stored id={entity.Id}, sid={entity.SessionId}");
+                return ToDto(entity);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEventStore] RecordMarked FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The <c>answered</c> event for an owner's answer to <paramref name="record"/>, not yet saved: the caller adds it
+    /// in the same save as the answer (<see cref="FleetOutcomeStore.Answer"/>), so the answer is never recorded without
+    /// it.
+    /// </summary>
+    /// <param name="addressedTo">The account's marked Fleet Manager when the owner answered, or empty when none is
+    /// marked - it is delivered to whichever session is marked next.</param>
+    public static FleetManagerEventEntity AnsweredEvent(FleetOutcomeDto record, string? addressedTo, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (string.IsNullOrEmpty(record.Answer)) throw new ArgumentException("an answered event needs the owner's words", nameof(record));
+        return new FleetManagerEventEntity
+        {
+            Kind = KindAnswered,
+            SessionId = record.SessionId ?? "",
+            SessionName = "",
+            AddressedTo = addressedTo?.Trim() ?? "",
+            OutcomeId = record.Id,
+            OutcomeTitle = record.Title,
+            Words = record.Answer,
+            CreatedAtUtc = Utc(nowUtc),
+        };
+    }
+
+    /// <summary>How far each owner's answer has got, for the named records: the newest <c>answered</c> event of each,
+    /// keyed by record id. A record with no such event is absent.</summary>
+    public IReadOnlyDictionary<string, FleetManagerEventDto> AnswerEvents(TenantId tenant, IReadOnlyCollection<string> outcomeIds)
+    {
+        ArgumentNullException.ThrowIfNull(outcomeIds);
+        if (outcomeIds.Count == 0) return new Dictionary<string, FleetManagerEventDto>(StringComparer.OrdinalIgnoreCase);
+        using var ctx = _db.CreateContext(tenant);
+        var wanted = outcomeIds.ToList();
+        var rows = ctx.FleetManagerEvents.AsNoTracking()
+            .Where(e => e.Kind == KindAnswered && e.OutcomeId != null && wanted.Contains(e.OutcomeId))
+            .AsEnumerable()
+            .GroupBy(e => e.OutcomeId!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => ToDto(g.OrderByDescending(e => e.CreatedAtUtc).First()), StringComparer.OrdinalIgnoreCase);
+        FileLog.Write($"[FleetManagerEventStore] AnswerEvents: tenant={tenant}, asked={wanted.Count}, found={rows.Count}");
+        return rows;
+    }
+
+    /// <summary>
     /// Remember that this session was seen alive while <see cref="FleetManagerOwnedSession.FleetManagerSessionId"/>
     /// owned it. Written again only when its owner, name or Director changed, or a new session is seen. A session
     /// whose death is already recorded is not brought back.
@@ -438,6 +548,29 @@ public sealed class FleetManagerEventStore
             ctx.SaveChanges();
             FileLog.Write($"[FleetManagerEventStore] NoteOwnedAlive: tenant={tenant.ToLogString()}, sid={owned.SessionId}, " +
                           $"owner={owned.FleetManagerSessionId}, director={owned.DirectorId}");
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Forget that this session is owned (the Fleet Manager mission, step 8): its owner changed, so it is no longer the
+    /// session this row was kept for, and its end is not that owner's news. The row is removed rather than ended - an
+    /// ended row is a death, and a session handed back and later handed over again must be tracked again. A row that
+    /// has already ended is kept.
+    /// </summary>
+    /// <returns>True when a row was removed.</returns>
+    public bool ForgetOwnedAlive(TenantId tenant, string sessionId, string why)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("sessionId is required", nameof(sessionId));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.FleetManagerOwnedSessions.FirstOrDefault(o => o.SessionId == sessionId && o.EndedAtUtc == null);
+            if (row is null) return false;
+            ctx.FleetManagerOwnedSessions.Remove(row);
+            ctx.SaveChanges();
+            FileLog.Write($"[FleetManagerEventStore] ForgetOwnedAlive: tenant={tenant.ToLogString()}, sid={sessionId}, " +
+                          $"owner was {row.FleetManagerSessionId}: {why}");
             return true;
         }
     }
@@ -568,7 +701,9 @@ public sealed class FleetManagerEventStore
         var target = fleetManagerSessionId.ToLowerInvariant();
         var query = ctx.FleetManagerEvents.AsNoTracking()
             .Where(e => e.AcknowledgedAtUtc == null && !e.ReadingPending
-                        && (e.DeliveredTo == null || e.DeliveredTo.ToLower() != target));
+                        && (e.DeliveredTo == null || e.DeliveredTo.ToLower() != target)
+                        // "You are now the Fleet Manager" is for the session it names, never for a later one.
+                        && (e.Kind != KindMarked || e.AddressedTo.ToLower() == target));
         var rows = query.OrderBy(e => e.CreatedAtUtc).ThenBy(e => e.Id).Take(max).ToList();
         var more = rows.Count < max ? 0 : query.Count() - rows.Count;
         FileLog.Write($"[FleetManagerEventStore] Owed: tenant={tenant}, to={fleetManagerSessionId}, batch={rows.Count}, more={more}");
@@ -730,5 +865,8 @@ public sealed class FleetManagerEventStore
         StopObservedAtUtc = Utc(e.StopObservedAtUtc),
         DirectorId = e.DirectorId,
         Detail = e.Detail,
+        OutcomeId = e.OutcomeId,
+        OutcomeTitle = e.OutcomeTitle,
+        Words = e.Words,
     };
 }

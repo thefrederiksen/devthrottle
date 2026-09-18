@@ -3,7 +3,7 @@ namespace CcDirector.Gateway.Data.Entities;
 /// <summary>
 /// One per-tenant setting override: a single (tenant, key) -&gt; value row in the <c>tenant_settings</c>
 /// table (issue #2017, the hosted Settings page). This is the per-tenant HOME the hosted deny (issue #1863)
-/// demanded before the AI / voice / car-mode / notification settings could be served on the shared Gateway:
+/// demanded before the AI / voice / notification settings could be served on the shared Gateway:
 /// each of those values used to live process-globally in <c>config.json</c> with no tenant dimension, so one
 /// subscriber changing "the thinking model" would change it for every tenant. A row here overrides the
 /// operator's global default FOR ONE TENANT ONLY.

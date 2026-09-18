@@ -53,10 +53,12 @@ internal static class DevReportEndpoints
     /// it and the report itself is measured after decoding.</summary>
     private const long PublishBodyLimitBytes = 128L * 1024 * 1024;
 
-    public static void Map(IEndpointRouteBuilder app, DevReportStore store, DevReportDelivery delivery, HostedTenantBoundary? boundary)
+    public static void Map(IEndpointRouteBuilder app, DevReportStore store, DevReportDelivery delivery, HostedTenantBoundary? boundary,
+        Func<TenantId, string, DevReportSessionNaming> naming)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(delivery);
+        ArgumentNullException.ThrowIfNull(naming);
         FileLog.Write("[DevReportEndpoints] mapping the dev report routes (four session routes, four owner routes)");
 
         // ---------------------------------------------------------------- session routes
@@ -130,7 +132,7 @@ internal static class DevReportEndpoints
 
             var title = DevReportTitle.Read(html, key);
             var (report, created) = store.Publish(tenant, sessionId, key, html, verdict.Status!, title, DateTime.UtcNow);
-            return Results.Json(new { report = Summary(store, delivery, tenant, report), created });
+            return Results.Json(new { report = Summary(store, delivery, naming, tenant, report), created });
         });
 
         app.MapGet("/sessions/{sid}/dev-reports", (string sid, HttpContext ctx) =>
@@ -138,7 +140,7 @@ internal static class DevReportEndpoints
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             if (OwnSession(ctx, sid) is not { } sessionId) return NotYourSession(ctx, sid);
             var reports = store.List(tenant, sessionId);
-            return Results.Json(new { count = reports.Count, reports = Summaries(store, delivery, tenant, reports) });
+            return Results.Json(new { count = reports.Count, reports = Summaries(store, delivery, naming, tenant, reports) });
         });
 
         app.MapGet("/sessions/{sid}/dev-reports/{reportId}", (string sid, string reportId, HttpContext ctx) =>
@@ -146,7 +148,7 @@ internal static class DevReportEndpoints
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             if (OwnSession(ctx, sid) is not { } sessionId) return NotYourSession(ctx, sid);
             if (FindReport(store, tenant, reportId, sessionId) is not { } report) return ReportNotFound(reportId);
-            return Results.Json(Detail(store, delivery, tenant, report));
+            return Results.Json(Detail(store, delivery, naming, tenant, report));
         });
 
         app.MapPost("/sessions/{sid}/dev-reports/{reportId}/replies", async (string sid, string reportId, HttpContext ctx, CancellationToken ct) =>
@@ -191,7 +193,7 @@ internal static class DevReportEndpoints
             // an ended session still holds or one an idle session could have taken (phase 2 review round 2).
             foreach (var sessionId in reports.Select(r => r.SessionId).Distinct(StringComparer.Ordinal))
                 await delivery.SettleAsync(tenant, sessionId, ct);
-            return Results.Json(new { count = reports.Count, reports = Summaries(store, delivery, tenant, reports) });
+            return Results.Json(new { count = reports.Count, reports = Summaries(store, delivery, naming, tenant, reports) });
         });
 
         app.MapGet("/dev-reports/{reportId}", async (string reportId, HttpContext ctx, CancellationToken ct) =>
@@ -202,7 +204,7 @@ internal static class DevReportEndpoints
             // Settle the report's session BEFORE answering, so the owner never reads "Delivered when the agent finishes
             // its turn" for a session that has ended, or for one that is idle again (phase 2 review High 1).
             await delivery.SettleAsync(tenant, report.SessionId, ct);
-            return Results.Json(Detail(store, delivery, tenant, report));
+            return Results.Json(Detail(store, delivery, naming, tenant, report));
         });
 
         app.MapGet("/dev-reports/{reportId}/html", (string reportId, HttpContext ctx) =>
@@ -273,13 +275,16 @@ internal static class DevReportEndpoints
 
     // ---------------------------------------------------------------- shapes
 
-    private static object Summary(DevReportStore store, DevReportDelivery delivery, TenantId tenant, DevReportEntity report)
-        => Summaries(store, delivery, tenant, [report])[0];
+    private static object Summary(DevReportStore store, DevReportDelivery delivery,
+        Func<TenantId, string, DevReportSessionNaming> naming, TenantId tenant, DevReportEntity report)
+        => Summaries(store, delivery, naming, tenant, [report])[0];
 
-    private static List<object> Summaries(DevReportStore store, DevReportDelivery delivery, TenantId tenant, IReadOnlyList<DevReportEntity> reports)
+    private static List<object> Summaries(DevReportStore store, DevReportDelivery delivery,
+        Func<TenantId, string, DevReportSessionNaming> naming, TenantId tenant, IReadOnlyList<DevReportEntity> reports)
     {
         var open = store.OpenItemCounts(tenant, reports.Select(r => r.Id).ToList());
         var ended = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var named = new Dictionary<string, DevReportSessionNaming>(StringComparer.Ordinal);
         var list = new List<object>(reports.Count);
         foreach (var r in reports)
         {
@@ -287,6 +292,13 @@ internal static class DevReportEndpoints
             {
                 isEnded = delivery.Liveness(tenant, r.SessionId).Reach == DevReportSessionReach.Ended;
                 ended[r.SessionId] = isEnded;
+            }
+            // Phase 3b: the words for the session this report came from, folded ONCE here and rendered verbatim
+            // by every client (repository rule 7). One lookup per session, not per report.
+            if (!named.TryGetValue(r.SessionId, out var who))
+            {
+                who = naming(tenant, r.SessionId);
+                named[r.SessionId] = who;
             }
             list.Add(new
             {
@@ -300,14 +312,17 @@ internal static class DevReportEndpoints
                 updatedAtUtc = r.UpdatedAtUtc,
                 sessionEnded = isEnded,
                 openItems = open.TryGetValue(r.Id, out var n) ? n : 0,
+                sessionLabel = DevReportSessionLabel.Session(who.Number, who.Name),
+                backLabel = DevReportSessionLabel.Back(who.Number, who.Name),
             });
         }
         return list;
     }
 
-    private static object Detail(DevReportStore store, DevReportDelivery delivery, TenantId tenant, DevReportEntity report) => new
+    private static object Detail(DevReportStore store, DevReportDelivery delivery,
+        Func<TenantId, string, DevReportSessionNaming> naming, TenantId tenant, DevReportEntity report) => new
     {
-        report = Summary(store, delivery, tenant, report),
+        report = Summary(store, delivery, naming, tenant, report),
         items = store.Items(tenant, report.Id).Select(Item).ToList(),
         replies = store.Replies(tenant, report.Id).Select(Reply).ToList(),
     };

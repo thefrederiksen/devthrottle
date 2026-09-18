@@ -458,6 +458,40 @@ public sealed class SessionHistoryStore
         }
     }
 
+    /// <summary>
+    /// Every computer the current account has a session history row for: when its earliest kept session started,
+    /// which agent that session ran, and when a session there was last seen (the Fleet Manager mission, step 5).
+    /// Read inside the caller's account scope, like every other read here. History is kept for
+    /// <see cref="SessionHistorySweep.Retention"/>, so "earliest" means the earliest the Gateway still holds.
+    /// </summary>
+    public IReadOnlyList<MachineHistory> Machines()
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            // Grouped in the database: the Settings tab reads this on a timer, and a busy account holds thousands
+            // of rows. One more lookup per computer finds the agent of its earliest session.
+            var groups = ctx.SessionHistory.AsNoTracking()
+                .Where(e => e.MachineName != null && e.MachineName != "")
+                .GroupBy(e => e.MachineName!)
+                .Select(g => new { Machine = g.Key, First = g.Min(e => e.StartedAtUtc), Last = g.Max(e => e.LastSeenUtc) })
+                .ToList();
+
+            return groups
+                .GroupBy(g => g.Machine.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(same =>
+                {
+                    var first = same.OrderBy(g => g.First).First();
+                    var agent = ctx.SessionHistory.AsNoTracking()
+                        .Where(e => e.MachineName == first.Machine && e.StartedAtUtc == first.First)
+                        .Select(e => e.AgentKind)
+                        .FirstOrDefault();
+                    return new MachineHistory(first.Machine.Trim(), first.First, agent, same.Max(g => g.Last));
+                })
+                .ToList();
+        }
+    }
+
     /// <summary>The bucket key for a row written before the origin fields existed. Deliberately NOT
     /// "unknown", which is a recorded answer.</summary>
     public const string NotRecorded = "notRecorded";
@@ -573,3 +607,10 @@ public sealed record SessionOriginTotals(
     int WithParent,
     IReadOnlyDictionary<string, int> ByKind,
     IReadOnlyDictionary<string, int> BySurface);
+
+/// <summary>One computer's session history, as <see cref="SessionHistoryStore.Machines"/> reads it.</summary>
+/// <param name="MachineName">The computer's name, as its earliest kept session recorded it.</param>
+/// <param name="FirstStartedUtc">When that earliest kept session started.</param>
+/// <param name="FirstAgent">The agent that session ran, or null when it was not recorded.</param>
+/// <param name="LastSeenUtc">When any session on this computer was last seen.</param>
+public sealed record MachineHistory(string MachineName, DateTime FirstStartedUtc, string? FirstAgent, DateTime LastSeenUtc);

@@ -91,6 +91,13 @@ class FakeGateway:
             "answeredBy": None,
             "answeredByRole": None,
             "answerMatchedOption": None,
+            "advice": None,
+            "fleetManagerPick": None,
+            "adviceSetAtUtc": None,
+            "ownerNote": None,
+            "ownerNoteAtUtc": None,
+            "verdictId": None,
+            "verdictTurnEndObservedAtUtc": None,
         }
         record.update(extra)
         # Newest first, as the route answers.
@@ -152,7 +159,9 @@ class FakeGateway:
     def post_json(self, path, body=None, timeout=30):
         self.calls.append(("POST", path, body))
         if path == "gateway/fleet-manager/outcomes":
-            extra = {body["kind"]: body[body["kind"]], "sessionId": body.get("sessionId")}
+            extra = {body["kind"]: body[body["kind"]], "sessionId": body.get("sessionId"),
+                     "advice": body.get("advice"), "fleetManagerPick": body.get("fleetManagerPick"),
+                     "verdictId": body.get("verdictId")}
             return self.add(body["kind"], body["title"], **extra)
         if path.endswith("/answer"):
             oid = path.split("/")[-2]
@@ -194,6 +203,23 @@ class FakeGateway:
             return {"acknowledged": len(chosen), "alreadyAcknowledged": already, "ids": [e["id"] for e in chosen]}
         raise AssertionError(f"unexpected POST {path}")
 
+    def put_json(self, path, body=None, timeout=30):
+        self.calls.append(("PUT", path, body))
+        if path.startswith("gateway/fleet-manager/outcomes/") and path.endswith("/advice"):
+            oid = path.split("/")[-2]
+            record = next((o for o in self.outcomes if o["id"] == oid), None)
+            if record is None:
+                raise shared_gateway.GatewayError(f"no outcome {oid} in this account", status=404)
+            advice = body["advice"]
+            if "\n" in advice or "\r" in advice:
+                raise shared_gateway.GatewayError(
+                    "advice must be one line: it is shown as a single line beside the Wingman's reading, "
+                    "so remove the line break", status=400)
+            record.update(advice=advice.strip(), fleetManagerPick=body.get("pick"),
+                          adviceSetAtUtc="2026-09-16T12:30:00Z")
+            return record
+        raise AssertionError(f"unexpected PUT {path}")
+
     def delete(self, path, timeout=30):
         self.calls.append(("DELETE", path, None))
         pid = path.rsplit("/", 1)[1]
@@ -211,6 +237,7 @@ def gw(monkeypatch):
     monkeypatch.setattr(fleet_ops.gateway, "get_json", fake.get_json)
     monkeypatch.setattr(fleet_ops.gateway, "post_json", fake.post_json)
     monkeypatch.setattr(fleet_ops.gateway, "delete", fake.delete)
+    monkeypatch.setattr(fleet_ops.gateway, "put_json", fake.put_json)
     monkeypatch.setattr(
         session_ops, "_get_fleet",
         lambda: ([{"sessionId": ME, "name": "Fleet Manager"},
@@ -555,7 +582,8 @@ def test_digest_defaults_to_this_session_and_reads_back(gw):
     assert "outcomes: 1 open (ready 0, finding 0, decision 1)" in lines
     assert "sessions: 1 owned (needs-you 0, working 0, stopped 1)" in lines
     _, outcomes = read_table(result.output, "outcomes")
-    assert outcomes == [{"id": record["id"], "kind": "decision", "title": "Which channel, beta or stable"}]
+    assert outcomes == [{"id": record["id"], "kind": "decision", "title": "Which channel, beta or stable",
+                         "advice": None, "ownerNote": None}]
     _, sessions = read_table(result.output, "sessions")
     assert sessions == [{"id": WORKER, "name": "Docs - fix the typo, then publish", "state": "stopped",
                          "owner": FORMER, "verdict": "needed-you", "label": "Asks whether to publish"}]
@@ -691,6 +719,37 @@ def test_every_event_reads_back_exactly_from_the_default_output(gw):
     assert (rows[-1]["kind"], rows[-1]["verdict"], rows[-1]["deliveredTo"], rows[-1]["acknowledged"]) == (
         "died", "crashed", ME, "no")
     assert f"cc-devthrottle fleet ack {made[0]['id']}" in result.output
+
+
+def test_an_answered_card_and_a_moved_mark_read_back_with_the_owners_words_exactly(gw):
+    words = 'Send it back: Roster. Use "the real clock", not 100% of it.'
+    answered = gw.add_event("answered", "", "", outcomeId="0c000000-0000-4000-8000-000000000001",
+                            outcomeTitle="Roster, second attempt", words=words)
+    marked = gw.add_event("marked", ME, "Fleet Manager",
+                          detail="The account's Fleet Manager mark has moved to you.")
+    stop = gw.add_event("stop", WORKER, "a stop", verdict=dict(READING))
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == "count: 3 (stop 1, died 0, answered 1, marked 1) status: unacknowledged"
+    _, rows = read_table(result.output, "events")
+    assert (rows[0]["kind"], rows[0]["name"], rows[0]["verdict"], rows[0]["label"]) == (
+        "answered", "Roster, second attempt", "owner answered", words)
+    assert (rows[1]["kind"], rows[1]["verdict"], rows[1]["label"]) == (
+        "marked", "now yours", "The account's Fleet Manager mark has moved to you.")
+    # The buffer hint names a session a stop is about, never the empty session of an answered card.
+    assert f"cc-devthrottle session buffer {WORKER}" in result.output
+    assert f"cc-devthrottle fleet ack {answered['id']}" in result.output
+    assert stop["id"] and marked["id"]
+
+
+def test_only_stops_and_deaths_are_counted_when_nothing_else_is_there(gw):
+    gw.add_event("stop", WORKER, "a stop")
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.output.splitlines()[0] == "count: 1 (stop 1, died 0) status: unacknowledged"
 
 
 def test_events_json_is_the_gateways_answer_with_the_filter_applied(gw):
@@ -983,5 +1042,208 @@ def test_the_fleet_commands_are_discoverable_through_actions():
     assert {
         "fleet-digest", "fleet-ready", "fleet-finding", "fleet-decision", "fleet-outcomes",
         "fleet-show", "fleet-answer", "fleet-prefer", "fleet-preferences", "fleet-forget",
-        "fleet-events", "fleet-ack",
+        "fleet-events", "fleet-ack", "fleet-advise",
     } <= ids
+
+
+# ---- advice and the Fleet Manager's pick (step 7) ---------------------------------------------------
+
+
+def test_filing_with_advice_and_a_pick_sends_both_and_prints_them(gw):
+    result = runner.invoke(app, [
+        "fleet", "decision", "Pick a layout", "--question", "Which layout?",
+        "--option", "A", "--option", "B", "--session", WORKER[:8],
+        "--advice", "You picked the long column twice. I'd pick B.", "--pick", "B - single column",
+    ])
+
+    assert result.exit_code == 0, result.output
+    method, path, body = gw.calls[-1]
+    assert (method, path) == ("POST", "gateway/fleet-manager/outcomes")
+    assert body["advice"] == "You picked the long column twice. I'd pick B."
+    assert body["fleetManagerPick"] == "B - single column"
+    assert "advice: You picked the long column twice. I'd pick B." in result.output
+    assert "pick: B - single column" in result.output
+
+
+# ---- the stop a record is about (steps 7 to 9, round 2 fixes) -----------------------------------------
+
+
+@pytest.mark.parametrize("command", [
+    ["fleet", "decision", "Publish?", "--question", "Publish now?", "--option", "Yes", "--option", "No"],
+    ["fleet", "finding", "Done", "--answer", "It is done."],
+    ["fleet", "ready", "Ready", "--pr", "https://example.test/pull/1", "--risk", "low", "--checks", "passed",
+     "--tested", "unit tests", "--reviewed-by", "a reviewer", "--change", "It works."],
+])
+def test_filing_with_a_verdict_sends_it_with_the_session_and_prints_it(gw, command):
+    result = runner.invoke(app, command + ["--session", WORKER[:8], "--verdict", " tv-stop-1 "])
+
+    assert result.exit_code == 0, result.output
+    method, path, body = gw.calls[-1]
+    assert (method, path) == ("POST", "gateway/fleet-manager/outcomes")
+    assert body["sessionId"] == WORKER
+    assert body["verdictId"] == "tv-stop-1"
+    assert "verdict: tv-stop-1" in result.output.splitlines()
+
+
+def test_filing_without_a_verdict_sends_no_verdict_field(gw):
+    result = runner.invoke(app, ["fleet", "finding", "A finding", "--answer", "Yes.", "--session", WORKER[:8]])
+
+    assert result.exit_code == 0, result.output
+    assert "verdictId" not in gw.calls[-1][2]
+    assert "verdict:" not in result.output
+
+
+@pytest.mark.parametrize("extra, message", [
+    (["--verdict", "tv-stop-1"], "--verdict goes with --session"),
+    (["--session", WORKER[:8], "--verdict", "  "], "--verdict is empty"),
+])
+def test_a_verdict_that_cannot_be_sent_is_a_usage_error_and_sends_nothing(gw, extra, message):
+    result = runner.invoke(app, ["fleet", "finding", "A finding", "--answer", "Yes."] + extra)
+
+    assert result.exit_code == 2
+    assert message in result.output
+    assert not [c for c in gw.calls if c[0] == "POST"]
+
+
+def test_show_prints_the_stop_the_record_is_about(gw):
+    record = gw.add("finding", "About a stop", sessionId=WORKER, verdictId="tv-stop-9",
+                    finding={"answer": "Done.", "reason": None, "links": []})
+
+    result = runner.invoke(app, ["fleet", "show", record["id"]])
+
+    assert result.exit_code == 0, result.output
+    assert "verdict: tv-stop-9" in result.output.splitlines()
+
+
+def test_events_list_each_stops_verdict_id(gw):
+    stop = gw.add_event("stop", WORKER, "a stop", verdict=dict(READING))
+    died = gw.add_event("died", WORKER, "gone", crashed=False)
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0, result.output
+    _, rows = read_table(result.output, "events")
+    by_id = {r["id"]: r for r in rows}
+    assert by_id[stop["id"]]["verdictId"] == "v-1"
+    assert by_id[died["id"]]["verdictId"] in (None, "-")
+
+
+def test_filing_without_advice_sends_no_advice_fields(gw):
+    result = runner.invoke(app, ["fleet", "finding", "A finding", "--answer", "Build our own."])
+
+    assert result.exit_code == 0, result.output
+    body = gw.calls[-1][2]
+    assert "advice" not in body and "fleetManagerPick" not in body
+    assert "advice:" not in result.output
+
+
+def test_a_pick_without_advice_is_a_usage_error_and_sends_nothing(gw):
+    result = runner.invoke(app, ["fleet", "finding", "A finding", "--answer", "Yes.", "--pick", "A"])
+
+    assert result.exit_code == 2
+    assert "--pick goes with --advice" in result.output
+    assert gw.calls == []
+
+
+def test_advise_puts_the_line_and_the_pick_and_reads_back(gw):
+    record = gw.add("decision", "Pick a layout", decision={"question": "Which?", "options": ["A", "B"],
+                                                           "recommended": None, "why": None})
+
+    result = runner.invoke(app, ["fleet", "advise", record["id"][:8], "The client reads on a phone.",
+                                 "--pick", "B - single column"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[-1] == ("PUT", f"gateway/fleet-manager/outcomes/{record['id']}/advice",
+                            {"advice": "The client reads on a phone.", "pick": "B - single column"})
+    assert f"advised: {record['id']}" in result.output
+    assert "advice: The client reads on a phone." in result.output
+    assert "pick: B - single column" in result.output
+
+    shown = runner.invoke(app, ["fleet", "show", record["id"]])
+    assert "advice: The client reads on a phone." in shown.output
+    assert "pick: B - single column" in shown.output
+
+
+def test_advise_without_a_pick_clears_it(gw):
+    record = gw.add("finding", "A finding", advice="Old.", fleetManagerPick="A")
+
+    result = runner.invoke(app, ["fleet", "advise", record["id"], "New line."])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[-1][2] == {"advice": "New line.", "pick": None}
+    assert "pick: -" in result.output
+
+
+def test_advise_json_is_the_gateways_answer(gw):
+    record = gw.add("finding", "A finding")
+
+    result = runner.invoke(app, ["fleet", "advise", record["id"], "Read report two first.", "--json"])
+
+    assert result.exit_code == 0, result.output
+    answer = json.loads(result.output)
+    assert answer == record
+    assert answer["advice"] == "Read report two first."
+    # The --json shape of a record keeps every field it had, and adds the new ones.
+    assert {"id", "kind", "title", "status", "filedBy", "sessionId", "createdAtUtc", "answer",
+            "answeredBy", "answeredByRole", "answerMatchedOption", "advice", "fleetManagerPick"} <= set(answer)
+
+
+def test_advise_a_line_break_fails_with_the_gateways_reason(gw):
+    record = gw.add("finding", "A finding")
+
+    result = runner.invoke(app, ["fleet", "advise", record["id"], "two\nlines"])
+
+    assert result.exit_code == 1
+    assert "advice must be one line" in result.output
+    assert record["advice"] is None
+
+
+def test_advise_blank_is_a_usage_error_and_sends_nothing(gw):
+    record = gw.add("finding", "A finding")
+
+    result = runner.invoke(app, ["fleet", "advise", record["id"], "   "])
+
+    assert result.exit_code == 2
+    assert not [c for c in gw.calls if c[0] == "PUT"]
+
+
+def test_advise_an_unknown_flag_fails_loudly(gw):
+    record = gw.add("finding", "A finding")
+
+    result = runner.invoke(app, ["fleet", "advise", record["id"], "Line.", "--recommend", "A"])
+
+    assert result.exit_code == 2
+    assert not [c for c in gw.calls if c[0] == "PUT"]
+
+
+def test_digest_says_what_the_owner_decided_and_what_they_snoozed(gw):
+    snoozed = gw.add("decision", "Pick a layout", advice="I'd pick B.",
+                     ownerNote="The owner snoozed the session from the walkthrough, until 15:30.")
+    answered = gw.add("ready", "Release 2.0.7", status="answered", answer="Close the session.",
+                      answeredByRole="owner", answeredAtUtc="2026-09-16T12:40:00Z")
+    gw.digest = _digest(
+        outcomes=[snoozed],
+        outcomeCounts={"ready": 0, "finding": 0, "decision": 1, "total": 1},
+        recentlyAnswered=[answered],
+        answeredWithinHours=24,
+    )
+
+    result = runner.invoke(app, ["fleet", "digest"])
+
+    assert result.exit_code == 0, result.output
+    _, open_rows = read_table(result.output, "outcomes")
+    assert open_rows == [{"id": snoozed["id"], "kind": "decision", "title": "Pick a layout", "advice": "I'd pick B.",
+                          "ownerNote": "The owner snoozed the session from the walkthrough, until 15:30."}]
+    assert "answered: 1 in the last 24 hours" in result.output
+    n, rows = read_table(result.output, "answered")
+    assert n == 1
+    assert rows[0] == {"id": answered["id"], "kind": "ready", "by": "owner", "answer": "Close the session.",
+                       "title": "Release 2.0.7"}
+
+
+def test_digest_with_nothing_answered_says_count_zero(gw):
+    gw.digest = _digest(recentlyAnswered=[], answeredWithinHours=24)
+
+    result = runner.invoke(app, ["fleet", "digest"])
+
+    assert "answered: 0 in the last 24 hours" in result.output

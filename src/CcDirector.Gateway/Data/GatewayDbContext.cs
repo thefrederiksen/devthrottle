@@ -343,7 +343,7 @@ public sealed class GatewayDbContext : DbContext
     public DbSet<FleetManagerOwnedSessionEntity> FleetManagerOwnedSessions => Set<FleetManagerOwnedSessionEntity>();
 
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
-    /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
+    /// AI / voice / notification settings needed before they could be served on the hosted Gateway.
     /// Tenant-scoped: an absent row means "no override" and the typed resolver returns the operator global
     /// default, never another tenant's value.</summary>
     public DbSet<TenantSettingEntity> TenantSettings => Set<TenantSettingEntity>();
@@ -884,8 +884,12 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Status).HasMaxLength(16);
             b.Property(e => e.FiledBy).HasMaxLength(64);
             b.Property(e => e.AboutSessionId).HasMaxLength(64);
+            b.Property(e => e.AboutVerdictId).HasMaxLength(64);
             b.Property(e => e.AnsweredBy).HasMaxLength(64);
             b.Property(e => e.AnsweredByRole).HasMaxLength(16);
+            b.Property(e => e.Advice).HasMaxLength(Fleet.FleetOutcomeStore.MaxAdviceLength);
+            b.Property(e => e.FleetManagerPick).HasMaxLength(Fleet.FleetOutcomeStore.MaxTitleLength);
+            b.Property(e => e.OwnerNote).HasMaxLength(Fleet.FleetOutcomeStore.MaxTitleLength);
             // "The account's open records, newest first" is the read every start of a conversation makes.
             b.HasIndex(e => new { e.TenantId, e.Status, e.CreatedAtUtc });
         });
@@ -917,9 +921,12 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.DeliveredTo).HasMaxLength(64);
             b.Property(e => e.VerdictId).HasMaxLength(64);
             b.Property(e => e.DirectorId).HasMaxLength(256);
+            b.Property(e => e.OutcomeId).HasMaxLength(64);
             // "The account's unacknowledged events, oldest first" is the read every delivery and every digest makes.
             b.HasIndex(e => new { e.TenantId, e.AcknowledgedAtUtc, e.CreatedAtUtc });
             b.HasIndex(e => new { e.TenantId, e.SessionId });
+            // The page asks, for each answered card, how far the owner's answer has got.
+            b.HasIndex(e => new { e.TenantId, e.OutcomeId });
         });
 
         modelBuilder.Entity<FleetManagerOwnedSessionEntity>(b =>
@@ -1450,6 +1457,7 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.DeliveredTo).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.VerdictId).UseCollation("C");
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.OutcomeId).UseCollation("C");
             // fleet_manager_owned_sessions: the session ids are exact keys, compared byte-ordinally.
             modelBuilder.Entity<FleetManagerOwnedSessionEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<FleetManagerOwnedSessionEntity>().Property(e => e.FleetManagerSessionId).UseCollation("C");

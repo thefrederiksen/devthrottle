@@ -4,8 +4,19 @@
 <meta charset="utf-8">
 <title>Dev report test host</title>
 <style>
-  body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-  iframe { display: block; width: 100%; height: 700px; border: 0; border-bottom: 2px solid #D5D8DE; }
+  body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #0b1020; color: #e6e9f2; }
+  #stage { display: flex; align-items: stretch; height: 700px; }
+  iframe { display: block; flex: 1 1 auto; height: 700px; border: 0; border-right: 2px solid #28304a; background: #fff; }
+  /* The app's panel - the ONE conversation and the ONE Send. The page inside the frame draws none of it. */
+  #panel { flex: 0 0 340px; overflow: auto; padding: 10px 12px; background: #141a2e; }
+  #panel h2 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #99a0b8; margin: 12px 0 6px; }
+  #panel ul { list-style: none; margin: 0; padding: 0; }
+  #panel li { background: #1b2238; border: 1px solid #28304a; border-radius: 8px; padding: 8px; margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
+  #panel .where { font-size: 12px; color: #99a0b8; }
+  #panel .status { font-size: 12px; font-weight: 600; color: #3b82f6; }
+  #panel .empty { background: transparent; border-color: transparent; padding: 0; color: #99a0b8; }
+  #panel button { font: inherit; font-weight: 600; border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid #3b82f6; background: #3b82f6; color: #fff; }
+  #panel button:disabled { opacity: .5; cursor: default; }
   #log { font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; padding: 8px; }
 </style>
 </head>
@@ -21,9 +32,24 @@
       message port; everything else, both ways, goes over that port,
     - closes the port on any frame load it did not cause,
     - records what it accepted and refused, for the proof driver to read.
+  It also does what a real app does with the state it keeps: it DRAWS it, in its own panel beside the
+  frame. That panel is the ONE conversation and the ONE Send on this screen - the page inside the frame,
+  being hosted, draws none of it. Its Send posts the queue this host already holds, exactly as the
+  Cockpit's controller does (sendQueued), and answers each item with a status.
   Which report it shows is the ?report= query parameter (default sample-report.html).
 -->
-<iframe id="report" sandbox="allow-scripts" title="Dev report"></iframe>
+<div id="stage">
+  <iframe id="report" sandbox="allow-scripts" title="Dev report"></iframe>
+  <aside id="panel" aria-label="Notes for the agent">
+    <h2>Queued - not sent yet</h2>
+    <ul id="panel-queued"></ul>
+    <div><button id="panel-send" type="button" disabled>Send</button></div>
+    <h2>Sent</h2>
+    <ul id="panel-sent"></ul>
+    <h2>Replies from the agent</h2>
+    <ul id="panel-replies"></ul>
+  </aside>
+</div>
 <div id="log"></div>
 <script>
   var CHANNEL = "devthrottle.dev-report";
@@ -36,10 +62,91 @@
   window.__received = [];
   window.__refused = [];
   window.__unexpectedLoads = 0;
+  // Every press of THIS panel's Send, with the items it carried. The hosted page has no Send of its own.
+  window.__appSends = [];
+  window.__state = function () { return saved; };
 
   function log(line) {
     document.getElementById("log").textContent += line + "\n";
   }
+
+  // --- the app's panel: the one conversation on this screen, drawn from the state the page posts ---------
+
+  function describeAnchor(a) {
+    if (!a) return "";
+    if (a.type === "table-cell") {
+      var where = [];
+      if (a.rowLabel) where.push('row "' + a.rowLabel + '"');
+      if (a.columnLabel) where.push('column "' + a.columnLabel + '"');
+      return "Table cell" + (where.length ? " - " + where.join(", ") : "") + ': "' + a.quote.slice(0, 80) + '"';
+    }
+    if (a.type === "svg-part") return "Diagram part" + (a.label ? ' "' + a.label + '"' : "");
+    if (a.type === "text") return 'Selected text: "' + a.quote.slice(0, 80) + '"';
+    return '"' + a.quote.slice(0, 80) + '"';
+  }
+
+  function itemLine(item) {
+    if (item.kind === "answer") return ["Answer: " + item.question, item.optionLabel + (item.comment ? " - " + item.comment : "")];
+    return [describeAnchor(item.anchor), item.text];
+  }
+
+  function fill(list, rows, emptyWords) {
+    while (list.firstChild) list.removeChild(list.firstChild);
+    if (!rows.length) {
+      var none = document.createElement("li");
+      none.className = "empty";
+      none.textContent = emptyWords;
+      list.appendChild(none);
+      return;
+    }
+    rows.forEach(function (row) {
+      var li = document.createElement("li");
+      li.setAttribute("data-item-id", row.id);
+      var head = document.createElement("div");
+      head.className = "where";
+      head.textContent = row.head;
+      var body = document.createElement("div");
+      body.textContent = row.body;
+      li.appendChild(head);
+      li.appendChild(body);
+      if (row.status) {
+        var status = document.createElement("div");
+        status.className = "status";
+        status.textContent = row.status;
+        li.appendChild(status);
+      }
+      list.appendChild(li);
+    });
+  }
+
+  function renderPanel() {
+    fill(document.getElementById("panel-queued"), saved.queued.map(function (i) {
+      var parts = itemLine(i);
+      return { id: i.id, head: parts[0], body: parts[1], status: i.pending ? "Waiting for the app to confirm it has this" : (i.statusLabel || "") };
+    }), "Nothing queued. Add notes and answers in the report.");
+    fill(document.getElementById("panel-sent"), saved.sent.map(function (i) {
+      var parts = itemLine(i);
+      return { id: i.id, head: parts[0], body: parts[1], status: i.statusLabel };
+    }), "Nothing sent yet.");
+    fill(document.getElementById("panel-replies"), saved.replies.map(function (r) {
+      return { id: r.id, head: r.at, body: r.text, status: "" };
+    }), "No replies yet.");
+    var button = document.getElementById("panel-send");
+    button.disabled = saved.queued.length === 0;
+    button.textContent = saved.queued.length ? "Send " + saved.queued.length : "Send";
+  }
+
+  // The app sends the queue it already holds - it does not ask the page to send (CONTRACT.md, "Send").
+  document.getElementById("panel-send").addEventListener("click", function () {
+    var items = saved.queued.map(function (item) {
+      var copy = {};
+      Object.keys(item).forEach(function (key) { if (key !== "pending" && key !== "statusLabel") copy[key] = item[key]; });
+      return copy;
+    });
+    if (!items.length) return;
+    window.__appSends.push({ items: items });
+    log("the app's Send: " + items.length + " item(s)");
+  });
 
   function random() {
     var bytes = new Uint8Array(16);
@@ -87,7 +194,10 @@
       if (!m || m.channel !== CHANNEL || m.version !== 1) return;
       window.__received.push(m);
       log(m.type);
-      if (m.type === "state-changed") saved = m.payload.state;
+      if (m.type === "state-changed") {
+        saved = m.payload.state;
+        renderPanel();
+      }
     };
     window.__received.push(data);
     log("ready");
@@ -127,6 +237,7 @@
                fetch("dev-report-notes.js").then(function (r) { return r.text(); })])
     .then(function (texts) {
       parts = { report: texts[0], script: texts[1] };
+      renderPanel();
       load();
     });
 </script>

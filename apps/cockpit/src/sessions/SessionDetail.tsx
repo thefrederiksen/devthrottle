@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { getQueue, type QueueItem, type SessionDto } from "@devthrottle/client-core/api/client";
 import { modelChipOf } from "@devthrottle/client-core/sessions/model";
 import { TerminalPane } from "../panes/TerminalPane";
@@ -15,8 +15,8 @@ import { QueuePanel } from "./QueuePanel";
 import { ScreenshotsPanel } from "./ScreenshotsPanel";
 import { appendToCompose } from "./composerInsert";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
-import { VerdictPanel } from "@devthrottle/client-core/sessions/VerdictPanel";
 import { WingmanTab } from "@devthrottle/client-core/sessions/WingmanTab";
+import { wingmanNowActions } from "./wingmanNowActions";
 
 // The selected session's detail region (issue #972): the live terminal (issue #971's TerminalPane,
 // reused verbatim) stacked over the driver action bar and the composer, with a tabbed dock for the
@@ -35,6 +35,19 @@ type DockTab = "queue" | "shots";
 // conversation beside it, from the shared client-core view the phone also mounts.
 type MainTab = "terminal" | "chat" | "voice" | "sourceControl" | "wingman" | "reports";
 
+// THE ADDRESS HOLDS THE TAB AND THE OPEN REPORT (dev reports mission, phase 3b).
+// These used to be component state, so `/session/{sid}?tab=reports&report={rid}` could not reach them and a
+// link to a report landed on the terminal. They are read from the address instead: a deep link arrives with
+// the tab already chosen and the report already open, and every switch writes the address back so it never
+// describes a screen that is not the one you are looking at. Terminal is the default and is left OUT of the
+// address, so an ordinary session link stays `/session/{sid}`.
+const MAIN_TABS: readonly MainTab[] = ["terminal", "chat", "voice", "sourceControl", "wingman", "reports"];
+const DEFAULT_MAIN_TAB: MainTab = "terminal";
+
+function tabFromAddress(raw: string | null): MainTab {
+  return MAIN_TABS.includes(raw as MainTab) ? (raw as MainTab) : DEFAULT_MAIN_TAB;
+}
+
 export function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -44,7 +57,58 @@ export function SessionDetail() {
   const [compose, setCompose] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [tab, setTab] = useState<DockTab>("queue");
-  const [mainTab, setMainTab] = useState<MainTab>("terminal");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mainTab = tabFromAddress(searchParams.get("tab"));
+  // Only the Reports tab has an open report, so `report=` outside it means nothing and is not read.
+  const openReportId = mainTab === "reports" ? searchParams.get("report") || null : null;
+
+  // Switching tab REPLACES the address (a tab is not a place you go back to) and drops any open report,
+  // because a report is only open on the Reports tab.
+  const setMainTab = useCallback(
+    (next: MainTab) => {
+      setSearchParams(
+        (current) => {
+          const params = new URLSearchParams(current);
+          if (next === DEFAULT_MAIN_TAB) params.delete("tab");
+          else params.set("tab", next);
+          if (next !== "reports") params.delete("report");
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // Opening and closing a report PUSHES, so the browser's own Back closes the report the way the reader
+  // expects - and either way the address says exactly what is on screen.
+  const openReport = useCallback(
+    (reportId: string) => {
+      setSearchParams((current) => {
+        const params = new URLSearchParams(current);
+        params.set("tab", "reports");
+        params.set("report", reportId);
+        return params;
+      });
+    },
+    [setSearchParams],
+  );
+
+  const closeReport = useCallback(() => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      params.set("tab", "reports");
+      params.delete("report");
+      return params;
+    });
+  }, [setSearchParams]);
+
+  // The way back to this session from an open report: the session itself, on its default tab.
+  const backToSession = useCallback(
+    (reportSessionId: string) => navigate(`/session/${encodeURIComponent(reportSessionId)}`),
+    [navigate],
+  );
+
   // Set by the composer to a function that focuses its textarea, so the Source Control tab can focus the
   // composer after inserting a clicked file's path (issue #1266).
   const composerFocusRef = useRef<(() => void) | null>(null);
@@ -172,18 +236,33 @@ export function SessionDetail() {
           )}
           {mainTab === "wingman" && sessionId && (
             <div className="session-pane">
-              {/* What the Wingman read at this stop, and the owner's answer to it - the shared client-core panel.
-                  It shows on the Wingman tab ONLY (the owner, 2026-09-17): above every tab it crowded the
-                  terminal, chat, voice and source control views it has nothing to do with.
-                  THIS SHELL DECIDES NOTHING ABOUT WHAT IT SHOWS: it hands over the selected row and this route's
-                  session id, and the panel owns whether there is anything to show and what is live on it. */}
-              {selected && <VerdictPanel sessionId={sessionId} session={selected} />}
-              <WingmanTab sessionId={sessionId} />
+              {/* ONE STOP, DRAWN ONCE. The shared VerdictPanel used to mount above this tab, so once Now could read
+                  the live stop the same stop appeared twice on one screen, each copy with its own answer buttons.
+                  The approved mockup draws no panel above Now, and Now renders that stop with more room. The
+                  component itself is untouched and still mounts wherever else it is used.
+                  What Now can DO is wired in wingmanNowActions, because the shell owns the tabs and the router;
+                  the tab owns what is worth showing. An action that is not passed is not drawn, so Now never
+                  offers a control that would do nothing - which is why "Why this colour?" and the rating thumbs
+                  are still absent: Debug and ratings are not built yet. */}
+              <WingmanTab
+                sessionId={sessionId}
+                actions={wingmanNowActions(sessionId, {
+                  openTerminal: () => setMainTab("terminal"),
+                  goToSession: (id) => navigate(`/session/${id}`),
+                  openSettings: () => navigate("/settings"),
+                })}
+              />
             </div>
           )}
           {mainTab === "reports" && (
             <div className="session-pane">
-              <ReportsTab sessionId={sessionId} />
+              <ReportsTab
+                sessionId={sessionId}
+                openReportId={openReportId}
+                onOpenReport={openReport}
+                onCloseReport={closeReport}
+                onBackToSession={backToSession}
+              />
             </div>
           )}
         </div>

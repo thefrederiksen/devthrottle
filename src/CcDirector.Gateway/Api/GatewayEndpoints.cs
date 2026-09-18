@@ -271,7 +271,18 @@ internal static class GatewayEndpoints
         // The Message Load mission, inspection 7, ruling 3: the spawn door records a restore's create on its
         // workspace seat by the start token the create carries. Null (a harness with no database) refuses any
         // create carrying a restore claim, because a start that cannot be recorded is a start that can happen twice.
-        Workspaces.WorkspaceStore? workspaces = null)
+        Workspaces.WorkspaceStore? workspaces = null,
+        // The Fleet Manager mission, step 7: handed the stop handler below, so the walkthrough's close runs this one
+        // stop - its fold, its audit row, its answer - after deciding whether the session may be closed.
+        SessionStopDoor? stopDoor = null,
+        // The Wingman tab, version 3, item 1: the stored conversation GET /sessions/{sid}/wingman-now reads the
+        // agent's whole last reply from. The same store GET /sessions/{sid}/history serves, read inside the
+        // caller's tenant scope. Null leaves that one field null and changes nothing else about the view.
+        History.SessionTurnStore? sessionTurns = null,
+        // The Wingman tab, version 3, item 2: the account's own Wingman switches, which decide whether Now says the
+        // Wingman is switched off. NULL means this Gateway was not given them, and then Now makes no claim about
+        // them either way - see ReadWingmanNow.
+        Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -1438,6 +1449,17 @@ internal static class GatewayEndpoints
 
                 var baseUrl = DeriveDirectorBaseUrl(ctx, d);
                 var gatewayBaseUrl = DeriveGatewayBaseUrl(ctx);
+                // This request's voice facts, bound to its account once rather than per row, and handed to
+                // the ONE stamp below. See VoiceRowStamp.
+                var voiceFacts = new VoiceRowStamp.VoiceFacts(
+                    Generating: voiceGeneratingFor is null ? null : sid => voiceGeneratingFor(reqTenant.Value, sid),
+                    AudioReady: voiceAudioReadyFor is null ? null : sid => voiceAudioReadyFor(reqTenant.Value, sid),
+                    Unavailable: voiceUnavailableFor is null ? null : sid => voiceUnavailableFor(reqTenant.Value, sid),
+                    NothingToNarrate: nothingToNarrateFor is null ? null : sid => nothingToNarrateFor(reqTenant.Value, sid),
+                    DirectorCannotSendConversation: directorCannotSendConversationFor is null ? null : sid => directorCannotSendConversationFor(reqTenant.Value, sid),
+                    NarrationAbandoned: narrationAbandonedFor is null ? null : sid => narrationAbandonedFor(reqTenant.Value, sid),
+                    ServedViaFallback: servedViaFallbackFor is null ? null : sid => servedViaFallbackFor(reqTenant.Value, sid),
+                    WaitingStamp: voiceWaitingStampFor is null ? null : (sid, waiting) => voiceWaitingStampFor(reqTenant.Value, sid, waiting));
                 foreach (var s in sessions)
                 {
                     // Defect 13: the ROLE UNIVERSE is the UNFILTERED fleet, and it is collected HERE -
@@ -1556,48 +1578,18 @@ internal static class GatewayEndpoints
                     // field. Never reach for a Director-owned one because it happens to be the shape you
                     // want - that trade is a rendered pixel now for an unanswerable row forever.
 
-                    // Issue #553: surface the two voice readiness booleans the color rule and the /m
-                    // client read directly. VoiceGenerating = the wingman is producing this session's
-                    // spoken summary now; VoiceAudioReady = the gateway has fetchable, playable audio
-                    // (the SINGLE truthful "there is voice you can play right now" signal). VoiceGenerating
-                    // is the only "preparing voice" hold; VoiceAudioReady controls playback affordances.
-                    if (voiceGeneratingFor is not null)
-                        s.VoiceGenerating = voiceGeneratingFor(reqTenant.Value, s.SessionId);
-                    if (voiceAudioReadyFor is not null)
-                        s.VoiceAudioReady = voiceAudioReadyFor(reqTenant.Value, s.SessionId);
-                    // Issue #939: when the gateway could not keep this session's voice because hosted AI
-                    // is unavailable (out of credits / cap / no key), stamp the ONE shared message so the
-                    // owning UI shows the consistent add-credit / add-key state instead of a silently
-                    // missing play triangle. Null (voice fine) leaves the field unset.
-                    if (voiceUnavailableFor is not null && voiceUnavailableFor(reqTenant.Value, s.SessionId) is Core.HostedAi.HostedAiState reason)
-                        s.VoiceUnavailable = HostedAi.HostedAiHttp.Dto(reason);
-                    // The FOLDED voice-mode display verdict the Voice screen renders VERBATIM. Every piece
-                    // of ruling the phone used to do for itself - the badge, the message, and crucially
-                    // whether a "Generate narration" button appears - is decided HERE, from the facts just
-                    // stamped plus the "nothing to narrate" marker, so a dumb client never has to guess (the
-                    // guess is what put a dead-end Generate button next to a red "unavailable" badge). This
-                    // is the law: the Gateway rules, the client renders (docs/new_architecture/sessions.html).
-                    // Issue #2576: the wait-for-voice clock. Stamped from the SAME facts the fold
-                    // immediately below reads, so the elapsed time on the row and the words on the row can
-                    // never disagree about whether this session is waiting at all. It is a SECOND clock
-                    // beside NeedsYouSince because that one is stamped only on RED and a session waiting
-                    // for voice is YELLOW - which is why nothing could say "48 minutes" when it mattered.
-                    var voiceAgentWorking = string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase)
-                                         || string.Equals(s.ActivityState, "Starting", StringComparison.OrdinalIgnoreCase);
-                    s.VoiceWaitingSince = voiceWaitingStampFor?.Invoke(
-                        reqTenant.Value, s.SessionId,
-                        Wingman.VoiceDisplayFold.IsWaitingForVoice(s.VoiceMode, s.VoiceAudioReady, voiceAgentWorking));
-                    s.VoiceDisplay = Wingman.VoiceDisplayFold.Fold(
-                        voiceMode: s.VoiceMode,
-                        agentWorking: voiceAgentWorking,
-                        hasAudio: s.VoiceAudioReady,
-                        generating: s.VoiceGenerating,
-                        unavailable: voiceUnavailableFor?.Invoke(reqTenant.Value, s.SessionId),
-                        nothingToNarrate: nothingToNarrateFor?.Invoke(reqTenant.Value, s.SessionId) ?? false,
-                        directorCannotSendConversation: directorCannotSendConversationFor?.Invoke(reqTenant.Value, s.SessionId) ?? false,
-                        narrationAbandoned: narrationAbandonedFor?.Invoke(reqTenant.Value, s.SessionId) ?? false,
-                        servedViaFallback: servedViaFallbackFor?.Invoke(reqTenant.Value, s.SessionId) ?? false,
-                        waitingSince: s.VoiceWaitingSince);
+                    // Issue #553's two voice readiness booleans - VoiceGenerating (the wingman is producing
+                    // this session's spoken summary now) and VoiceAudioReady (the SINGLE truthful "there is
+                    // voice you can play right now" signal) - are stamped by the same call below, because
+                    // everything it folds reads them off the row.
+                    // THE VOICE VERDICT, and every fact behind it, through the ONE stamp - see VoiceRowStamp
+                    // for why there is exactly one. It carries issue #939's shared "no credit / no key"
+                    // message, issue #2576's wait-for-voice clock, and the folded display verdict the Voice
+                    // screen renders VERBATIM: the badge, the message, and crucially whether a "Generate
+                    // narration" button appears. That last one is the law working - the Gateway rules and
+                    // the client renders (docs/new_architecture/sessions.html) - because the phone guessing
+                    // it is what put a dead-end Generate button beside a red "unavailable" badge.
+                    VoiceRowStamp.Apply(s, voiceFacts);
                     // Orange "Transcribing..." while a dictated utterance is uploading/transcribing in
                     // the background for this session (mobile Speak -> Send released the screen). Stamped
                     // BEFORE the NeedsYouSince clock below so the EffectiveColor fold already sees orange
@@ -2380,6 +2372,11 @@ internal static class GatewayEndpoints
             return await StopSessionAsync(ctx, sid, reason, legacyDeleteDoor: false, ct);
         });
 
+        // Door three, for the Fleet Manager walkthrough (step 7): the same handler, reached in-process with the owner's
+        // own request and the walkthrough's reason. Not a route; nothing new is exposed.
+        if (stopDoor is not null)
+            stopDoor.Stop = (ctx, sid, reason, ct) => StopSessionAsync(ctx, sid, reason, legacyDeleteDoor: false, ct);
+
         // Door two: DELETE /sessions/{sid}. A THIN FORWARD into the same handler, the same fold and the same
         // audit trail - not a second implementation.
         //
@@ -3087,6 +3084,25 @@ internal static class GatewayEndpoints
         // ReadWingmanStops for the refusals, and why a session key is refused whatever the colour switch says.
         app.MapGet("/sessions/{sid}/wingman-stops", (HttpContext ctx, string sid, int? count)
             => ReadWingmanStops(ctx, sid, count, tenantBoundary, turnVerdictTraces, pushedSessions));
+
+        // THE LIVE STOP, prepared for the Wingman tab's Now view (the Wingman tab, version 3, item 1). It carries the
+        // agent's own words and its whole reply, so it takes the SAME refusals as wingman-stops above - see
+        // ReadWingmanNow.
+        app.MapGet("/sessions/{sid}/wingman-now", (HttpContext ctx, string sid)
+            => ReadWingmanNow(ctx, sid, tenantBoundary, registry, pushedSessions, turnVerdicts, sessionTurns,
+                snoozeRegistry, handRaises, turnVerdictRows, snoozeExpiry, turnVerdictSettings,
+                streamStaleResolved,
+                // The same voice facts the roster route binds, from the same delegates - so this view and the
+                // Sessions list read one verdict about one session rather than two.
+                tenant => new VoiceRowStamp.VoiceFacts(
+                    Generating: voiceGeneratingFor is null ? null : s => voiceGeneratingFor(tenant, s),
+                    AudioReady: voiceAudioReadyFor is null ? null : s => voiceAudioReadyFor(tenant, s),
+                    Unavailable: voiceUnavailableFor is null ? null : s => voiceUnavailableFor(tenant, s),
+                    NothingToNarrate: nothingToNarrateFor is null ? null : s => nothingToNarrateFor(tenant, s),
+                    DirectorCannotSendConversation: directorCannotSendConversationFor is null ? null : s => directorCannotSendConversationFor(tenant, s),
+                    NarrationAbandoned: narrationAbandonedFor is null ? null : s => narrationAbandonedFor(tenant, s),
+                    ServedViaFallback: servedViaFallbackFor is null ? null : s => servedViaFallbackFor(tenant, s),
+                    WaitingStamp: voiceWaitingStampFor is null ? null : (s, waiting) => voiceWaitingStampFor(tenant, s, waiting))));
 
         // ANSWER A JUDGED STOP (the Wingman-on-every-turn mission, slice E; ruling 12). The ONE server-owned write
         // path for a verdict's options: the owner's tap, never the Wingman. TurnVerdictAnswerService holds the rules
@@ -5490,6 +5506,9 @@ internal static class GatewayEndpoints
         // work, and a session absent from the universe fails loud.
         var marked = tenant is { IsValid: true } markTenant ? fleetManagerMark?.Invoke(markTenant) : null;
         Fleet.FleetRoleResolver.Stamp(roleUniverse, all, marked);
+        // The pin and the offered change of owner (the Fleet Manager mission, step 8), read from the same resolved
+        // account, so every surface pins the same row and offers the same change.
+        Fleet.FleetManagerRosterFold.Stamp(roleUniverse, all, marked);
 
         // THE WINGMAN'S VERDICT, stamped before the loop because the loop's colour, label and bucket read it. ONE
         // snapshot of the account's verdicts for the whole fold, and no read at all while the account's colour
@@ -5945,6 +5964,142 @@ internal static class GatewayEndpoints
         var traces = turnVerdictTraces.History(tenant.Value, sid, count ?? Wingman.TurnVerdictTraceStore.DefaultHistoryCount);
         var answer = Wingman.WingmanStopsFold.Fold(sid, traces);
         FileLog.Write($"[GatewayEndpoints] GET wingman-stops: sid={sid} stops={answer.Stops.Count}");
+        return Results.Json(answer);
+    }
+
+    /// <summary>
+    /// <c>GET /sessions/{sid}/wingman-now</c>: the LIVE stop of one session, folded by
+    /// <see cref="Wingman.WingmanNowFold"/> into the finished strings and flags the Wingman tab's Now view renders
+    /// (the Wingman tab, version 3, item 1).
+    ///
+    /// THIS HANDLER DECIDES NOTHING. It gathers - the session's folded roster row, its stored verdicts, its stored
+    /// conversation - and hands them to a pure fold. Every owner-facing word is in that fold, where it is tested by
+    /// handing it inputs rather than by booting a Gateway.
+    ///
+    /// THE REFUSALS, IN ORDER, AND THEY ARE <see cref="ReadWingmanStops"/>'S: no tenant (403); a SESSION KEY (403);
+    /// no authenticated DEVICE - the self-hosted shared machine token, or no credential at all (403); a session id
+    /// that is not an identifier (400); no verdict store on this Gateway (404); a session that is not in the caller's
+    /// account (404, the same answer an unknown session gets, so one account cannot learn which ids exist in
+    /// another).
+    ///
+    /// A SESSION KEY IS NEVER SERVED, WHATEVER THE COLOUR SWITCH SAYS, for the reason wingman-stops gives: this
+    /// answer carries the agent's decisive sentence and its whole last reply, and a session reading its own judge's
+    /// account of it is a different thing from a session reading its own colour. The route is also absent from
+    /// <see cref="SessionKeyGuard"/>'s allow list, and this handler refuses on its own anyway, so the refusal does
+    /// not depend on that list staying as it is.
+    ///
+    /// THE ROSTER ROW COMES FROM <see cref="FoldedAccountRoster"/> - the same fold the roster route serves - so the
+    /// pill's colour and the Sessions list's dot are the same value from the same place, never two answers.
+    /// </summary>
+    internal static IResult ReadWingmanNow(
+        HttpContext ctx,
+        string sid,
+        Tenancy.HostedTenantBoundary tenantBoundary,
+        DirectorRegistry registry,
+        Streaming.PushedSessionStore? pushedSessions,
+        Wingman.TurnVerdictStore? turnVerdicts,
+        History.SessionTurnStore? sessionTurns,
+        Snooze.SnoozeRegistry? snoozeRegistry,
+        Fleet.HandRaiseRegistry? handRaises,
+        Wingman.ITurnVerdictRowSource? turnVerdictRows,
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry,
+        Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null,
+        TimeSpan? streamStaleAfter = null,
+        Func<Core.Tenancy.TenantId, VoiceRowStamp.VoiceFacts>? voiceFactsFor = null)
+    {
+        FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid}");
+        var tenant = ResolveReadTenant(ctx, tenantBoundary);
+        if (tenant is null)
+            return Results.Json(new { error = "no tenant is bound to this request" },
+                statusCode: StatusCodes.Status403Forbidden);
+        if (AuthMiddleware.CallingSession(ctx) is not null)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} REFUSED a session key");
+            return Results.Json(new
+            {
+                error = "the Wingman's live stop carries the agent's own words and its whole reply, and is served "
+                      + "to the account's own devices only - never to a session key",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (!ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var device)
+            || device is not Pairing.DeviceCredentialIdentity)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} REFUSED a caller with no device identity");
+            return Results.Json(new
+            {
+                error = "the Wingman's live stop is served only to a device signed in with its own device key - not "
+                      + "to the shared machine token, and not to a request with no device",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (!Guid.TryParse(sid, out _))
+            return Results.Json(new { error = "invalid session id format" },
+                statusCode: StatusCodes.Status400BadRequest);
+        if (turnVerdicts is null)
+            return Results.Json(new { error = "the Wingman's live stop is not available on this gateway" },
+                statusCode: StatusCodes.Status404NotFound);
+        // The same existence rule as the verdict reads, freshness ignored: the record is held here, so a session
+        // whose Director has gone quiet is still this account's session and its stop is still readable.
+        if (pushedSessions?.TryLocateIgnoringFreshness(tenant.Value, sid) is null)
+            return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+
+        // THE WHOLE ROSTER, not just this session's row: the card that follows his answer points him at the next
+        // session waiting on him, and it must be the one the Sessions list has at the top. Reading the same fold
+        // once and handing the fold both is what makes a second answer impossible.
+        var roster = FoldedAccountRoster(registry, pushedSessions, tenant.Value, snoozeRegistry, handRaises,
+            turnVerdictRows, snoozeExpiry);
+        var row = roster.FirstOrDefault(s => string.Equals(s.SessionId, sid, StringComparison.OrdinalIgnoreCase));
+
+        // THE VOICE VERDICT COMES FROM THE SAME STAMP THE ROSTER ROUTE USES - see VoiceRowStamp. The roster FOLD
+        // does not carry it (the /sessions handler stamps it after the fold runs), so without this the row below
+        // has no voice verdict at all. A caller that hands no facts stamps none, and the fold then offers nothing
+        // rather than claiming there is no audio.
+        if (row is not null && voiceFactsFor is not null)
+            VoiceRowStamp.Apply(row, voiceFactsFor(tenant.Value));
+        var verdicts = turnVerdicts.HistoryWithAnswers(tenant.Value, sid);
+
+        // THE STORE IS READ INSIDE THE CALLER'S TENANT SCOPE. Its rows are partitioned by the context's ambient
+        // tenant, so a read taken outside a scope answers from whatever tenant happened to be ambient - which on
+        // hosted is how one account ends up served another account's conversation. GET /sessions/{sid}/history
+        // enters the scope for exactly this reason; so does this.
+        //
+        // WATCHED, because it is not visible to the rest of the route's tests: they build the boundary over the
+        // single-tenant context, whose EnterScope is a no-op, so deleting this line left every one of them green.
+        // WingmanNowRouteTests.The_stored_conversation_is_read_inside_the_callers_own_account builds the hosted
+        // boundary instead and goes red without it.
+        Wingman.WingmanNowConversation? conversation = null;
+        if (sessionTurns is not null)
+        {
+            using var scope = tenantBoundary.EnterScope(tenant.Value);
+            var stored = sessionTurns.ReadCurrent(sid);
+            if (stored is not null)
+                conversation = new Wingman.WingmanNowConversation(stored.Value.Head.IsSupported, stored.Value.Messages);
+        }
+
+        // EITHER SWITCH OFF IS "SWITCHED OFF", which is the Architect's ruling and is what the screen can tell
+        // apart: with the colour switch off every row is stamped "none" and no verdict reaches the screen, so from
+        // the owner's side it is indistinguishable from the judge never having run. A Gateway that was handed no
+        // resolver passes null, and the fold then says NOTHING about the account's switches rather than assuming
+        // they are on - an assumed "on" would put "the Wingman could not explain this stop" on a session nothing
+        // was ever going to explain.
+        bool? wingmanSwitchedOff = null;
+        if (turnVerdictSettings is not null)
+        {
+            var settings = turnVerdictSettings(tenant.Value);
+            wingmanSwitchedOff = !settings.JudgeEnabled || !settings.ColourEnabled;
+        }
+
+        // WHAT THIS SESSION'S OWN SESSIONS ARE DOING, read the way the carrying-on clock's own seat reads them -
+        // GatewayTurnVerdictEnvironment.OwnedSessions is this same call over the same fresh snapshot. The clock
+        // does not run while one of them is still alive, so the card can only name a deadline when this says so,
+        // and reading it a second way here is how the card and the clock would come to disagree.
+        Wingman.OwnedSessionsFacts? ownedSessions = null;
+        if (pushedSessions is not null && streamStaleAfter is { } stale)
+            ownedSessions = Wingman.TurnVerdictOwnedSessions.For(pushedSessions.SnapshotFresh(tenant.Value, stale), sid);
+
+        var answer = Wingman.WingmanNowFold.Fold(
+            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff, ownedSessions,
+                roster, DateTime.UtcNow));
+        FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} state={answer.State}");
         return Results.Json(answer);
     }
 

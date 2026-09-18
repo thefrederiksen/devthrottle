@@ -13,8 +13,11 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// corpus's 381 gradable turns, and with the narration call that becomes a spoken "press a button on your phone" for
 /// a question voice could have answered - about a button the answer route would refuse to press.
 ///
-/// The screen decides: a keys answer whose read screen carries no DRAWN selection marker is stored as a reply with
-/// no menu and no options. An UNREAD screen corrects nothing.
+/// The screen decides, on the judge's OWN OPTION LABELS: a keys answer whose labels are not all on the read screen
+/// is stored as a reply with no menu and no options. An UNREAD screen corrects nothing.
+///
+/// The first version of this check asked for a drawn marker on a NUMBERED option row and took the buttons off two
+/// of the three real pickers in the corpus. Those two screens are tests here, verbatim.
 ///
 /// PARKED SUITE. Gateway.UnitTests runs under -Parked.
 /// </summary>
@@ -75,6 +78,80 @@ public sealed class InventedMenuCheckTests
         Assert.Equal("keys", verdict.AnswerVia);
         Assert.NotNull(verdict.Menu);
         Assert.Single(verdict.Options);
+    }
+
+    // ================================================================= the two real pickers the first version broke
+
+    [Fact]
+    public void Correct_TheFolderTrustPrompt_KeepsItsButtons()
+    {
+        // Corpus stop b2a10ee7, verbatim: a real picker whose options carry NO numbers, so the drawn marker sits
+        // on an unnumbered row. The first version of this check read that as "no picker" and took the buttons off.
+        string[] rows =
+        {
+            " Quick safety check: Is this a project you created or one you trust?",
+            " Security guide",
+            " ❯ No, exit",
+            "   Yes, I trust this folder",
+            " Enter to confirm · Esc to cancel",
+        };
+        var verdict = Keys();
+        verdict.Options = new List<TurnVerdictOptionDto>
+        {
+            new() { Key = "No, exit", Send = "1" },
+            new() { Key = "Yes, I trust this folder", Send = "2" },
+        };
+
+        Assert.False(InventedMenuCheck.Correct(verdict, rows));
+
+        Assert.Equal("keys", verdict.AnswerVia);
+        Assert.Equal(2, verdict.Options.Count);
+    }
+
+    [Fact]
+    public void Correct_TheFeedbackSurvey_KeepsItsButtons()
+    {
+        // Corpus stop 0215b94e, verbatim: a real picker that puts every choice on ONE line with colons, and draws
+        // its marker elsewhere on the grid. No option row, no marker on an option - and still a real picker.
+        string[] rows =
+        {
+            "● How is Claude doing this session? (optional)",
+            "  1: Bad    2: Fine   3: Good   0: Dismiss",
+            "  auto mode on (shift+tab to cycle)",
+            "❯",
+        };
+        var verdict = Keys();
+        verdict.Options = new List<TurnVerdictOptionDto>
+        {
+            new() { Key = "Bad", Send = "1" },
+            new() { Key = "Fine", Send = "2" },
+            new() { Key = "Good", Send = "3" },
+            new() { Key = "Dismiss", Send = "0" },
+        };
+
+        Assert.False(InventedMenuCheck.Correct(verdict, rows));
+
+        Assert.Equal("keys", verdict.AnswerVia);
+        Assert.Equal(4, verdict.Options.Count);
+    }
+
+    [Fact]
+    public void Correct_AnInventedMenuWhoseLabelsAreInTheProse_IsLeftAlone_AndThatIsTheKnownLimit()
+    {
+        // Honest about what this check cannot do. Twenty of the corpus's thirty-two invented menus label their
+        // options with words the agent's own prose used, and no screen check can tell those from a picker. They
+        // belong to the judge's prompt. This test exists so a later reader does not mistake the gap for a defect.
+        string[] rows = { "I can proceed with the migration, or stop here and leave it unmade.", "> " };
+        var verdict = Keys();
+        verdict.Options = new List<TurnVerdictOptionDto>
+        {
+            new() { Key = "Proceed", Send = "1" },
+            new() { Key = "Stop", Send = "2" },
+        };
+
+        Assert.False(InventedMenuCheck.Correct(verdict, rows));
+
+        Assert.Equal("keys", verdict.AnswerVia);
     }
 
     [Fact]

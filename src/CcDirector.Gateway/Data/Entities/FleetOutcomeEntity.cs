@@ -23,6 +23,16 @@ public sealed class FleetOutcomeEntity : GatewayMintedKeyEntity
     /// <summary>The session the news is about, when there is one.</summary>
     public string? AboutSessionId { get; set; }
 
+    /// <summary>The stop the news is about: the id of the Wingman verdict the Fleet Manager filed it from (the event
+    /// carries it), set when the record is filed and never after. Null when the record is about no one stop - such a
+    /// record is never closed by an answer sent to a session, only by the ordinary record answer (steps 7 to 9, round 2
+    /// fixes).</summary>
+    public string? AboutVerdictId { get; set; }
+
+    /// <summary>The turn end of that verdict, as the Gateway stored it when the record was filed - with
+    /// <see cref="AboutVerdictId"/>, the identity of the stop. Null exactly when <see cref="AboutVerdictId"/> is.</summary>
+    public DateTime? AboutTurnEndObservedAtUtc { get; set; }
+
     /// <summary>When it was filed (UTC).</summary>
     public DateTime CreatedAtUtc { get; set; }
 
@@ -52,4 +62,24 @@ public sealed class FleetOutcomeEntity : GatewayMintedKeyEntity
     /// <summary>On a decision only: whether the answer was exactly one of the offered options. Null on the
     /// other kinds and while open.</summary>
     public bool? AnswerMatchedOption { get; set; }
+
+    /// <summary>The Fleet Manager's ONE line of advice for the owner, written when the record is filed and settable
+    /// afterwards by the Fleet Manager only (step 7). It says what the Fleet Manager knows and the Wingman does not.
+    /// Null when none was written.</summary>
+    public string? Advice { get; set; }
+
+    /// <summary>The Fleet Manager's pick: the key of one of the Wingman's options for the record's session, set with
+    /// the advice (step 7). Stored as given; the walkthrough fold stamps which current option it names. Null when
+    /// none was picked.</summary>
+    public string? FleetManagerPick { get; set; }
+
+    /// <summary>When the advice and pick were last written (UTC), or null when never.</summary>
+    public DateTime? AdviceSetAtUtc { get; set; }
+
+    /// <summary>What the owner did about this record WITHOUT answering it - today only a snooze from the walkthrough
+    /// (step 7), in the Gateway's words, so the Fleet Manager's digest carries it. Null when nothing was done.</summary>
+    public string? OwnerNote { get; set; }
+
+    /// <summary>When <see cref="OwnerNote"/> was written (UTC), or null.</summary>
+    public DateTime? OwnerNoteAtUtc { get; set; }
 }

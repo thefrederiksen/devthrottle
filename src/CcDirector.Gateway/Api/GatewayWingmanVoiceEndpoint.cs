@@ -67,7 +67,7 @@ internal static class GatewayWingmanVoiceEndpoint
     /// client, and therefore a fresh connection pool, for every single synthesis. Disposing a client
     /// leaves its socket in TIME_WAIT, so a burst of turns churns through ports and the pool never gets
     /// to reuse a warm TLS connection to the proxy. One shared, never-disposed static is the pattern the
-    /// rest of this codebase already uses for hosted calls (AiModelsEndpoint, CarModeChat,
+    /// rest of this codebase already uses for hosted calls (AiModelsEndpoint,
     /// HostedInferenceBrain, ...), and it is safe here because the credential rides on the REQUEST
     /// (TtsSynthesis sets a per-request Authorization header), never on the client's default headers -
     /// so concurrent turns for different keys cannot bleed into each other.

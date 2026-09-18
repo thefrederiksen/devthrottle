@@ -104,7 +104,7 @@ question text is sent whole or not at all - never shortened.
 
 ### What can be noted
 
-Anything in the page outside the notes tray can carry a note:
+Anything in the page outside the notes interface can carry a note:
 
 | Clicked | The note's anchor carries |
 |---|---|
@@ -171,7 +171,7 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | type | payload | when |
 |---|---|---|
 | `ready` | `{ "questionIds": ["deploy-window"] }` | once, when the script has started |
-| `send` | `{ "items": [ item, ... ] }` | the owner pressed Send; every item still in the queue, in order |
+| `send` | `{ "items": [ item, ... ] }` | the owner pressed the UNHOSTED page's own Send; every item still in the queue, in order. A hosted page draws no Send and never posts this: the app sends the queue it already holds from `state-changed`, and tells the page what happened with `status`. |
 | `state-changed` | `{ "state": state }` | anything in the state changed - including a status or reply the host pushed |
 
 ### Host to page
@@ -183,6 +183,10 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | `reply` | `{ "reply": { "id": "r1", "text": "Fixed - see section 2", "at": "2026-09-16T10:00:00Z" } }` | adds the agent's reply to the page (same id replaces) |
 
 ### Send, and when an item counts as sent
+
+There is one Send on screen. Hosted it is the app's, and the app sends the queue it holds; unhosted it is
+the page's own, and it posts a `send`. Either way the rules below are the same, because both end in the
+host answering with a `status` for every id, and nothing counts as sent until it does.
 
 Posting a message is not the host accepting it. So Send does not empty the queue:
 
@@ -224,11 +228,49 @@ restore the inputs show the draft if there is one, otherwise the queued answer.
 The page cannot remember anything across a reload - a sandboxed frame has no storage - so the HOST keeps
 the last `state-changed` state and sends it back as `restore` after the page's next `ready`.
 
-### No host
+### Hosted and unhosted - who draws the conversation
 
-The page counts as hosted once it has received a valid `restore`. Before that - a plain file opened in a
-browser, or a host that has not answered yet - everything works except Send: pressing it shows the exact
-`send` message that would have been posted, and the queue is kept.
+The page counts as **hosted** once it has received a valid `restore`, and not a moment before. Being inside
+a frame is not enough: a framed page whose host never answers is unhosted, and so is a plain file opened in
+a browser. The switch goes both ways and is driven by the restore alone.
+
+**Hosted, the app owns the conversation and the page draws only the note-taking parts:**
+
+| The page draws | The page does NOT draw |
+|---|---|
+| the "Add a note" control and the "Note on selected text" control | the Queued list, the Sent list, the Replies list, and their headings |
+| the note box for what was tapped, with Queue note and Cancel | the Send button and its row |
+| each question's Queue button and its state line | the payload preview box |
+
+The parts it does not draw are taken out of the document, not merely hidden. They live ONCE, in the app's
+own panel - the Cockpit's rail, the phone's sheet - which is rendered from the state the page posts. The
+owner saw both at once and counted two conversations and two Send buttons, one of them permanently
+disabled; that is what this rule exists to stop.
+
+**Unhosted, the page draws the whole tray**, because there is nothing else on screen that could: the
+queued, sent and replies lists, and Send - which, with no host to post to, shows the exact `send` message
+that would have been posted and keeps the queue.
+
+Hosted or not, the page keeps the WHOLE state and posts all of it in `state-changed`. Only what it DRAWS
+changes. A question's state line says where the one Send is in each case, in plain words that name nothing
+internal and are true of every app.
+
+### The note box
+
+The note box - the composer for what was just tapped - is placed against the element the note is about:
+
+- **Below it when there is room below, otherwise above**, never on top of it, and never on top of the
+  question element that contains it. The anchor and its question are avoided together, so a note on a
+  paragraph inside a question does not land on the rest of that question.
+- **Nudged sideways** so it stays inside the viewport.
+- When it fits neither below nor above as the page stands, it goes BELOW and **the page scrolls** just
+  enough to make room - never so far that what the note is about leaves the screen.
+- The anchor is **measured when the box is drawn**, not when the draft was made, because the page may have
+  been scrolled in between. After a reload the element is found again from the note's own `selector`; a
+  selector that no longer resolves puts the box at the top left, where it covers nothing of its own.
+- It is **sized to the note**, growing with the text up to a ceiling of two fifths of the viewport height.
+  Past that the note's own text scrolls inside the box; the box itself is never a scrolling panel, and
+  neither is the tray when hosted. The report keeps ONE scrollbar.
 
 ---
 
@@ -293,9 +335,9 @@ A host MAY give the notes interface the app's look by adding a second attribute 
 
 The theme is appearance only. It is not a secret and carries no authority.
 
-**What the page does for itself.** The notes tray and each question's Queue button live in shadow roots,
-so the report's CSS cannot select them, and their host elements carry inline `!important` rules for
-display, visibility, opacity, position, transform, filter and clip-path. This stops a report from hiding
+**What the page does for itself.** The notes tray, the note box and each question's Queue button live in
+shadow roots, so the report's CSS cannot select them, and their host elements carry inline `!important`
+rules for display, visibility, opacity, position, transform, filter and clip-path. This stops a report from hiding
 the interface by name. It does not stop everything a stylesheet can do to a page: a report can still lay
 something over the tray, or hide the whole page. That is a report that is broken for the owner to see, not
 one that acts for him.

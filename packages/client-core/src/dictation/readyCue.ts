@@ -100,7 +100,8 @@ export function playReadyCue(): void {
  * dead silence - the owner hears, gently, that his turn was taken and is being worked. It reuses the
  * dictation water-droplet character (playReadyCue) but SOFT and LOW-VOLUME (Grok-style gentle, peak ~0.07
  * vs the ack cue's 0.5), repeating slowly, so it is an unobtrusive "working" texture, NOT the sharp ack
- * "plink". The caller stops it the instant the reply audio starts (see useCarMode speakAndPlay). Same
+ * "plink". A caller stops it the instant its reply audio starts. Nothing in the product starts it today: its
+ * one caller, the Car Mode screen, was removed with the Assistant (the Fleet Manager mission, step 9). Same
  * best-effort contract as the other cues - it is synthesized with the Web Audio API (no bundled asset) and
  * never throws; if audio output is unavailable the returned stop function is a harmless no-op.
  *

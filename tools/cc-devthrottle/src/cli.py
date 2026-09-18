@@ -58,7 +58,14 @@ app = typer.Typer(
 )
 session_app = typer.Typer(cls=AxiGroup, help="Manage running sessions.", add_completion=False)
 repo_app = typer.Typer(cls=AxiGroup, help="List the fleet's repositories.", add_completion=False)
-worktree_app = typer.Typer(cls=AxiGroup, help="List the fleet's worktrees and who is in them.", add_completion=False)
+worktree_app = typer.Typer(
+    cls=AxiGroup,
+    # Two different things share this word, so the help says which is which. "list" is the FLEET
+    # view, served by the Gateway, every machine. The other commands are this machine's pool of
+    # reusable worktrees, and every one of them runs the cc-worktrees tool - see worktree_pool_ops.
+    help="The fleet's worktrees, and this machine's pool of reusable ones.",
+    add_completion=False,
+)
 machine_app = typer.Typer(
     cls=AxiGroup,
     help="List machines, search them, start applications and ask for restarts.",
@@ -203,37 +210,41 @@ _ACTIONS = [
         "command": (
             'cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high '
             '--checks passed|failed|none --tested "<how>" --reviewed-by "<who>" '
-            '--change "<one sentence for a user>" [--session <id>]'
+            '--change "<one sentence for a user>" [--session <id> [--verdict <verdictId>]] [--advice "<one line>" [--pick "<option key>"]]'
         ),
         "mutatesState": True,
         "args": [{"name": "title", "required": True}, {"name": "pr", "required": True},
                  {"name": "risk", "required": True}, {"name": "checks", "required": True},
                  {"name": "tested", "required": True}, {"name": "reviewed_by", "required": True},
-                 {"name": "change", "required": True}, {"name": "session", "required": False}],
+                 {"name": "change", "required": True}, {"name": "session", "required": False},
+                 {"name": "verdict", "required": False}, {"name": "advice", "required": False}, {"name": "pick", "required": False}],
     },
     {
         "id": "fleet-finding",
         "description": "File a FINDING record: a finished report or investigation, answer first.",
         "command": (
             'cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"] '
-            "[--link <url> ...] [--session <id>]"
+            '[--link <url> ...] [--session <id> [--verdict <verdictId>]] [--advice "<one line>" [--pick "<option key>"]]'
         ),
         "mutatesState": True,
         "args": [{"name": "title", "required": True}, {"name": "answer", "required": True},
                  {"name": "reason", "required": False}, {"name": "link", "required": False},
-                 {"name": "session", "required": False}],
+                 {"name": "session", "required": False}, {"name": "verdict", "required": False},
+                 {"name": "advice", "required": False}, {"name": "pick", "required": False}],
     },
     {
         "id": "fleet-decision",
         "description": "File a DECISION record: a question only the owner can settle, with two or more options.",
         "command": (
             'cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>" '
-            '[--recommend "<a>"] [--why "<why>"] [--session <id>]'
+            '[--recommend "<a>"] [--why "<why>"] [--session <id> [--verdict <verdictId>]] [--advice "<one line>" [--pick "<option key>"]]'
         ),
         "mutatesState": True,
         "args": [{"name": "title", "required": True}, {"name": "question", "required": True},
                  {"name": "option", "required": True}, {"name": "recommend", "required": False},
-                 {"name": "why", "required": False}, {"name": "session", "required": False}],
+                 {"name": "why", "required": False}, {"name": "session", "required": False},
+                 {"name": "verdict", "required": False}, {"name": "advice", "required": False},
+                 {"name": "pick", "required": False}],
     },
     {
         "id": "fleet-outcomes",
@@ -255,6 +266,18 @@ _ACTIONS = [
         "command": 'cc-devthrottle fleet answer <id> "<the owner\'s words, exactly>"',
         "mutatesState": True,
         "args": [{"name": "id", "required": True}, {"name": "answer", "required": True}],
+    },
+    {
+        "id": "fleet-advise",
+        "description": (
+            "Write the Fleet Manager's one line of advice on an open outcome record, and optionally the Wingman option "
+            "it would pick; shown to the owner in the walkthrough. Only the marked Fleet Manager may. One line, at most "
+            "300 characters; a pick must be one of the options of the session's current Wingman reading."
+        ),
+        "command": 'cc-devthrottle fleet advise <id> "<one line of advice>" [--pick "<option key>"] [--json]',
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}, {"name": "advice", "required": True},
+                 {"name": "pick", "required": False}],
     },
     {
         "id": "fleet-prefer",
@@ -1049,6 +1072,17 @@ _ACTIONS = [
         "args": [],
     },
     {
+        "id": "session-hand-over",
+        "description": (
+            "Hand a running session to the Fleet Manager, or back to the owner. The owner's change: the Gateway "
+            "allows it only from the owner's own phone or browser and refuses every session key, the Fleet "
+            "Manager's included."
+        ),
+        "command": "cc-devthrottle session hand-over <session> --to fleet-manager|owner [--json]",
+        "mutatesState": True,
+        "args": [{"name": "session", "required": True}, {"name": "to", "required": True}],
+    },
+    {
         "id": "browser-list",
         "description": "List this machine's drivable browser profiles (name, browser, status, account).",
         "command": "cc-devthrottle browser list --json",
@@ -1089,6 +1123,94 @@ _ACTIONS = [
         "command": 'cc-devthrottle browser stop "Center Consulting"',
         "mutatesState": True,
         "args": [],
+    },
+    {
+        "id": "worktree-list",
+        "description": (
+            "List the fleet's worktrees, on every machine, with the Gateway's verdict, the size, and "
+            "which session is in each."
+        ),
+        "command": "cc-devthrottle worktree list [--repo <name>] [--state <verdict>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "repo", "required": False},
+            {"name": "state", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-list-pool",
+        "description": (
+            "List this machine's pool of reusable worktrees (cc-worktrees): slot, state (free, "
+            "in-use, held), holder, and the reason a held one is held."
+        ),
+        "command": "cc-devthrottle worktree list --pool [--repo <path>] [--fields <a,b>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "repo", "required": False},
+            {"name": "fields", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-get",
+        "description": (
+            "Take a pooled worktree on this machine to work in. It comes back reset to the remote "
+            "default branch with its build output kept, and with the lease that returns it."
+        ),
+        "command": "cc-devthrottle worktree get --repo <path> --holder <text> [--pool-size N]",
+        "mutatesState": True,
+        "args": [
+            {"name": "repo", "required": True},
+            {"name": "holder", "required": True},
+            {"name": "pool_size", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-return",
+        "description": (
+            "Give a pooled worktree back. It is reset and freed only when its work is proven to have "
+            "landed on the remote; anything unproven is held with the reason and left untouched."
+        ),
+        "command": "cc-devthrottle worktree return <path-or-slot> --lease <id> [--repo <path>]",
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "lease", "required": True},
+            {"name": "repo", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-lease",
+        "description": "Take one named pooled worktree rather than whichever one is free.",
+        "command": (
+            "cc-devthrottle worktree lease <path-or-slot> --holder <text> [--reclaim-held] "
+            "[--repo <path>]"
+        ),
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "holder", "required": True},
+            {"name": "reclaim_held", "required": False},
+            {"name": "repo", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-destroy",
+        "description": (
+            "Remove one pooled worktree. A dry run that says what it would remove unless --yes, and "
+            "refused unless the work in it is proven landed at that moment."
+        ),
+        "command": (
+            "cc-devthrottle worktree destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] "
+            "[--repo <path>]"
+        ),
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "yes", "required": False},
+            {"name": "allow_held", "required": False},
+            {"name": "allow_in_use", "required": False},
+            {"name": "repo", "required": False},
+        ],
     },
 ]
 
@@ -1264,28 +1386,123 @@ def repo_list(
     list_repositories(json_output, dirty_only=dirty, state=state, repo=repo, machine=machine, fields=fields)
 
 
+# The pooled-worktree commands below take their arguments exactly as cc-worktrees takes them and
+# forward them untouched, so a flag never means one thing here and another there, and a flag added to
+# cc-worktrees works through this command the day it lands. cc-worktrees rejects an argument it does
+# not know, with its own usage exit code, so nothing is silently ignored on the way through.
+_PASS_THROUGH = {"allow_extra_args": True, "ignore_unknown_options": True}
+
+
 @worktree_app.command("list")
 def worktree_list(
     json_output: bool = typer.Option(
         False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
     ),
-    repo: str = typer.Option(None, "--repo", help="Only worktrees of this repository: its folder name or full path."),
-    state: str = typer.Option(
-        None, "--state", help="Only these states, comma separated: needs-attention, in-use, safe-to-reap, verifying."
+    repo: str = typer.Option(
+        None,
+        "--repo",
+        help="Only this repository: its folder name or full path for the fleet listing, its PATH with --pool.",
     ),
-    machine: str = typer.Option(None, "--machine", help="Only worktrees on this machine."),
+    state: str = typer.Option(
+        None,
+        "--state",
+        help="Fleet listing only. Only these states, comma separated: needs-attention, in-use, safe-to-reap, verifying.",
+    ),
+    machine: str = typer.Option(
+        None, "--machine", help="Fleet listing only. Only worktrees on this machine."
+    ),
     fields: str = typer.Option(
         None,
         "--fields",
-        help="Fields to show, comma separated. Default: path,repo,machine,state. "
-        "Valid: path, repo, machine, state, branch, reason, sessions, bytes, last-activity, repo-path, "
-        "director, data-age, provisional.",
+        help="Fields to show, comma separated. Fleet listing default: path,repo,machine,state; valid: path, repo, "
+        "machine, state, branch, reason, sessions, bytes, last-activity, repo-path, director, data-age, provisional. "
+        "With --pool: repo, slot, path, state, holder, reason, updated.",
+    ),
+    pool: bool = typer.Option(
+        False, "--pool", help="List this machine's cc-worktrees pool instead of the fleet."
     ),
 ) -> None:
-    """List the fleet's worktrees: full path, repository, machine and state."""
+    """List the fleet's worktrees, or this machine's pool of reusable ones with --pool.
+
+    The fleet view is every machine's worktrees as the Gateway sees them, with verdicts, sizes and
+    which session is in each. With --pool it is this machine's pool, answered by cc-worktrees:
+    slot, state (free, in-use, held), holder and reason.
+    """
+    if pool:
+        from . import worktree_pool_ops
+
+        for name, value in (("--state", state), ("--machine", machine)):
+            if value is not None:
+                worktree_pool_ops.usage_error(
+                    f"{name} filters the fleet listing and has no meaning for the pool",
+                    ["cc-devthrottle worktree list --pool [--repo <path>] [--fields <a,b>]"],
+                    json_output,
+                )
+        arguments = ["list"]
+        if repo is not None:
+            arguments += ["--repo", repo]
+        if fields is not None:
+            arguments += ["--fields", fields]
+        if json_output:
+            arguments += ["--json"]
+        worktree_pool_ops.run_pool_command(arguments)
+
     from .repo_ops import list_worktrees
 
     list_worktrees(json_output, repo=repo, state=state, machine=machine, fields=fields)
+
+
+@worktree_app.command("get", context_settings=_PASS_THROUGH)
+def worktree_get(ctx: typer.Context) -> None:
+    """Take a free pooled worktree to work in. Runs: cc-worktrees get.
+
+    A free slot is handed out, or a new one is created beside the repository while the pool is
+    under its size.
+
+      cc-devthrottle worktree get --repo <path> --holder <text> [--pool-size N] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["get"] + list(ctx.args))
+
+
+@worktree_app.command("return", context_settings=_PASS_THROUGH)
+def worktree_return(ctx: typer.Context) -> None:
+    """Give a pooled worktree back. Runs: cc-worktrees return.
+
+    It is reset and freed only when cc-worktrees can prove its work landed; otherwise it is held
+    with the reason and nothing in it is touched.
+
+      cc-devthrottle worktree return <path-or-slot> --lease <id> [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["return"] + list(ctx.args))
+
+
+@worktree_app.command("lease", context_settings=_PASS_THROUGH)
+def worktree_lease(ctx: typer.Context) -> None:
+    """Take one named pooled worktree. Runs: cc-worktrees lease.
+
+      cc-devthrottle worktree lease <path-or-slot> --holder <text> [--reclaim-held] [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["lease"] + list(ctx.args))
+
+
+@worktree_app.command("destroy", context_settings=_PASS_THROUGH)
+def worktree_destroy(ctx: typer.Context) -> None:
+    """Remove one pooled worktree. Runs: cc-worktrees destroy.
+
+    A dry run unless --yes, and refused whatever the recorded state says unless the work is proven
+    landed at that moment.
+
+      cc-devthrottle worktree destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["destroy"] + list(ctx.args))
 
 
 @machine_app.command("list")
@@ -1457,6 +1674,31 @@ def machine_launch(
     from .machine_ops import launch
 
     launch(machine, app, path, args, cwd, headless, json_output)
+
+
+@session_app.command(name="hand-over")
+def hand_over(
+    target: str = typer.Argument(..., help="Session to hand over (full id, id prefix, number, or exact name)."),
+    to: Optional[str] = typer.Option(
+        None, "--to", help="Who owns it afterwards: fleet-manager, or owner (no owning session)."
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: the Gateway's answer, unchanged."
+    ),
+) -> None:
+    """Hand a running session to the Fleet Manager, or back to the owner.
+
+    The Gateway allows it from the owner's own signed-in phone or browser (the Cockpit's Fleet Manager
+    page and session menu), and from the account's Fleet Manager with its own session key - which takes
+    a session only when the owner has asked it to. Any other session's key is refused with the reason.
+
+    The Gateway also refuses: a session this account is not running, the Fleet Manager itself, handing to
+    a Fleet Manager the account does not have running, a session another running session owns, a session
+    that is already where it is being sent, and a session whose Director is too old to change an owner.
+    """
+    from .fleet_manager_ops import hand_over as _hand_over
+
+    _hand_over(target, to, json_output)
 
 
 @session_app.command()
@@ -2732,6 +2974,18 @@ _SESSION_ABOUT = typer.Option(
     None, "--session", "-s",
     help="The session this is about: id, id prefix, number, or exact name.",
 )
+_ADVICE = typer.Option(
+    None, "--advice",
+    help="One line of advice for the owner: what you know and the Wingman does not. At most 300 characters.",
+)
+_VERDICT = typer.Option(
+    None, "--verdict",
+    help="The verdictId of the stop event this record is about, exactly. Needs --session.",
+)
+_PICK = typer.Option(
+    None, "--pick",
+    help="The key of the Wingman option you would pick for the session, exactly. Needs --advice.",
+)
 
 
 @fleet_app.command("ready")
@@ -2744,10 +2998,14 @@ def fleet_ready(
     reviewed_by: str = typer.Option(..., "--reviewed-by", help="Who reviewed it."),
     change: str = typer.Option(..., "--change", help="One sentence on what changed, for a user."),
     session: Optional[str] = _SESSION_ABOUT,
+    verdict: Optional[str] = _VERDICT,
+    advice: Optional[str] = _ADVICE,
+    pick: Optional[str] = _PICK,
     json_output: bool = _JSON_OPT,
 ) -> None:
     """File a READY record: work that is ready for the owner."""
-    fleet_ops.file_ready(title, pr, risk, checks, tested, reviewed_by, change, session, json_output)
+    fleet_ops.file_ready(title, pr, risk, checks, tested, reviewed_by, change, session, json_output,
+                         advice=advice, pick=pick, verdict=verdict)
 
 
 @fleet_app.command("finding")
@@ -2757,10 +3015,14 @@ def fleet_finding(
     reason: Optional[str] = typer.Option(None, "--reason", help="The reason."),
     link: Optional[List[str]] = typer.Option(None, "--link", help="A full link to a report (repeatable)."),
     session: Optional[str] = _SESSION_ABOUT,
+    verdict: Optional[str] = _VERDICT,
+    advice: Optional[str] = _ADVICE,
+    pick: Optional[str] = _PICK,
     json_output: bool = _JSON_OPT,
 ) -> None:
     """File a FINDING record: a report or investigation that is finished."""
-    fleet_ops.file_finding(title, answer, reason, link, session, json_output)
+    fleet_ops.file_finding(title, answer, reason, link, session, json_output, advice=advice, pick=pick,
+                           verdict=verdict)
 
 
 @fleet_app.command("decision")
@@ -2771,10 +3033,14 @@ def fleet_decision(
     recommend: Optional[str] = typer.Option(None, "--recommend", help="The option you recommend, exactly as given."),
     why: Optional[str] = typer.Option(None, "--why", help="Why you recommend it."),
     session: Optional[str] = _SESSION_ABOUT,
+    verdict: Optional[str] = _VERDICT,
+    advice: Optional[str] = _ADVICE,
+    pick: Optional[str] = _PICK,
     json_output: bool = _JSON_OPT,
 ) -> None:
     """File a DECISION record: something only the owner can settle."""
-    fleet_ops.file_decision(title, question, option, recommend, why, session, json_output)
+    fleet_ops.file_decision(title, question, option, recommend, why, session, json_output,
+                            advice=advice, pick=pick, verdict=verdict)
 
 
 @fleet_app.command("outcomes")
@@ -2810,6 +3076,21 @@ def fleet_answer(
 ) -> None:
     """Close a record with the owner's answer. An answered record is never re-answered."""
     fleet_ops.answer_outcome(outcome_id, words, json_output)
+
+
+@fleet_app.command("advise")
+def fleet_advise(
+    outcome_id: str = typer.Argument(..., metavar="ID", help="The record's id, or the start of it."),
+    advice: str = typer.Argument(..., metavar="ADVICE", help="One line for the owner, at most 300 characters."),
+    pick: Optional[str] = typer.Option(
+        None, "--pick", help="The key of the Wingman option you would pick, exactly. Leave it out to clear the pick."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Write your one line of advice on an open record, for the owner's walkthrough.
+
+    Replaces the advice and pick already there. Only the Fleet Manager may.
+    """
+    fleet_ops.advise_outcome(outcome_id, advice, pick, json_output)
 
 
 @fleet_app.command("digest")

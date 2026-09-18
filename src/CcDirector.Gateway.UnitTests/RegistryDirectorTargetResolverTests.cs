@@ -68,6 +68,29 @@ public sealed class RegistryDirectorTargetResolverTests
         Assert.Equal(0, launcher.StartCount);                      // a running Director means no launch
     }
 
+    // The Fleet Manager mission, step 5: a Director that said goodbye keeps its registry row for a day, and
+    // picking it sent the create to a process that no longer exists instead of asking the launcher for a new one.
+    [Fact]
+    public async Task Resolve_OnlyAStoppedDirector_AsksTheLauncherAndResolvesTheNewOne()
+    {
+        var stopped = Director("d-stopped", "MACHINE_A", "");
+        stopped.StoppedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        var directors = new List<DirectorDto> { stopped };
+        var launcher = new FakeLauncher(machine =>
+        {
+            directors.Add(Director("d-fresh", machine, ""));
+            return true;
+        });
+        var resolver = new RegistryDirectorTargetResolver(
+            _ => directors, () => TenantId.Local, launcher, FastTimeout, FastPoll);
+
+        var result = await resolver.ResolveAsync("MACHINE_A", director: null, CancellationToken.None);
+
+        Assert.Null(result.Error);
+        Assert.Equal("d-fresh", result.DirectorId);
+        Assert.Equal(1, launcher.StartCount);
+    }
+
     [Fact]
     public async Task Resolve_NoDirector_LauncherStartsOne_RegistersAfterLaunch_Resolves()
     {

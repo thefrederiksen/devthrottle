@@ -1,0 +1,272 @@
+{
+  "needsYou": {
+    "sessionId": "11111111-1111-1111-1111-111111111111",
+    "state": "needs-you",
+    "pillText": "Needs you",
+    "pillColour": "red",
+    "pillColourHex": "#ef4444",
+    "showWhyColour": true,
+    "when": {
+      "lead": "Stopped at",
+      "atUtc": "2026-09-17T11:12:00Z",
+      "showAgo": true,
+      "elapsedOnly": false
+    },
+    "unsure": false,
+    "unsureTag": null,
+    "unsureLine": null,
+    "headline": "Merge pull request 3002, or allow me to merge it",
+    "story": "The release notes are pushed and the merge command was refused by a permission check.",
+    "agentSaid": {
+      "who": "Claude Code said",
+      "text": "Either merge 3002 yourself, or allow that command and I will do it."
+    },
+    "wholeReply": "Earlier reply.",
+    "needs": {
+      "heading": "What it needs from you",
+      "recommends": "It recommends: allow the merge - the notes have been reviewed",
+      "question": null,
+      "options": [
+        {
+          "index": 0,
+          "key": "Option 0",
+          "note": "What option 0 does.",
+          "recommended": true
+        },
+        {
+          "index": 1,
+          "key": "Option 1",
+          "note": "What option 1 does.",
+          "recommended": false
+        }
+      ]
+    },
+    "canAnswerByOption": true,
+    "verdictId": "verdict-1",
+    "replyPlaceholder": "Or answer in your own words.",
+    "calmCard": null,
+    "lastWords": null,
+    "failedHeadline": null,
+    "failedStory": null,
+    "lastGood": null,
+    "switchedOff": null,
+    "carryingOnDeadline": null,
+    "lastAsked": null,
+    "lastStop": null,
+    "answered": null,
+    "nextNeedsYou": null,
+    "voice": {
+      "kind": "turn-on",
+      "label": "Read this session aloud from now on",
+      "afterTurnOnText": "Voice is on for this session. This stop will be read aloud in a few seconds."
+    }
+  },
+  "working": {
+    "sessionId": "11111111-1111-1111-1111-111111111111",
+    "state": "working",
+    "pillText": "Working",
+    "pillColour": "blue",
+    "pillColourHex": "#3b82f6",
+    "showWhyColour": true,
+    "when": {
+      "lead": "Working for",
+      "atUtc": "2026-09-17T11:13:00Z",
+      "showAgo": false,
+      "elapsedOnly": true
+    },
+    "unsure": false,
+    "unsureTag": null,
+    "unsureLine": null,
+    "headline": null,
+    "story": null,
+    "agentSaid": null,
+    "wholeReply": null,
+    "needs": null,
+    "canAnswerByOption": false,
+    "verdictId": null,
+    "replyPlaceholder": "Send it something while it works - it is queued until it is ready.",
+    "calmCard": null,
+    "lastWords": null,
+    "failedHeadline": null,
+    "failedStory": null,
+    "lastGood": null,
+    "switchedOff": null,
+    "carryingOnDeadline": null,
+    "lastAsked": {
+      "heading": "What it was last asked",
+      "text": "Carry on with the next slice.",
+      "atUtc": "2026-09-17T11:08:00Z",
+      "by": null,
+      "whenLead": "at"
+    },
+    "lastStop": {
+      "lead": "Last stop",
+      "atUtc": "2026-09-17T11:12:00Z",
+      "text": "Needs you - Merge pull request 3002, or allow me to merge it"
+    },
+    "answered": null,
+    "nextNeedsYou": null,
+    "voice": {
+      "kind": "none",
+      "label": "",
+      "afterTurnOnText": null
+    }
+  },
+  "justAnswered": {
+    "sessionId": "11111111-1111-1111-1111-111111111111",
+    "state": "just-answered",
+    "pillText": "Working again",
+    "pillColour": "blue",
+    "pillColourHex": "#3b82f6",
+    "showWhyColour": true,
+    "when": {
+      "lead": "You answered",
+      "atUtc": "2026-09-17T11:14:00Z",
+      "showAgo": true,
+      "elapsedOnly": true
+    },
+    "unsure": false,
+    "unsureTag": null,
+    "unsureLine": null,
+    "headline": null,
+    "story": null,
+    "agentSaid": null,
+    "wholeReply": null,
+    "needs": null,
+    "canAnswerByOption": false,
+    "verdictId": null,
+    "replyPlaceholder": "Send it something while it works - it is queued until it is ready.",
+    "calmCard": null,
+    "lastWords": null,
+    "failedHeadline": null,
+    "failedStory": null,
+    "lastGood": null,
+    "switchedOff": null,
+    "carryingOnDeadline": null,
+    "lastAsked": null,
+    "lastStop": {
+      "lead": "The stop you answered",
+      "atUtc": "2026-09-17T11:12:00Z",
+      "text": "Needs you - Merge pull request 3002, or allow me to merge it"
+    },
+    "answered": {
+      "headline": "You answered: Allow the merge",
+      "text": "Allow the merge",
+      "sentLead": "Sent at",
+      "atUtc": "2026-09-17T11:14:00Z",
+      "workingAgainAfterText": "The session started working again 2 seconds later."
+    },
+    "nextNeedsYou": {
+      "heading": "Next that needs you",
+      "sessionId": "44444444-4444-4444-4444-444444444444",
+      "name": "Dev Reports - Architect",
+      "label": "Should I open an issue for the dev Gateway?",
+      "linkText": "Go there"
+    },
+    "voice": {
+      "kind": "none",
+      "label": "",
+      "afterTurnOnText": null
+    }
+  },
+  "carryingOn": {
+    "sessionId": "11111111-1111-1111-1111-111111111111",
+    "state": "carrying-on",
+    "pillText": "Carrying on",
+    "pillColour": "purple",
+    "pillColourHex": "#a855f7",
+    "showWhyColour": true,
+    "when": {
+      "lead": "Stopped at",
+      "atUtc": "2026-09-17T11:12:00Z",
+      "showAgo": true,
+      "elapsedOnly": false
+    },
+    "unsure": false,
+    "unsureTag": null,
+    "unsureLine": null,
+    "headline": "Waiting for its Worker to finish the test run",
+    "story": "The release notes are pushed and the merge command was refused by a permission check.",
+    "agentSaid": {
+      "who": "Claude Code said",
+      "text": "Either merge 3002 yourself, or allow that command and I will do it."
+    },
+    "wholeReply": null,
+    "needs": null,
+    "canAnswerByOption": false,
+    "verdictId": "verdict-1",
+    "replyPlaceholder": null,
+    "calmCard": {
+      "heading": "Nothing needed from you",
+      "body": null,
+      "tone": "purple"
+    },
+    "lastWords": null,
+    "failedHeadline": null,
+    "failedStory": null,
+    "lastGood": null,
+    "switchedOff": null,
+    "carryingOnDeadline": {
+      "before": "If it has not worked again by",
+      "atUtc": "2026-09-17T11:22:04Z",
+      "after": ", and none of the sessions it owns is still working, this turns red and says so."
+    },
+    "lastAsked": null,
+    "lastStop": null,
+    "answered": null,
+    "nextNeedsYou": null,
+    "voice": {
+      "kind": "turn-on",
+      "label": "Read this session aloud from now on",
+      "afterTurnOnText": "Voice is on for this session. This stop will be read aloud in a few seconds."
+    }
+  },
+  "done": {
+    "sessionId": "11111111-1111-1111-1111-111111111111",
+    "state": "done",
+    "pillText": "Done",
+    "pillColour": "cyan",
+    "pillColourHex": "#06b6d4",
+    "showWhyColour": true,
+    "when": {
+      "lead": "Stopped at",
+      "atUtc": "2026-09-17T11:12:00Z",
+      "showAgo": false,
+      "elapsedOnly": false
+    },
+    "unsure": false,
+    "unsureTag": null,
+    "unsureLine": null,
+    "headline": "Release v2.5.0 is tagged and published",
+    "story": "The release notes are pushed and the merge command was refused by a permission check.",
+    "agentSaid": {
+      "who": "Claude Code said",
+      "text": "Either merge 3002 yourself, or allow that command and I will do it."
+    },
+    "wholeReply": null,
+    "needs": null,
+    "canAnswerByOption": false,
+    "verdictId": "verdict-1",
+    "replyPlaceholder": null,
+    "calmCard": {
+      "heading": "The work is complete",
+      "body": "Nothing is needed from you. You can close this session when you are ready.",
+      "tone": "cyan"
+    },
+    "lastWords": null,
+    "failedHeadline": null,
+    "failedStory": null,
+    "lastGood": null,
+    "switchedOff": null,
+    "carryingOnDeadline": null,
+    "lastAsked": null,
+    "lastStop": null,
+    "answered": null,
+    "nextNeedsYou": null,
+    "voice": {
+      "kind": "turn-on",
+      "label": "Read this session aloud from now on",
+      "afterTurnOnText": "Voice is on for this session. This stop will be read aloud in a few seconds."
+    }
+  }
+}

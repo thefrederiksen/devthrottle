@@ -44,6 +44,31 @@ public sealed class DirectorStreamHello
     /// </summary>
     public bool ChecksIdleBeforeTyping { get; set; }
 
+    /// <summary>
+    /// This Director understands <see cref="NewSessionRequest.FleetManagerHome"/> (the Fleet Manager mission,
+    /// step 5). False from an older build, which would ignore the flag and refuse the create for a blank
+    /// repository path - so the Gateway refuses the start itself, with a sentence that says the Director on that
+    /// computer must be updated, instead of sending a request the Director cannot honour.
+    /// </summary>
+    public bool CreatesFleetManagerHome { get; set; }
+
+    /// <summary>
+    /// This Director understands the <c>set-controller</c> verb (<see cref="SetControllerRequest"/>): it changes
+    /// which session owns an existing session (the Fleet Manager mission, step 8). False from an older build,
+    /// which answers the verb as unknown - so the Gateway refuses a hand-over itself, with a sentence that says
+    /// the Director on that computer must be updated, instead of sending a verb the Director cannot carry out.
+    /// </summary>
+    public bool ChangesOwner { get; set; }
+
+    /// <summary>
+    /// This Director makes a <c>set-controller</c> change only when the session's owner is still
+    /// <see cref="SetControllerRequest.ExpectedControllerSessionId"/>, and answers Conflict otherwise (the Fleet
+    /// Manager mission, step 8 fixes). A separate capability, because the first builds with the verb already said
+    /// <see cref="ChangesOwner"/> true and ignored the expected owner: they overwrite whatever owner another session set
+    /// after the Gateway checked. The Gateway sends a hand over ONLY to a Director that says this, whatever else it says.
+    /// </summary>
+    public bool ChangesOwnerIfExpected { get; set; }
+
     /// <summary>Gateway Cleanup mission (tunnel-only): when the Director process started (UTC).</summary>
     public DateTime StartedAt { get; set; }
 

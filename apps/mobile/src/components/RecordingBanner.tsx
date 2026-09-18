@@ -13,8 +13,8 @@ import { recordingSession, useRecordingSession } from "@devthrottle/client-core/
 // state larger, and doubling it would burn a strip of a small screen to say one thing twice.
 //
 // IT PUBLISHES ITS OWN MEASURED HEIGHT AS --recbanner-h, exactly like the voice-mode banner
-// publishes --voicemode-h and for the same reason: the pinned screens (.terminal-screen,
-// .assistant-screen) are fixed out of the document flow and offset themselves by --topbars-h, the
+// publishes --voicemode-h and for the same reason: the pinned screens (.terminal-screen)
+// are fixed out of the document flow and offset themselves by --topbars-h, the
 // sum of every top bar. A bar that does not add its height to that sum paints OVER those screens'
 // own headers (shipped and reported for the voice-mode banner on 2026-07-25 - "there's a black
 // space at the top" was the over-correction; losing the header was the original sin). Zero when

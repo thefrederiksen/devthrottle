@@ -100,6 +100,10 @@ def _default_answers():
             "session": {"sessionId": SID, "missionId": body.get("missionId")},
             "previousMissionId": OTHER_MID, "previousMissionName": "AXI two",
         },
+        ("POST", "gateway/fleet-manager/hand-over"): lambda body: {
+            "sessionId": body["session"], "to": body["to"], "ownerSessionId": PARENT if body["to"] == "fleet-manager" else None,
+            "sentence": "It changed owner.",
+        },
         ("POST", "machines/MAC/launch"): LAUNCH_ANSWER,
         ("POST", "machines/MAC/director/restart-requests"): RESTART_ANSWER,
         ("GET", "directors"): [{"directorId": DIRECTOR, "displayName": "Mac", "machineName": "MAC"}],
@@ -232,6 +236,10 @@ MUTATIONS = [
     ("session spawn", ["session", "spawn", "/repos/x", "--controlled-by", "self", "--name", "n", "--mission", "none"],
      AS_SID,
      [f'cc-devthrottle message send {NEW} "<message>"', f"cc-devthrottle session buffer {NEW}"]),
+    ("session hand-over", ["session", "hand-over", SID, "--to", "fleet-manager"], None,
+     ["cc-devthrottle session list --fields id,name,state", f"cc-devthrottle session hand-over {SID} --to owner"]),
+    ("session hand-over --to owner", ["session", "hand-over", SID, "--to", "owner"], None,
+     ["cc-devthrottle session list --fields id,name,state", f"cc-devthrottle session hand-over {SID} --to fleet-manager"]),
     ("message send", ["message", "send", SID, "hello"], None,
      ["cc-devthrottle message inbox", "cc-devthrottle session list"]),
     ("message send all", ["message", "send", "all", "hello"], AS_SID,
@@ -1102,6 +1110,20 @@ UNCONFIRMED = [
     ("role clear blank", ["session", "role", SID, "none"], None,
      _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": "  "}}),
      "gave the explicit role ' ', not none"),
+    ("hand over empty", ["session", "hand-over", SID, "--to", "fleet-manager"], None,
+     _set(**{"POST gateway/fleet-manager/hand-over": {}}), "gave nothing for sessionId"),
+    ("hand over other session", ["session", "hand-over", SID, "--to", "fleet-manager"], None,
+     _set(**{"POST gateway/fleet-manager/hand-over": {"sessionId": PARENT, "ownerSessionId": NEW}}),
+     f"'{PARENT}' for sessionId"),
+    ("hand over no owner", ["session", "hand-over", SID, "--to", "fleet-manager"], None,
+     _set(**{"POST gateway/fleet-manager/hand-over": {"sessionId": SID, "ownerSessionId": None}}),
+     "gave null for ownerSessionId"),
+    ("hand back still owned", ["session", "hand-over", SID, "--to", "owner"], None,
+     _set(**{"POST gateway/fleet-manager/hand-over": {"sessionId": SID, "ownerSessionId": NEW}}),
+     f"'{NEW}' for ownerSessionId"),
+    ("hand back owner missing", ["session", "hand-over", SID, "--to", "owner", "--json"], None,
+     _set(**{"POST gateway/fleet-manager/hand-over": {"sessionId": SID}}),
+     "gave nothing for ownerSessionId"),
     ("launch empty", ["machine", "launch", "MAC", "--app", "Chrome"], None,
      _set(**{"POST machines/MAC/launch": {}}), "gave nothing for relayStatus"),
     ("launch no status", ["machine", "launch", "MAC", "--app", "Chrome", "--json"], None,
@@ -1128,7 +1150,8 @@ def test_mutation_AnswerDoesNotConfirmTheChange_ExitsOneWithoutClaimingIt(
     assert "help[" not in result.stdout, result.stdout
     for word in ("Renamed", "Sent", "Interrupted", "Delivered", "Hand up", "Hand down", "Held", "Released",
                  "Compact", "Role set", "Role cleared", "Marked", "Cleared", "Opened", "Created",
-                 "Completed", "Removed", "Reopened", "Attached", "Detached", "Started", "REQUESTED"):
+                 "Completed", "Removed", "Reopened", "Attached", "Detached", "Started", "REQUESTED",
+                 "changed owner"):
         assert word not in result.stdout, result.stdout
 
 

@@ -568,7 +568,9 @@ public sealed class TurnVerdictServiceTests : IDisposable
     public async Task AMenuVerdict_FeedsTheScreenCache_UnderTheFullGridHash()
     {
         const string sid = "sid-menu-cache";
-        string[] rows = { "Do you want to proceed?", "> 1. Yes", "  2. No" };
+        // The screen's option labels are the ones the judge answers with (Proceed / Stop). A picker whose labels
+        // are NOT on the screen is an invented menu and InventedMenuCheck corrects it away - see that test class.
+        string[] rows = { "Do you want to proceed?", "> 1. Proceed", "  2. Stop" };
         var env = Env();
         env.Screen = () => Screen(sid, rows);
         env.Conversation = _ => null;

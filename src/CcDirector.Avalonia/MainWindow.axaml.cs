@@ -2541,7 +2541,10 @@ public partial class MainWindow : Window
             {
                 FileLog.Write($"[MainWindow] CloseAllSessionsAsync: failed to kill {vm.Session.Id}: {ex.Message}");
             }
-            _sessionManager.RemoveSession(vm.Session.Id);
+            // Off the user-interface thread: a session in a pooled worktree gives it back here, and
+            // that runs cc-worktrees, which fetches the remote. Blocking the interface thread on a
+            // network call would freeze the window on the way out.
+            await Task.Run(() => _sessionManager.RemoveSession(vm.Session.Id));
         }
 
         SetSessionHeaderVisible(false);
@@ -3097,15 +3100,9 @@ public partial class MainWindow : Window
             // Mirror the live roster into the durable crash journal (issue #212 L5). Same
             // snapshot, but keyed per-Director and preserved across an abnormal death so the
             // sessions can be recovered (unlike sessions.json, which is cleared every startup).
-            app.CrashJournal?.Update(_sessions.Select(vm => new DirectorCrashJournalSession
-            {
-                SessionId = vm.Session.Id.ToString(),
-                Name = vm.Session.CustomName,
-                RepoPath = vm.Session.RepoPath,
-                Agent = vm.Session.AgentKind.ToString(),
-                ClaudeSessionId = vm.Session.ClaudeSessionId,
-                CreatedAtUtc = vm.Session.CreatedAt,
-            }));
+            // Each row is built by the one builder the owner-change write uses too, so this routine save never drops
+            // the owner a hand over wrote a moment earlier.
+            app.CrashJournal?.Update(_sessions.Select(vm => SessionManager.ToCrashJournalSession(vm.Session)));
         }
         catch (Exception ex)
         {

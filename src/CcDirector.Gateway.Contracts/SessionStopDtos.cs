@@ -96,6 +96,17 @@ public sealed class DirectorStopResult
     public bool? WorktreeHadUncommittedChanges { get; set; }
 
     /// <summary>
+    /// Why the pooled worktree was NOT taken back, in cc-worktrees' own words - or null, which is the
+    /// answer for every session that was not running in a pooled worktree, and for one that was and
+    /// gave it back.
+    ///
+    /// When it is set, <see cref="RowRemoved"/> is false ON PURPOSE: the row is kept so the reason is
+    /// in front of the person who closed the session. The worktree keeps whatever is in it and nothing
+    /// was forced, retried with a stronger flag, or destroyed.
+    /// </summary>
+    public string? PooledWorktreeHeldReason { get; set; }
+
+    /// <summary>
     /// What this stop could establish, in one word about the machine's own words in
     /// <see cref="NotDescribedReason"/> - or null when it established everything it reports.
     ///
@@ -136,6 +147,13 @@ public sealed class SessionStopResponse
 
     /// <summary>Zero or more further lines, in the order they are to be shown.</summary>
     public List<string> Details { get; set; } = new();
+
+    /// <summary>
+    /// Why the pooled worktree was not taken back, in cc-worktrees' own words, or null. Carried
+    /// alongside the folded sentence in <see cref="Details"/> so a surface that shows facts rather than
+    /// prose - a session row - has the reason without parsing a sentence.
+    /// </summary>
+    public string? PooledWorktreeHeldReason { get; set; }
 
     /// <summary>The session identifier the stop was asked for, exactly as the caller gave it.</summary>
     public string SessionId { get; set; } = "";

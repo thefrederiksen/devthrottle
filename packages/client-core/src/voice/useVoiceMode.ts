@@ -15,6 +15,7 @@ import {
 import { backgroundTranscribeAndSend, type CapturedUtterance } from "../dictation/backgroundSend";
 import { ensureClip, getClipState, getVoiceMeta, saveVoiceMeta, stopPlayback, useVoiceClips, type ClipPhase } from "./clips";
 import { positionFor, saveMark, wasAutoPlayed } from "./playbackPositions";
+import { switchVoiceModeOn } from "./switchVoiceMode";
 import { speakLocally } from "../speech/localSpeech";
 import { utteranceFor } from "../speech/spokenUtterance";
 import { isWorking } from "../sessions/ordering";
@@ -448,8 +449,9 @@ export function useVoiceMode(
       // session on the owning Director (ViewMode=Voice) so SessionDto.VoiceMode flips true and the
       // state persists across navigation and shows on the roster; then explain on the Gateway, which
       // marks its turn-end re-narration set and reads the first turn (caching the spoken text + audio).
-      await setVoiceMode(sid, true);
-      const explained = await markVoiceAndExplain(sid);
+      // Both live in switchVoiceModeOn, which is the ONE place that pair is made - the Wingman tab's Now
+      // view switches voice on too, and a second copy of the pair would be free to drift from this one.
+      const explained = await switchVoiceModeOn(sid);
       // A fresh/text-only session has nothing to read yet - show its truthful note in the working
       // card instead of spinning forever waiting for audio that will not come until the next turn.
       setEnableNote(explained.nothingYet ? explained.spoken : "");

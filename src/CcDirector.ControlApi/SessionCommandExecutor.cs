@@ -7,6 +7,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Git;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
@@ -93,6 +94,8 @@ internal static class SessionCommandExecutor
         // The Gateway stamping a session's FOLDED display state down onto this Director, so the desktop
         // rail renders the Gateway's answer instead of re-folding from local facts it cannot see.
         new FleetDisplayStateExecutor(),
+        // The Fleet Manager mission, step 8: the Gateway changing which session owns an existing session.
+        new SessionOwnerExecutor(),
         // Remove-the-network-port mission, phase 2: the automation browsers. Machine-local by construction -
         // a loopback debug port and a profile directory on this disk - so the Gateway never drives one; it
         // carries the command to the Director that does.
@@ -593,7 +596,13 @@ internal static class SessionCommandExecutor
             }
         }
 
-        sessionManager.RemoveSession(guid);
+        // The removal can DECLINE, and there is one reason it does: the session was running in a pooled
+        // cc-worktrees worktree and that tool would not take the worktree back, so the row is kept with
+        // the tool's reason on it. Read what actually happened rather than asserting it - a stop that
+        // reported "row removed" about a row still on the screen is the same false report this whole
+        // answer shape exists to stop.
+        var rowRemoved = sessionManager.RemoveSession(guid);
+        var pooledHeld = rowRemoved ? null : sessionManager.GetSession(guid)?.PooledWorktreeHeldReason;
 
         var result = new DirectorStopResult
         {
@@ -601,10 +610,11 @@ internal static class SessionCommandExecutor
             // distinguish "ended a live process" from "there was nothing running"; the honest fields below
             // are why they no longer have to.
             Killed = true,
-            Removed = true,
+            Removed = rowRemoved,
             ProcessId = processId,
             ProcessEnded = processEnded,
-            RowRemoved = true,
+            RowRemoved = rowRemoved,
+            PooledWorktreeHeldReason = pooledHeld,
             WorktreePath = worktreePath,
             WorktreeHadUncommittedChanges = worktreeDirty,
             // WHAT WAS ESTABLISHED IS STILL REPORTED. Under stoppedNotDescribed the process identifier read
@@ -627,7 +637,8 @@ internal static class SessionCommandExecutor
             + $"pid={(result.ProcessId?.ToString() ?? "none")}, processEnded={result.ProcessEnded}, "
             + $"rowRemoved={result.RowRemoved}, worktree={worktreePath ?? "none"}, "
             + $"worktreeProbe={ProbeOutcome(worktreeDirty)}"
-            + (notDescribed is null ? "" : $", notDescribed={notDescribed}"));
+            + (notDescribed is null ? "" : $", notDescribed={notDescribed}")
+            + (pooledHeld is null ? "" : $", pooledWorktreeHeld={pooledHeld}"));
         return DirectorCommandResult.Success(Serialize(result));
     }
 
@@ -797,6 +808,21 @@ internal static class SessionCommandExecutor
     internal static DirectorCommandResult Create(SessionManager sessionManager, string directorId, DirectorCommand command, SessionCommandServices? services = null)
     {
         var req = Deserialize<NewSessionRequest>(command.PayloadJson);
+
+        // THE FLEET MANAGER'S OWN FOLDER (the Fleet Manager mission, step 5), decided BEFORE the repository path is
+        // required: a Fleet Manager start carries no repository, and the folder is this computer's to name. Any
+        // RepoPath sent with it is ignored, and the folder is created when it is missing.
+        if (req?.FleetManagerHome == true)
+        {
+            var home = CcStorage.FleetManagerHome();
+            if (!Directory.Exists(home))
+            {
+                Directory.CreateDirectory(home);
+                FileLog.Write($"[SessionCommandExecutor] create: created the Fleet Manager folder {home}");
+            }
+            FileLog.Write($"[SessionCommandExecutor] create: Fleet Manager start - using {home} (ignored repoPath=\"{req.RepoPath}\")");
+            req.RepoPath = home;
+        }
 
         if (req is null || string.IsNullOrWhiteSpace(req.RepoPath))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "repoPath is required");

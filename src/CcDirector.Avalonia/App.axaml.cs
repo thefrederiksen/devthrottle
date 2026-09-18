@@ -358,6 +358,8 @@ public partial class App : Application
         // The ONE place skill placement is turned on. It writes into the user's own home directory, so
         // it is opt-in and the running app is what opts in - see SessionManager.PlacesSkillsOnLaunch.
         SessionManager = new SessionManager(Options, log) { PlacesSkillsOnLaunch = true };
+        // A change of a session's owner is written to disk the moment it happens (the Fleet Manager mission, step 8).
+        SessionManager.DurableStateStore = SessionStateStore;
         SessionManager.ScanForOrphans();
 
         // Workspaces replace session restore -- clear persisted data
@@ -774,6 +776,7 @@ public partial class App : Application
                         ControlApiHost.DirectorId, Environment.ProcessId,
                         Environment.MachineName, Environment.UserName, DateTimeOffset.UtcNow);
                     CrashJournal.Update(Array.Empty<DirectorCrashJournalSession>());
+                    SessionManager.CrashJournal = CrashJournal;
 
                 }
                 catch (Exception ex)

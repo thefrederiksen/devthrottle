@@ -67,7 +67,17 @@ def _result(command: str, **values: Any) -> Dict[str, Any]:
 
 
 def owner_route(report_id: str) -> str:
-    return f"/dev-reports/{report_id}"
+    """The ONE address the owner clicks to read this report, whole: `<gateway>/r/<report id>`.
+
+    Dev Reports mission, phase 3b. It used to be the path `/dev-reports/<id>`, which is not something
+    anyone can click and does not say which Gateway it belongs to. The Gateway serves `/r/{id}` and sends
+    a phone to the phone's report screen and anything else to the Cockpit's Reports tab, in both cases
+    straight into the report - so one printed address works wherever the owner opens it.
+
+    The base is the Gateway this session was launched against, never guessed (`cc_shared.gateway`).
+    The report id is written WHOLE: an agent cannot act on a shortened identifier (the AXI standard).
+    """
+    return f"{gateway.gateway_base_url()}/r/{report_id}"
 
 
 def report_key(file_path: str) -> str:
@@ -224,7 +234,7 @@ def render(result: Dict[str, Any], as_json: bool, stream: TextIO) -> int:
             _line("status", report.get("status")),
             _line("created", result["created"]),
             "owner:",
-            "  reads it in the Reports view (arrives in phase 3)",
+            "  opens this address and lands in the report",
             _line("route", result["ownerRoute"]),
             axi_output.format_help([
                 f'cc-dev-reports reply --report {report.get("id")} "<text>"',

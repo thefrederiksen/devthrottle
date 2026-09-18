@@ -205,8 +205,8 @@ internal static class ClientErrorEndpoints
         return trimmed.Length <= max ? trimmed : trimmed[..max];
     }
 
-    /// <summary>The exact credential the auth gate accepted (resolved once by the gate; see
-    ///  FleetBrainEndpoint.AuthenticatedCredential for why this is never re-read from headers). Absent (auth
+    /// <summary>The exact credential the auth gate accepted (resolved once by the gate and never
+    ///  re-read from headers, so a caller cannot be authenticated as one identity and bucketed as another). Absent (auth
     ///  gate off in local debug) maps to the one shared anonymous bucket.</summary>
     private static string AuthenticatedCredential(HttpContext ctx)
         => ctx.Items.TryGetValue(Util.AuthMiddleware.AuthenticatedCredentialItemKey, out var credential)

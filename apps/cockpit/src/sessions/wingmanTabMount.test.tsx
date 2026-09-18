@@ -20,9 +20,12 @@ vi.mock("@devthrottle/client-core/sessions/WingmanTab", () => ({
   WingmanTab: ({ sessionId }: { sessionId: string }) => <div data-testid="wingman-tab">{sessionId}</div>,
 }));
 
+// What Now can do is proven in wingmanNowActions.test.tsx, against a real Gateway answer; this test is only about
+// the tab being mounted, so the actions are a stand-in.
+vi.mock("./wingmanNowActions", () => ({ wingmanNowActions: () => ({}) }));
+
 // The page's other regions cannot run in jsdom (a terminal engine, a live socket, a microphone) and are not the
 // subject.
-vi.mock("@devthrottle/client-core/sessions/VerdictPanel", () => ({ VerdictPanel: () => null }));
 vi.mock("../panes/TerminalPane", () => ({ TerminalPane: () => <div /> }));
 vi.mock("./SessionActionBar", () => ({ SessionActionBar: () => <div /> }));
 vi.mock("./SessionComposer", () => ({ SessionComposer: () => <div /> }));

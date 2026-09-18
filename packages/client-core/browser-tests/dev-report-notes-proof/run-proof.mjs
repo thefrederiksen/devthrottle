@@ -9,9 +9,9 @@
 //   claim C - the recommended option is preselected.
 //   claim D - a note on a table cell carries the cell's selector, text, row label and column label.
 //   claim E - an answer carries the question, the chosen option and the comment.
-//   claim F - queued items show as queued, apart from sent, until Send.
-//   claim G - Send posts ONE send message with the whole queue - and nothing leaves the queue until the
-//             host confirms it.
+//   claim F - queued items show as queued, apart from sent, until Send - in the APP's panel, the only
+//             conversation on the screen.
+//   claim G - the app's Send carries the whole queue, and nothing leaves the queue until the host confirms it.
 //   claim H - the host's status words and the agent's reply are shown verbatim; a refused item stays
 //             queued with the host's reason, and sending again carries only it.
 //   claim I - malformed or foreign messages are ignored whole.
@@ -19,6 +19,10 @@
 //   claim K - a reload brings back the half-typed note, a choice and comment edited AFTER an answer was
 //             queued (the newer edit wins), and the scroll position.
 //   claim L - with no host, Send shows the exact payload and sends nothing.
+//   claim O - HOSTED, the page draws only the note-taking parts: no queued, sent or replies list, no Send
+//             and no payload box inside the frame, so the screen has ONE conversation and ONE Send.
+//   claim P - the note box opens beside what the note is about and covers neither it nor the question that
+//             contains it, and the hosted tray is not a scrolling panel.
 //   claim M - a report's own scripts, event handlers and token-snooping observer do not run even behind a
 //             decoy "<head>" in a comment; its CSS cannot hide the notes interface; and anything but a
 //             token-bearing ready on the window is refused.
@@ -121,6 +125,42 @@ const ofType = async (page, type) => (await received(page)).filter((m) => m.type
 const reportFrame = (page) => page.frames().find((f) => f.parentFrame() === page.mainFrame());
 const text = (frame, drn) => frame.locator(`[data-drn=${drn}]`).innerText();
 
+// The APP's panel - the one conversation on the screen. Hosted, the page draws none of this.
+const panel = (page, which) => page.locator(`#panel-${which}`).innerText();
+const hostState = (page) => page.evaluate(() => window.__state());
+const appSends = (page) => page.evaluate(() => window.__appSends);
+const appSend = async (page) => {
+  const before = (await appSends(page)).length;
+  await page.locator("#panel-send").click();
+  await waitFor("the app's Send to carry the queue", async () => (await appSends(page)).length === before + 1);
+  return (await appSends(page))[before];
+};
+
+// How many of a thing the PAGE draws, counted inside its shadow roots - where a page query cannot see.
+const drawnInPage = (page, selector) =>
+  reportFrame(page).evaluate((s) => {
+    let n = 0;
+    for (const host of document.querySelectorAll("[data-dev-report-ui]")) {
+      if (host.shadowRoot) n += host.shadowRoot.querySelectorAll(s).length;
+    }
+    return n;
+  }, selector);
+
+// Every button on the whole screen whose words start with Send: the app's panel and the page's frame.
+async function sendButtons(page) {
+  const inApp = await page.evaluate(() => Array.from(document.querySelectorAll("button"))
+    .filter((b) => /^Send/.test((b.textContent || "").trim())).length);
+  const inPage = await reportFrame(page).evaluate(() => {
+    let n = 0;
+    for (const host of document.querySelectorAll("[data-dev-report-ui]")) {
+      if (host.shadowRoot) n += Array.from(host.shadowRoot.querySelectorAll("button"))
+        .filter((b) => /^Send/.test((b.textContent || "").trim())).length;
+    }
+    return n;
+  });
+  return { inApp, inPage, total: inApp + inPage };
+}
+
 async function reloadAndWait(page) {
   const readies = (await ofType(page, "ready")).length;
   await page.evaluate(() => window.__reload());
@@ -176,10 +216,55 @@ async function main() {
     const preselected = await frame.locator("input[name=rerun][value=tonight]").isChecked();
     check("C: the recommended option is preselected", preselected === true, `tonight checked=${preselected}`);
 
+    // ---- claim O: hosted, the page draws only the note-taking parts. The owner saw two conversations and
+    // two Send buttons, one of them dead; this is the claim that says there is now one of each.
+    const pageDraws = {
+      queued: await drawnInPage(page, "[data-drn=queued]"),
+      sent: await drawnInPage(page, "[data-drn=sent]"),
+      replies: await drawnInPage(page, "[data-drn=replies]"),
+      send: await drawnInPage(page, "[data-drn=send]"),
+      payloadBox: await drawnInPage(page, "[data-drn=payload-box]"),
+      conversation: await drawnInPage(page, "[data-drn=conversation]"),
+      headings: await drawnInPage(page, ".drn-h"),
+      addNote: await drawnInPage(page, "[data-drn=pick]"),
+      noteBox: await drawnInPage(page, "[data-drn=composer]"),
+      queueAnswer: await drawnInPage(page, "[data-drn=queue-answer]"),
+    };
+    const buttons = await sendButtons(page);
+    evidence.steps.hostedPageDraws = { pageDraws, sendButtons: buttons };
+    check(
+      "O: hosted, the page draws no conversation and no Send - one conversation and one Send on the screen",
+      pageDraws.queued === 0 && pageDraws.sent === 0 && pageDraws.replies === 0 && pageDraws.send === 0 &&
+        pageDraws.payloadBox === 0 && pageDraws.conversation === 0 && pageDraws.headings === 0 &&
+        pageDraws.addNote === 1 && pageDraws.noteBox === 1 && pageDraws.queueAnswer === 1 &&
+        buttons.inPage === 0 && buttons.inApp === 1,
+      JSON.stringify(evidence.steps.hostedPageDraws),
+    );
+
     // ---- claim D: note a table cell with real mouse clicks.
     await frame.locator("[data-drn=pick]").click();
     await frame.locator("#results tbody tr:nth-child(2) td:nth-child(3)").click({ position: { x: 8, y: 8 } });
+
+    // ---- claim P (first half): the note box is beside the cell, not over it.
+    const overCell = await reportFrame(page).evaluate(() => {
+      const inUi = (sel) => {
+        for (const h of document.querySelectorAll("[data-dev-report-ui]")) {
+          const found = h.shadowRoot && h.shadowRoot.querySelector(sel);
+          if (found) return found;
+        }
+        return null;
+      };
+      const r = (el) => { const b = el.getBoundingClientRect(); return { top: b.top, left: b.left, bottom: b.bottom, right: b.right, width: b.width, height: b.height }; };
+      const tray = inUi(".drn-tray");
+      return {
+        box: r(inUi("[data-drn=composer]")),
+        cell: r(document.querySelector("#results tbody tr:nth-child(2) td:nth-child(3)")),
+        trayScrolls: tray.scrollHeight > tray.clientHeight,
+        pageScrollsSideways: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      };
+    });
     await frame.locator("[data-drn=composer-text]").fill("Forty-two failures cannot be right - the suite has twelve tests.");
+    await page.screenshot({ path: join(here, "evidence-note-box-beside-cell.png") });
     await frame.locator("[data-drn=composer-queue]").click();
 
     // ---- claim E: answer the question (not the recommendation), with a comment.
@@ -187,22 +272,20 @@ async function main() {
     await frame.locator("textarea[data-dev-report-comment]").fill("The database is back tomorrow morning.");
     await frame.locator("[data-drn=queue-answer]").click();
 
-    // ---- claim F: queued, not sent.
-    const queuedText = await text(frame, "queued");
-    const sentTextBefore = await text(frame, "sent");
+    // ---- claim F: queued, not sent - in the app's panel, the only conversation there is.
+    const queuedText = await panel(page, "queued");
+    const sentTextBefore = await panel(page, "sent");
     await page.screenshot({ path: join(here, "evidence-queued.png") });
     check(
-      "F: queued items show as queued and not as sent",
-      queuedText.includes("Forty-two failures") && queuedText.includes("Wait for tomorrow") && sentTextBefore.includes("Nothing here"),
+      "F: queued items show as queued and not as sent, in the app's panel",
+      queuedText.includes("Forty-two failures") && queuedText.includes("Wait for tomorrow") && sentTextBefore.includes("Nothing sent yet"),
       `queued=${JSON.stringify(queuedText.slice(0, 160))} sent=${JSON.stringify(sentTextBefore)}`,
     );
 
-    // ---- claim G: Send - one message, and nothing leaves the queue yet.
-    await frame.locator("[data-drn=send]").click();
-    await waitFor("the host to get send", async () => (await ofType(page, "send")).length === 1);
-    const send = (await ofType(page, "send"))[0];
-    evidence.steps.sendPayloadTheHostGot = send;
-    const [note, answer] = send.payload.items;
+    // ---- claim G: the app's Send - the whole queue, and nothing leaves the queue yet.
+    const send = await appSend(page);
+    evidence.steps.sendPayloadTheAppCarried = send;
+    const [note, answer] = send.items;
     check(
       "D: the note names the table cell by selector, text, row and column",
       note && note.kind === "note" && note.anchor.type === "table-cell" && note.anchor.quote === "42" &&
@@ -217,36 +300,67 @@ async function main() {
         answer.optionLabel === "Wait for tomorrow - nothing is blocked" && answer.comment === "The database is back tomorrow morning.",
       JSON.stringify(answer),
     );
-    const queuedWhilePending = await text(frame, "queued");
-    const sentWhilePending = await text(frame, "sent");
+    const stateWhileWaiting = await hostState(page);
     check(
-      "G: one send carries both items, and they stay queued, waiting, until the host confirms",
-      send.payload.items.length === 2 && queuedWhilePending.includes("Waiting for the app to confirm") &&
-        queuedWhilePending.includes("Forty-two failures") && sentWhilePending.includes("Nothing here"),
-      `${send.payload.items.length} items; queued=${JSON.stringify(queuedWhilePending.slice(0, 200))}`,
+      "G: one Send carries both items, and they stay queued until the host confirms",
+      send.items.length === 2 && stateWhileWaiting.queued.length === 2 && stateWhileWaiting.sent.length === 0 &&
+        (await ofType(page, "send")).length === 0,
+      `${send.items.length} items; queued=${stateWhileWaiting.queued.length} sent=${stateWhileWaiting.sent.length}`,
     );
 
     // ---- claim H: the host confirms one and refuses the other; then a reply.
-    await page.evaluate(() => {
+    const sentIds = send.items.map((i) => i.id);
+    await page.evaluate((ids) => {
       window.__hostSend("status", { updates: [
-        { id: "n1", status: "held", statusLabel: "Held - delivered when the agent finishes its turn" },
-        { id: "a2", status: "refused", statusLabel: "Not taken - try again" },
+        { id: ids[0], status: "held", statusLabel: "Held - delivered when the agent finishes its turn" },
+        { id: ids[1], status: "refused", statusLabel: "Not taken - try again" },
       ] });
-      window.__hostSend("reply", { reply: { id: "r1", text: "You are right - the fixture double-counted. Fixed in section 1.", at: "2026-09-16T12:00:00Z" } });
-    });
-    await waitFor("the reply to show", async () => (await text(frame, "replies")).includes("double-counted"));
-    const sentAfter = await text(frame, "sent");
-    const queuedAfter = await text(frame, "queued");
+      window.__hostSend("reply", { reply: { id: "r1", text: "You are right - the fixture double-counted. Fixed in section 1.", at: "2026-09-16T10:00:00Z" } });
+    }, sentIds);
+    await waitFor("the reply to show", async () => (await panel(page, "replies")).includes("double-counted"));
+    const sentAfter = await panel(page, "sent");
+    const queuedAfter = await panel(page, "queued");
     await page.screenshot({ path: join(here, "evidence-sent-status-reply.png") });
     const hOk1 = sentAfter.includes("Held - delivered when the agent finishes its turn") && !sentAfter.includes("Wait for tomorrow") &&
       queuedAfter.includes("Wait for tomorrow") && queuedAfter.includes("Not taken - try again") && !queuedAfter.includes("Forty-two");
 
+    // ---- claim P (second half): a note on a question's own heading never lands on the question.
+    await frame.locator("[data-drn=pick]").click();
+    await frame.locator("#questions h3").click();
+    const overQuestion = await reportFrame(page).evaluate(() => {
+      const inUi = (sel) => {
+        for (const h of document.querySelectorAll("[data-dev-report-ui]")) {
+          const found = h.shadowRoot && h.shadowRoot.querySelector(sel);
+          if (found) return found;
+        }
+        return null;
+      };
+      const r = (el) => { const b = el.getBoundingClientRect(); return { top: b.top, left: b.left, bottom: b.bottom, right: b.right, width: b.width, height: b.height }; };
+      return {
+        box: r(inUi("[data-drn=composer]")),
+        heading: r(document.querySelector("#questions h3")),
+        question: r(document.querySelector("[data-dev-report-question]")),
+      };
+    });
+    await page.screenshot({ path: join(here, "evidence-note-box-beside-question.png") });
+    await frame.locator("[data-drn=composer-cancel]").click();
+    const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    evidence.steps.noteBoxPlacement = { overCell, overQuestion };
+    check(
+      "P: the note box is drawn beside what the note is about, over neither it nor its question, and the hosted tray does not scroll",
+      overCell.box.width > 0 && overCell.box.height > 0 && !overlaps(overCell.box, overCell.cell) &&
+        overQuestion.box.width > 0 && !overlaps(overQuestion.box, overQuestion.heading) &&
+        !overlaps(overQuestion.box, overQuestion.question) &&
+        overCell.trayScrolls === false && overCell.pageScrollsSideways === false,
+      JSON.stringify(evidence.steps.noteBoxPlacement),
+    );
+
     // ---- claim J: reload straight away - nothing else happens between the pushes and the reload.
     await reloadAndWait(page);
     const afterPushReload = {
-      sent: await text(frame, "sent"),
-      queued: await text(frame, "queued"),
-      replies: await text(frame, "replies"),
+      sent: await panel(page, "sent"),
+      queued: await panel(page, "queued"),
+      replies: await panel(page, "replies"),
     };
     evidence.steps.reloadRightAfterPushes = afterPushReload;
     check(
@@ -257,31 +371,28 @@ async function main() {
     );
 
     // Send again: only the refused item goes, and the host takes it this time.
-    await frame.locator("[data-drn=toggle]").click();
-    await frame.locator("[data-drn=send]").click();
-    await waitFor("the second send", async () => (await ofType(page, "send")).length === 2);
-    const resend = (await ofType(page, "send"))[1];
-    await page.evaluate(() => window.__hostSend("status", { updates: [{ id: "a2", status: "delivered", statusLabel: "Delivered to the session" }] }));
-    await waitFor("the answer to reach sent", async () => (await text(frame, "sent")).includes("Delivered to the session"));
-    const queuedEnd = await text(frame, "queued");
+    const resend = await appSend(page);
+    await page.evaluate((id) => window.__hostSend("status", { updates: [{ id: id, status: "delivered", statusLabel: "Delivered to the session" }] }), sentIds[1]);
+    await waitFor("the answer to reach sent", async () => (await panel(page, "sent")).includes("Delivered to the session"));
+    const queuedEnd = await panel(page, "queued");
     evidence.steps.resend = resend;
     check(
       "H: statuses and the reply show verbatim; a refused item stays queued with the reason and is the only thing sent again",
-      hOk1 && resend.payload.items.length === 1 && resend.payload.items[0].id === "a2" && queuedEnd.includes("Nothing here"),
-      `resend=${JSON.stringify(resend.payload.items.map((i) => i.id))} queuedAfterConfirm=${JSON.stringify(queuedEnd)}`,
+      hOk1 && resend.items.length === 1 && resend.items[0].id === sentIds[1] && queuedEnd.includes("Nothing queued"),
+      `resend=${JSON.stringify(resend.items.map((i) => i.id))} queuedAfterConfirm=${JSON.stringify(queuedEnd)}`,
     );
 
     // ---- claim I: malformed and foreign messages change nothing - sent down the real port, and on the window.
-    await page.evaluate(() => {
+    await page.evaluate((id) => {
       const f = { postMessage: (d) => window.__hostSendRaw(d) };
       document.getElementById("report").contentWindow.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "reply", payload: { reply: { id: "w1", text: "ON THE WINDOW", at: "" } } }, "*");
-      f.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "status", payload: { updates: [{ id: "n1", status: "delivered" }] } });
-      f.postMessage({ channel: "someone-else", version: 1, type: "status", payload: { updates: [{ id: "n1", status: "x", statusLabel: "FOREIGN" }] } });
+      f.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "status", payload: { updates: [{ id: id, status: "delivered" }] } });
+      f.postMessage({ channel: "someone-else", version: 1, type: "status", payload: { updates: [{ id: id, status: "x", statusLabel: "FOREIGN" }] } });
       f.postMessage({ channel: "devthrottle.dev-report", version: 2, type: "reply", payload: { reply: { id: "r9", text: "WRONG VERSION", at: "" } } });
       f.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "wipe", payload: {} });
-    });
+    }, sentIds[0]);
     await page.waitForTimeout(500);
-    const afterJunk = (await text(frame, "sent")) + (await text(frame, "replies"));
+    const afterJunk = (await panel(page, "sent")) + (await panel(page, "replies"));
     check(
       "I: malformed, foreign and unknown messages are ignored",
       afterJunk.includes("Held - delivered when the agent finishes its turn") && !afterJunk.includes("FOREIGN") &&

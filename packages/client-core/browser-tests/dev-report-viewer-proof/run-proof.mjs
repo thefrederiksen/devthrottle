@@ -752,19 +752,21 @@ async function stageE2e(browser) {
   // A note the owner wrote either reaches the Gateway or stays in front of the owner, queued. It must never leave the
   // queue while the Gateway does not hold it - and never be shown as delivered.
   const first = "First note from the Cockpit after the session ended.";
-  const trayQueued = await td.locator("[data-drn=queued]").innerText();
-  const traySent = await td.locator("[data-drn=sent]").innerText();
+  // THE APP'S OWN TWO LISTS, not the hosted page's. This used to read [data-drn=queued] and [data-drn=sent]
+  // INSIDE the frame; the report page draws neither any more - the conversation is the app's alone, which is
+  // the point of phase 3b - so those reads were of something that no longer exists. What this claim means is
+  // unchanged, and it is read two lines above from the app: queuedTexts and sentTexts.
   const gatewayHasFirst = detailAfter.items.some((i) => i.text === first);
   const stillQueuedInApp = queuedTexts.some((x) => x.includes(first));
-  const trayShowsFirstAsSent = traySent.includes(first);
+  const appShowsFirstAsSent = sentTexts.some((x) => x.includes(first));
   const idsNamingAnotherItem = sentBody
     ? sentBody.items.filter((i) => detailAfter.items.some((g) => g.id === i.id && g.text !== i.text)).map((i) => i.id)
     : null;
   evidence.steps.E9 = { idsPosted: sentBody && sentBody.items.map((i) => i.id), idsNamingAnotherItem, gatewayHoldsTheText: gatewayHasFirst,
-    stillQueuedInApp, trayShowsFirstAsSent, traySent, trayQueued, appQueued: queuedTexts, appSent: sentTexts };
+    stillQueuedInApp, appShowsFirstAsSent, appQueued: queuedTexts, appSent: sentTexts };
   check("E9: a note written on a second device reaches the Gateway or stays queued - it never disappears or reads as delivered",
     idsNamingAnotherItem !== null && idsNamingAnotherItem.length === 0 &&
-      (gatewayHasFirst || (stillQueuedInApp && !trayShowsFirstAsSent)),
+      (gatewayHasFirst || (stillQueuedInApp && !appShowsFirstAsSent)),
     JSON.stringify(evidence.steps.E9));
   await desk.ctx.close();
 }
