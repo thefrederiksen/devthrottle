@@ -10,6 +10,8 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Security;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
+using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -55,6 +57,7 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
     private TenantId _tenant;
     private string _directorKey = "";
     private string _otherWorkstationKey = "";
+    private string _ownerBrowserKey = "";
     private HttpClient _asDirector = null!;
     private HttpClient _asOwner = null!;
     private HttpClient _asRestoringSession = null!;
@@ -80,6 +83,7 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
         // A SECOND WORKSTATION in the same account (inspection 11): a real Director key, just not this Director's.
         _otherWorkstationKey = _gateway.Devices.RegisterForTenant(_tenant, subject, $"dev-restore-other-{_runId}", "OTHER-WORKSTATION").DeviceKey;
 
+        _ownerBrowserKey = owner.DeviceKey;
         _asDirector = Client(_directorKey);
         _asOwner = Client(owner.DeviceKey);
         _asRestoringSession = Client(SessionKey(_restoringSession));
@@ -159,6 +163,36 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
         var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         return http;
+    }
+
+    /// <summary>
+    /// A raw Director tunnel connection on a chosen key - what <see cref="FakeTunnelDirector"/> opens, without
+    /// its registration, so a test can say Hello itself and read the answer the hub gives.
+    /// </summary>
+    private HubConnection HubOn(string bearer) => new HubConnectionBuilder()
+        .WithUrl($"http://127.0.0.1:{_gateway.Port}/director-stream",
+            o => o.AccessTokenProvider = () => Task.FromResult<string?>(bearer))
+        .AddMessagePackProtocol()
+        .Build();
+
+    private static DirectorStreamHello HelloAs(string directorId) => new()
+    {
+        DirectorId = directorId,
+        Version = "test",
+        MachineName = "IMPOSTOR",
+        User = "test",
+        Pid = 2,
+        StartedAt = DateTime.UtcNow,
+    };
+
+    /// <summary>Say Hello on a key that is not this Director's, and assert the hub closed the connection on it.
+    /// The invocation never answers, because the connection it was sent on is gone.</summary>
+    private async Task AssertHelloIsRefusedAsync(string bearer)
+    {
+        await using var impostor = HubOn(bearer);
+        await impostor.StartAsync();
+        await Assert.ThrowsAnyAsync<Exception>(() => impostor.InvokeAsync("Hello", HelloAs(DirectorId)));
+        Assert.Equal(HubConnectionState.Disconnected, impostor.State);
     }
 
     /// <summary>What a drain leaves: the capture, then every seat but the driver drained and decided "restore".</summary>
@@ -345,6 +379,90 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
         stored = await StoredAsync();
         Assert.Equal("new-manager", stored.Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
         Assert.Null(stored.RestoreLease);
+    }
+
+    /// <summary>
+    /// INSPECTION 12, FINDING 1 - the take-over the credential binding exists to stop, over a real connection.
+    ///
+    /// The binding is only worth anything if the caller cannot choose it. A second workstation key of the same
+    /// account reads the real Director's start token straight off the workspace document (it is an ordinary
+    /// field, readable by every key of the account - which is exactly why the token is not what stops this),
+    /// then opens a Director tunnel and says Hello under the REAL Director's id. Until this fix the registry
+    /// took that at face value, last writer wins: the impostor became the Director as far as every route was
+    /// concerned, and its forged marks were recorded and released the lease.
+    ///
+    /// Now the Hello is refused and the connection closed, the binding never moves, and the rest follows: the
+    /// forged marks are 403, the lease is untouched, and the real Director goes on recording its own restore.
+    /// The browser key is the same probe with the account's phone/browser device (inspection 12, finding 2):
+    /// it could never write a mark, but taking the binding locked the real Director out of its own.
+    /// </summary>
+    [Fact]
+    public async Task A_second_workstation_key_cannot_take_the_Directors_id_by_saying_Hello_as_it()
+    {
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        Assert.Equal(HttpStatusCode.OK, (await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = _manager, Token = "tok-1",
+        })).StatusCode);
+
+        using var other = Client(_otherWorkstationKey);
+        var readBack = (await other.GetFromJsonAsync<WorkspaceDocument>($"gateway/workspaces/{WorkspaceId}", Web))!;
+        Assert.Equal("tok-1", readBack.Seats.Single(s => s.SessionId == _manager).Restore!.StartedToken);
+
+        await AssertHelloIsRefusedAsync(_otherWorkstationKey);
+
+        var forged = new[]
+        {
+            new WorkspaceRestoreMark { DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = _manager, RestoredSessionId = _restoringSession, Token = "tok-1" },
+            new WorkspaceRestoreMark { DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Finished },
+        };
+        foreach (var mark in forged)
+            Assert.Equal(HttpStatusCode.Forbidden, (await PostMark(other, mark)).StatusCode);
+
+        var stored = await StoredAsync();
+        Assert.Null(stored.Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
+        Assert.Equal("tok-1", stored.Seats.Single(s => s.SessionId == _manager).Restore!.StartedToken);
+        Assert.Equal(DirectorId, stored.RestoreLease!.DirectorId);
+
+        // Inspection 12, finding 2: a browser key cannot write a mark either way, but taking the binding was
+        // enough to stop the REAL Director recording its own restore. Refused for the same reason, and the
+        // assertions that follow are what that refusal buys.
+        await AssertHelloIsRefusedAsync(_ownerBrowserKey);
+
+        // The real Director was never locked out of recording its own restore.
+        Assert.Equal(HttpStatusCode.OK, (await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = _manager, RestoredSessionId = "new-manager", Token = "tok-1",
+        })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Finished,
+        })).StatusCode);
+        stored = await StoredAsync();
+        Assert.Equal("new-manager", stored.Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
+        Assert.Null(stored.RestoreLease);
+    }
+
+    /// <summary>The refusal must not cost a real Director its reconnect: the SAME key saying Hello again under
+    /// the same id is an ordinary reconnect and is accepted, and its marks keep working.</summary>
+    [Fact]
+    public async Task The_Directors_own_key_may_say_Hello_again_under_its_own_id()
+    {
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+
+        await using (var again = HubOn(_directorKey))
+        {
+            await again.StartAsync();
+            await again.InvokeAsync("Hello", HelloAs(DirectorId));
+            Assert.Equal(HubConnectionState.Connected, again.State);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = _manager, Token = "tok-1",
+        })).StatusCode);
     }
 
     [Fact]
