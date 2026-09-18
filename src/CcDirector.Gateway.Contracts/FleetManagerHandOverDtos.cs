@@ -32,10 +32,21 @@ public sealed class SessionOwnerChangeDto
     /// <summary>Hand the session back to the owner: no session owns it any more.</summary>
     public const string ToOwner = "owner";
 
-    /// <summary>Both directions, as the route and the command line accept them.</summary>
-    public static readonly IReadOnlyList<string> Directions = new[] { ToFleetManager, ToOwner };
+    /// <summary>
+    /// TAKE the session: the SESSION MAKING THE REQUEST owns it from now on (issue #3096). It is the only way a
+    /// session may become an owner, and it names the caller rather than a session id ON PURPOSE - a session may take
+    /// work to itself, on the owner's direction, and may never put a session under a THIRD session, nor put itself
+    /// under another session. The destination is therefore not expressible as an id, and a request whose <c>to</c> is
+    /// a session id is refused like any other unknown direction.
+    /// </summary>
+    public const string ToMe = "me";
 
-    /// <summary><see cref="ToFleetManager"/> or <see cref="ToOwner"/> - what the client sends as <c>to</c>.</summary>
+    /// <summary>Every direction, as the route and the command line accept them.</summary>
+    public static readonly IReadOnlyList<string> Directions = new[] { ToFleetManager, ToOwner, ToMe };
+
+    /// <summary><see cref="ToFleetManager"/>, <see cref="ToOwner"/> or <see cref="ToMe"/> - what the client sends as
+    /// <c>to</c>. A client of the owner's own (the Cockpit, the phone) never sends <see cref="ToMe"/>: the owner IS
+    /// "me" there, which is <see cref="ToOwner"/>.</summary>
     public string To { get; set; } = "";
 
     /// <summary>The button's words.</summary>

@@ -667,8 +667,8 @@ COMMANDS:
   session report   Tell the session that owns you what you did, at the end of your turn
                    (sends nothing when a Fleet Manager owns you: the Gateway tells it).
   session raise    Put your hand up to the session driving you when you are blocked.
-  session hand-over  Hand a running session to the Fleet Manager, or back to the owner
-                   (release one you own to the owner yourself; the rest is the owner's to direct).
+  session hand-over  Hand a running session to the Fleet Manager, back to the owner, or to
+                   yourself (release one you own; take one that answers to the owner on his word).
   director list    List every Director this account runs, with the id --director accepts.
   worktree list    List the fleet's worktrees; --pool lists this machine's cc-worktrees pool.
   worktree get     Take a pooled worktree to work in (runs cc-worktrees).
@@ -978,13 +978,14 @@ no mark.
 ### Session Hand-Over
 
 ```
-USAGE: cc-devthrottle session hand-over SESSION --to fleet-manager|owner [--json]
+USAGE: cc-devthrottle session hand-over SESSION --to fleet-manager|owner|me [--json]
 
 ARGUMENTS:
   SESSION  The session: its number, an id prefix, a full id, or its exact name [required]
 
 OPTIONS:
-  --to     Who owns it afterwards: fleet-manager, or owner (no owning session) [required]
+  --to     Who owns it afterwards: fleet-manager, owner (no owning session), or me
+           (the session making the request) [required]
   --json   Print the Gateway's answer unchanged
 ```
 
@@ -1003,18 +1004,29 @@ a session it owns back (`--to owner`).
 
 And any session may RELEASE a session it OWNS to the owner (`--to owner`), on its own, with no permission
 asked. Giving work away is always safe: it lands where everything lands by default, in front of the
-person, and the released session goes red for him from then on. That direction alone - a session never
-takes a session, its own included, to itself or to the Fleet Manager. Every other change of owner is the
-owner's to direct: he makes it from the Cockpit or the phone, or tells a session to make it on his word.
-Every other session key is refused with code `not_fleet_manager` and a reason that says which direction is
-allowed, so run from any other session this command prints the Gateway's refusal and exits 1.
+person, and the released session goes red for him from then on.
+
+And any session may TAKE a session that answers to the owner, TO ITSELF (`--to me`), when the owner has
+directed it. This one moves work away from him - the session it takes stops going red for him and reports
+to the session that took it - so it is his to direct and the taking session answers for it from then on.
+The Gateway cannot see his word and does not pretend to: what makes it safe is that a take can only ever
+reach a session that already answers to him, a session can only ever name ITSELF as the new owner, the
+change is recorded in the audit trail, and he takes any session back from his own screens.
+
+**The one sentence under all of it: the only owner a session may ever name is itself.** There is no way to
+put a session under a THIRD session, and no way to put yourself under another session - `--to` takes a
+direction, never a session id, so it is unsayable rather than merely refused. Handing a session to the
+Fleet Manager stays the owner's to direct. Every other session key is refused with code
+`not_fleet_manager` and a reason that says which direction is allowed, so run from any other session this
+command prints the Gateway's refusal and exits 1.
 
 Every refusal is the Gateway's sentence: a session this account is not running now (another account's
 session answers the same), the Fleet Manager itself, handing to a Fleet Manager the account has not
 marked or that is not running, a session another RUNNING session owns (it is never taken from it), a
-session already where it is being sent, a session that has ended, and a session whose Director is too
-old to change an owner (update DevThrottle on that computer). A session whose owner has ended asks the
-owner directly and may be handed over.
+session already where it is being sent, a session that has ended, a session asking to take ITSELF, a
+device asking for `--to me` (from the Cockpit or the phone the owner is "me", which is `--to owner`),
+and a session whose Director is too old to change an owner (update DevThrottle on that computer). A
+session whose owner has ended asks the owner directly and may be handed over or taken.
 
 The change is compare-and-set: the Director changes the owner only if it is still the owner the Gateway
 checked, so a session another session acquired meanwhile is refused with a 409 (its owner changed while
@@ -1027,7 +1039,7 @@ not name the session, or names an owner that does not match `--to`, exits 1 sayi
 unknown. An unknown or missing `--to` exits 2 and sends nothing.
 
 Gateway route: `POST /gateway/fleet-manager/hand-over` with `{ "session": "<full id>", "to":
-"fleet-manager" | "owner" }`, answering `{ sessionId, to, ownerSessionId, previousOwnerSessionId,
+"fleet-manager" | "owner" | "me" }`, answering `{ sessionId, to, ownerSessionId, previousOwnerSessionId,
 sentence, session }`; a refusal is `{ error }` with 400, 403, 404, 409 or 502 (a 403 from the
 owner-only rule also carries `code: "owner_only"`, the same answer the walkthrough routes give). The session list's rows
 carry `pin` (the pinned Fleet Manager and its words) and `ownerChange` (the one change of owner offered

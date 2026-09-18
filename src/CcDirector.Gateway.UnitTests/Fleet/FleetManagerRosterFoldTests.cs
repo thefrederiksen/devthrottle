@@ -93,24 +93,36 @@ public sealed class FleetManagerRosterFoldTests
         Assert.Equal("fleet-manager", Get(fleet, Orphan).OwnerChange!.To);
         // An Architect with a crew still asks the owner directly; its crew are its own.
         Assert.Equal("fleet-manager", Get(fleet, Architect).OwnerChange!.To);
-        Assert.Null(Get(fleet, ArchitectWorker).OwnerChange);
-        // Only the DIRECT owner counts: a session under the Fleet Manager's worker is that worker's.
-        Assert.Null(Get(fleet, WorkersWorker).OwnerChange);
+        // A session ANY live session owns offers the owner the way back (issue #3096) - that is his undo for a
+        // session taken on his direction, and he cannot be given an undo only for the takes we can recognise.
+        Assert.Equal("owner", Get(fleet, ArchitectWorker).OwnerChange!.To);
+        Assert.Equal("Hand back to me", Get(fleet, ArchitectWorker).OwnerChange!.Label);
+        Assert.Contains("that session will not hear from it again", Get(fleet, ArchitectWorker).OwnerChange!.Title);
+        Assert.Equal("owner", Get(fleet, WorkersWorker).OwnerChange!.To);
         Assert.Null(Get(fleet, Ended).OwnerChange);
         Assert.All(fleet.Where(s => s.SessionId != Fm), s => Assert.Null(s.Pin));
     }
 
+    /// <summary>
+    /// With no Fleet Manager there is nowhere to hand a session TO, so nothing offers that. The way BACK is offered
+    /// all the same on every session a live session holds (issue #3096): a session may be taken on the owner's
+    /// direction whether or not the account has ever marked a Fleet Manager, so his undo cannot depend on that mark.
+    /// </summary>
     [Fact]
-    public void StampFleetRolesAndFold_NoMark_PinsNothingAndOffersNothing()
+    public void StampFleetRolesAndFold_NoMark_PinsNothingAndOffersOnlyTheWayBack()
     {
         var fleet = Fold(Fleet(), marked: null);
 
         Assert.All(fleet, s => Assert.Null(s.Pin));
-        Assert.All(fleet, s => Assert.Null(s.OwnerChange));
+        Assert.Null(Get(fleet, Plain).OwnerChange);
+        Assert.Null(Get(fleet, Orphan).OwnerChange);
+        Assert.Null(Get(fleet, Ended).OwnerChange);
+        foreach (var held in new[] { Worker, ArchitectWorker, WorkersWorker })
+            Assert.Equal("owner", Get(fleet, held).OwnerChange!.To);
     }
 
     [Fact]
-    public void StampFleetRolesAndFold_MarkedSessionHasEnded_PinsNothingAndOffersNothing()
+    public void StampFleetRolesAndFold_MarkedSessionHasEnded_PinsNothingAndOffersOnlyTheWayBack()
     {
         var fleet = Fleet();
         Get(fleet, Fm).ActivityState = "Exited";
@@ -118,7 +130,10 @@ public sealed class FleetManagerRosterFoldTests
         Fold(fleet);
 
         Assert.All(fleet, s => Assert.Null(s.Pin));
-        Assert.All(fleet, s => Assert.Null(s.OwnerChange));
+        Assert.Null(Get(fleet, Plain).OwnerChange);
+        // The ended Fleet Manager is not a live holder, so the session it owned asks the owner and is offered nothing.
+        Assert.Null(Get(fleet, Worker).OwnerChange);
+        Assert.Equal("owner", Get(fleet, ArchitectWorker).OwnerChange!.To);
     }
 
     [Fact]

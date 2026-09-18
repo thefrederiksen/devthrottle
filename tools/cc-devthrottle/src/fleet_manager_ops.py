@@ -8,12 +8,13 @@ directly owns. The workflow a session is seated on never makes it the Fleet Mana
 no target marks the session running the command. `clear` removes the mark. `show` prints it.
 
 `session hand-over` (the Fleet Manager mission, step 8) changes who owns a running session: to the Fleet
-Manager, or back to the owner. The Gateway allows it from the owner's own phone or browser, from the
-account's Fleet Manager with its own session key (which acts only when the owner has asked it to), and
-from any session RELEASING a session it owns to the owner (issue #3086) - that direction alone, because
-giving work away lands it in front of the person. Every other session key is refused, and this command
-prints the Gateway's refusal in words, not a status number; the refusal itself says which direction a
-session may hand over.
+Manager, back to the owner, or to the session making the request (`--to me`). The Gateway allows it from
+the owner's own phone or browser, from the account's Fleet Manager with its own session key (which acts
+only when the owner has asked it to), from any session RELEASING a session it owns to the owner (issue
+#3086), and from any session TAKING a session that answers to the owner, to itself, on the owner's
+direction (issue #3096). The only owner a session may ever name is ITSELF - there is no way to put a
+session under a third session. Every other session key is refused, and this command prints the Gateway's
+refusal in words, not a status number; the refusal itself says which direction a session may hand over.
 """
 
 from __future__ import annotations
@@ -118,7 +119,7 @@ def clear(json_output: bool) -> None:
 
 
 HAND_OVER_PATH = "gateway/fleet-manager/hand-over"
-HAND_OVER_DIRECTIONS = ("fleet-manager", "owner")
+HAND_OVER_DIRECTIONS = ("fleet-manager", "owner", "me")
 
 
 def hand_over(target: str, to: Optional[str], json_output: bool) -> None:
@@ -131,7 +132,9 @@ def hand_over(target: str, to: Optional[str], json_output: bool) -> None:
         )
     session = session_ops.resolve_session(target, command_name="cc-devthrottle session hand-over")
     session_id = gateway.field(session, "sessionId", "SessionId")
-    other = "owner" if direction == "fleet-manager" else "fleet-manager"
+    # The next step to offer: whatever was just done, the other useful move is the one back to the owner -
+    # and from the owner, the one that gives it to a session again.
+    other = "owner" if direction != "owner" else "fleet-manager"
     try:
         payload = gateway.post_json(HAND_OVER_PATH, {"session": session_id, "to": direction}) or {}
     except gateway.GatewayError as err:
@@ -147,7 +150,7 @@ def hand_over(target: str, to: Optional[str], json_output: bool) -> None:
         payload, ["sessionId"], what, check,
         accept=lambda v: isinstance(v, str) and v.lower() == session_id.lower(),
     )
-    if direction == "fleet-manager":
+    if direction in ("fleet-manager", "me"):
         owner = axi_cli.confirmed(
             payload, ["ownerSessionId"], what, check,
             accept=lambda v: isinstance(v, str) and v.strip() != "" and v.lower() != session_id.lower(),

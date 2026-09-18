@@ -59,14 +59,22 @@ public sealed record FleetHandOverResult(int Status, FleetHandOverResultDto? Ans
 ///    Manager there is), and hand back a session it owns - never one another running session owns;
 ///  - ANY session RELEASING a session it owns to the owner (issue #3086, the owner's ruling of 18 September 2026).
 ///    Giving work away is always safe: it lands where everything lands by default, in front of the person, so no
-///    permission is needed for that direction. It is the mirror of the rule in <c>spawn_session</c>, where a session may
-///    only ever name ITSELF as the owner of what it spawns.
+///    permission is needed for that direction;
+///  - ANY session TAKING a session that answers to the owner, TO ITSELF (issue #3096, the owner's ruling of the same
+///    day). This one moves work AWAY from the person, so it is the owner who directs it - the session carries out his
+///    word. The Gateway cannot see that word and does not pretend to: what makes it safe is that a session may only
+///    ever name ITSELF, it can never reach a session another LIVE session holds, the change is audited and shown on
+///    the owner's own row, and the owner takes any session back from his own screens.
+///
+/// THE ONE SENTENCE UNDER ALL THREE: the only owner a session may ever name is ITSELF - the rule <c>spawn_session</c>
+/// already enforces for a session it starts, applied to sessions already running. So there is no direction that puts a
+/// session under a THIRD session, and none that puts a session under another session on its own initiative. That is not
+/// a check which could be relaxed later: <see cref="SessionOwnerChangeDto.Directions"/> has no way to name a session,
+/// so it is unsayable.
 ///
 /// Every other session key is refused with <see cref="FleetHandOverResult.NotFleetManager"/> and the reason, and the
-/// reason says which direction IS allowed, so an agent that hits it learns the rule from the error. In particular a
-/// session never ACQUIRES: not a session it does not own, not a session it does own (<c>--to fleet-manager</c>), and
-/// never for another session. Taking a session, or handing one to the Fleet Manager, is the owner's to direct. The
-/// roster is the caller's own account's, so a session of another account is not found.
+/// reason says which direction IS allowed, so an agent that hits it learns the rule from the error. The roster is the
+/// caller's own account's, so a session of another account is not found.
 ///
 /// Everything about the session is checked here, and each refusal is one sentence:
 ///  - a session this account does not run now (another account's session answers exactly the same);
@@ -75,7 +83,9 @@ public sealed record FleetHandOverResult(int Status, FleetHandOverResultDto? Ans
 ///  - to the Fleet Manager when it already owns the session, or another RUNNING session owns it - that session's work
 ///    is not taken from it. A session whose owner has ended asks the owner directly, and may be handed over;
 ///  - back to the owner when the owner already has it, or when the session asking is neither the owner's own device
-///    (which hands back the Fleet Manager's sessions) nor the session that owns it;
+///    (which takes back a session from ANY session, issue #3096) nor the session that owns it;
+///  - TO THE SESSION ASKING when it is that session itself, when it already owns it, or when another RUNNING session
+///    owns it - a take never takes work from another session;
 ///  - a session that has ended.
 ///
 /// The change itself is compare-and-set: the Director is told the owner checked here and refuses, as a 409, when the
@@ -118,11 +128,17 @@ public sealed class FleetManagerHandOverService
         string? callingSessionId, CancellationToken ct)
     {
         if (request is null)
-            return FleetHandOverResult.Refused(400, "A body is required: { \"session\": \"<full session id>\", \"to\": \"fleet-manager\" or \"owner\" }.");
+            return FleetHandOverResult.Refused(400,
+                "A body is required: { \"session\": \"<full session id>\", \"to\": \"fleet-manager\", \"owner\" or \"me\" }.");
         var to = (request.To ?? "").Trim().ToLowerInvariant();
+        // A SESSION ID AS THE DESTINATION IS NOT A DIRECTION, and falls in here with every other unknown word. That is
+        // the whole of the "never under a third session" rule: it is not refused by a check that could be relaxed, it
+        // is not expressible (issue #3096).
         if (!SessionOwnerChangeDto.Directions.Contains(to))
             return FleetHandOverResult.Refused(400,
-                $"\"to\" must be \"{SessionOwnerChangeDto.ToFleetManager}\" or \"{SessionOwnerChangeDto.ToOwner}\", not \"{request.To}\".");
+                $"\"to\" must be \"{SessionOwnerChangeDto.ToFleetManager}\", \"{SessionOwnerChangeDto.ToOwner}\" or " +
+                $"\"{SessionOwnerChangeDto.ToMe}\", not \"{request.To}\". A session is never handed to a session named by id: " +
+                "a session may take a session TO ITSELF, and may never put one under a third session.");
         var raw = (request.Session ?? "").Trim();
         if (raw.Length == 0)
             return FleetHandOverResult.Refused(400, "\"session\" is required: the full id of the session to hand over.");
@@ -139,7 +155,17 @@ public sealed class FleetManagerHandOverService
                            && roster.Any(r => FleetManagerSessions.SameId(r.Session.SessionId, sid)
                                               && FleetManagerSessions.IsOwnedBy(r.Session, callingSessionId));
         var releasing = callerOwnsIt && to == SessionOwnerChangeDto.ToOwner;
-        if (callingSessionId is not null && !releasing
+        // TAKING IS ALLOWED ON THE OWNER'S DIRECTION (issue #3096), and the guards are what make that safe rather than
+        // hopeful: a session may only ever name ITSELF as the new owner, it can only reach a session that already
+        // answers to the owner (never one another live session holds), and the owner takes any session back from his
+        // own screens. The Gateway cannot see the owner's word, so it is not pretended: the change is audited, it is
+        // on the row he reads, and it is one action to undo.
+        var taking = to == SessionOwnerChangeDto.ToMe;
+        if (taking && callingSessionId is null)
+            return FleetHandOverResult.Refused(400,
+                $"\"{SessionOwnerChangeDto.ToMe}\" is the SESSION making the request, so it needs a session's own key. " +
+                $"From the Cockpit or the phone you are the owner: use \"{SessionOwnerChangeDto.ToOwner}\".");
+        if (callingSessionId is not null && !releasing && !taking
             && RefuseUnlessFleetManager(roster, marked, callingSessionId, sid, callerOwnsIt) is { } notAllowed)
             return notAllowed;
 
@@ -178,15 +204,34 @@ public sealed class FleetManagerHandOverService
                     "It reports to that session, not to you; taking it would take it from the session that started it.");
             newOwner = fleetManager.SessionId;
         }
+        else if (taking)
+        {
+            if (FleetManagerSessions.SameId(sid, callingSessionId))
+                return FleetHandOverResult.Refused(409,
+                    $"{name} is the session asking. A session cannot take itself: it already answers to whoever owns it.");
+            if (FleetManagerSessions.IsOwnedBy(session, callingSessionId!))
+                return FleetHandOverResult.Refused(409, $"{name} is already yours.");
+            if (session.HasLiveSupervisor)
+                return FleetHandOverResult.Refused(409,
+                    $"{name} is owned by {OwnerName(roster, owner)}, which is still running, so it was not taken. " +
+                    "It reports to that session, not to the owner; taking it would take it from the session that started it.");
+            newOwner = callingSessionId;
+        }
         else
         {
             if (string.IsNullOrEmpty(owner))
                 return FleetHandOverResult.Refused(409, $"{name} is already yours: no session owns it.");
-            // The owner's own device hands back the Fleet Manager's sessions, as it always has. A session hands back
-            // only what it owns itself, and that is the release the caller check above already let through.
-            if (!releasing && !FleetManagerSessions.IsOwnedBy(session, marked ?? ""))
+            // THE OWNER TAKES ANY SESSION BACK, from any session that holds it (issue #3096). It was the Fleet
+            // Manager's sessions only, which was the whole undo for a take - missing.
+            //
+            // A SESSION, INCLUDING THE FLEET MANAGER, STILL HANDS BACK ONLY WHAT IT OWNS ITSELF. Releasing is safe
+            // because it is YOUR work you are giving away; releasing somebody else's worker is not a gift, it is
+            // taking it from the session that started it - the same reason a take never reaches a session another
+            // live session holds. A release by the session that owns it is the one the caller check let through.
+            if (callingSessionId is not null && !releasing)
                 return FleetHandOverResult.Refused(409,
-                    $"{name} is owned by {OwnerName(roster, owner)}, not by the Fleet Manager. Only the Fleet Manager's sessions are handed back here.");
+                    $"{name} is owned by {OwnerName(roster, owner)}, not by the session asking. A session hands back " +
+                    "only a session it owns itself; the owner hands any session back from the Cockpit or the phone.");
             newOwner = null;
         }
 
@@ -213,11 +258,13 @@ public sealed class FleetManagerHandOverService
 
         _env.OwnerChanged(tenant, directorId, after);
 
-        var detail = newOwner is not null
-            ? $"handed to the Fleet Manager {newOwner}; owned before by {owner ?? "the owner"}"
-            : releasing
-                ? $"released to the owner by session {owner}, which owned it"
-                : $"handed back to the owner; owned before by the Fleet Manager {owner}";
+        var detail = taking
+            ? $"taken by session {newOwner} on the owner's direction; owned before by {owner ?? "the owner"}"
+            : newOwner is not null
+                ? $"handed to the Fleet Manager {newOwner}; owned before by {owner ?? "the owner"}"
+                : releasing
+                    ? $"released to the owner by session {owner}, which owned it"
+                    : $"handed back to the owner; owned before by {(FleetManagerSessions.SameId(owner, marked) ? "the Fleet Manager " : "session ")}{owner}";
         string? auditNote = null;
         try
         {
@@ -229,10 +276,12 @@ public sealed class FleetManagerHandOverService
             auditNote = " The change was made, but the audit trail could not record it.";
         }
 
-        var sentence = newOwner is not null
-            ? $"{name} is now the Fleet Manager's. When it stops, the Fleet Manager is told instead of you."
-              + (string.IsNullOrEmpty(owner) ? "" : $" It was owned by session {owner}, which is no longer running.")
-            : $"{name} is yours again. It asks you directly from now on.";
+        var wasOrphaned = string.IsNullOrEmpty(owner) ? "" : $" It was owned by session {owner}, which is no longer running.";
+        var sentence = taking
+            ? $"{name} is yours now. When it stops, you are told instead of the owner, and you answer for it." + wasOrphaned
+            : newOwner is not null
+                ? $"{name} is now the Fleet Manager's. When it stops, the Fleet Manager is told instead of you." + wasOrphaned
+                : $"{name} is yours again. It asks you directly from now on.";
         return new FleetHandOverResult(200, new FleetHandOverResultDto
         {
             SessionId = sid,
@@ -255,9 +304,10 @@ public sealed class FleetManagerHandOverService
         IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string? marked, string callingSessionId, string sid,
         bool callerOwnsIt)
     {
-        const string Rule = " A session may hand over a session it OWNS, and only to the owner (--to owner). " +
-                            "Taking a session, or handing one to the Fleet Manager, is the owner's to direct: he does it " +
-                            "from the Cockpit or the phone, or tells a session to do it on his word.";
+        const string Rule = " A session may release a session it OWNS to the owner (--to owner), and may take a session " +
+                            "that answers to the owner TO ITSELF (--to me) when the owner has directed it. Handing a session " +
+                            "to the Fleet Manager is the owner's to direct, from the Cockpit or the phone. No session is ever " +
+                            "put under a third session.";
         // THE LIVE FLEET MANAGER PASSES FIRST, exactly as before: it may take a session that answers to the owner, and
         // a session it owns is answered by the ordinary rules below this method (already the Fleet Manager's, and so on).
         var opening = $"Session {callingSessionId} may not hand session {sid} over: it does not own that session, and ";
@@ -273,8 +323,8 @@ public sealed class FleetManagerHandOverService
             return null;
         // A session that DOES own it asked for the wrong direction, so it is told that and not that it owns nothing.
         if (callerOwnsIt)
-            why = $"Session {callingSessionId} owns session {sid}, but the only change of owner it may make on its " +
-                  $"own is to release it: cc-devthrottle session hand-over {sid} --to owner.";
+            why = $"Session {callingSessionId} already owns session {sid}. It may release it: " +
+                  $"cc-devthrottle session hand-over {sid} --to owner.";
         FileLog.Write($"[FleetManagerHandOverService] REFUSED session key {callingSessionId}: {why}");
         return FleetHandOverResult.Refused(403, why + Rule, FleetHandOverResult.NotFleetManager);
     }

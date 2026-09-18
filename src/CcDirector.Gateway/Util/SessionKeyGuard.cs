@@ -531,10 +531,10 @@ public static class SessionKeyGuard
             case "walkthrough":
                 return false;
             // HAND OVER (step 8). The owner's choice - the Fleet Manager's too, with its own key, when the owner has
-            // asked it: it may take a session that answers to the owner and hand back one it owns. And any session may
-            // RELEASE a session it owns to the owner (issue #3086), which is the one change of owner a session makes on
-            // its own. The guard lets the one POST through; the route refuses every other session key, with the reason
-            // (FleetManagerHandOverService).
+            // asked it. Any session may also RELEASE a session it owns to the owner (issue #3086) and TAKE a session
+            // that answers to the owner, to ITSELF, on the owner's direction (issue #3096); it may never name any
+            // owner but itself, so no session is ever put under a third session. The guard lets the one POST through;
+            // the route refuses every other session key, with the reason (FleetManagerHandOverService).
             case "hand-over":
                 return s.Length == 3 && verb == "POST";
             default:

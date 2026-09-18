@@ -276,10 +276,32 @@ public sealed class FleetManagerHandOverServiceTests
     public async Task HandBack_SessionTheOwnerAlreadyHas_IsRefused()
         => AssertRefused(await HandAsync(Plain, "owner"), 409, "is already yours: no session owns it.");
 
+    /// <summary>
+    /// THE OWNER TAKES BACK FROM ANY SESSION (issue #3096). This used to be refused - only the Fleet Manager's
+    /// sessions could be handed back - and that refusal was the missing undo for a take: a session could be taken on
+    /// his direction and he had no way to reverse it from his own screens.
+    /// </summary>
     [Fact]
-    public async Task HandBack_SessionAnotherSessionOwns_IsRefused()
-        => AssertRefused(await HandAsync(ArchitectWorker, "owner"), 409,
-            "not by the Fleet Manager. Only the Fleet Manager's sessions are handed back here.");
+    public async Task HandBack_SessionAnotherSessionOwns_IsTheOwnersToTakeBack()
+    {
+        var result = await HandAsync(ArchitectWorker, "owner");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(("dir-2", ArchitectWorker, (string?)null), Assert.Single(_world.Sent));
+        Assert.Equal(Architect, Assert.Single(_world.Expected));
+        Assert.Null(result.Answer!.OwnerSessionId);
+        Assert.Equal(Architect, result.Answer.PreviousOwnerSessionId);
+        Assert.Equal($"handed back to the owner; owned before by session {Architect}", Assert.Single(_world.Audited).Detail);
+    }
+
+    [Fact]
+    public async Task HandBack_TheFleetManagersSession_StillNamesTheFleetManagerInTheRecord()
+    {
+        var result = await HandAsync(Owned, "owner");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal($"handed back to the owner; owned before by the Fleet Manager {Fm}", Assert.Single(_world.Audited).Detail);
+    }
 
     [Fact]
     public async Task HandOver_SessionThatHasEnded_IsRefused()
@@ -288,7 +310,7 @@ public sealed class FleetManagerHandOverServiceTests
     [Theory]
     [InlineData("", "fleet-manager", 400, "\"session\" is required")]
     [InlineData("abc", "fleet-manager", 400, "\"abc\" is not a session id")]
-    [InlineData(Plain, "", 400, "\"to\" must be \"fleet-manager\" or \"owner\"")]
+    [InlineData(Plain, "", 400, "\"to\" must be \"fleet-manager\", \"owner\" or \"me\"")]
     [InlineData(Plain, "the-architect", 400, "not \"the-architect\"")]
     public async Task HandOver_MalformedRequest_IsRefusedWithASentence(string session, string to, int status, string part)
         => AssertRefused(await HandAsync(session, to), status, part);
@@ -373,7 +395,9 @@ public sealed class FleetManagerHandOverServiceTests
 
     [Fact]
     public async Task FleetManagerKey_HandBackOfASessionItDoesNotOwn_IsRefused()
-        => AssertRefused(await HandAsSessionAsync(Fm, ArchitectWorker, "owner"), 409, "not by the Fleet Manager");
+        => AssertRefused(await HandAsSessionAsync(Fm, ArchitectWorker, "owner"), 409,
+            "not by the session asking. A session hands back only a session it owns itself; the owner hands any " +
+            "session back from the Cockpit or the phone.");
 
     [Fact]
     public async Task FleetManagerKey_AnotherAccountsSession_AnswersAsAnUnknownOne()
@@ -457,9 +481,8 @@ public sealed class FleetManagerHandOverServiceTests
     {
         var result = await HandAsSessionAsync(Architect, ArchitectWorker, "fleet-manager");
 
-        AssertRefused(result, 403, $"Session {Architect} owns session {ArchitectWorker}, but the only change of owner " +
-                                   $"it may make on its own is to release it: cc-devthrottle session hand-over " +
-                                   $"{ArchitectWorker} --to owner.");
+        AssertRefused(result, 403, $"Session {Architect} already owns session {ArchitectWorker}. It may release it: " +
+                                   $"cc-devthrottle session hand-over {ArchitectWorker} --to owner.");
         Assert.DoesNotContain("does not own", result.Error);
         Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
     }
@@ -483,7 +506,7 @@ public sealed class FleetManagerHandOverServiceTests
     {
         var result = await HandAsSessionAsync(Plain, ArchitectWorker, "owner");
 
-        Assert.Contains("A session may hand over a session it OWNS, and only to the owner (--to owner).", result.Error);
+        Assert.Contains("A session may release a session it OWNS to the owner (--to owner)", result.Error);
         Assert.Contains("is the owner's to direct", result.Error);
     }
 
@@ -515,6 +538,116 @@ public sealed class FleetManagerHandOverServiceTests
 
         AssertRefused(result, 403, "this account has no Fleet Manager marked");
         Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
+    }
+
+    // ================================= a session TAKING a session on the owner's direction (issue #3096)
+
+    [Fact]
+    public async Task SessionKey_TakesASessionThatAnswersToTheOwner_ToItselfAndTheRecordSaysSo()
+    {
+        var result = await HandAsSessionAsync(Architect, Plain, "me");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(("dir-1", Plain, (string?)Architect), Assert.Single(_world.Sent));
+        Assert.Null(Assert.Single(_world.Expected));
+        var answer = result.Answer!;
+        Assert.Equal((Plain, "me", (string?)Architect, (string?)null),
+            (answer.SessionId, answer.To, answer.OwnerSessionId, answer.PreviousOwnerSessionId));
+        Assert.Equal("Session \"Plain work\" is yours now. When it stops, you are told instead of the owner, and you answer for it.",
+            answer.Sentence);
+        var audited = Assert.Single(_world.Audited);
+        Assert.Equal((Plain, $"session {Architect}"), (audited.SessionId, audited.Actor));
+        Assert.Equal($"taken by session {Architect} on the owner's direction; owned before by the owner", audited.Detail);
+        Assert.Equal(Architect, Assert.Single(_world.OwnerChanges).ControllerSessionId);
+    }
+
+    /// <summary>A take moves work AWAY from the person: the session it reaches stops going red for him and answers to
+    /// the session that took it. Read through the real held check, from the row the Director answered with.</summary>
+    [Fact]
+    public async Task SessionKey_AfterTakingASession_ThatSessionStopsReachingTheUser()
+    {
+        Assert.False(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Plain, Fm).Held);
+
+        var result = await HandAsSessionAsync(Architect, Plain, "me");
+
+        Assert.Equal(200, result.Status);
+        var row = _world.Rosters[Tenant].First(r => r.Session.SessionId == Plain);
+        row.Session.ControllerSessionId = result.Answer!.Session!.ControllerSessionId;
+        row.Session.IsControlled = result.Answer.Session.IsControlled;
+
+        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Plain, Fm).Held,
+            "the session that took it holds it now, so its turn end is that session's to read");
+        Assert.False(FleetManagerSessions.AsksOwnerDirectly(
+            _world.Roster(Tenant).First(r => r.Session.SessionId == Plain).Session, Fm));
+    }
+
+    [Fact]
+    public async Task SessionKey_MayNotTakeASessionAnotherRunningSessionOwns()
+    {
+        AssertRefused(await HandAsSessionAsync(Plain, ArchitectWorker, "me"), 409,
+            $"Session \"The Architect's Worker\" is owned by session \"An Architect\" ({Architect}), which is still running, so it was not taken.");
+    }
+
+    [Fact]
+    public async Task SessionKey_MayTakeASessionWhoseOwnerHasEnded()
+    {
+        var result = await HandAsSessionAsync(Architect, Orphan, "me");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(Architect, result.Answer!.OwnerSessionId);
+        Assert.Equal(Gone, result.Answer.PreviousOwnerSessionId);
+        Assert.Equal(Gone, Assert.Single(_world.Expected));
+        Assert.EndsWith($"It was owned by session {Gone}, which is no longer running.", result.Answer.Sentence);
+    }
+
+    [Fact]
+    public async Task SessionKey_MayNotTakeItself()
+        => AssertRefused(await HandAsSessionAsync(Architect, Architect, "me"), 409,
+            "is the session asking. A session cannot take itself");
+
+    [Fact]
+    public async Task SessionKey_MayNotTakeASessionItAlreadyOwns()
+        => AssertRefused(await HandAsSessionAsync(Architect, ArchitectWorker, "me"), 409,
+            "Session \"The Architect's Worker\" is already yours.");
+
+    [Fact]
+    public async Task SessionKey_MayNotTakeTheFleetManager()
+        => AssertRefused(await HandAsSessionAsync(Architect, Fm, "me"), 409, "is the Fleet Manager itself");
+
+    [Fact]
+    public async Task SessionKey_MayNotTakeASessionThatHasEnded()
+        => AssertRefused(await HandAsSessionAsync(Architect, Ended, "me"), 409, "has ended, so it cannot be handed over.");
+
+    [Fact]
+    public async Task SessionKey_MayNotTakeAnotherAccountsSession()
+        => AssertRefused(await HandAsSessionAsync(Architect, Foreign, "me"), 404, "is running in this account");
+
+    /// <summary>
+    /// THE FORBIDDEN MOVE IS UNSAYABLE, not merely refused. "Put this session under that session" has no spelling:
+    /// a session id in <c>to</c> is an unknown direction like any other word, and the sentence says the rule.
+    /// </summary>
+    [Fact]
+    public async Task ASessionIdAsTheDirection_IsRefusedLikeAnyOtherUnknownWord()
+    {
+        var result = await HandAsSessionAsync(Architect, Plain, ArchitectWorker);
+
+        AssertRefused(result, 400, $"not \"{ArchitectWorker}\".");
+        Assert.Contains("may never put one under a third session", result.Error);
+    }
+
+    [Fact]
+    public async Task TheOwnersOwnDevice_AskingToTakeToMe_IsRefusedAndPointedAtOwner()
+        => AssertRefused(await HandAsync(Plain, "me"), 400,
+            "is the SESSION making the request, so it needs a session's own key. " +
+            "From the Cockpit or the phone you are the owner: use \"owner\".");
+
+    [Fact]
+    public async Task ARefusedSessionKey_IsToldItMayTakeAsWellAsRelease()
+    {
+        var result = await HandAsSessionAsync(Plain, ArchitectWorker, "owner");
+
+        Assert.Contains("may take a session that answers to the owner TO ITSELF (--to me)", result.Error);
+        Assert.Contains("No session is ever put under a third session.", result.Error);
     }
 
     [Fact]

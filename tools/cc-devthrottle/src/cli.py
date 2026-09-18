@@ -1084,11 +1084,11 @@ _ACTIONS = [
     {
         "id": "session-hand-over",
         "description": (
-            "Hand a running session to the Fleet Manager, or back to the owner. You may release a session YOU own "
-            "to the owner (--to owner) on your own; every other change of owner is the owner's to direct, from his "
-            "phone or browser, or on his word."
+            "Hand a running session to the Fleet Manager, back to the owner, or to yourself. You may release a "
+            "session YOU own to the owner (--to owner) on your own, and TAKE a session that answers to the owner "
+            "(--to me) when he has told you to. A session is never put under a third session."
         ),
-        "command": "cc-devthrottle session hand-over <session> --to fleet-manager|owner [--json]",
+        "command": "cc-devthrottle session hand-over <session> --to fleet-manager|owner|me [--json]",
         "mutatesState": True,
         "args": [{"name": "session", "required": True}, {"name": "to", "required": True}],
     },
@@ -1791,18 +1791,23 @@ def machine_launch(
 def hand_over(
     target: str = typer.Argument(..., help="Session to hand over (full id, id prefix, number, or exact name)."),
     to: Optional[str] = typer.Option(
-        None, "--to", help="Who owns it afterwards: fleet-manager, or owner (no owning session)."
+        None, "--to", help="Who owns it afterwards: fleet-manager, owner (no owning session), or me (this session)."
     ),
     json_output: bool = typer.Option(
         False, "--json", "-j", help="Output raw JSON: the Gateway's answer, unchanged."
     ),
 ) -> None:
-    """Hand a running session to the Fleet Manager, or back to the owner.
+    """Hand a running session to the Fleet Manager, back to the owner, or to yourself.
 
-    A SESSION MAY RELEASE WHAT IT OWNS. Run from a session, `--to owner` is allowed for a session that
-    session owns: giving the work away lands it in front of the owner, where everything lands by default.
-    Taking a session, and handing one to the Fleet Manager, stay the owner's to direct - he does it from
-    the Cockpit or the phone, or tells a session to do it on his word.
+    A SESSION MAY RELEASE WHAT IT OWNS, AND MAY TAKE WHAT ANSWERS TO THE OWNER. Run from a session,
+    `--to owner` releases a session that session owns - giving work away lands it in front of the owner,
+    where everything lands by default, so it needs no permission. `--to me` TAKES a session that answers
+    to the owner: do it when he has told you to, because it stops that session going red for him and you
+    answer for it from then on. He takes it back from the Cockpit or the phone whenever he likes.
+
+    THE ONLY OWNER A SESSION MAY NAME IS ITSELF. There is no way to put a session under a third session,
+    and no way to put yourself under another session. Handing a session to the Fleet Manager stays the
+    owner's to direct, from the Cockpit or the phone.
 
     The Gateway also allows it from the owner's own signed-in phone or browser (the Cockpit's Fleet
     Manager page and session menu), and from the account's Fleet Manager with its own session key - which
@@ -1811,7 +1816,8 @@ def hand_over(
 
     The Gateway also refuses: a session this account is not running, the Fleet Manager itself, handing to
     a Fleet Manager the account does not have running, a session another running session owns, a session
-    that is already where it is being sent, and a session whose Director is too old to change an owner.
+    that is already where it is being sent, a session taking itself, and a session whose Director is too
+    old to change an owner.
     """
     from .fleet_manager_ops import hand_over as _hand_over
 

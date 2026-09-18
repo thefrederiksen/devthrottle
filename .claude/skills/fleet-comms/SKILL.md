@@ -66,11 +66,26 @@ cc-devthrottle session hand-over <session> --to owner
 ```
 
 It answers to him from then on, goes red for him when it stops, and keeps everything it has done.
-That is the one change of owner a session makes on its own, and it is safe for the same reason
+That is the change of owner a session makes on its own, and it is safe for the same reason
 `--controlled-by self` is the only owner you may name at birth: giving work away puts it in front of
-the person. Taking a session, moving one between two sessions, and handing one to the Fleet Manager
-are all his to direct - he does them from the Cockpit or the phone, or tells you to do them on his
-word. Anything else is refused with the reason.
+the person.
+
+**And you may take one, when he tells you to.** If the user says to take a session over - to drive it,
+to collect its work, to put it under you - take it to YOURSELF:
+
+```
+cc-devthrottle session hand-over <session> --to me
+```
+
+It answers to you from then on: it stops going red for him, it reports to you, and you answer for it. So
+do this on his word, not on your own initiative. He can hand it back to himself whenever he likes. You
+can only take a session that already answers to HIM - a session another running session owns is never
+taken from it.
+
+**The only owner you may ever name is yourself.** That is the whole rule: take to yourself, release to
+him. There is no way to put a session under a third session, and no way to put yourself under another
+session - `--to` takes a direction, never a session id. Handing a session to the Fleet Manager stays his
+to direct. Anything else is refused with the reason.
 
 
 **Reach for `--controlled-by self` by default.** You asked for the work; getting back with it is part
