@@ -1,0 +1,68 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle.worktrees\wt05\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:01.59]     CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(agent: Grok) [FAIL]
+[xUnit.net 00:00:01.60]     CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(agent: Pi) [FAIL]
+[xUnit.net 00:00:02.36]     CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(agent: Codex) [FAIL]
+[xUnit.net 00:00:02.37]     CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_ResolvedSourceWithNoConversation_ReportsEmptyHistory_NotOk(agent: Gemini) [FAIL]
+  Failed CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(agent: Grok) [340 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "no_transcript"
+Actual:   "ok"
+           ↑ (pos 0)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(AgentKind agent) in D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway.UnitTests\TurnsVerbUnresolvedTranscriptTests.cs:line 105
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+  Failed CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(agent: Pi) [3 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "no_transcript"
+Actual:   "ok"
+           ↑ (pos 0)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(AgentKind agent) in D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway.UnitTests\TurnsVerbUnresolvedTranscriptTests.cs:line 105
+   at InvokeStub_TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Failed CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(agent: Codex) [766 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "no_transcript"
+Actual:   "ok"
+           ↑ (pos 0)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(AgentKind agent) in D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway.UnitTests\TurnsVerbUnresolvedTranscriptTests.cs:line 105
+   at InvokeStub_TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Failed CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_ResolvedSourceWithNoConversation_ReportsEmptyHistory_NotOk(agent: Gemini) [4 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "empty_history"
+Actual:   "ok"
+           ↑ (pos 0)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_ResolvedSourceWithNoConversation_ReportsEmptyHistory_NotOk(AgentKind agent) in D:\ReposFred\devthrottle.worktrees\wt05\src\CcDirector.Gateway.UnitTests\TurnsVerbUnresolvedTranscriptTests.cs:line 159
+   at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+
+Failed!  - Failed:     4, Passed:     2, Skipped:     0, Total:     6, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)
