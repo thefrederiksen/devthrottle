@@ -146,9 +146,27 @@ that second check sat twenty lines below it. The words were corrected to the cod
 2,112 tests, 0 failed. It printed a COVERAGE GAP for `CcDirector.Gateway.Tests` and
 `CcDirector.Gateway.UnitTests`, which is why the parked run below was done too.
 
-**The parked gate - `.\scripts\test-local.ps1 -Parked`, 11 suites, 2 hours 20 minutes.** Nine suites green.
-Two suites reported ONE failure each, and **neither is in dev reports**. Both were reproduced on clean
-`origin/main`, so both are pre-existing and belong to other work:
+**The parked gate - `.\scripts\test-local.ps1 -Parked`, 11 suites.** RUN TWICE, on identical code.
+
+**THE PARKED RUN IS FLAKY, AND THAT IS THE FIRST THING TO KNOW ABOUT THESE NUMBERS.** Two runs of the same
+commit produced DIFFERENT failure sets - 2 failures the first time, 4 the second. A single parked run is
+therefore weak evidence in either direction, and a green one would not have proved much either. Every
+failure seen across both runs was then chased to one of two verdicts, by measurement:
+
+| Run | Suite | Failing test | Verdict |
+|---|---|---|---|
+| both | `Gateway.Tests` | `PostgresProviderProofTests.Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres` | PRE-EXISTING on main |
+| both | `Gateway.UnitTests` | `TurnsVerbUnresolvedTranscriptTests...(agent: Grok)` | PRE-EXISTING on main |
+| 2nd only | `Gateway.UnitTests` | `AuthMiddlewareTests.Bearer_with_a_valid_device_key_is_accepted` | FLAKE - green in isolation, 27 of 27 |
+| 2nd only | `Core.Tests` | `ContentTurnRuleTests.A_byte_inside_the_window_pushes_the_check_out_rather_than_being_dropped` | FLAKE - green in isolation, 25 of 25 |
+
+**None is attributable to this change.** The `AuthMiddlewareTests` one deserves the detail because
+`AuthMiddleware.cs` IS a file this branch edits: it fails inside the test's own setup at line 19, building a
+`DeviceRegistry`, with `ObjectDisposedException: SQLitePCL.sqlite3` - a process-global handle disposed by a
+parallel test. It never calls `AuthMiddleware.Run` and never reaches `IsPublicShellSurfaceRequest`, so it
+cannot see the rule this branch added. Run alone, the whole class passes.
+
+The two pre-existing ones, and how each was proven rather than argued:
 
 | Failing test | Why it is not this change |
 |---|---|
@@ -159,20 +177,30 @@ Dev report numbers, as the brief asked:
 
 - `CcDirector.Gateway.UnitTests` (parked) - **33 new tests, all passing** (`DevReportPaneUrlTests` 26,
   `DevReportPanePageIsPublicTests` 7), on top of the existing `DevReports/` suite. Suite total 5,379 passed.
-- `CcDirector.Gateway.Tests` `DevReportRoutesHostedTests` (parked) - **20 of 20 passing**, 3 of them new
+- `CcDirector.Gateway.Tests` `DevReportRoutesHostedTests` (parked) - **20 of 20 passing, in BOTH parked
+  runs** (every one read back by name out of the second run's result file), 3 of them new
   (`ThePaneUrlRoute_AnswersThePageAddressOnTheCallersOwnBase`,
   `ThePaneUrlRoute_WithNoSessionOrAMalformedOne_Is400WithAPlainSentence`,
   `ThePaneAddress_IsServedToABrowserWithNoCredential_NotRedirectedToSignIn`), plus `pane-url` added to
   `ASessionKey_IsRefusedEveryOwnerRoute`.
 - `CcDirector.Avalonia.Tests` - **55 dev report tests**, all passing, inside a green 601-test suite.
 
-A note for whoever runs the gate next: an orphaned `testhost.exe` from this worktree's own earlier
-`Gateway.Tests` run held the machine-wide test lock for about 35 minutes after that run had reported
-`Passed! 20` and exited. It was idle (0.03 processor seconds over 5 seconds of wall clock), and the parked
-run correctly queued behind it and started by itself once it finally went. Nothing was killed. If a parked
-run looks hung, read
-`%LOCALAPPDATA%\cc-director\test-locks\gateway-test-suite.lock.log` - it names the holder and says plainly
-that waiting is not a hang.
+A note for whoever runs the gate next, because it cost about an hour here. **An orphaned `testhost.exe`
+outlives its own finished `Gateway.Tests` run and keeps holding the machine-wide lock.** It happened twice
+in one evening, once from this worktree and once from another session's, each time AFTER the run had
+reported its results and exited. Both were idle - zero processor seconds over 30 seconds of wall clock - and
+both eventually released on their own, so the queued run started by itself. Nothing was killed either time.
+
+How to tell a hung holder from a working one, rather than guessing:
+
+- Read `%LOCALAPPDATA%\cc-director\test-locks\gateway-test-suite.lock.log`. It names the holding process and
+  says in its own words that waiting is not a hang.
+- Then measure that process, do not judge it by age: sample `(Get-Process -Id <pid>).CPU` twice, 30 seconds
+  apart. A working suite moves it by roughly the elapsed wall clock (a healthy run here showed 14.8 seconds
+  of processor time per 15 seconds of wall clock); a hung test host moves it by exactly zero.
+
+A run that waits more than 45 minutes FAILS rather than running alongside the holder, so a hung holder can
+cost a whole gate.
 
 ---
 
