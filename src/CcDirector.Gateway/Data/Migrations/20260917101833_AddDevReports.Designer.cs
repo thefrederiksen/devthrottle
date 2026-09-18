@@ -831,7 +831,13 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("RepliedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("ReplyByUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReplyOverdueAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("RingCount")
@@ -866,6 +872,8 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.HasIndex("TenantId", "CreatedAtUtc");
+
+                    b.HasIndex("TenantId", "ReplyByUtc");
 
                     b.HasIndex("TenantId", "SenderSessionId", "CreatedAtUtc");
 
