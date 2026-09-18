@@ -127,8 +127,8 @@ public sealed class WorkflowStoreTests : IDisposable
     [Fact]
     public void Fleet_manager_conduct_acts_on_an_answered_card_event_and_starts_on_a_marked_event()
     {
-        // Steps 5 and 6 fixes.
-        var body = BuiltInWorkflows.InstructionsFor("fleet-manager");
+        // Steps 5 and 6 fixes. One phrase spans a wrapped line, and a Windows checkout embeds the body with CRLF.
+        var body = Normalize(BuiltInWorkflows.InstructionsFor("fleet-manager"));
 
         Assert.Contains("**An `answered` event is the owner pressing a button on one of your cards.**", body);
         Assert.Contains("do not answer the record again. Then acknowledge the event.", body);
@@ -140,8 +140,9 @@ public sealed class WorkflowStoreTests : IDisposable
     public void Fleet_manager_conduct_writes_its_advice_when_it_files_and_reads_the_owners_answers_in_the_digest()
     {
         // Step 7: the walkthrough's advice is written when the record is filed, and an answer given there is recorded on
-        // the record rather than typed to the Fleet Manager.
-        var body = BuiltInWorkflows.InstructionsFor("fleet-manager");
+        // the record rather than typed to the Fleet Manager. Two phrases span a wrapped line, and a Windows checkout
+        // embeds the body with CRLF.
+        var body = Normalize(BuiltInWorkflows.InstructionsFor("fleet-manager"));
 
         Assert.Contains("Write it when you FILE the record (`--advice`, and `--pick` for\n    the option you would choose)", body);
         Assert.Contains("replace it with `fleet advise` if the picture changes", body);
