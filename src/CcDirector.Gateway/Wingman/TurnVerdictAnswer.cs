@@ -37,14 +37,18 @@ public sealed record TurnVerdictStoredAnswer(string VerdictId, DateTime TurnEndO
 
 /// <summary>
 /// One stored verdict of a session's history, with the moment the owner's answer to it was confirmed (null while it
-/// is unanswered).
+/// is unanswered) and the answer itself.
 ///
 /// WHY THE MOMENT DOES NOT RIDE ON <see cref="TurnVerdictDto"/>. That record is the JUDGE's answer, serialised when
 /// the judge answered; being answered happens long afterwards and lives in the row's own column. A field on the
 /// serialised answer would read null on every route that does not stamp it, which is indistinguishable from "nobody
 /// has answered this" - so the fact travels beside the answer rather than inside it.
 /// </summary>
-public sealed record AnsweredTurnVerdict(TurnVerdictDto Verdict, DateTime? AnsweredAtUtc);
+/// <param name="Answer">What he answered, as the answer route stored it - null when this stop was not answered
+/// through that route, which includes every reply typed straight into the session. There is ONE record of the
+/// owner's answer and this is it; the Wingman tab reads it rather than keeping a second one of its own.</param>
+public sealed record AnsweredTurnVerdict(TurnVerdictDto Verdict, DateTime? AnsweredAtUtc,
+    TurnVerdictStoredAnswer? Answer = null);
 
 /// <summary>
 /// One located session's screen and keyboard, as the answer route needs them. The route binds it to the session in

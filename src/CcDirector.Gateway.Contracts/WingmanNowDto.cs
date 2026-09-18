@@ -131,6 +131,66 @@ public sealed class WingmanNowResponse
     /// <summary>The stop before this moment, as one line. On a working session it is where the row has just been;
     /// null when the Wingman has never explained a stop for this session.</summary>
     public WingmanNowPastDto? LastStop { get; set; }
+
+    /// <summary>What he answered, on the state that follows his answer - null in every other state.</summary>
+    public WingmanNowAnsweredDto? Answered { get; set; }
+
+    /// <summary>
+    /// The next session waiting on him, or null when nothing else is. Shown the moment he has finished with this
+    /// one, which is the one moment "and now go there" is worth anything to him.
+    /// </summary>
+    public WingmanNowNextDto? NextNeedsYou { get; set; }
+}
+
+/// <summary>
+/// WHAT HE ANSWERED, and that the session took it - the card that closes the loop.
+///
+/// It is drawn from the two answering routes as ONE thing, because from his side they are one thing: tapping an
+/// option and typing a reply are the same act of answering, and a card that could only see the first would go blank
+/// exactly when he answered in the terminal.
+/// </summary>
+public sealed class WingmanNowAnsweredDto
+{
+    /// <summary>The whole first line, finished: "You answered: allow the merge".</summary>
+    public string Headline { get; set; } = "";
+
+    /// <summary>What he answered on its own - the options he chose in his order, or the reply he typed.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>The words before the moment he answered: "Sent at". The client adds the local time.</summary>
+    public string SentLead { get; set; } = "";
+
+    /// <summary>The moment (UTC) his answer was recorded.</summary>
+    public DateTime AtUtc { get; set; }
+
+    /// <summary>
+    /// That the session took the answer and went back to work, in finished words: "The session started working again
+    /// 2 seconds later." NULL when this Gateway cannot tell - and then nothing is claimed about it, because a
+    /// guessed confirmation is worse than none on the one card whose whole job is confirming.
+    /// </summary>
+    public string? WorkingAgainAfterText { get; set; }
+}
+
+/// <summary>
+/// THE NEXT SESSION WAITING ON HIM, in the Sessions list's own order, so the tab and the list cannot point him at
+/// two different sessions. Everything but the identifier is finished words.
+/// </summary>
+public sealed class WingmanNowNextDto
+{
+    /// <summary>The words over the row: "Next that needs you".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>The session to go to.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>Its name, as the Sessions list shows it.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>What it is waiting for, in its own row's words.</summary>
+    public string? Label { get; set; }
+
+    /// <summary>The words on the way there: "Go there".</summary>
+    public string LinkText { get; set; } = "";
 }
 
 /// <summary>

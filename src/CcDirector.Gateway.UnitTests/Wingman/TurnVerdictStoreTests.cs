@@ -111,6 +111,36 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.False(store.MarkAnswered(TenantA, AnswerTo("tv-no-such-verdict", judgedAt), answeredAt));
     }
 
+    /// <summary>
+    /// THE HISTORY HANDS BACK WHAT HE ANSWERED, not merely that he answered - and it is the answer the answer
+    /// route stored, read out of the row's own column, never a second record of the same fact.
+    ///
+    /// This is the read the Wingman tab's Now view folds "You answered ..." from. A view that kept its own copy
+    /// of the decision would be free to disagree with the walkthrough about what he decided, so it does not keep
+    /// one: <see cref="TurnVerdictStore.HistoryWithAnswers"/> reads the stored answer and the Now fold reads that.
+    /// An unanswered stop carries neither the moment nor the answer.
+    /// </summary>
+    [Fact]
+    public void The_history_hands_back_the_stored_answer_beside_the_moment_it_was_confirmed()
+    {
+        var store = NewStore();
+        var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-answered"));
+        store.Store(TenantA, "sid-2", Verdict(judgedAt, verdictId: "tv-unanswered"));
+        var answeredAt = judgedAt.AddMinutes(1);
+
+        Assert.True(store.MarkAnswered(TenantA, AnswerTo("tv-answered", judgedAt), answeredAt));
+
+        var answered = store.HistoryWithAnswers(TenantA, "sid-1")[0];
+        Assert.Equal(answeredAt, answered.AnsweredAtUtc);
+        Assert.Equal(("tv-answered", "0", "yes"),
+            (answered.Answer!.VerdictId, string.Join(",", answered.Answer.OptionIndexes), answered.Answer.Words));
+
+        var unanswered = store.HistoryWithAnswers(TenantA, "sid-2")[0];
+        Assert.Null(unanswered.AnsweredAtUtc);
+        Assert.Null(unanswered.Answer);
+    }
+
     [Fact]
     public void One_account_can_neither_mark_nor_see_anothers_answered_mark()
     {

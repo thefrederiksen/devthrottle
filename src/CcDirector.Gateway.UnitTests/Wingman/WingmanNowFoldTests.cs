@@ -1,4 +1,5 @@
-﻿using CcDirector.Core.Wingman;
+﻿using CcDirector.Core.Drivers;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Wingman;
 using Xunit;
@@ -15,10 +16,10 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// own tests, and that the route really hands this fold a real row and a real store is proven through the handler in
 /// <see cref="WingmanNowRouteTests"/>, not here.
 ///
-/// WHAT IS NOT COVERED YET, said plainly rather than implied by silence: just answered (slice 5) and the voice
-/// control (slice 6). A row in one of those states folds to
-/// "other" today, and no test here pins that - pinning an interim answer would only have to be deleted by the slice
-/// that gives it its real one. Reading, failed and switched off ARE covered, below.
+/// WHAT IS NOT COVERED YET, said plainly rather than implied by silence: the voice control (slice 6). A row in that
+/// state folds to "other" today, and no test here pins that - pinning an interim answer would only have to be
+/// deleted by the slice that gives it its real one. Reading, failed, switched off, working and just answered ARE
+/// covered, below.
 ///
 /// PARKED SUITE. Gateway.UnitTests runs under -Parked.
 /// </summary>
@@ -491,8 +492,9 @@ public sealed class WingmanNowFoldTests
     });
 
     private static WingmanNowResponse FoldWith(SessionDto? row, IReadOnlyList<AnsweredTurnVerdict> history,
-        WingmanNowConversation? conversation = null, bool? switchedOff = null)
-        => WingmanNowFold.Fold(new WingmanNowInputs(Sid, row, history, conversation, switchedOff));
+        WingmanNowConversation? conversation = null, bool? switchedOff = null,
+        IReadOnlyList<SessionDto>? roster = null, DateTime? now = null)
+        => WingmanNowFold.Fold(new WingmanNowInputs(Sid, row, history, conversation, switchedOff, null, roster, now));
 
     private static readonly AnsweredTurnVerdict[] NoHistory = Array.Empty<AnsweredTurnVerdict>();
 
@@ -1242,5 +1244,318 @@ public sealed class WingmanNowFoldTests
         Assert.Null(now.LastWords);
         Assert.Null(now.CarryingOnDeadline);
         Assert.False(now.Unsure);
+    }
+
+    // ================================================================ slice 5: what he answered, and what is next
+
+    /// <summary>The moment he answered, two minutes after the stop.</summary>
+    private static readonly DateTime AnsweredAt = Stopped.AddMinutes(2);
+
+    /// <summary>A stop he answered THROUGH AN OPTION: the verdict row carries the moment, and beside it the answer
+    /// the answer route stored - the position he picked and the words that option is. The session went back to work
+    /// two seconds later.</summary>
+    private static AnsweredTurnVerdict AnsweredByOption(string chosen = "Allow the merge",
+        DateTime? answeredAt = null, DateTime? backToWorkAt = null)
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        verdict.SupersededAtUtc = backToWorkAt ?? (answeredAt ?? AnsweredAt).AddSeconds(2);
+        return new AnsweredTurnVerdict(verdict, answeredAt ?? AnsweredAt, Chose(verdict, chosen));
+    }
+
+    /// <summary>The answer route's own record of one option being picked, as it stores it.</summary>
+    private static TurnVerdictStoredAnswer Chose(TurnVerdictDto verdict, string words)
+        => new(verdict.VerdictId, verdict.TurnEndObservedAtUtc, new[] { 0 }, words);
+
+    /// <summary>The answer route's record of the one answer that picks NO option: the confirm of a reply already
+    /// typed into the session. Its words are about the sending, not about a decision.</summary>
+    private static TurnVerdictStoredAnswer ConfirmedATypedReply(TurnVerdictDto verdict)
+        => new(verdict.VerdictId, verdict.TurnEndObservedAtUtc, Array.Empty<int>(),
+            TurnVerdictStoredAnswer.TypedReplyWords);
+
+    /// <summary>A stop with no answer recorded against it - the shape a typed reply leaves, because a typed reply
+    /// touches no verdict at all.</summary>
+    private static AnsweredTurnVerdict UnansweredStop(DateTime? backToWorkAt = null)
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        verdict.SupersededAtUtc = backToWorkAt ?? AnsweredAt.AddSeconds(2);
+        return new AnsweredTurnVerdict(verdict, null);
+    }
+
+    // ---------------------------------------------------------------- what he answered
+
+    /// <summary>
+    /// TAPPING AN OPTION IS ANSWERING, and the screen says so back to him: his own words, that they were sent, and
+    /// that the session took them and went back to work.
+    ///
+    /// The pill says what the SESSION is doing - "Working again" - because that is the confirmation he is looking
+    /// at the screen for. The timed sentence measures forward from his answer and names no clock time, since the
+    /// card underneath already says when it was sent.
+    /// </summary>
+    [Fact]
+    public void An_option_he_chose_is_read_back_to_him_with_the_session_working_again()
+    {
+        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() }, now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.JustAnswered, now.State);
+        Assert.Equal("Working again", now.PillText);
+
+        Assert.Equal("You answered", now.When!.Lead);
+        Assert.Equal(AnsweredAt, now.When.AtUtc);
+        Assert.True(now.When.ShowAgo);
+        Assert.True(now.When.ElapsedOnly);
+
+        Assert.Equal("You answered: Allow the merge", now.Answered!.Headline);
+        Assert.Equal("Allow the merge", now.Answered.Text);
+        Assert.Equal("Sent at", now.Answered.SentLead);
+        Assert.Equal(AnsweredAt, now.Answered.AtUtc);
+        Assert.Equal("The session started working again 2 seconds later.", now.Answered.WorkingAgainAfterText);
+
+        // The stop is no longer merely the last one - it is the one he dealt with.
+        Assert.Equal("The stop you answered", now.LastStop!.Lead);
+    }
+
+    /// <summary>
+    /// TYPING IS ANSWERING TOO - in the terminal, on the phone, by voice, or in the reply box - and none of those
+    /// touch a verdict. The answer is the first thing he said after the stop.
+    ///
+    /// Without this the card would go blank exactly when he answered anywhere but the option buttons, which is most
+    /// of the time.
+    /// </summary>
+    [Fact]
+    public void A_reply_he_typed_answers_the_stop_just_as_an_option_does()
+    {
+        var now = FoldWith(WorkingRow(), new[] { UnansweredStop() },
+            Asked("Yes - merge it and push the notes.", AnsweredAt), now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.JustAnswered, now.State);
+        Assert.Equal("You answered: Yes - merge it and push the notes.", now.Answered!.Headline);
+        Assert.Equal(AnsweredAt, now.Answered.AtUtc);
+        Assert.Equal("The session started working again 2 seconds later.", now.Answered.WorkingAgainAfterText);
+    }
+
+    /// <summary>
+    /// THE ROUTE'S CONFIRM OF A TYPED REPLY IS NOT WHAT HE ANSWERED. Pressing send on a reply already typed into
+    /// the session picks no option, so the stored answer's words are a sentence about the sending - "Sent the
+    /// reply typed on the screen." - and reading that back under "You answered" would tell him what the product
+    /// did instead of what he decided.
+    ///
+    /// So it falls through to the reply itself, which is in the conversation and is his own words.
+    /// </summary>
+    [Fact]
+    public void A_stored_answer_that_chose_no_option_falls_through_to_the_reply_he_typed()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        verdict.SupersededAtUtc = AnsweredAt.AddSeconds(2);
+        var stop = new AnsweredTurnVerdict(verdict, AnsweredAt, ConfirmedATypedReply(verdict));
+
+        var now = FoldWith(WorkingRow(), new[] { stop }, Asked("Run the tests first.", AnsweredAt),
+            now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.JustAnswered, now.State);
+        Assert.Equal("You answered: Run the tests first.", now.Answered!.Headline);
+        Assert.DoesNotContain(TurnVerdictStoredAnswer.TypedReplyWords, now.Answered.Headline);
+    }
+
+    /// <summary>
+    /// HIS ANSWER COMES OFF THE SCREEN. Five minutes later the session is simply working, and a card still saying
+    /// what he sent would be describing something he moved on from long ago.
+    ///
+    /// The boundary is tested at the boundary: exactly five minutes is already too old.
+    /// </summary>
+    [Fact]
+    public void An_answer_older_than_the_window_leaves_the_session_plainly_working()
+    {
+        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() },
+            now: AnsweredAt.Add(WingmanNowFold.JustAnsweredWindow));
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Null(now.Answered);
+        Assert.Null(now.NextNeedsYou);
+        Assert.Equal("Last stop", now.LastStop!.Lead);
+        Assert.Equal("Working for", now.When!.Lead);
+    }
+
+    /// <summary>
+    /// NO CLOCK, NO CLAIM. A caller that supplies no moment cannot have the five-minute rule applied for it, so it
+    /// is not applied: the session reads as plainly working rather than as an answer that might be an hour old.
+    /// </summary>
+    [Fact]
+    public void With_no_moment_supplied_the_session_reads_as_plainly_working()
+    {
+        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() });
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Null(now.Answered);
+    }
+
+    /// <summary>
+    /// A MOMENT WITH NO STORED ANSWER IS NOT AN ANSWER TO SHOW. Every stop answered before the answer route kept
+    /// a record carries exactly that - a recorded moment and nothing saying what was chosen - and "You answered:"
+    /// with nothing after the colon is worse than saying nothing at all.
+    /// </summary>
+    [Fact]
+    public void A_recorded_answer_with_no_stored_choice_is_not_read_back_to_him()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        verdict.SupersededAtUtc = AnsweredAt.AddSeconds(2);
+        var stop = new AnsweredTurnVerdict(verdict, AnsweredAt, null);
+
+        var now = FoldWith(WorkingRow(), new[] { stop }, now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Null(now.Answered);
+    }
+
+    /// <summary>
+    /// OUR OWN DOORBELL LINE IS NOT HIM ANSWERING. The first thing typed after a stop is the answer to it, so a
+    /// doorbell line there means he has not answered yet - and the card must not tell him he has, in his own
+    /// words, with our delivery line as the text.
+    ///
+    /// It STOPS the search rather than skipping past: skipping would find a later message and present it as the
+    /// answer to a stop that this one had already moved the session off.
+    /// </summary>
+    [Fact]
+    public void A_doorbell_line_after_the_stop_is_never_read_back_as_his_own_answer()
+    {
+        var doorbell = FleetDoorbellLine.For(2);
+
+        var now = FoldWith(WorkingRow(), new[] { UnansweredStop() }, Asked(doorbell, AnsweredAt),
+            now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Null(now.Answered);
+    }
+
+    /// <summary>
+    /// A MESSAGE BEFORE THE STOP DID NOT ANSWER IT. What he said before the session stopped is what it was working
+    /// on when it stopped - reading it as the answer would close a loop nobody closed.
+    /// </summary>
+    [Fact]
+    public void A_message_sent_before_the_stop_is_not_an_answer_to_it()
+    {
+        var now = FoldWith(WorkingRow(), new[] { UnansweredStop() },
+            Asked("Carry on with the release notes.", Stopped.AddMinutes(-3)), now: Stopped.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Null(now.Answered);
+    }
+
+    /// <summary>
+    /// NOTHING IS CLAIMED ABOUT THE SESSION TAKING IT when this Gateway has no record of it going back to work.
+    /// The card is still right about what he sent; it simply stops short of confirming what it cannot see.
+    /// </summary>
+    [Fact]
+    public void Nothing_is_claimed_about_working_again_when_no_return_to_work_is_recorded()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        var stop = new AnsweredTurnVerdict(verdict, AnsweredAt, Chose(verdict, "Allow the merge"));
+
+        var now = FoldWith(WorkingRow(), new[] { stop }, now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.JustAnswered, now.State);
+        Assert.Equal("You answered: Allow the merge", now.Answered!.Headline);
+        Assert.Null(now.Answered.WorkingAgainAfterText);
+    }
+
+    /// <summary>
+    /// A RETURN TO WORK BEFORE HIS ANSWER CONFIRMS NOTHING. The session picked itself up on its own; saying it
+    /// started working again "later" would credit his answer with something it did not cause.
+    /// </summary>
+    [Fact]
+    public void Nothing_is_claimed_about_working_again_when_it_went_back_to_work_first()
+    {
+        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption(backToWorkAt: AnsweredAt.AddSeconds(-30)) },
+            now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.JustAnswered, now.State);
+        Assert.Null(now.Answered!.WorkingAgainAfterText);
+    }
+
+    // ---------------------------------------------------------------- and where to go next
+
+    /// <summary>A red row of this account's roster, waiting since the given moment.</summary>
+    private static SessionDto Waiting(string sessionId, string name, DateTime since)
+    {
+        var row = Row(Verdict(TurnVerdictVocabulary.NeededYou));
+        row.SessionId = sessionId;
+        row.Name = name;
+        row.NeedsYouSince = since;
+        // The stamped line the Sessions list reads for a judged red row - the Wingman's own words for that row.
+        row.VerdictLabel = "Should I open an issue for the dev Gateway?";
+        return row;
+    }
+
+    /// <summary>
+    /// THE NEXT SESSION IS THE SESSIONS LIST'S OWN FIRST ROW - the longest wait, by the list's own rule over the
+    /// list's own fold. Sending him somewhere the list does not have at the top would be this tab deciding the
+    /// order a second way.
+    /// </summary>
+    [Fact]
+    public void The_next_session_that_needs_him_is_the_waiting_lines_own_first_row()
+    {
+        var roster = new[]
+        {
+            Waiting("33333333-3333-3333-3333-333333333333", "Dev Reports - Worker", Stopped.AddMinutes(-2)),
+            Waiting("44444444-4444-4444-4444-444444444444", "Dev Reports - Architect", Stopped.AddMinutes(-40)),
+        };
+
+        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() }, roster: roster,
+            now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal("Next that needs you", now.NextNeedsYou!.Heading);
+        Assert.Equal("44444444-4444-4444-4444-444444444444", now.NextNeedsYou.SessionId);
+        Assert.Equal("Dev Reports - Architect", now.NextNeedsYou.Name);
+        // Its own row's words, which for a judged red row are the Wingman's own line.
+        Assert.Equal("Should I open an issue for the dev Gateway?", now.NextNeedsYou.Label);
+        Assert.Equal("Go there", now.NextNeedsYou.LinkText);
+    }
+
+    /// <summary>
+    /// IT NEVER POINTS HIM AT THE SESSION HE IS ALREADY ON, and never at one that is not his to watch. A snoozed
+    /// or supervised session is not waiting on him - that is the whole of what the bucket means - so a pointer to
+    /// one would send him to a session that would not thank him for arriving.
+    /// </summary>
+    [Fact]
+    public void The_next_session_skips_this_one_and_anything_not_waiting_on_him()
+    {
+        var thisOne = Waiting(Sid, "Wingman Inspector - Manager", Stopped.AddMinutes(-60));
+        var snoozed = Waiting("33333333-3333-3333-3333-333333333333", "Snoozed one", Stopped.AddMinutes(-50));
+        snoozed.OnHold = true;
+        var real = Waiting("44444444-4444-4444-4444-444444444444", "Dev Reports - Architect", Stopped.AddMinutes(-2));
+
+        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() }, roster: new[] { thisOne, snoozed, real },
+            now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal("44444444-4444-4444-4444-444444444444", now.NextNeedsYou!.SessionId);
+    }
+
+    /// <summary>Nothing else waiting means nothing offered - never an empty row, and never a working session
+    /// dressed up as one that needs him.</summary>
+    [Fact]
+    public void Nothing_is_offered_when_no_other_session_needs_him()
+    {
+        var working = Waiting("33333333-3333-3333-3333-333333333333", "Busy one", Stopped.AddMinutes(-30));
+        working.ActivityState = "Working";
+
+        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() }, roster: new[] { working },
+            now: AnsweredAt.AddSeconds(20));
+
+        Assert.Null(now.NextNeedsYou);
+    }
+
+    /// <summary>
+    /// A SESSION THAT IS MERELY WORKING IS NOT SENT ANYWHERE. He asked nothing, so he is owed no answer; a
+    /// standing pointer at another session would read as this one nagging him about it.
+    /// </summary>
+    [Fact]
+    public void A_working_session_he_has_not_just_answered_points_him_nowhere()
+    {
+        var roster = new[] { Waiting("44444444-4444-4444-4444-444444444444", "Architect", Stopped.AddMinutes(-40)) };
+
+        var now = FoldWith(WorkingRow(), new[] { Superseded(Stopped.AddMinutes(1)) }, roster: roster,
+            now: AnsweredAt.AddSeconds(20));
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Null(now.NextNeedsYou);
     }
 }

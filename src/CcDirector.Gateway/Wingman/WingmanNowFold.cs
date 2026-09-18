@@ -1,3 +1,4 @@
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 
@@ -21,13 +22,24 @@ namespace CcDirector.Gateway.Wingman;
 /// <param name="OwnedSessions">What this session's OWN sessions are doing, or null when it owns none. The
 /// carrying-on clock does not run while one of them is still alive, so this is what decides whether the
 /// carrying-on card can name a deadline at all.</param>
+/// <param name="AccountRoster">Every row of this account's folded roster, or null when the caller did not read
+/// one. It is the SAME fold the Sessions list serves, ordered here by the SAME rule, so the tab and the list can
+/// never point him at two different sessions. Null means no claim is made about what else needs him.</param>
+/// <param name="NowUtc">The moment the request is being answered, or null when the caller supplied no clock.
+///
+/// The fold stays pure - a moment IN, the finished view out - and it is the design's own shape for exactly one
+/// rule: his answer stays on the screen for five minutes and then the session is simply working again. Null means
+/// that rule cannot be evaluated, and then it is not evaluated: the session reads as plain working rather than as
+/// an answer that might be an hour old.</param>
 public sealed record WingmanNowInputs(
     string SessionId,
     SessionDto? Row,
     IReadOnlyList<AnsweredTurnVerdict> VerdictsNewestFirst,
     WingmanNowConversation? Conversation,
     bool? WingmanSwitchedOff = null,
-    OwnedSessionsFacts? OwnedSessions = null);
+    OwnedSessionsFacts? OwnedSessions = null,
+    IReadOnlyList<SessionDto>? AccountRoster = null,
+    DateTime? NowUtc = null);
 
 /// <summary>One session's stored conversation as the Now fold reads it.</summary>
 /// <param name="Supported">False when the session's agent tool does not produce a conversation this Gateway can
@@ -76,6 +88,45 @@ public static class WingmanNowFold
 
     /// <summary>The lead on the moment a session stopped.</summary>
     public const string StoppedAtLead = "Stopped at";
+
+    /// <summary>The pill on the state that follows his answer. It says what the SESSION is doing - it took what he
+    /// sent and went back to work - which is the confirmation he is looking at the screen for.</summary>
+    public const string PillJustAnswered = "Working again";
+
+    /// <summary>The lead on the moment he answered: "You answered 20 seconds ago".</summary>
+    public const string AnsweredWhenLead = "You answered";
+
+    /// <summary>What leads the headline over his own answer.</summary>
+    public const string AnsweredHeadlineLead = "You answered: ";
+
+    /// <summary>The lead on the moment his answer was sent.</summary>
+    public const string AnsweredSentLead = "Sent at";
+
+    /// <summary>The confirmation that the session took it, around the gap: "The session started working again 2
+    /// seconds later."</summary>
+    public const string WorkingAgainBefore = "The session started working again ";
+
+    /// <summary>The end of the confirmation the session took it.</summary>
+    public const string WorkingAgainAfter = " later.";
+
+    /// <summary>The lead on the past stop once he has answered it - it is no longer merely the last one.</summary>
+    public const string AnsweredStopLead = "The stop you answered";
+
+    /// <summary>The words over the next session waiting on him.</summary>
+    public const string NextHeading = "Next that needs you";
+
+    /// <summary>The words on the way to it.</summary>
+    public const string NextLinkText = "Go there";
+
+    /// <summary>
+    /// HOW LONG HIS ANSWER STAYS ON THE SCREEN. After this the session is simply working, and the card that says
+    /// what he sent would be describing something he has long since moved on from.
+    ///
+    /// Five minutes is the Architect's number, not the owner's - it is inferred, and it is written ONCE here so it
+    /// is one line to change when he rules otherwise. The other half of the rule needs no number: the state is
+    /// only ever reached while the session is working, so a session that stops again leaves it by itself.
+    /// </summary>
+    public static readonly TimeSpan JustAnsweredWindow = TimeSpan.FromMinutes(5);
 
     /// <summary>Who said it, when the row does not name the agent tool. Never a guessed tool name.</summary>
     public const string SomethingSaidWho = "The session said";
@@ -220,6 +271,18 @@ public static class WingmanNowFold
             : null;
 
         var state = StateOf(live, row, inputs.WingmanSwitchedOff);
+
+        // JUST ANSWERED IS WORKING, PLUS HIS ANSWER STILL ON THE SCREEN. It is not a state of the session - the
+        // session is working, and the pill says so - it is a state of the CONVERSATION between him and it, which
+        // is why it is settled here from the answer rather than in StateOf from the row. A session with no answer
+        // to show, or an answer older than the window, is plainly working and reads that way.
+        WingmanNowAnsweredDto? answered = null;
+        if (string.Equals(state, WingmanNowStates.Working, StringComparison.Ordinal))
+        {
+            answered = Answered(verdicts, inputs.Conversation, WorkingSince(verdicts), inputs.NowUtc);
+            if (answered is not null) state = WingmanNowStates.JustAnswered;
+        }
+
         var answer = new WingmanNowResponse
         {
             SessionId = inputs.SessionId,
@@ -230,7 +293,7 @@ public static class WingmanNowFold
             // THE ONE STATE THAT HIDES THE LINK: with the Wingman switched off there is no verdict behind the
             // colour, so "why this colour?" would open an explanation of a rule that did not run.
             ShowWhyColour = !string.Equals(state, WingmanNowStates.SwitchedOff, StringComparison.Ordinal),
-            When = When(state, live, row, verdicts),
+            When = When(state, live, row, verdicts, answered),
             VerdictId = live?.VerdictId,
             ReplyPlaceholder = ReplyPlaceholder(state),
         };
@@ -238,10 +301,20 @@ public static class WingmanNowFold
         // WORKING. Most of a session's life, and the state that outranks every other - see StateOf. There is no
         // stop to explain, so the view says what it is doing instead: how long it has been at it, what it was
         // last asked, and the stop it has just come from.
-        if (string.Equals(state, WingmanNowStates.Working, StringComparison.Ordinal))
+        if (state is WingmanNowStates.Working or WingmanNowStates.JustAnswered)
         {
             answer.LastAsked = LastAsked(inputs.Conversation, row, verdicts);
-            answer.LastStop = LastStop(verdicts, LastStopLead);
+            answer.LastStop = LastStop(verdicts, answered is null ? LastStopLead : AnsweredStopLead);
+
+            // AND WHERE TO GO NEXT, only on the state that follows his answer. It is the one moment the question
+            // "what now?" is his - on a session that is merely working he did not ask anything and is not owed an
+            // answer, and a standing pointer at another session would read as this one nagging him about it.
+            if (answered is not null)
+            {
+                answer.Answered = answered;
+                answer.NextNeedsYou = NextNeedsYou(inputs.AccountRoster, inputs.SessionId);
+            }
+
             return answer;
         }
 
@@ -391,6 +464,7 @@ public static class WingmanNowFold
         WingmanNowStates.NeedsYou => PillNeedsYou,
         WingmanNowStates.Reading => PillReading,
         WingmanNowStates.Working => PillWorking,
+        WingmanNowStates.JustAnswered => PillJustAnswered,
         WingmanNowStates.SwitchedOff => PillSwitchedOff,
         WingmanNowStates.CarryingOn => PillCarryingOn,
         WingmanNowStates.Done => PillDone,
@@ -401,11 +475,24 @@ public static class WingmanNowFold
     };
 
     private static WingmanNowWhenDto? When(string state, TurnVerdictDto? live, SessionDto? row,
-        IReadOnlyList<AnsweredTurnVerdict> verdicts)
+        IReadOnlyList<AnsweredTurnVerdict> verdicts, WingmanNowAnsweredDto? answered)
     {
         // WORKING MEASURES FORWARD, not back: "Working for 6 minutes". The moment it started is the moment its last
         // stop stopped being the live one, which is what SupersededAtUtc records - so the number is the length of
         // this working stretch and not the age of a stop that is over.
+        // HIS ANSWER'S OWN MOMENT, measured forward and shown with "ago": "You answered 20 seconds ago". The
+        // clock time is not repeated here - the card below it already says when it was sent.
+        if (string.Equals(state, WingmanNowStates.JustAnswered, StringComparison.Ordinal))
+        {
+            return answered is null ? null : new WingmanNowWhenDto
+            {
+                Lead = AnsweredWhenLead,
+                AtUtc = answered.AtUtc,
+                ShowAgo = true,
+                ElapsedOnly = true,
+            };
+        }
+
         if (string.Equals(state, WingmanNowStates.Working, StringComparison.Ordinal))
         {
             var since = WorkingSince(verdicts);
@@ -439,7 +526,7 @@ public static class WingmanNowFold
         WingmanNowStates.NeedsYou => ReplyPlaceholderNeedsYou,
         WingmanNowStates.Report => ReplyPlaceholderReport,
         WingmanNowStates.Reading => ReplyPlaceholderReading,
-        WingmanNowStates.Working => ReplyPlaceholderWorking,
+        WingmanNowStates.Working or WingmanNowStates.JustAnswered => ReplyPlaceholderWorking,
         // Failed and switched off both fall to the "other" words below on purpose - with no judgement to answer,
         // the box goes to the SESSION, which is exactly what those words say.
         WingmanNowStates.Failed or WingmanNowStates.SwitchedOff => ReplyPlaceholderOther,
@@ -560,17 +647,8 @@ public static class WingmanNowFold
         var text = WholeReply(conversation);
         if (text is null) return null;
 
-        // One line: the slot is one line high, and a reply's own newlines would make it several.
-        text = string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        text = Shorten(text);
         if (text.Length == 0) return null;
-
-        if (text.Length > LastWordsLength)
-        {
-            var cut = text.LastIndexOf(' ', LastWordsLength - 1);
-            // A first "word" longer than the whole limit has no boundary to cut on, so it is cut at the limit -
-            // an unbroken 200-character token is a URL or a hash, and showing none of it is worse.
-            text = (cut > 0 ? text[..cut] : text[..LastWordsLength]).TrimEnd() + " ...";
-        }
 
         var tool = NullIfBlank(row?.AgentToolDisplay);
         return new WingmanNowSaidDto
@@ -668,23 +746,184 @@ public static class WingmanNowFold
     /// </summary>
     private static WingmanNowPastDto? LastStop(IReadOnlyList<AnsweredTurnVerdict> verdicts, string lead)
     {
+        if (LastStopRecord(verdicts) is not { } stored) return null;
+
+        var verdict = stored.Verdict;
+        var words = PastPillWords(verdict)!;
+        var label = NullIfBlank(verdict.Label);
+        return new WingmanNowPastDto
+        {
+            Lead = lead,
+            AtUtc = StopMoment(verdict),
+            Text = label is null ? words : words + " - " + label,
+        };
+    }
+
+    /// <summary>
+    /// The RECORD behind that line - the same scan, kept in one place because two readers need it: the line the
+    /// owner reads, and the answer to it. A second copy of this scan is how a card comes to say what he answered
+    /// while the line beside it names a different stop.
+    /// </summary>
+    private static AnsweredTurnVerdict? LastStopRecord(IReadOnlyList<AnsweredTurnVerdict> verdicts)
+    {
         foreach (var stored in verdicts)
         {
             var verdict = stored.Verdict;
             if (verdict.Failed) continue;
+            if (PastPillWords(verdict) is null) continue;
+            if (StopMoment(verdict) == default) continue;
+            return stored;
+        }
 
-            var words = PastPillWords(verdict);
-            if (words is null) continue;
+        return null;
+    }
 
-            var at = verdict.TurnEndObservedAtUtc != default ? verdict.TurnEndObservedAtUtc : verdict.JudgedAtUtc;
-            if (at == default) continue;
+    /// <summary>When a stop happened: the moment the turn ended, falling back to the moment it was judged.</summary>
+    private static DateTime StopMoment(TurnVerdictDto verdict)
+        => verdict.TurnEndObservedAtUtc != default ? verdict.TurnEndObservedAtUtc : verdict.JudgedAtUtc;
 
-            var label = NullIfBlank(verdict.Label);
-            return new WingmanNowPastDto
+    /// <summary>
+    /// WHAT HE ANSWERED - from either route, as one answer, because from his side they are one act.
+    ///
+    /// 1. THE OPTION ROUTE. The verdict row carries the moment and, beside it, the answer that route stored: the
+    ///    option positions he chose and the words those options are. THIS VIEW READS THAT ONE RECORD and keeps
+    ///    none of its own, so what it reads back to him and what the walkthrough recorded cannot disagree about
+    ///    what he decided. Both or neither: a row with a moment and no stored answer is every row answered before
+    ///    that record existed, and "You answered:" with nothing after the colon is worse than saying nothing.
+    ///    An answer that chose NO option is that route's confirm of a reply typed on the screen, and its words
+    ///    are a sentence about the sending rather than about a decision - so it falls through to case 2, which
+    ///    has what he actually said.
+    /// 2. A TYPED REPLY, which touches no verdict at all - he answered in the terminal, on the phone, by voice, or
+    ///    in the reply box. It is the FIRST user message after the stop.
+    ///
+    /// Null whenever the answer is older than <see cref="JustAnsweredWindow"/>, which is what ends the state.
+    /// </summary>
+    private static WingmanNowAnsweredDto? Answered(IReadOnlyList<AnsweredTurnVerdict> verdicts,
+        WingmanNowConversation? conversation, DateTime? workingSince, DateTime? nowUtc)
+    {
+        if (nowUtc is not { } now) return null;
+        if (LastStopRecord(verdicts) is not { } stop) return null;
+
+        string? text;
+        DateTime at;
+        if (stop.AnsweredAtUtc is { } optionAt && stop.Answer is { OptionIndexes.Count: > 0 } answer
+            && NullIfBlank(answer.Words) is { } chosen)
+        {
+            text = chosen;
+            at = optionAt;
+        }
+        else if (TypedReply(conversation, StopMoment(stop.Verdict)) is { } typed)
+        {
+            text = typed.Text;
+            at = typed.At;
+        }
+        else
+        {
+            return null;
+        }
+
+        if (now - at >= JustAnsweredWindow) return null;
+
+        return new WingmanNowAnsweredDto
+        {
+            Headline = AnsweredHeadlineLead + text,
+            Text = text,
+            SentLead = AnsweredSentLead,
+            AtUtc = at,
+            WorkingAgainAfterText = WorkingAgainText(workingSince, at),
+        };
+    }
+
+    /// <summary>
+    /// The first thing HE typed after the stop, or null.
+    ///
+    /// A DOORBELL LINE stops the search rather than being skipped past: the first thing typed after a stop is the
+    /// answer to it, and a doorbell line was typed by this product, not by him. Skipping past it would show him a
+    /// later message as though it had answered this stop; claiming it would put our own delivery line in front of
+    /// him under the words "You answered".
+    ///
+    /// Recognising it is a fact rather than a guess, because <see cref="FleetDoorbellLine.Marker"/> is a string
+    /// this product itself writes and is the whole of the line's fixed opening. A session-to-session message used
+    /// to be recognised the same way, by reading back the frame the Gateway wrote around it; that frame was
+    /// deleted on 17 September 2026 with the Message Load mission, because a fleet message is now a queued inbox
+    /// record and nothing types one into a session. The doorbell line is what is typed instead.
+    /// </summary>
+    private static (string Text, DateTime At)? TypedReply(WingmanNowConversation? conversation, DateTime after)
+    {
+        if (conversation is null || !conversation.Supported) return null;
+
+        foreach (var message in conversation.Messages)
+        {
+            if (!string.Equals(message.Role, "User", StringComparison.OrdinalIgnoreCase)) continue;
+            if (message.Timestamp is not { } stamp) continue;
+
+            var at = stamp.UtcDateTime;
+            if (at <= after) continue;
+
+            var text = MessageText(message);
+            if (text is null) continue;
+            if (text.StartsWith(FleetDoorbellLine.Marker, StringComparison.Ordinal)) return null;
+
+            return (Shorten(text), at);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// That the session took his answer, in finished words. Null when this Gateway cannot tell - no record of it
+    /// going back to work, or one from before he answered, which would make the confirmation a lie.
+    /// </summary>
+    private static string? WorkingAgainText(DateTime? workingSince, DateTime answeredAt)
+    {
+        if (workingSince is not { } since) return null;
+        if (since < answeredAt) return null;
+        return WorkingAgainBefore + Gap(since - answeredAt) + WorkingAgainAfter;
+    }
+
+    /// <summary>
+    /// A short gap in the words a person says: "1 second", "2 seconds", "3 minutes", "2 hours". Owner-facing, so
+    /// it lives here with every other owner-facing word rather than borrowing a log formatter that rounds "2
+    /// seconds" down to "0 minutes".
+    /// </summary>
+    private static string Gap(TimeSpan span)
+    {
+        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+
+        var seconds = (long)Math.Round(span.TotalSeconds);
+        if (seconds < 60) return seconds == 1 ? "1 second" : seconds + " seconds";
+
+        var minutes = seconds / 60;
+        if (minutes < 60) return minutes == 1 ? "1 minute" : minutes + " minutes";
+
+        var hours = minutes / 60;
+        return hours == 1 ? "1 hour" : hours + " hours";
+    }
+
+    /// <summary>
+    /// THE NEXT SESSION WAITING ON HIM, in the Sessions list's own order over the Sessions list's own fold.
+    ///
+    /// The order and the bucket are both <see cref="SessionOrdering"/>'s, so this decides nothing about which
+    /// session is next - it reads the same answer the list reads. Deciding it here a second way is exactly how
+    /// the tab would come to send him somewhere the list does not have at the top.
+    /// </summary>
+    private static WingmanNowNextDto? NextNeedsYou(IReadOnlyList<SessionDto>? roster, string sessionId)
+    {
+        if (roster is null || roster.Count == 0) return null;
+
+        foreach (var row in SessionOrdering.InWaitingOrder(roster))
+        {
+            if (string.Equals(row.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)) continue;
+            // InWaitingOrder carries the calm band after the reds; only the reds are waiting on him.
+            if (SessionOrdering.Classify(row) != SessionOrdering.TriageBucket.NeedsYou) continue;
+
+            return new WingmanNowNextDto
             {
-                Lead = lead,
-                AtUtc = at,
-                Text = label is null ? words : words + " - " + label,
+                Heading = NextHeading,
+                SessionId = row.SessionId,
+                Name = NullIfBlank(row.Name) ?? row.SessionId,
+                Label = NullIfBlank(SessionOrdering.StateLabel(row)),
+                LinkText = NextLinkText,
             };
         }
 
@@ -719,10 +958,7 @@ public static class WingmanNowFold
             var message = messages[i];
             if (!string.Equals(message.Role, "User", StringComparison.OrdinalIgnoreCase)) continue;
 
-            var text = NullIfBlank(string.Join("\n\n", message.Parts
-                .Where(p => string.Equals(p.Kind, "Text", StringComparison.OrdinalIgnoreCase))
-                .Select(p => p.Text)
-                .Where(t => !string.IsNullOrWhiteSpace(t))));
+            var text = MessageText(message);
             if (text is null) return null;
             if (message.Timestamp is not { } stamp) return null;
 
@@ -760,6 +996,32 @@ public static class WingmanNowFold
 
         var gap = ownerUtc > askedAt ? ownerUtc - askedAt : askedAt - ownerUtc;
         return gap <= OwnerTurnTolerance;
+    }
+
+    /// <summary>One message's own text - its Text parts joined, or null when it carries none.</summary>
+    private static string? MessageText(HistoryMessageDto message)
+        => NullIfBlank(string.Join("\n\n", message.Parts
+            .Where(p => string.Equals(p.Kind, "Text", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Text)
+            .Where(t => !string.IsNullOrWhiteSpace(t))));
+
+    /// <summary>
+    /// Owner-facing text cut to one line and to <see cref="LastWordsLength"/>.
+    ///
+    /// Cut on a WORD BOUNDARY and closed with an ellipsis, because this stands where a headline stands: a cut
+    /// through the middle of a word reads as a rendering fault rather than as an excerpt. Text already shorter
+    /// than the limit is shown whole, with no ellipsis promising more.
+    /// </summary>
+    private static string Shorten(string text)
+    {
+        // One line: the slot is one line high, and the text's own newlines would make it several.
+        text = string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (text.Length <= LastWordsLength) return text;
+
+        var cut = text.LastIndexOf(' ', LastWordsLength - 1);
+        // A first "word" longer than the whole limit has no boundary to cut on, so it is cut at the limit - an
+        // unbroken 200-character token is a URL or a hash, and showing none of it is worse.
+        return (cut > 0 ? text[..cut] : text[..LastWordsLength]).TrimEnd() + " ...";
     }
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
