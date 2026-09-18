@@ -12,6 +12,8 @@ public sealed class CrashJournalSessionDto
     public string Agent { get; set; } = "ClaudeCode";
     public string? ClaudeSessionId { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
+    /// <summary>The session that owned this one when the Director died, or null when the user did.</summary>
+    public string? ControllerSessionId { get; set; }
 }
 
 /// <summary>

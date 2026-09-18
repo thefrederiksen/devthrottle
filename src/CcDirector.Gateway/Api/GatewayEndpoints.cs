@@ -271,7 +271,10 @@ internal static class GatewayEndpoints
         // The Message Load mission, inspection 7, ruling 3: the spawn door records a restore's create on its
         // workspace seat by the start token the create carries. Null (a harness with no database) refuses any
         // create carrying a restore claim, because a start that cannot be recorded is a start that can happen twice.
-        Workspaces.WorkspaceStore? workspaces = null)
+        Workspaces.WorkspaceStore? workspaces = null,
+        // The Fleet Manager mission, step 7: handed the stop handler below, so the walkthrough's close runs this one
+        // stop - its fold, its audit row, its answer - after deciding whether the session may be closed.
+        SessionStopDoor? stopDoor = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -2379,6 +2382,11 @@ internal static class GatewayEndpoints
 
             return await StopSessionAsync(ctx, sid, reason, legacyDeleteDoor: false, ct);
         });
+
+        // Door three, for the Fleet Manager walkthrough (step 7): the same handler, reached in-process with the owner's
+        // own request and the walkthrough's reason. Not a route; nothing new is exposed.
+        if (stopDoor is not null)
+            stopDoor.Stop = (ctx, sid, reason, ct) => StopSessionAsync(ctx, sid, reason, legacyDeleteDoor: false, ct);
 
         // Door two: DELETE /sessions/{sid}. A THIN FORWARD into the same handler, the same fold and the same
         // audit trail - not a second implementation.
@@ -5490,6 +5498,9 @@ internal static class GatewayEndpoints
         // work, and a session absent from the universe fails loud.
         var marked = tenant is { IsValid: true } markTenant ? fleetManagerMark?.Invoke(markTenant) : null;
         Fleet.FleetRoleResolver.Stamp(roleUniverse, all, marked);
+        // The pin and the offered change of owner (the Fleet Manager mission, step 8), read from the same resolved
+        // account, so every surface pins the same row and offers the same change.
+        Fleet.FleetManagerRosterFold.Stamp(roleUniverse, all, marked);
 
         // THE WINGMAN'S VERDICT, stamped before the loop because the loop's colour, label and bucket read it. ONE
         // snapshot of the account's verdicts for the whole fold, and no read at all while the account's colour

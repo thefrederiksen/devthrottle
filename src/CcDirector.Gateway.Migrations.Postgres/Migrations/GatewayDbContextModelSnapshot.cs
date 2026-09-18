@@ -823,6 +823,14 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("text");
 
+                    b.Property<string>("OutcomeId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("OutcomeTitle")
+                        .HasColumnType("text");
+
                     b.Property<bool>("ReadingPending")
                         .HasColumnType("boolean");
 
@@ -852,9 +860,14 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("VerdictJson")
                         .HasColumnType("text");
 
+                    b.Property<string>("Words")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "OutcomeId");
 
                     b.HasIndex("TenantId", "SessionId");
 
@@ -1047,6 +1060,20 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<DateTime?>("AboutTurnEndObservedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AboutVerdictId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Advice")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("AdviceSetAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool?>("AnswerMatchedOption")
                         .HasColumnType("boolean");
 
@@ -1076,11 +1103,22 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("FleetManagerPick")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)")
                         .UseCollation("C");
+
+                    b.Property<string>("OwnerNote")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("OwnerNoteAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -2340,6 +2378,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<DateTime?>("AnsweredAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AnswerJson")
+                        .HasColumnType("text");
 
                     b.Property<bool>("Failed")
                         .HasColumnType("boolean");

@@ -78,6 +78,15 @@ public sealed class FleetManagerMarkHistory
     private FleetManagerMark Upsert(TenantId tenant, string sid, DateTime now)
     {
         using var ctx = _db.CreateContext(tenant);
+        return UpsertIn(ctx, sid, now);
+    }
+
+    /// <summary>
+    /// Record the mark on a context the caller owns: the row is saved and the account pruned on that context, so
+    /// inside the caller's transaction both are committed or rolled back with everything else it writes.
+    /// </summary>
+    internal static FleetManagerMark UpsertIn(GatewayDbContext ctx, string sid, DateTime now)
+    {
         var row = ctx.FleetManagerMarks.FirstOrDefault(m => m.SessionId == sid);
         if (row is null)
         {

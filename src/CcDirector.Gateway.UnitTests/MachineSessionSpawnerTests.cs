@@ -70,6 +70,48 @@ public sealed class MachineSessionSpawnerTests
         Assert.Equal("MACHINE_A", resolver.LastMachine);
     }
 
+    // The Fleet Manager mission, step 5: a caller may refuse the RESOLVED Director before anything is sent to it -
+    // the only moment a Director the launcher just started is known.
+    [Fact]
+    public async Task Spawn_RefuseDirectorAnswers_NoCreateIsSentAndTheSentenceIsReturned()
+    {
+        var resolver = new StubResolver(new DirectorTargetResult("d-old", null));
+        var creates = 0;
+        var spawner = new MachineSessionSpawner(resolver, (directorId, req, ct) =>
+        {
+            creates++;
+            return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = "sid-1" }, null));
+        });
+        string? asked = null;
+
+        var (ok, dto, error, directorId) = await spawner.SpawnOnMachineAsync("MACHINE_A", new NewSessionRequest(), CancellationToken.None,
+            id => { asked = id; return "that Director must be updated"; });
+
+        Assert.False(ok);
+        Assert.Null(dto);
+        Assert.Equal("that Director must be updated", error);
+        Assert.Equal("d-old", directorId);
+        Assert.Equal("d-old", asked);
+        Assert.Equal(0, creates);
+    }
+
+    [Fact]
+    public async Task Spawn_RefuseDirectorAllows_TheCreateIsSent()
+    {
+        var resolver = new StubResolver(new DirectorTargetResult("d-new", null));
+        var creates = 0;
+        var spawner = new MachineSessionSpawner(resolver, (directorId, req, ct) =>
+        {
+            creates++;
+            return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = "sid-1" }, null));
+        });
+
+        var (ok, _, _, _) = await spawner.SpawnOnMachineAsync("MACHINE_A", new NewSessionRequest(), CancellationToken.None, _ => null);
+
+        Assert.True(ok);
+        Assert.Equal(1, creates);
+    }
+
     // A spawn that named ONE Director must reach the resolver as a named target. The spawner is the only
     // thing between the request body and the resolve, so if it drops req.Director the resolve quietly
     // falls back to "first Director on the machine" - which on a machine running several instances lands

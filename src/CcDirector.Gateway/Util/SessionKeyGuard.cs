@@ -408,6 +408,10 @@ public static class SessionKeyGuard
             // Write a workspace - including writing the drain's judgments and, afterwards, what the
             // restart actually produced, back onto a captured one.
             if (IsWorkspaceRoute(verb, s)) return true;
+
+            // The Fleet Manager's one line of advice on a record (step 7). IsFleetManagerRoute admits PUT on that
+            // one literal shape only.
+            if (IsFleetManagerRoute(verb, s)) return true;
             return false;
         }
 
@@ -497,7 +501,9 @@ public static class SessionKeyGuard
                 // /gateway/fleet-manager/outcomes/{id} - read one.
                 if (s.Length == 4) return read;
                 // /gateway/fleet-manager/outcomes/{id}/answer - close one with the owner's words.
-                return s.Length == 5 && s[4] == "answer" && verb == "POST";
+                if (s.Length == 5 && s[4] == "answer") return verb == "POST";
+                // /gateway/fleet-manager/outcomes/{id}/advice - the Fleet Manager's one line of advice (step 7).
+                return s.Length == 5 && s[4] == "advice" && verb == "PUT";
             case "preferences":
                 // /gateway/fleet-manager/preferences - list, or keep one.
                 if (s.Length == 3) return read || verb == "POST";
@@ -510,6 +516,26 @@ public static class SessionKeyGuard
                 if (s.Length == 3) return read;
                 // /gateway/fleet-manager/events/ack - acknowledge them.
                 return s.Length == 4 && s[3] == "ack" && verb == "POST";
+            // THE OWNER'S, NOT A SESSION'S (step 5). Where the Fleet Manager runs, and starting, restarting and
+            // moving it, change what runs on a computer - and a Fleet Manager that could restart or move itself
+            // would answer to nobody. Named here so the refusal is a decision rather than an omission.
+            case "placement":
+            case "start":
+            case "restart":
+            case "move":
+            // THE OWNER'S PAGE (step 6). It shows the Wingman's labels without the shadow rule the digest applies to
+            // a session key, and the Fleet Manager has the digest for the same facts.
+            case "page":
+            // THE OWNER'S WALKTHROUGH (step 7): the same readings as the page, and the owner's own answers, snoozes and
+            // closes recorded as the owner's.
+            case "walkthrough":
+                return false;
+            // HAND OVER (step 8). The owner's choice - and the Fleet Manager's, with its own key, when the owner has
+            // asked it: it may take a session that answers to the owner and hand back one it owns. The guard lets the
+            // one POST through; the route refuses every session key but the account's live Fleet Manager, with the
+            // reason (FleetManagerHandOverService).
+            case "hand-over":
+                return s.Length == 3 && verb == "POST";
             default:
                 return false;
         }

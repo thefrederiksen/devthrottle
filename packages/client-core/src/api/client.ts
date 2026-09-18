@@ -33,7 +33,36 @@ export type SessionDto = components["schemas"]["SessionDto"] & {
    *  itself whether a missing model means "not yet" or "never". Null from an older Gateway and in
    *  Director-local responses. */
   modelDisplay?: ModelDisplay | null;
+  /** The Fleet Manager mission, step 8: this row is pinned first, with the words it wears. The Gateway decides which
+   *  row; null on every other row and from an older Gateway. */
+  pin?: SessionPin | null;
+  /** The Fleet Manager mission, step 8: the one change of owner the owner may make to this session now, with its
+   *  words, or null. A client offers exactly this and nothing it works out for itself. */
+  ownerChange?: SessionOwnerChange | null;
 };
+
+/** A row pinned first in the session list (see the C# SessionPinDto). Hand-written for the reason `modelDisplay` is. */
+export interface SessionPin {
+  /** Where the row sits among the pinned rows: 0 first. */
+  rank: number;
+  /** The visible mark, for example "Fleet Manager". */
+  mark: string;
+  /** What the mark says when pointed at. */
+  title: string;
+  /** The heading over the rows that are not pinned. */
+  othersHeading: string;
+  /** The words of the link to the list of sessions the owner can hand over. */
+  handOverLinkLabel: string;
+}
+
+/** The one change of owner offered on a session (see the C# SessionOwnerChangeDto). */
+export interface SessionOwnerChange {
+  /** "fleet-manager" or "owner" - what is sent as `to`. */
+  to: string;
+  label: string;
+  title: string;
+  busyLabel: string;
+}
 
 /** The Gateway-computed model display verdict (see the C# ModelDisplay), rendered verbatim by the Fleet
  *  Map, the roster and the session view. Hand-written here for the same reason as `machineReachable`

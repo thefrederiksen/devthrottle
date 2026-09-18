@@ -418,7 +418,7 @@ public sealed class WingmanVoiceService
     /// The one HTTP client for the narration speech leg, used whenever no test client is injected.
     ///
     /// Static and never disposed, matching the hosted-call pattern used across this codebase
-    /// (AiModelsEndpoint, CarModeChat, HostedInferenceBrain, ...) and the /wingman/tts endpoint's own
+    /// (AiModelsEndpoint, HostedInferenceBrain, ...) and the /wingman/tts endpoint's own
     /// SharedTtsHttp. Safe to share because the credential goes on each REQUEST inside TtsSynthesis,
     /// never on this client's default headers.
     ///

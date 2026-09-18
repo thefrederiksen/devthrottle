@@ -180,6 +180,52 @@ public sealed class DirectorHubTests : IDisposable
     }
 
     [Fact]
+    public void Hello_RecordsWhetherThisDirectorUnderstandsTheFleetManagerFolder()
+    {
+        // The Fleet Manager mission, step 5: the Gateway refuses a Fleet Manager start on a Director that did not
+        // say this, because an older one ignores the flag and fails the create for a blank repository path.
+        var caps = new CcDirector.Gateway.Streaming.FleetManagerHomeCapabilityRegistry();
+        var newBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-1") };
+        var oldBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-2") };
+
+        newBuild.Hello(new DirectorStreamHello { DirectorId = "dir-new", Version = "test", CreatesFleetManagerHome = true });
+        oldBuild.Hello(new DirectorStreamHello { DirectorId = "dir-old", Version = "test" });
+
+        Assert.True(caps.CreatesFleetManagerHome(TenantId.Local, "dir-new"));
+        Assert.False(caps.CreatesFleetManagerHome(TenantId.Local, "dir-old"));
+        Assert.False(caps.CreatesFleetManagerHome(TenantId.Local, "dir-never-seen"));
+        Assert.False(caps.CreatesFleetManagerHome(new TenantId("11111111-1111-1111-1111-111111111111"), "dir-new"));
+    }
+
+    [Fact]
+    public void Hello_RecordsWhetherThisDirectorChangesASessionsOwnerOnlyIfExpected()
+    {
+        // The Fleet Manager mission, step 8: the Gateway refuses a hand over on a Director that did not say this, because
+        // an older one answers the set-controller verb as unknown - and the first builds with the verb said only
+        // ChangesOwner and overwrote the owner without checking it.
+        var caps = new CcDirector.Gateway.Streaming.FleetManagerHomeCapabilityRegistry();
+        var newBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-1") };
+        var oldBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-2") };
+
+        var firstVerbBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-3") };
+
+        newBuild.Hello(new DirectorStreamHello { DirectorId = "dir-new", Version = "test", ChangesOwner = true, ChangesOwnerIfExpected = true });
+        oldBuild.Hello(new DirectorStreamHello { DirectorId = "dir-old", Version = "test", CreatesFleetManagerHome = true });
+        // The old-style hello: the verb flag, every other flag that build sent, and no compare-and-set capability.
+        firstVerbBuild.Hello(new DirectorStreamHello
+        {
+            DirectorId = "dir-first-verb", Version = "test", PushesTurns = true, ChecksIdleBeforeTyping = true,
+            CreatesFleetManagerHome = true, ChangesOwner = true,
+        });
+
+        Assert.True(caps.ChangesOwnerIfExpected(TenantId.Local, "dir-new"));
+        Assert.False(caps.ChangesOwnerIfExpected(TenantId.Local, "dir-old"));
+        Assert.False(caps.ChangesOwnerIfExpected(TenantId.Local, "dir-first-verb"));
+        Assert.False(caps.ChangesOwnerIfExpected(TenantId.Local, "dir-never-seen"));
+        Assert.False(caps.ChangesOwnerIfExpected(new TenantId("11111111-1111-1111-1111-111111111111"), "dir-new"));
+    }
+
+    [Fact]
     public void Hello_WithNothingStoredForThisDirector_SaysSo_RatherThanStayingSilent()
     {
         // An empty list that the Gateway VOUCHES for is a fact the Director acts on: it pushes every

@@ -9,7 +9,7 @@ namespace CcDirector.Gateway.Settings;
 /// <summary>
 /// The Gateway-owned, restart-surviving store of per-tenant setting OVERRIDES (issue #2017): one
 /// <c>tenant_settings</c> row per (tenant, key). This is the per-tenant home the hosted deny (issue #1863)
-/// required before the AI / voice / car-mode / notification settings could be served on the shared Gateway.
+/// required before the AI / voice / notification settings could be served on the shared Gateway.
 ///
 /// EXPLICIT TENANT ON EVERY CALL - the coordination boundary with the MTR mission is that this layer performs
 /// NO ambient or static tenant inference: every read and write takes the <see cref="TenantId"/> the route
@@ -120,6 +120,56 @@ public sealed class TenantSettingsStore
             ctx.SaveChanges();
             FileLog.Write($"[TenantSettingsStore] Remove: tenant={tenant.ToLogString()} key={key}");
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Set and remove several of one tenant's keys in ONE save, so the values change together or not at all. A null
+    /// value removes that key.
+    /// </summary>
+    /// <exception cref="ArgumentException">The tenant is invalid, or a key is not a per-tenant setting key.</exception>
+    public void Apply(TenantId tenant, IReadOnlyDictionary<string, string?> changes, DateTime nowUtc)
+    {
+        if (changes is null) throw new ArgumentNullException(nameof(changes));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            ApplyIn(ctx, tenant, changes, nowUtc);
+            ctx.SaveChanges();
+            FileLog.Write($"[TenantSettingsStore] Apply: tenant={tenant.ToLogString()} keys={string.Join(",", changes.Keys)}");
+        }
+    }
+
+    /// <summary>
+    /// Stage the same changes on a context the caller owns, so they commit in the caller's transaction together with
+    /// other rows. Nothing is saved here.
+    /// </summary>
+    internal static void ApplyIn(GatewayDbContext ctx, TenantId tenant, IReadOnlyDictionary<string, string?> changes, DateTime nowUtc)
+    {
+        var updatedAtUtc = nowUtc.ToUniversalTime();
+        foreach (var (key, value) in changes)
+        {
+            RequireKey(key);
+            var existing = ctx.TenantSettings.FirstOrDefault(e => e.Key == key);
+            if (value is null)
+            {
+                if (existing is not null) ctx.TenantSettings.Remove(existing);
+            }
+            else if (existing is null)
+            {
+                ctx.TenantSettings.Add(new TenantSettingEntity
+                {
+                    TenantId = tenant.Value,
+                    Key = key,
+                    Value = value,
+                    UpdatedAtUtc = updatedAtUtc,
+                });
+            }
+            else
+            {
+                existing.Value = value;
+                existing.UpdatedAtUtc = updatedAtUtc;
+            }
         }
     }
 

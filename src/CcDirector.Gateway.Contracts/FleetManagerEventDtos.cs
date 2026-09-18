@@ -10,7 +10,9 @@ public sealed class FleetManagerEventDto
     /// <summary>The event id, minted by the Gateway.</summary>
     public string Id { get; set; } = "";
 
-    /// <summary><c>stop</c> (the session reached a turn end) or <c>died</c> (it exited or crashed).</summary>
+    /// <summary><c>stop</c> (the session reached a turn end), <c>died</c> (it exited or crashed), <c>marked</c> (the
+    /// account's mark has moved to the Fleet Manager session this is addressed to) or <c>answered</c> (the owner
+    /// answered a card; <see cref="OutcomeId"/> and <see cref="Words"/> say which and what).</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>The session the event is about.</summary>
@@ -48,6 +50,15 @@ public sealed class FleetManagerEventDto
 
     /// <summary>On a <c>died</c> event: how the death was learned, and what is not known about it. Null on a stop.</summary>
     public string? Detail { get; set; }
+
+    /// <summary>On an <c>answered</c> event: the outcome record the owner answered. Null otherwise.</summary>
+    public string? OutcomeId { get; set; }
+
+    /// <summary>On an <c>answered</c> event: that record's title. Null otherwise.</summary>
+    public string? OutcomeTitle { get; set; }
+
+    /// <summary>On an <c>answered</c> event: the owner's words, exactly as given. Null otherwise.</summary>
+    public string? Words { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
 

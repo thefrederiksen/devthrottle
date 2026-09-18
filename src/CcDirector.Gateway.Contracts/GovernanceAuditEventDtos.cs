@@ -42,6 +42,13 @@ public static class GovernanceAuditEventType
     /// </summary>
     public const string Stopped = "stopped";
 
+    /// <summary>
+    /// The owner changed which session OWNS this one (the Fleet Manager mission, step 8): handed it to the Fleet
+    /// Manager, or took it back. The Actor is the owner's device and the Detail names both owners. Its own type for
+    /// the reason <see cref="Stopped"/> is: it is not the agent needing a person, and no existing type says what it is.
+    /// </summary>
+    public const string HandedOver = "handed-over";
+
     // Permission category.
     /// <summary>The agent requested a permission or approval (Detail = what: e.g. "bash", "write path").</summary>
     public const string PermissionRequested = "permission-requested";
@@ -57,7 +64,7 @@ public static class GovernanceAuditEventType
     public const string ElevatedRunEnded = "elevated-run-ended";
 
     private static readonly string[] Intervention =
-        { Needed, HumanRescued, HumanRedirected, HumanCancelled, Resolved, Stopped };
+        { Needed, HumanRescued, HumanRedirected, HumanCancelled, Resolved, Stopped, HandedOver };
 
     private static readonly string[] Permission =
         { PermissionRequested, PermissionGranted, PermissionDenied, ModeObserved, ElevatedRunStarted, ElevatedRunEnded };

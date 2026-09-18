@@ -47,86 +47,6 @@ namespace CcDirector.Gateway.Speech;
 /// </summary>
 public static class SpokenPhrases
 {
-    // ---- Car Mode: the sentences the brain says without asking a model ------------------------------
-
-    /// <summary>After the owner cancels an armed delete. {0} is the session name, which is never
-    ///  translated - it is whatever the person called their session.</summary>
-    public static readonly SpokenPhrase CarModeDeleteCancelled = new(
-        "car-mode.delete-cancelled",
-        en: "Okay, I left {0} alone.",
-        fr: "D'accord, je n'ai pas touché à {0}.",
-        es: "De acuerdo, no he tocado {0}.");
-
-    /// <summary>After a confirmed delete actually runs. {0} is the session name.</summary>
-    public static readonly SpokenPhrase CarModeDeleteDone = new(
-        "car-mode.delete-done",
-        en: "Done. I deleted {0}.",
-        // Two sentences, not a comma: the confirmation beat has to land on its own before the detail,
-        // because this is an irreversible action being confirmed to someone who is driving and cannot
-        // look. A comma gives the speech engine a breath where it needs a full stop.
-        fr: "C'est fait. J'ai supprimé {0}.",
-        // "Listo" is the natural spoken Spanish for a completed action. The two review passes split on
-        // this: the first wanted a different word from the one the multi-select menu teaches the owner
-        // to SAY, to avoid the assistant echoing it back; the second wanted one word for one concept,
-        // arguing two invites the owner to say the wrong one. The second pass was over the corrected
-        // set and is followed here. Recorded so the choice is not re-litigated blind.
-        es: "Listo. He eliminado {0}.");
-
-    /// <summary>The loud, specific failure when the model never settles on an answer within the round
-    ///  cap. It says what happened and what to do - never a guess, and never silence.</summary>
-    public static readonly SpokenPhrase CarModeGiveUp = new(
-        "car-mode.give-up",
-        en: "I'm having trouble answering that right now. Please try again.",
-        fr: "Je n'arrive pas à répondre à cela pour le moment. Veuillez réessayer.",
-        es: "Ahora mismo no consigo responder a eso. Inténtalo de nuevo, por favor.");
-
-    /// <summary>
-    /// The Assistant's help script, spoken verbatim when the person asks what it can do.
-    ///
-    /// IT TEACHES WHAT ACTUALLY WORKS (audit finding C6). This used to be the Car Mode help script, and it ended
-    /// by telling the listener to say the configured end phrase when they were done. Car Mode was removed from
-    /// the product (#1028) and the Assistant has an explicit Send action and no end-phrase watcher - so the help
-    /// was teaching a command that ends nothing, on the one surface the deletion was required to preserve. The
-    /// end phrase is gone from the script, and with it the last consumer of that setting.
-    ///
-    /// It takes NO ARGUMENTS now, which is the point: there is nothing left in it that depends on a setting, so
-    /// it cannot go stale against one again. The previous version had already been wrong once for the same
-    /// reason - it hardcoded "over and out" while the phrase was configurable.
-    ///
-    /// The two ways to address it are unchanged and still true: command the manager, or start with a relay verb
-    /// and name a session. The relay verbs ARE translated, because the model classifies the intent rather than
-    /// matching words literally, and its system prompt says the equivalent verb in the owner's own language
-    /// counts the same.
-    /// </summary>
-    public static readonly SpokenPhrase AssistantHelpScript = new(
-        "assistant.help-script",
-        en: "I'm your fleet manager, and you talk to me two ways. "
-            + "By default you command me - ask who needs you, read me the next one, snooze it, approve it, or remove it. "
-            + "To talk to a session instead, start with tell, answer, reply, or message, and name it - "
-            + "like, tell the devthrottle session to run the tests. Whatever you say after that goes straight into that session. "
-            + "Ask for help any time.",
-        // The French stays in "vous" THROUGHOUT, trigger words included. An earlier draft handed the listener
-        // tu-form words to say inside an otherwise formal script, which a native speaker hears as a register
-        // break within one sentence. The polite forms are safe because nothing matches these words literally -
-        // the model classifies the intent, and its system prompt says the equivalent verb counts the same.
-        fr: "Je suis votre gestionnaire de flotte, et vous pouvez me parler de deux façons. "
-            + "Par défaut, vous me donnez des ordres : demandez qui a besoin de vous, faites-moi lire la session suivante, "
-            + "reportez-la, approuvez-la ou supprimez-la. "
-            + "Pour parler à une session plutôt qu'à moi, commencez par un de ces mots : dites, répondez, transmettez ou envoyez, "
-            + "puis nommez la session. Par exemple : dites à la session devthrottle de lancer les tests. "
-            + "Tout ce que vous dites ensuite est transmis tel quel à cette session. "
-            + "Demandez de l'aide à tout moment.",
-        // Spanish keeps "tu" throughout, and says "dile a la sesion" rather than "di a la sesion" - spoken
-        // Spanish doubles the indirect object almost without exception, and this is an example the owner is
-        // being told to copy.
-        es: "Soy tu gestor de flota y puedes hablarme de dos maneras. "
-            + "Por defecto me das órdenes: pregunta quién te necesita, pídeme que te lea la siguiente sesión, "
-            + "aplázala, apruébala o elimínala. "
-            + "Para hablar con una sesión en lugar de conmigo, empieza por una de estas palabras: di, responde, transmite o envía, "
-            + "y luego nombra la sesión. Por ejemplo: dile a la sesión devthrottle que ejecute las pruebas. "
-            + "Todo lo que digas después va directo a esa sesión. "
-            + "Pide ayuda en cualquier momento.");
-
     // ---- Voice turn: when the product will not answer, and says why ---------------------------------
 
     /// <summary>Voice turn refuses because a menu owns the session's screen and could not be read
@@ -267,7 +187,6 @@ public static class SpokenPhrases
     ///  on this class appears in the list.</summary>
     public static readonly IReadOnlyList<SpokenPhrase> All = new[]
     {
-        CarModeDeleteCancelled, CarModeDeleteDone, CarModeGiveUp, AssistantHelpScript,
         VoiceTurnBlockedMenu, VoiceTurnBlockedUnreadable,
         WaitingScreenMenu, WaitingScreenMenuNarrationSuffix, NarrationCutNotice,
         MenuOption, MenuOptionRecommended, MenuAnswerSingle, MenuAnswerMultiple,

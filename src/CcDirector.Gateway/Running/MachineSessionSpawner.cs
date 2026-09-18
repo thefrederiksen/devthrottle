@@ -54,9 +54,15 @@ public sealed class MachineSessionSpawner
     /// the Director's error - and NEVER a local fallback - when the machine cannot be resolved or the create
     /// fails. <c>directorId</c> is the resolved Director (for the cron run record); it is populated even on a
     /// failure the resolver could attribute to a Director.
+    ///
+    /// <paramref name="refuseDirector"/>, when given, is asked about the RESOLVED Director before anything is sent
+    /// to it, and a non-null answer refuses the create with that sentence. It exists because a Director the
+    /// launcher has only just started is not known until the resolver returns, and a caller that needs something
+    /// of the Director (the Fleet Manager's own folder, for one) must be able to refuse before the create rather
+    /// than read an older Director's unrelated error afterwards.
     /// </summary>
     public async Task<(bool ok, SessionDto? dto, string? error, string? directorId)> SpawnOnMachineAsync(
-        string machine, NewSessionRequest req, CancellationToken ct)
+        string machine, NewSessionRequest req, CancellationToken ct, Func<string, string?>? refuseDirector = null)
     {
         if (req is null)
             throw new ArgumentNullException(nameof(req));
@@ -76,6 +82,12 @@ public sealed class MachineSessionSpawner
             var reason = target.Error ?? "the target machine has no registered director";
             FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine={machine}, {reason}");
             return (false, null, reason, target.DirectorId);
+        }
+
+        if (refuseDirector?.Invoke(target.DirectorId) is { } refusal)
+        {
+            FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync REFUSED before the create: machine={machine}, director={target.DirectorId}: {refusal}");
+            return (false, null, refusal, target.DirectorId);
         }
 
         FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync: machine={machine}, director={target.DirectorId}, repo={req.RepoPath}");

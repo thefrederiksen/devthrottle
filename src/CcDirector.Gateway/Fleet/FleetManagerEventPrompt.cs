@@ -21,6 +21,7 @@ internal static class FleetManagerEventPrompt
     public const string FirstLinePrefix = "[Fleet Manager events]";
 
     public const string EvidenceStart = "evidence (exact, between the markers):";
+    public const string WordsStart = "the owner's words (exact, between the markers):";
     public const string EvidenceOpen = "<<<";
     public const string EvidenceClose = ">>>";
 
@@ -34,11 +35,16 @@ internal static class FleetManagerEventPrompt
         if (events.Count == 0) throw new ArgumentException("a delivery carries at least one event", nameof(events));
 
         var stops = events.Count(e => e.Kind == FleetManagerEventStore.KindStop);
-        var died = events.Count - stops;
+        var died = events.Count(e => e.Kind == FleetManagerEventStore.KindDied);
+        var answered = events.Count(e => e.Kind == FleetManagerEventStore.KindAnswered);
+        var marked = events.Any(e => e.Kind == FleetManagerEventStore.KindMarked);
         var sb = new StringBuilder();
-        sb.Append(FirstLinePrefix).Append(' ')
-          .Append(Count(stops, "stop", "stops")).Append(" and ")
-          .Append(died).Append(" died since your last turn.\n");
+        sb.Append(FirstLinePrefix).Append(' ');
+        if (marked) sb.Append("You are now this account's Fleet Manager. ");
+        sb.Append(Count(stops, "stop", "stops")).Append(" and ")
+          .Append(died).Append(" died");
+        if (answered > 0) sb.Append(", and ").Append(Count(answered, "card answered by the owner", "cards answered by the owner"));
+        sb.Append(" since your last turn.\n");
         sb.Append("Sessions you own. Act on each, then acknowledge it by its id. Readings are the Wingman's, not the session's.\n");
         sb.Append("An event can be sent more than once: if you have already handled an event id, do not act on it again - acknowledge it.\n");
         if (moreOwed > 0)
@@ -51,7 +57,23 @@ internal static class FleetManagerEventPrompt
             sb.Append('\n');
             sb.Append("event ").Append(i + 1).Append(" of ").Append(events.Count).Append(": ").Append(e.Id).Append('\n');
             sb.Append("kind: ").Append(e.Kind).Append('\n');
-            sb.Append("session: ").Append(e.SessionId).Append(" \"").Append(e.SessionName).Append("\"\n");
+            if (e.Kind != FleetManagerEventStore.KindAnswered)
+                sb.Append("session: ").Append(e.SessionId).Append(" \"").Append(e.SessionName).Append("\"\n");
+            if (e.Kind == FleetManagerEventStore.KindMarked)
+            {
+                sb.Append("what: ").Append(e.Detail).Append('\n');
+                continue;
+            }
+            if (e.Kind == FleetManagerEventStore.KindAnswered)
+            {
+                // The owner's choice, as if the owner had said it. The words are copied as stored, between markers.
+                sb.Append("record: ").Append(e.OutcomeId).Append(" \"").Append(e.OutcomeTitle).Append("\"\n");
+                if (!string.IsNullOrEmpty(e.SessionId)) sb.Append("about session: ").Append(e.SessionId).Append('\n');
+                sb.Append("answered by: the owner, on the Fleet Manager page. The record is already answered; act on the words.\n");
+                sb.Append(WordsStart).Append('\n');
+                sb.Append(EvidenceOpen).Append(e.Words).Append(EvidenceClose).Append('\n');
+                continue;
+            }
             if (e.Kind == FleetManagerEventStore.KindDied)
             {
                 sb.Append("how: ").Append(e.Crashed == true ? "crashed" : "exited").Append('\n');
@@ -67,6 +89,9 @@ internal static class FleetManagerEventPrompt
             }
 
             var v = e.Verdict;
+            // The stop's identity: a record filed about this stop names it (fleet ... --verdict), so an answer to a
+            // later stop of the session never closes that record.
+            sb.Append("verdictId: ").Append(v.VerdictId).Append('\n');
             if (v.Failed)
             {
                 sb.Append("verdict: failed - ").Append(v.FailureReason ?? "the reading failed")

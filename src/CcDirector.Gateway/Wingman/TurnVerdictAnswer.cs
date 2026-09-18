@@ -5,9 +5,35 @@ using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Wingman;
 
-/// <summary>A verdict found by its id, the session it belongs to, and when the owner's answer to it was confirmed
-/// (null while it is unanswered).</summary>
-public sealed record TurnVerdictLocated(string SessionId, TurnVerdictDto Verdict, DateTime? AnsweredAtUtc = null);
+/// <summary>A verdict found by its id, the session it belongs to, when the owner's answer to it was confirmed (null while
+/// it is unanswered), and what that answer was.</summary>
+public sealed record TurnVerdictLocated(string SessionId, TurnVerdictDto Verdict, DateTime? AnsweredAtUtc = null,
+    TurnVerdictStoredAnswer? Answer = null);
+
+/// <summary>
+/// What the answer route wrote into a session for one verdict, stored with the verdict when the Director confirmed it:
+/// the verdict it answered (its id and the moment its turn ended), the option positions chosen, in the order chosen,
+/// and the words those options are - the options' keys joined in that order, or <see cref="TypedReplyWords"/> for the
+/// confirm of a typed reply. The walkthrough records exactly this, never positions a client names.
+/// </summary>
+public sealed record TurnVerdictStoredAnswer(string VerdictId, DateTime TurnEndObservedAtUtc, IReadOnlyList<int> OptionIndexes,
+    string Words)
+{
+    /// <summary>The words of the one answer that chooses no option: the confirm of a reply typed on the screen.</summary>
+    public const string TypedReplyWords = "Sent the reply typed on the screen.";
+
+    /// <summary>The stored answer for these positions of this verdict. The positions must already be a selection the
+    /// verdict allows (<see cref="TurnVerdictActivation.Plan"/>).</summary>
+    public static TurnVerdictStoredAnswer For(TurnVerdictDto verdict, IReadOnlyList<int> indexes)
+    {
+        ArgumentNullException.ThrowIfNull(verdict);
+        ArgumentNullException.ThrowIfNull(indexes);
+        var words = indexes.Count == 0
+            ? TypedReplyWords
+            : string.Join(", ", indexes.Select(i => verdict.Options[i].Key));
+        return new TurnVerdictStoredAnswer(verdict.VerdictId, verdict.TurnEndObservedAtUtc, indexes.ToList(), words);
+    }
+}
 
 /// <summary>
 /// One located session's screen and keyboard, as the answer route needs them. The route binds it to the session in
@@ -50,9 +76,9 @@ public interface ITurnVerdictAnswerRecords
     /// <summary>This session's latest verdict in this tenant.</summary>
     TurnVerdictDto? Latest(TenantId tenant, string sessionId);
 
-    /// <summary>Record that this verdict's answer was written and confirmed. False when it was already answered or
-    /// is not found.</summary>
-    bool MarkAnswered(TenantId tenant, string verdictId);
+    /// <summary>Record that this verdict's answer was written and confirmed, and what it was. False when it was already
+    /// answered or is not found.</summary>
+    bool MarkAnswered(TenantId tenant, TurnVerdictStoredAnswer answer);
 
     /// <summary>One ledger line for one activation.</summary>
     void Record(TurnVerdictRecord record);
@@ -74,7 +100,7 @@ public sealed class TurnVerdictAnswerRecords : ITurnVerdictAnswerRecords
 
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId) => _store.Latest(tenant, sessionId);
 
-    public bool MarkAnswered(TenantId tenant, string verdictId) => _store.MarkAnswered(tenant, verdictId, DateTime.UtcNow);
+    public bool MarkAnswered(TenantId tenant, TurnVerdictStoredAnswer answer) => _store.MarkAnswered(tenant, answer, DateTime.UtcNow);
 
     public void Record(TurnVerdictRecord record) => _record(record);
 }
@@ -175,7 +201,7 @@ public static class TurnVerdictActivation
 /// What it binds, in order: the verdict to the session in the path (a verdict from another session in the same
 /// account is refused); the verdict to its session's LATEST verdict; the selection to what the verdict allows; and,
 /// under ONE lock per session, the verdict still unanswered, the live screen to the verdict's screen by the
-/// canonical full-grid hash (ruling 14), then the write and the answered mark. ONE VERDICT, ONE ACTIVATION: an
+/// canonical full-grid hash (ruling 14), then the write and the answered mark, which stores exactly what was chosen. ONE VERDICT, ONE ACTIVATION: an
 /// answer that waited behind an accepted one finds the verdict answered and is refused before it reads the screen,
 /// whether or not the first write has repainted it yet. A multiple-select is one write that its own first toggle
 /// can never invalidate.
@@ -302,7 +328,7 @@ public sealed class TurnVerdictAnswerService
                 case TurnVerdictAnswerWriteKind.Accepted:
                     // Marked before the lock is released, so the next waiter reads it. A false here cannot come from
                     // a racing answer in this Gateway - they are all behind this lock - so it is logged, not hidden.
-                    if (!_records.MarkAnswered(tenant, verdictId))
+                    if (!_records.MarkAnswered(tenant, TurnVerdictStoredAnswer.For(verdict, indexes)))
                         FileLog.Write($"[TurnVerdictAnswerService] AnswerAsync: sid={sessionId} verdict={verdictId} was written but could not be marked answered (already marked or no longer stored)");
                     _records.Record(new TurnVerdictRecord(tenant, directorId, sessionId,
                         ActivityEventTypes.TurnVerdictAnswered, ActivityCauses.OwnerAnswered,

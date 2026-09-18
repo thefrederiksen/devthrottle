@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
-using CcDirector.Gateway.CarMode;
 using CcDirector.Gateway.Speech;
 using CcDirector.Gateway.Wingman;
 using Xunit;
@@ -145,11 +144,11 @@ public sealed class SpokenPhraseTests
         var error = Assert.Throws<ArgumentException>(() => new SpokenLanguage("xx", "Klingon", "Klingon"));
 
         Assert.Contains("xx", error.Message);
-        Assert.DoesNotContain(SpokenPhrases.CarModeGiveUp.In(SpokenLanguages.English), error.Message);
+        Assert.DoesNotContain(SpokenPhrases.VoiceTurnBlockedUnreadable.In(SpokenLanguages.English), error.Message);
 
         // And every language that CAN exist has this phrase, so the throw inside In() has no way to fire.
         foreach (var language in SpokenLanguages.All)
-            Assert.False(string.IsNullOrWhiteSpace(SpokenPhrases.CarModeGiveUp.In(language)));
+            Assert.False(string.IsNullOrWhiteSpace(SpokenPhrases.VoiceTurnBlockedUnreadable.In(language)));
     }
 
     // ----------------------------------------------------------------------------------------------
@@ -173,10 +172,10 @@ public sealed class SpokenPhraseTests
     [Fact]
     public void Accented_characters_survive_the_compiler_byte_for_byte()
     {
-        // "C'est fait, j'ai supprime<e-acute> {0}." - the accent is the whole point of the assertion.
-        Assert.Contains("supprim\u00E9", SpokenPhrases.CarModeDeleteDone.In(SpokenLanguages.French));
-        // "je n'ai pas touche<e-acute> a<a-grave> {0}."
-        Assert.Contains("touch\u00E9 \u00E0", SpokenPhrases.CarModeDeleteCancelled.In(SpokenLanguages.French));
+        // "... je n'ai pas re<e-acute>ussi a<a-grave> le lire ..." - the accents are the whole point of the assertion.
+        Assert.Contains("r\u00E9ussi \u00E0", SpokenPhrases.VoiceTurnBlockedMenu.In(SpokenLanguages.French));
+        // "... je ne lirai pas la suite." after "Ce re<e-acute>sume<e-acute> est trop long".
+        Assert.Contains("r\u00E9sum\u00E9", SpokenPhrases.NarrationCutNotice.In(SpokenLanguages.French));
         // Spanish: "menu<u-acute>" and the inverted question mark family via "opcio<o-acute>n".
         Assert.Contains("men\u00FA", SpokenPhrases.VoiceTurnBlockedMenu.In(SpokenLanguages.Spanish));
         Assert.Contains("Opci\u00F3n", SpokenPhrases.MenuOption.In(SpokenLanguages.Spanish, 1, "x"));
@@ -371,73 +370,6 @@ public sealed class SpokenPhraseTests
         Assert.DoesNotContain(SpeechContract.PlainSpokenProseRule, prompt);
         Assert.Contains("Output ONLY this JSON", prompt);
     }
-
-    /// <summary>
-    /// The Assistant's help script speaks the account's language, and it QUOTES NO SETTING at all.
-    ///
-    /// It used to quote the configured end phrase, because Car Mode ended a hands-free turn on a spoken phrase.
-    /// Car Mode was removed from the product (#1028) and the Assistant has an explicit Send action with no
-    /// end-phrase watcher, so the help was teaching a command that ends nothing (Gateway audit, finding C6). The
-    /// absence is what is asserted: a script with no slot cannot go stale against a setting, and this one had
-    /// already done so once before, hardcoding "over and out" while the phrase was configurable.
-    /// </summary>
-    [Fact]
-    public void The_help_script_speaks_the_language_and_quotes_no_setting()
-    {
-        var french = CarModeHelp.SpokenScript(SpokenLanguages.French);
-
-        Assert.Contains("gestionnaire de flotte", french);
-        Assert.DoesNotContain("I'm your fleet manager", french);
-
-        // No end phrase, in any language - not the old default, and no leftover format slot for one.
-        foreach (var language in SpokenLanguages.All)
-        {
-            var script = CarModeHelp.SpokenScript(language);
-            Assert.DoesNotContain("over and out", script);
-            Assert.DoesNotContain("{0}", script);
-        }
-    }
-
-    /// <summary>
-    /// The spoken confirmation for an irreversible delete understands every language the product speaks,
-    /// with NO language passed in. It used to accept English words only, so an account asked in French to
-    /// confirm said "oui" and was not understood - nothing was deleted, which is the safe direction, but
-    /// the owner was left repeating himself to a machine.
-    /// </summary>
-    [Theory]
-    [InlineData("yes")]
-    [InlineData("confirm")]
-    [InlineData("oui")]
-    [InlineData("je confirme")]
-    [InlineData("si")]
-    [InlineData("s\u00ED")]            // the accented Spanish "yes" a transcriber may return
-    [InlineData("adelante")]
-    public void A_delete_is_confirmed_in_any_language_the_product_speaks(string spoken)
-        => Assert.True(CarModeConfirm.IsAffirmative(spoken), $"'{spoken}' should read as a confirmation.");
-
-    /// <summary>Negatives are understood in every language too, and they still WIN over an affirmative in
-    ///  the same breath - widening the lists can only ever make a delete less likely, never more.</summary>
-    [Theory]
-    [InlineData("no")]
-    [InlineData("cancel")]
-    [InlineData("non")]
-    [InlineData("annule")]
-    [InlineData("cancela")]
-    [InlineData("olv\u00EDdalo")]
-    public void A_delete_is_cancelled_in_any_language_the_product_speaks(string spoken)
-    {
-        Assert.True(CarModeConfirm.IsNegative(spoken), $"'{spoken}' should read as a cancellation.");
-        Assert.False(CarModeConfirm.IsAffirmative(spoken), $"'{spoken}' must never read as a confirmation.");
-    }
-
-    /// <summary>A mixed answer in any language still refuses. Negatives winning is the whole safety
-    ///  property of this gate, and widening the word lists must not have weakened it.</summary>
-    [Theory]
-    [InlineData("oui non attends")]
-    [InlineData("si pero cancela")]
-    [InlineData("yes wait no")]
-    public void A_mixed_answer_never_confirms_a_delete(string spoken)
-        => Assert.False(CarModeConfirm.IsAffirmative(spoken));
 
     // ----------------------------------------------------------------------------------------------
     // Helpers.

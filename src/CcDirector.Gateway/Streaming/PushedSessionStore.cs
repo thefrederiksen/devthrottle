@@ -382,6 +382,10 @@ public sealed class PushedSessionStore
         session.SessionRole = null;
         session.HasLiveSupervisor = false;
         session.OwnedByFleetManager = false;
+        // The pin and the offered change of owner (the Fleet Manager mission, step 8) are the roster fold's
+        // answers about the whole account; a Director never decides them.
+        session.Pin = null;
+        session.OwnerChange = null;
     }
 
     /// <summary>Apply a remove/tombstone: drop one session from the Director's set.</summary>

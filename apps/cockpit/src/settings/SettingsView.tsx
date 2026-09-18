@@ -17,7 +17,8 @@ import { InjectedTextTab } from "./InjectedTextTab";
 //                   notifications on this device
 //   Transcription - the transcription model, how your microphones are measuring, and the two on-demand
 //                   checks (Test microphone, Test transcription)
-//   Car Mode      - the phone's hands-free fleet control: model, end phrase, live phrase tester
+//   Fleet Manager - where the account's Fleet Manager runs (agent and computer), starting, restarting and
+//                   moving it, and the Wingman's turn verdict switches
 //
 // The AI tab is no longer offered - not in the strip, and not by ?tab= either. It named the hosting
 // models to customers, which the hosting layer itself refuses to do, and most of it was inert on the
@@ -37,6 +38,9 @@ import { InjectedTextTab } from "./InjectedTextTab";
 // A pure client of existing Gateway endpoints, same-origin (root-relative URLs, never a Director
 // address). Responsive (CodingStyle.md): each tab renders immediately with a loading line and loads
 // asynchronously; on a failure it shows an explicit error banner, never a fabricated value.
+
+// The Cockpit's route to one session (main.tsx: "session/:sessionId"), for the Fleet Manager tab's "Open it".
+const cockpitSessionHref = (sessionId: string) => `/session/${encodeURIComponent(sessionId)}`;
 
 export function SettingsView() {
   const [params] = useSearchParams();
@@ -65,7 +69,12 @@ export function SettingsView() {
       {tab === "injectedtext" ? (
         <InjectedTextTab />
       ) : (
-        <SettingsTabPanel tab={tab} accountHref="/account" transcriptionHealthHref="/transcription" />
+        <SettingsTabPanel
+          tab={tab}
+          accountHref="/account"
+          transcriptionHealthHref="/transcription"
+          sessionHref={cockpitSessionHref}
+        />
       )}
     </div>
   );

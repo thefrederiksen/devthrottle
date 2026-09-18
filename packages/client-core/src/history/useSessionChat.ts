@@ -26,6 +26,8 @@ export interface SessionChat {
    *  or too old to send new turns. Shown ABOVE the bubbles; null while the session is live. */
   staleNotice: string | null;
   loadFailed: boolean;
+  /** The Gateway's own words for the last failed read, or null while reads succeed. */
+  loadError: string | null;
   filter: HistoryBubbleFilter;
   /** Flip a "Show:" category; the choice is persisted and the cached history re-rendered immediately. */
   setFilter: (next: HistoryBubbleFilter) => void;
@@ -39,6 +41,7 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
   // cannot send new turns). Shown ABOVE the bubbles; null while the session is live.
   const [staleNotice, setStaleNotice] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const signatureRef = useRef("");
   const lastHistoryRef = useRef<SessionHistoryDto | null>(null);
@@ -72,11 +75,13 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
         const history = await getSessionHistory(sessionId, controller.signal);
         if (cancelled) return;
         setLoadFailed(false);
+        setLoadError(null);
         lastHistoryRef.current = history;
         renderHistory(history, false);
-      } catch {
+      } catch (err) {
         if (cancelled || controller.signal.aborted) return;
         setLoadFailed(true);
+        setLoadError(err instanceof Error ? err.message : String(err));
       }
     };
 
@@ -101,5 +106,5 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
     [renderHistory],
   );
 
-  return { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter };
+  return { bubbles, emptyText, staleNotice, loadFailed, loadError, filter, setFilter };
 }

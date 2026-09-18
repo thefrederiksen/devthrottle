@@ -55,12 +55,12 @@ function fakeGateway(judge?: boolean, colour?: boolean) {
           headers: { "Content-Type": "application/json" },
         });
       }
-      // The Assistant tab's model card shares the tab; answer its snapshot so the tab test can mount.
-      if (url === "/gateway/ai-provider") {
-        return new Response(
-          JSON.stringify({ provider: "devthrottle", carModeModel: "m", catalogAvailable: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+      // The Fleet Manager tab's placement card shares the tab; a refusal is enough for it to render its error.
+      if (url === "/gateway/fleet-manager/placement") {
+        return new Response(JSON.stringify({ error: "not under test" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       throw new Error(`unexpected request: ${method} ${url}`);
     }),
@@ -170,11 +170,11 @@ describe("the Turn verdicts card", () => {
 
   // The standing rule is that Settings is one page on two surfaces. The card lives in the shared tab, so
   // this asserts it through the same panel BOTH shells mount - the phone cannot end up without it.
-  it("is on the Assistant tab that both shells mount", async () => {
+  it("is on the Fleet Manager tab that both shells mount", async () => {
     fakeGateway(false, false);
     render(
       <MemoryRouter>
-        <SettingsTabPanel tab="assistant" />
+        <SettingsTabPanel tab="fleetmanager" />
       </MemoryRouter>,
     );
 

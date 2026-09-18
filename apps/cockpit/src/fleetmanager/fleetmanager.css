@@ -1,0 +1,642 @@
+/* The Fleet Manager page (the Fleet Manager mission, step 6). Drawn from the design's mockups
+   (1-morning, 2-give-work) in the Cockpit's own tokens; every colour is a token from styles.css.
+   Classes are prefixed fmp- because the shared Settings tab already owns fm-. */
+
+.fmp-screen {
+  /* Full-bleed, like the Sessions screen: cancel the main pane's padding and add its height back. */
+  margin: -24px -28px;
+  height: calc(100% + 48px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+}
+
+.fmp-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.fmp-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+.fmp-sub {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  margin-top: 3px;
+}
+.fmp-change {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+.fmp-change:hover {
+  text-decoration: underline;
+}
+.fmp-line-ok { color: var(--accent); }
+.fmp-line-idle { color: var(--text-dim); }
+.fmp-line-bad { color: var(--attention); }
+.fmp-head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.fmp-inline-error {
+  color: var(--attention);
+  font-size: 12.5px;
+}
+
+/* The not-running bar, and a failed quick prompt. */
+.fmp-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.fmp-bar-bad { background: var(--needsyou-bg); color: var(--needsyou-text); }
+.fmp-bar-text { flex: 1 1 420px; line-height: 1.45; }
+.fmp-bar-actions { display: flex; gap: 8px; align-items: center; }
+.fmp-bar-actions .ui-btn { text-decoration: none; }
+.fmp-bar-note { flex: 1 0 100%; font-size: 12px; color: var(--text-dim); }
+
+.fmp-body {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* ---- the conversation ---- */
+.fmp-convo {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.fmp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 28px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.fmp-empty,
+.fmp-loading,
+.fmp-notice {
+  align-self: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+  max-width: 60ch;
+}
+.fmp-region-error {
+  color: var(--attention);
+  font-size: 13px;
+  border: 1px solid var(--attention);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.fmp-me {
+  align-self: flex-end;
+  max-width: 70%;
+  background: var(--owner-bubble-bg);
+  border: 1px solid var(--owner-bubble-border);
+  border-radius: 12px 12px 3px 12px;
+  padding: 9px 13px;
+}
+.fmp-fm {
+  align-self: flex-start;
+  max-width: 82%;
+  display: flex;
+  gap: 10px;
+}
+.fmp-av {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--owner-bubble-border);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent-text);
+}
+.fmp-fmb {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.fmp-who {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.fmp-thinking {
+  align-self: flex-start;
+  margin-left: 38px;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+
+/* ---- the three cards ---- */
+.fmp-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fmp-card-kind {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.fmp-card-ready { border-left: 3px solid var(--ok); }
+.fmp-card-ready .fmp-card-kind { color: var(--ok-text); }
+.fmp-card-finding { border-left: 3px solid var(--accent); }
+.fmp-card-finding .fmp-card-kind { color: var(--accent-text); }
+.fmp-card-decision { border-left: 3px solid var(--attention); background: var(--decision-bg); }
+.fmp-card-decision .fmp-card-kind { color: var(--danger-text); }
+.fmp-card-title {
+  font-weight: 650;
+  font-size: 14.5px;
+}
+.fmp-card-text {
+  line-height: 1.5;
+  font-size: 14px;
+}
+.fmp-card-answer { font-weight: 600; }
+.fmp-card-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.fmp-card-facts b {
+  color: var(--text);
+  font-weight: 600;
+}
+.fmp-risk {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+}
+.fmp-risk-low { color: var(--ok-text); border-color: var(--ok); }
+.fmp-risk-medium { color: var(--warn); border-color: var(--warn); }
+.fmp-risk-high { color: var(--danger-text); border-color: var(--attention); }
+.fmp-opt {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.fmp-opt-rec {
+  border-color: var(--owner-bubble-border);
+  box-shadow: inset 0 0 0 1px var(--owner-bubble-border);
+}
+.fmp-opt-rec-label {
+  font-size: 10.5px;
+  color: var(--accent-text);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 6px;
+}
+.fmp-card-why {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+  line-height: 1.45;
+}
+.fmp-card-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.fmp-card-link {
+  text-decoration: none;
+}
+.fmp-card-answered {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.fmp-card-answered-label {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.fmp-card-delivery {
+  flex: 1 0 100%;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.fmp-card-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fmp-card-ask-input {
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.fmp-card-ask-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.fmp-card-error {
+  color: var(--attention);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* ---- the composer ---- */
+.fmp-composer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+}
+.fmp-composer .composer {
+  border-top: none;
+  background: transparent;
+  padding: 10px 24px 4px;
+}
+.fmp-composer-off {
+  padding: 14px 24px 4px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.fmp-hint {
+  padding: 0 24px 12px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+/* ---- the right panel ---- */
+.fmp-side {
+  background: var(--panel-deep);
+  overflow-y: auto;
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.fmp-sec-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fmp-sec-title-attention { color: var(--attention); }
+.fmp-sec-count { font-weight: 400; }
+.fmp-sec-empty,
+.fmp-sec-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 2px 8px;
+  line-height: 1.45;
+}
+.fmp-item {
+  display: flex;
+  gap: 9px;
+  padding: 8px;
+  border-radius: 8px;
+  align-items: flex-start;
+  color: var(--text);
+  text-decoration: none;
+}
+a.fmp-item:hover { background: var(--surface-2); }
+.fmp-item + .fmp-item { margin-top: 2px; }
+.fmp-item-attention { background: var(--needsyou-bg); }
+.fmp-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex: 0 0 auto;
+}
+.fmp-dot-red { background: var(--attention); }
+.fmp-dot-blue { background: var(--accent); }
+.fmp-dot-green { background: var(--ok); }
+.fmp-dot-grey { background: var(--dot-idle); }
+.fmp-item-text { min-width: 0; }
+.fmp-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.fmp-item-meta,
+.fmp-item-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.fmp-item-label { color: var(--needsyou-text); }
+.fmp-item-age {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--attention);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fmp-item-age-dim {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.fmp-notmine {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.fmp-notmine b { color: var(--text); }
+
+/* "Take me through them" (the Fleet Manager mission, step 7). Drawn from the design's 3-walkthrough mockup in the
+   Cockpit's own tokens. */
+
+.fmp-walkthrough {
+  display: block;
+  text-align: center;
+  margin: 2px 0 10px;
+  text-decoration: none;
+}
+
+.fmw-body {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.fmw-steps {
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  background: var(--panel-deep);
+  overflow-y: auto;
+}
+.fmw-steps-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+.fmw-step {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  margin-bottom: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  align-items: flex-start;
+}
+.fmw-step:hover:not(:disabled) { background: var(--surface-2); }
+.fmw-step:disabled { cursor: default; }
+.fmw-step-no {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+.fmw-step-done .fmw-step-no {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+  color: var(--ok-text);
+}
+.fmw-step-current {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.fmw-step-current .fmw-step-no {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.fmw-step-text { display: flex; flex-direction: column; min-width: 0; }
+.fmw-step-name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+.fmw-step-meta { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+.fmw-notinround {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.fmw-focus {
+  padding: 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.fmw-item { display: flex; flex-direction: column; gap: 14px; }
+.fmw-flash {
+  font-size: 12.5px;
+  color: var(--ok-text);
+}
+.fmw-head { display: flex; align-items: flex-start; gap: 12px; }
+.fmw-count {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+.fmw-head-text { min-width: 0; }
+.fmw-title { font-size: 19px; font-weight: 700; }
+.fmw-session { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.fmw-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.fmw-wait {
+  margin-left: auto;
+  color: var(--attention);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.fmw-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.fmw-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.fmw-panel h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+.fmw-needs {
+  background: var(--needsyou-bg);
+  border-color: color-mix(in srgb, var(--attention) 30%, var(--border));
+  color: var(--needsyou-text);
+}
+.fmw-needs h4 { color: var(--danger-text); }
+.fmw-fmsays { border-left: 3px solid var(--accent); }
+.fmw-fmsays h4 { color: var(--accent-text); }
+.fmw-label { font-size: 15.5px; line-height: 1.5; font-weight: 600; }
+.fmw-summary, .fmw-evidence, .fmw-recommends, .fmw-advice, .fmw-note, .fmw-risk {
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+.fmw-advice { font-size: 15.5px; }
+.fmw-note { color: var(--text-dim); font-size: 13px; }
+.fmw-needs .fmw-note { color: var(--needsyou-text); }
+.fmw-risk { color: var(--warn); font-weight: 600; font-size: 13px; }
+.fmw-screen {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 260px;
+  overflow: auto;
+}
+.fmw-screen-off { color: var(--text-dim); }
+.fmw-answer { display: flex; flex-direction: column; gap: 8px; }
+.fmw-question { font-weight: 600; }
+.fmw-options { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.fmw-option { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.fmw-session-pick { box-shadow: inset 0 0 0 1.5px var(--accent-text); }
+.fmw-mark { font-weight: 400; opacity: 0.85; }
+.fmw-option-note { font-size: 12px; color: var(--text-dim); }
+.fmw-busy { font-size: 12.5px; color: var(--text-dim); }
+.fmw-refusal {
+  background: var(--needsyou-bg);
+  color: var(--needsyou-text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.fmw-card .fmp-card { max-width: none; }
+.fmw-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fmw-actions .ui-btn,
+.fmp-head-actions a.ui-btn { text-decoration: none; }
+.fmw-why-not { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.fmw-end {
+  max-width: 560px;
+  margin-top: 40px;
+}
+.fmw-end-title { margin: 0 0 8px; font-size: 20px; }
+.fmw-end-text { margin: 0 0 16px; color: var(--text-dim); line-height: 1.5; }
+
+/* Hand over (step 8): the toggle under the count, and the list it opens. */
+.fmp-notmine-toggle {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent-text);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.fmp-notmine-toggle:hover { text-decoration: underline; }
+.fmp-ho {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fmp-ho-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.fmp-ho-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.fmp-ho-row .fmp-item-text { flex: 1 1 auto; }
+.fmp-ho-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  word-break: break-word;
+}
+.fmp-ho-title:hover { text-decoration: underline; }
+.fmp-ho-btn {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.fmp-ho-btn:disabled { opacity: 0.5; cursor: default; }
+.fmp-ho-done { margin-top: 4px; font-size: 12px; color: var(--ok-text); }
+.fmp-ho-error { margin-top: 4px; font-size: 12px; color: var(--attention); }

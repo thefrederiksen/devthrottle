@@ -64,8 +64,10 @@ public sealed class DirectorHub : Hub
         Pairing.SessionKeyRegistry? sessionKeys = null,
         History.SessionTurnStore? sessionTurns = null,
         TurnPushCapabilityRegistry? turnPushCapabilities = null,
-        Briefing.TurnEndWatcher? turnEnds = null)
+        Briefing.TurnEndWatcher? turnEnds = null,
+        FleetManagerHomeCapabilityRegistry? fleetManagerHomeCapabilities = null)
     {
+        _fleetManagerHomeCapabilities = fleetManagerHomeCapabilities;
         _turnEnds = turnEnds;
         _turnPushCapabilities = turnPushCapabilities;
         _sessionTurns = sessionTurns;
@@ -106,6 +108,7 @@ public sealed class DirectorHub : Hub
     private readonly History.SessionTurnStore? _sessionTurns;
     /// <summary>Which connected Directors send their conversations - learned here, from Hello.</summary>
     private readonly TurnPushCapabilityRegistry? _turnPushCapabilities;
+    private readonly FleetManagerHomeCapabilityRegistry? _fleetManagerHomeCapabilities;
 
     /// <summary>
     /// A full repository/worktree snapshot from the bound Director (repositories mission, #510
@@ -225,6 +228,7 @@ public sealed class DirectorHub : Hub
         // What this build can do, kept against the CONNECTION: the same machine can come back on an older
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.
         _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns, hello.ChecksIdleBeforeTyping);
+        _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome, hello.ChangesOwnerIfExpected);
         FileLog.Write($"[DirectorHub] Hello: director={directorId} bound to conn={Short(Context.ConnectionId)} (version={hello.Version}, machine={hello.MachineName})");
         return CapabilitiesFor(tenant, directorId);
     }

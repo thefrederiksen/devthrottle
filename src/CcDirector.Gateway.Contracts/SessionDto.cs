@@ -826,6 +826,26 @@ public sealed class SessionDto
     public bool OwnedByFleetManager { get; set; }
 
     /// <summary>
+    /// GATEWAY-OWNED: this row is PINNED FIRST in the session list, with the words it wears (the Fleet Manager
+    /// mission, step 8). Stamped by the roster fold on the account's live Fleet Manager
+    /// (<c>FleetManagerSessions.IsFleetManager</c>) and null on every other row. A client puts pinned rows above
+    /// everything else, in <see cref="SessionPinDto.Rank"/> order, and renders the words as sent; the rows that are
+    /// not pinned keep their order unchanged. ASSIGNED on every fold, so a Director's echo is never the answer, and
+    /// only ever replaced wholesale, so <see cref="Clone"/> may share it.
+    /// </summary>
+    public SessionPinDto? Pin { get; set; }
+
+    /// <summary>
+    /// GATEWAY-OWNED: the one change of owner the owner may make to this session now, with its words (the Fleet
+    /// Manager mission, step 8) - "hand it to the Fleet Manager" on a session that asks the owner directly while the
+    /// account has a live Fleet Manager, "hand it back to me" on a session the Fleet Manager owns, and null on every
+    /// other row. A client offers exactly this action and nothing it works out for itself; the route
+    /// (<c>POST /gateway/fleet-manager/hand-over</c>) checks the same rule again. Assigned on every fold and only
+    /// ever replaced wholesale, like <see cref="Pin"/>.
+    /// </summary>
+    public SessionOwnerChangeDto? OwnerChange { get; set; }
+
+    /// <summary>
     /// A supervised session has its hand up: it is still WORKING and has hit something it cannot decide
     /// inside its mandate (issue #2662). Gateway-owned and Gateway-stamped, from the hand-raise registry.
     ///

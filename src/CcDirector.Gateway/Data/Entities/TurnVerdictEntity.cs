@@ -78,6 +78,13 @@ public sealed class TurnVerdictEntity : TenantScopedEntity
     /// behind an accepted one finds the verdict answered and sends nothing: one verdict, one activation, whatever
     /// the screen does after the first write.</summary>
     public DateTime? AnsweredAtUtc { get; set; }
+
+    /// <summary>What that answer was, serialized (<c>TurnVerdictStoredAnswer</c>): the verdict it answered (its id and
+    /// the moment its turn ended), the option positions the answer route wrote, and the words those options are. Set
+    /// with <see cref="AnsweredAtUtc"/>, in the same save, by the answer route and nothing else, so a record of the
+    /// owner's answer (the Fleet Manager walkthrough) is taken from what the session was actually sent and never from
+    /// a client's claim. Null until answered.</summary>
+    public string? AnswerJson { get; set; }
 }
 
 /// <summary>

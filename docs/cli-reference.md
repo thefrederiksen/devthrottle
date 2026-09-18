@@ -667,6 +667,8 @@ COMMANDS:
   session report   Tell the session that owns you what you did, at the end of your turn
                    (sends nothing when a Fleet Manager owns you: the Gateway tells it).
   session raise    Put your hand up to the session driving you when you are blocked.
+  session hand-over  Hand a running session to the Fleet Manager, or back to the owner
+                   (the owner's, or the Fleet Manager's when the owner asks it).
   director list    List every Director this account runs, with the id --director accepts.
   worktree list    List the fleet's worktrees; --pool lists this machine's cc-worktrees pool.
   worktree get     Take a pooled worktree to work in (runs cc-worktrees).
@@ -674,7 +676,7 @@ COMMANDS:
   mission list     List the missions on the Gateway, active ones by default.
   fleet digest     Everything the Fleet Manager reads at the start of a conversation.
   fleet ready      File a Ready record (also: fleet finding, fleet decision).
-  fleet outcomes   List the account's outcome records (also: fleet show, fleet answer).
+  fleet outcomes   List the account's outcome records (also: fleet show, fleet answer, fleet advise).
   fleet prefer     Keep a standing preference (also: fleet preferences, fleet forget).
   fleet events     List the stops and deaths of sessions the Fleet Manager owns (also: fleet ack).
   message send     Queue a message for your supervisor or a worker ('all' for every worker).
@@ -973,6 +975,57 @@ session owns is not treated as one while that ownership stands.
 `fleet-manager: none`. `--json` prints `{"sessionId": "<id>"}`, or `{"sessionId": null}` when there is
 no mark.
 
+### Session Hand-Over
+
+```
+USAGE: cc-devthrottle session hand-over SESSION --to fleet-manager|owner [--json]
+
+ARGUMENTS:
+  SESSION  The session: its number, an id prefix, a full id, or its exact name [required]
+
+OPTIONS:
+  --to     Who owns it afterwards: fleet-manager, or owner (no owning session) [required]
+  --json   Print the Gateway's answer unchanged
+```
+
+Changes who owns a session that is already running (the Fleet Manager mission, step 8). Handed to the
+Fleet Manager, the session stops going red for the owner, and its stops and its death go to the Fleet
+Manager as events; handed back, they stop going there and it asks the owner directly again. The owner is
+changed where it lives - on the session's Director, through its `set-controller` command - and the
+change is recorded in the governance audit trail (event type `handed-over`, with the owner's device, or
+the Fleet Manager's session, as the actor).
+
+**Who may make the change.** The owner, from their own signed-in phone or browser - in the Cockpit, the
+"Hand sessions to the Fleet Manager..." list on the Fleet Manager page and the session menu's "Hand to the
+Fleet Manager" and "Hand back to me". And the account's Fleet Manager, with its own session key, when the
+owner has asked it to: it may take a session that asks the owner directly (`--to fleet-manager`) and hand
+a session it owns back (`--to owner`). Every other session key is refused with code `not_fleet_manager`
+and the reason, so run from any other session this command prints the Gateway's refusal and exits 1.
+
+Every refusal is the Gateway's sentence: a session this account is not running now (another account's
+session answers the same), the Fleet Manager itself, handing to a Fleet Manager the account has not
+marked or that is not running, a session another RUNNING session owns (it is never taken from it), a
+session already where it is being sent, a session that has ended, and a session whose Director is too
+old to change an owner (update DevThrottle on that computer). A session whose owner has ended asks the
+owner directly and may be handed over.
+
+The change is compare-and-set: the Director changes the owner only if it is still the owner the Gateway
+checked, so a session another session acquired meanwhile is refused with a 409 (its owner changed while
+the hand over was on its way), and of two hand overs sent at once exactly one is made. A change the
+Director cannot write to disk is not made, and is answered 502.
+
+The plain output is the Gateway's sentence, `session: <id>` and `owner: <id>` (or `owner: you`), then
+`help[2]:`. The change is reported from the Gateway's answer, never from the request: an answer that does
+not name the session, or names an owner that does not match `--to`, exits 1 saying whether it changed is
+unknown. An unknown or missing `--to` exits 2 and sends nothing.
+
+Gateway route: `POST /gateway/fleet-manager/hand-over` with `{ "session": "<full id>", "to":
+"fleet-manager" | "owner" }`, answering `{ sessionId, to, ownerSessionId, previousOwnerSessionId,
+sentence, session }`; a refusal is `{ error }` with 400, 403, 404, 409 or 502 (a 403 from the
+owner-only rule also carries `code: "owner_only"`, the same answer the walkthrough routes give). The session list's rows
+carry `pin` (the pinned Fleet Manager and its words) and `ownerChange` (the one change of owner offered
+on that row), both decided by the Gateway.
+
 ### Message Send
 
 ```
@@ -1182,15 +1235,19 @@ or the start of one.
 USAGE: cc-devthrottle fleet digest [--session <id>] [--json]
 USAGE: cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high
          --checks passed|failed|none --tested "<how>" --reviewed-by "<who>"
-         --change "<one sentence for a user>" [--session <id>] [--json]
+         --change "<one sentence for a user>" [--session <id> [--verdict <verdictId>]]
+         [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"]
-         [--link <url> ...] [--session <id>] [--json]
+         [--link <url> ...] [--session <id> [--verdict <verdictId>]]
+         [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>"
-         [--recommend "<a>"] [--why "<why>"] [--session <id>] [--json]
+         [--recommend "<a>"] [--why "<why>"] [--session <id> [--verdict <verdictId>]]
+         [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet outcomes [--status open|answered|all] [--kind ready|finding|decision]
          [--count/-n 1-200] [--cursor <nextCursor>] [--all] [--json]
 USAGE: cc-devthrottle fleet show ID [--json]
 USAGE: cc-devthrottle fleet answer ID "<the owner's words, exactly>" [--json]
+USAGE: cc-devthrottle fleet advise ID "<one line of advice>" [--pick "<option key>"] [--json]
 USAGE: cc-devthrottle fleet prefer "<preference, verbatim>" [--json]
 USAGE: cc-devthrottle fleet preferences [--json]
 USAGE: cc-devthrottle fleet forget ID [--json]
@@ -1211,8 +1268,8 @@ the account marked before it that still controls at least one live session, EVER
 rather than print a list that disagrees with the Gateway's count), the sessions owned by the current
 Fleet Manager or by any earlier one (each with its state - `needs-you`, `working` or `stopped` - its
 owning session, and the Wingman's latest reading), and the standing preferences. A session an
-earlier Fleet Manager started is shown with that owner; handing it over to the new Fleet Manager is a
-later step. The Gateway remembers the 20 sessions the account marked most recently; an earlier one is
+earlier Fleet Manager started is shown with that owner; once that earlier one has ended, the owner can
+hand it to the new Fleet Manager (`session hand-over`). The Gateway remembers the 20 sessions the account marked most recently; an earlier one is
 forgotten, and its sessions are no longer listed.
 
 `fleet outcomes` lists the open records by default, newest first, one page at a time. When the
@@ -1229,12 +1286,43 @@ the Fleet Manager, or two Gateway instances - exactly one answer is kept, and th
 (409, `already_answered`). The record keeps who answered (`answeredByRole`: `owner` or
 `fleet-manager`). A decision's answer need not be one of its options; the record says whether it was.
 
+`--advice` (on `fleet ready`, `fleet finding` and `fleet decision`) and `fleet advise` store the Fleet
+Manager's ONE line of advice on a record, shown to the owner in the walkthrough. Only the marked Fleet
+Manager may write it; the owner's own device is refused. The Gateway refuses a line break, and more than
+300 characters, with a sentence saying why. `--pick` names the Wingman option the Fleet Manager would
+choose, by its key; it goes with `--advice` and must be one of the options of the session's current
+Wingman reading (the refusal lists them). `fleet advise` replaces the advice and pick on an open record;
+leaving `--pick` out clears the pick; an answered record is refused (409, `already_answered`). Filing
+without `--advice` sends exactly the body it always sent. `fleet show` prints `advice`, `pick` and, when
+set, `ownerNote`. The records' `--json` shape keeps every field it had and adds `advice`,
+`fleetManagerPick`, `adviceSetAtUtc`, `ownerNote` and `ownerNoteAtUtc`.
+
+`--verdict` (on `fleet ready`, `fleet finding` and `fleet decision`) names the stop the record is about:
+the `verdictId` of the stop event it is filed from, which `fleet events` lists and the events prompt
+prints. It goes with `--session` (exit 2 otherwise). The Gateway stores it with that verdict's turn end;
+it refuses a verdict this account does not hold (404, `verdict_not_found`) and one about another session
+(409, `verdict_other_session`). The walkthrough offers a session's own answer buttons for a record only
+when the record names the session's current stop, and closes the record with an answer sent to the
+session only for that stop: an answer to a later stop of the same session never closes it. A record
+filed without `--verdict` is answered through its own card, with the ordinary record answer. `fleet
+show` prints `verdict`; the records' `--json` adds `verdictId` and `verdictTurnEndObservedAtUtc`.
+
+`fleet digest` also prints `answered: <n> in the last 24 hours` and an `answered` table (id, kind, who
+answered, the words, title) - how the Fleet Manager learns what the owner decided in the walkthrough,
+where nothing is typed to it (JSON: `recentlyAnswered`, `answeredWithinHours`). Its open-records table
+carries each record's `advice` and `ownerNote` (a snooze from the walkthrough).
+
 `fleet events` lists the events about sessions a Fleet Manager owns - a `stop` (with the Wingman's
-reading of it, or why there is none) or a `died` (exited or crashed). By default only the
+reading of it, or why there is none) or a `died` (exited or crashed) - and two more the Gateway sends
+the same way: `answered` (the owner pressed a card's button; the verdict column says `owner answered`,
+the label is the owner's words exactly, and the name is the record's title) and `marked` (the mark
+moved to that session after a restart or a move; it is delivered only to the session it names). The
+count line always counts `stop` and `died`, and adds `answered` and `marked` when any are listed. By default only the
 unacknowledged ones, oldest first; `--all` includes acknowledged ones, newest first. One page at a
 time, exactly as `fleet outcomes` pages: past the page the count line says `count: <shown> of
 <total>`, the next line is `nextCursor: <cursor>`, and the help names `--cursor <cursor>` for the next
-page; `--every-page` follows every page. A cursor is issued for one of the two lists and is refused
+page; `--every-page` follows every page. Each row carries the stop's `verdictId` (empty when the event has
+no verdict), which `--verdict` takes when a record is filed about that stop. A cursor is issued for one of the two lists and is refused
 (400) for the other. A stop still waiting for the Wingman's reading is listed with verdict `waiting`
 and the Gateway's sentence saying so; it is not delivered and cannot be acknowledged until its reading
 is stored - or, after 5 minutes without one, until it is given the reason there is none and delivered
@@ -1280,7 +1368,10 @@ Fleet Manager. Whether the owner is a Fleet Manager is the roster row's `ownedBy
 the Gateway works out.
 
 Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
-`/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
+`/outcomes/{id}/answer` (POST, 409 when already answered; when the owner answers, the same save queues an
+`answered` event to the Fleet Manager), `/outcomes/{id}/advice` (PUT
+`{ advice, pick }`, the Fleet Manager's session key only; 400 for a second line, more than 300
+characters, or a pick that is not a current option; 409 when answered), `/preferences` (GET, POST),
 `/preferences/{id}` (DELETE), `/digest?session=<id>` (GET),
 `/events?status=unacknowledged|all&count=&cursor=` (GET, answering `count`, `total`, `hasMore`,
 `nextCursor` and `events`), `/events/ack` (POST `{ ids: [...] }` or
@@ -1290,6 +1381,51 @@ Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` 
 `hasMore`, `nextCursor` (null on the last page) and `outcomes`. A cursor the Gateway did not issue is
 refused with 400. A refused caller gets 403 with
 `code: not_fleet_manager`.
+
+Where the Fleet Manager runs is set in Settings, on the Fleet Manager tab, not from the command line.
+Those routes are the owner's and refuse a session key: `/gateway/fleet-manager/placement` (GET, and PUT
+`{ agent, machine }`), `/start`, `/restart` and `/move` (POST; move takes `{ agent, machine }`). A
+start runs on the saved computer only, and the launcher starts a Director there when none is running.
+A restart or move starts the new Fleet Manager and records it as waiting to take over (the answer's
+`status.successorSessionId`); it is not marked yet. The old one stays marked until its Director reports it
+Idle and the ordinary close has gone through - never while it is working or waiting for the owner, and
+`status.replacement` says what it waits for. Then the mark moves and the new one is sent one `marked`
+event. A move saves the new place only once the new Fleet Manager has started. While a replacement is
+under way, save, start, restart and move are refused (409) with the Gateway's sentence. The placement
+answer's `status.page` carries what the Fleet Manager page may show and use in that state.
+
+The Cockpit's Fleet Manager page (`/fleet-manager`, where the Cockpit opens) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is refused and reads the
+digest instead): the cards drawn from the records, the right panel (waiting on you, under way, answered
+today, and the sessions that still ask the owner directly - their count, and the list of them with a
+hand-over button each) and the rail's badge count. A card button is one call - the answer
+route - and the Gateway passes the words to the Fleet Manager as an `answered` event; the answered card
+says how far they have got (`answerDelivery`). Every open record is a card; only the answered history is
+limited (the newest 100). Hand over is `POST /gateway/fleet-manager/hand-over` (see
+Session Hand-Over).
+
+The Fleet Manager replaced the Assistant, which is gone from the Cockpit, the phone and Settings. Its
+old Cockpit address `/assistant` redirects to `/fleet-manager`, and the phone's `/assistant` lands on
+the session list. The Gateway routes that served only the Assistant were removed with it:
+`/assistant/turn`, `/brain/warmup`, `/gateway/ai/car-mode-model` and `/gateway/ai/car-mode-end-phrase`.
+`/gateway/ai-provider` no longer carries `carModeModel` or `carModeEndPhrase`, and the stored values of
+those two settings are deleted when the Gateway next migrates its database.
+
+"Take me through them" (`/fleet-manager/walkthrough` in the Cockpit, opened from the Waiting on you
+panel) reads `/gateway/fleet-manager/walkthrough?round=<id>,<id>` (GET): one round of the waiting
+records, in the page's order, each with the Wingman's reading of its session (or the sentence saying
+why there is none), the Fleet Manager's advice, both picks marked, and whether snooze and close are
+offered. The client sends the round's ids back so answered items stay in the list as done. Three owner
+routes record what happened, each only AFTER the session took it: `/walkthrough/{id}/answered` (POST
+`{ verdictId, optionIndexes? }`; recorded only when the Wingman's answer route marked that verdict
+answered, with the words of the options that route stored as sent - `optionIndexes`, when given, is
+only compared with them, and a difference is 409 `answer_mismatch`; refused with 409 `later_stop` when
+the session has stopped again since, and `answered_before_record` when the answer came before the record
+was filed), `/walkthrough/{id}/snoozed` (POST; writes the record's
+`ownerNote` only when the session is snoozed; the record stays open) and `/walkthrough/{id}/close`
+(POST; decides again whether the session may be closed - never with uncommitted, unpushed or unmerged
+work, and never when the Gateway cannot tell (409 `close_refused` with the sentence) - then runs the one
+stop handler and records the answer `Close the session.` only when a session was stopped). All four
+are the owner's: a session key and a Director's key are refused.
 
 ### Skill Commands
 

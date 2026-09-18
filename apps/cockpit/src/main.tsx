@@ -9,7 +9,7 @@ import { installGlobalErrorReporting } from "@devthrottle/client-core/errors/rep
 import { registerCockpitServiceWorker } from "./push/registerSw";
 import "./styles.css";
 import "./components/components.css";
-import "./assistant/assistant.css";
+import "./fleetmanager/fleetmanager.css";
 import "./fleet/fleet.css";
 import "./fleet/fleetmap.css";
 import "./history/history.css";

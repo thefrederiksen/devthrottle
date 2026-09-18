@@ -1,4 +1,3 @@
-using CcDirector.Gateway.CarMode;
 using CcDirector.Gateway.Wingman;
 
 namespace CcDirector.Gateway.Speech;
@@ -36,8 +35,8 @@ public static class SpokenPaths
     public sealed record SpokenPath(string Name, string Builder, Func<SpokenLanguage, string> Render);
 
     /// <summary>
-    /// The four model-driven spoken paths, plus the cockpit Assistant surface of the fourth (same brain,
-    /// a different prompt, and therefore a separate chance to lose the language).
+    /// The model-driven spoken paths. The fleet brain behind the Assistant was one of them until the Assistant
+    /// was removed from the product (the Fleet Manager mission, step 9).
     /// </summary>
     public static readonly IReadOnlyList<SpokenPath> All = new[]
     {
@@ -73,14 +72,6 @@ public static class SpokenPaths
             "in-product help (WingmanTranslator.AskAboutDevThrottleAsync)",
             "WingmanTranslator.BuildDevThrottlePrompt",
             language => WingmanTranslator.BuildDevThrottlePrompt(language, "what is DevThrottle?")),
-
-        // The fleet brain, one surface: the Assistant. There were two registrations here, one per surface,
-        // until Car Mode was removed from the product (#1028) - the brain's prompt no longer branches, so
-        // there is one path to register.
-        new SpokenPath(
-            "the Assistant (CarModeBrain.RunTurnAsync)",
-            "CarModeBrain.BuildSystemPrompt",
-            CarModeBrain.BuildSystemPrompt),
     };
 
     /// <summary>

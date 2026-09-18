@@ -432,6 +432,9 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Activity.ActivityEventStore _activityEvents;
     private readonly Reports.RepoStateStore _repoState;
 
+    /// <summary>The stop handler, set when the session routes are mapped, for the Fleet Manager walkthrough's close.</summary>
+    private readonly SessionStopDoor _sessionStopDoor = new();
+
     /// <summary>Whether the skills this Gateway serves can actually be READ on the machines it serves
     /// them to - reported by each Director, because only the machine can observe it.</summary>
     private readonly Skills.SkillPlacementStore _skillPlacement;
@@ -780,6 +783,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
     private readonly Streaming.TurnPushCapabilityRegistry _turnPushCapabilities = new();
+    private readonly Streaming.FleetManagerHomeCapabilityRegistry _fleetManagerHomeCapabilities = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
     private History.SessionHistorySweep? _sessionHistorySweep;
     private System.Threading.Timer? _sessionHistoryTimer;
@@ -893,20 +897,6 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Issue #2576: how long each session has been waiting for its voice. A SECOND clock beside
     /// the needs-you one because they time different episodes - see VoiceWaitingClock.</summary>
     private readonly Wingman.VoiceWaitingClock _voiceWaitingClock = new();
-    // Car Mode (Car Mode mission): the server-side, per-device conversation context behind the fleet
-    // tool-calling brain (POST /carmode/turn), so multi-turn references ("the latest one") resolve.
-    // In-memory by design; one instance for the whole Gateway.
-    private readonly CarMode.CarModeConversationStore _carModeConversations = new();
-    // Car Mode (decision 3): the per-device store of a destructive action armed and awaiting the owner's
-    // spoken confirmation, so a delete never runs without a clear spoken "confirm".
-    private readonly CarMode.CarModePendingStore _carModePending = new();
-    // Car Mode (Voice-screen-actions phase, design B): the per-device "current subject" - the session the
-    // owner is talking about - so "it" / "answer it" / "snooze it" resolve after a focus or a read.
-    private readonly CarMode.CarModeSubjectStore _carModeSubjects = new();
-    // Car Mode offline resilience Phase 4b (issue #1427): idempotency + single-flight cache for
-    // POST /carmode/turn keyed by the client's turn id, so an already-sent turn whose result was lost in a
-    // dead zone auto-retries and ACTS at most once. In-memory, one instance for the whole Gateway.
-    private readonly CarMode.CarModeTurnCache _carModeTurnCache = new();
     // Gateway-owned set of sessions whose dictated utterance is being transcribed in the background
     // (the phone released the Speak dialog and the audio is uploading/transcribing). Stamps the
     // orange "Transcribing..." roster color so nobody else grabs the session mid-dictation.
@@ -975,6 +965,15 @@ public sealed class GatewayHost : IAsyncDisposable
     private Fleet.FleetManagerEventService? _fleetManagerEvents;
     private Fleet.FleetManagerEventSweep? _fleetManagerEventSweep;
     private Timer? _fleetManagerEventTimer;
+    private Fleet.FleetManagerPlacementService? _fleetManagerPlacement;
+
+    /// <summary>Where the Fleet Manager runs, and the owner's mark: created with the Fleet Manager routes.</summary>
+    internal Fleet.FleetManagerPlacementService FleetManagerPlacement
+        => _fleetManagerPlacement ?? throw new InvalidOperationException("The Fleet Manager placement service is not created yet.");
+
+    // One per Gateway: typing an event into the Fleet Manager and replacing it never overlap for an account.
+    private readonly Fleet.FleetManagerDeliveryGate _fleetManagerDeliveryGate = new();
+    private Timer? _fleetManagerReplacementTimer;
     // Voice mode is a standing intent, not a one-time action: a tenant that is in voice mode wants EVERY one
     // of its sessions narrating, including the ones that do not exist yet. This timer is how that intent
     // reaches them - it walks each tenant that has voice mode on and switches on any session that is not a
@@ -3120,9 +3119,18 @@ public sealed class GatewayHost : IAsyncDisposable
                     return new Api.SessionVerbClient(director, sendCommand);
                 },
                 mark: _tenantSettingsResolver.FleetManagerSessionId,
+                replacementPending: tenant => !string.IsNullOrWhiteSpace(_tenantSettingsResolver.FleetManagerSuccessorSessionId(tenant)),
+                pendingSuccessors: tenant =>
+                {
+                    var waiting = _tenantSettingsResolver.FleetManagerWaitingSuccessors(tenant).ToList();
+                    if (_tenantSettingsResolver.FleetManagerSuccessorSessionId(tenant) is { Length: > 0 } successor)
+                        waiting.Add(successor);
+                    return waiting;
+                },
                 checksIdleBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
                 directorShutDown: (tenant, directorId) => Registry.Get(tenant, directorId)?.StoppedAtUtc is not null,
-                enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)));
+                enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)),
+            _fleetManagerDeliveryGate);
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.
         _fleetManagerEventSweep = new Fleet.FleetManagerEventSweep(_tenantBoundary, TenantRegistry, _tenantContext,
@@ -3371,6 +3379,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(_sessionTurns);
         // Which Directors say they send conversations - recorded at Hello, read when Chat finds nothing stored.
         builder.Services.AddSingleton(_turnPushCapabilities);
+        builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
@@ -3679,6 +3688,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
             // Slice E round 3: the same ledger writer, for the answer route's refusal when the service is missing.
             turnVerdictLedger: record => EnsureTurnVerdictEnvironment().Record(record),
+            // The Fleet Manager walkthrough's close runs the one stop handler (step 7).
+            stopDoor: _sessionStopDoor,
             // Issue #2022: the live process diagnostics the About page shows read-only on both surfaces,
             // after the machine settings left the Cockpit Settings page.
             gatewayStartedAtUtc: StartedAtUtc,
@@ -4034,38 +4045,6 @@ public sealed class GatewayHost : IAsyncDisposable
             tenantBoundary: _tenantBoundary,
             transcripts: _transcripts);
 
-        // The fleet brain: the tool-calling loop behind POST /assistant/turn. The chat transport resolves the
-        // fast wingman model + the vault key at CALL
-        // time (a settings change applies on the next turn, no restart); the fleet tools reach THIS
-        // Gateway's own endpoints over loopback (the same aggregated roster every client sees); the
-        // conversation context is kept server-side per device. Inherits the host-wide auth gate (the
-        // caller's per-device key), like every other data route.
-        var carModeChat = new CarMode.HostedCarModeChat(CarMode.HostedCarModeChat.DefaultResolver(_keyVault.Get, _tenantSettingsResolver));
-        // The fleet view is created PER TURN, as the CALLING DEVICE (issue #2129): the loopback calls
-        // authenticate with the caller's own credential, so on hosted every read and act resolves to the
-        // caller's tenant exactly as it would for any client - the machine token (which hosted rejects,
-        // and which carries no tenant) never authenticates a tenant's fleet read. The empty-credential arm
-        // exists ONLY for self-host with the auth gate off (single-tenant Local): there is no caller
-        // credential on the request at all, and the machine token is the same identity every client uses.
-        Func<string, CarMode.ICarModeFleet> carModeFleetForCaller = callerCredential =>
-            new CarMode.LoopbackCarModeFleet(Port, string.IsNullOrEmpty(callerCredential) ? Token : callerCredential);
-        // The Assistant (POST /assistant/turn) is the ONE surface on this brain now: Car Mode was removed from
-        // the product (#1028) and its own brain instance and turn door went with it. The loop, the tools, the
-        // per-device stores and the turn cache were always shared and are untouched.
-        var assistantBrain = new CarMode.CarModeBrain(carModeChat, carModeFleetForCaller, _carModeConversations, _carModePending, _carModeSubjects, _tenantSettingsResolver.SpokenLanguage);
-        // Keep-warm (Car Mode performance round): warm the SAME hosted model the brain uses and the SAME
-        // text-to-speech target /wingman/tts uses, resolved fresh each warmup so a settings change applies.
-        var carModeWarmup = new CarMode.CarModeWarmup(
-            CarMode.HostedCarModeChat.DefaultResolver(_keyVault.Get, _tenantSettingsResolver),
-            tenant =>
-            {
-                var mode = Core.Configuration.TranscriptionModeConfig.Get();
-                var tts = Core.Configuration.TranscriptionEndpointResolver.ResolveTts(mode);
-                var key = _keyVault.Get(tts.KeyName) ?? "";
-                return (tts.BaseUrl, _tenantSettingsResolver.TtsVoice(tenant, mode), _tenantSettingsResolver.TtsModel(tenant, mode), key);
-            });
-        Api.FleetBrainEndpoint.Map(_app, assistantBrain, _carModeTurnCache, carModeWarmup, _tenantBoundary);
-
         // The browser error channel (client error logging build): every error a browser app shows the
         // user is also reported here and lands in the Gateway log, tenant-partitioned, with a queryable
         // recent ring - no on-screen error exists only on the user's screen.
@@ -4275,23 +4254,135 @@ public sealed class GatewayHost : IAsyncDisposable
         // Fleet Manager mission, step 3). Account-scoped client routes under /gateway, gated by the host-wide
         // middleware; each shape a session key may reach is listed in SessionKeyGuard, and the routes themselves
         // then allow only the account's marked Fleet Manager session or the owner's own device.
+        var fleetOutcomes = new Fleet.FleetOutcomeStore(_gatewayDb);
         FleetManagerEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-            outcomes: new Fleet.FleetOutcomeStore(_gatewayDb),
+            outcomes: fleetOutcomes,
             preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
             events: _fleetManagerEventStore!,
+            // The owner's answer to a card is queued to the Fleet Manager in the same save; book its delivery.
+            answerQueued: tenant => _fleetManagerEvents?.OnEventQueued(tenant),
             digest: new FleetDigestSources(
                 FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
                     _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages,
                     _tenantSettingsResolver.FleetManagerSessionId),
                 SessionInAccount: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid) is not null,
                 LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
+                FindVerdict: (tenant, verdictId) => _turnVerdicts.FindById(tenant, verdictId),
                 FormerFleetManagers: tenant => FleetManagerMarks.List(tenant).Select(m => m.SessionId).ToList(),
                 // Read when asked: the event service is built after the routes are mapped.
                 EventsDeliveryNote: tenant => _fleetManagerEvents?.DeliveryNote(tenant)),
             access: new FleetManagerAccess(
                 MarkedSessionId: _tenantSettingsResolver.FleetManagerSessionId,
                 LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid)));
+
+        // Where the account's Fleet Manager runs, and starting, restarting and moving it (the Fleet Manager mission,
+        // step 5). The owner's routes: SessionKeyGuard refuses a session key on every one of them.
+        _fleetManagerPlacement = new Fleet.FleetManagerPlacementService(_tenantSettingsResolver,
+            new GatewayFleetManagerPlacementEnvironment
+            {
+                Launchers = Launchers,
+                LauncherConnections = LauncherConnections,
+                Directors = Registry,
+                History = _sessionHistory,
+                Pushed = PushedSessions,
+                StaleAfter = _streamStaleAfter,
+                Capabilities = _fleetManagerHomeCapabilities,
+                Spawner = _machineSessionSpawner,
+                SendCommand = SendCommandAsync,
+                Settings = _tenantSettingsResolver,
+                EnterTenantScope = tenant => _tenantBoundary.EnterScope(tenant),
+                Marks = FleetManagerMarks,
+                Promotions = new Fleet.FleetManagerPromotionStore(_gatewayDb),
+                // Read when the mark moves: the events service is created earlier in this method.
+                Events = () => _fleetManagerEvents,
+            },
+            _fleetManagerDeliveryGate);
+        // A restart or a move left under way by an earlier process carries on (the mark moves only after the old Fleet
+        // Manager has closed, and that can outlast a Gateway restart).
+        var replacementSweep = new Fleet.FleetManagerReplacementSweep(_tenantBoundary, TenantRegistry, _tenantContext,
+            _fleetManagerPlacement);
+        if (Fleet.FleetManagerEventSweep.Enabled)
+            _fleetManagerReplacementTimer = new Timer(_ => _ = replacementSweep.SweepSafeAsync(), null,
+                TimeSpan.FromSeconds(5), Fleet.FleetManagerReplacementSweep.Interval);
+        FleetManagerPlacementEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            service: _fleetManagerPlacement);
+
+        // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:
+        // SessionKeyGuard refuses a session key, and the handler allows only the owner's own phone or browser.
+        FleetManagerHandOverEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            service: new Fleet.FleetManagerHandOverService(new GatewayFleetManagerHandOverEnvironment
+            {
+                Pushed = PushedSessions,
+                StaleAfter = _streamStaleAfter,
+                Directors = Registry,
+                Capabilities = _fleetManagerHomeCapabilities,
+                SendCommand = SendCommandAsync,
+                Mark = _tenantSettingsResolver.FleetManagerSessionId,
+                Successor = _tenantSettingsResolver.FleetManagerSuccessorSessionId,
+                AuditLog = _governanceAudit,
+                // Read when a hand over happens: the events service is created when the host starts.
+                Events = () => _fleetManagerEvents,
+                EnterTenantScope = tenant => _tenantBoundary.EnterScope(tenant),
+            }));
+
+        // The Fleet Manager page (the Fleet Manager mission, step 6): the cards, the live right panel and the rail's
+        // badge, folded once. The owner's read: SessionKeyGuard refuses a session key.
+        FleetManagerPageEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            outcomes: fleetOutcomes,
+            sources: new FleetManagerPageSources(
+                LiveRoster: tenant =>
+                {
+                    var fresh = PushedSessions.SnapshotFresh(tenant, _streamStaleAfter)
+                        .Select(p => p.Session.SessionId)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    return GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
+                            _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages,
+                            _tenantSettingsResolver.FleetManagerSessionId)
+                        .Where(s => fresh.Contains(s.SessionId))
+                        .ToList();
+                },
+                MarkedSessionId: tenant => _tenantSettingsResolver.FleetManagerSessionId(tenant),
+                LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+                LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
+                TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+                NowUtc: () => DateTime.UtcNow,
+                AnswerEvents: (tenant, ids) => _fleetManagerEventStore!.AnswerEvents(tenant, ids),
+                SuccessorSessionId: _tenantSettingsResolver.FleetManagerSuccessorSessionId));
+
+        // The Fleet Manager walkthrough (step 7): one item at a time, the Wingman's reading, the Fleet Manager's advice,
+        // and the answer, snooze and close. The owner's routes: SessionKeyGuard refuses a session key, and the handlers
+        // refuse anything but the owner's own device.
+        FleetManagerWalkthroughEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            outcomes: fleetOutcomes,
+            sources: new FleetManagerWalkthroughSources(
+                LiveRoster: tenant =>
+                {
+                    var fresh = PushedSessions.SnapshotFresh(tenant, _streamStaleAfter)
+                        .Select(p => p.Session.SessionId)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    return GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
+                            _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages,
+                            _tenantSettingsResolver.FleetManagerSessionId)
+                        .Where(s => fresh.Contains(s.SessionId))
+                        .ToList();
+                },
+                MarkedSessionId: tenant => _tenantSettingsResolver.FleetManagerSessionId(tenant),
+                LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+                LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
+                FindVerdict: (tenant, verdictId) => _turnVerdicts.FindById(tenant, verdictId),
+                NewestVerdict: (tenant, sid) => _turnVerdicts.NewestJudged(tenant, sid),
+                // Two days is the outer bound only: the close rule also refuses a report taken before the session's
+                // last activity.
+                Repositories: tenant => _repoState.ReadFresh(tenant, TimeSpan.FromDays(2), DateTime.UtcNow),
+                SnoozeMinutes: tenant => _tenantSettingsResolver.SnoozeDefaultMinutes(tenant),
+                TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+                NowUtc: () => DateTime.UtcNow,
+                StopDoor: _sessionStopDoor));
 
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account
@@ -5667,6 +5758,8 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
         try { _fleetManagerEventTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events timer dispose error: {ex.Message}"); }
         try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
+        try { _fleetManagerReplacementTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager replacement timer dispose error: {ex.Message}"); }
+        try { _fleetManagerPlacement?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager placement dispose error: {ex.Message}"); }
         // THE INSPECTOR'S TRACES, in the order that keeps them: first the verdict flights the service just cancelled are
         // let finish, so each hands in its cancelled trace while the writer still takes them; then the writer is drained
         // before the database below is disposed. Both waits are bounded, so a stuck judge or a database that will not

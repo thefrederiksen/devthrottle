@@ -50,6 +50,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     private bool _judgeEnabled = true;
     private string? _marked = "fm";
     private bool _checksIdle = true;
+    private bool _replacementPending;
+    private readonly HashSet<string> _pendingSuccessors = new(StringComparer.Ordinal);
+    private readonly FleetManagerDeliveryGate _deliveryGate = new();
     private readonly HashSet<string> _shutDown = new(StringComparer.Ordinal);
     private readonly TurnVerdictService _seat;
     private int _readingsTold;
@@ -97,8 +100,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         _seat = new TurnVerdictService(verdictEnv);
 
         _env = new RecordingEnvironment(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
-            route: (_, _) => null, mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d)), () => _now);
-        _service = new FleetManagerEventService(_events, _env);
+            route: (_, _) => null, mark: _ => _marked, replacementPending: _ => _replacementPending, pendingSuccessors: _ => _pendingSuccessors, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d)), () => _now);
+        _service = new FleetManagerEventService(_events, _env, _deliveryGate);
         // As the host wires it: every reading the seat finishes reaches the service in use at that moment.
         _seat.ReadingCompleted += c =>
         {
@@ -628,10 +631,147 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Contains(e.Id, Assert.Single(_env.Sends).Text);
     }
 
+    // ---- step 8: a change of owner. Everything follows the CURRENT owner.
+
+    /// <summary>The Director's report of a hand over, and the route's word to the service, as production does both.</summary>
+    private SessionDto ChangeOwner(string sid, string? owner, bool tellTheService = true)
+    {
+        var row = _fleet[sid];
+        row.IsControlled = owner is not null;
+        row.ControllerSessionId = owner;
+        Push(row);
+        if (tellTheService) _service.OnOwnerChanged(Tenant, "dir-1", row.Clone());
+        return row;
+    }
+
+    private SessionDto Folded(string sid)
+    {
+        var roster = _pushed.SnapshotFresh(Tenant, Stale).Select(r => r.Session).ToList();
+        GatewayEndpoints.StampFleetRolesAndFold(roster, roster, tenant: Tenant, fleetManagerMark: _ => _marked);
+        return roster.Single(s => s.SessionId == sid);
+    }
+
+    [Fact]
+    public async Task OwnerChanged_HandedOverAfterItStarted_ItsStopsAndItsDeathGoToTheFleetManager()
+    {
+        await TurnEndAsync("plain");
+        Assert.Empty(Open());
+        Assert.Equal("red", Folded("plain").EffectiveColor);
+
+        ChangeOwner("plain", "fm");
+        await TurnEndAsync("plain");
+
+        var stop = Assert.Single(Open());
+        Assert.Equal(("stop", "plain", "fm"), (stop.Kind, stop.SessionId, stop.AddressedTo));
+        Assert.Equal(Evidence, stop.Verdict!.Evidence);
+        // No longer red for the owner, and handed back from the list.
+        var folded = Folded("plain");
+        Assert.NotEqual("red", folded.EffectiveColor);
+        Assert.True(folded.OwnedByFleetManager);
+        Assert.Equal("owner", folded.OwnerChange!.To);
+
+        Assert.True(_pushed.ApplyRemove(Tenant, "dir-1", "conn-1", ++_sequence, "plain"));
+        _service.OnSessionRemoved(Tenant, "plain", "dir-1");
+
+        var died = Assert.Single(Open(), e => e.Kind == "died");
+        Assert.Equal(("plain", "fm"), (died.SessionId, died.AddressedTo));
+    }
+
+    [Fact]
+    public async Task OwnerChanged_HandedBack_ItsStopsAndItsDeathStopGoingToTheFleetManager_AndItIsRedForTheOwner()
+    {
+        _service.OnSessionWorking(Tenant, "worker-1", "dir-1");
+        Assert.NotEqual("red", Folded("worker-1").EffectiveColor);
+
+        ChangeOwner("worker-1", null);
+        await TurnEndAsync("worker-1");
+
+        Assert.Empty(Open());
+        var folded = Folded("worker-1");
+        Assert.Equal("red", folded.EffectiveColor);
+        Assert.Equal("needsYou", folded.TriageBucket);
+        Assert.False(folded.OwnedByFleetManager);
+        Assert.Equal("fleet-manager", folded.OwnerChange!.To);
+
+        // Its end is not the Fleet Manager's news: not by the removal, not by the reconcile.
+        Assert.True(_pushed.ApplyRemove(Tenant, "dir-1", "conn-1", ++_sequence, "worker-1"));
+        _service.OnSessionRemoved(Tenant, "worker-1", "dir-1");
+        await _service.ReconcileAsync(Tenant);
+        Assert.Empty(Open());
+    }
+
+    [Fact]
+    public async Task OwnerChanged_HandedBackWhileItsStopWaitedForItsReading_TheStopIsWithdrawn()
+    {
+        _brain.Hold();
+        var signal = Signal("worker-1");
+        _service.OnTurnEnd(signal, wingmanRunning: true);
+        Assert.True(Assert.Single(Open()).ReadingPending);
+
+        ChangeOwner("worker-1", null);
+        var reading = _seat.StartTurnEnd(signal);
+        _brain.Release();
+        await reading;
+        await _service.WhenIdleAsync();
+
+        Assert.Empty(Open());
+    }
+
+    [Fact]
+    public async Task OwnerChanged_HandedBackThenOverAgain_IsTrackedAgain_AndItsDeathIsTheFleetManagers()
+    {
+        _service.OnSessionWorking(Tenant, "worker-2", "dir-1");
+        ChangeOwner("worker-2", null);
+        ChangeOwner("worker-2", "fm");
+        Restart();
+
+        // A restarted Gateway still knows it is owned: the Director reports it gone, and that is a death.
+        _pushed.RegisterConnection(Tenant, "dir-1", "conn-2");
+        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-1", "conn-2", 1,
+            _fleet.Values.Where(s => s.SessionId != "worker-2").ToList()));
+        await _service.ReconcileAsync(Tenant);
+
+        var died = Assert.Single(Open());
+        Assert.Equal(("died", "worker-2", "fm"), (died.Kind, died.SessionId, died.AddressedTo));
+    }
+
+    /// <summary>However the owner changed - the route, or a Director that came back reporting another owner - the
+    /// reconcile forgets a session that is no longer the Fleet Manager's, so its later end is nobody's death.</summary>
+    [Fact]
+    public async Task Reconcile_ASessionWhoseRowNamesAnotherOwner_IsForgotten_AndItsExitIsNotADeath()
+    {
+        _service.OnSessionWorking(Tenant, "worker-2", "dir-1");
+        ChangeOwner("worker-2", "architect", tellTheService: false);
+
+        await _service.ReconcileAsync(Tenant);
+        SetState("worker-2", "Exited");
+        _service.OnSessionExited(Tenant, "worker-2", "dir-1");
+        await _service.ReconcileAsync(Tenant);
+
+        Assert.Empty(Open());
+        Assert.Null(_events.OwnedAlive(Tenant, "worker-2"));
+    }
+
+    [Fact]
+    public void Wingman_HeldCheck_FollowsTheCurrentOwner()
+    {
+        Assert.False(TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked).OwnedByFleetManager);
+
+        ChangeOwner("plain", "fm");
+        var over = TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked);
+        Assert.True(over.Held);
+        Assert.True(over.OwnedByFleetManager);
+
+        ChangeOwner("plain", null);
+        var back = TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked);
+        Assert.False(back.Held);
+        Assert.False(back.OwnedByFleetManager);
+    }
+
     private void Restart()
     {
         _service.Dispose();
-        _service = new FleetManagerEventService(_events, _env);
+        _service = new FleetManagerEventService(_events, _env, _deliveryGate);
     }
 
     // ================================================================= delivery
@@ -660,6 +800,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Equal(2, CountOf(sent.Text, FleetManagerEventPrompt.EvidenceOpen + Evidence + FleetManagerEventPrompt.EvidenceClose));
         Assert.Contains("session: worker-1 \"Repository - the session named worker-1\"", sent.Text);
         Assert.Contains("verdict: finished", sent.Text);
+        // The stop's identity, which a record filed about it names (fleet ... --verdict).
+        Assert.Equal(2, CountOf(sent.Text, "\nverdictId: "));
         Assert.Contains("how: exited", sent.Text);
         Assert.Contains("detail: it exited", sent.Text);
         Assert.Contains("cc-devthrottle fleet ack", sent.Text);
@@ -846,8 +988,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         await _service.WhenIdleAsync();
 
         Assert.All(Open(), e => Assert.False(e.ReadingPending));
-        var text = Assert.Single(_env.Sends).Text;
-        Assert.Contains("verdict: failed - the judge did not answer. Read the session yourself.", text);
+        var text = string.Concat(_env.Sends.Select(x => x.Text));
+        Assert.Contains("verdictId: failed-1\nverdict: failed - the judge did not answer. Read the session yourself.", text);
         Assert.Contains("verdict: none - the Wingman's reading failed and no record of it was stored. Read the session yourself.", text);
         Assert.All(Open(), e => Assert.Equal("fm", e.DeliveredTo));
     }
@@ -1166,7 +1308,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var requests = new List<PromptRequest>();
         _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
             route: (_, directorId) => DirectorRoute(directorId, director, requests),
-            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => true, directorShutDown: (_, _) => false));
+            mark: _ => _marked, replacementPending: _ => false, pendingSuccessors: _ => Array.Empty<string>(), checksIdleBeforeTyping: (_, _) => true, directorShutDown: (_, _) => false));
         await FleetManagerTurnEndAsync();
         ScriptedTerminal.OwnerTypes(director, "my draft ");
 
@@ -1235,7 +1377,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var requests = new List<PromptRequest>();
         var production = new GatewayFleetManagerEventEnvironment(_pushed, Stale,
             route: (_, directorId) => DirectorRoute(directorId, director, requests),
-            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d));
+            mark: _ => _marked, replacementPending: _ => false, pendingSuccessors: _ => Array.Empty<string>(), checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d));
         _env.SendThrough(production);
         await FleetManagerTurnEndAsync();
 
@@ -1270,7 +1412,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var requests = new List<PromptRequest>();
         _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
             route: (_, directorId) => DirectorRoute(directorId, director, requests),
-            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
+            mark: _ => _marked, replacementPending: _ => false, pendingSuccessors: _ => Array.Empty<string>(), checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
         director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
         _checksIdle = false;
         await FleetManagerTurnEndAsync();
@@ -1348,6 +1490,236 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             return (DirectorCommandResult?)await ControlApi.SessionCommandExecutor.SendPromptAsync(session, request);
         });
 
+    // ================================================================= the owner's answers and a moved mark (steps 5 and 6 fixes)
+
+    private const string AboutSession = "0a000000-0000-4000-8000-000000000001";
+
+    /// <summary>A decision filed by the Fleet Manager and answered by the owner the way the answer route does it.</summary>
+    private FleetOutcomeDto OwnerAnswers(string words)
+    {
+        var outcomes = new FleetOutcomeStore(_harness.Open());
+        var filed = outcomes.File(Tenant, new FleetOutcomeFileRequest
+        {
+            Kind = "decision",
+            Title = "Replace the inspector?",
+            SessionId = AboutSession,
+            Decision = new FleetDecisionDetails { Question = "Replace the inspector?", Options = { "Replace it.", "Keep both." } },
+        }, "fm", _now);
+        var result = outcomes.Answer(Tenant, Guid.Parse(filed.Id), words, FleetOutcomeStore.OwnerCaller,
+            FleetOutcomeStore.RoleOwner, _now, r => FleetManagerEventStore.AnsweredEvent(r, _marked, _now));
+        Assert.Equal(FleetOutcomeAnswerStatus.Answered, result.Status);
+        return result.Outcome!;
+    }
+
+    [Fact]
+    public async Task OwnersAnswer_WaitsWhileTheFleetManagerWorks_ThenIsTypedWithTheWordsExactly_AndKeptUntilAcknowledged()
+    {
+        const string words = "Keep both. And \"never\" -> ask me again; 100%.";
+        var record = OwnerAnswers(words);
+
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+        Assert.Empty(_env.Sends); // the Fleet Manager is working: nothing is typed into it
+
+        await FleetManagerTurnEndAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm", sent.SessionId);
+        var e = Assert.Single(Open());
+        Assert.Equal(("answered", record.Id, "Replace the inspector?", words, "fm"),
+            (e.Kind, e.OutcomeId, e.OutcomeTitle, e.Words, e.AddressedTo));
+        Assert.StartsWith("[Fleet Manager events] 0 stops and 0 died, and 1 card answered by the owner since your last turn.\n", sent.Text);
+        Assert.Contains($"event 1 of 1: {e.Id}\nkind: answered\n" +
+                        $"record: {record.Id} \"Replace the inspector?\"\nabout session: {AboutSession}\n", sent.Text);
+        Assert.Contains("the owner's words (exact, between the markers):\n<<<" + words + ">>>\n", sent.Text);
+        Assert.Equal(("fm", 1), (e.DeliveredTo, e.DeliveryCount));
+        Assert.Null(e.AcknowledgedAtUtc);
+    }
+
+    [Fact]
+    public async Task OwnersAnswer_NotAcknowledged_IsSentAgainToARestartedFleetManager()
+    {
+        OwnerAnswers("Replace it.");
+        _service.OnEventQueued(Tenant);
+        await FleetManagerTurnEndAsync(); // a finished turn that asks the owner nothing lets it be typed
+        Assert.Single(_env.Sends);
+
+        SetState("fm", "Exited");
+        Push(Session("fm-2"));
+        _marked = "fm-2";
+        await FleetManagerTurnEndAsync("fm-2");
+
+        Assert.Equal(2, _env.Sends.Count);
+        Assert.Equal("fm-2", _env.Sends[1].SessionId);
+        Assert.Contains("<<<Replace it.>>>", _env.Sends[1].Text);
+    }
+
+    [Fact]
+    public async Task OwnersAnswer_Acknowledged_IsNotSentAgain()
+    {
+        OwnerAnswers("Replace it.");
+        _service.OnEventQueued(Tenant);
+        await FleetManagerTurnEndAsync(); // a finished turn that asks the owner nothing lets it be typed
+        var e = Assert.Single(Open());
+
+        _events.Acknowledge(Tenant, new[] { Guid.Parse(e.Id) }, all: false, deliveredTo: null, _now);
+        SetState("fm", "Exited");
+        Push(Session("fm-2"));
+        _marked = "fm-2";
+        await FleetManagerTurnEndAsync("fm-2");
+
+        Assert.Single(_env.Sends);
+    }
+
+    [Fact]
+    public async Task OwnersAnswer_WhileAReplacementIsUnderWay_IsNotTypedIntoTheOldFleetManager_AndGoesToTheNewOne()
+    {
+        SetState("fm", "Idle");
+        _replacementPending = true;
+        OwnerAnswers("Replace it.");
+
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+        Assert.Equal(FleetManagerDeliveryResult.ReplacementPending, await _service.DeliverToAsync(Tenant, "fm"));
+        await FleetManagerTurnEndAsync("fm"); // its own turn end types nothing either
+
+        Assert.Empty(_env.Sends);
+        Assert.Null(Assert.Single(Open()).DeliveredTo);
+        Assert.Equal(0, _deliveryGate.Generation(Tenant, "fm"));
+
+        // The old one has closed and the mark has moved: the answer goes to the new one.
+        SetState("fm", "Exited");
+        Push(Session("fm-2", state: "Idle"));
+        _marked = "fm-2";
+        _replacementPending = false;
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm-2", sent.SessionId);
+        Assert.Contains("<<<Replace it.>>>", sent.Text);
+        Assert.Equal(1, _deliveryGate.Generation(Tenant, "fm-2"));
+    }
+
+    [Fact]
+    public async Task Delivery_WaitsForTheAccountsDeliveryGate_AndSeesAReplacementRecordedMeanwhile()
+    {
+        SetState("fm", "Idle");
+        OwnerAnswers("Replace it.");
+
+        // The replacement holds the gate while it records the successor.
+        var replacing = await _deliveryGate.EnterAsync(Tenant, default);
+        var delivery = _service.DeliverToAsync(Tenant, "fm");
+        await Task.Delay(200);
+        Assert.False(delivery.IsCompleted);
+        _replacementPending = true;
+        replacing.Dispose();
+
+        Assert.Equal(FleetManagerDeliveryResult.ReplacementPending, await delivery);
+        Assert.Empty(_env.Sends);
+    }
+
+    [Fact]
+    public async Task MarkMoved_TellsTheNewFleetManagerOnce_AndNeverALaterOne()
+    {
+        // Started to take over, it finished its first turn and waits to be told - before the mark moved to it.
+        _pendingSuccessors.Add("fm-2");
+        Push(Session("fm-2", state: "Working"));
+        await FleetManagerTurnEndAsync("fm-2");
+        Assert.Empty(_env.Sends);
+
+        PromoteSuccessor("fm-2");
+        Assert.Null(_events.RecordMarked(Tenant, "fm-2", _now)); // one event per session, whoever asks again
+        await _service.WhenIdleAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm-2", sent.SessionId);
+        Assert.StartsWith("[Fleet Manager events] You are now this account's Fleet Manager. 0 stops and 0 died since your last turn.\n", sent.Text);
+        Assert.Contains("kind: marked\n", sent.Text);
+        Assert.Contains("what: " + FleetManagerEventStore.MarkedDetail + "\n", sent.Text);
+
+        // Not acknowledged, and the mark moves on again: the next Fleet Manager is not told it is "now" the Fleet Manager
+        // by an event that was about another session.
+        SetState("fm-2", "Exited");
+        Push(Session("fm-3"));
+        _marked = "fm-3";
+        await FleetManagerTurnEndAsync("fm-3");
+
+        Assert.Single(_env.Sends);
+        Assert.Equal("marked", Assert.Single(Open()).Kind);
+    }
+
+    /// <summary>The replacement moves the mark as production does: the mark, the waiting list and the one event
+    /// together, then a delivery is booked.</summary>
+    private void PromoteSuccessor(string sid)
+    {
+        _marked = sid;
+        _pendingSuccessors.Remove(sid);
+        _replacementPending = false;
+        Assert.NotNull(_events.RecordMarked(Tenant, sid, _now));
+        _service.OnEventQueued(Tenant);
+    }
+
+    [Fact]
+    public async Task Successor_FinishedItsFirstTurnBeforePromotion_IsToldRightAfterPromotion_ExactlyOnce()
+    {
+        OwnerAnswers("Replace it.");
+        _replacementPending = true;
+        _pendingSuccessors.Add("fm-2");
+        Push(Session("fm-2", state: "Working"));
+        await FleetManagerTurnEndAsync("fm-2");
+        _now = _now.AddMinutes(5); // the mark moves well after that turn ended; the turn end is still its latest
+
+        SetState("fm", "Exited");
+        PromoteSuccessor("fm-2");
+        await _service.WhenIdleAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm-2", sent.SessionId);
+        Assert.Contains("kind: marked\n", sent.Text);
+        Assert.Contains("<<<Replace it.>>>", sent.Text);
+
+        // Delivered once: asking again types nothing more into it.
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+        Assert.Single(_env.Sends);
+    }
+
+    [Fact]
+    public async Task Successor_StillWorkingAtPromotion_IsToldAfterItsTurnEnds()
+    {
+        _pendingSuccessors.Add("fm-2");
+        Push(Session("fm-2", state: "Working"));
+
+        SetState("fm", "Exited");
+        PromoteSuccessor("fm-2");
+        await _service.WhenIdleAsync();
+        Assert.Empty(_env.Sends);
+
+        await FleetManagerTurnEndAsync("fm-2");
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm-2", sent.SessionId);
+        Assert.Contains("kind: marked\n", sent.Text);
+    }
+
+    [Fact]
+    public async Task Successor_WhoseTurnAskedTheOwner_IsToldNothing()
+    {
+        _pendingSuccessors.Add("fm-2");
+        Push(Session("fm-2", state: "Working"));
+        SetState("fm-2", "WaitingForInput");
+        _service.OnTurnEnd(Signal("fm-2"), wingmanRunning: true);
+        FleetManagerReadAs(TurnVerdictVocabulary.NeededYou, sid: "fm-2");
+
+        SetState("fm", "Exited");
+        PromoteSuccessor("fm-2");
+        await _service.WhenIdleAsync();
+
+        Assert.Empty(_env.Sends);
+        Assert.Null(Assert.Single(Open()).DeliveredTo);
+    }
+
     // ================================================================= doubles
 
     private sealed record Sent(string DirectorId, string SessionId, string Text);
@@ -1383,6 +1755,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         public void SendThrough(IFleetManagerEventEnvironment production) => _sendThrough = production;
 
         public string? MarkedFleetManager(TenantId tenant) => _inner.MarkedFleetManager(tenant);
+        public bool ReplacementPending(TenantId tenant) => _inner.ReplacementPending(tenant);
+        public IReadOnlyCollection<string> PendingSuccessors(TenantId tenant) => _inner.PendingSuccessors(tenant);
         public (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId) => _inner.LastKnown(tenant, sessionId);
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant) => _inner.Roster(tenant);
         public (FleetObservation Observation, IReadOnlyList<SessionDto> Sessions) DirectorFleet(TenantId tenant, string directorId)
