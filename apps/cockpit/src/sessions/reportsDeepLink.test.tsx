@@ -37,6 +37,10 @@ vi.mock("@devthrottle/client-core/devreports/DevReportConversation", () => ({ De
 // the subject.
 vi.mock("@devthrottle/client-core/sessions/VerdictPanel", () => ({ VerdictPanel: () => null }));
 vi.mock("@devthrottle/client-core/sessions/WingmanTab", () => ({ WingmanTab: () => <div /> }));
+// The stop lives in one owner above the page (StopSessionProvider). The session view asks it to open the stop
+// question for a finished session; nothing here is about stopping, so it is a stand-in.
+vi.mock("./StopSessionProvider", () => ({ useStopSession: () => ({ openStop: vi.fn() }) }));
+
 vi.mock("../panes/TerminalPane", () => ({ TerminalPane: () => <div /> }));
 vi.mock("./SessionActionBar", () => ({ SessionActionBar: () => <div /> }));
 vi.mock("./SessionComposer", () => ({ SessionComposer: () => <div /> }));

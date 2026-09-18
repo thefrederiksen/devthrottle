@@ -36,7 +36,7 @@ function minutesAfter(utc: string, minutes: number): Date {
 
 describe("Now, rendered from the answer the Gateway actually sends", () => {
   it("has all five sampled states, each about the session the Gateway named", () => {
-    expect(Object.keys(SAMPLE).sort()).toEqual(["carryingOn", "done", "justAnswered", "needsYou", "working"]);
+    expect(Object.keys(SAMPLE).sort()).toEqual(["carryingOn", "done", "justAnswered", "needsYou", "snoozed", "working"]);
     for (const answer of Object.values(SAMPLE)) {
       expect(answer.sessionId).toBe("11111111-1111-1111-1111-111111111111");
     }

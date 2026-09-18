@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import { gatewayErrorMessage } from "../api/client";
 import { readWingmanStops, type WingmanStop, type WingmanStopsResponse } from "./wingmanStops";
 import { readWingmanNow, type WingmanNow as WingmanNowDto } from "./wingmanNowRead";
-import { WingmanNow, type WingmanNowActions } from "./WingmanNow";
+import { WingmanNow, type WingmanNowActions, type WingmanNowReplyBox } from "./WingmanNow";
 import "./wingmanTab.css";
 
 /** How often Now is re-read while the tab is open. It is one session's live stop, read only while it is on screen. */
@@ -34,7 +34,22 @@ const NOW_REFRESH_MILLISECONDS = 5000;
  * `actions` is everything Now can do, wired by the shell that mounts it. An action with no handler is not drawn, so
  * this tab never shows a control that would do nothing.
  */
-export function WingmanTab({ sessionId, actions }: { sessionId: string; actions?: WingmanNowActions }) {
+export function WingmanTab({
+  sessionId,
+  actions,
+  replyBox,
+}: {
+  sessionId: string;
+  /**
+   * What Now can do, DECIDED ONCE THE ANSWER IS IN HAND. It is a function of the Gateway's answer, not a fixed set,
+   * because which controls belong on the screen depends on what the Gateway said about this session - a snoozed one
+   * is offered a wake and not a snooze, finished work is offered a close (the review's item B3). An action the shell
+   * leaves out is not drawn, so Now never offers a control that would do nothing.
+   */
+  actions?: (now: WingmanNowDto) => WingmanNowActions;
+  /** The shell's own message box, drawn inside Now wherever the Gateway offered a reply (the review's item B1). */
+  replyBox?: WingmanNowReplyBox;
+}) {
   // The last screen the Gateway served, and the failure of the most recent read, kept APART. A refresh that fails
   // adds the failure; it never clears the screen, because clearing it is what destroyed the owner's half-typed
   // reply. They are cleared together, by the session changing.
@@ -94,7 +109,7 @@ export function WingmanTab({ sessionId, actions }: { sessionId: string; actions?
         </button>
       </div>
       {view === "now" ? (
-        <NowView sessionId={sessionId} now={now} failure={failure} actions={actions} />
+        <NowView sessionId={sessionId} now={now} failure={failure} actions={actions} replyBox={replyBox} />
       ) : (
         <WingmanStopsView sessionId={sessionId} />
       )}
@@ -114,11 +129,13 @@ function NowView({
   now,
   failure,
   actions,
+  replyBox,
 }: {
   sessionId: string;
   now: WingmanNowDto | null;
   failure: string | null;
-  actions?: WingmanNowActions;
+  actions?: (now: WingmanNowDto) => WingmanNowActions;
+  replyBox?: WingmanNowReplyBox;
 }) {
   if (now === null) {
     return failure === null ? (
@@ -144,7 +161,7 @@ function NowView({
           would empty the box - removing just one keeps the test green, and removing both turns it red. The key is
           kept because it states the invariant where the reader is looking, rather than leaving it to a reset three
           screens up that a later change could reasonably drop. */}
-      <WingmanNow key={sessionId} now={now} actions={actions} />
+      <WingmanNow key={sessionId} now={now} actions={actions?.(now)} replyBox={replyBox} />
     </>
   );
 }

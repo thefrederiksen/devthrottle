@@ -4,11 +4,18 @@
 // THIS VIEW DECIDES NOTHING. It renders the strings and flags of one WingmanNow object, in the order below, showing
 // each piece exactly when the Gateway sent it. There is no branch on what a state MEANS anywhere in this file - no
 // `state === "done"`, no colour rule, no wording of its own beyond fixed chrome (the buttons, the three small
-// headings, and the clock and "ago" phrasing the Gateway cannot write because it does not know the reader's time
-// zone). Adding a state to the product is a change in the Gateway's fold, not here (product CLAUDE.md rule 7).
+// headings, the one line saying what clicking an option does, and the clock and "ago" phrasing the Gateway cannot
+// write because it does not know the reader's time zone). Adding a state to the product is a change in the
+// Gateway's fold, not here (product CLAUDE.md rule 7).
+//
+// WHICH CONTROLS BELONG ON A STATE IS DECIDED THE SAME WAY, by ABSENCE rather than by a branch: the shell passes a
+// snooze or a wake or neither, and a close or not, and an action with no handler is not drawn. The words on those
+// buttons are chrome like every other button here; WHEN each is offered is the shell's, reading what the Gateway
+// stamped on the session - never a rule written in this file.
 //
 // Lives in client-core so the shell stays thin; only the Cockpit mounts it (the owner's ruling - not the phone).
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type {
   WingmanNow as WingmanNowDto,
   WingmanNowOption,
@@ -83,9 +90,18 @@ export interface WingmanNowActions {
   /** Answer the stop by picking one of the Gateway's options. `verdictId` is the verdict those options belong to;
    *  it rides with the index on the answer route, and the view passes it along rather than looking it up. */
   onAnswerOption?: (option: WingmanNowOption, verdictId: string | null) => Promise<WingmanNowOutcome>;
-  /** Send the owner's own words to the session. */
-  onSendReply?: (text: string) => Promise<WingmanNowOutcome>;
+  /** Snooze the session. Passed only while the session is not already snoozed, so the button never does nothing. */
   onSnooze?: () => Promise<WingmanNowOutcome>;
+  /** Wake a snoozed session. Passed only while it IS snoozed - the other half of the same pair. */
+  onUnsnooze?: () => Promise<WingmanNowOutcome>;
+  /**
+   * Close a session whose work is finished. Passed only where closing is the natural next step.
+   *
+   * It OPENS the shell's own stop question rather than closing anything, which is why it answers nothing: the
+   * confirmation, the request and its failure all belong to the one owner the shell already mounts for them, and
+   * that owner outlives this screen. A second confirmation here would be a second question for one act.
+   */
+  onClose?: () => void;
   onOpenTerminal?: () => void;
   /** Open the account settings where the Wingman is switched on. */
   onOpenSettings?: () => void;
@@ -129,18 +145,38 @@ function Outcome({ outcome }: { outcome: WingmanNowOutcome | null }) {
   );
 }
 
+/**
+ * The ONE place on this tab where the owner types (the review's item B1).
+ *
+ * The box is not built here. The shell that mounts Now supplies it, so the Wingman tab and the page's own composer
+ * are the SAME control rather than two boxes with two Send buttons on one screen - which is what shipped, with the
+ * one beside the question drawn as the quiet button and the one at the bottom of the page drawn as the loud one.
+ *
+ * The GATEWAY still decides whether there is a box at all and what is written inside it: this is drawn exactly where
+ * `replyPlaceholder` arrived, and the placeholder is handed straight to the shell. A state the Gateway gave no
+ * placeholder has no reply box, the same as before.
+ */
+export type WingmanNowReplyBox = (placeholder: string) => ReactNode;
+
 export function WingmanNow({
   now,
   at = new Date(),
   actions = {},
+  replyBox,
 }: {
   now: WingmanNowDto;
   /** The moment "ago" is measured from. A parameter so the phrasing is testable, not so anything decides on it. */
   at?: Date;
   actions?: WingmanNowActions;
+  /** The shell's own message box, drawn wherever the Gateway offered a reply. Nothing is drawn without it. */
+  replyBox?: WingmanNowReplyBox;
 }) {
   const answer = useOutcome();
-  const snooze = useOutcome();
+  const quick = useOutcome();
+  const reply =
+    now.replyPlaceholder != null && replyBox ? (
+      <div className="wnow-reply">{replyBox(now.replyPlaceholder)}</div>
+    ) : null;
   return (
     <div className="wnow">
       <Header now={now} at={at} actions={actions} />
@@ -192,39 +228,27 @@ export function WingmanNow({
             {now.needs.recommends != null && <p className="wnow-recommends">{now.needs.recommends}</p>}
             {now.needs.question != null && <p className="wnow-question">{now.needs.question}</p>}
             {(now.needs.options?.length ?? 0) > 0 && (
-              <ul className="wnow-options">
-                {(now.needs.options ?? []).map((option) => (
-                  <li key={option.index}>
-                    <button
-                      type="button"
-                      className="wnow-option"
-                      disabled={!now.canAnswerByOption || !actions.onAnswerOption || answer.busy}
-                      onClick={() => {
-                        const send = actions.onAnswerOption;
-                        if (!send) return;
-                        // THE VERDICT IDENTIFIER IS AT THE ROOT. It sat inside `needs` here, which is not where
-                        // the route puts it, so every tap sent an empty identifier and the answer route refused it
-                        // without touching the session.
-                        void answer.run(() => send(option, now.verdictId ?? null));
-                      }}
-                    >
-                      <span className="wnow-option-index">{option.index}</span>
-                      <span className="wnow-option-body">
-                        <span className="wnow-option-key">
-                          {option.key}
-                          {option.recommended && <b className="wnow-option-mark">RECOMMENDED</b>}
-                        </span>
-                        {option.note != null && <span className="wnow-option-note">{option.note}</span>}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <Options
+                options={now.needs.options ?? []}
+                canAnswer={now.canAnswerByOption}
+                busy={answer.busy}
+                riskFlag={now.needs.riskFlag}
+                riskLine={now.needs.riskLine}
+                confirmBeforeSending={now.needs.confirmBeforeSending}
+                onAnswer={
+                  actions.onAnswerOption
+                    ? // THE VERDICT IDENTIFIER IS AT THE ROOT. It sat inside `needs` here, which is not where
+                      // the route puts it, so every tap sent an empty identifier and the answer route refused it
+                      // without touching the session.
+                      (option) => void answer.run(() => actions.onAnswerOption!(option, now.verdictId ?? null))
+                    : undefined
+                }
+              />
             )}
             {/* What the answer route said about the last tap - its refusal sentence unedited, so an answer that
                 did nothing never looks like an answer that landed. */}
             <Outcome outcome={answer.outcome} />
-            <ReplyBox placeholder={now.replyPlaceholder} onSend={actions.onSendReply} />
+            {reply}
           </section>
         ) : (
           now.unsure && now.unsureLine != null && <p className="wnow-unsure-line">{now.unsureLine}</p>
@@ -276,7 +300,7 @@ export function WingmanNow({
           </section>
         )}
 
-        {now.needs == null && <ReplyBox placeholder={now.replyPlaceholder} onSend={actions.onSendReply} />}
+        {now.needs == null && reply}
 
         {now.nextNeedsYou && (
           <section className="wnow-next" aria-label="The next session that needs you">
@@ -298,20 +322,31 @@ export function WingmanNow({
           </section>
         )}
 
-        {(actions.onSnooze || actions.onOpenTerminal) && (
+        {/* THE QUICK ACTIONS FIT THE STATE, and they do it by being ABSENT rather than by this file working out what
+            a state means. The shell passes snooze OR wake, never both, and passes close only where closing is the
+            next step - so a snoozed session is never offered "Snooze this session" again, which is what shipped and
+            what nobody could predict the effect of (the review's item B3). */}
+        {(actions.onSnooze || actions.onUnsnooze || actions.onClose || actions.onOpenTerminal) && (
           <div className="wnow-quick">
             {actions.onSnooze && (
-              <button
-                type="button"
-                className="wnow-btn"
-                disabled={snooze.busy}
-                onClick={() => {
-                  const hold = actions.onSnooze;
-                  if (!hold) return;
-                  void snooze.run(() => hold());
-                }}
-              >
-                {snooze.busy ? "Snoozing..." : "Snooze this session"}
+              <QuickAction
+                label="Snooze this session"
+                busyLabel="Snoozing..."
+                outcome={quick}
+                run={actions.onSnooze}
+              />
+            )}
+            {actions.onUnsnooze && (
+              <QuickAction
+                label="Unsnooze this session"
+                busyLabel="Unsnoozing..."
+                outcome={quick}
+                run={actions.onUnsnooze}
+              />
+            )}
+            {actions.onClose && (
+              <button type="button" className="wnow-btn" onClick={actions.onClose}>
+                Close this session
               </button>
             )}
             {actions.onOpenTerminal && (
@@ -319,7 +354,7 @@ export function WingmanNow({
                 Open the terminal
               </button>
             )}
-            <Outcome outcome={snooze.outcome} />
+            <Outcome outcome={quick.outcome} />
           </div>
         )}
 
@@ -342,9 +377,16 @@ function Header({ now, at, actions }: { now: WingmanNowDto; at: Date; actions: W
   const voiceControl = now.voice ?? { kind: "none" as const, label: null, afterTurnOnText: null };
   return (
     <div className="wnow-head">
+      {/* A TINTED FILL, not a thin ring, as the approved mockup draws it: at a glance the pill reads as a status
+          rather than as another outlined control. The colour is still only ever the Gateway's own hex - the tint is
+          mixed from that one value, so nothing here chooses a second colour. */}
       <span
         className="wnow-pill"
-        style={{ borderColor: now.pillColourHex ?? undefined, color: now.pillColourHex ?? undefined }}
+        style={{
+          borderColor: now.pillColourHex ?? undefined,
+          color: now.pillColourHex ?? undefined,
+          background: now.pillColourHex ? `color-mix(in srgb, ${now.pillColourHex} 15%, transparent)` : undefined,
+        }}
         title={now.pillColour ?? undefined}
       >
         <span className="wnow-dot" style={{ background: now.pillColourHex ?? undefined }} aria-hidden="true" />
@@ -357,9 +399,10 @@ function Header({ now, at, actions }: { now: WingmanNowDto; at: Date; actions: W
         </button>
       )}
       {now.when && <span className="wnow-when">{formatWhen(now.when, at)}</span>}
-      <span className="wnow-spacer" />
-      {saidOnTurnOn != null && <span className="wnow-voice-said">{saidOnTurnOn}</span>}
-      <Outcome outcome={voice.outcome} />
+      {/* THE VOICE CONTROL SITS AT THE END OF THIS LINE, beside the time - not pushed to the far edge of the page.
+          It was a bare green word a full screen width away from the words it reads out, so nothing on screen said
+          what it would play (the review's item B8). The spacer that pushed it there is gone, and it carries a
+          speaker, as the approved mockup draws it. The LABEL is still the Gateway's own, rendered verbatim. */}
       {voiceControl.kind === "play" && actions.onPlayVoice && (
         <button
           type="button"
@@ -371,11 +414,15 @@ function Header({ now, at, actions }: { now: WingmanNowDto; at: Date; actions: W
             void voice.run(() => play());
           }}
         >
+          <Speaker />
           {voiceControl.label ?? "Play"}
         </button>
       )}
       {voiceControl.kind === "preparing" && (
-        <span className="wnow-voice wnow-voice-preparing">{voiceControl.label}</span>
+        <span className="wnow-voice wnow-voice-preparing">
+          <Speaker />
+          {voiceControl.label}
+        </span>
       )}
       {voiceControl.kind === "turn-on" && actions.onTurnOnVoice && (
         <button
@@ -392,55 +439,143 @@ function Header({ now, at, actions }: { now: WingmanNowDto; at: Date; actions: W
             });
           }}
         >
+          <Speaker />
           {voiceControl.label}
         </button>
       )}
+      {saidOnTurnOn != null && <span className="wnow-voice-said">{saidOnTurnOn}</span>}
+      <Outcome outcome={voice.outcome} />
     </div>
   );
 }
 
-/**
- * The reply box. Always open wherever the Gateway sent a placeholder for it, so several asks are answered at once.
- *
- * THE OWNER'S WORDS SURVIVE A FAILURE. The box is emptied only when the send was ACCEPTED; a refusal, a server
- * error or a network drop leaves exactly what he typed in the box, with the Gateway's sentence underneath it, so the
- * next attempt is one click rather than typing it all again.
- */
-function ReplyBox({
-  placeholder,
-  onSend,
-}: {
-  placeholder?: string | null;
-  onSend?: (text: string) => Promise<WingmanNowOutcome>;
-}) {
-  const [text, setText] = useState("");
-  const send = useOutcome();
-  if (placeholder == null || !onSend) return null;
+/** The speaker on the voice control, so the button says what it does before its words are read. */
+function Speaker() {
   return (
-    <div className="wnow-reply">
-      <textarea
-        aria-label="Your reply to this session"
-        placeholder={placeholder}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-      />
-      <div className="wnow-reply-bar">
-        <button
-          type="button"
-          className="wnow-btn wnow-btn-primary"
-          disabled={text.trim().length === 0 || send.busy}
-          onClick={() => {
-            void send.run(() => onSend(text)).then((result) => {
-              if (result.accepted) setText("");
-            });
-          }}
-        >
-          {send.busy ? "Sending..." : "Send"}
-        </button>
-        <span className="wnow-when">Goes to the session as your message. Answers several asks at once.</span>
-      </div>
-      <Outcome outcome={send.outcome} />
-    </div>
+    <svg className="wnow-voice-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+      <path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z" />
+    </svg>
+  );
+}
+
+/**
+ * The ways of answering, drawn as what they are: buttons that SEND.
+ *
+ * Three things the shipped card did not say, all from the review's item B2. It said nothing about a click sending
+ * the answer straight away - and the first option on the screenshot pushed to main and deployed. It marked the
+ * recommended option with a small tag only, so the eye had no first choice. And it showed nothing at all on an
+ * option that cannot be undone.
+ *
+ * THE WARNING IS THE GATEWAY'S WORDS OR IT IS NOTHING. `riskFlag` and `riskLine` are finished sentences folded on
+ * the Gateway, and `confirmBeforeSending` is its ruling that this stop is worth an interruption; when they are absent
+ * this draws no warning and asks nothing, because a client that decided for itself which answers are dangerous would
+ * be ruling in the Gateway's place. The warning is about the STOP, not one option, which is where the Gateway puts
+ * it. Only the two words on the confirm buttons are this file's, like every other button on the screen.
+ */
+function Options({
+  options,
+  canAnswer,
+  busy,
+  riskFlag,
+  riskLine,
+  confirmBeforeSending,
+  onAnswer,
+}: {
+  options: WingmanNowOption[];
+  canAnswer: boolean;
+  busy: boolean;
+  riskFlag?: string | null;
+  riskLine?: string | null;
+  confirmBeforeSending?: boolean;
+  onAnswer?: (option: WingmanNowOption) => void;
+}) {
+  // The option waiting on a second click, by its index. Only ever an option the Gateway marked as final.
+  const [asking, setAsking] = useState<number | null>(null);
+  const live = canAnswer && onAnswer !== undefined;
+  // THE WARNING IS ABOUT THE STOP, NOT ONE OPTION - that is where the Gateway folds it, so it is drawn once above
+  // the options rather than repeated on each of them, and it is what makes a click ask before it sends.
+  const warning = confirmBeforeSending === true ? (riskFlag ?? null) : null;
+  return (
+    <>
+      {live && <p className="wnow-options-how">Click an option to send it as your answer.</p>}
+      {live && warning != null && (
+        <p className="wnow-options-final">
+          <b className="wnow-option-undo">{warning}</b>
+          {riskLine != null && riskLine !== warning && <span>{riskLine}</span>}
+        </p>
+      )}
+      <ul className="wnow-options">
+        {options.map((option) => {
+          return (
+            <li key={option.index}>
+              <button
+                type="button"
+                className={`wnow-option${option.recommended ? " wnow-option-recommended" : ""}${
+                  warning != null ? " wnow-option-final" : ""
+                }`}
+                disabled={!live || busy}
+                onClick={() => {
+                  if (!onAnswer) return;
+                  if (warning != null && asking !== option.index) {
+                    setAsking(option.index);
+                    return;
+                  }
+                  setAsking(null);
+                  onAnswer(option);
+                }}
+              >
+                <span className="wnow-option-index">{option.number}</span>
+                <span className="wnow-option-body">
+                  <span className="wnow-option-key">
+                    {option.key}
+                    {option.recommended && <b className="wnow-option-mark">RECOMMENDED</b>}
+                  </span>
+                  {option.note != null && <span className="wnow-option-note">{option.note}</span>}
+                </span>
+              </button>
+              {asking === option.index && warning != null && (
+                <div className="wnow-option-ask" role="alert">
+                  <span>{riskLine ?? warning}</span>
+                  <button
+                    type="button"
+                    className="wnow-btn wnow-btn-primary"
+                    disabled={busy}
+                    onClick={() => {
+                      setAsking(null);
+                      onAnswer?.(option);
+                    }}
+                  >
+                    Send it anyway
+                  </button>
+                  <button type="button" className="wnow-btn" onClick={() => setAsking(null)}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+/** One button in the quick-actions row. The row shares one outcome line, so whichever ran last is the one reported. */
+function QuickAction({
+  label,
+  busyLabel,
+  outcome,
+  run,
+}: {
+  label: string;
+  busyLabel: string;
+  outcome: ReturnType<typeof useOutcome>;
+  run: () => Promise<WingmanNowOutcome>;
+}) {
+  return (
+    <button type="button" className="wnow-btn" disabled={outcome.busy} onClick={() => void outcome.run(run)}>
+      {outcome.busy ? busyLabel : label}
+    </button>
   );
 }
 

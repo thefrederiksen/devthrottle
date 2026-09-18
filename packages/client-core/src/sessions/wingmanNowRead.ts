@@ -61,6 +61,11 @@ export interface WingmanNowOption {
   key: string;
   note?: string | null;
   recommended: boolean;
+  /**
+   * The number to SHOW beside the option, folded by the Gateway. `index` is the answer route's own zero-based
+   * position, an internal detail that reached the screen as "0" and "1" on a card people count from one.
+   */
+  number: number;
 }
 
 /** What the session needs from the owner: the agent's recommendation, the question it asked, and the options. */
@@ -68,6 +73,16 @@ export interface WingmanNowNeeds {
   heading: string;
   recommends?: string | null;
   question?: string | null;
+  /**
+   * The Gateway's own short warning that answering this stop costs something that cannot be taken back - and the
+   * ONLY thing that makes the view warn. A client that worked out for itself which answers are dangerous would be
+   * ruling in the Gateway's place, so there is no rule here: no sentence, no warning.
+   */
+  riskFlag?: string | null;
+  /** What the risk is, in the Gateway's plain words. Null exactly when `riskFlag` is. */
+  riskLine?: string | null;
+  /** True when the screen must ask once before it sends. Set by the Gateway, never worked out here. */
+  confirmBeforeSending?: boolean;
   /** The ways of answering, in the verdict's own order. Empty when the stop takes typed words only. */
   options: WingmanNowOption[];
 }
