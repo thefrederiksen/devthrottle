@@ -3176,3 +3176,552 @@ that they are main's and not this mission's.
 - **One thing is not this mission's and needs the Architect**: main's head is red on three tests
   (above). Until those are fixed forward on main, this pull request's .NET job stays red no matter what the
   mission does.
+
+## Release (Manager seat for the release and deploy, 17 and 18 September 2026)
+
+The seat that takes the merged mission to a released version, a deployed Gateway and a published
+skill. Every step, version, tag, run identifier and outcome is recorded here as it happened.
+
+### What was found before anything was cut
+
+- **v2.5.0 was never tagged.** Its version bump and release notes merged to `main` on the morning of
+  17 September 2026 as `fc323b8b`, but no `v2.5.0` tag was ever pushed, no release workflow ever ran
+  for it, and `gh release list` still showed **v2.4.0** as the latest release. The seat's instruction
+  said v2.5.0 had shipped that day; it had not.
+  - **Decision taken, and why.** The release still gets the next number, **v2.6.0**, exactly as
+    instructed - nothing about the discovery changes what this release is called. But a user updating
+    from the last PUBLISHED release, v2.4.0, receives the cc-secrets toolbelt and the Linux app menu
+    and updater as part of v2.6.0, and a release page that does not mention them is a public,
+    permanent record that is wrong about what shipped. So those entries are folded into the v2.6.0
+    notes. `docs/public/release-notes/v2.5.0.md` is untouched and still stands as its own record, so
+    v2.5.0 can still be tagged separately at `fc323b8b` if the owner wants that page to exist.
+  - Nothing here is foreclosed by tagging v2.6.0: `Directory.Build.props` says 2.5.0 at `fc323b8b`,
+    so the release workflow's tag-matches-version check would still pass for a v2.5.0 tag cut there.
+- **The hosted Gateway must be deployed BEFORE the tag.** `src/CcDirector.Gateway/Streaming/` changed
+  between v2.4.0 and this release (`DirectorHub.cs`, `PushedSessionStore.cs`,
+  `TurnPushCapabilityRegistry.cs`). The release-manager run-book's rule is that a release touching
+  that folder deploys the hosted Gateway first, or every Director that auto-updates calls something
+  the live Gateway has never heard of - the v1.9.9 failure, issues 2457 and 2459. The seat's
+  instruction allowed "main at the release commit" as the deploy reference, which is what the deploy
+  workflow accepts, so the deploy is ordered before the tag.
+- **The deploy workflow only accepts `refs/heads/main`.** It refuses any other reference in seconds,
+  before it touches anything, so the tag cannot be used as the deploy reference at all.
+- **The last deploy attempt had failed.** Run `35270411807` (17 September, 20:22, at `e38217bc`)
+  failed its outage gate: measured from its own probe log, production served 503 for **20.2 seconds**
+  with two short connection failures either side, against a **10 second** budget. The code landed and
+  production stayed healthy on `e38217b` afterwards, so this was a report of a slow swap, not a broken
+  container. Run `35271363009` right after it was cancelled by the workflow's own serialisation.
+- **The installed toolbelt on this machine predates the mission.** `cc-devthrottle message inbox` does
+  not exist in it (this Mac's Director is 2.3.0), so the deploy is verified by running the command from
+  the repository source against the live Gateway rather than from the installed tool.
+
+### Main was red, and was fixed forward first
+
+The push of the mission's own merge commit `ddc78ac4` turned `main` red: `Tool contracts (Python)
+(windows-latest, floor)` failed `test_reply_help_says_who_may_answer_and_that_nothing_waits`. Every
+other leg of that job passed, and the same job passed on the previous commit on main. A red main
+blocks the release twice over - the deploy workflow refuses a commit whose checks have FAILED, and a
+release must not be tagged on a red main, which is the one place "fix it forward" is unavailable.
+
+**Cause.** The test asserted its sentences against the RENDERED help. The help is drawn in a bordered
+table, so a sentence that wraps inside an option's column comes back with the next row's border
+characters in the middle of it: at a console width of 100, "1 to 1440, 60 when omitted" reads back as
+"1 to | | 1440, 60 when omitted". Nothing was truncated at that width and no help text was missing.
+Which width bites depends only on where the renderer wraps, which is why exactly one leg of the matrix
+went red.
+
+**Fix.** Pull request **3034**, branch `fix/reply-help-test-border`. The test now reads the words Typer
+registered - the command's own help, and the help of the specific option that must carry each sentence
+- and asserts the rendering only for what rendering decides: that both pages come up and offer the
+flags.
+
+**Two inspections, and the first one changed the fix.** The first attempt deleted "|" from the whole
+page before matching, which is what the other help tests in that file do. Inspection 13 (Codex, a
+different agent family, `inspection-13.md`) returned FAIL with two findings, and both were accepted:
+that whole-page deletion accepts "Nothing | waits for it" as the sentence and would let a sentence
+that MOVED from the option to the paragraph above the table pass unnoticed; and the claim written into
+the comment that it held at "any console width" was disproved by rendering at width 40 at the declared
+floor, where the option label itself is shortened to "--reply..." and a whole-page match still passed.
+The approach was replaced rather than patched, and the false claim went with it. Inspection 14 was
+seated fresh on the replacement.
+
+**Proof, at the declared floor (typer 0.16.1, click 8.2.1, rich 13.0.0) on the Mac mini, setting
+COLUMNS:**
+- Before: red at 70 and 100, green at 80, 120 and 200 - the width dependence reproduced exactly.
+- After: green at 40, 60, 70, 80, 90, 100, 120 and 200, and at width 40 with `TERM=dumb`.
+- Watched failing on purpose, all at width 100: the sentence deleted from `--reply-wanted`; the
+  sentence MOVED from that option to the paragraph above the table, which both the original test and
+  the first fix would have passed; and the `--reply-by` phrase reworded. All three red; restored,
+  green.
+- Whole `cc-devthrottle` suite at the floor versions: 3271 passed at width 100, 3271 at width 120.
+
+**NOT proven.** The pull request's floor leg runs on Ubuntu only, so the Windows floor leg that went
+red does not run until the change is on main. The evidence above is the reproduction and the fix at
+those exact versions, not that leg.
+
+**Found and deliberately not fixed here.** At a width of 70,
+`test_skill_ops.py::TestList::test_list_shows_one_row_per_skill_with_its_state` squeezes a column and
+fails. It is untouched by `ddc78ac4` and no continuous integration leg runs that narrow, so it was left
+alone rather than folded into a release fix.
+
+### The director-restart skill draft did NOT match the merged command
+
+Pulled draft v3 and checked it against `cc-devthrottle director restore` as merged
+(`tools/cc-devthrottle/src/cli.py`, `machine_ops.py`). Two gaps, both fixed in the draft before any
+publish:
+
+- **`--force-seat` was missing entirely.** A seat whose start timed out on the command's side is
+  recorded as MAY have landed and is never started again on its own; without `--force-seat` an agent
+  reading the skill would be stuck at a refusal the skill does not explain. The draft now says to check
+  the session list first and never to reach for the flag before looking.
+- **The exit codes were wrong by omission.** The draft said only "it exits 0 when every seat came
+  back". The command also exits 1 for a failed or still-pending seat and **3** for `--wait-seconds 0`,
+  which means accepted and not waited on - nothing is known to have come back. All three are now
+  written out.
+- One further wording correction: the index write-back step said to SET each seat's
+  `restoredSessionId`. The Director writes that onto the Gateway workspace itself, so the step now says
+  to copy it out of the workspace, not to invent it.
+
+Pushed as a draft (`skill push`). **Not published yet, on purpose:** the command it teaches exists only
+on main and in no installed toolbelt, so publishing before the release would hand every agent in the
+fleet a command their tool does not have.
+
+### The main fix, as it landed
+
+Three inspections, all Codex, each seated fresh and each given the current head rather than the story so
+far. Two of the three found something real, and both times the fix was REPLACED rather than patched.
+
+| Round | File | Verdict | What it found |
+|---|---|---|---|
+| 13 | `inspection-13.md` | FAIL, 2 | Deleting "\|" from the whole page accepts "Nothing \| waits for it" as the sentence, and lets a sentence that MOVED to the paragraph above the table pass. The comment's claim that it held at "any console width" was disproved at width 40, where the renderer shortens the option label to "--reply..." and a whole-page match still passes. |
+| 14 | `inspection-14.md` | FAIL, 2 | The replacement kept two flag-name substring checks against the rendered page. Those fail at widths 30 and 20 for no reason but the width - the very fault being fixed, one width further down. Also: nothing proves a reader at a narrow width can SEE the sentence in the option table. |
+| 15 | `inspection-15.md` | PASS, 0 | Both of 14's findings closed, verified at widths 20, 30, 40 and 100 at the exact floor versions; 3271 passed in the whole tool suite; no remaining mechanism by which the Windows floor leg could go red from this change. |
+
+Inspection 14's first finding was accepted as a stated limit rather than fixed: the renderer abbreviates
+at narrow widths and no assertion changes that, so it is written into the test as a gap. Inspection 15
+noticed the helper's docstring still claimed the rendering "offers the flags" after the assertions had
+stopped saying so; that sentence was corrected before the merge, because a claim the code no longer
+makes is exactly what the two failed rounds were about.
+
+**Merged as `6af5f1de` (pull request 3034), 18 September 2026.**
+
+**The proof that only main could give.** The floor leg runs on Ubuntu alone for a pull request, so the
+Windows floor leg that went red could not run until the change was on main. On the push of `6af5f1de`
+it ran and **passed**, along with every other leg of that job (run `35291200629`). That is the only
+evidence that closes the original red, and it did not exist until after the merge.
+
+**Noted in passing:** the earlier main run `35288524962` on `ddc78ac4` was CANCELLED part-way by the
+newest-commit-only rule (pull request 2991) when `6af5f1de` landed, so `ddc78ac4` has no completed .NET
+result of its own. Nothing is lost - `6af5f1de` contains it and is the commit that matters - but anyone
+reading the run list later should not mistake that cancellation for a failure.
+
+---
+
+## Post-merge fix (Manager seat for the post-merge fix, 17 September 2026)
+
+The independent review of the merged head (`inspection-12.md`) failed the merge on one high finding in code
+this mission added. The owner had already merged, so it was taken as follow-up work on its own branch rather
+than as a reopening of the mission.
+
+### Finding 1, fixed: a Director identifier belongs to the credential that first registered it
+
+**What was wrong.** The Gateway learns which Director is on a connection from the Hello that opens it, and the
+Hello's Director identifier is written by the caller. The registry recorded whichever credential said Hello
+LAST, so within one account any device key could say Hello under another Director's identifier and take that
+binding over. The binding is exactly what the restore-mark route consults to decide whether its caller really
+is the Director it names, so the guard added in slice 6 could be walked around: the review's own probe had a
+second workstation key read the real Director's start token off the workspace document, say Hello as that
+Director, and then write every restore mark under its name - naming an unrelated live session as the restored
+one and releasing the restore lease.
+
+**What was changed.** `DirectorHub.Hello` refuses a Hello naming an identifier this account has already bound
+to a DIFFERENT credential, before it writes any connection state, and closes the connection with the reason in
+the Gateway log. `DirectorRegistry.RegisterFromStream` refuses the same case under the liveness gate and
+throws `DirectorIdBoundToAnotherCredentialException`, so the rule holds if a future caller reaches the
+registry another way, and two Hellos racing cannot both pass. The same credential saying Hello again re-binds
+exactly as before. A credential-less registration no longer clears a binding - that clearing was itself a way
+to unbind an identifier and then claim it in two steps.
+
+**A binding ends only when the registry entry is removed.** That is a goodbye, the instance file going away,
+or the stale sweep once the Director stops refreshing (the eviction horizon, a day by default). So a Director
+whose device key was legitimately re-enrolled takes its own identifier back once the OLD registration is gone,
+with nothing to reset by hand; the refusal line in the Gateway log says so and names `cc-devthrottle director
+list`, which shows whether the old registration is still there. A machine that cannot wait comes back under a
+fresh identifier, because that identifier is a file on the machine itself.
+
+**Watched failing.** With the refusal removed and everything else left in place:
+
+- the route test fails on the review's exact symptom - the forged `restored` mark answered
+  `Expected: Forbidden / Actual: OK`;
+- `RegisterFromStream_ASecondKeyOfTheAccountNamingABoundId_IsRefusedAndTheBindingDoesNotMove` fails with
+  "Assert.Throws() Failure: No exception was thrown";
+- `RegisterFromStream_ACredentiallessHello_DoesNotClearTheBinding` fails on the cleared binding.
+
+With the refusal in place all three pass. One new test does NOT guard the fix and is recorded as such:
+`IsBoundToAnotherCredential_OnlyAnotherKeyOfTheSameAccountAndTheSameId_IsTrue` covers the query the hub asks
+and stays green with the refusal removed.
+
+**The test the review named as codifying the hole was rewritten.**
+`DirectorRegistryCredentialBindingTests` had asserted the take-over as intended behaviour; it now asserts the
+refusal, alongside the reconnect that must keep working, one machine key carrying several identifiers, the
+same identifier in two accounts, a credential-less Hello leaving the binding alone, and the removal that ends
+a binding.
+
+**The route proof repeats the review's probe.**
+`WorkspaceRestoreRouteTests.A_second_workstation_key_cannot_take_the_Directors_id_by_saying_Hello_as_it`, on
+the suite's own booted hosted Gateway with two real workstation device keys: the second key reads the start
+token back over HTTP (it is an ordinary field of the document, which is why the token is not what stops this),
+its Hello is refused and its connection closed, its forged `restored` and `finished` marks are 403, the lease
+still names the real Director, and the real Director then records its own restore and releases the lease. The
+account's browser key is refused in the same test, which is finding 2's shape.
+`The_Directors_own_key_may_say_Hello_again_under_its_own_id` is the control: an ordinary reconnect is not
+collateral damage.
+
+**Landed as pull request 3041**, branch `fix/director-id-belongs-to-its-first-credential`, rebased onto
+`89dcd291`. **All checks green** (run `35293203920`): the .NET build and test job passed in 1 hour 34 minutes,
+"What changed" and "CI result" passed, and the web and Python jobs skipped because nothing they cover was
+touched. NOT merged - the Architect merges it.
+
+### Findings 2 and 3, filed rather than fixed here
+
+- **Issue #3037** - a browser or phone key of the account could take a Director's identity and lock the real
+  Director out of recording its own restore. The fix above refuses that Hello too, whatever the device type,
+  so the issue is the record to verify and close against this change. What it does NOT add is a device-type
+  gate on the Director connection itself.
+- **Issue #3038** - the shipped Fleet Manager workflow still teaches sending keys, which the product refuses,
+  and contradicts the skill the same session reads. Not touched here: it is a built-in document whose
+  correction reaches the fleet only on a Gateway deploy, and the Architect's ruling named the skill.
+
+Findings 4 to 9 were left as the review recorded them.
+
+### Test totals (Mac mini, this branch)
+
+Gateway unit project, the whole thing: **5,764 passed, 7 failed, 8 skipped**. The seven fail the same way at
+the merged head without this change - they assume Windows (`cmd.exe`, path links, rename semantics) - checked
+by running exactly those five classes with the change set aside.
+
+Gateway route project, the filters the review used (`DirectorRegistry*`, `DirectorHub*`, `Workspace*`,
+`SessionKeyGuard*`, `Tunnel*`, `DirectorStream*`): **116 passed, 3 failed**. The three are
+`TunnelRosterPushReadProofTests` (a 404 on the `exes` list) and they fail the same way at the merged head
+without this change, checked the same way. `WorkspaceRestoreRouteTests` on its own: **19 passed, 0 failed**.
+
+The filters on the unit project (`DirectorRegistry*`, `DirectorHub*`, `Workspace*`, `SessionKeyGuard*`,
+`DirectorRestore*`): **483 passed, 0 failed**.
+
+Gateway route project, the whole thing, run afterwards (59 minutes 23 seconds): **2,568 passed, 16 failed, 52
+skipped**. All sixteen fail identically at the merged base with this change removed - checked by running
+exactly those seven classes both ways - so none of them is this change. They are
+`GatewayTestSuiteLockTests` (2), `FleetSpawnMissionAttachTests` (2), `FleetSpawnOriginTests` (4),
+`TunnelRosterPushReadProofTests` (3), `WorkflowSeatTests` (2), `HostedProcessControlDenyTests` (2) and
+`ContextLessRouteCensusTests` (1). Note for anyone reading the run: the earlier partial numbers in the pull
+request were taken while other filtered runs of the same machine-locked suite were in flight, which is its own
+way of getting a wrong answer - the numbers above are from a run with nothing else using the lock.
+
+### What is NOT proven
+
+- **Nothing ran live.** No Director, no agent, no phone, no hosted Gateway. The route proof is an in-process
+  hosted Gateway with fake tunnel Directors on real device keys, which is what the review used.
+- **The local gate script was not run** - there is no PowerShell on this machine - so the two installer suites
+  did not run, and nothing here was gated by the script the repository's rule names. Windows and Linux were
+  not run at all; the pull request's own checks are the only evidence from those.
+- **The refused Director is not told why over the connection.** It sees the connection close; the reason is in
+  the GATEWAY log only. Such a Director will reconnect and be refused repeatedly, writing a line each time.
+- **The shared machine token path is untouched and this rule still does nothing there.** Every caller on that
+  token produces the same credential string, so no Hello on it can be refused. That is the review's finding 4
+  and it was not filed.
+- **No test covers the race** between the hub's question and the registry's write. The registry's refusal
+  under the gate is reasoned from the code, not proven.
+
+### The release check run went red on a flaky test, and that is a defect of its own
+
+The v2.6.0 release pull request (**3033**) failed its .NET check after 1 hour 16 minutes (run
+`35288911706`) on **one test out of 12,562**:
+`GatewayStreamRegistryTests.Register_WhenStreamUpNeverArrives_TearsTheSinkDownAfterTheTimeout`, Windows,
+Release.
+
+**It is not a regression, and it is not this release's.** `GatewayStreamRegistry.cs` was last changed in
+July 2026 and its test file in pull request 2407; nothing in v2.6.0 touches either. The previous red on
+main, at `e38217bc`, was three entirely DIFFERENT tests (a Wingman content rule, a turn verdict, a Fleet
+Manager event). A different test failing each run is the signature of timing flakiness under load, not
+one stable fault.
+
+**Why a flake is a release problem and not an annoyance.** The hosted Gateway deploy refuses any commit
+with a check that COMPLETED and did not succeed - and "cancelled" counts, which matters here because
+main moves often enough that the newest-commit-only rule cancels runs part-way. So a flaky red blocks
+the release twice: it blocks the merge, and it would refuse the deploy afterwards. It cannot be waved
+through, because a release is the one place "fix it forward" is unavailable.
+
+#### Fix one: the late assertion (pull request 3048, merged `cbf7be87`)
+
+The test built a registry with a 100 millisecond open timeout, slept 400 milliseconds, and asserted the
+teardown had happened. That reads as a four-times margin and is not one: it asserts that a timer callback
+got a thread within 300 milliseconds while the runner executes thousands of tests at once. Raising the
+sleep buys a bigger number and keeps the defect.
+
+It now waits for the teardown and fails with a named message after ten seconds. Watched failing on
+purpose with the open timeout set to an hour so the teardown can never fire: fails in 10 seconds with
+"Timed out after 10 seconds waiting until the open timeout tore the sink down". Gateway unit suite on the
+Mac: 5763 passed, 7 failed - exactly this machine's recorded baseline.
+
+Inspection 16 (`inspection-16.md`) verified this INDEPENDENTLY rather than reading the claim: it removed
+the `Teardown` call from `GatewayStreamRegistry.TimeoutUnclaimed` itself, watched the test fail, restored
+it, and watched it pass. It also probed the helper directly - a condition true on the third call returns
+after exactly three, and a condition that throws propagates the same exception object.
+
+#### Fix two: the early assertion, which the review found (pull request 3055)
+
+I asked inspection 16 for **other tests of the same shape**, which was the most valuable question
+available, and it returned one: `WingmanVoiceServiceTests.ASpeechProvidersRetryAfter_IsHonoured_When
+ItAsksForLongerThanTheRung`. It books a re-attempt for the provider's 800 millisecond Retry-After rather
+than the 20 millisecond rung, then slept 300 milliseconds and asserted the second call had NOT happened
+yet - the same defect pointing the other way. On a loaded runner the test's own continuation arrives
+after 800 milliseconds, the re-attempt has correctly run, and correct behaviour fails. The reviewer
+reproduced it by changing only that delay to 1000 milliseconds: "Expected: 1; Actual: 2".
+
+The handler now stamps a monotonic timestamp inside itself on every call, and the test waits for the
+second call and asserts the GAP is at least 700 milliseconds - 35 times the rung. That is the contract
+itself, and no scheduling delay can move it. Watched failing on purpose with the Retry-After set to the
+rung: "the re-attempt came 24ms after the first call, so the 20ms rung was used and the provider's 800ms
+Retry-After was not honoured". Watched surviving the race: with the reviewer's 1000 millisecond delay
+inserted, it passes. Gateway unit suite: 6121 passed, 7 failed - the same baseline.
+
+**The general lesson, for whoever meets this next.** Both defects are one habit: sleeping a fixed
+interval and then asserting something about a callback. Late-assertions ("it has happened by now") and
+early-assertions ("it has not happened yet") fail in opposite directions, and both are really assertions
+about the test runner's scheduling rather than about the product. The fix in each case is to take the
+clock out of the assertion - wait for the event, or measure when it arrived from inside the thing that
+produced it - never to enlarge the sleep.
+
+## Architect note, 18 September 2026, 02:00 - the release stalled, and the Mac Director wobbled
+
+- Pull request 3033 (v2.6.0) failed its .NET check on five tests: three pin sentences of the built-in
+  Fleet Manager conduct that this mission reworded (commit 29f50ca2) and main's Fleet Manager work
+  tests; two look like flakes (a hand-over race, a paste pacing test on the terminal project). The
+  release seat had gone idle; it is replaced by a fresh seat ("release take 2") that merges main
+  again, fixes the three conduct tests so both main's rule and the queue wording hold, checks the two
+  flakes against main, and then merges, deploys, tags and publishes.
+- Another session deployed main to the hosted Gateway at 01:42 (commit 9b0a2bf3, which includes this
+  mission and the binding fix 7b6afbdc). This Mac's Director (version 2.1.0, older than the fleet)
+  spent several minutes in "Reconnecting" with 400s on its pushes before its stream came back; the
+  Gateway showed it offline, then "wobbly". Every fleet command from this session failed meanwhile.
+  Worth a look by whoever owns the streaming protocol: an old Director against a new Gateway should
+  degrade, not drop. The Windows Director (2.5.0) stayed online throughout.
+- The Director log showed the Gateway ringing this Architect's session (a doorbell for a message
+  someone queued to it) and the 2.1.0 Director answering 403: an old Director does not know the
+  `ring` verb, so the message waits until the Director updates. Expected; the row line shows it.
+
+---
+
+## Release take 2 (Manager seat for the release, 18 September 2026, Windows machine SOREN_NORTH)
+
+A fresh seat on Windows, seated after the previous release seat went idle. Worktree
+`D:\ReposFred\devthrottle-release-v260`, cut from `origin/release/v2.6.0`.
+
+### The five failing tests, and what each one turned out to be
+
+Run `35305235981`, job `105476047403`, on pull request 3033 at 03:59 on 18 September. Five tests out
+of the .NET check failed. They are two entirely different things and were treated differently.
+
+**Three of them are MAIN's own defect, deterministic, and were fixed here.**
+
+- `CcDirector.Gateway.Tests.SkillStoreTests.Fleet_manager_skill_teaches_one_line_of_advice_when_filing_and_how_to_set_it`
+- `CcDirector.Gateway.Tests.WorkflowStoreTests.Fleet_manager_conduct_acts_on_an_answered_card_event_and_starts_on_a_marked_event`
+- `CcDirector.Gateway.Tests.WorkflowStoreTests.Fleet_manager_conduct_writes_its_advice_when_it_files_and_reads_the_owners_answers_in_the_digest`
+
+**They have nothing to do with this mission's rewording.** After merging `origin/main` again, the
+built-in Fleet Manager conduct on the release branch is byte-for-byte identical to main's
+(`git diff origin/main -- src/CcDirector.Gateway/Workflows/Content/fleet-manager.instructions.md`
+is empty), and so is the skill. Every sentence the three tests pin IS in the shipped body. What
+fails is the MATCH, not the text: each of the three assertions pins a sentence that spans a wrapped
+line, written with a bare line feed, and matches it against the raw embedded body. A Windows
+checkout embeds that body with carriage returns, so the substring can never be found. The failure
+message says so itself - the body it printed begins `"# How the Fleet Manager works\r\n\r\nYou are "`.
+
+The same three tests failed the same way on the pull request that ADDED them, 3049 ("Fleet Manager
+steps 5 to 9"), job `105455912573`, and that pull request was merged with its .NET check red. So
+main has carried three permanently red tests since `1990f3912`. The release inherited them.
+
+Both test files already hold a `Normalize` helper and two sibling tests that use it, with a comment
+saying why - "a Windows checkout embeds the body with CRLF". The fix is that helper, applied to
+these three. **No pinned sentence was changed, added or retired**, so main's rule and this mission's
+queue wording both stand exactly as they are. Commit `f03de943c` on `release/v2.6.0`.
+
+**Watched failing, on this machine, at the merged head:**
+- With the fix: `SkillStoreTests` + `WorkflowStoreTests` - 68 passed, 0 failed.
+- With the two test files restored to the pre-fix commit and rebuilt: **3 failed, 65 passed**, and
+  the three are exactly the three named above.
+- Restored and rebuilt again: 68 passed, 0 failed, working tree clean at the commit.
+
+**The other two are main's flakes, not this release's.**
+
+- `CcDirector.Gateway.Tests.SessionOwnerExecutorTests.HandOver_TwoHandOversAtOnce_ExactlyOneIsMade`
+  - `Assert.True() Failure` at `SessionOwnerExecutorTests.cs:327`, which is
+    `Assert.True(bothChecked.SignalAndWait(TimeSpan.FromSeconds(10)))` - a ten second barrier between
+    two racing hand-overs. It reports that the second request did not reach the barrier within ten
+    seconds on a runner executing thousands of tests at once. It is an assertion about the runner's
+    scheduling, not about the product.
+- `CcDirector.Terminal.Avalonia.Tests.PasteOffUiThreadTests.Production_pacing_does_not_stall_while_ui_thread_is_blocked`
+  - `paste should finish well before the 2500ms UI-thread block; took 7138ms`. Also a wall-clock
+    assertion under load.
+
+Both are the habit the handoff already names two sections above: a fixed interval and then an
+assertion about a callback. **Neither can be caused by this branch.** After the merge, the release
+branch differs from `origin/main` by exactly three things - one line of `Directory.Build.props`, the
+release notes file, and the three normalizations above:
+`git diff --stat origin/main HEAD` reports `Directory.Build.props | 2 +-` and
+`docs/public/release-notes/v2.6.0.md | 178 ++++++`. Neither flaky test's code, nor anything it
+exercises, is in that diff.
+
+Both pass on this machine at the merged head, unloaded: `SessionOwnerExecutorTests` 19 passed, 0
+failed; the whole `CcDirector.Terminal.Avalonia.Tests` project 25 passed, 0 failed. They were NOT
+changed. If either fails again on the next check run, the failed job is re-run rather than patched.
+
+### The local gate
+
+`.\scripts\test-local.ps1` at the merged head, all eight projects, every one `outcome=Completed`:
+
+| Project | Result |
+|---|---|
+| CcDirector.Core.UnitTests | 638 passed |
+| CcDirector.Avalonia.Tests | 550 passed |
+| CcDirector.Engine.Tests | 63 passed |
+| CcDirector.HostedAgent.Tests | 88 passed |
+| CcDirector.Launcher.Tests | 197 passed |
+| CcDirector.Terminal.Avalonia.Tests | 25 passed |
+| cc-director-setup.Tests | 25 passed |
+| cc-director-setup-engine.Tests | 609 passed |
+
+The run printed its COVERAGE GAP line naming the three parked suites - `CcDirector.Core.Tests`,
+`CcDirector.Gateway.Tests`, `CcDirector.Gateway.UnitTests`. The release gate
+(`-Parked -Configuration Release`) is run on merged main at the commit about to be tagged, which is
+where that gap is closed; it is recorded below.
+
+### The merge with main
+
+`git merge origin/main` into `release/v2.6.0` - clean, no conflicts, commit `a74278558`. Main had
+moved by 28 commits since the branch was cut (through `9b0a2bf37`). The version bump (2.6.0 in
+`Directory.Build.props`) and `docs/public/release-notes/v2.6.0.md` both survived the merge intact.
+
+Pushed once: `d3209d10b..f03de943c`.
+
+### The three conduct tests fail on MAIN too - proof, with the run
+
+While pull request 3033's re-run was in flight, main's own check run at `9b0a2bf37` finished and
+**failed on exactly the same three tests**: run `35311851535`, job `105495432956`. That is the
+decisive evidence that they are main's defect and not this release's, and it is why the fix belongs
+on main rather than being worked around on the branch.
+
+Three runs, three different rotating flakes, the same three deterministic failures every time:
+
+| Run | Commit / branch | Deterministic | Flake that run |
+|---|---|---|---|
+| `35298457732` (pull request 3049) | the commit that ADDED the three tests | the same 3 | `WorkspaceStoreTests.A_workspace_survives_a_new_store_over_the_same_database` |
+| `35305235981` (pull request 3033, first) | `d3209d10b` | the same 3 | `SessionOwnerExecutorTests.HandOver_TwoHandOversAtOnce_ExactlyOneIsMade` and `PasteOffUiThreadTests.Production_pacing_does_not_stall_while_ui_thread_is_blocked` |
+| `35311851535` (main) | `9b0a2bf37` | the same 3 | `Wingman.TurnVerdictServiceTests.HeldSession_ResolvedThroughTheRealPushStoreIngest_...` |
+
+A different test failing each run, and the same three failing every run, is the signature this
+handoff already describes two sections above. The two flakes the seat was asked about are therefore
+main's, not the release's, and neither was touched.
+
+### The check run went green
+
+Run `35313572081`, job `105500423411`, **Build & Test (.NET) passed in 1 hour 37 minutes 51 seconds**.
+"What changed" and "CI result" passed; the web and Python jobs skipped because nothing they cover was
+touched. **No flake bit on this run** - the failed job did not need re-running.
+
+### Merged
+
+`gh pr merge 3033 --squash --delete-branch` - merged at 07:46:15 on 18 September 2026 as
+**`dc3a6fa02`** on `main`. The branch was deleted. (The command reported a git error afterwards
+because it was run from a worktree whose repository already has `main` checked out elsewhere; the
+merge itself had completed, verified with `gh pr view 3033` and `git log origin/main`.)
+
+`Directory.Build.props` on main says `2.6.0` and `docs/public/release-notes/v2.6.0.md` is present,
+which are the two things the release workflow checks before it builds anything.
+
+### The hosted Gateway deploy - SHIPPED, and it cost 22.7 seconds
+
+Started with the `deploy-hosted-gateway` skill, the only permitted path:
+`gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main`.
+
+**Run `35321080963`, at `dc3a6fa0`.**
+
+- The deploy job, "Build image and deploy via warmed slot swap", **succeeded**. Gap across the swap
+  itself: **0.0 seconds**.
+- Production is live on the new build and healthy:
+  `{"status":"ok","version":"2.6.0","commit":"dc3a6fa","subsystems":{"statistics":"available"}}`,
+  HTTP 200.
+- The fleet came back: `cc-devthrottle director list` - 2 Directors, both online (DevThrottle_1 on
+  SOREN_NORTH, devlinux).
+- **The run is RED, and this is the part the owner watches.** The ten-minute post-swap watch measured
+  `Longest unavailable stretch: 22.7s   Total unavailable: 25.0s`, against a **10 second** budget.
+  `external_outage_seconds` is **22.7**.
+
+**What that means and does not mean.** The deploy SHIPPED - the red is the outage report, not a
+rollback signal, and the workflow says so in its own words. But 22.7 seconds is well outside the six
+or seven seconds the skill records as a healthy deploy, and more than twice the budget. It is the
+same shape as the previous seat's attempt (run `35270411807`, 20.2 seconds on 17 September) and of
+the two incidents the skill describes, where a second container failed its own startup and the
+platform stopped the SITE, tearing down the healthy container beside it. Two deploys in two days at
+roughly 20 seconds is a pattern, not a blip, and it is worth the owner's attention.
+
+### The local release gate was STOPPED part-way, and not by a failure
+
+`.\scripts\test-local.ps1 -Parked -Configuration Release`, run in the worktree at the exact commit
+about to be tagged (`dc3a6fa02`). It built its own throwaway PostgreSQL, started all eleven projects,
+and **the eight default projects all passed**:
+
+| Project | Result |
+|---|---|
+| CcDirector.Core.UnitTests | 638 passed |
+| CcDirector.Avalonia.Tests | 550 passed |
+| CcDirector.Engine.Tests | 63 passed |
+| CcDirector.HostedAgent.Tests | 88 passed |
+| CcDirector.Launcher.Tests | 197 passed |
+| CcDirector.Terminal.Avalonia.Tests | 25 passed |
+| cc-director-setup.Tests | 25 passed |
+| cc-director-setup-engine.Tests | 609 passed |
+
+**The three PARKED suites - `CcDirector.Gateway.Tests`, `CcDirector.Core.Tests` and
+`CcDirector.Gateway.UnitTests` - produced NO result.** The agent harness stopped the run while they
+were still executing, because the machine was critically low on memory. That is not a test failure
+and says nothing about those suites; it also means **this run is not the release gate**, and must not
+be read as one. The harness's own rule is that such a run is not restarted without being asked, so it
+was not restarted.
+
+The throwaway PostgreSQL the run had built was left behind when the run was stopped, so its teardown
+never ran. It was removed by hand - `docker rm -f -v cc-pg-stats-proof-run2b527e3a` - because a stale
+rig is exactly what makes a later run's Postgres proofs report SKIPPED, which is indistinguishable
+from a pass in every report we produce. `docker ps -a --filter label=cc-test-local-rig` is now empty.
+
+**What stands in its place, and why it is not weaker.** Main's own check run at `dc3a6fa02` - the
+exact commit being tagged - runs every one of those suites, in **Release**, including all three parked
+ones, plus the web and Python jobs the local gate never runs at all. Its verdict is recorded below and
+the tag waits for it.
+
+**What is genuinely NOT covered locally:** `CcDirector.Core.Tests` and `CcDirector.Gateway.Tests` were
+not run on this machine at all. `CcDirector.Gateway.UnitTests` was run here in Release earlier on the
+identical tree - 6,266 passed, 9 failed - and all nine failures were `HostedSchemaRefusesAnUnownedRowTests`,
+which are the PostgreSQL-backed proofs failing only because that run was a bare `dotnet test` with no
+rig behind it. That is a partial result and is recorded as one.
+
+## Release, as it ended (Architect, 18 September 2026, 05:30)
+
+- Pull request 3033 (release: v2.6.0) merged at 07:46 UTC on 18 September after four check runs; the
+  second release seat, on the Windows machine, fixed the three Fleet Manager conduct tests and dealt
+  with the two flakes (its own record of that did not reach this branch; the seat sat in one turn for
+  an hour after the tag and was stopped).
+- Tag `v2.6.0` at `dc3a6fa0`. Release workflow run 35323423705: success. Release page:
+  https://github.com/thefrederiksen/devthrottle/releases/tag/v2.6.0 . Release notes:
+  `docs/public/release-notes/v2.6.0.md` (v2.5.0's never-published entries folded in, as the first
+  seat decided; v2.5.0 tagged at `fc323b8b` for its own page).
+- Hosted Gateway deploys: run 35321080963 (main at `dc3a6fa0`, the release commit) and run
+  35323261968 (main at `45783fbf`): in both, "Build image and deploy via warmed slot swap" succeeded
+  and only "Watch production past the swap" failed, the slow-swap outage gate the first seat had
+  already seen; production served the new commit and answered throughout. No rollback was run.
+- The director-restart skill draft v3 published by the Architect after reading it against the merged
+  `director restore` command; its one remaining mention of `--controlled-by <the owner's id>` is a
+  dated "used to be" sentence.
+- The Mac Director (2.1.0) flapped offline against the redeployed Gateway all night: issue 3058.
+- Status: the mission is on main (`ddc78ac4`), the post-merge fix is on main (`7b6afbdc`), the
+  release is out. What remains is landing this record on main and marking the Mission finished.
