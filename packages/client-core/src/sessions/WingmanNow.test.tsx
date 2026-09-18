@@ -32,6 +32,13 @@ const STOPPED = "2026-09-17T11:12:00Z";
 const accepts = (message = "") => vi.fn(async () => ({ accepted: true, message }));
 const refuses = (message: string) => vi.fn(async () => ({ accepted: false, message }));
 
+// THE SHELL'S MESSAGE BOX, stood in for. The real one is the Cockpit's composer, with Send, Speak, Queue and Attach,
+// and it is proven where it is wired (apps/cockpit wingmanReplyBox.test.tsx). This view is responsible for one thing
+// about it: that it is drawn exactly where the Gateway offered a placeholder, carrying the Gateway's own words.
+const replyBox = (placeholder: string) => (
+  <textarea aria-label="Your reply to this session" placeholder={placeholder} readOnly />
+);
+
 function base(overrides: Partial<WingmanNowDto> = {}): WingmanNowDto {
   return {
     sessionId: "11111111-1111-1111-1111-111111111111",
@@ -154,33 +161,20 @@ describe("Now - the live stop", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("sends the owner's own words to the session and clears the box once the send is accepted", async () => {
-    const onSendReply = accepts("Sent to the session.");
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onSendReply }} />);
+  it("draws the shell's one message box inside the card, with the Gateway's words in it", () => {
+    const seen = vi.fn(replyBox);
+    render(<WingmanNow now={NEEDS_YOU} at={AT} replyBox={seen} />);
+
     const box = screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement;
     expect(box.placeholder).toBe(NEEDS_YOU.replyPlaceholder);
-
-    const send = screen.getByText("Send") as HTMLButtonElement;
-    expect(send.disabled).toBe(true);
-    fireEvent.change(box, { target: { value: "allow the merge" } });
-    fireEvent.click(send);
-    expect(onSendReply).toHaveBeenCalledWith("allow the merge");
-    await waitFor(() => expect(box.value).toBe(""));
-    expect(screen.getByText("Sent to the session.")).toBeTruthy();
+    expect(seen).toHaveBeenCalledWith(NEEDS_YOU.replyPlaceholder);
+    // Inside the card, beside the question - not a second box further down the page.
+    expect(box.closest(".wnow-card-needs")).toBeTruthy();
   });
 
-  it("keeps every word the owner typed when the send fails, and shows the Gateway's sentence beside it", async () => {
-    const onSendReply = refuses("The machine running this session could not be reached.");
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onSendReply }} />);
-    const box = screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement;
-
-    fireEvent.change(box, { target: { value: "allow the merge, tag straight after it" } });
-    fireEvent.click(screen.getByText("Send"));
-    await waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toBe("The machine running this session could not be reached."),
-    );
-    // The words are still there: the next attempt is one click, not typing it all again.
-    expect(box.value).toBe("allow the merge, tag straight after it");
+  it("draws no message box at all when the shell wired none, however the Gateway worded the placeholder", () => {
+    render(<WingmanNow now={NEEDS_YOU} at={AT} />);
+    expect(screen.queryByLabelText("Your reply to this session")).toBeNull();
   });
 
   it("draws needs-you, not sure: the same screen with the Wingman's own warning tag and line", () => {
@@ -209,7 +203,7 @@ describe("Now - the live stop", () => {
       lastWords: { who: "Its last words", text: "I need help with three things: The merge ..." },
       replyPlaceholder: "You can answer now without waiting.",
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts(), onPlayVoice: accepts() }} />);
+    render(<WingmanNow now={now} at={AT} actions={{ onPlayVoice: accepts() }} replyBox={replyBox} />);
 
     expect(screen.getByText("Stopped - the Wingman is reading it")).toBeTruthy();
     expect(screen.getByText(`Stopped at ${formatClockTime("2026-09-17T11:19:56Z")}, 4 seconds ago`)).toBeTruthy();
@@ -239,7 +233,7 @@ describe("Now - the live stop", () => {
         text: "Needs you - merge pull request #3002, or allow me to merge it.",
       },
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
+    render(<WingmanNow now={now} at={AT} replyBox={replyBox} />);
 
     expect(screen.getByText("What it was last asked")).toBeTruthy();
     expect(screen.getByText(/Allow the merge, tag straight after it/)).toBeTruthy();
@@ -371,7 +365,7 @@ describe("Now - the live stop", () => {
         tone: "cyan",
       },
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
+    render(<WingmanNow now={now} at={AT} replyBox={replyBox} />);
 
     expect(screen.getByText("Done")).toBeTruthy();
     expect(screen.getByText(`Stopped at ${formatClockTime("2026-09-17T12:40:00Z")}`)).toBeTruthy();
@@ -395,7 +389,7 @@ describe("Now - the live stop", () => {
       },
       replyPlaceholder: "Reply if you want it to do something about this.",
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
+    render(<WingmanNow now={now} at={AT} replyBox={replyBox} />);
 
     expect(screen.getByText("Only telling you")).toBeTruthy();
     expect(screen.getByText(/the release is not finished yet\./)).toBeTruthy();
@@ -420,7 +414,7 @@ describe("Now - the live stop", () => {
         text: "Carrying on - fixes and inspections in progress.",
       },
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
+    render(<WingmanNow now={now} at={AT} replyBox={replyBox} />);
 
     expect(screen.getByText("The Wingman could not explain this stop")).toBeTruthy();
     expect(screen.getByText(/The row stays red because the session stopped\./)).toBeTruthy();
@@ -446,7 +440,7 @@ describe("Now - the live stop", () => {
       replyPlaceholder: "Answer the session directly.",
     });
     render(
-      <WingmanNow now={now} at={AT} actions={{ onOpenSettings, onSendReply: accepts(), onWhyColour: vi.fn() }} />,
+      <WingmanNow now={now} at={AT} actions={{ onOpenSettings, onWhyColour: vi.fn() }} replyBox={replyBox} />,
     );
 
     expect(screen.getByText("The Wingman is switched off for your account")).toBeTruthy();
@@ -501,7 +495,7 @@ describe("Now - the fields the contract may legitimately send as nothing", () =>
       needs: { heading: "What it needs from you", recommends: null, question: null } as never,
       replyPlaceholder: "Answer in your own words.",
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts(), onAnswerOption: accepts() }} />);
+    render(<WingmanNow now={now} at={AT} actions={{ onAnswerOption: accepts() }} replyBox={replyBox} />);
 
     expect(screen.getByText("What it needs from you")).toBeTruthy();
     expect(screen.getByLabelText("Your reply to this session")).toBeTruthy();
@@ -513,7 +507,7 @@ describe("Now - the fields the contract may legitimately send as nothing", () =>
       needs: { heading: "What it needs from you", recommends: null, question: null, options: [] },
       replyPlaceholder: "Answer in your own words.",
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts(), onAnswerOption: accepts() }} />);
+    render(<WingmanNow now={now} at={AT} actions={{ onAnswerOption: accepts() }} replyBox={replyBox} />);
 
     expect(screen.getByText("What it needs from you")).toBeTruthy();
     expect(screen.getByLabelText("Your reply to this session")).toBeTruthy();
@@ -676,8 +670,152 @@ describe("Now - the quick actions", () => {
   });
 
   it("draws no snooze at all when the shell did not wire one", () => {
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onSendReply: accepts() }} />);
+    render(<WingmanNow now={NEEDS_YOU} at={AT} replyBox={replyBox} />);
     expect(screen.queryByText("Snooze this session")).toBeNull();
+  });
+});
+
+describe("Now - the options are buttons, and they say so", () => {
+  it("says a click sends, while the Gateway says the stop can still be answered that way", () => {
+    const { rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
+    expect(screen.getByText("Click an option to send it as your answer.")).toBeTruthy();
+
+    // Nothing to click: the options are there to READ, so the sentence that promises a click would be a lie.
+    rerender(
+      <WingmanNow now={base({ ...NEEDS_YOU, canAnswerByOption: false })} at={AT} actions={{ onAnswerOption: accepts() }} />,
+    );
+    expect(screen.queryByText("Click an option to send it as your answer.")).toBeNull();
+
+    // And nothing wired to send them either.
+    rerender(<WingmanNow now={NEEDS_YOU} at={AT} />);
+    expect(screen.queryByText("Click an option to send it as your answer.")).toBeNull();
+  });
+
+  it("draws the option the GATEWAY recommended as the first choice, and only that one", () => {
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
+
+    expect(screen.getByText("Allow the merge").closest("button")!.className).toContain("wnow-option-recommended");
+    expect(screen.getByText("I will merge it myself").closest("button")!.className).not.toContain(
+      "wnow-option-recommended",
+    );
+  });
+
+  it("asks once before sending an answer the Gateway says cannot be undone, in the Gateway's own words", async () => {
+    const onAnswerOption = accepts();
+    const now = base({
+      ...NEEDS_YOU,
+      needs: {
+        ...NEEDS_YOU.needs!,
+        options: [
+          { ...NEEDS_YOU.needs!.options[0], cannotBeUndone: "This cannot be undone." },
+          NEEDS_YOU.needs!.options[1],
+        ],
+      },
+    });
+    render(<WingmanNow now={now} at={AT} actions={{ onAnswerOption }} />);
+
+    // The warning is on the option before anything is clicked.
+    expect(screen.getAllByText("This cannot be undone.").length).toBe(1);
+
+    // The first click asks instead of sending.
+    fireEvent.click(screen.getByText("Allow the merge"));
+    expect(onAnswerOption).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("This cannot be undone.");
+
+    // Cancel sends nothing at all.
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(onAnswerOption).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // The second click, once asked, sends.
+    fireEvent.click(screen.getByText("Allow the merge"));
+    fireEvent.click(screen.getByText("Send it anyway"));
+    await waitFor(() => expect(onAnswerOption).toHaveBeenCalledWith(expect.objectContaining({ index: 1 }), "v-3002"));
+  });
+
+  it("asks nothing, and warns about nothing, on an option the Gateway did not mark - one click still sends", () => {
+    const onAnswerOption = accepts();
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
+
+    fireEvent.click(screen.getByText("I will merge it myself"));
+    expect(onAnswerOption).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Send it anyway")).toBeNull();
+  });
+
+  it("shows the number the Gateway sent for the reader, and the answer route's own index only while there is none", () => {
+    const { container, rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
+    expect([...container.querySelectorAll(".wnow-option-index")].map((n) => n.textContent)).toEqual(["1", "2"]);
+
+    const numbered = base({
+      ...NEEDS_YOU,
+      needs: {
+        ...NEEDS_YOU.needs!,
+        options: [
+          { index: 0, key: "Commit and deploy", note: null, recommended: true, displayNumber: 1 },
+          { index: 1, key: "Do not commit", note: null, recommended: false, displayNumber: 2 },
+        ],
+      },
+    });
+    rerender(<WingmanNow now={numbered} at={AT} actions={{ onAnswerOption: accepts() }} />);
+    // The route still counts from zero; the reader never sees it.
+    expect([...container.querySelectorAll(".wnow-option-index")].map((n) => n.textContent)).toEqual(["1", "2"]);
+  });
+});
+
+describe("Now - the head line", () => {
+  it("tints the pill with the row's own colour rather than drawing a thin ring", () => {
+    const { container } = render(<WingmanNow now={NEEDS_YOU} at={AT} />);
+    const pill = container.querySelector(".wnow-pill") as HTMLElement;
+
+    // One colour, the Gateway's, used three ways. Nothing here chooses a second one.
+    // jsdom re-prints the hex the Gateway sent as rgb() inside the mix; it is the same one colour.
+    expect(pill.style.background).toBe("color-mix(in srgb, rgb(239, 68, 68) 15%, transparent)");
+    expect(pill.style.borderColor).toBe("rgb(239, 68, 68)");
+    expect(pill.style.color).toBe("rgb(239, 68, 68)");
+  });
+
+  it("leaves the pill plain when the row carries no colour, rather than inventing one", () => {
+    const { container } = render(
+      <WingmanNow now={base({ ...NEEDS_YOU, pillColour: null, pillColourHex: null })} at={AT} />,
+    );
+    expect((container.querySelector(".wnow-pill") as HTMLElement).style.background).toBe("");
+  });
+
+  it("puts the voice control at the end of the pill line beside the time, with a speaker on it", () => {
+    const { container } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onPlayVoice: accepts() }} />);
+    const head = container.querySelector(".wnow-head")!;
+    const when = head.querySelector(".wnow-when")!;
+    const play = head.querySelector(".wnow-voice-play")!;
+
+    // Beside the time in the same line, and nothing pushing it to the far edge of the page.
+    expect(play.parentElement).toBe(head);
+    expect(when.compareDocumentPosition(play) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(head.querySelector(".wnow-spacer")).toBeNull();
+    expect(play.querySelector("svg.wnow-voice-icon")).toBeTruthy();
+    // The words on it are still the Gateway's, whatever they are.
+    expect(play.textContent).toBe("Play");
+  });
+});
+
+describe("Now - the quick actions fit the state", () => {
+  it("offers the wake the shell wired and no snooze beside it", async () => {
+    const onUnsnooze = accepts("Unsnoozed.");
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onUnsnooze }} />);
+
+    expect(screen.queryByText("Snooze this session")).toBeNull();
+    fireEvent.click(screen.getByText("Unsnooze this session"));
+    await waitFor(() => expect(onUnsnooze).toHaveBeenCalled());
+    expect(screen.getByText("Unsnoozed.")).toBeTruthy();
+  });
+
+  it("offers a close that hands the question up to the shell, and none when the shell wired none", () => {
+    const onClose = vi.fn();
+    const { rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onClose }} />);
+    fireEvent.click(screen.getByText("Close this session"));
+    expect(onClose).toHaveBeenCalled();
+
+    rerender(<WingmanNow now={NEEDS_YOU} at={AT} actions={{}} />);
+    expect(screen.queryByText("Close this session")).toBeNull();
   });
 });
 

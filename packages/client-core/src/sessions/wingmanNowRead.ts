@@ -61,6 +61,24 @@ export interface WingmanNowOption {
   key: string;
   note?: string | null;
   recommended: boolean;
+  /**
+   * The number to SHOW beside the option. `index` is the answer route's own zero-based position, which is an
+   * internal detail, and it reached the screen as "0" and "1" on a card people count from one.
+   *
+   * NOT SENT BY ANY GATEWAY YET. It is the Gateway half of the same review item, being written by the other half of
+   * this round; until it arrives the view shows `index`, which is what shipped. When it arrives this renders it with
+   * no further change here.
+   */
+  displayNumber?: number | null;
+  /**
+   * The Gateway's own short sentence saying this answer cannot be taken back - and the ONLY thing that makes the
+   * view warn and ask before sending. A client that worked out for itself which answers are dangerous would be
+   * ruling in the Gateway's place, so there is no rule here: no sentence, no warning, no question.
+   *
+   * NOT SENT BY ANY GATEWAY YET, for the same reason as `displayNumber`. Until a verdict's risk word reaches the
+   * fold, every option sends on one click exactly as it does today.
+   */
+  cannotBeUndone?: string | null;
 }
 
 /** What the session needs from the owner: the agent's recommendation, the question it asked, and the options. */

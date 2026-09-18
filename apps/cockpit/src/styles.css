@@ -1105,6 +1105,27 @@ body {
   grid-template-columns: 1fr 300px;
 }
 
+/* The dock's 300 pixels handed back to the page, on a tab that has nothing to put in it (the Wingman tab with an
+   empty queue). The dock is not drawn at all then, so the column would otherwise be an empty strip. */
+.session-detail-wide {
+  grid-template-columns: 1fr;
+}
+
+/* THE REPLY BOX INSIDE THE WINGMAN CARD. It is the page's own composer, so it arrives dressed as the bar at the
+   bottom of a page - a full-width panel with its own top edge and its own background. Inside a card it needs
+   neither: the card already draws the edge and the background, and the box belongs to the question above it. */
+.wnow-reply .composer {
+  padding: 0;
+  background: transparent;
+  border-top: none;
+  gap: 6px;
+}
+
+.wnow-reply .composer-input {
+  min-height: 70px;
+  font-size: 13.5px;
+}
+
 .session-main {
   min-width: 0;
   min-height: 0;

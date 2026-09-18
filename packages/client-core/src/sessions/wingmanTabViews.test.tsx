@@ -9,11 +9,29 @@
 // A tab that made Now the second view, that swallowed a refusal, that dropped History, or that let one bad poll wipe
 // the screen and the owner's half-typed reply goes red here.
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WingmanTab } from "./WingmanTab";
 import type { WingmanNow } from "./wingmanNowRead";
 
 const SID = "9a1c4d20-0000-4000-8000-000000000050";
+
+// The shell's ONE message box, stood in for: a box that keeps what is typed into it, which is all these tests need
+// of it. The real one is the Cockpit's composer, and the draft it keeps lives further up still - in the page - so it
+// survives strictly more than this does. What is proven here is that the TAB does not throw the box away under him.
+function StandInBox({ placeholder }: { placeholder: string }) {
+  const [text, setText] = useState("");
+  return (
+    <textarea
+      aria-label="Your reply to this session"
+      placeholder={placeholder}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+    />
+  );
+}
+
+const replyBox = (placeholder: string) => <StandInBox placeholder={placeholder} />;
 
 const NOW: WingmanNow = {
   sessionId: SID,
@@ -172,7 +190,7 @@ describe("the Wingman tab's views", () => {
         }),
       );
 
-      render(<WingmanTab sessionId={SID} actions={{ onSendReply: async () => ({ accepted: true, message: "" }) }} />);
+      render(<WingmanTab sessionId={SID} replyBox={replyBox} />);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
@@ -209,15 +227,14 @@ describe("the Wingman tab's views", () => {
 
   it("never carries a draft over to another session", async () => {
     fakeGateway({ "wingman-now": [200, NOW], "wingman-stops": [200, STOPS] });
-    const actions = { onSendReply: async () => ({ accepted: true, message: "" }) };
-    const { rerender } = render(<WingmanTab sessionId={SID} actions={actions} />);
+    const { rerender } = render(<WingmanTab sessionId={SID} replyBox={replyBox} />);
     await waitFor(() => expect(screen.getByLabelText("Your reply to this session")).toBeTruthy());
 
     fireEvent.change(screen.getByLabelText("Your reply to this session"), {
       target: { value: "meant for the first session" },
     });
 
-    rerender(<WingmanTab sessionId="4c7e1b90-0000-4000-8000-000000000051" actions={actions} />);
+    rerender(<WingmanTab sessionId="4c7e1b90-0000-4000-8000-000000000051" replyBox={replyBox} />);
     await waitFor(() =>
       expect((screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement).value).toBe(""),
     );
@@ -229,18 +246,21 @@ describe("the Wingman tab's views", () => {
     expect(screen.getByRole("status").textContent).toBe("Loading this session's live stop...");
   });
 
-  it("hands the shell's actions to Now, so what the shell did not wire is not drawn", async () => {
-    const onSendReply = vi.fn(async () => ({ accepted: true, message: "" }));
+  it("hands the shell's actions to Now, chosen from the answer, so what the shell did not wire is not drawn", async () => {
+    const onOpenTerminal = vi.fn();
+    // The shell is handed the Gateway's answer and decides from it. Proving it that way round - rather than with a
+    // fixed set of actions - is what makes a state-fitting quick action possible at all.
+    const actions = vi.fn((now: WingmanNow) => ({ onOpenTerminal: now.state === "needs-you" ? onOpenTerminal : undefined }));
     fakeGateway({ "wingman-now": [200, NOW], "wingman-stops": [200, STOPS] });
-    render(<WingmanTab sessionId={SID} actions={{ onSendReply }} />);
+    render(<WingmanTab sessionId={SID} actions={actions} replyBox={replyBox} />);
 
-    await waitFor(() => expect(screen.getByLabelText("Your reply to this session")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("Your reply to this session"), { target: { value: "go ahead" } });
-    fireEvent.click(screen.getByText("Send"));
-    expect(onSendReply).toHaveBeenCalledWith("go ahead");
+    await waitFor(() => expect(screen.getByText("Open the terminal")).toBeTruthy());
+    expect(actions).toHaveBeenCalledWith(expect.objectContaining({ state: "needs-you" }));
+    fireEvent.click(screen.getByText("Open the terminal"));
+    expect(onOpenTerminal).toHaveBeenCalled();
 
-    // Nothing wired the terminal or the colour explanation, so neither is offered.
-    expect(screen.queryByText("Open the terminal")).toBeNull();
+    // Nothing wired the snooze or the colour explanation, so neither is offered.
+    expect(screen.queryByText("Snooze this session")).toBeNull();
     expect(screen.queryByText("Why this colour?")).toBeNull();
   });
 });

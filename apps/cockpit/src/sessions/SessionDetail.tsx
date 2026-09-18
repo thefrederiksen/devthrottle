@@ -17,6 +17,7 @@ import { appendToCompose } from "./composerInsert";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
 import { WingmanTab } from "@devthrottle/client-core/sessions/WingmanTab";
 import { wingmanNowActions } from "./wingmanNowActions";
+import { useStopSession } from "./StopSessionProvider";
 
 // The selected session's detail region (issue #972): the live terminal (issue #971's TerminalPane,
 // reused verbatim) stacked over the driver action bar and the composer, with a tabbed dock for the
@@ -53,6 +54,7 @@ export function SessionDetail() {
   const navigate = useNavigate();
   const { sessions } = useOutletContext<SessionsOutletContext>();
   const selected = sessions?.find((s) => s.sessionId === sessionId);
+  const { openStop } = useStopSession();
 
   const [compose, setCompose] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -143,8 +145,13 @@ export function SessionDetail() {
     [appendCompose],
   );
 
+  // THE EMPTY QUEUE PANEL GIVES ITS WIDTH BACK, on this tab only (the review's item C3). Three hundred pixels of a
+  // thousand said "No queued prompts." beside a screen that wanted the room; the Wingman tab is a page to read, not
+  // a console with a dock. The moment anything is queued the panel returns, and every other tab keeps it always.
+  const showDock = mainTab !== "wingman" || queue.length > 0;
+
   return (
-    <div className="session-detail">
+    <div className={`session-detail${showDock ? "" : " session-detail-wide"}`}>
       <div className="session-main">
         <div className="session-tabs" role="tablist" aria-label="Session view">
           <button
@@ -246,11 +253,27 @@ export function SessionDetail() {
                   are still absent: Debug and ratings are not built yet. */}
               <WingmanTab
                 sessionId={sessionId}
-                actions={wingmanNowActions(sessionId, {
-                  openTerminal: () => setMainTab("terminal"),
-                  goToSession: (id) => navigate(`/session/${id}`),
-                  openSettings: () => navigate("/settings"),
-                })}
+                actions={(now) =>
+                  wingmanNowActions(sessionId, selected, now.state, {
+                    openTerminal: () => setMainTab("terminal"),
+                    goToSession: (id) => navigate(`/session/${id}`),
+                    openSettings: () => navigate("/settings"),
+                    openStop: () => selected && openStop(selected, () => navigate("/sessions")),
+                  })
+                }
+                /* THE ONE MESSAGE BOX ON THIS TAB (the review's item B1). It is the page's own composer, moved
+                   inside the card beside the question rather than copied - Send, Speak, Queue and Attach are the
+                   same controls doing the same things, and the page's copy at the bottom is hidden below while
+                   this tab is showing. The words in the empty box are the Gateway's, handed in by the view. */
+                replyBox={(placeholder) => (
+                  <SessionComposer
+                    sessionId={sessionId}
+                    value={compose}
+                    onChange={setCompose}
+                    onQueued={setQueue}
+                    placeholder={placeholder}
+                  />
+                )}
               />
             </div>
           )}
@@ -267,9 +290,10 @@ export function SessionDetail() {
           )}
         </div>
 
-        {/* A prompt to this session was not delivered (issue internal#811). It sits directly above the
-            composer - the place the words were typed and the place the next attempt will be made - and it
-            stays until something actually lands. The sentence is the Gateway's, rendered verbatim. */}
+        {/* A prompt to this session was not delivered (issue internal#811). It stays until something actually
+            lands, on EVERY tab - a prompt that never reached the session is worth saying wherever he is standing,
+            and the next attempt is the box below on most tabs and the one inside the card on the Wingman tab.
+            The sentence is the Gateway's, rendered verbatim. */}
         {selected && promptDeliveryNotice(selected) !== null && (
           <div className="delivery-failure-banner" role="alert">
             <span className="delivery-failure-title">{promptDeliveryNotice(selected)}</span>
@@ -278,16 +302,27 @@ export function SessionDetail() {
             )}
           </div>
         )}
-        <SessionActionBar sessionId={sessionId} capabilities={selected?.driverCapabilities} />
-        <SessionComposer
-          sessionId={sessionId}
-          value={compose}
-          onChange={setCompose}
-          onQueued={setQueue}
-          focusHandleRef={composerFocusRef}
-        />
+        {/* NEITHER OF THESE BELONGS ON THE WINGMAN TAB (the review's items B7 and B1).
+            The driver bar puts Stop, Interrupt, Compact, Clear context and History directly under the place the
+            owner clicks his answers - the design kept destructive controls off Now on purpose, and they arrived
+            here by the back door, on every state including the ones where none of them means anything.
+            The composer is the second message box: the tab already has one, inside the card, beside the question.
+            Every other tab keeps both, unchanged. */}
+        {mainTab !== "wingman" && (
+          <>
+            <SessionActionBar sessionId={sessionId} capabilities={selected?.driverCapabilities} />
+            <SessionComposer
+              sessionId={sessionId}
+              value={compose}
+              onChange={setCompose}
+              onQueued={setQueue}
+              focusHandleRef={composerFocusRef}
+            />
+          </>
+        )}
       </div>
 
+      {showDock && (
       <aside className="session-dock">
         <div className="dock-tabs">
           <button type="button" className={`dock-tab ${tab === "queue" ? "on" : ""}`} onClick={() => setTab("queue")}>
@@ -305,6 +340,7 @@ export function SessionDetail() {
           )}
         </div>
       </aside>
+      )}
     </div>
   );
 }
