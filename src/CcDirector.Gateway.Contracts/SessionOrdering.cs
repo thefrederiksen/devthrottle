@@ -138,12 +138,19 @@ public static class SessionOrdering
     /// <summary>The finished kind for a stop where the agent only informs the owner and asks nothing.</summary>
     public const string FinishedKindReport = "report";
 
-    /// <summary>The word a calm "report" row's label leads with. "Done" is <see cref="CalmFinishedLabel"/>.</summary>
-    public const string CalmReportLabel = "Report";
+    /// <summary>
+    /// The words a calm "report" row's label leads with. "Done" is <see cref="CalmFinishedLabel"/>.
+    ///
+    /// "TELLING YOU", NOT "REPORT", and it is one name in three places. The Wingman tab's pill said "Report",
+    /// its card said "Only telling you", and this row said "Report - Review the QA report" - three names for one
+    /// state on one screen. "Report" beside "QA report" also reads as a noun about the document rather than as
+    /// what the session is doing, which is telling him something and asking nothing.
+    /// </summary>
+    public const string CalmReportLabel = "Telling you";
 
     /// <summary>
     /// THE WORDS ON A CALM ROW. Purple reads the Wingman's own line, or "Carrying on". Cyan LEADS WITH "Done" or
-    /// "Report" (owner ruling, 2026-09-15: "an informational state where I'm not needed but I'm just given
+    /// "Telling you" (owner ruling, 2026-09-15: "an informational state where I'm not needed but I'm just given
     /// information"), followed by the Wingman's line when there is one. The two kinds are the same colour, the same
     /// band and equally uncounted; only the words differ.
     ///

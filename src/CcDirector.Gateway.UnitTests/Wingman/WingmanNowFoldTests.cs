@@ -253,16 +253,27 @@ public sealed class WingmanNowFoldTests
         Assert.False(now.CanAnswerByOption);
     }
 
+    /// <summary>
+    /// THE TELLING-YOU STATE WEARS ONE NAME IN ALL THREE PLACES - the pill, the card's heading, and the row's own
+    /// label in the Sessions list - and the assertion below is written so that it cannot pass while they differ.
+    ///
+    /// It used to wear three: pill "Report", card "Only telling you", row "Report - &lt;the headline&gt;". The
+    /// words are compared against SessionOrdering's own constant rather than spelled out here, so moving the name
+    /// again moves all three at once or fails.
+    /// </summary>
     [Fact]
     public void A_report_says_the_work_is_not_finished_and_keeps_the_reply_box()
     {
         var verdict = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "report",
             label: "The hosted Gateway is already running the latest changes");
-        var now = Fold(Row(verdict, colour: "cyan", label: "Report"), verdict);
+        var row = Row(verdict, colour: "cyan", label: "Telling you");
+        var now = Fold(row, verdict);
 
         Assert.Equal(WingmanNowStates.Report, now.State);
-        Assert.Equal("Report", now.PillText);
-        Assert.Equal("Only telling you", now.CalmCard!.Heading);
+        Assert.Equal("Telling you", now.PillText);
+        Assert.Equal(now.PillText, now.CalmCard!.Heading);
+        // The third place: the words the Sessions list's own fold leads this row's label with.
+        Assert.Equal(SessionOrdering.CalmReportLabel, now.PillText);
         Assert.Equal("Nothing is needed from you, and the work is not finished yet.", now.CalmCard.Body);
         Assert.Equal(WingmanNowFold.ReplyPlaceholderReport, now.ReplyPlaceholder);
     }
@@ -276,16 +287,22 @@ public sealed class WingmanNowFoldTests
         Assert.Equal(WingmanNowStates.Done, Fold(Row(verdict, colour: "cyan", label: "Done"), verdict).State);
     }
 
-    /// <summary>Nothing is pending on a finished stop, so a running "47 minutes ago" would read as pressure about a
-    /// session that wants nothing.</summary>
+    /// <summary>
+    /// EVERY TIMED STOP CARRIES BOTH CLOCKS - the clock time and how long ago - and a finished stop is the one
+    /// this is asserted on, because it is the one that used to carry only the first.
+    ///
+    /// The old rule was that nothing is pending on a finished stop, so the elapsed time would read as pressure.
+    /// What it actually cost was that a session that finished two minutes ago and one that finished yesterday
+    /// were the same sentence on the screen.
+    /// </summary>
     [Fact]
-    public void A_finished_stop_shows_when_it_stopped_and_not_how_long_ago()
+    public void A_finished_stop_shows_both_when_it_stopped_and_how_long_ago()
     {
         var verdict = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done");
         var now = Fold(Row(verdict, colour: "cyan", label: "Done"), verdict);
 
         Assert.Equal("Stopped at", now.When!.Lead);
-        Assert.False(now.When.ShowAgo);
+        Assert.True(now.When.ShowAgo);
     }
 
     // ---------------------------------------------------------------- carrying on
@@ -1744,5 +1761,354 @@ public sealed class WingmanNowFoldTests
     public void A_view_with_no_row_offers_no_voice_control()
     {
         Assert.Equal(WingmanNowVoiceKinds.None, FoldWith(null, NoHistory).Voice.Kind);
+    }
+
+    // ================================================================ round 1: the words on the owner's screen
+
+    /// <summary>
+    /// EVERY STATE SAYS WHICH SESSION IT IS. The pane carried no name at all, on a screen the owner moves between
+    /// a dozen sessions on - so the damage it could cause was the right answer sent to the wrong session.
+    ///
+    /// Every state this fold draws is folded here, not one of them, because a line that is missing in one state
+    /// is missing exactly when he is not expecting it to be.
+    /// </summary>
+    [Fact]
+    public void Every_state_says_which_session_it_is()
+    {
+        var needsYou = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
+        var done = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done");
+        var report = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "report");
+        var carryingOn = Verdict(TurnVerdictVocabulary.ContinuesAlone);
+
+        var views = new List<WingmanNowResponse>
+        {
+            Fold(Numbered(Row(needsYou)), needsYou),
+            Fold(Numbered(Row(done, colour: "cyan", label: "Done")), done),
+            Fold(Numbered(Row(report, colour: "cyan", label: "Telling you")), report),
+            Fold(Numbered(Row(carryingOn, colour: "purple", label: "Carrying on")), carryingOn),
+            Fold(Numbered(WorkingRow()), null),
+            FoldWith(Numbered(ReadingRow()), NoHistory),
+            FoldWith(Numbered(FailedRow()), NoHistory),
+            FoldWith(Numbered(Row(null)), NoHistory, switchedOff: true),
+            FoldWith(Numbered(SnoozedRow()), NoHistory),
+            FoldWith(Numbered(ExitedRow()), NoHistory),
+        };
+
+        // Ten drawings, ten states - so this cannot pass by folding one state ten times.
+        Assert.Equal(10, views.Select(v => v.State).Distinct().Count());
+        foreach (var view in views)
+            Assert.Equal("112 - Wingman Inspector - Manager", view.SessionLine);
+    }
+
+    /// <summary>A row with no number falls back to the name alone, and a session with no row at all to its
+    /// identifier - machine output, and the last truthful thing left rather than a blank.</summary>
+    [Fact]
+    public void The_session_line_falls_back_to_the_name_and_then_to_the_identifier()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+
+        Assert.Equal("Wingman Inspector - Manager", Fold(Row(verdict), verdict).SessionLine);
+        Assert.Equal(Sid, FoldWith(null, NoHistory).SessionLine);
+    }
+
+    /// <summary>
+    /// THE OPTIONS ARE NUMBERED FROM ONE FOR THE READER, and from zero for the answer route - both, on the same
+    /// option, because they answer different questions. He was being shown the route's number, so the first
+    /// option read "0".
+    /// </summary>
+    [Fact]
+    public void Options_carry_the_number_he_reads_as_well_as_the_one_the_answer_route_takes()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 3);
+        var options = Fold(Row(verdict), verdict).Needs!.Options;
+
+        Assert.Equal(new[] { 1, 2, 3 }, options.Select(o => o.Number));
+        Assert.Equal(new[] { 0, 1, 2 }, options.Select(o => o.Index));
+        Assert.DoesNotContain(0, options.Select(o => o.Number));
+    }
+
+    /// <summary>The line that says a tap IS the answer going out, and nothing of the sort on a stop with no
+    /// options to tap.</summary>
+    [Fact]
+    public void The_options_are_led_by_what_a_tap_does_and_a_stop_with_none_says_nothing_about_tapping()
+    {
+        var withOptions = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
+        Assert.Equal("Click an option to send it as your answer",
+            Fold(Row(withOptions), withOptions).Needs!.OptionsLead);
+
+        var typedOnly = Verdict(TurnVerdictVocabulary.NeededYou);
+        Assert.Null(Fold(Row(typedOnly), typedOnly).Needs!.OptionsLead);
+    }
+
+    /// <summary>
+    /// A RISK WORD ON THE VERDICT REACHES THE SCREEN AS A WARNING, and the screen is told to ask once before it
+    /// sends. Three words carry one; "none" carries nothing, and so does a record that recorded none at all.
+    ///
+    /// IT IS ABOUT THE STOP, NOT ABOUT ONE OPTION. The judge answers one risk word for the whole answer and
+    /// nothing in the record says which option carries it - see the note on WingmanNowNeedsDto.RiskFlag.
+    /// </summary>
+    [Theory]
+    [InlineData("irreversible", "Cannot be undone")]
+    [InlineData("standing-grant", "Says yes from now on")]
+    [InlineData("spends-money", "Spends real money")]
+    public void A_risky_stop_carries_its_warning_and_asks_before_it_sends(string risk, string flag)
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
+        verdict.Risk = risk;
+
+        var needs = Fold(Row(verdict), verdict).Needs!;
+
+        Assert.Equal(flag, needs.RiskFlag);
+        Assert.False(string.IsNullOrWhiteSpace(needs.RiskLine));
+        Assert.True(needs.ConfirmBeforeSending);
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("")]
+    public void A_stop_with_no_risk_recorded_carries_no_warning_and_no_confirmation(string risk)
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
+        verdict.Risk = risk;
+
+        var needs = Fold(Row(verdict), verdict).Needs!;
+
+        Assert.Null(needs.RiskFlag);
+        Assert.Null(needs.RiskLine);
+        Assert.False(needs.ConfirmBeforeSending);
+    }
+
+    /// <summary>
+    /// A RECOMMENDATION THAT IS THE ASK AGAIN IS NOT SHOWN. The screen already carries the ask as the headline,
+    /// as the story and as the agent's own sentence; a fourth copy under "It recommends" is how the card stops
+    /// being read. The RECOMMENDED mark on the option says which way it leans without a sentence.
+    /// </summary>
+    [Theory]
+    // The one off the owner's screen: a question, and the same words as the receipt above it.
+    [InlineData("Want me to land it to main and deploy?")]
+    // A question that says something else. A recommendation cannot be a question, and rewriting one into a
+    // statement would be this fold putting words in the agent's mouth.
+    [InlineData("Should I run the tests first?")]
+    // The menu's own question back again, with the punctuation and the capital moved.
+    [InlineData("commit and deploy the fixes")]
+    // The Wingman's headline back again, inside a longer sentence.
+    [InlineData("I suggest you merge pull request 3002, or allow me to merge it")]
+    public void A_recommendation_that_adds_nothing_beyond_the_question_is_not_shown(string recommends)
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2, recommends: recommends,
+            menuQuestion: "Commit and deploy the fixes?",
+            evidence: "Want me to land it to main and deploy?");
+
+        Assert.Null(Fold(Row(verdict), verdict).Needs!.Recommends);
+    }
+
+    /// <summary>And one that DOES add something is shown, led so that the line reads as a statement. The control
+    /// for the theory above: the rule hides a repeat, not every recommendation.</summary>
+    [Fact]
+    public void A_recommendation_that_adds_something_is_shown_as_a_statement()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2,
+            recommends: "committing and deploying, because the notes have been reviewed",
+            menuQuestion: "Commit and deploy the fixes?",
+            evidence: "Want me to land it to main and deploy?");
+
+        Assert.Equal("It recommends: committing and deploying, because the notes have been reviewed",
+            Fold(Row(verdict), verdict).Needs!.Recommends);
+    }
+
+    /// <summary>
+    /// WHAT SENDING DOES, AND THE HALF THAT IS ONLY TRUE WHERE SOMETHING WAS ASKED. "You can answer more than one
+    /// question in one reply" was showing on a report, on a working session and on a snoozed one, none of which
+    /// asked him anything. A state that offers no box says nothing about sending at all.
+    /// </summary>
+    [Fact]
+    public void The_reply_hint_promises_answering_several_questions_only_where_something_was_asked()
+    {
+        var needsYou = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
+        Assert.Equal(WingmanNowFold.ReplyHintAsked, Fold(Row(needsYou), needsYou).ReplyHint);
+
+        var report = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "report");
+        Assert.Equal(WingmanNowFold.ReplyHintPlain,
+            Fold(Row(report, colour: "cyan", label: "Telling you"), report).ReplyHint);
+        Assert.Equal(WingmanNowFold.ReplyHintPlain, Fold(WorkingRow(), null).ReplyHint);
+        Assert.Equal(WingmanNowFold.ReplyHintPlain, FoldWith(SnoozedRow(), NoHistory).ReplyHint);
+
+        // Done offers no reply box, so there is nothing to say about sending.
+        var done = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done");
+        var doneView = Fold(Row(done, colour: "cyan", label: "Done"), done);
+        Assert.Null(doneView.ReplyPlaceholder);
+        Assert.Null(doneView.ReplyHint);
+    }
+
+    /// <summary>
+    /// A STOP THE CARRYING-ON CLOCK WROTE READS AS A SENTENCE. Every other past stop is the state word, a dash
+    /// and the ask, which reads; this record's label is a reason code, so the ordinary shape produced "Needs
+    /// you - Said it would continue and did not" - a status word glued to a reason code with a dash.
+    ///
+    /// The control below is a JUDGED needs-you stop in the same slot, which keeps the ordinary shape: what
+    /// changes the line is the clock's own stamp on the record, not the words in its label.
+    /// </summary>
+    [Fact]
+    public void The_stop_the_carrying_on_clock_wrote_reads_as_a_sentence()
+    {
+        var expired = TurnVerdictWatchdog.Expire(Verdict(TurnVerdictVocabulary.ContinuesAlone), Stopped);
+        expired.SupersededAtUtc = Stopped.AddMinutes(1);
+
+        var lastStop = FoldWith(WorkingRow(), new[] { new AnsweredTurnVerdict(expired, null) }).LastStop!;
+
+        Assert.Equal("It said it would carry on, then stopped, so it needed you.", lastStop.Text);
+        Assert.DoesNotContain(TurnVerdictWatchdog.ExpiredLabel, lastStop.Text);
+        Assert.DoesNotContain(" - ", lastStop.Text);
+
+        // THE CONTROL: an ordinary judged stop in the same place keeps the state word and the ask.
+        var judged = Verdict(TurnVerdictVocabulary.NeededYou);
+        judged.SupersededAtUtc = Stopped.AddMinutes(1);
+        Assert.Equal("Needs you - Merge pull request 3002, or allow me to merge it",
+            FoldWith(WorkingRow(), new[] { new AnsweredTurnVerdict(judged, null) }).LastStop!.Text);
+    }
+
+    /// <summary>
+    /// WHAT IT WAS LAST ASKED SURVIVES A TOOL RESULT, and that one line is why this card was blank on every
+    /// working session on the owner's screen.
+    ///
+    /// In a Claude Code transcript a TOOL RESULT is a message of role "user" whose only part is a ToolResult
+    /// (ClaudeTranscriptReader: a line of type "user" carrying a tool_result block). A working session is
+    /// mid-tool-loop almost by definition, so the newest "user" message is almost always one of those - and the
+    /// scan used to stop dead on it and report that nothing had been asked.
+    /// </summary>
+    [Fact]
+    public void What_it_was_last_asked_is_the_newest_user_message_that_carries_words()
+    {
+        var conversation = new WingmanNowConversation(true, new List<HistoryMessageDto>
+        {
+            new()
+            {
+                Role = "User",
+                Parts = { new HistoryPartDto { Kind = "Text", Text = "Carry on with the next slice." } },
+                Timestamp = new DateTimeOffset(Stopped.AddMinutes(-4), TimeSpan.Zero),
+            },
+            new()
+            {
+                Role = "Assistant",
+                Parts = { new HistoryPartDto { Kind = "ToolUse", Text = "{}", ToolName = "Bash", ToolId = "t1" } },
+                Timestamp = new DateTimeOffset(Stopped.AddMinutes(-3), TimeSpan.Zero),
+            },
+            // The tool's answer - role "user", and not a word of his in it.
+            new()
+            {
+                Role = "User",
+                Parts = { new HistoryPartDto { Kind = "ToolResult", Text = "ok", ToolId = "t1" } },
+                Timestamp = new DateTimeOffset(Stopped.AddMinutes(-2), TimeSpan.Zero),
+            },
+        });
+
+        var asked = FoldWith(WorkingRow(), NoHistory, conversation).LastAsked;
+
+        Assert.NotNull(asked);
+        Assert.Equal("Carry on with the next slice.", asked!.Text);
+        Assert.Equal("What it was last asked", asked.Heading);
+    }
+
+    /// <summary>A message this Gateway cannot place in time still ends the scan: the card says WHEN it was asked,
+    /// and a time nothing recorded is not a better answer than silence.</summary>
+    [Fact]
+    public void A_message_with_no_moment_recorded_is_not_claimed_as_what_it_was_last_asked()
+    {
+        var conversation = new WingmanNowConversation(true, new List<HistoryMessageDto>
+        {
+            new()
+            {
+                Role = "User",
+                Parts = { new HistoryPartDto { Kind = "Text", Text = "Carry on with the next slice." } },
+                Timestamp = null,
+            },
+        });
+
+        Assert.Null(FoldWith(WorkingRow(), NoHistory, conversation).LastAsked);
+    }
+
+    // ---------------------------------------------------------------- snoozed
+
+    /// <summary>
+    /// A SNOOZED SESSION SAYS WHEN IT COMES BACK, AND WHAT IT WAS SNOOZED OVER. The screen used to carry the word
+    /// "Snoozed" twice - the pill and the headline - and nothing else: not when the quiet ends, and not what he
+    /// had decided to leave. The Wingman's account of that stop is the only reason the snooze meant anything.
+    /// </summary>
+    [Fact]
+    public void A_snoozed_session_says_until_when_and_keeps_the_stop_it_was_snoozed_over()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
+        var row = SnoozedRow(verdict);
+        row.SnoozeUntil = Stopped.AddHours(4);
+
+        var now = Fold(row, verdict);
+
+        Assert.Equal(WingmanNowStates.Snoozed, now.State);
+        Assert.Equal("Snoozed until", now.SnoozedUntil!.Lead);
+        Assert.Equal(Stopped.AddHours(4), now.SnoozedUntil.AtUtc);
+        Assert.Equal("The stop you snoozed over", now.LastStop!.Lead);
+        Assert.Equal("Needs you - Merge pull request 3002, or allow me to merge it", now.LastStop.Text);
+        // The narration, kept rather than thrown away.
+        Assert.Equal("The release notes are pushed and the merge command was refused by a permission check.", now.Story);
+        Assert.Equal("Either merge 3002 yourself, or allow that command and I will do it.", now.AgentSaid!.Text);
+    }
+
+    /// <summary>A snooze with no deadline recorded - one that has not landed, or one that waits for him - says
+    /// what ends it instead of naming a moment nothing recorded.</summary>
+    [Fact]
+    public void A_snooze_with_no_deadline_says_it_waits_for_him()
+    {
+        var now = FoldWith(SnoozedRow(), NoHistory);
+
+        Assert.Equal(WingmanNowStates.Snoozed, now.State);
+        Assert.Null(now.SnoozedUntil);
+        Assert.Equal("Snoozed until you wake it", now.Headline);
+    }
+
+    /// <summary>
+    /// THE PILL AND THE DOT CANNOT DISAGREE ABOUT A SNOOZED SESSION. Snoozed sits directly under working in this
+    /// fold's order, exactly where the row's own colour ladder puts it - so a parked session that still carries a
+    /// judged "needs you" verdict reads as snoozed, and not as a red pill over a grey dot.
+    /// </summary>
+    [Fact]
+    public void A_snoozed_session_carrying_a_needs_you_verdict_still_reads_as_snoozed()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
+        var now = Fold(SnoozedRow(verdict), verdict);
+
+        Assert.Equal(WingmanNowStates.Snoozed, now.State);
+        Assert.Equal("Snoozed", now.PillText);
+        Assert.Equal("grey", now.PillColour);
+        Assert.Null(now.Needs);
+    }
+
+    /// <summary>Working still outranks a snooze, which is the product's own law: if a session is working it is
+    /// blue, and nothing goes above that.</summary>
+    [Fact]
+    public void A_snoozed_row_that_is_working_is_working()
+    {
+        var row = SnoozedRow();
+        row.ActivityState = "Working";
+
+        Assert.Equal(WingmanNowStates.Working, FoldWith(row, NoHistory).State);
+    }
+
+    /// <summary>A row the owner has parked, grey and labelled as the roster fold labels it.</summary>
+    private static SessionDto SnoozedRow(TurnVerdictDto? verdict = null)
+    {
+        var row = Row(verdict, colour: "grey", label: "Snoozed");
+        row.OnHold = true;
+        return row;
+    }
+
+    /// <summary>A row none of the drawn states describes, which wears the row's own label.</summary>
+    private static SessionDto ExitedRow()
+        => Row(null, colour: "grey", label: "Exited");
+
+    /// <summary>The same row with the short number the Sessions list shows beside its name.</summary>
+    private static SessionDto Numbered(SessionDto row)
+    {
+        row.Number = 112;
+        return row;
     }
 }

@@ -1,6 +1,7 @@
 {
   "needsYou": {
     "sessionId": "11111111-1111-1111-1111-111111111111",
+    "sessionLine": "112 - Wingman Inspector - Manager",
     "state": "needs-you",
     "pillText": "Needs you",
     "pillColour": "red",
@@ -26,15 +27,21 @@
       "heading": "What it needs from you",
       "recommends": "It recommends: allow the merge - the notes have been reviewed",
       "question": null,
+      "optionsLead": "Click an option to send it as your answer",
+      "riskFlag": null,
+      "riskLine": null,
+      "confirmBeforeSending": false,
       "options": [
         {
           "index": 0,
+          "number": 1,
           "key": "Option 0",
           "note": "What option 0 does.",
           "recommended": true
         },
         {
           "index": 1,
+          "number": 2,
           "key": "Option 1",
           "note": "What option 1 does.",
           "recommended": false
@@ -44,6 +51,8 @@
     "canAnswerByOption": true,
     "verdictId": "verdict-1",
     "replyPlaceholder": "Or answer in your own words.",
+    "replyHint": "Sent to the session as your message. You can answer more than one question in one reply.",
+    "snoozedUntil": null,
     "calmCard": null,
     "lastWords": null,
     "failedHeadline": null,
@@ -63,6 +72,7 @@
   },
   "working": {
     "sessionId": "11111111-1111-1111-1111-111111111111",
+    "sessionLine": "112 - Wingman Inspector - Manager",
     "state": "working",
     "pillText": "Working",
     "pillColour": "blue",
@@ -85,6 +95,8 @@
     "canAnswerByOption": false,
     "verdictId": null,
     "replyPlaceholder": "Send it something while it works - it is queued until it is ready.",
+    "replyHint": "Sent to the session as your message.",
+    "snoozedUntil": null,
     "calmCard": null,
     "lastWords": null,
     "failedHeadline": null,
@@ -114,6 +126,7 @@
   },
   "justAnswered": {
     "sessionId": "11111111-1111-1111-1111-111111111111",
+    "sessionLine": "112 - Wingman Inspector - Manager",
     "state": "just-answered",
     "pillText": "Working again",
     "pillColour": "blue",
@@ -136,6 +149,8 @@
     "canAnswerByOption": false,
     "verdictId": null,
     "replyPlaceholder": "Send it something while it works - it is queued until it is ready.",
+    "replyHint": "Sent to the session as your message.",
+    "snoozedUntil": null,
     "calmCard": null,
     "lastWords": null,
     "failedHeadline": null,
@@ -171,6 +186,7 @@
   },
   "carryingOn": {
     "sessionId": "11111111-1111-1111-1111-111111111111",
+    "sessionLine": "112 - Wingman Inspector - Manager",
     "state": "carrying-on",
     "pillText": "Carrying on",
     "pillColour": "purple",
@@ -196,6 +212,8 @@
     "canAnswerByOption": false,
     "verdictId": "verdict-1",
     "replyPlaceholder": null,
+    "replyHint": null,
+    "snoozedUntil": null,
     "calmCard": {
       "heading": "Nothing needed from you",
       "body": null,
@@ -223,6 +241,7 @@
   },
   "done": {
     "sessionId": "11111111-1111-1111-1111-111111111111",
+    "sessionLine": "112 - Wingman Inspector - Manager",
     "state": "done",
     "pillText": "Done",
     "pillColour": "cyan",
@@ -231,7 +250,7 @@
     "when": {
       "lead": "Stopped at",
       "atUtc": "2026-09-17T11:12:00Z",
-      "showAgo": false,
+      "showAgo": true,
       "elapsedOnly": false
     },
     "unsure": false,
@@ -248,6 +267,8 @@
     "canAnswerByOption": false,
     "verdictId": "verdict-1",
     "replyPlaceholder": null,
+    "replyHint": null,
+    "snoozedUntil": null,
     "calmCard": {
       "heading": "The work is complete",
       "body": "Nothing is needed from you. You can close this session when you are ready.",
@@ -261,6 +282,62 @@
     "carryingOnDeadline": null,
     "lastAsked": null,
     "lastStop": null,
+    "answered": null,
+    "nextNeedsYou": null,
+    "voice": {
+      "kind": "turn-on",
+      "label": "Read this session aloud from now on",
+      "afterTurnOnText": "Voice is on for this session. This stop will be read aloud in a few seconds."
+    }
+  },
+  "snoozed": {
+    "sessionId": "11111111-1111-1111-1111-111111111111",
+    "sessionLine": "112 - Wingman Inspector - Manager",
+    "state": "snoozed",
+    "pillText": "Snoozed",
+    "pillColour": "grey",
+    "pillColourHex": "#6b7280",
+    "showWhyColour": true,
+    "when": {
+      "lead": "Stopped at",
+      "atUtc": "2026-09-17T11:12:00Z",
+      "showAgo": true,
+      "elapsedOnly": false
+    },
+    "unsure": false,
+    "unsureTag": null,
+    "unsureLine": null,
+    "headline": null,
+    "story": "The release notes are pushed and the merge command was refused by a permission check.",
+    "agentSaid": {
+      "who": "Claude Code said",
+      "text": "Either merge 3002 yourself, or allow that command and I will do it."
+    },
+    "wholeReply": null,
+    "needs": null,
+    "canAnswerByOption": false,
+    "verdictId": "verdict-1",
+    "replyPlaceholder": "Answer the session directly.",
+    "replyHint": "Sent to the session as your message.",
+    "snoozedUntil": {
+      "lead": "Snoozed until",
+      "atUtc": "2026-09-17T15:12:00Z",
+      "showAgo": false,
+      "elapsedOnly": false
+    },
+    "calmCard": null,
+    "lastWords": null,
+    "failedHeadline": null,
+    "failedStory": null,
+    "lastGood": null,
+    "switchedOff": null,
+    "carryingOnDeadline": null,
+    "lastAsked": null,
+    "lastStop": {
+      "lead": "The stop you snoozed over",
+      "atUtc": "2026-09-17T11:12:00Z",
+      "text": "Needs you - Merge pull request 3002, or allow me to merge it"
+    },
     "answered": null,
     "nextNeedsYou": null,
     "voice": {

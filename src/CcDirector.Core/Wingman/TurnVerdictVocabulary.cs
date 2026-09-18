@@ -132,6 +132,15 @@ public static class TurnVerdictVocabulary
 
     public const string RiskNone = "none";
 
+    /// <summary>Answering does something that cannot be taken back - a push, a deploy, a delete, a send.</summary>
+    public const string RiskIrreversible = "irreversible";
+
+    /// <summary>Answering says yes to everything of this shape from now on, not only this once.</summary>
+    public const string RiskStandingGrant = "standing-grant";
+
+    /// <summary>Answering spends real money.</summary>
+    public const string RiskSpendsMoney = "spends-money";
+
     /// <summary>
     /// The two kinds of "finished" (owner ruling, 2026-09-15): "done", the agent says the work is complete, and
     /// "report", the agent only informs the owner and asks nothing. Required on a finished answer and refused on
