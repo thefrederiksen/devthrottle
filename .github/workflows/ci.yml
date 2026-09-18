@@ -393,6 +393,19 @@ jobs:
           python -m pip install websockets
           python -m pytest tests/ -q
 
+      # cc-gmail holds a Google OAuth refresh token, and where that token lives is the whole of
+      # issue #3011: the store used to move with CC_DIRECTOR_ROOT, so an 'auth' run in a terminal
+      # could not reach the store a Director session read. These tests are the guard that the store
+      # stays per-user and that an account whose refresh Google refused is never reported Ready.
+      # They run here because nothing else runs them - a guard nobody runs cannot fail.
+      - name: Run the cc-gmail store and status tests
+        working-directory: tools/cc-gmail
+        env:
+          FORCE_COLOR: "1"
+        run: |
+          python -m pip install google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2 keyring
+          python -m pytest tests/ -q
+
   # THE ONE JOB TO MARK AS A REQUIRED CHECK. No required checks are configured on main today; if one is
   # ever added, it must be this job and none of the others.
   #

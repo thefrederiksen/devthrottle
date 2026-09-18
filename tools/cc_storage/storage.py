@@ -5,7 +5,9 @@ CcStorage methods instead of computing paths themselves.
 
 Storage categories:
     vault   - Personal data: contacts, docs, tasks, goals, health, vectors
-    config  - Tool settings, OAuth tokens, credentials, app state
+    config  - Tool settings, app state (per Director instance when a root is pinned)
+    user config - Credentials and OAuth tokens: one per operating-system user,
+                  never redirected by CC_DIRECTOR_ROOT (see user_config)
     output  - Generated files: PDFs, reports, transcripts, exports
     logs    - All application and tool logs
     bin     - Installed executables (tool binaries)
@@ -41,6 +43,17 @@ class CcStorage:
         override = os.environ.get("CC_DIRECTOR_ROOT")
         if override:
             return Path(override)
+        return CcStorage._user_base()
+
+    @staticmethod
+    def _user_base() -> Path:
+        """Base directory for this operating-system user, with NO root override applied.
+
+        The same platform rules as _base(), minus CC_DIRECTOR_ROOT. Paths that
+        belong to the USER rather than to a Director instance resolve from here,
+        so they land in one place whether the caller inherited a Director's
+        CC_DIRECTOR_ROOT or was started from a plain terminal.
+        """
         local = os.environ.get("LOCALAPPDATA")
         if local:
             return Path(local) / "cc-director"
@@ -88,6 +101,45 @@ class CcStorage:
     def tool_config(tool: str) -> Path:
         """Config directory for a specific tool: config/{tool}/"""
         return CcStorage.config() / tool
+
+    @staticmethod
+    def user_config() -> Path:
+        """Config that belongs to the operating-system USER, not to a Director instance.
+
+        Deliberately resolved from _user_base(), so CC_DIRECTOR_ROOT does NOT
+        redirect it. A Director sets CC_DIRECTOR_ROOT to its instance home for
+        every session it runs, while the owner runs the same tool from a plain
+        terminal with no such variable. Anything the owner sets up ONCE for the
+        machine - an OAuth token, a credential - has to be found by both, or
+        there are two stores and authenticating in one cannot fix the other
+        (issue #3011: cc-gmail kept a token per store and told the user to run
+        an 'auth' that could never reach the store the session was reading).
+
+        This mirrors CcStorage.SecretsStore() on the C# side and
+        tools/cc-secrets/src/paths.py, which are per-user for the same reason.
+
+        Use config() for anything that is genuinely per-instance.
+        """
+        return CcStorage._user_base() / "config"
+
+    @staticmethod
+    def user_tool_config(tool: str) -> Path:
+        """Per-user config directory for a specific tool: <user base>/config/{tool}/"""
+        return CcStorage.user_config() / tool
+
+    @staticmethod
+    def instance_homes() -> list:
+        """Every named Director instance home under this user's base: <user base>/instances/*.
+
+        A tool that has moved a store out from under CC_DIRECTOR_ROOT needs to
+        see what its older self left behind in each instance home, so it can
+        adopt it instead of asking the user to set it up again. Returns an empty
+        list when there are no instances.
+        """
+        instances = CcStorage._user_base() / "instances"
+        if not instances.is_dir():
+            return []
+        return sorted((path for path in instances.iterdir() if path.is_dir()), key=lambda p: p.name)
 
     @staticmethod
     def tool_output(tool: str) -> Path:
