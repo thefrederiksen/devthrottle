@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { GatewayError, gatewayErrorMessage } from "../api/client";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { DevReportController, type DevReportApi, type DevReportSnapshot } from "./controller";
 import type { DevReportConversationModel } from "./DevReportConversation";
 import { DEV_REPORT_POLL_MS } from "./DevReportList";
 import { getDevReport, getDevReportHtml, sendDevReportItems } from "./devReportsClient";
+import { reportFileName, saveHtmlFile } from "./exportReport";
 import { DEV_REPORT_NOTES_SCRIPT } from "./notesScript";
 import { DevReportStateStore } from "./stateStore";
 import { APP_DEV_REPORT_THEME } from "./theme";
@@ -78,6 +80,37 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound, onBa
 
   const snapshot = useSyncExternalStore(controller?.subscribe ?? idleSubscribe, controller?.getSnapshot ?? (() => idleSnapshot));
 
+  // EXPORT: the report's bytes, saved as one HTML file (see exportReport.ts for what that file is and is
+  // not). The frame already holds a copy of those bytes, but it is a sandboxed frame with an opaque origin,
+  // so this page cannot read them back out of it - the export asks the Gateway for the same version the
+  // frame is showing. A failed export SAYS SO, in the Gateway's own words where there are any; a button that
+  // reports nothing reads as broken.
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const exportVersion = snapshot.loadedVersion ?? snapshot.detail?.report.version ?? null;
+  const exportReport = useCallback(async () => {
+    const detail = snapshot.detail;
+    if (!detail || exportVersion === null) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const page = await getDevReportHtml(reportId, exportVersion);
+      if (!page) {
+        setExportError("This report does not appear any more, so there was nothing to save.");
+        return;
+      }
+      saveHtmlFile(window.document, reportFileName(detail.report.title, page.version), page.html);
+    } catch (err) {
+      setExportError(
+        err instanceof GatewayError
+          ? gatewayErrorMessage(err, "save the report")
+          : `The report could not be saved${err instanceof Error && err.message ? ` (${err.message})` : ""}.`,
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [reportId, snapshot.detail, exportVersion]);
+
   const refresh = useCallback((signal: AbortSignal) => (controller ? controller.refresh(signal) : undefined), [controller]);
   useVisiblePolling(refresh, DEV_REPORT_POLL_MS);
 
@@ -125,6 +158,22 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound, onBa
             <span className="dev-report-viewer-version" data-testid="dev-report-version">
               Version {snapshot.loadedVersion ?? snapshot.detail.report.version}
             </span>
+            {/* Save this report as one HTML file. Last in the bar, and on BOTH surfaces, because it is the
+                report's own action rather than any one shell's chrome. */}
+            <button
+              type="button"
+              className="dev-report-export"
+              data-testid="dev-report-export"
+              onClick={() => void exportReport()}
+              disabled={exporting}
+            >
+              {exporting ? "Saving..." : "Export HTML"}
+            </button>
+          </div>
+        )}
+        {exportError && (
+          <div className="dev-report-error" role="alert" data-testid="dev-report-export-error">
+            {exportError}
           </div>
         )}
         {snapshot.loadError && (

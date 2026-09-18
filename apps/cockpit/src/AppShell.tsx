@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useKeepWarm } from "@devthrottle/client-core/net/useKeepWarm";
 import { getSuggestionCount } from "@devthrottle/client-core/dictation/dictionaryClient";
 import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
-import { NavIcon, type NavIconName } from "./components";
+import { Chevron, NavIcon, type NavIconName } from "./components";
 import { CockpitStatusPill } from "./network/CockpitStatusPill";
 import { StopSessionProvider } from "./sessions/StopSessionProvider";
 import { useFleetManagerWaitingCount } from "./fleetmanager/useWaitingCount";
@@ -117,6 +117,24 @@ const NAV_FOOT: ReadonlyArray<NavItem> = [
   { to: DOCS_URL, label: "Help", icon: "help", href: DOCS_URL },
 ];
 
+// THE RAIL COLLAPSES TO ITS ICONS (issue #3074). On a screen whose whole point is the thing in the middle -
+// a dev report is the case that forced this - the rail, the session list and the queue dock were spending
+// 860 pixels of a 1920 screen on chrome and leaving the report about 700. The rail gives back 164 of them
+// without losing a destination: every row already carries an icon that was drawn to be found by SHAPE
+// (see NavIcon), so collapsed it is the same list with the words hidden, not a different navigation.
+//
+// The choice is remembered per browser, like the roster's ordering: a reader who works collapsed should not
+// re-collapse it on every load. Storage that is unavailable or holds something else reads as expanded.
+const RAIL_STORAGE_KEY = "cockpit.railCollapsed";
+
+function initialRailCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(RAIL_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function AppShell() {
   const location = useLocation();
   // Keep-warm heartbeat (P2): hold the direct LAN path open during active use.
@@ -151,6 +169,19 @@ export function AppShell() {
 
   const waitingCount = useFleetManagerWaitingCount(location.pathname);
 
+  const [railCollapsed, setRailCollapsed] = useState(initialRailCollapsed);
+  const toggleRail = () => {
+    setRailCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(RAIL_STORAGE_KEY, next ? "true" : "false");
+      } catch {
+        // A browser with storage turned off still collapses; it just forgets on the next load.
+      }
+      return next;
+    });
+  };
+
   const mainNav = NAV_MAIN.map((item) =>
     item.to === "/dictionary"
       ? { ...item, badge: suggestCount }
@@ -166,15 +197,30 @@ export function AppShell() {
   // neither the outstanding request nor the Gateway's answer can go with the row.
   return (
     <StopSessionProvider>
-      <div className="shell">
+      <div className={railCollapsed ? "shell shell-rail-collapsed" : "shell"}>
         <nav className="rail rail-left" aria-label="Primary">
-          <div className="brand">DevThrottle</div>
-          <CockpitStatusPill />
-          <div className="nav">
-            <NavList items={mainNav} pathname={location.pathname} />
-            <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" />
+          <div className="rail-head">
+            {!railCollapsed && <div className="brand">DevThrottle</div>}
+            {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
+                is the one row still in reach, pointing the way back. */}
+            <button
+              type="button"
+              className="rail-toggle"
+              data-testid="rail-toggle"
+              aria-expanded={!railCollapsed}
+              aria-label={railCollapsed ? "Expand the menu" : "Collapse the menu"}
+              title={railCollapsed ? "Expand the menu" : "Collapse the menu"}
+              onClick={toggleRail}
+            >
+              <Chevron pointing={railCollapsed ? "right" : "left"} />
+            </button>
           </div>
-          <div className="rail-foot">Cockpit (React)</div>
+          {!railCollapsed && <CockpitStatusPill />}
+          <div className="nav">
+            <NavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
+            <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={railCollapsed} />
+          </div>
+          {!railCollapsed && <div className="rail-foot">Cockpit (React)</div>}
         </nav>
 
         <main className="main-pane" aria-label="Main">
@@ -189,10 +235,12 @@ function NavList({
   items,
   pathname,
   className,
+  collapsed,
 }: {
   items: ReadonlyArray<NavItem>;
   pathname: string;
   className?: string;
+  collapsed: boolean;
 }) {
   return (
     <ul className={className === undefined ? "nav-list" : `nav-list ${className}`}>
@@ -209,6 +257,7 @@ function NavList({
                 href={item.href}
                 target="_blank"
                 rel="noopener noreferrer"
+                title={collapsed ? item.label : undefined}
               >
                 <NavIcon name={item.icon} />
                 <span className="nav-link-label">{item.label}</span>
@@ -220,6 +269,9 @@ function NavList({
                 className={({ isActive }) =>
                   isActive || inSubtree ? "nav-link nav-link-active" : "nav-link"
                 }
+                /* Collapsed, the word is hidden but the row must still be able to say what it is. The label
+                   stays in the DOM for the accessible name; the hover text is for the eye. */
+                title={collapsed ? item.label : undefined}
               >
                 <NavIcon name={item.icon} />
                 <span className="nav-link-label">{item.label}</span>

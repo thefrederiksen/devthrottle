@@ -18,6 +18,7 @@ import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client
 import { WingmanTab } from "@devthrottle/client-core/sessions/WingmanTab";
 import { sendingButtonFor, wingmanNowActions } from "./wingmanNowActions";
 import { useStopSession } from "./StopSessionProvider";
+import { Chevron } from "../components";
 
 // The selected session's detail region (issue #972): the live terminal (issue #971's TerminalPane,
 // reused verbatim) stacked over the driver action bar and the composer, with a tabbed dock for the
@@ -26,6 +27,22 @@ import { useStopSession } from "./StopSessionProvider";
 // the composer text, and the queue are all per-session).
 
 type DockTab = "queue" | "shots";
+
+// THE DOCK COLLAPSES (issue #3074). Its 300 pixels are worth having on the Terminal, where the queue is part
+// of driving; they are 300 pixels of "No queued prompts." next to a dev report that has been squeezed into
+// half the screen. Collapsed it is a thin strip with the same two tabs' worth of room behind one control -
+// the dock is never GONE, because a queue you cannot see and cannot reach is a queue you forget.
+//
+// Remembered per browser, like the rail and the roster's ordering.
+const DOCK_STORAGE_KEY = "cockpit.dockCollapsed";
+
+function initialDockCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(DOCK_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 // The session-main view (issues #1213, #1266): Terminal, Chat, Voice, Source Control. Terminal is the
 // live PTY mirror (issue #971); Chat is the cleaned conversation history and Voice is the hands-free
 // narration - both ported from the mobile pages through the shared client-core code, not rewritten.
@@ -59,6 +76,7 @@ export function SessionDetail() {
   const [compose, setCompose] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [tab, setTab] = useState<DockTab>("queue");
+  const [dockCollapsed, setDockCollapsed] = useState(initialDockCollapsed);
   const [searchParams, setSearchParams] = useSearchParams();
   const mainTab = tabFromAddress(searchParams.get("tab"));
   // Only the Reports tab has an open report, so `report=` outside it means nothing and is not read.
@@ -150,8 +168,24 @@ export function SessionDetail() {
   // a console with a dock. The moment anything is queued the panel returns, and every other tab keeps it always.
   const showDock = mainTab !== "wingman" || queue.length > 0;
 
+  const toggleDock = useCallback(() => {
+    setDockCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(DOCK_STORAGE_KEY, next ? "true" : "false");
+      } catch {
+        // Storage turned off: it still collapses, it just forgets on the next load.
+      }
+      return next;
+    });
+  }, []);
+
   return (
-    <div className={`session-detail${showDock ? "" : " session-detail-wide"}`}>
+    <div
+      className={`session-detail${showDock ? "" : " session-detail-wide"}${
+        showDock && dockCollapsed ? " session-detail-dock-collapsed" : ""
+      }`}
+    >
       <div className="session-main">
         <div className="session-tabs" role="tablist" aria-label="Session view">
           <button
@@ -327,22 +361,42 @@ export function SessionDetail() {
       </div>
 
       {showDock && (
-      <aside className="session-dock">
+      <aside className={dockCollapsed ? "session-dock session-dock-collapsed" : "session-dock"}>
         <div className="dock-tabs">
-          <button type="button" className={`dock-tab ${tab === "queue" ? "on" : ""}`} onClick={() => setTab("queue")}>
-            Queue{queue.length > 0 ? ` (${queue.length})` : ""}
+          {/* Collapsed, the strip carries ONE control and it is this one - and the queue count rides on it,
+              so nothing arrives in a queue the reader has hidden without the strip saying so. */}
+          <button
+            type="button"
+            className="dock-collapse"
+            data-testid="dock-collapse"
+            aria-expanded={!dockCollapsed}
+            aria-label={dockCollapsed ? "Expand the queue panel" : "Collapse the queue panel"}
+            title={dockCollapsed ? "Expand the queue panel" : "Collapse the queue panel"}
+            onClick={toggleDock}
+          >
+            <Chevron pointing={dockCollapsed ? "left" : "right"} />
+            {dockCollapsed && queue.length > 0 && <span className="dock-collapsed-count">{queue.length}</span>}
           </button>
-          <button type="button" className={`dock-tab ${tab === "shots" ? "on" : ""}`} onClick={() => setTab("shots")}>
-            Screenshots
-          </button>
-        </div>
-        <div className="dock-body">
-          {tab === "queue" ? (
-            <QueuePanel sessionId={sessionId} queue={queue} onQueue={setQueue} onPop={appendCompose} />
-          ) : (
-            <ScreenshotsPanel sessionId={sessionId} onInsert={appendCompose} />
+          {!dockCollapsed && (
+            <>
+              <button type="button" className={`dock-tab ${tab === "queue" ? "on" : ""}`} onClick={() => setTab("queue")}>
+                Queue{queue.length > 0 ? ` (${queue.length})` : ""}
+              </button>
+              <button type="button" className={`dock-tab ${tab === "shots" ? "on" : ""}`} onClick={() => setTab("shots")}>
+                Screenshots
+              </button>
+            </>
           )}
         </div>
+        {!dockCollapsed && (
+          <div className="dock-body">
+            {tab === "queue" ? (
+              <QueuePanel sessionId={sessionId} queue={queue} onQueue={setQueue} onPop={appendCompose} />
+            ) : (
+              <ScreenshotsPanel sessionId={sessionId} onInsert={appendCompose} />
+            )}
+          </div>
+        )}
       </aside>
       )}
     </div>

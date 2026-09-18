@@ -123,6 +123,30 @@
   border-color: var(--accent);
 }
 
+/* Save this report as one HTML file (see exportReport.ts). It sits at the end of the bar, pushed away from
+   the report's own facts, because it is the one thing in that row that DOES something. */
+.dev-report-export {
+  margin-left: auto;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dev-report-export:hover:enabled {
+  border-color: var(--accent);
+}
+
+.dev-report-export:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
 .dev-report-frame-box {
   flex: 1 1 auto;
   min-height: 0;
