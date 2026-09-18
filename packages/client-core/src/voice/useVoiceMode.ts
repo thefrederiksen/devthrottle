@@ -769,7 +769,18 @@ export function useVoiceMode(
   // The ONE piece of state the phone still owns: whether it is holding playable clip bytes RIGHT NOW,
   // so it can play them without pulling the rug on a listener when the agent resumes (issue #1322). This
   // is playback, not ruling - "do I have the bytes", not "what state is voice in".
-  const speaking = voiceOn && phoneReady && (voice?.spoken.length ?? 0) > 0 && !agentWorking;
+  // pollDone IS PART OF THIS, and its absence was a real way to hear last turn's voice. `voice` is seeded
+  // from this phone's own cache at mount (issue #1015) and the clip is warmed from Cache Storage, so on a cold
+  // entry both sides agree about a stamp that may be minutes old. agentWorking cannot contradict them yet -
+  // it is `session !== null && isWorking(session)`, and a session that has not loaded is treated as
+  // not-working - so the player appeared, holding the previous turn's audio, for a session that had since
+  // gone blue. Auto-play was already guarded this way (it waits for pollDone and a resolved session); the
+  // manual play control was not, and a tap in that window played the stale clip.
+  //
+  // "I do not know yet" is not "there is nothing to play" - it is a reason to offer nothing until the first
+  // poll answers. The cost is a fraction of a second of no player on entry; the alternative is the wrong turn.
+  const speaking = pollDone && session !== null
+    && voiceOn && phoneReady && (voice?.spoken.length ?? 0) > 0 && !agentWorking;
   const narrative = voice?.spoken ?? "";
   const title = session?.number ? `${session.number} ${name ?? "Session"}` : name ?? "Session";
 
