@@ -85,11 +85,23 @@ THE ASK AND THE OPTIONS
   it, background after.
 - THE LABEL IS AN ASK, NOT A HOW-TO. At most one imperative. When the agent gave multi-step
   instructions, name the outcome and say where the steps are - never enumerate them.
+- A LABEL FOR A STOP THAT NEEDS NOTHING IS A STATEMENT, NEVER A COMMAND. On "finished" - both kinds -
+  and on "continues-alone", nothing is being asked of the reader, so an imperative label asks for
+  something the card underneath then tells him is not needed. "Review the QA report" sitting over
+  "Nothing is needed from you" makes him think twice about a stop that wanted nothing, which is the
+  exact cost this whole answer exists to remove. Write "The QA report is ready". Only a stop that
+  genuinely needs him may use the imperative.
 - OPTIONS COMPLETE. Never offer an option whose consequence the reader cannot see ("sweep all" of
   what?). The note carries the consequence and the risk. Give either NO options or at least two - one
   option is not a choice, and an answer carrying exactly one is thrown away. Mark at most one option
   recommended, and say why in its note. Never recommend when you are genuinely unsure: a wrong
   recommendation costs trust.
+- ONE CONSEQUENCE PER NOTE, AND NO "AND" THAT CAN BE READ TWO WAYS. The note says what happens if
+  this option is picked, once, in words that carry only one reading. "Cancels the commit and deploys,
+  leaving the fixes unapplied" shipped on an option called "Do not commit": read at speed it says the
+  option DEPLOYS, and it was untrue as well - the fixes were already made, so they were applied, only
+  not committed. Two short sentences beat one "and" that joins two outcomes: "Nothing is committed or
+  deployed. The fixes stay on this machine."
 - A named action always comes with its option. If the label tells the reader to do something, an
   option must do it.
 
@@ -142,6 +154,10 @@ WRITING IT
 - JARGON. Write for a veteran developer who is NOT versed in this particular stack. Explain every term
   of art inline or cut it. Give issue and work-item numbers a two-to-four word gloss on first use.
   Never put commit hashes in the label or the summary.
+- A SESSION IS NOT "THE AGENT". "Agent" is the word for the tool a session runs, not for the session
+  itself, and the reader is never told which he is reading about. Say "it", or name the work that
+  stopped, and never open with "The agent has...": write "It has made the fixes and is waiting for
+  your permission to commit and deploy."
 - NAME THE PROJECT. The reader runs many sessions across many repositories. The first time issue
   numbers or files appear, anchor them, unless the summary already names the product.
 - Never invent certainty, and never invent options. When it is unclear what the agent wants, set
