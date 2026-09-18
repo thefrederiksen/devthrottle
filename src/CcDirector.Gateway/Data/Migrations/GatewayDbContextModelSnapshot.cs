@@ -2323,10 +2323,10 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<DateTime>("JudgedAtUtc")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime?>("AnsweredAtUtc")
+                    b.Property<string>("AnswerJson")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AnswerJson")
+                    b.Property<DateTime?>("AnsweredAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Failed")
@@ -2429,6 +2429,24 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("DirectorId")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("NarrationFailureDetail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NarrationPrompt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("NarrationPromptTruncated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NarrationRawReply")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("NarrationRawReplyTruncated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("NarrationSeconds")
+                        .HasColumnType("REAL");
 
                     b.Property<string>("Outcome")
                         .IsRequired()

@@ -37,8 +37,9 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal("20260917110600_AddFleetOutcomeStopIdentity", all[index + 1]); // the only migration after it
-            Assert.Equal(index + 2, all.Count);
+            Assert.Equal("20260917110600_AddFleetOutcomeStopIdentity", all[index + 1]);
+            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[index + 2]); // the only migrations after it
+            Assert.Equal(index + 3, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());

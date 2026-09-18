@@ -276,10 +276,16 @@ public sealed class WingmanNowFoldTests
 
     // ---------------------------------------------------------------- needs you, not sure
 
+    /// <summary>
+    /// NOT SURE IS A STATE WORD NOW, NOT A CONFIDENCE WORD (contract v3, owner ruling 2026-09-18). The judge used
+    /// to answer a verdict and a confidence beside it, and "needed-you, ambiguous" raised this warning. That field
+    /// is cut: a judge that cannot tell what a stop needs answers cannot-tell, which is the same claim in one word
+    /// instead of two. The warning and its wording are unchanged - only what raises it.
+    /// </summary>
     [Fact]
-    public void An_ambiguous_answer_is_tagged_not_sure_and_says_to_read_the_reply_first()
+    public void A_cannot_tell_answer_is_tagged_not_sure_and_says_to_read_the_reply_first()
     {
-        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, confidence: "ambiguous", options: 2);
+        var verdict = Verdict(TurnVerdictVocabulary.CannotTell, options: 2);
         var now = Fold(Row(verdict), verdict);
 
         Assert.Equal(WingmanNowStates.NeedsYou, now.State);
@@ -291,6 +297,18 @@ public sealed class WingmanNowFoldTests
         // The words above it are still shown: not sure is a warning about them, not a reason to hide them.
         Assert.NotNull(now.Headline);
         Assert.NotNull(now.Needs);
+    }
+
+    /// <summary>The cut field cannot raise it any more, and that is deliberate: a reading made since v3 carries no
+    /// confidence at all, so a fold that still read one would tag every new reading "not sure" or none of them.</summary>
+    [Fact]
+    public void An_ambiguous_confidence_on_a_pre_v3_record_no_longer_raises_not_sure_by_itself()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, confidence: "ambiguous", options: 2);
+        var now = Fold(Row(verdict), verdict);
+
+        Assert.Equal(WingmanNowStates.NeedsYou, now.State);
+        Assert.False(now.Unsure);
     }
 
     [Fact]

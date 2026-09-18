@@ -87,6 +87,37 @@ public sealed class TurnVerdictTraceEntity : TenantScopedEntity
     /// <summary>True when <see cref="RawReply"/> was longer than the ceiling and was cut.</summary>
     public bool RawReplyTruncated { get; set; }
 
+    // ---------------------------------------------------------------- THE SECOND CALL
+    //
+    // A READING TAKES TWO MODEL CALLS AND THE DEBUG VIEW SHOWS BOTH (the owner's ruling of 2026-09-18). Until
+    // then only the judge was recorded at all, so when a narration came back wrong, or empty, or late, there
+    // was nothing to look at - the one question the debug view exists to answer could not be asked of the
+    // second call. The narration is given the SAME package as the judge, which is why there is no second
+    // package column: PackageJson is what both calls were fed.
+
+    /// <summary>The exact prompt sent to the narrator, cut at the store's ceiling. Null when the narration call
+    /// was not made - a refused judgement, a session another session owns, or an account with no Wingman on its
+    /// plan, which is answered without a model call.</summary>
+    public string? NarrationPrompt { get; set; }
+
+    /// <summary>True when <see cref="NarrationPrompt"/> was longer than the ceiling and was cut.</summary>
+    public bool NarrationPromptTruncated { get; set; }
+
+    /// <summary>The narrator's answer exactly as received, cut at the store's ceiling. Null when no answer
+    /// arrived: the call was not made, timed out, or was refused by the provider.</summary>
+    public string? NarrationRawReply { get; set; }
+
+    /// <summary>True when <see cref="NarrationRawReply"/> was longer than the ceiling and was cut.</summary>
+    public bool NarrationRawReplyTruncated { get; set; }
+
+    /// <summary>How long the narrator took to answer, in seconds. Null when it was not asked.</summary>
+    public double? NarrationSeconds { get; set; }
+
+    /// <summary>Why the narration call produced no words, in plain words, or null when it produced some or was
+    /// never owed one. This is the "could not be read" half of a reading, and it is the sentence the debug view
+    /// shows for it.</summary>
+    public string? NarrationFailureDetail { get; set; }
+
     /// <summary>The verdict record the judgement stored, as serialized <c>TurnVerdictDto</c> JSON - kept
     /// here too, because the verdict table's copy is deleted when the session works again. Null for "skipped" and
     /// "cancelled".</summary>

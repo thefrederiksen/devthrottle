@@ -316,3 +316,10 @@
   font-size: 13px;
   color: var(--text-dim);
 }
+
+/* The staff-only Debug view: two model calls, shown whole. Its blocks are the History blocks, so nearly all of the
+   layout above already applies. What it adds is one line - the sentence explaining a call that was refused or never
+   made - which must read as a fault rather than as a note, because that is the one thing the view is opened to see. */
+.wingman-debug-refusal {
+  color: var(--danger, #e05252);
+}

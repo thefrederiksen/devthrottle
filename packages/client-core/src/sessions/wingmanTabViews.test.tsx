@@ -100,11 +100,41 @@ describe("the Wingman tab's views", () => {
     render(<WingmanTab sessionId={SID} />);
 
     await waitFor(() => expect(screen.getByText("Merge pull request #3002, or allow me to merge it")).toBeTruthy());
-    expect(urls[0]).toBe(`/sessions/${SID}/wingman-now`);
+    // The Now route is what feeds the open view. It is not asserted to be the FIRST request the tab makes:
+    // the tab also asks once whether this account is staff, to decide whether a Debug view is offered at all.
+    expect(urls).toContain(`/sessions/${SID}/wingman-now`);
 
     const views = screen.getAllByRole("tab");
     expect(views.map((v) => v.textContent)).toEqual(["Now", "History"]);
     expect(views[0].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("offers no Debug view to an account that is not staff, and none when the staff question cannot be answered", async () => {
+    // The status route answers, and says this account is not staff.
+    fakeGateway({ "wingman-now": [200, NOW], "wingman-stops": [200, STOPS], "account/status": [200, { hosted: true, staff: false }] });
+    render(<WingmanTab sessionId={SID} />);
+    await waitFor(() => expect(screen.getByText("Merge pull request #3002, or allow me to merge it")).toBeTruthy());
+    expect(screen.getAllByRole("tab").map((v) => v.textContent)).toEqual(["Now", "History"]);
+
+    cleanup();
+
+    // And when the question cannot be answered at all, the view is CLOSED rather than opened: a debug view that
+    // appears because a status call failed would be the failure this gate exists to stop.
+    fakeGateway({ "wingman-now": [200, NOW], "wingman-stops": [200, STOPS], "account/status": [500, { error: "no" }] });
+    render(<WingmanTab sessionId={SID} />);
+    await waitFor(() => expect(screen.getByText("Merge pull request #3002, or allow me to merge it")).toBeTruthy());
+    expect(screen.getAllByRole("tab").map((v) => v.textContent)).toEqual(["Now", "History"]);
+  });
+
+  it("offers the Debug view to a staff account, beside Now and History", async () => {
+    fakeGateway({ "wingman-now": [200, NOW], "wingman-stops": [200, STOPS], "account/status": [200, { hosted: true, staff: true }] });
+    render(<WingmanTab sessionId={SID} />);
+    await waitFor(() => expect(screen.getByText("Merge pull request #3002, or allow me to merge it")).toBeTruthy());
+
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(3));
+    expect(screen.getAllByRole("tab").map((v) => v.textContent)).toEqual(["Now", "History", "Debug"]);
+    // It is offered, not opened: the tab still comes up on Now.
+    expect(screen.getAllByRole("tab")[0].getAttribute("aria-selected")).toBe("true");
   });
 
   it("shows History when it is chosen, and comes back to Now", async () => {

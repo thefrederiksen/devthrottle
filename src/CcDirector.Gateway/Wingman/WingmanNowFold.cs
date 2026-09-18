@@ -779,9 +779,15 @@ public static class WingmanNowFold
         _ => null,
     };
 
+    /// <summary>
+    /// The judge could not judge this stop, so the screen says so rather than acting sure.
+    ///
+    /// IT READS THE STATE ALONE from contract v3 (owner ruling, 2026-09-18). The first arm used to be the judge's
+    /// own "confidence" word being "ambiguous"; that field is cut and the two always said one thing - cannot-tell
+    /// IS "I could not judge this". Nothing is lost by reading the word that remains.
+    /// </summary>
     private static bool IsUnsure(TurnVerdictDto live)
-        => string.Equals(live.Confidence, "ambiguous", StringComparison.Ordinal)
-           || string.Equals(live.Verdict, TurnVerdictVocabulary.CannotTell, StringComparison.Ordinal)
+        => string.Equals(live.Verdict, TurnVerdictVocabulary.CannotTell, StringComparison.Ordinal)
            // The Wingman never answers this word (it belongs to the detector) and the contract rejects it, so this
            // arm is a belt on a rule enforced elsewhere: if one ever reached a row, "the boundary fired while the
            // session was still working" is precisely a stop nobody should act on without reading it.
@@ -807,6 +813,12 @@ public static class WingmanNowFold
             Recommends = Recommends(live),
             Question = NullIfBlank(live.Menu?.Question),
             OptionsLead = live.Options.Count > 0 ? OptionsLeadText : null,
+            // THE RISK WORD IS CUT IN CONTRACT v3 (owner ruling, 2026-09-18), so on every reading made since, all
+            // three of these are absent and the Now screen raises no confirm. The consequence still reaches the
+            // owner: it is in the note beside the button he is about to press, which is where the owner ruled it
+            // belongs - at the point of decision, attached to the choice, where it can change what he does. These
+            // lines stay because a record stored before v3 still carries the word, and a reading in hand should be
+            // shown as it was made rather than silently re-read under the new contract.
             RiskFlag = RiskFlag(live.Risk),
             RiskLine = RiskLine(live.Risk),
             ConfirmBeforeSending = RiskFlag(live.Risk) is not null,

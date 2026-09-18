@@ -18,9 +18,9 @@ namespace CcDirector.Gateway.Wingman;
 /// amended as version 10 (<see cref="WingmanTranslator.FidelityPrompt"/>).
 ///
 /// WHAT IT IS GIVEN. The package the judge was given for that stop - the reply (or the failure text), the recent
-/// turns and the screen - plus the judge's own decision: the verdict, the risk, how the person answers, the menu
-/// and the options with the recommended one. The shape of the narration follows that decision. The model is never
-/// asked whether the screen shows a menu; the judge already said.
+/// turns and the screen - plus the judge's own decision: the state, how the person answers, the menu and the
+/// options with the recommended one. The shape of the narration follows that decision. The model is never asked
+/// whether the screen shows a menu; the judge already said.
 ///
 /// WHAT IT IS NOT. It is not a judgement. Nothing it answers is validated, stored on the verdict row, or used to
 /// decide what the stop means. Its text only replaces the clip a listener hears.
@@ -110,10 +110,11 @@ public static class NarrationCall
         var keys = IsKeys(verdict);
         sb.Append("The judge's decision about this stop. It is settled; follow it:\n");
         sb.Append("---\n");
-        if (!string.IsNullOrWhiteSpace(verdict.Verdict))
-            sb.Append("What the stop is: ").Append(verdict.Verdict.Trim()).Append('\n');
-        if (!string.IsNullOrWhiteSpace(verdict.Risk))
-            sb.Append("Risk: ").Append(verdict.Risk.Trim()).Append('\n');
+        // THE STATE WORD, not the stored verdict spelling: it is what the judge answered under contract v3 and what
+        // the owner is shown, so it is what the narration is told. The risk word that used to sit under it is cut -
+        // each option's note carries its own consequence, and those are handed in below.
+        if (!string.IsNullOrWhiteSpace(verdict.State))
+            sb.Append("What the stop is: ").Append(verdict.State).Append('\n');
         sb.Append("How the person answers: ").Append(keys ? "KEYS - a menu only a button press can answer" : "REPLY").Append('\n');
         if (keys && verdict.Menu is { } menu && !string.IsNullOrWhiteSpace(menu.Question))
             sb.Append("The menu's question: ").Append(menu.Question.Trim()).Append('\n');

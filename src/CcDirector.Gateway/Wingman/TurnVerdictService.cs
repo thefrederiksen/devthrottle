@@ -139,7 +139,10 @@ public sealed record TurnVerdictSessionState(SessionDto? Facts, bool Held, bool 
 
 /// <summary>What one narration call produced: the finished spoken text, or why there is none. The prompt is kept so
 /// a test can read what the call was given.</summary>
-public sealed record NarrationCallResult(string? Spoken, string? FailureDetail, string Prompt, double ReplySeconds);
+/// <param name="RawReply">The narrator's answer exactly as received, for the debug view. Null when no answer arrived -
+/// a timeout, a rate limit, or a call that was never made.</param>
+public sealed record NarrationCallResult(string? Spoken, string? FailureDetail, string Prompt, double ReplySeconds,
+    string? RawReply = null);
 
 /// <summary>The judge's raw answer, which model gave it, and how long it took.</summary>
 public sealed record TurnVerdictJudgeAnswer(string Raw, string Model, double ReplySeconds);
@@ -625,15 +628,14 @@ public sealed class TurnVerdictService : IDisposable
         if (signal.IsNewTurn) ClearRateLimitHold(key);
         // The gate is still taken synchronously inside TakeGateOrJoin, before this returns; only the narration for the
         // user waits on the outcome.
-        return NarrateForUserWhenJudgedAsync(signal.Tenant, signal.SessionId, TakeGateOrJoin(key, signal));
-    }
-
-    /// <summary>Hand a turn end's outcome back unchanged, after starting the narration call it is owed, if any.</summary>
-    private async Task<TurnVerdictOutcome> NarrateForUserWhenJudgedAsync(TenantId tenant, string sid, Task<TurnVerdictOutcome> judged)
-    {
-        var outcome = await judged.ConfigureAwait(false);
-        StartNarrationForUserIfOwed(tenant, sid, outcome);
-        return outcome;
+        //
+        // NOTHING IS STARTED AFTER THE JUDGEMENT ANY MORE. A wrapper here used to fire the narration call for a
+        // session that answers to the user, detached, once the outcome was in hand. Contract v3 makes the
+        // narration part of the reading itself, so by the time this returns the words are already on the record
+        // or were never coming. Leaving the wrapper in place was not merely redundant: it saw an empty Narration
+        // on a reading whose call had FAILED, claimed it, and made a second call - an automatic re-attempt, which
+        // is exactly what the rule beside TryClaimNarration says no automatic path may do.
+        return TakeGateOrJoin(key, signal);
     }
 
     private enum Admitted { Refused, TookGate, Joined, Queued }
@@ -1215,7 +1217,10 @@ public sealed class TurnVerdictService : IDisposable
                 grid,
                 latest is { Failed: false } ? latest.Label : null,
                 owned is null ? null : new OwnedSessionCounts(owned.Working, owned.Stopped, owned.NeedYou));
-            var prompt = TurnVerdictPrompt.BuildVerdictPrompt(_env.Language(tenant), package, _env.CustomSpokenRules());
+            // The judge is asked the contract's own question and nothing else from contract v3: it answers no
+            // prose a person hears, so the account's language and its own narration instructions belong to the
+            // narration call below, which takes both.
+            var prompt = TurnVerdictPrompt.BuildVerdictPrompt(package);
             flight.Package = package;
             flight.Prompt = prompt;
 
@@ -1306,12 +1311,45 @@ public sealed class TurnVerdictService : IDisposable
             if (_lastObserved.TryGetValue(key, out var seenSince) && seenSince > record.TurnEndObservedAtUtc)
                 record.TurnEndObservedAtUtc = seenSince;
 
+            // ======================================================================================
+            // A READING IS NOT FINISHED UNTIL BOTH CALLS ARE DONE (the owner's ruling on the Wingman redesign
+            // report, 18 September 2026). Nothing is stored, nothing is shown, nothing is spoken and no play
+            // control appears until the whole reading exists.
+            //
+            // THIS IS THE SINGLE MOST IMPORTANT CHANGE IN THAT REPORT, and it is one line moved: the narration
+            // call is made HERE, before the store, rather than fired off afterwards against a record that was
+            // already on the owner's screen. Three separate defects were the same defect - audio that restarted
+            // mid-sentence, a row that re-worded itself while he looked at it, and hearing an older turn - and all
+            // three were publishing a reading before it was finished.
+            //
+            // It costs the row nothing it was not already costing: the session is stopped, the row is red, and
+            // IsReading keeps saying "being read" for the whole flight instead of for half of it. The flight's
+            // token still cancels the call when the session goes back to work, and StoreIfCurrent still refuses a
+            // record about a screen that is gone - so a longer reading cannot store a staler answer.
+            //
+            // A REFUSED JUDGEMENT IS NOT NARRATED. There is nothing to narrate: contract v3 leaves no prose on a
+            // refused record, and a reading that could not be read says so rather than half-speaking.
+            var narration = record.Failed
+                ? new NarrationCallResult(null, null, "", 0)
+                : await NarrateForReadingAsync(tenant, sid, record, new Lazy<TurnVerdictPackage>(package), ct)
+                    .ConfigureAwait(false);
+            if (narration.Spoken is { Length: > 0 } words)
+            {
+                // ONE TEXT, READ OR HEARD. Summary and Spoken are the same words as the narration from contract v3 -
+                // see TurnVerdictDto - so the hundred readers of a "summary" and the voice path both read what the
+                // owner is actually shown, and a screen never shows a short version and a long version of one turn.
+                record.Narration = words;
+                record.Summary = words;
+                record.Spoken = words;
+            }
+
             if (!StoreIfCurrent(key, epoch, record))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked between the read and the store; the answer describes a screen that is gone", flight);
 
             // THE INSPECTOR'S RECORD, written for exactly what was stored: the package the judge was given, the
-            // prompt it was asked, its answer as received, and how long it took. An answer the contract refused is
-            // kept with the raw reply that failed - that is the case the record exists for.
+            // prompt it was asked, its answer as received, and how long it took - and the SAME THREE for the
+            // narration call, so the debug view can show both halves of one reading. An answer the contract refused
+            // is kept with the raw reply that failed - that is the case the record exists for.
             var judgedOutcome = TraceOutcome(record, failure);
             // The row is ABOUT this flight's own stop, whatever later stop the verdict now carries as its join key.
             TraceStop(tenant, sid, TriggerWord(trigger), judgedOutcome, observedAt, settings,
@@ -1321,6 +1359,10 @@ public sealed class TurnVerdictService : IDisposable
                     Package = package,
                     Prompt = prompt,
                     RawReply = rawReply,
+                    NarrationPrompt = narration.Prompt.Length == 0 ? null : narration.Prompt,
+                    NarrationRawReply = narration.RawReply,
+                    NarrationSeconds = narration.Prompt.Length == 0 ? null : narration.ReplySeconds,
+                    NarrationFailureDetail = narration.FailureDetail,
                 });
 
             if (record.Failed)
@@ -1479,10 +1521,19 @@ public sealed class TurnVerdictService : IDisposable
     /// it in place, and it is logged. Nothing is re-attempted.
     /// </summary>
     /// <param name="outcome">A judged, reused, or refused-but-worded outcome, with its verdict and package.</param>
-    internal async Task<NarrationCallResult> NarrateAsync(TenantId tenant, string sid, TurnVerdictOutcome outcome, CancellationToken ct)
+    internal Task<NarrationCallResult> NarrateAsync(TenantId tenant, string sid, TurnVerdictOutcome outcome, CancellationToken ct)
     {
         if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is not { } lazyPackage)
             throw new ArgumentException("A narration call needs a verdict and the package it was formed from.", nameof(outcome));
+        return NarrateAsync(tenant, sid, verdict, lazyPackage, ct, outcome.NarrationDecision);
+    }
+
+    /// <summary>The same call, given its verdict and package directly - the form the reading itself uses, before
+    /// there is an outcome to carry them in.</summary>
+    internal async Task<NarrationCallResult> NarrateAsync(
+        TenantId tenant, string sid, TurnVerdictDto verdict, Lazy<TurnVerdictPackage> lazyPackage, CancellationToken ct,
+        TurnVerdictDto? salvagedDecision = null)
+    {
 
         // THE PLAN FIRST (owner ruling, 2026-09-17): an account whose plan does not include the Wingman gets the Pro
         // sentence as its narration, with no model call; a plan that could not be read gets nothing, and no call.
@@ -1497,7 +1548,7 @@ public sealed class TurnVerdictService : IDisposable
         }
 
         // A refused record carries no decision of its own; the call is given the one its readable answer held.
-        var decision = verdict.Failed && outcome.NarrationDecision is { } salvaged ? salvaged : verdict;
+        var decision = verdict.Failed && salvagedDecision is { } salvaged ? salvaged : verdict;
         var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, decision);
         var timeout = TimeSpan.FromSeconds(TurnVerdictSettings.NarrationCallTimeoutSeconds);
         FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} failed={verdict.Failed} answerVia={decision.AnswerVia} salvagedDecision={!ReferenceEquals(decision, verdict)} promptLen={prompt.Length}");
@@ -1508,10 +1559,10 @@ public sealed class TurnVerdictService : IDisposable
             if (spoken.Length == 0)
             {
                 FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} FAILED: the answer held no words");
-                return new NarrationCallResult(null, "the narration call answered with no words", prompt, answer.ReplySeconds);
+                return new NarrationCallResult(null, "the narration call answered with no words", prompt, answer.ReplySeconds, answer.Raw);
             }
             FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} OK: spokenLen={spoken.Length} replySeconds={answer.ReplySeconds:F1}");
-            return new NarrationCallResult(spoken, null, prompt, answer.ReplySeconds);
+            return new NarrationCallResult(spoken, null, prompt, answer.ReplySeconds, answer.Raw);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1526,56 +1577,48 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
-    /// THE NARRATION FOR THE USER (owner ruling, 2026-09-17): every stop of a session that answers to the user gets the
-    /// narration call, voice mode or not, and its text is saved onto the verdict so it can always be read. A session
-    /// another live session owns is read by that owner, not by the user, and gets none. A voice session is left to the
-    /// voice path, which makes this same call, speaks it, and saves it through <see cref="SaveNarration"/>; both paths
-    /// share <see cref="TryClaimNarration"/>, so no verdict id is narrated twice by this process. Never throws: a failed
-    /// call is logged and the verdict simply has no narration.
+    /// THE NARRATION CALL MADE INSIDE THE READING, so that the reading is atomic (the owner's ruling of 2026-09-18).
+    /// Answers the two questions the old deferred path answered separately - IS one owed, and what did it say - and
+    /// never throws: a stop that is owed none, or whose call failed, comes back with no words, and the record is
+    /// stored without a narration.
+    ///
+    /// WHO IS OWED ONE: every stop of a session that answers to the USER. A session another LIVE session owns - a
+    /// Worker under a Manager - is read by that owner rather than by the user, and gets none, exactly as before.
+    /// A voice session is no longer left to the voice path: that path made the same call a second time, against an
+    /// already-published record, and that second call is the seam this ruling removes. It now finds the words
+    /// already on the record and speaks them.
     /// </summary>
-    internal void StartNarrationForUserIfOwed(TenantId tenant, string sid, TurnVerdictOutcome outcome)
+    private async Task<NarrationCallResult> NarrateForReadingAsync(
+        TenantId tenant, string sid, TurnVerdictDto record, Lazy<TurnVerdictPackage> package, CancellationToken ct)
     {
-        if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is null) return;
-        var narratable = outcome.Kind switch
-        {
-            TurnVerdictOutcomeKind.Judged or TurnVerdictOutcomeKind.Reused => !verdict.Failed,
-            // A refused answer that still carried words is narrated, exactly as the voice path narrates it (slice I).
-            TurnVerdictOutcomeKind.Failed => verdict.Failed && !string.IsNullOrWhiteSpace(verdict.Spoken),
-            _ => false,
-        };
-        if (!narratable) return;
-        // Already saved (a reused record, or a record read back after a Gateway restart): the text is there to read.
-        if (!string.IsNullOrWhiteSpace(verdict.Narration)) return;
-        if (_env.IsVoiceSession(tenant, sid)) return;   // the voice path makes, speaks and saves it
         if (_env.ReadSessionState(tenant, sid).Held)
         {
-            FileLog.Write($"[TurnVerdictService] narration for the user: sid={sid} verdict={verdict.VerdictId} not made - a live session owns this one and reads it");
-            return;
+            FileLog.Write($"[TurnVerdictService] narration not owed: sid={sid} verdict={record.VerdictId} - a live session owns this one and reads it");
+            return new NarrationCallResult(null, null, "", 0);
         }
-        if (!TryClaimNarration(tenant, sid, verdict.VerdictId)) return;
-
-        var call = Task.Run(async () =>
+        // The claim still exists so that the phone's explain button and the voice path cannot ask a second time for
+        // a stop this reading is already narrating.
+        if (!TryClaimNarration(tenant, sid, record.VerdictId))
+            return new NarrationCallResult(null, "a narration call for this stop was already running", "", 0);
+        try
         {
-            try
-            {
-                var result = await NarrateAsync(tenant, sid, outcome, CancellationToken.None).ConfigureAwait(false);
-                if (result.Spoken is { } spoken)
-                    SaveNarration(tenant, sid, verdict.VerdictId, spoken);
-            }
-            catch (Exception ex)
-            {
-                // A detached task has no caller to throw to; an unexpected fault is logged loudly, never swallowed silently.
-                FileLog.Write($"[TurnVerdictService] narration for the user FAILED: sid={sid} verdict={verdict.VerdictId}: {ex.GetType().Name}: {ex.Message}");
-            }
-            finally
-            {
-                // The call is over, however it ended. The claim stays - no automatic re-attempt - but it stops being a
-                // RUNNING call, so a person asking for this stop can release it and ask again.
-                NarrationCallFinished(tenant, sid, verdict.VerdictId);
-            }
-        });
-        _userNarrationCalls[call] = 1;
-        _ = call.ContinueWith(done => _userNarrationCalls.TryRemove(done, out _), TaskScheduler.Default);
+            return await NarrateAsync(tenant, sid, record, package, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // NarrateAsync catches every call failure it expects; anything past it is unexpected and must not turn a
+            // good judgement into a refused one. The reading is stored with no narration, and the fault is logged.
+            FileLog.Write($"[TurnVerdictService] narration inside the reading FAILED: sid={sid} verdict={record.VerdictId}: {ex.GetType().Name}: {ex.Message}");
+            return new NarrationCallResult(null, ex.Message, "", 0);
+        }
+        finally
+        {
+            NarrationCallFinished(tenant, sid, record.VerdictId);
+        }
     }
 
     /// <summary>
@@ -1694,21 +1737,10 @@ public sealed class TurnVerdictService : IDisposable
         }
     }
 
-    /// <summary>Wait for every narration call for the user started so far. For tests; the product never waits on them.</summary>
-    internal async Task WaitForUserNarrationsAsync()
-    {
-        while (_userNarrationCalls.Keys.ToArray() is { Length: > 0 } running)
-        {
-            await Task.WhenAll(running).ConfigureAwait(false);
-            await Task.Delay(1).ConfigureAwait(false);   // the removal is a continuation; let it run
-        }
-    }
-
     // The verdict id each session's narration call was last claimed for (see TryClaimNarration).
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), NarrationClaim> _narrationClaims = new();
 
     // The narration calls for the user running detached from the turn end that started them.
-    private readonly ConcurrentDictionary<Task, byte> _userNarrationCalls = new();
 
     /// <summary>How many times one stop may ask the judge when somebody is listening: the first call and ONE
     /// re-attempt. Every other stop asks once.</summary>

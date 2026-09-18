@@ -3694,6 +3694,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // cron fires, which is where a fire writes the session it started - so the working state can say "A
             // schedule, at 6:00 AM" from a record rather than from a reading of the row.
             startedByScheduleFor: (tenant, sid) => _cronRuns.StartedSession(tenant, sid),
+            // The Wingman's debug view asks this for ONE thing: the calling account's own email, which is what its
+            // staff gate is decided on. Without it the route is open to nobody.
+            tenantRegistry: TenantRegistry,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),

@@ -82,8 +82,23 @@ public static class SessionOrdering
     ///    crashed session.
     ///  - STATE JUDGED. An accepted verdict is on the row. "reading", "failed" and "none" never calm anything,
     ///    and the Gateway stamps "none" on every row of an account whose colour switch is off.
-    ///  - CONFIDENCE HIGH. An "ambiguous" answer is accepted and stored, and it never demotes red.
-    ///  - VERDICT FINISHED OR CONTINUES-ALONE. Every other word is an ask, a stuck session, or cannot-tell.
+    ///  - THE STATE IS ONE OF THE THREE CALM WORDS - finished-done, finished-report or carrying-on. Every other
+    ///    word is an ask, a stuck session, or cannot-tell.
+    ///
+    /// THERE WAS A FOURTH GATE UNTIL CONTRACT v3 (owner ruling, 2026-09-18): the judge's own "confidence" word had
+    /// to be "high". That field is cut, so a v3 record carries no confidence at all and gating every row on it
+    /// would have left EVERY row red for ever - the failure mode this note exists to stop a later reader from
+    /// re-creating by "restoring" the gate unconditionally. It is not a loss: the two fields said one thing. A
+    /// judge that could not judge the stop answers cannot-tell, which is not calm, and the code that read
+    /// confidence already treated "ambiguous" and "cannot-tell" identically.
+    ///
+    /// A RECORD THAT CARRIES A CONFIDENCE IS STILL READ UNDER IT, and that is the whole of why the gate is not
+    /// simply deleted. Every session's newest reading on the morning of the deploy was written under the OLD
+    /// contract, so deleting the gate outright would have recoloured the live roster in the instant the Gateway
+    /// swapped: a session sitting red on an "ambiguous" reading would have gone calm without anything about it
+    /// changing. That is a quietened question, which this file calls the worst thing the mission can do. So a
+    /// record is judged under the contract it was written with - the word if it has one, nothing to answer if it
+    /// does not - and no stored reading ever changes colour because the code around it changed.
     ///
     /// It errs toward the owner. Every gate that cannot be answered answers "not calm", so the wrong answer this
     /// can give is a red row that did not need him, never a calm row that did.
@@ -92,9 +107,10 @@ public static class SessionOrdering
         IsRawRed(s)
         && string.Equals(s.VerdictState, VerdictStates.Judged, StringComparison.Ordinal)
         && s.TurnVerdict is { } verdict
-        && string.Equals(verdict.Confidence, ConfidenceHigh, StringComparison.Ordinal)
         && (string.Equals(verdict.Verdict, VerdictFinished, StringComparison.Ordinal)
-            || string.Equals(verdict.Verdict, VerdictContinuesAlone, StringComparison.Ordinal));
+            || string.Equals(verdict.Verdict, VerdictContinuesAlone, StringComparison.Ordinal))
+        && (string.IsNullOrWhiteSpace(verdict.Confidence)
+            || string.Equals(verdict.Confidence, ConfidenceHigh, StringComparison.Ordinal));
 
     /// <summary>
     /// The colour a snooze that ended with nothing new comes back in (the Wingman-on-every-turn mission, slice F,

@@ -22,7 +22,7 @@ namespace CcDirector.Core.Wingman;
 /// here therefore fails AWAY from calm: a refused answer leaves the row exactly as the detector left
 /// it, which is red. Silence is never a decision, and a broken answer never moves a row toward quiet.
 ///
-/// The prompt lives in Prompts/turn-verdict-v2.txt as an embedded resource rather than in this file,
+/// The prompt lives in Prompts/turn-verdict-v3.txt as an embedded resource rather than in this file,
 /// because the grading tool in the internal repository renders the SAME prompt from the SAME bytes. A
 /// prompt that existed twice would be graded in one version and shipped in another.
 /// </summary>
@@ -50,17 +50,37 @@ public static class TurnVerdictContract
     /// answer that was readable JSON keeps its spoken text on the failed record, so a field check no longer
     /// silences voice; the refusal still stands for the row. (A rewrite of the spoken section was graded in the
     /// same slice and withdrawn on the Architect's ruling: on the fast judge it did not reach the old
-    /// translator's fidelity and raised refusals.) The JSON shape is unchanged, so the file keeps its v2 name.</summary>
-    public const string Version = "v2.2";
+    /// translator's fidelity and raised refusals.) The JSON shape is unchanged, so the file keeps its v2 name.
+    ///
+    /// v3 (2026-09-18, the owner's ruling on the Wingman redesign report): TWELVE FIELDS BECOME FIVE, and the prompt
+    /// is a new file. The judge is asked for "state", "label", "agentRecommends", "menu" and "options" and for
+    /// nothing else. Gone: "spoken", "summary", "evidence", "risk", "confidence", "answerVia" and "finishedKind" -
+    /// the last folded into "state", and "answerVia" derived from whether a menu was drawn. Measured on the live
+    /// fleet that morning, 40 per cent of readings failed: 48 of 198 timed out at sixty seconds and 30 were refused
+    /// by a content rule, most of them the verbatim receipt. Every one of those seven fields was a further way for a
+    /// fast model to fail a shape check on a call every session pays for at every stop, and four of them never
+    /// reached a screen at all.
+    ///
+    /// THE RECEIPT IS GONE, AND THAT IS A COST TAKEN KNOWINGLY. It was a machine-checkable anchor against invention,
+    /// and nothing replaces it. It could not be satisfied: the agent's reply carries Markdown, so a judge quoting the
+    /// sentence the way a person reads it wrote "Three new contacts" where the reply held it in asterisks, and the
+    /// comparison is word for word. A check nothing can pass is not a check, it is an outage with a reason attached -
+    /// and it threw away the whole answer, label and words and all, so the owner read "The Wingman could not explain
+    /// this stop" above a complete and correct briefing.
+    ///
+    /// WHAT DID NOT CHANGE: every rule that decides what BYTES reach a live session. The options' shape, the menu's
+    /// shape, the one-option refusal, the at-most-one-recommended refusal and <see cref="ValidateExecutable"/> are
+    /// exactly as they were. Those guard a button that ACTS; the seven removed fields guarded prose.</summary>
+    public const string Version = "v3";
 
     /// <summary>The embedded name of the prompt template. The grading tool reads the same file off
-    /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt; a test pins the two to be
+    /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v3.txt; a test pins the two to be
     /// byte for byte the same.</summary>
-    public const string PromptResourceName = "CcDirector.Core.Wingman.Prompts.turn-verdict-v2.txt";
+    public const string PromptResourceName = "CcDirector.Core.Wingman.Prompts.turn-verdict-v3.txt";
 
     /// <summary>The repository-relative path of the same file, for the tool that reads it off disk and
     /// for the test that pins the embedded copy to it.</summary>
-    public const string PromptResourcePath = "src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt";
+    public const string PromptResourcePath = "src/CcDirector.Core/Wingman/Prompts/turn-verdict-v3.txt";
 
     // ==================================================================== caps
     //
@@ -72,20 +92,10 @@ public static class TurnVerdictContract
     /// <summary>The one line a row shows. From the frozen contract.</summary>
     public const int MaxLabelChars = 80;
 
-    /// <summary>One or two sentences for a cold reader. From the frozen contract.</summary>
-    public const int MaxSummaryChars = 400;
-
-    /// <summary>About thirty seconds out loud. From the frozen contract.</summary>
-    public const int MaxSpokenChars = 900;
-
-    /// <summary>The agent's own recommendation. This contract's own cap - same size as the summary,
-    /// because it is the same kind of sentence and lands in the same panel.</summary>
+    /// <summary>The agent's own recommendation, one of the three fields that make the screen. This
+    /// contract's own cap: it is a sentence in a panel, not a paragraph, and it is CUT at a word rather
+    /// than refused, because a recommendation the reader can see most of is worth more than none.</summary>
     public const int MaxAgentRecommendsChars = 400;
-
-    /// <summary>The receipt. This contract's own cap: a receipt is one decisive sentence, and a model
-    /// that pastes a whole reply into it has not picked one. Truncating would break the receipt check,
-    /// so an over-long receipt is REFUSED rather than cut.</summary>
-    public const int MaxEvidenceChars = 600;
 
     /// <summary>A menu question. This contract's own cap.</summary>
     public const int MaxMenuQuestionChars = 200;
@@ -272,16 +282,13 @@ public static class TurnVerdictContract
             if (root.ValueKind != JsonValueKind.Object)
                 return Refuse(package, model, turnEndObservedAtUtc, "the answer is not a JSON object");
 
-            // ---- THE SPOKEN TEXT OUTLIVES A REFUSAL (owner ruling, 2026-09-16) ----------------
-            // From here on the answer is readable JSON, so every refusal below keeps the judge's spoken text
-            // on the failed record, cut at the same bound an accepted one is. The refusal still stands for the
-            // ROW - the receipt, the verdict word and the options protect a colour and buttons that ACT - but
-            // the narration only informs, and on 16 September 24 of 29 silent stops had a readable spoken
-            // field thrown away with the rest. Only an answer that never became a JSON object (above), a
-            // timeout or a rate limit leaves no spoken text.
-            var salvagedSpoken = SalvageSpoken(root);
+            // ---- A REFUSAL CARRIES NO WORDS, BECAUSE THERE ARE NO WORDS HERE TO CARRY (contract v3) ------
+            // Until v3 a refused answer kept the judge's "spoken" field, so a field check no longer silenced voice.
+            // v3 deleted that field: this call produces no prose the owner reads or hears. The words come from the
+            // narration call, and a reading is not published until BOTH calls are done - so a refused judgement is a
+            // reading that could not be read, and it says so, rather than half of one.
             TurnVerdictDto RefuseReadable(string reason)
-                => Refuse(package, model, turnEndObservedAtUtc, reason, salvagedSpoken);
+                => Refuse(package, model, turnEndObservedAtUtc, reason);
 
             // ---- THE SHAPE, BEFORE ANY OF IT IS READ FOR MEANING -----------------------------
             // Every rule below this line reads a field already proved to exist and to be the type the
@@ -292,84 +299,24 @@ public static class TurnVerdictContract
             if (shapeFault is not null)
                 return RefuseReadable(shapeFault);
 
-            // ---- verdict: one of the six, and nothing else ----------------------------------
-            var verdict = Str(root, "verdict");
-            if (!TurnVerdictVocabulary.IsWingmanVerdict(verdict))
+            // ---- state: one of the seven, and nothing else -----------------------------------
+            var state = Str(root, "state");
+            if (!TurnVerdictVocabulary.IsWingmanState(state))
                 return RefuseReadable(
-                    $"unknown verdict word '{verdict}'; the six allowed words are "
-                    + string.Join(", ", TurnVerdictVocabulary.WingmanVerdicts));
+                    $"unknown state word {Quoted(state)}; the seven allowed words are "
+                    + string.Join(", ", TurnVerdictVocabulary.WingmanStates));
+
+            // The state word is the SURFACE; what is stored is the pair every record and the labelling corpus
+            // already carry. TurnVerdictVocabulary.SplitState is the one place the two spellings meet.
+            var (verdict, finishedKind) = TurnVerdictVocabulary.SplitState(state);
 
             // ---- a failure with no reply can never be calm -----------------------------------
             if (package.Kind == TurnVerdictPackageKind.TerminalFailure && TurnVerdictVocabulary.IsCalm(verdict))
                 return RefuseReadable(
-                    $"the verdict '{verdict}' is calm, and this stop has no reply at all - its turn ended on "
+                    $"the state {Quoted(state)} is calm, and this stop has no reply at all - its turn ended on "
                     + "a failure shown on screen, which cannot mean the session finished or is carrying on");
 
-            // ---- finishedKind: which finished it is, and only on finished (owner ruling, 2026-09-15) ----
-            // "done" or "report", present whenever the verdict is finished and absent on every other verdict. A
-            // missing kind is not read as "done", and a kind on another verdict is not ignored: either would be this
-            // contract writing the first word of the row's label on the judge's behalf.
-            string? finishedKind = null;
-            var hasFinishedKind = root.TryGetProperty("finishedKind", out var finishedKindElement);
-            if (verdict == TurnVerdictVocabulary.Finished)
-            {
-                if (!hasFinishedKind)
-                    return RefuseReadable(
-                        "a finished answer carries no 'finishedKind'; it must say which finished it is - "
-                        + string.Join(" or ", TurnVerdictVocabulary.FinishedKinds)
-                        + " - and neither may be written on the judge's behalf");
-                if (finishedKindElement.ValueKind != JsonValueKind.String
-                    || !TurnVerdictVocabulary.FinishedKinds.Contains(finishedKindElement.GetString(), StringComparer.Ordinal))
-                    return RefuseReadable(
-                        $"unknown finishedKind {finishedKindElement.GetRawText()}; the two allowed words are "
-                        + string.Join(", ", TurnVerdictVocabulary.FinishedKinds));
-                finishedKind = finishedKindElement.GetString();
-            }
-            else if (hasFinishedKind)
-            {
-                return RefuseReadable(
-                    $"'finishedKind' is on a '{verdict}' answer; it belongs to a finished answer only, and an "
-                    + "answer that carries it anywhere else is thrown away whole");
-            }
-
-            // ---- risk: one of the four, and never defaulted ----------------------------------
-            var risk = Str(root, "risk");
-            if (!TurnVerdictVocabulary.Risks.Contains(risk, StringComparer.Ordinal))
-                return RefuseReadable(
-                    risk.Length == 0
-                        ? "no risk word; there is no safe default, because defaulting to 'none' would tell the "
-                          + "owner an irreversible action is free"
-                        : $"unknown risk word '{risk}'; the four allowed words are "
-                          + string.Join(", ", TurnVerdictVocabulary.Risks));
-
-            // ---- the receipt ------------------------------------------------------------------
-            var evidence = Str(root, "evidence");
-            if (verdict != TurnVerdictVocabulary.CannotTell)
-            {
-                if (evidence.Length == 0)
-                    return RefuseReadable(
-                        "no evidence; every verdict except cannot-tell must carry the agent's own decisive "
-                        + "sentence as a receipt");
-                if (evidence.Length > MaxEvidenceChars)
-                    return RefuseReadable(
-                        $"the evidence is {evidence.Length} characters, over the {MaxEvidenceChars} character "
-                        + "bound; a receipt is one decisive sentence, and it cannot be cut without breaking "
-                        + "the check that it is verbatim");
-                var found = FindEvidence(package, evidence);
-                if (found is null)
-                    return RefuseReadable(
-                        "the evidence is not found verbatim in the reply or on the screen; it was paraphrased, "
-                        + "retyped or invented, and an unanchored answer is thrown away whole");
-
-                // Store the SOURCE's own characters, not the judge's rendering of them. A model that
-                // collapsed two spaces into one has still quoted the sentence, so the answer is accepted -
-                // but what the owner is shown as the agent's own words must then be the agent's, down to
-                // the spacing. Keeping the judge's version would leave a receipt that is very nearly the
-                // quote, which is the exact thing a receipt exists to rule out.
-                evidence = found;
-            }
-
-            // ---- label and summary ------------------------------------------------------------
+            // ---- the label --------------------------------------------------------------------
             var label = Str(root, "label");
             if (label.Length == 0)
                 return RefuseReadable(
@@ -377,67 +324,30 @@ public static class TurnVerdictContract
                     + "reads as broken");
             label = CapAtWordBoundary(label, MaxLabelChars);
 
-            var summary = Str(root, "summary");
-            if (summary.Length == 0)
-                return RefuseReadable(
-                    "the summary is empty; it is the one or two sentences given to a reader who has not "
-                    + "looked at this session for hours, and an empty one reads as a broken row exactly "
-                    + "as an empty label does");
-            summary = CapAtWordBoundary(summary, MaxSummaryChars);
-
-            // ---- the spoken section -----------------------------------------------------------
-            var spoken = Str(root, "spoken");
-            if (spoken.Length == 0)
-                return RefuseReadable(
-                    "no spoken section; it is produced for every owned stop, whether or not anybody is "
-                    + "listening, and a stop without one is silent in the car");
-            spoken = CapAtWordBoundary(spoken, MaxSpokenChars);
-
-            // ---- how the person answers -------------------------------------------------------
+            // ---- the options and the menu -----------------------------------------------------
             var optionsResult = ReadOptions(root);
             if (optionsResult.Reason is not null)
                 return RefuseReadable(optionsResult.Reason);
             var options = optionsResult.Options;
 
-            // The shape pass has proved answerVia is present and a string. It is never written in: it
-            // decides how bytes reach a live session, so a default here is this contract deciding what
-            // gets typed.
-            var answerVia = Str(root, "answerVia");
-            if (!TurnVerdictVocabulary.AnswerVias.Contains(answerVia, StringComparer.Ordinal))
-                return RefuseReadable(
-                    $"unknown answerVia word '{answerVia}'; the two allowed words are "
-                    + string.Join(", ", TurnVerdictVocabulary.AnswerVias));
-
             var menuResult = ReadMenu(root);
             if (menuResult.Reason is not null)
                 return RefuseReadable(menuResult.Reason);
+
+            // HOW THE PERSON ANSWERS IS DERIVED, NOT ASKED (contract v3). It was a word of its own, and the judge
+            // could contradict itself with it - "keys" with no menu, "reply" with one - and either way the answer
+            // was refused. There was never a third possibility: a picker was drawn on the screen or it was not, and
+            // the menu is what says so. So the route reads the menu, and one field cannot disagree with another.
+            var answerVia = menuResult.Menu is null ? AnswerViaReply : AnswerViaKeys;
 
             // ---- CAN THE ROUTE ACTUALLY PERFORM THIS, EXACTLY ONCE? --------------------------
             var executableFault = ValidateExecutable(package, answerVia, menuResult.Menu, options);
             if (executableFault is not null)
                 return RefuseReadable(executableFault);
 
-            // ---- confidence: one of the two, and never defaulted -------------------------------
-            // Reading an unknown word as "ambiguous" was a silent repair. It looked harmless because
-            // confidence is not a colour, but it is the same defect as any other default: the record then
-            // says the judge answered something it never said, and every reader downstream - the grading,
-            // the owner, a later slice - believes it. A malformed answer is refused whole, exactly as the
-            // risk word is, and for the same reason.
-            var confidence = Str(root, "confidence");
-            if (!TurnVerdictVocabulary.Confidences.Contains(confidence, StringComparer.Ordinal))
-                return RefuseReadable(
-                    confidence.Length == 0
-                        ? "no confidence word; the two allowed words are "
-                          + string.Join(", ", TurnVerdictVocabulary.Confidences)
-                          + ", and neither may be written on the judge's behalf"
-                        : $"unknown confidence word '{confidence}'; the two allowed words are "
-                          + string.Join(", ", TurnVerdictVocabulary.Confidences));
-
             // Null or absent means the agent recommended nothing. The shape pass has already refused
             // every other kind of value, so an object here can no longer become a silence.
-            var agentRecommends = Str(root, "agentRecommends");
-            if (agentRecommends.Length > MaxAgentRecommendsChars)
-                agentRecommends = agentRecommends[..MaxAgentRecommendsChars];
+            var agentRecommends = CapAtWordBoundary(Str(root, "agentRecommends"), MaxAgentRecommendsChars);
 
             return new TurnVerdictDto
             {
@@ -452,46 +362,27 @@ public static class TurnVerdictContract
                 FailureReason = null,
                 Verdict = verdict,
                 FinishedKind = finishedKind,
-                Confidence = confidence,
-                Evidence = evidence,
                 Label = label,
-                Summary = summary,
                 AgentRecommends = agentRecommends.Length == 0 ? null : agentRecommends,
                 AnswerVia = answerVia,
                 Menu = menuResult.Menu,
                 Options = options,
-                Risk = risk,
-                Spoken = spoken,
             };
         }
     }
 
-    // ==================================================================== the receipt check
+    /// <summary>The person answers in typed or spoken words: no picker was drawn.</summary>
+    public const string AnswerViaReply = "reply";
 
-    /// <summary>
-    /// Is this sentence actually in front of us? The reply (or the failure text) and the screen are the
-    /// two places it may come from. Whitespace is tolerated - a model that collapses two spaces into one
-    /// has still quoted the sentence - and box-drawing characters are stripped from the EDGES of screen
-    /// rows, because a sentence drawn inside a terminal box is the same sentence as the one outside it.
-    /// Nothing else is tolerated: one word different is a different sentence.
-    ///
-    /// Returns the SOURCE's own text for the span rather than a yes or no, so the receipt that is stored
-    /// and shown is the agent's characters and not the judge's rendering of them. Null when it is not
-    /// there at all.
-    /// </summary>
-    public static string? FindEvidence(TurnVerdictPackage package, string evidence)
-    {
-        ArgumentNullException.ThrowIfNull(package);
-        if (string.IsNullOrWhiteSpace(evidence)) return null;
+    /// <summary>The person answers by selecting in a picker that is drawn on the screen.</summary>
+    public const string AnswerViaKeys = "keys";
 
-        var source = package.SourceText;
-        if (!string.IsNullOrWhiteSpace(source)
-            && BriefBuilder.FindVerbatim(source, evidence) is { } inReply)
-            return inReply;
+    /// <summary>A word from the judge, in single quotes, for a refusal reason a person reads.</summary>
+    private static string Quoted(string word) => SingleQuote + word + SingleQuote;
 
-        var screen = NormalizeScreen(package.ScreenRows);
-        return screen.Length == 0 ? null : BriefBuilder.FindVerbatim(screen, evidence);
-    }
+    private const char SingleQuote = (char)39;
+
+    // ==================================================================== the screen, normalised
 
     /// <summary>
     /// The screen rows as one block of text with the box drawing taken off each row's edges. The
@@ -536,7 +427,7 @@ public static class TurnVerdictContract
     /// and only the second is the judge's.</summary>
     private static readonly string[] RequiredStringMembers =
     {
-        "verdict", "confidence", "evidence", "label", "summary", "answerVia", "risk", "spoken",
+        "state", "label",
     };
 
     /// <summary>
@@ -897,10 +788,10 @@ public static class TurnVerdictContract
     /// the narration only informs: on the corpus the shipped judge found the dangerous-delete permission prompt as a
     /// menu and was refused on its receipt, and the narration then retold a menu as prose with no press-a-button.
     ///
-    /// So this reads, from the same answer, the verdict word, the risk, how the person answers, the menu question,
-    /// the options' labels, notes and recommended flag, and what the agent recommends - as the judge wrote them, each
-    /// read only when it is the declared type, and never validated as a whole. What it returns is never stored,
-    /// never stamped on the row and never offered as a button. Null when the answer is not a JSON object.
+    /// So this reads, from the same answer, the state word, the menu question, the options' labels, notes and
+    /// recommended flag, and what the agent recommends - as the judge wrote them, each read only when it is the
+    /// declared type, and never validated as a whole. What it returns is never stored, never stamped on the row and
+    /// never offered as a button. Null when the answer is not a JSON object.
     /// </summary>
     public static TurnVerdictDto? SalvageNarrationDecision(string? raw)
     {
@@ -914,17 +805,18 @@ public static class TurnVerdictContract
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return null;
 
+            var state = Str(root, "state");
             var decision = new TurnVerdictDto
             {
-                Verdict = Str(root, "verdict"),
-                Risk = Str(root, "risk"),
-                AnswerVia = Str(root, "answerVia"),
+                Verdict = TurnVerdictVocabulary.IsWingmanState(state) ? TurnVerdictVocabulary.SplitState(state).Verdict : "",
                 AgentRecommends = Cap(Str(root, "agentRecommends"), MaxAgentRecommendsChars),
-                Spoken = SalvageSpoken(root),
             };
             if (root.TryGetProperty("menu", out var menu) && menu.ValueKind == JsonValueKind.Object
                 && Str(menu, "question") is { Length: > 0 } question)
                 decision.Menu = new TurnVerdictMenuDto { Question = Cap(question, MaxMenuQuestionChars) };
+            // How the person answers is DERIVED here exactly as it is on the accepted path: a menu was drawn, or it
+            // was not. A refused answer's own word for it is not read, because there no longer is one.
+            decision.AnswerVia = decision.Menu is null ? AnswerViaReply : AnswerViaKeys;
             if (root.TryGetProperty("options", out var options) && options.ValueKind == JsonValueKind.Array)
             {
                 foreach (var option in options.EnumerateArray().Take(MaxOptions))
@@ -965,22 +857,14 @@ public static class TurnVerdictContract
         return json;
     }
 
-    /// <summary>
-    /// The judge's spoken text off an answer that is about to be refused, or empty when it has none: the
-    /// member absent, not a string, or blank. Cut at <see cref="MaxSpokenChars"/> exactly as an accepted
-    /// answer's is, so a refused stop is never narrated longer than an accepted one could be.
-    /// </summary>
-    private static string SalvageSpoken(JsonElement root)
-        => CapAtWordBoundary(Str(root, "spoken"), MaxSpokenChars);
-
-    /// <param name="spoken">The judge's spoken text, kept on the failed record when the answer was readable
-    /// JSON. Empty for an answer that never parsed: the record then carries no words at all.</param>
+    /// <summary>A refused judgement. It carries no prose at all: from contract v3 this call produces none, and
+    /// the words the owner reads and hears come from the narration call, which is never made for a stop that has
+    /// no accepted judgement to narrate.</summary>
     private static TurnVerdictDto Refuse(
         TurnVerdictPackage package,
         string model,
         DateTime turnEndObservedAtUtc,
-        string reason,
-        string spoken = "")
+        string reason)
     {
         FileLog.Write($"[TurnVerdictContract] refused: {reason}");
         return new TurnVerdictDto
@@ -994,7 +878,6 @@ public static class TurnVerdictContract
             PackageKind = TurnVerdictPackage.WireName(package.Kind),
             Failed = true,
             FailureReason = reason,
-            Spoken = spoken,
         };
     }
 

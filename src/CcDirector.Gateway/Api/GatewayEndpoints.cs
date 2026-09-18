@@ -288,7 +288,12 @@ internal static class GatewayEndpoints
         // The host binds this to the recorded cron fires (CronRunHistoryStore.StartedSession), which is the only
         // place the fact is written. Null looks nowhere, and the card then names no asker at all - the same
         // silence it keeps for every asker that cannot be verified.
-        Func<Core.Tenancy.TenantId, string, bool>? startedByScheduleFor = null)
+        Func<Core.Tenancy.TenantId, string, bool>? startedByScheduleFor = null,
+        // The account-to-tenant registry, read by the Wingman's debug view for ONE thing: the calling account's own
+        // email address, which is what the staff gate is decided on (see StaffAccess). Null means this Gateway
+        // cannot tell who is asking, and the debug view is then open to nobody - which is the same answer an
+        // unconfigured staff list gives, and the only safe one for a gate.
+        Tenancy.TenantRegistry? tenantRegistry = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -3090,6 +3095,11 @@ internal static class GatewayEndpoints
         // ReadWingmanStops for the refusals, and why a session key is refused whatever the colour switch says.
         app.MapGet("/sessions/{sid}/wingman-stops", (HttpContext ctx, string sid, int? count)
             => ReadWingmanStops(ctx, sid, count, tenantBoundary, turnVerdictTraces, pushedSessions));
+
+        // BOTH MODEL CALLS OF EVERY STOP, WHOLE - staff only. See ReadWingmanDebug for the refusals, which are the
+        // wingman-stops ones plus one more: the caller's own account must be on the deployment's staff list.
+        app.MapGet("/sessions/{sid}/wingman-debug", (HttpContext ctx, string sid, int? count)
+            => ReadWingmanDebug(ctx, sid, count, tenantBoundary, tenantRegistry, turnVerdictTraces, pushedSessions));
 
         // THE LIVE STOP, prepared for the Wingman tab's Now view (the Wingman tab, version 3, item 1). It carries the
         // agent's own words and its whole reply, so it takes the SAME refusals as wingman-stops above - see
@@ -6011,6 +6021,85 @@ internal static class GatewayEndpoints
         var traces = turnVerdictTraces.History(tenant.Value, sid, count ?? Wingman.TurnVerdictTraceStore.DefaultHistoryCount);
         var answer = Wingman.WingmanStopsFold.Fold(sid, traces);
         FileLog.Write($"[GatewayEndpoints] GET wingman-stops: sid={sid} stops={answer.Stops.Count}");
+        return Results.Json(answer);
+    }
+
+    /// <summary>
+    /// <c>GET /sessions/{sid}/wingman-debug?count=</c>: BOTH MODEL CALLS of every stop this session was read on -
+    /// what was fed in, the exact prompt, and the raw answer, for the judge AND for the narration (the owner's
+    /// ruling of 2026-09-18). STAFF ONLY.
+    ///
+    /// THE REFUSALS, IN ORDER: every one <see cref="ReadWingmanStops"/> takes - no tenant (403), a session key
+    /// (403), no authenticated device (403), a malformed session id (400), no trace store (404), a session outside
+    /// the caller's account (404) - and then one more: the caller's own account address must be on the
+    /// deployment's staff list (403, see <see cref="StaffAccess"/>).
+    ///
+    /// WHY A SEPARATE ROUTE RATHER THAN A FLAG ON wingman-stops. That read is already folded for a customer's own
+    /// Wingman tab, and widening it would mean one handler whose answer changes shape with who is asking - the
+    /// shape most likely to serve the wrong body to the wrong reader after a later edit. This one has exactly one
+    /// caller, one gate and one job, and it hands over the stored bytes rather than a fold of them.
+    ///
+    /// THE COCKPIT ASKS SEPARATELY WHETHER TO DRAW THE TAB (the staff flag on GET /account/status). The two
+    /// answers are folded from the same rule but neither depends on the other, so hiding the tab is not what
+    /// protects the data - this handler is.
+    /// </summary>
+    internal static IResult ReadWingmanDebug(
+        HttpContext ctx,
+        string sid,
+        int? count,
+        Tenancy.HostedTenantBoundary tenantBoundary,
+        Tenancy.TenantRegistry? tenants,
+        Wingman.TurnVerdictTraceStore? turnVerdictTraces,
+        Streaming.PushedSessionStore? pushedSessions)
+    {
+        FileLog.Write($"[GatewayEndpoints] GET wingman-debug: sid={sid} count={count?.ToString() ?? "default"}");
+        var tenant = ResolveReadTenant(ctx, tenantBoundary);
+        if (tenant is null)
+            return Results.Json(new { error = "no tenant is bound to this request" },
+                statusCode: StatusCodes.Status403Forbidden);
+        if (AuthMiddleware.CallingSession(ctx) is not null)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-debug: sid={sid} REFUSED a session key");
+            return Results.Json(new
+            {
+                error = "the Wingman's debug view carries raw terminal screens, conversations, prompts and answers, and "
+                      + "is served to a staff device only - never to a session key",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (!ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var device)
+            || device is not Pairing.DeviceCredentialIdentity)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-debug: sid={sid} REFUSED a caller with no device identity");
+            return Results.Json(new
+            {
+                error = "the Wingman's debug view is served only to a device signed in with its own device key - not to "
+                      + "the shared machine token, and not to a request with no device",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        // THE STAFF GATE. Read from the caller's OWN account address, which the Gateway holds; nothing a client
+        // sends takes part in this decision.
+        var email = tenants?.EmailForTenant(tenant.Value);
+        if (!StaffAccess.IsStaff(email))
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-debug: sid={sid} REFUSED - the calling account is not staff");
+            return Results.Json(new
+            {
+                error = "the Wingman's debug view shows every prompt and every model answer behind a reading, and is "
+                      + "open to staff accounts only",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (!Guid.TryParse(sid, out _))
+            return Results.Json(new { error = "invalid session id format" },
+                statusCode: StatusCodes.Status400BadRequest);
+        if (turnVerdictTraces is null)
+            return Results.Json(new { error = "the Wingman's stops are not available on this gateway" },
+                statusCode: StatusCodes.Status404NotFound);
+        if (pushedSessions?.TryLocateIgnoringFreshness(tenant.Value, sid) is null)
+            return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+
+        var traces = turnVerdictTraces.History(tenant.Value, sid, count ?? Wingman.TurnVerdictTraceStore.DefaultHistoryCount);
+        var answer = Wingman.WingmanDebugFold.Fold(sid, traces);
+        FileLog.Write($"[GatewayEndpoints] GET wingman-debug: sid={sid} stops={answer.Stops.Count}");
         return Results.Json(answer);
     }
 

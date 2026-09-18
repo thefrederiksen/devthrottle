@@ -6,6 +6,77 @@ this first and keep it accurate.
 
 ---
 
+## AMENDED 18 SEPTEMBER 2026 - CONTRACT v3, THE FIVE-FIELD READING
+
+**Read this before anything below it. Where the two disagree, this is what shipped.**
+
+The owner's ruling on the Wingman redesign report cut the contract from twelve fields to five,
+and made a reading ATOMIC. Everything below describes the v2 contract, and is kept because it
+records why each rule existed and what it cost - but seven of the fields it describes are gone.
+
+**The five fields a reading now has.** `state`, `label`, `narration`, `agentRecommends`, and
+`menu` with its `options`.
+
+- `state` is what happened, in one word, and it is the old verdict word with `finishedKind`
+  folded into it: `needs-you`, `finished-done`, `finished-report`, `carrying-on`,
+  `stuck-recoverable`, `stuck-needs-person`, `cannot-tell`. The STORED column keeps the old six
+  words, because every record ever written carries one and the labelling corpus is graded on
+  them; `TurnVerdictStates` is the one place the two spellings meet.
+- `narration` is the body, and it is the SAME TEXT read and heard. `Summary` and `Spoken` on the
+  record hold that same text from v3, so a screen never shows a short version and a long version
+  of one turn.
+- `agentRecommends` is a READING, never a quote, and nothing checks it against the reply.
+
+**Gone: `spoken`, `summary`, `evidence`, `risk`, `confidence`, `answerVia`, `finishedKind`.**
+Measured on the live fleet that morning, 40 per cent of readings failed - 48 of 198 timed out at
+sixty seconds and 30 were refused by a content rule, most of them the verbatim receipt. Each cut
+field was another way for a fast model to fail a shape check on a call every session pays for at
+every stop, and four of them reached no screen at all.
+
+- The RECEIPT is gone and nothing replaces it. It could not be satisfied - the reply carries
+  Markdown and the check compares word for word - so it refused about one good reading in seven.
+- `risk` now lives on `options[].note` and only there, at the point of decision. The Now screen's
+  confirm-before-sending was raised by the cut word, so on a reading made since v3 there is no
+  confirm; the consequence is in the note beside the button.
+- `confidence` is gone, and NOTHING MAY REQUIRE IT OF A READING MADE SINCE v3. The calm arm in
+  `SessionOrdering` and the Fleet Manager's event gate both asked for `high`; requiring that of
+  every reading would have kept every row red for ever. `cannot-tell` is now the word that says
+  "I could not judge this".
+  **But a record that CARRIES a confidence word is still read under it**, in both those gates.
+  Every session's newest reading on the morning of the deploy was written under the old contract,
+  so deleting the check outright would have recoloured the live roster in the instant the Gateway
+  swapped - a session sitting red on an "ambiguous" reading would have gone calm without anything
+  about it changing. A stored reading never changes colour because the code around it changed.
+- `answerVia` is DERIVED: a menu on the record means keys, no menu means a reply.
+
+**The judge is no longer asked for anything a person hears, so it is no longer a spoken path.**
+`TurnVerdictPrompt` used to splice the account's own narration instructions into the judge prompt
+between two headings and add the language rule for `spoken`. The v3 template has neither heading,
+so the splice THREW - an account that had typed its own narration instructions could not be judged
+at all. Both were removed rather than re-aimed: the narration call takes the language and the
+account's instructions itself, and `TurnVerdictPrompt.BuildVerdictPrompt` moved from
+`SpokenPaths.SpokenFieldPaths` to `SpokenPaths.NotSpokenOutput`. The fields the judge still answers
+were English before the change and are English after it.
+
+**A cut field is ABSENT from the Fleet Manager's prompt, never written as empty.** The event prompt
+emits `risk:`, `summary:` and the receipt markers only when the record carries them, so a v3 reading
+shows a `state:` line and no empty ones. An empty pair of receipt markers says a quote was taken and
+that it was blank, which the reader has no way to see through. A session another live session owns
+gets no narration call, so it has no summary at all and its `label:` is the whole of what the reading
+says about it - which is thinner than v2 gave, and is what the five-field contract provides.
+
+**A READING IS NOT FINISHED UNTIL BOTH MODEL CALLS ARE DONE.** Nothing is stored, shown or spoken
+until the whole reading exists. The narration call is made inside the judgement, before the
+record is stored, so there are exactly three states - being read, ready, could not be read - and
+no half-ready reading and no first draft replaced seconds later.
+
+**The debug view**, staff only, shows for each stop what was fed in, the exact prompt and the raw
+answer, FOR BOTH CALLS: `GET /sessions/{sid}/wingman-debug`, drawn as the third view on the
+Wingman tab beside Now and History. Staff is a list of account addresses in
+`DEVTHROTTLE_STAFF_EMAILS` (`StaffAccess`), empty by default, and it widens nothing but this view.
+
+---
+
 ## 1. What the Wingman is
 
 The Wingman is the user's second set of eyes on every Claude Code / AI session card in CC

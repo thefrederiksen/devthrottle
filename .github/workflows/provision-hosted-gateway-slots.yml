@@ -28,6 +28,13 @@ on:
         description: App Service Plan SKU to ensure (S1 is the cheapest tier with deployment slots)
         required: false
         default: S1
+      staff_emails:
+        description: >-
+          Account addresses allowed to open the Wingman's debug view, comma separated. It shows every prompt
+          and every model answer behind a reading, so it is open to nobody until this is set. Leave blank to
+          keep whatever is already set; type the word none to clear it and close the view to everyone.
+        required: false
+        default: ''
 
 # SERIALISATION. Shares ONE group with deploy-hosted-gateway.yml and rollback-hosted-gateway.yml.
 # This workflow creates the staging slot, mounts the shared Azure Files share on it, changes app
@@ -126,6 +133,28 @@ jobs:
           az webapp config appsettings set -g "$AZURE_RG" -n "$APP" --slot "$SLOT" --settings \
             WEBSITE_SWAP_WARMUP_PING_PATH=/healthz \
             WEBSITE_SWAP_WARMUP_PING_STATUSES=200 -o none
+
+      - name: Set the Wingman debug view's staff list (production and staging)
+        if: inputs.staff_emails != ''
+        env:
+          STAFF_EMAILS: ${{ inputs.staff_emails }}
+        run: |
+          # WHO MAY OPEN THE WINGMAN'S DEBUG VIEW. The view hands over the raw terminal screen, the
+          # conversation, the exact prompt and the raw model answer for both calls of a reading, so the
+          # Gateway serves it to a listed account only. An unset or empty list grants it to NOBODY, which is
+          # why this step is skipped rather than defaulted when nothing was typed - a default here would be a
+          # guess at who staff are, and guessing wrong opens the view or closes it without anyone deciding.
+          #
+          # The word none clears it. Set IDENTICALLY on both slots, like the warmup gate above, so a swap and
+          # a swap-back both land on the same list rather than moving it between slots.
+          VALUE="$STAFF_EMAILS"
+          if [ "$VALUE" = "none" ]; then VALUE=""; fi
+          az webapp config appsettings set -g "$AZURE_RG" -n "$APP" --settings \
+            DEVTHROTTLE_STAFF_EMAILS="$VALUE" -o none
+          az webapp config appsettings set -g "$AZURE_RG" -n "$APP" --slot "$SLOT" --settings \
+            DEVTHROTTLE_STAFF_EMAILS="$VALUE" -o none
+          # Never echo the list itself - it is a list of people.
+          echo "Staff list set on production and staging ($(echo "$VALUE" | tr ',' '\n' | grep -c . ) address(es))."
 
       - name: Stop the staging slot (steady state is one running instance)
         run: az webapp stop -g "$AZURE_RG" -n "$APP" --slot "$SLOT" -o none
