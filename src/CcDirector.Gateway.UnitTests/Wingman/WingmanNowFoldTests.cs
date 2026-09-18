@@ -1377,11 +1377,24 @@ public sealed class WingmanNowFoldTests
     /// <summary>
     /// NO CLOCK, NO CLAIM. A caller that supplies no moment cannot have the five-minute rule applied for it, so it
     /// is not applied: the session reads as plainly working rather than as an answer that might be an hour old.
+    ///
+    /// THE ANSWER HERE IS TWENTY SECONDS OLD BY THE REAL CLOCK, and that is the whole test. With the fixture's own
+    /// moments - a fixed morning in September - the fold returns nothing whether it respects the missing clock or
+    /// quietly reaches for DateTime.UtcNow, because both answers are hours past the window. Measured: with the
+    /// null check replaced by "use UtcNow" this class stayed green until the moments here became real ones.
     /// </summary>
     [Fact]
     public void With_no_moment_supplied_the_session_reads_as_plainly_working()
     {
-        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() });
+        var answeredAt = DateTime.UtcNow.AddSeconds(-20);
+        var stop = AnsweredByOption(answeredAt: answeredAt);
+
+        // CONTROL: handed the clock, this very stop IS just answered - so what the assertion below reads is the
+        // missing moment and nothing else.
+        Assert.Equal(WingmanNowStates.JustAnswered,
+            FoldWith(WorkingRow(), new[] { stop }, now: DateTime.UtcNow).State);
+
+        var now = FoldWith(WorkingRow(), new[] { stop });
 
         Assert.Equal(WingmanNowStates.Working, now.State);
         Assert.Null(now.Answered);
@@ -1537,6 +1550,29 @@ public sealed class WingmanNowFoldTests
         working.ActivityState = "Working";
 
         var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() }, roster: new[] { working },
+            now: AnsweredAt.AddSeconds(20));
+
+        Assert.Null(now.NextNeedsYou);
+    }
+
+    /// <summary>
+    /// A CALM SESSION IS NOT WAITING ON HIM, and this is the case that proves the bucket is really consulted.
+    ///
+    /// The waiting line carries the CALM BAND after its reds - a session that finished, or one carrying on alone -
+    /// so "the first row of the waiting line" and "the first row that needs him" are different answers whenever no
+    /// red exists. Measured: with the bucket check removed every other test here stayed green, because a snoozed
+    /// row and a working row are both absent from the line altogether and neither could tell the difference. A
+    /// finished session offered as "next that needs you" would send him to a session with nothing to say.
+    /// </summary>
+    [Fact]
+    public void A_session_that_has_merely_finished_is_never_offered_as_one_that_needs_him()
+    {
+        var finished = Waiting("33333333-3333-3333-3333-333333333333", "Finished one", Stopped.AddMinutes(-30));
+        finished.TurnVerdict = Verdict(TurnVerdictVocabulary.Finished);
+        // CONTROL: it IS in the waiting line - in the calm band, after the reds - so this is the bucket talking.
+        Assert.Contains(finished, SessionOrdering.InWaitingOrder(new[] { finished }));
+
+        var now = FoldWith(WorkingRow(), new[] { AnsweredByOption() }, roster: new[] { finished },
             now: AnsweredAt.AddSeconds(20));
 
         Assert.Null(now.NextNeedsYou);

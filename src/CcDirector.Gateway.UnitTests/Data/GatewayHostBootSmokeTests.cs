@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -46,6 +46,9 @@ public sealed class GatewayHostBootSmokeTests
     private const string FleetManagerEventsSqliteMigration = "20260917110000_AddFleetManagerEvents";
     private const string FleetManagerEventDeliveryPostgresMigration = "20260917110109_AddFleetManagerEventDelivery";
     private const string FleetManagerEventDeliverySqliteMigration = "20260917110100_AddFleetManagerEventDelivery";
+    // Then what the Wingman tab's Now view needs: which options the owner chose, beside the moment he chose them.
+    private const string AnsweredWithPostgresMigration = "20260917233914_AddTurnVerdictAnsweredWith";
+    private const string AnsweredWithSqliteMigration = "20260917233852_AddTurnVerdictAnsweredWith";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -200,8 +203,9 @@ public sealed class GatewayHostBootSmokeTests
             DevReportsSqliteMigration,
             TraceRowAndClockSqliteMigration,
             FleetManagerEventsSqliteMigration,
-            FleetManagerEventDeliverySqliteMigration);
-        Assert.Equal(FleetManagerEventDeliverySqliteMigration, applied[^1]);
+            FleetManagerEventDeliverySqliteMigration,
+            AnsweredWithSqliteMigration);
+        Assert.Equal(AnsweredWithSqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -237,8 +241,9 @@ public sealed class GatewayHostBootSmokeTests
             DevReportsPostgresMigration,
             TraceRowAndClockPostgresMigration,
             FleetManagerEventsPostgresMigration,
-            FleetManagerEventDeliveryPostgresMigration);
-        Assert.Equal(FleetManagerEventDeliveryPostgresMigration, migrations[^1]);
+            FleetManagerEventDeliveryPostgresMigration,
+            AnsweredWithPostgresMigration);
+        Assert.Equal(AnsweredWithPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }
