@@ -16,6 +16,7 @@ import type { WingmanNow } from "./wingmanNowRead";
 const SID = "9a1c4d20-0000-4000-8000-000000000050";
 
 const NOW: WingmanNow = {
+  sessionId: SID,
   state: "needs-you",
   pillText: "Needs you",
   pillColour: "red",
@@ -23,7 +24,7 @@ const NOW: WingmanNow = {
   unsure: false,
   unsureTag: null,
   unsureLine: null,
-  when: { lead: "Stopped at", atUtc: "2026-09-17T11:12:00Z", showAgo: true },
+  when: { lead: "Stopped at", atUtc: "2026-09-17T11:12:00Z", showAgo: true, elapsedOnly: false },
   showWhyColour: true,
   headline: "Merge pull request #3002, or allow me to merge it",
   story: "The release notes are pushed.",
@@ -31,6 +32,7 @@ const NOW: WingmanNow = {
   wholeReply: null,
   needs: null,
   canAnswerByOption: false,
+  verdictId: null,
   replyPlaceholder: "Answer the session directly.",
   calmCard: null,
   carryingOnDeadline: null,

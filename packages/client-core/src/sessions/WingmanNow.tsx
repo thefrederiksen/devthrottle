@@ -22,10 +22,10 @@ export function formatClockTime(utc: string): string {
   return new Date(utc).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-/** How long ago an instant was, in plain words: "8 minutes ago". Always whole units, never rounded up past one. */
-export function formatAgo(utc: string, now: Date): string {
+/** How long has passed since an instant, in plain words: "8 minutes". Always whole units, never rounded up past one. */
+export function formatElapsed(utc: string, now: Date): string {
   const seconds = Math.max(0, Math.floor((now.getTime() - new Date(utc).getTime()) / 1000));
-  const say = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  const say = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
   if (seconds < 60) return say(seconds, "second");
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return say(minutes, "minute");
@@ -34,8 +34,21 @@ export function formatAgo(utc: string, now: Date): string {
   return say(Math.floor(hours / 24), "day");
 }
 
-/** The Gateway's timed sentence, finished with the reader's local clock: "Stopped at 11:12 AM, 8 minutes ago". */
+/** How long ago an instant was, in plain words: "8 minutes ago". */
+export function formatAgo(utc: string, now: Date): string {
+  return `${formatElapsed(utc, now)} ago`;
+}
+
+/**
+ * The Gateway's timed sentence, finished with the reader's local clock: "Stopped at 11:12 AM, 8 minutes ago".
+ *
+ * TWO SHAPES, AND THE GATEWAY NAMES WHICH. `elapsedOnly` means the sentence is the elapsed time on its own -
+ * "Working for 6 minutes" - and the clock time is not shown at all. A session spends most of its life in that
+ * shape, and before the flag was read here it rendered as "Working for 7:14 a.m.", which says nothing true. The
+ * view still decides no words: it is told which shape this is rather than inferring it from the state.
+ */
 export function formatWhen(when: WingmanNowWhen, now: Date): string {
+  if (when.elapsedOnly) return `${when.lead} ${formatElapsed(when.atUtc, now)}`;
   const head = `${when.lead} ${formatClockTime(when.atUtc)}`;
   return when.showAgo ? `${head}, ${formatAgo(when.atUtc, now)}` : head;
 }
@@ -155,7 +168,7 @@ export function WingmanNow({
         {now.agentSaid && (
           <blockquote className="wnow-said">
             <span className="wnow-said-who">{now.agentSaid.who}</span>
-            {now.agentSaid.sentence}
+            {now.agentSaid.text}
           </blockquote>
         )}
         {now.wholeReply != null && (
@@ -178,9 +191,9 @@ export function WingmanNow({
             {now.unsure && now.unsureLine != null && <p className="wnow-unsure-line">{now.unsureLine}</p>}
             {now.needs.recommends != null && <p className="wnow-recommends">{now.needs.recommends}</p>}
             {now.needs.question != null && <p className="wnow-question">{now.needs.question}</p>}
-            {now.needs.options.length > 0 && (
+            {(now.needs.options?.length ?? 0) > 0 && (
               <ul className="wnow-options">
-                {now.needs.options.map((option) => (
+                {(now.needs.options ?? []).map((option) => (
                   <li key={option.index}>
                     <button
                       type="button"
@@ -189,7 +202,10 @@ export function WingmanNow({
                       onClick={() => {
                         const send = actions.onAnswerOption;
                         if (!send) return;
-                        void answer.run(() => send(option, now.needs?.verdictId ?? null));
+                        // THE VERDICT IDENTIFIER IS AT THE ROOT. It sat inside `needs` here, which is not where
+                        // the route puts it, so every tap sent an empty identifier and the answer route refused it
+                        // without touching the session.
+                        void answer.run(() => send(option, now.verdictId ?? null));
                       }}
                     >
                       <span className="wnow-option-index">{option.index}</span>
@@ -225,8 +241,7 @@ export function WingmanNow({
             {now.calmCard.body != null && <p>{now.calmCard.body}</p>}
             {now.carryingOnDeadline && (
               <p>
-                {now.carryingOnDeadline.before}
-                {now.carryingOnDeadline.atUtc != null && ` ${formatClockTime(now.carryingOnDeadline.atUtc)}`}
+                {now.carryingOnDeadline.before} {formatClockTime(now.carryingOnDeadline.atUtc)}
                 {now.carryingOnDeadline.after}
               </p>
             )}
@@ -234,23 +249,29 @@ export function WingmanNow({
         )}
 
         {now.lastAsked && (
-          <section className="wnow-card wnow-card-asked" aria-label="What it was last asked">
-            <h3>What it was last asked</h3>
+          <section className="wnow-card wnow-card-asked" aria-label={now.lastAsked.heading}>
+            {/* THE GATEWAY'S WORDS, not this file's. The heading and the words before the time both arrive
+                finished - "at", or "You, at" - so the view joins the lead and the local clock and chooses neither
+                the wording nor the punctuation. */}
+            <h3>{now.lastAsked.heading}</h3>
             <p className="wnow-asked-text">{now.lastAsked.text}</p>
             <p className="wnow-when">
-              {now.lastAsked.by != null ? `${now.lastAsked.by}, at ` : "At "}
-              {formatClockTime(now.lastAsked.atUtc)}
+              {now.lastAsked.whenLead} {formatClockTime(now.lastAsked.atUtc)}
             </p>
           </section>
         )}
 
         {now.answered && (
-          <section className="wnow-card wnow-card-answered" aria-label="What you answered">
-            <h3>What you answered</h3>
-            <p className="wnow-answered-text">{now.answered.text}</p>
+          <section className="wnow-card wnow-card-answered" aria-label={now.answered.headline}>
+            {/* THE WHOLE FIRST LINE, FINISHED, from the Gateway: "You answered: allow the merge". `answered.text`
+                is the same words without that lead, so drawing both would say it twice. */}
+            <h3>{now.answered.headline}</h3>
             <p className="wnow-when">
-              {/* No full stop after the clock: some locales render it as "7:19 a.m.", which would double the stop. */}
-              Sent at {formatClockTime(now.answered.atUtc)} - {now.answered.workingAgainAfterText}
+              {/* No full stop after the clock: some locales render it as "7:19 a.m.", which would double the stop.
+                  THE CONFIRMATION IS LEGITIMATELY ABSENT when this Gateway cannot tell whether the session went
+                  back to work, and then the sentence ends at the time - never at a dangling dash. */}
+              {now.answered.sentLead} {formatClockTime(now.answered.atUtc)}
+              {now.answered.workingAgainAfterText != null && ` - ${now.answered.workingAgainAfterText}`}
             </p>
           </section>
         )}
@@ -261,17 +282,17 @@ export function WingmanNow({
           <section className="wnow-next" aria-label="The next session that needs you">
             <span className="wnow-pill wnow-pill-next">
               <span className="wnow-dot" aria-hidden="true" />
-              Next that needs you
+              {now.nextNeedsYou.heading}
             </span>
             <b className="wnow-next-name">{now.nextNeedsYou.name}</b>
-            <span className="wnow-next-label">{now.nextNeedsYou.label}</span>
+            {now.nextNeedsYou.label != null && <span className="wnow-next-label">{now.nextNeedsYou.label}</span>}
             {actions.onGoToSession && (
               <button
                 type="button"
                 className="wnow-btn"
                 onClick={() => actions.onGoToSession?.(now.nextNeedsYou!.sessionId)}
               >
-                Go there
+                {now.nextNeedsYou.linkText}
               </button>
             )}
           </section>
@@ -315,15 +336,18 @@ function Header({ now, at, actions }: { now: WingmanNowDto; at: Date; actions: W
   // render and the line would vanish from under the owner. Keeping the words keeps them on screen.
   const [saidOnTurnOn, setSaidOnTurnOn] = useState<string | null>(null);
   const voice = useOutcome();
-  const voiceControl = now.voice;
+  // THE CONTRACT SAYS THIS IS NEVER NULL - one of its kinds is "nothing to offer" - and the fold always writes it.
+  // A Gateway that sent none anyway would take the whole screen down with it, and the Cockpit has no error boundary
+  // to catch that, so the absence is drawn as the kind that draws no control.
+  const voiceControl = now.voice ?? { kind: "none" as const, label: null, afterTurnOnText: null };
   return (
     <div className="wnow-head">
       <span
         className="wnow-pill"
-        style={{ borderColor: now.pillColourHex, color: now.pillColourHex }}
-        title={now.pillColour}
+        style={{ borderColor: now.pillColourHex ?? undefined, color: now.pillColourHex ?? undefined }}
+        title={now.pillColour ?? undefined}
       >
-        <span className="wnow-dot" style={{ background: now.pillColourHex }} aria-hidden="true" />
+        <span className="wnow-dot" style={{ background: now.pillColourHex ?? undefined }} aria-hidden="true" />
         {now.pillText}
       </span>
       {now.unsure && now.unsureTag != null && <span className="wnow-tag">{now.unsureTag}</span>}

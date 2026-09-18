@@ -11,11 +11,14 @@
 // They also prove what the view does with a write that FAILED: the Gateway's own sentence is shown, unedited, beside
 // the control that caused it, and the owner's typed words survive anything short of an accepted send.
 //
-// NOT PROVEN HERE: that any Gateway ever sends these objects. The route does not exist yet. These prove the view
-// renders the settled shape, not that the shape is produced.
+// THE SHAPES BELOW ARE THE MERGED CONTRACT'S, field for field (src/CcDirector.Gateway.Contracts/WingmanNowDto.cs).
+// They were the design document's until 18 September 2026, and the route had diverged from it - so every test here
+// was green while the screen could not answer a stop. That a real Gateway answer really has these names is proven
+// somewhere else on purpose, in wingmanNowWireSample.test.tsx, which renders this view from a file the Gateway's own
+// test writes. These prove what the view DOES with the shape; that one proves the shape is what arrives.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { formatAgo, formatClockTime, formatWhen, WingmanNow } from "./WingmanNow";
+import { formatAgo, formatClockTime, formatElapsed, formatWhen, WingmanNow } from "./WingmanNow";
 import type { WingmanNow as WingmanNowDto } from "./wingmanNowRead";
 
 afterEach(() => cleanup());
@@ -31,6 +34,7 @@ const refuses = (message: string) => vi.fn(async () => ({ accepted: false, messa
 
 function base(overrides: Partial<WingmanNowDto> = {}): WingmanNowDto {
   return {
+    sessionId: "11111111-1111-1111-1111-111111111111",
     state: "other",
     pillText: "Working",
     pillColour: "blue",
@@ -46,6 +50,7 @@ function base(overrides: Partial<WingmanNowDto> = {}): WingmanNowDto {
     wholeReply: null,
     needs: null,
     canAnswerByOption: false,
+    verdictId: null,
     replyPlaceholder: null,
     calmCard: null,
     carryingOnDeadline: null,
@@ -68,19 +73,18 @@ const NEEDS_YOU = base({
   pillText: "Needs you",
   pillColour: "red",
   pillColourHex: "#ef4444",
-  when: { lead: "Stopped at", atUtc: STOPPED, showAgo: true },
+  when: { lead: "Stopped at", atUtc: STOPPED, showAgo: true, elapsedOnly: false },
   headline: "Merge pull request #3002, or allow me to merge it",
   story: "The release notes are fixed and pushed to pull request #3002, rebased onto the current main.",
   agentSaid: {
     who: "Claude Code said",
-    sentence: "Either merge #3002 yourself, or allow that command and I'll do it.",
+    text: "Either merge #3002 yourself, or allow that command and I'll do it.",
   },
   wholeReply: "The Fable review is done, and the notes are fixed and pushed to pull request #3002.",
   needs: {
     heading: "What it needs from you",
     recommends: "It recommends: allow the merge - the notes have been reviewed.",
     question: null,
-    verdictId: "v-3002",
     options: [
       {
         index: 1,
@@ -92,6 +96,8 @@ const NEEDS_YOU = base({
     ],
   },
   canAnswerByOption: true,
+  // THE VERDICT IDENTIFIER IS AT THE ROOT of the answer, which is where the route puts it.
+  verdictId: "v-3002",
   replyPlaceholder: "Or answer in your own words - for example: allow the merge, tag straight after it.",
   voice: { kind: "play", label: "Play", afterTurnOnText: null },
 });
@@ -197,7 +203,7 @@ describe("Now - the live stop", () => {
       pillText: "Stopped - the Wingman is reading it",
       pillColour: "grey",
       pillColourHex: "#64748b",
-      when: { lead: "Stopped at", atUtc: "2026-09-17T11:19:56Z", showAgo: true },
+      when: { lead: "Stopped at", atUtc: "2026-09-17T11:19:56Z", showAgo: true, elapsedOnly: false },
       headline: "The session stopped. The Wingman is reading its screen...",
       story: "This usually takes a few seconds.",
       lastWords: { who: "Its last words", text: "I need help with three things: The merge ..." },
@@ -217,12 +223,14 @@ describe("Now - the live stop", () => {
     const now = base({
       state: "working",
       pillText: "Working",
-      when: { lead: "Working since", atUtc: "2026-09-17T11:14:00Z", showAgo: true },
+      when: { lead: "Working for", atUtc: "2026-09-17T11:14:00Z", showAgo: true, elapsedOnly: true },
       headline: "Working on what you asked at 11:14 AM",
       lastAsked: {
+        heading: "What it was last asked",
         text: "Allow the merge, tag straight after it, and retry the changelog message.",
         atUtc: "2026-09-17T11:14:00Z",
         by: "You",
+        whenLead: "You, at",
       },
       replyPlaceholder: "Send it something while it works - it is queued until it is ready.",
       lastStop: {
@@ -236,6 +244,8 @@ describe("Now - the live stop", () => {
     expect(screen.getByText("What it was last asked")).toBeTruthy();
     expect(screen.getByText(/Allow the merge, tag straight after it/)).toBeTruthy();
     expect(screen.getByText(`You, at ${formatClockTime("2026-09-17T11:14:00Z")}`)).toBeTruthy();
+    // The elapsed time ALONE, with no clock time in it - the shape the Gateway named with elapsedOnly.
+    expect(screen.getByText("Working for 6 minutes")).toBeTruthy();
     expect(screen.getByText(`Last stop, ${formatClockTime(STOPPED)}:`)).toBeTruthy();
     expect(screen.getByText(/merge pull request #3002, or allow me to merge it\./)).toBeTruthy();
   });
@@ -243,10 +253,17 @@ describe("Now - the live stop", () => {
   it("says nothing about who asked when the Gateway did not say", () => {
     const now = base({
       state: "working",
-      lastAsked: { text: "Carry on with the next slice.", atUtc: "2026-09-17T11:14:00Z", by: null },
+      lastAsked: {
+        heading: "What it was last asked",
+        text: "Carry on with the next slice.",
+        atUtc: "2026-09-17T11:14:00Z",
+        by: null,
+        whenLead: "at",
+      },
     });
     render(<WingmanNow now={now} at={AT} />);
-    expect(screen.getByText(`At ${formatClockTime("2026-09-17T11:14:00Z")}`)).toBeTruthy();
+    // The Gateway's own lead-in, capital and punctuation included. The view used to write "At " itself.
+    expect(screen.getByText(`at ${formatClockTime("2026-09-17T11:14:00Z")}`)).toBeTruthy();
   });
 
   it("draws just answered: what was sent, that it is working again, and the next session that needs you", () => {
@@ -254,16 +271,20 @@ describe("Now - the live stop", () => {
     const now = base({
       state: "just-answered",
       pillText: "Working again",
-      when: { lead: "You answered at", atUtc: "2026-09-17T11:19:40Z", showAgo: true },
+      when: { lead: "You answered", atUtc: "2026-09-17T11:19:40Z", showAgo: true, elapsedOnly: true },
       answered: {
+        headline: "You answered: allow the merge",
         text: "allow the merge",
+        sentLead: "Sent at",
         atUtc: "2026-09-17T11:19:40Z",
         workingAgainAfterText: "The session started working again 2 seconds later.",
       },
       nextNeedsYou: {
+        heading: "Next that needs you",
         sessionId: "3f2b19c0-0000-4000-8000-000000000044",
         name: "Dev Reports - Architect",
         label: "Should I open an issue for the dev Gateway?",
+        linkText: "Go there",
       },
       lastStop: {
         lead: "The stop you answered",
@@ -273,9 +294,14 @@ describe("Now - the live stop", () => {
     });
     render(<WingmanNow now={now} at={AT} actions={{ onGoToSession }} />);
 
-    expect(screen.getByText("What you answered")).toBeTruthy();
-    expect(screen.getByText("allow the merge")).toBeTruthy();
-    expect(screen.getByText(/The session started working again 2 seconds later\./)).toBeTruthy();
+    // The Gateway's whole finished first line, not a heading this file wrote.
+    expect(screen.getByText("You answered: allow the merge")).toBeTruthy();
+    expect(screen.queryByText("What you answered")).toBeNull();
+    expect(
+      screen.getByText(
+        `Sent at ${formatClockTime("2026-09-17T11:19:40Z")} - The session started working again 2 seconds later.`,
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Next that needs you")).toBeTruthy();
     expect(screen.getByText("Dev Reports - Architect")).toBeTruthy();
     expect(screen.getByText("Should I open an issue for the dev Gateway?")).toBeTruthy();
@@ -291,11 +317,11 @@ describe("Now - the live stop", () => {
       pillText: "Carrying on",
       pillColour: "purple",
       pillColourHex: "#a855f7",
-      when: { lead: "Stopped at", atUtc: "2026-09-17T11:19:00Z", showAgo: true },
+      when: { lead: "Stopped at", atUtc: "2026-09-17T11:19:00Z", showAgo: true, elapsedOnly: false },
       headline: "Waiting for its Worker to finish the slice J test run",
       story: "The Worker is running the full test gate on pull request 2977.",
-      agentSaid: { who: "Claude Code said", sentence: "The Worker is seated and running." },
-      calmCard: { heading: "Nothing needed from you", body: null },
+      agentSaid: { who: "Claude Code said", text: "The Worker is seated and running." },
+      calmCard: { heading: "Nothing needed from you", body: null, tone: "purple" },
       carryingOnDeadline: {
         before: "If it has not worked again by",
         atUtc: "2026-09-17T12:05:00Z",
@@ -312,15 +338,17 @@ describe("Now - the live stop", () => {
     ).toBeTruthy();
   });
 
-  it("draws the carrying-on sentence that has no deadline, exactly as the Gateway wrote it", () => {
+  it("draws the carrying-on sentence that has no clock from the card's own body, with no deadline to show", () => {
+    // ONE SENTENCE, NEVER TWO TO CHOOSE BETWEEN. While a session it owns is still running no clock is counting, so
+    // the Gateway sends NO deadline at all and puts the sentence that says so in the card's body.
     const now = base({
       state: "carrying-on",
-      calmCard: { heading: "Nothing needed from you", body: null },
-      carryingOnDeadline: {
-        before: "It turns red if it stops working and none of the sessions it owns is still working.",
-        atUtc: null,
-        after: null,
+      calmCard: {
+        heading: "Nothing needed from you",
+        body: "It turns red if it stops working and none of the sessions it owns is still working.",
+        tone: "purple",
       },
+      carryingOnDeadline: null,
     });
     render(<WingmanNow now={now} at={AT} />);
     expect(
@@ -334,12 +362,13 @@ describe("Now - the live stop", () => {
       pillText: "Done",
       pillColour: "cyan",
       pillColourHex: "#06b6d4",
-      when: { lead: "Stopped at", atUtc: "2026-09-17T12:40:00Z", showAgo: false },
+      when: { lead: "Stopped at", atUtc: "2026-09-17T12:40:00Z", showAgo: false, elapsedOnly: false },
       headline: "Release v2.5.0 is tagged and published",
       story: "The merge landed, the full test run passed, v2.5.0 was tagged and the release built.",
       calmCard: {
         heading: "The work is complete",
         body: "Nothing is needed from you. You can close this session when you are ready.",
+        tone: "cyan",
       },
     });
     render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
@@ -362,6 +391,7 @@ describe("Now - the live stop", () => {
       calmCard: {
         heading: "Only telling you",
         body: "Nothing is needed from you, and the release is not finished yet.",
+        tone: "cyan",
       },
       replyPlaceholder: "Reply if you want it to do something about this.",
     });
@@ -378,7 +408,7 @@ describe("Now - the live stop", () => {
       pillText: "Needs you",
       pillColour: "red",
       pillColourHex: "#ef4444",
-      when: { lead: "Stopped at", atUtc: "2026-09-17T11:18:00Z", showAgo: true },
+      when: { lead: "Stopped at", atUtc: "2026-09-17T11:18:00Z", showAgo: true, elapsedOnly: false },
       failedHeadline: "The Wingman could not explain this stop",
       failedStory:
         "Its answer was thrown away: it said the session needs you but also marked the work as finished. The row stays red because the session stopped.",
@@ -440,6 +470,84 @@ describe("Now - the live stop", () => {
 
     expect(screen.getAllByText("Snoozed until 2:00 PM").length).toBe(2);
     expect(screen.getByText("Waiting on the owner.")).toBeTruthy();
+  });
+});
+
+describe("Now - the fields the contract may legitimately send as nothing", () => {
+  it("ends the answered sentence at the time when the Gateway cannot tell whether the session went back to work", () => {
+    // workingAgainAfterText is NULL whenever this Gateway cannot tell, and nothing may be claimed about it. The
+    // view used to write "Sent at 7:19 a.m. - " and stop, leaving a dash pointing at nothing.
+    const now = base({
+      state: "just-answered",
+      answered: {
+        headline: "You answered: allow the merge",
+        text: "allow the merge",
+        sentLead: "Sent at",
+        atUtc: "2026-09-17T11:19:40Z",
+        workingAgainAfterText: null,
+      },
+    });
+    render(<WingmanNow now={now} at={AT} />);
+
+    expect(screen.getByText(`Sent at ${formatClockTime("2026-09-17T11:19:40Z")}`)).toBeTruthy();
+    expect(screen.queryByText(/ - $/)).toBeNull();
+  });
+
+  it("draws no option list at all rather than dying, if a Gateway ever sends needs with no options", () => {
+    // The contract initialises options and the fold always writes them, so this is a belt on a rule kept elsewhere -
+    // but the Cockpit has no error boundary, so an absent list would take the whole screen down with it.
+    const now = base({
+      state: "needs-you",
+      needs: { heading: "What it needs from you", recommends: null, question: null } as never,
+      replyPlaceholder: "Answer in your own words.",
+    });
+    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts(), onAnswerOption: accepts() }} />);
+
+    expect(screen.getByText("What it needs from you")).toBeTruthy();
+    expect(screen.getByLabelText("Your reply to this session")).toBeTruthy();
+  });
+
+  it("draws a stop that takes typed words only, with no option list and nothing to tap", () => {
+    const now = base({
+      state: "needs-you",
+      needs: { heading: "What it needs from you", recommends: null, question: null, options: [] },
+      replyPlaceholder: "Answer in your own words.",
+    });
+    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts(), onAnswerOption: accepts() }} />);
+
+    expect(screen.getByText("What it needs from you")).toBeTruthy();
+    expect(screen.getByLabelText("Your reply to this session")).toBeTruthy();
+    expect(screen.queryByText("RECOMMENDED")).toBeNull();
+  });
+
+  it("draws the screen without a pill colour, and without a next label, when the row carries neither", () => {
+    const now = base({
+      state: "just-answered",
+      pillColour: null,
+      pillColourHex: null,
+      nextNeedsYou: {
+        heading: "Next that needs you",
+        sessionId: "3f2b19c0-0000-4000-8000-000000000044",
+        name: "Dev Reports - Architect",
+        label: null,
+        linkText: "Go there",
+      },
+    });
+    render(<WingmanNow now={now} at={AT} actions={{ onGoToSession: vi.fn() }} />);
+
+    expect(screen.getByText("Working")).toBeTruthy();
+    expect(screen.getByText("Dev Reports - Architect")).toBeTruthy();
+    expect(screen.getByText("Go there")).toBeTruthy();
+  });
+
+  it("draws no voice control at all rather than dying, if a Gateway ever sends none", () => {
+    // The contract says voice is never null and the fold always writes it, so this is a belt on a rule kept
+    // elsewhere - but the Cockpit has no error boundary, so the whole screen would go with it.
+    const now = { ...base({ headline: "Release v2.5.0 is tagged and published" }), voice: undefined } as never;
+    render(<WingmanNow now={now} at={AT} actions={{ onPlayVoice: accepts() }} />);
+
+    expect(screen.getByText("Release v2.5.0 is tagged and published")).toBeTruthy();
+    expect(screen.queryByText("Play")).toBeNull();
   });
 });
 
@@ -616,8 +724,17 @@ describe("Now - finishing the Gateway's timed sentences", () => {
   });
 
   it("adds the ago only when the Gateway asked for it", () => {
-    const when = { lead: "Stopped at", atUtc: STOPPED, showAgo: false };
+    const when = { lead: "Stopped at", atUtc: STOPPED, showAgo: false, elapsedOnly: false };
     expect(formatWhen(when, AT)).toBe(`Stopped at ${formatClockTime(STOPPED)}`);
     expect(formatWhen({ ...when, showAgo: true }, AT)).toBe(`Stopped at ${formatClockTime(STOPPED)}, 8 minutes ago`);
+  });
+
+  it("says the elapsed time alone, and names no clock time, when the Gateway said that is the shape", () => {
+    // The state a session is in for most of its life. Ignoring the flag rendered it as "Working for 7:14 a.m.".
+    const when = { lead: "Working for", atUtc: STOPPED, showAgo: true, elapsedOnly: true };
+    expect(formatWhen(when, AT)).toBe("Working for 8 minutes");
+    expect(formatWhen(when, AT)).not.toContain(formatClockTime(STOPPED));
+    expect(formatElapsed(STOPPED, AT)).toBe("8 minutes");
+    expect(formatElapsed("2026-09-17T11:19:00Z", AT)).toBe("1 minute");
   });
 });
