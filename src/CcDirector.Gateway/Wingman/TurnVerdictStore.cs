@@ -246,6 +246,32 @@ public sealed class TurnVerdictStore
     /// </summary>
     public IReadOnlyList<TurnVerdictDto> History(TenantId tenant, string sessionId, int count = DefaultHistoryCount)
     {
+        var rows = HistoryWithAnswers(tenant, sessionId, count);
+        var list = new List<TurnVerdictDto>(rows.Count);
+        foreach (var row in rows) list.Add(row.Verdict);
+        return list;
+    }
+
+    /// <summary>
+    /// The same history, each stop carrying the moment the owner's answer to it was CONFIRMED (the Wingman tab,
+    /// version 3, item 1) and the answer the route stored - both null while it is unanswered.
+    ///
+    /// <see cref="History"/> is this read with the answer dropped, rather than a second query, so there is exactly
+    /// one definition of what a session's history is and what order it comes back in.
+    ///
+    /// THE ANSWER IS THE ONE THE ANSWER ROUTE WROTE, read back from the row's own column by the same
+    /// <see cref="ReadAnswer"/> the single-verdict lookup uses. There is one record of what the owner answered and
+    /// this read does not make a second: a view that kept its own copy would be free to disagree with the
+    /// walkthrough about what he decided.
+    ///
+    /// THE MOMENT COMES FROM THE ROW'S COLUMN, for the same reason the supersede stamp does: it is written long
+    /// after the judge answered, so the serialised verdict cannot carry it. It is handed back BESIDE the verdict
+    /// rather than stamped onto it, because a field on the verdict would read null on every other route that serves
+    /// one - and "this route does not stamp it" is indistinguishable from "nobody has answered this".
+    /// </summary>
+    public IReadOnlyList<AnsweredTurnVerdict> HistoryWithAnswers(
+        TenantId tenant, string sessionId, int count = DefaultHistoryCount)
+    {
         var sid = RequireSessionId(sessionId);
         var take = count <= 0 ? DefaultHistoryCount : Math.Min(count, MaxHistoryCount);
         using var ctx = _db.CreateContext(tenant);
@@ -254,7 +280,7 @@ public sealed class TurnVerdictStore
             .OrderByDescending(v => v.JudgedAtUtc)
             .Take(take)
             .ToList();
-        var list = new List<TurnVerdictDto>(rows.Count);
+        var list = new List<AnsweredTurnVerdict>(rows.Count);
         foreach (var row in rows)
         {
             var dto = Deserialize(row);
@@ -263,7 +289,7 @@ public sealed class TurnVerdictStore
             // was written long after the judge answered, so the serialized answer cannot carry it and a reader
             // that trusted the JSON would see null on every superseded row.
             dto.SupersededAtUtc = row.SupersededAtUtc;
-            list.Add(dto);
+            list.Add(new AnsweredTurnVerdict(dto, row.AnsweredAtUtc, ReadAnswer(row)));
         }
         return list;
     }
