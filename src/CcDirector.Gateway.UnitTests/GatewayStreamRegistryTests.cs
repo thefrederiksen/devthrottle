@@ -160,15 +160,39 @@ public sealed class GatewayStreamRegistryTests
     {
         // StreamUp-never-arrives (ruling 3): the Director died mid-open, so no StreamUp ever comes; the sink
         // must not wait forever - the open timeout tears it down and fires the caller's token.
+        //
+        // WAIT FOR THE TEARDOWN, do not sleep a guessed interval past it. This slept 400 ms after a 100 ms
+        // timeout and asserted, which reads as a generous margin and is not one: the assertion is really that
+        // a timer callback got a thread within 300 ms, and on a loaded runner it does not always. It failed
+        // exactly that way on the v2.6.0 release check run (17 September 2026, run 35288911706), one test out
+        // of 12,562, in code no change in that release touched. Enlarging the sleep would buy a bigger number
+        // and the same defect; polling removes the clock from the assertion, and still fails - on the timeout
+        // below - if the teardown genuinely never happens.
         var registry = new GatewayStreamRegistry(openTimeout: TimeSpan.FromMilliseconds(100));
         var sink = new RecordingSink();
         var token = registry.Register("late", Owner, sink);
 
-        await Task.Delay(400);
+        await WaitUntil(() => sink.Completed, "the open timeout tore the sink down");
 
         Assert.True(sink.Completed);
         Assert.True(token.IsCancellationRequested);
         Assert.Equal(0, registry.LiveStreamCount);
+    }
+
+    /// <summary>
+    /// Waits for <paramref name="condition"/> to become true, and fails with <paramref name="what"/> if it has
+    /// not within ten seconds. The cap is long on purpose: it is there to turn a hang into a named failure, not
+    /// to be the thing under test, so it must sit far above any scheduling delay a busy runner can impose.
+    /// </summary>
+    private static async Task WaitUntil(Func<bool> condition, string what)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline)
+                Assert.Fail($"Timed out after 10 seconds waiting until {what}.");
+            await Task.Delay(10);
+        }
     }
 
     [Fact]
