@@ -93,6 +93,9 @@ const T = {
   sentItem: '[data-testid="dev-report-sent-item"]',
   reply: '[data-testid="dev-report-reply"]',
   send: '[data-testid="dev-report-send"]',
+  // The app's own note controls (issue #3077). They were a pill inside the report; arming a note is the app's
+  // now, and only the click that follows happens in the page.
+  addNote: '[data-testid="dev-report-add-note"]',
   sheetOpen: '[data-testid="report-conversation-open"]',
   sheetClose: '[data-testid="report-conversation-close"]',
 };
@@ -639,8 +642,11 @@ async function stageE2e(browser) {
   check("E2: the report opens full screen in the phone app at 390 by 844",
     (await t.locator("#version-marker").innerText()) === "Report version 1", p.url());
 
-  // Note a table cell and answer the question in the page; Send from the app's conversation sheet.
-  await t.locator("[data-drn=pick]").click();
+  // Arm the note in the app's sheet (which closes itself so the report can be reached), click the cell in the
+  // page, and answer the question there; Send from the sheet.
+  await p.locator(T.sheetOpen).click();
+  await p.locator(T.addNote).click();
+  await waitFor("the sheet to get out of the way once the note is armed", async () => (await p.locator(T.sheetClose).count()) === 0, 15000);
   await t.locator("#results tbody tr:nth-child(2) td:nth-child(3)").click({ position: { x: 4, y: 4 } });
   await t.locator("[data-drn=composer-text]").fill("Forty-two failures from the phone cannot be right.");
   await t.locator("[data-drn=composer-queue]").click();
@@ -684,7 +690,9 @@ async function stageE2e(browser) {
   await p.locator(T.sheetClose).click();
 
   // Half-type a note and scroll, then republish the same file.
-  await t.locator("[data-drn=pick]").click();
+  await p.locator(T.sheetOpen).click();
+  await p.locator(T.addNote).click();
+  await waitFor("the sheet to get out of the way once the note is armed", async () => (await p.locator(T.sheetClose).count()) === 0, 15000);
   await t.locator("#explain").click();
   await t.locator("[data-drn=composer-text]").pressSequentially("half typed on the phone");
   await (await reportFrame(p)).evaluate(() => window.scrollTo(0, 900));
@@ -730,7 +738,7 @@ async function stageE2e(browser) {
   await waitFor("the Gateway to rule the session ended", async () => (await owner("GET", `/dev-reports/${reportId}`)).json.report.sessionEnded === true, 90000, 1000);
   const td = tray(d);
   for (const [target, words] of [["#summary", "First note from the Cockpit after the session ended."], ["#explain", "Second note from the Cockpit after the session ended."]]) {
-    await td.locator("[data-drn=pick]").click();
+    await d.locator(T.addNote).click();
     await td.locator(target).click();
     await td.locator("[data-drn=composer-text]").fill(words);
     await td.locator("[data-drn=composer-queue]").click();

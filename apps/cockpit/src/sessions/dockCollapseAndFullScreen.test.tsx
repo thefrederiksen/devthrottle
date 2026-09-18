@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
@@ -12,6 +13,8 @@ import type { QueueItem, SessionDto } from "@devthrottle/client-core/api/client"
 // the report about 700. The dock gives back 270 of them; the full-screen address gives back all of it.
 
 const queued = vi.hoisted(() => ({ items: [] as QueueItem[] }));
+// What the tab actually handed the viewer, so a prop it stopped passing is visible here.
+const viewerProps = vi.hoisted(() => ({}) as { onBackToSession?: unknown });
 
 vi.mock("@devthrottle/client-core/api/client", () => ({
   gatewayErrorMessage: (err: unknown) => String(err),
@@ -24,8 +27,20 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
 vi.mock("@devthrottle/client-core/devreports/DevReportList", () => ({
   DevReportList: () => <div data-testid="fake-report-list" />,
 }));
+// The viewer is client-core's and is tested there. Here it only has to say which report it was handed, and
+// to PLACE THE SHELL'S OWN ACTIONS - the tab passes All reports and Full screen into the report's one bar
+// now (issue #3077), so a stand-in that dropped them would hide whether the tab still supplies them.
 vi.mock("@devthrottle/client-core/devreports/DevReportViewer", () => ({
-  DevReportViewer: ({ reportId }: { reportId: string }) => <div data-testid="fake-report-viewer">{reportId}</div>,
+  DevReportViewer: (props: { reportId: string; leading?: ReactNode; trailing?: ReactNode; onBackToSession?: unknown }) => {
+    Object.assign(viewerProps, props);
+    return (
+      <div data-testid="fake-report-bar">
+        {props.leading}
+        <span data-testid="fake-report-viewer">{props.reportId}</span>
+        {props.trailing}
+      </div>
+    );
+  },
 }));
 vi.mock("@devthrottle/client-core/devreports/DevReportConversation", () => ({ DevReportConversation: () => null }));
 
@@ -62,6 +77,7 @@ function mountAt(entry: string) {
 beforeEach(() => {
   window.localStorage.clear();
   queued.items = [];
+  delete viewerProps.onBackToSession;
 });
 afterEach(() => cleanup());
 
@@ -127,6 +143,19 @@ describe("the open report's way to its own address", () => {
     // Leaving the session behind is not what he asked for, so the new tab must not be able to reach back
     // into this one.
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("offers no way back to the session it is already in", () => {
+    // ISSUE #3077. Reading a report in session 103's tab, the bar said "back to 103 devthrottle_internal -
+    // pe seller" - the screen the reader was standing on. Every report in this list belongs to this session,
+    // so the tab hands the viewer no destination and the viewer draws no link. The full-screen page, which
+    // is where that link leads somewhere, passes one and keeps it.
+    mountAt(`/session/${SID}?tab=reports&report=${REPORT}`);
+
+    expect(viewerProps.onBackToSession).toBeUndefined();
+    // Not an empty screen: the actions the tab DOES supply are there.
+    expect(screen.getByTestId("reports-back")).toBeTruthy();
+    expect(screen.getByTestId("reports-fullscreen")).toBeTruthy();
   });
 
   it("offers it only when a report is open - the list has no full screen", () => {

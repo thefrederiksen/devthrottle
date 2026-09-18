@@ -152,11 +152,27 @@ export function isValidPageState(s: unknown): s is DevReportPageState {
   return isPlainObject(s.scroll) && isFiniteNumber(s.scroll.x) && isFiniteNumber(s.scroll.y);
 }
 
+/**
+ * Where note-taking stands in the page, as the page reports it (CONTRACT.md section 3, issue #3077).
+ * The app's note controls draw themselves from this: the page is the only one that knows when picking
+ * ended - it ends by itself the moment the reader clicks the thing the note is about.
+ */
+export interface DevReportNoteMode {
+  /** The page is waiting for the reader to click the element the note is about. */
+  picking: boolean;
+  /** The text the reader has selected in the report, or null. */
+  selectionQuote: string | null;
+}
+
+/** What the host asks the page to do about a note. "off" cancels picking. */
+export type DevReportNoteModeRequest = "pick" | "selection" | "off";
+
 /** A message from the page, as the host acts on it. */
 export type PageMessage =
   | { type: "ready"; token: string; questionIds: string[] }
   | { type: "send"; items: DevReportItem[] }
-  | { type: "state-changed"; state: DevReportPageState };
+  | { type: "state-changed"; state: DevReportPageState }
+  | { type: "note-mode-changed"; noteMode: DevReportNoteMode };
 
 function envelopeOk(data: unknown): data is Record<string, unknown> {
   return isPlainObject(data) && data.channel === DEV_REPORT_CHANNEL && data.version === DEV_REPORT_PROTOCOL_VERSION;
@@ -170,8 +186,10 @@ export function parseReady(data: unknown): Extract<PageMessage, { type: "ready" 
   return { type: "ready", token: data.token, questionIds: p.questionIds as string[] };
 }
 
-/** Returns a `send` or `state-changed` from the port when its shape is exactly right, else null. */
-export function parsePortMessage(data: unknown): Extract<PageMessage, { type: "send" | "state-changed" }> | null {
+/** Returns a port message from the page when its shape is exactly right, else null. */
+export function parsePortMessage(
+  data: unknown,
+): Extract<PageMessage, { type: "send" | "state-changed" | "note-mode-changed" }> | null {
   if (!envelopeOk(data)) return null;
   const p = data.payload;
   if (!isPlainObject(p)) return null;
@@ -181,9 +199,14 @@ export function parsePortMessage(data: unknown): Extract<PageMessage, { type: "s
   if (data.type === "state-changed") {
     return isValidPageState(p.state) ? { type: "state-changed", state: p.state } : null;
   }
+  if (data.type === "note-mode-changed") {
+    if (typeof p.picking !== "boolean") return null;
+    if (p.selectionQuote !== null && !isStr(p.selectionQuote)) return null;
+    return { type: "note-mode-changed", noteMode: { picking: p.picking, selectionQuote: p.selectionQuote } };
+  }
   return null;
 }
 
-export function hostEnvelope(type: "restore" | "status" | "reply", payload: unknown) {
+export function hostEnvelope(type: "restore" | "status" | "reply" | "note-mode", payload: unknown) {
   return { channel: DEV_REPORT_CHANNEL, version: DEV_REPORT_PROTOCOL_VERSION, type, payload };
 }

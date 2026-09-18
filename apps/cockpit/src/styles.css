@@ -3058,30 +3058,6 @@ body {
   overflow: hidden;
 }
 
-.reports-tab-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-/* The way to the report's own address, dressed as the button beside it. */
-.reports-fullscreen {
-  margin-left: auto;
-  padding: 4px 12px;
-  font-size: 13px;
-  color: var(--text);
-  text-decoration: none;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.reports-fullscreen:hover {
-  border-color: var(--accent);
-}
-
 /* ===== THE REPORT AT ITS OWN ADDRESS (issue #3074) =====
    /report/{id} is mounted outside the AppShell, so this page owns the whole viewport: the report, the
    conversation beside it, and nothing else. Same measurements as the Reports tab, because it IS the Reports
@@ -3102,17 +3078,6 @@ body {
 
 .report-page-missing {
   padding: 24px 28px;
-}
-
-.reports-back {
-  padding: 4px 12px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
 }
 
 .reports-tab-body {

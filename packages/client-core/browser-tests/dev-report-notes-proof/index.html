@@ -33,7 +33,7 @@
     - closes the port on any frame load it did not cause,
     - records what it accepted and refused, for the proof driver to read.
   It also does what a real app does with the state it keeps: it DRAWS it, in its own panel beside the
-  frame. That panel is the ONE conversation and the ONE Send on this screen - the page inside the frame,
+  frame - including the note controls, which live here and not in the report (issue #3077). That panel is the ONE conversation and the ONE Send on this screen - the page inside the frame,
   being hosted, draws none of it. Its Send posts the queue this host already holds, exactly as the
   Cockpit's controller does (sendQueued), and answers each item with a status.
   Which report it shows is the ?report= query parameter (default sample-report.html).
@@ -41,6 +41,13 @@
 <div id="stage">
   <iframe id="report" sandbox="allow-scripts" title="Dev report"></iframe>
   <aside id="panel" aria-label="Notes for the agent">
+    <!-- The app's note controls (issue #3077). They used to be a pill inside the report, floating over the
+         words; the app holds them now and reaches the page with note-mode. -->
+    <div>
+      <button id="panel-add-note" type="button" disabled>Add a note</button>
+      <button id="panel-note-selection" type="button" hidden>Note on selected text</button>
+      <div id="panel-note-hint"></div>
+    </div>
     <h2>Queued - not sent yet</h2>
     <ul id="panel-queued"></ul>
     <div><button id="panel-send" type="button" disabled>Send</button></div>
@@ -58,6 +65,7 @@
   var parts = null;
   var token = "";
   var port = null;
+  var noteMode = { picking: false, selectionQuote: null };
   var expectingLoad = false;
   window.__received = [];
   window.__refused = [];
@@ -136,6 +144,31 @@
     button.textContent = saved.queued.length ? "Send " + saved.queued.length : "Send";
   }
 
+  // The app's note controls, drawn from what the PAGE says (note-mode-changed) and never from what this host
+  // asked for: picking ends by itself the moment the reader clicks what the note is about.
+  function renderNoteControls() {
+    var add = document.getElementById("panel-add-note");
+    var sel = document.getElementById("panel-note-selection");
+    add.disabled = port === null;
+    add.textContent = noteMode.picking ? "Cancel" : "Add a note";
+    document.getElementById("panel-note-hint").textContent =
+      noteMode.picking ? "Click the paragraph, table cell or diagram part your note is about." : "";
+    if (noteMode.selectionQuote && !noteMode.picking) {
+      sel.hidden = false;
+      sel.textContent = "Note on \"" + noteMode.selectionQuote.slice(0, 30) + "\"";
+    } else {
+      sel.hidden = true;
+    }
+  }
+
+  document.getElementById("panel-add-note").addEventListener("click", function () {
+    send("note-mode", { mode: noteMode.picking ? "off" : "pick" });
+  });
+
+  document.getElementById("panel-note-selection").addEventListener("click", function () {
+    send("note-mode", { mode: "selection" });
+  });
+
   // The app sends the queue it already holds - it does not ask the page to send (CONTRACT.md, "Send").
   document.getElementById("panel-send").addEventListener("click", function () {
     var items = saved.queued.map(function (item) {
@@ -157,6 +190,9 @@
   function closePort() {
     if (port) port.close();
     port = null;
+    // Nothing to reach: the note controls stop offering an action that would go nowhere.
+    noteMode = { picking: false, selectionQuote: null };
+    renderNoteControls();
   }
 
   // Returns false, and sends nothing, when there is no port to the report this host loaded.
@@ -198,10 +234,15 @@
         saved = m.payload.state;
         renderPanel();
       }
+      if (m.type === "note-mode-changed") {
+        noteMode = { picking: !!m.payload.picking, selectionQuote: m.payload.selectionQuote };
+        renderNoteControls();
+      }
     };
     window.__received.push(data);
     log("ready");
     send("restore", { state: saved });
+    renderNoteControls();
   });
 
   frame.addEventListener("load", function () {

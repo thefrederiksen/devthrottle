@@ -7,7 +7,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildFrameDocument, DevReportFrameHost, type HostPort } from "./frameHost";
-import { DEV_REPORT_CHANNEL, emptyPageState, type DevReportItem, type DevReportPageState } from "./protocol";
+import { DEV_REPORT_CHANNEL, emptyPageState, type DevReportItem, type DevReportNoteMode, type DevReportPageState } from "./protocol";
 import { APP_DEV_REPORT_THEME } from "./theme";
 
 class FakePort implements HostPort {
@@ -46,6 +46,7 @@ interface Harness {
   sends: DevReportItem[][];
   states: DevReportPageState[];
   connected: boolean[];
+  noteModes: DevReportNoteMode[];
   restoreWith: { state: DevReportPageState };
 }
 
@@ -56,6 +57,7 @@ function makeHost(): Harness {
     sends: [] as DevReportItem[][],
     states: [] as DevReportPageState[],
     connected: [] as boolean[],
+    noteModes: [] as DevReportNoteMode[],
     restoreWith: { state: emptyPageState() },
   } as Harness;
   // A container that is not in the document, so jsdom starts no browsing context of its own for the frame.
@@ -71,6 +73,7 @@ function makeHost(): Harness {
     onStateChanged: (s) => harness.states.push(s),
     onSend: (items) => harness.sends.push(items),
     onConnectedChange: (c) => harness.connected.push(c),
+    onNoteModeChanged: (m) => harness.noteModes.push(m),
     onRefused: (why) => harness.refused.push(why),
   });
   Object.defineProperty(harness.host.frame, "contentWindow", { value: frameWindow });
@@ -222,6 +225,40 @@ describe("the port", () => {
     expect(h.sends).toEqual([[note]]);
     expect(h.states).toEqual([state]);
     expect(h.refused).toHaveLength(3);
+  });
+
+  // THE APP'S NOTE CONTROLS (issue #3077). The controls are in the app's panel and the anchor is picked in the
+  // page, so the two reach each other over this port - and both directions are checked whole, like every
+  // other message here: a malformed note-mode-changed is refused rather than half-applied.
+  it("carries note-mode to the page and note-mode-changed back, each checked whole", () => {
+    const h = makeHost();
+    loadReport(h);
+    const port = new FakePort();
+    ready(h, currentToken(h.host), [port]);
+
+    expect(h.host.setNoteMode("pick")).toBe(true);
+    expect(port.sent[port.sent.length - 1]).toEqual(envelope("note-mode", { mode: "pick" }));
+
+    port.emit(envelope("note-mode-changed", { picking: true, selectionQuote: null }));
+    port.emit(envelope("note-mode-changed", { picking: false, selectionQuote: "A paragraph." }));
+    // Refused: a missing picking, a selectionQuote that is neither a string nor null, the wrong version.
+    port.emit(envelope("note-mode-changed", { selectionQuote: null }));
+    port.emit(envelope("note-mode-changed", { picking: true, selectionQuote: 7 }));
+    port.emit({ ...envelope("note-mode-changed", { picking: true, selectionQuote: null }), version: 2 });
+
+    expect(h.noteModes).toEqual([
+      { picking: true, selectionQuote: null },
+      { picking: false, selectionQuote: "A paragraph." },
+    ]);
+    expect(h.refused).toHaveLength(3);
+  });
+
+  it("sends no note-mode when there is no page to reach", () => {
+    const h = makeHost();
+    loadReport(h);
+
+    // No ready has arrived, so there is no port. The app's button must not report success.
+    expect(h.host.setNoteMode("pick")).toBe(false);
   });
 
   it("is closed by a frame load the host did not cause, and nothing more is heard from or sent to it", () => {

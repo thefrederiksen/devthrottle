@@ -146,3 +146,86 @@ No C# changed, so no .NET suite is affected.
 - **The three lint errors** reported by `npm run lint` are pre-existing and unrelated: two missing
   `react-hooks/exhaustive-deps` rule definitions in mobile pages and one missing
   `@typescript-eslint/no-implied-eval` in a Cockpit test, all in files this change does not touch.
+
+---
+
+# Round two: the bar, the link, and the notes pill
+
+Issue [#3077](https://github.com/thefrederiksen/devthrottle/issues/3077). Three things the owner found on the
+live screen the day round one shipped.
+
+## 1. A link back to where you are standing
+
+Reading a report in session 103's Reports tab, the bar offered "back to 103 devthrottle_internal - pe seller"
+- the screen the reader was already on. Every report in that tab's list belongs to that session, so the link
+could never lead anywhere else.
+
+The tab hands the viewer no destination now, and the viewer draws no link without one. The full-screen page
+still passes one, because that is where it leads somewhere: a reader who was sent the printed link and does
+have the session can go to it, and one who does not never sees it.
+
+## 2. The actions were there and could not be seen
+
+"There's nothing on the screen that says how do I go to full screen... oh, there is a button. They're just
+really hard to see."
+
+Two causes, fixed together. The actions were spread over **two stacked bars** - All reports and Full screen in
+a strip of the tab's own, then the report's bar with the title, the session, the status, the version and
+Export - and all of them were drawn in the same quiet grey as the facts beside them.
+
+The tab's strip is gone. The viewer's bar takes two slots, `leading` and `trailing`, so a shell puts its own
+actions in the report's one bar: All reports at the left, Full screen beside Export at the right. Every action
+in that bar now shares one `dev-report-action` style with an accent border, so it reads as something that can
+be pressed. The phone passes neither slot and its bar is unchanged.
+
+## 3. The notes pill floating over the report
+
+"That floating thing, Notes zero queued and add a note, that's hovering over the report so I can't see the
+report. Why is it not under the conversation?"
+
+Because it was inside the report. The note-taking script runs in the sandboxed frame, and hosted it kept a
+pill pinned to the frame's bottom-right corner carrying "Notes (N queued)" - a count the conversation panel
+was already showing - and "Add a note". The panel is outside the frame, and until now nothing out there could
+start a note in here.
+
+**What was built.** Two new messages on the private port the host and the page already share
+(`CONTRACT.md` section 3):
+
+| Direction | Message | Meaning |
+|---|---|---|
+| host to page | `note-mode` `{ mode: "pick" \| "selection" \| "off" }` | start a note, note the reader's selection, or cancel |
+| page to host | `note-mode-changed` `{ picking, selectionQuote }` | where note-taking stands |
+
+Hosted, the page now draws **no tray at all**. "Add a note", the selection button and the hint live in the
+shared conversation panel, so the Cockpit's rail, the full-screen page and the phone's sheet all get them from
+one implementation.
+
+Two decisions inside that are worth keeping:
+
+- **The note box stays in the page**, and that is why this is a message rather than a move. A note points at
+  a paragraph, a table cell or a part of a diagram, and only the document holds those. The app arms; the page
+  anchors.
+- **The panel draws from what the page SAYS, never from what it asked for.** Picking ends by itself the
+  moment the reader clicks what the note is about, so a panel that trusted its own click would sit there
+  offering "Cancel" for ever.
+
+**The phone needed one thing more.** Its panel is a sheet over the report, so arming a note there would leave
+the reader looking at the thing they now have to click through. The sheet closes itself when the page says a
+note is armed, and the strip under the report carries the instruction while it is - the desktop has no such
+problem, which is why that lives in the phone's frame and not in the shared panel.
+
+## How round two was proved
+
+- **A real browser, all 16 claims.** `packages/client-core/browser-tests/dev-report-notes-proof` drives the
+  shipping script in Chromium inside a real sandboxed frame. Claim O now requires the page to draw no tray;
+  the note is armed from the test host's own panel, exactly as the app does it; and claims M and N still hold
+  the trust rules with the new message in the accepted list. Evidence: `evidence-2026-09-18.json` and the
+  screenshots beside it.
+- **1445 tests in client-core**, including the note-mode protocol in both directions (the script, the
+  protocol parser, the frame host, the controller) and the panel's own controls.
+- **457 in the Cockpit** (the tab hands the viewer no way back, and supplies both bar slots) and **101 on the
+  phone** (the sheet closes itself, the strip says what to do).
+- `npm run typecheck` across the workspace and a production `vite build` of the Cockpit.
+
+**What is still not proved by any of that:** how the bar LOOKS. Contrast is a stylesheet reading here; the
+owner's complaint was about legibility on a real screen, so that answer comes from the deployed Cockpit.

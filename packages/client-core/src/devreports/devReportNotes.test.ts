@@ -11,7 +11,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 type Anchor = { type: string; selector: string; quote: string; rowLabel?: string; columnLabel?: string; label?: string };
 type Item = Record<string, unknown> & { id: string; kind: string };
-type State = { queued: Item[]; sent: Item[]; replies: unknown[]; draft: unknown; answerDrafts: unknown[]; scroll: { x: number; y: number } };
+type State = {
+  queued: Item[];
+  sent: Item[];
+  replies: unknown[];
+  draft: { anchor: Anchor; text: string } | null;
+  answerDrafts: unknown[];
+  scroll: { x: number; y: number };
+};
 type Model = {
   snapshot(): State;
   queueNote(anchor: Anchor, text: string): Item;
@@ -653,7 +660,12 @@ describe("the tray's theme", () => {
 // -------------------------------------------------------------------------------------------------
 
 const CONVERSATION_PARTS = ["conversation", "queued", "sent", "replies", "send", "payload-box"];
-const NOTE_TAKING_PARTS = ["toggle", "pick", "note-selection", "composer", "composer-text", "composer-queue", "composer-cancel"];
+// The tray: the pill that used to float in the corner of the report. Hosted, the app's panel holds these
+// controls and the page draws none of them (issue #3077).
+const TRAY_PARTS = ["toggle", "pick", "note-selection"];
+// The note box, which is NOT the tray: it has its own shadow host and is placed against the element the note
+// is about, so it stays in the page whoever is hosting it.
+const NOTE_BOX_PARTS = ["composer", "composer-text", "composer-queue", "composer-cancel"];
 
 const pageReport = `
   <header data-dev-report="header" data-dev-report-status="waiting-on-you"><h1>Report</h1></header>
@@ -677,8 +689,10 @@ function clickOn(el: Element) {
 type Hosted = {
   page: { model: Model; isHosted(): boolean; lastPayload(): unknown };
   ready: { type: string; payload: { questionIds: string[] } };
-  fromPage: Array<{ type: string; payload: { state: State; items?: Item[] } }>;
+  fromPage: Array<{ type: string; payload: { state: State; items?: Item[]; picking?: boolean; selectionQuote?: string | null } }>;
   restore(state?: State): Promise<void>;
+  /** Post any host message over the real port, and wait for the page to have handled it. */
+  post(type: string, payload: unknown): Promise<void>;
 };
 
 function startFramed(): Hosted {
@@ -715,11 +729,20 @@ function startFramed(): Hosted {
       for (let i = 0; i < 400 && fromPage.length === before; i++) await new Promise((resolve) => setTimeout(resolve, 5));
       if (fromPage.length === before) throw new Error("the page never answered its host");
     },
+    async post(type: string, payload: unknown) {
+      const before = fromPage.length;
+      port.postMessage(envelope(type, payload));
+      // Same trick as restore: a status is answered with a state-changed, and a port delivers in order, so
+      // that answer arriving proves the message ahead of it was handled.
+      port.postMessage(envelope("status", { updates: [] }));
+      for (let i = 0; i < 400 && fromPage.length === before; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+      if (fromPage.length === before) throw new Error("the page never answered its host");
+    },
   };
 }
 
 describe("hosted, the app owns the conversation", () => {
-  it("draws only the note-taking parts - no queued, sent or replies list, no Send, no payload box", async () => {
+  it("draws no tray at all - no conversation, and no floating note controls over the report", async () => {
     document.body.innerHTML = pageReport;
     const host = startFramed();
     await host.restore();
@@ -730,7 +753,13 @@ describe("hosted, the app owns the conversation", () => {
     for (const heading of ["Queued - not sent yet", "Sent", "Replies from the agent"]) {
       expect(uiText(), heading).not.toContain(heading);
     }
-    for (const part of NOTE_TAKING_PARTS) expect(ui(`[data-drn=${part}]`), part).not.toBeNull();
+    // ISSUE #3077. These three used to stay behind as a pill pinned over the report - a queued count the
+    // app's panel was already showing, and two buttons on top of the words. The app holds them now.
+    for (const part of TRAY_PARTS) expect(ui(`[data-drn=${part}]`), part).toBeNull();
+    expect(uiText()).not.toContain("Add a note");
+    // What stays: the note box, which has to be in here because it is placed against what the note is
+    // about, and each question's own Queue button, which is part of the report.
+    for (const part of NOTE_BOX_PARTS) expect(ui(`[data-drn=${part}]`), part).not.toBeNull();
     expect(uiAll("[data-drn=queue-answer]")).toHaveLength(1);
   });
 
@@ -738,7 +767,7 @@ describe("hosted, the app owns the conversation", () => {
     document.body.innerHTML = pageReport;
     const page = api.start({ window });
     expect(page.isHosted()).toBe(false);
-    for (const part of CONVERSATION_PARTS.concat(NOTE_TAKING_PARTS)) expect(ui(`[data-drn=${part}]`), part).not.toBeNull();
+    for (const part of CONVERSATION_PARTS.concat(TRAY_PARTS, NOTE_BOX_PARTS)) expect(ui(`[data-drn=${part}]`), part).not.toBeNull();
     for (const heading of ["Queued - not sent yet", "Sent", "Replies from the agent"]) {
       expect(uiText(), heading).toContain(heading);
     }
@@ -781,8 +810,11 @@ describe("hosted, the app owns the conversation", () => {
 
   it("hands the app the same state hosted as the page keeps unhosted - the panel still gets everything", async () => {
     // Nothing about what the page SENDS changes; only what it draws.
-    function noteAndAnswer() {
-      clickOn(ui("[data-drn=pick]")!);
+    //
+    // Hosted, the note is armed by the app (a note-mode message) and unhosted by the page's own button. The
+    // arming differs; everything after the click is the same code, and the state that comes out must match.
+    function noteAndAnswer(armed: () => void) {
+      armed();
       clickOn(document.getElementById("para")!);
       ui<HTMLTextAreaElement>("[data-drn=composer-text]")!.value = "This number is wrong";
       clickOn(ui("[data-drn=composer-queue]")!);
@@ -795,7 +827,8 @@ describe("hosted, the app owns the conversation", () => {
     document.body.innerHTML = pageReport;
     const host = startFramed();
     await host.restore();
-    noteAndAnswer();
+    await host.post("note-mode", { mode: "pick" });
+    noteAndAnswer(() => {});
     const hostedState = host.page.model.snapshot();
     // A port delivers on the next turn of the loop, so let what the page posted arrive before reading it.
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -810,9 +843,111 @@ describe("hosted, the app owns the conversation", () => {
     delete (window as unknown as Record<symbol, unknown>)[api.started];
     document.body.innerHTML = pageReport;
     const unhosted = api.start({ window });
-    noteAndAnswer();
+    noteAndAnswer(() => clickOn(ui("[data-drn=pick]")!));
 
     expect(withoutIds(hostedState)).toEqual(withoutIds(unhosted.model.snapshot()));
+  });
+});
+
+// THE APP'S NOTE CONTROLS, REACHING INTO THE PAGE (issue #3077).
+//
+// The controls are in the app's panel and the anchor can only be picked inside the report, so the two talk
+// over the port they already share: the app says pick / selection / off, and the page says back where
+// note-taking stands. Both directions are checked here against the real script.
+describe("note-mode", () => {
+  it("arms picking when the app asks, and a click then opens the note box against what was clicked", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+
+    await host.post("note-mode", { mode: "pick" });
+
+    expect(document.documentElement.classList.contains("drn-picking")).toBe(true);
+    const armed = host.fromPage.filter((m) => m.type === "note-mode-changed");
+    expect(armed[armed.length - 1].payload.picking).toBe(true);
+
+    clickOn(document.getElementById("para")!);
+
+    // The note box is open, and it is about the paragraph that was clicked - which is the whole reason this
+    // part of note-taking cannot move into the app.
+    expect(ui("[data-drn=composer]")!.hasAttribute("hidden")).toBe(false);
+    expect(host.page.model.snapshot().draft!.anchor.quote).toBe("A paragraph.");
+    // And picking ended BY ITSELF, so the app is told without having asked.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const after = host.fromPage.filter((m) => m.type === "note-mode-changed");
+    expect(after[after.length - 1].payload.picking).toBe(false);
+  });
+
+  it("cancels picking when the app asks", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+    await host.post("note-mode", { mode: "pick" });
+
+    await host.post("note-mode", { mode: "off" });
+
+    expect(document.documentElement.classList.contains("drn-picking")).toBe(false);
+    const said = host.fromPage.filter((m) => m.type === "note-mode-changed");
+    expect(said[said.length - 1].payload.picking).toBe(false);
+  });
+
+  it("tells the app what the reader has selected, and notes it when the app asks", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+
+    const para = document.getElementById("para")!;
+    const range = document.createRange();
+    range.selectNodeContents(para);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const told = host.fromPage.filter((m) => m.type === "note-mode-changed");
+    expect(told[told.length - 1].payload.selectionQuote).toBe("A paragraph.");
+
+    await host.post("note-mode", { mode: "selection" });
+
+    const draft = host.page.model.snapshot().draft!;
+    expect(draft.anchor.type).toBe("text");
+    expect(draft.anchor.quote).toBe("A paragraph.");
+    // The selection has been used up, so the app stops offering it.
+    const afterwards = host.fromPage.filter((m) => m.type === "note-mode-changed");
+    expect(afterwards[afterwards.length - 1].payload.selectionQuote).toBeNull();
+  });
+
+  it("says where note-taking stands as soon as it is hosted, before anything is asked of it", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+
+    await host.restore();
+
+    const said = host.fromPage.filter((m) => m.type === "note-mode-changed");
+    expect(said.length).toBeGreaterThan(0);
+    expect(said[0].payload).toEqual({ picking: false, selectionQuote: null });
+  });
+
+  it("ignores a note-mode message that is not one of the three modes", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+
+    await host.post("note-mode", { mode: "delete-everything" });
+
+    expect(document.documentElement.classList.contains("drn-picking")).toBe(false);
+    expect(host.page.model.snapshot().draft).toBeNull();
+  });
+
+  it("says nothing about note-taking while it is unhosted - there is no panel to tell", () => {
+    document.body.innerHTML = pageReport;
+    const page = api.start({ window });
+
+    clickOn(ui("[data-drn=pick]")!);
+
+    expect(page.isHosted()).toBe(false);
+    expect(document.documentElement.classList.contains("drn-picking")).toBe(true);
   });
 });
 

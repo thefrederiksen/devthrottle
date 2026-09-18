@@ -10,6 +10,14 @@ import { DevReportViewer } from "./DevReportViewer";
 import type { DevReportDetail, DevReportRecordedItem, DevReportSummary } from "./devReportsClient";
 import { emptyPageState } from "./protocol";
 
+// The note controls (issue #3077) are tested in noteControls.test.tsx; these tests are about the
+// conversation's three lists and its Send, so every case below carries the same connected, idle note state.
+const NOTE_CONTROLS = {
+  noteMode: { picking: false, selectionQuote: null },
+  setNoteMode: () => {},
+  connected: true,
+};
+
 const listDevReports = vi.fn<(sessionId: string, signal?: AbortSignal) => Promise<DevReportSummary[]>>();
 vi.mock("./devReportsClient", () => ({
   listDevReports: (sessionId: string, signal?: AbortSignal) => listDevReports(sessionId, signal),
@@ -33,6 +41,7 @@ function emptySnapshot(): DevReportSnapshot {
     connected: false,
     sending: false,
     sendError: null,
+    noteMode: { picking: false, selectionQuote: null },
   };
 }
 
@@ -130,6 +139,7 @@ describe("DevReportConversation", () => {
           sending: false,
           sendError: null,
           send: () => {},
+          ...NOTE_CONTROLS,
         }}
       />,
     );
@@ -145,7 +155,7 @@ describe("DevReportConversation", () => {
   it("offers Send for the queue and shows the sending state and a failed request's words", () => {
     const send = vi.fn();
     const { rerender } = render(
-      <DevReportConversation conversation={{ queued: [sent[0]], sent: [], replies: [], sending: false, sendError: null, send }} />,
+      <DevReportConversation conversation={{ queued: [sent[0]], sent: [], replies: [], sending: false, sendError: null, send, ...NOTE_CONTROLS }} />,
     );
     const button = screen.getByTestId("dev-report-send") as HTMLButtonElement;
     expect(button.disabled).toBe(false);
@@ -154,7 +164,7 @@ describe("DevReportConversation", () => {
 
     rerender(
       <DevReportConversation
-        conversation={{ queued: [sent[0]], sent: [], replies: [], sending: true, sendError: "Not sent: odd failure words", send }}
+        conversation={{ queued: [sent[0]], sent: [], replies: [], sending: true, sendError: "Not sent: odd failure words", send, ...NOTE_CONTROLS }}
       />,
     );
     expect((screen.getByTestId("dev-report-send") as HTMLButtonElement).disabled).toBe(true);
@@ -163,7 +173,7 @@ describe("DevReportConversation", () => {
   });
 
   it("disables Send when nothing is queued", () => {
-    render(<DevReportConversation conversation={{ queued: [], sent: [], replies: [], sending: false, sendError: null, send: () => {} }} />);
+    render(<DevReportConversation conversation={{ queued: [], sent: [], replies: [], sending: false, sendError: null, send: () => {}, ...NOTE_CONTROLS }} />);
     expect((screen.getByTestId("dev-report-send") as HTMLButtonElement).disabled).toBe(true);
   });
 });
@@ -214,6 +224,27 @@ describe("DevReportViewer - the session it came from, and the way back", () => {
 
     fireEvent.click(back);
     expect(onBackToSession).toHaveBeenCalledWith(VIEWER_SESSION_ID);
+  });
+
+  // ISSUE #3077. The Cockpit's Reports tab stopped offering a way back, because every report in that list
+  // belongs to the session whose tab it is - the link pointed at the screen the reader was standing on. The
+  // viewer must honour that: the Gateway's words are there, and the shell did not offer a destination, so
+  // there is no link. The full-screen page still passes one and still gets it.
+  it("draws no back link when the shell offered no way back, however good the Gateway's words are", () => {
+    snapshot = {
+      ...emptySnapshot(),
+      detail: detailWith({ sessionLabel: GATEWAY_SESSION_LABEL, backLabel: GATEWAY_BACK_LABEL }),
+      loadedVersion: 1,
+      connected: true,
+    };
+    const { container } = render(<DevReportViewer reportId={VIEWER_REPORT_ID} renderConversation={() => null} />);
+
+    expect(screen.queryByTestId("dev-report-back")).toBeNull();
+    expect(container.textContent ?? "").not.toContain(GATEWAY_BACK_LABEL);
+    // The instrument works: the same render with a destination DOES draw the link.
+    cleanup();
+    renderViewer(detailWith({ sessionLabel: GATEWAY_SESSION_LABEL, backLabel: GATEWAY_BACK_LABEL }), vi.fn());
+    expect(screen.getByTestId("dev-report-back").textContent).toBe(GATEWAY_BACK_LABEL);
   });
 
   it("shows NO back link and no session identifier when the Gateway sent no words for one", () => {

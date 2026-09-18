@@ -123,12 +123,6 @@ export function SessionDetail() {
     });
   }, [setSearchParams]);
 
-  // The way back to this session from an open report: the session itself, on its default tab.
-  const backToSession = useCallback(
-    (reportSessionId: string) => navigate(`/session/${encodeURIComponent(reportSessionId)}`),
-    [navigate],
-  );
-
   // Set by the composer to a function that focuses its textarea, so the Source Control tab can focus the
   // composer after inserting a clicked file's path (issue #1266).
   const composerFocusRef = useRef<(() => void) | null>(null);
@@ -322,7 +316,6 @@ export function SessionDetail() {
                 openReportId={openReportId}
                 onOpenReport={openReport}
                 onCloseReport={closeReport}
-                onBackToSession={backToSession}
               />
             </div>
           )}

@@ -105,47 +105,52 @@
   overflow-wrap: anywhere;
 }
 
-/* The way back to that session. Its words are the Gateway's `backLabel`, whole and unedited. */
-.dev-report-back {
-  padding: 4px 12px;
+/* EVERY ACTION IN THE BAR LOOKS LIKE AN ACTION (issue #3077). They were drawn in the same quiet grey as the
+   facts beside them, on a dark bar, spread over two strips - so the owner read straight past "Full screen"
+   and asked where it was. One bar, and a border that says the thing can be pressed. */
+.dev-report-action {
+  padding: 5px 12px;
   font: inherit;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
   background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-.dev-report-back:hover {
-  border-color: var(--accent);
-}
-
-/* Save this report as one HTML file (see exportReport.ts). It sits at the end of the bar, pushed away from
-   the report's own facts, because it is the one thing in that row that DOES something. */
-.dev-report-export {
-  margin-left: auto;
-  padding: 4px 12px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent);
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
+  text-decoration: none;
 }
 
-.dev-report-export:hover:enabled {
-  border-color: var(--accent);
+.dev-report-action:hover:enabled,
+a.dev-report-action:hover {
+  background: var(--accent);
+  color: #ffffff;
 }
 
-.dev-report-export:disabled {
+.dev-report-action:disabled {
+  border-color: var(--border);
   color: var(--text-dim);
   cursor: default;
 }
+
+/* The way back to that session. Its words are the Gateway's `backLabel`, whole and unedited, so it is the one
+   action in the bar that can be long and must wrap rather than run off the end. */
+.dev-report-back {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* The actions sit together at the right end, away from the report's facts. */
+.dev-report-bar-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Saving this report as one HTML file (see exportReport.ts) takes the shared action look; it needs no rules
+   of its own beyond being in the bar's right-hand group. */
 
 .dev-report-frame-box {
   flex: 1 1 auto;
@@ -169,6 +174,64 @@
   padding: 12px;
   color: var(--text);
   font-size: 14px;
+}
+
+/* THE NOTE CONTROLS (issue #3077). They were a pill floating over the report; they belong to the app, which
+   is what this panel is. First thing in the panel, above what is queued, because starting a note comes before
+   having queued one. */
+.dev-report-notemode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dev-report-note-start,
+.dev-report-note-selection {
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.dev-report-note-start:hover:enabled,
+.dev-report-note-selection:hover {
+  filter: brightness(1.1);
+}
+
+/* Armed. The button is now the way OUT of picking, so it stops looking like the way in. */
+.dev-report-note-start.picking {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.dev-report-note-start:disabled {
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-color: var(--border);
+  cursor: default;
+}
+
+.dev-report-note-selection {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border);
+  font-weight: 400;
+}
+
+.dev-report-note-hint {
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 .dev-report-h {

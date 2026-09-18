@@ -219,6 +219,60 @@ describe("state the host holds", () => {
   });
 });
 
+// THE NOTE CONTROLS ARE THE APP'S, AND THE PAGE ANSWERS FOR THEM (issue #3077).
+//
+// The panel draws itself from the controller's snapshot, so what matters here is that the snapshot follows
+// the PAGE and never the app's own request: the app asks for picking, and only the page saying so makes the
+// panel show it - because picking also ends by itself, the moment the reader clicks what the note is about.
+describe("note-mode", () => {
+  it("asks the page to arm a note, and follows the page's answer rather than its own request", async () => {
+    const api = new FakeApi();
+    const controller = makeController(api, new MemoryStorage());
+    await controller.refresh();
+    const port = pageReady(controller);
+
+    controller.setNoteMode("pick");
+
+    expect(port.ofType("note-mode")).toEqual([{ mode: "pick" }]);
+    // Asking is not being armed: the panel still says "Add a note" until the page says otherwise.
+    expect(controller.getSnapshot().noteMode).toEqual({ picking: false, selectionQuote: null });
+
+    port.emit("note-mode-changed", { picking: true, selectionQuote: null });
+    expect(controller.getSnapshot().noteMode).toEqual({ picking: true, selectionQuote: null });
+
+    // The reader clicked the paragraph: picking ended in the page, with nobody asking.
+    port.emit("note-mode-changed", { picking: false, selectionQuote: "A paragraph." });
+    expect(controller.getSnapshot().noteMode).toEqual({ picking: false, selectionQuote: "A paragraph." });
+  });
+
+  it("forgets where note-taking stood when the page goes away", async () => {
+    const api = new FakeApi();
+    const controller = makeController(api, new MemoryStorage());
+    await controller.refresh();
+    const port = pageReady(controller);
+    port.emit("note-mode-changed", { picking: true, selectionQuote: "A paragraph." });
+
+    // The report navigated the frame away: the port is closed and there is no page to cancel in.
+    controller.host.handleFrameLoad();
+
+    expect(controller.getSnapshot().connected).toBe(false);
+    expect(controller.getSnapshot().noteMode).toEqual({ picking: false, selectionQuote: null });
+  });
+
+  it("forgets it again when a new version is loaded in place - a new document is picking nothing", async () => {
+    const api = new FakeApi();
+    const controller = makeController(api, new MemoryStorage());
+    await controller.refresh();
+    pageReady(controller).emit("note-mode-changed", { picking: true, selectionQuote: "A paragraph." });
+
+    api.current = detail(2);
+    await controller.refresh();
+
+    expect(controller.getSnapshot().loadedVersion).toBe(2);
+    expect(controller.getSnapshot().noteMode).toEqual({ picking: false, selectionQuote: null });
+  });
+});
+
 describe("send", () => {
   it("posts the page's items and answers each one with the Gateway's status and label, verbatim", async () => {
     const api = new FakeApi();

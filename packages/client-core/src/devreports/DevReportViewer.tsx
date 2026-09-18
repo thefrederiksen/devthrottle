@@ -28,6 +28,14 @@ export interface DevReportViewerProps {
   /** The Gateway answered 404 for this report: it does not appear. The shell usually goes back to the list. */
   onNotFound?: () => void;
   /**
+   * ONE BAR OVER THE REPORT (issue #3077). The shell's own actions go in the report's own bar rather than in
+   * a second strip above it: `leading` is the way out of this report (the Cockpit's "All reports"), `trailing`
+   * sits with Export at the right (the Cockpit's "Full screen"). A shell that passes neither - the phone,
+   * which has an app bar of its own - gets the bar exactly as it was.
+   */
+  leading?: ReactNode;
+  trailing?: ReactNode;
+  /**
    * Take the reader back to the session this report came from, in this app. The viewer draws the link and
    * the Gateway supplies its words (`backLabel`); the shell only knows how to navigate. Without this - or
    * without the Gateway's words - there is no back link at all, because the alternative is inventing one.
@@ -52,9 +60,10 @@ const idleSnapshot: DevReportSnapshot = {
   connected: false,
   sending: false,
   sendError: null,
+  noteMode: { picking: false, selectionQuote: null },
 };
 
-export function DevReportViewer({ reportId, renderConversation, onNotFound, onBackToSession }: DevReportViewerProps) {
+export function DevReportViewer({ reportId, renderConversation, onNotFound, onBackToSession, leading, trailing }: DevReportViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [controller, setController] = useState<DevReportController | null>(null);
 
@@ -131,6 +140,9 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound, onBa
     sending: snapshot.sending,
     sendError: snapshot.sendError,
     send: () => void controller?.sendQueued(),
+    noteMode: snapshot.noteMode,
+    setNoteMode: (mode) => controller?.setNoteMode(mode),
+    connected: snapshot.connected,
   };
 
   return (
@@ -138,10 +150,11 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound, onBa
       <div className="dev-report-viewer-main">
         {snapshot.detail && (
           <div className="dev-report-viewer-bar">
+            {leading}
             {backLabel && onBackToSession && (
               <button
                 type="button"
-                className="dev-report-back"
+                className="dev-report-action dev-report-back"
                 data-testid="dev-report-back"
                 onClick={() => onBackToSession(snapshot.detail!.report.sessionId)}
               >
@@ -158,17 +171,21 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound, onBa
             <span className="dev-report-viewer-version" data-testid="dev-report-version">
               Version {snapshot.loadedVersion ?? snapshot.detail.report.version}
             </span>
-            {/* Save this report as one HTML file. Last in the bar, and on BOTH surfaces, because it is the
-                report's own action rather than any one shell's chrome. */}
-            <button
-              type="button"
-              className="dev-report-export"
-              data-testid="dev-report-export"
-              onClick={() => void exportReport()}
-              disabled={exporting}
-            >
-              {exporting ? "Saving..." : "Export HTML"}
-            </button>
+            {/* The bar's actions, together at its right end: the shell's own (the Cockpit's Full screen) and
+                Export, which saves this report as one HTML file and belongs to BOTH surfaces because it is
+                the report's action rather than any one shell's chrome. */}
+            <div className="dev-report-bar-end">
+              {trailing}
+              <button
+                type="button"
+                className="dev-report-action dev-report-export"
+                data-testid="dev-report-export"
+                onClick={() => void exportReport()}
+                disabled={exporting}
+              >
+                {exporting ? "Saving..." : "Export HTML"}
+              </button>
+            </div>
           </div>
         )}
         {exportError && (
