@@ -10,6 +10,9 @@ namespace CcDirector.Gateway.Tests;
 /// mission, phase 1). Covers: fresh seeding of the shipped built-ins, idempotent re-seeding (a
 /// restart mints nothing), the ours/yours upgrade trade (newer shipped content auto-publishes ONLY
 /// while the user has not customized the workflow), and the read projections' legacy-shape fields.
+///
+/// Also the one place the mission workflow's two copies of its own steps are held equal: the
+/// WorkflowStep records the Cockpit shows, against the markdown step table an agent is served.
 /// </summary>
 public sealed class WorkflowStoreTests : IDisposable
 {
@@ -251,6 +254,165 @@ public sealed class WorkflowStoreTests : IDisposable
             WorkflowContentHash.ForBundle("n", "s", "w", "h", steps,
                 Array.Empty<Contracts.WorkflowOutcomeCriterionDto>(), "i",
                 new[] { ("helpers.py", WorkflowContentHash.ForFile("print()")) }));
+    }
+
+    // ---- the mission step table against the mission definition -------------------------------------
+    // The mission workflow's five steps are written TWICE, and served to two different readers: as
+    // WorkflowStep records in BuiltInWorkflows.cs, which is what the Gateway and the Cockpit show, and
+    // as a five-row markdown table in mission.instructions.md, which is what an agent is served when it
+    // runs `cc-devthrottle workflow instructions mission`. Nothing else holds the two together, so
+    // replacing a doer or a reviewer in one of them would leave this whole suite green while the
+    // Cockpit advertised a different mission from the one agents are told to run.
+    //
+    // This is deliberately a NARROW contract - five rows against five records, four fields each - and
+    // not the byte-for-byte fidelity test it replaces. It says nothing about the prose around the
+    // table, and it is not meant to.
+
+    /// <summary>The literal Reviewer cell the markdown table uses for a step with no separate review
+    /// seat. A null <see cref="WorkflowStep.Reviewer"/> is a statement the workflow is making, so the
+    /// table spells it rather than leaving the cell blank.</summary>
+    private const string NoReviewerCell = "none";
+
+    [Fact]
+    public void Mission_step_table_in_the_conduct_matches_the_mission_definition()
+    {
+        var mission = BuiltInWorkflows.All().Single(w => w.Id == "mission");
+        var rows = StepTableRows(Normalize(BuiltInWorkflows.InstructionsFor("mission")));
+
+        Assert.True(mission.Steps.Count == rows.Count,
+            "The mission workflow's step table and its C# definition have different numbers of steps." + Environment.NewLine +
+            $"  BuiltInWorkflows.cs has {mission.Steps.Count}: {string.Join(", ", mission.Steps.Select(s => Quote(s.Name)))}" + Environment.NewLine +
+            $"  mission.instructions.md has {rows.Count}: {string.Join(", ", rows.Select(r => Quote(r[0])))}" + Environment.NewLine +
+            "Add or remove the step in BOTH, or the Cockpit and the agents are running different missions.");
+
+        for (var i = 0; i < mission.Steps.Count; i++)
+        {
+            var step = mission.Steps[i];
+            var row = rows[i];
+            var number = i + 1;
+
+            // A literal "none" in the record would read as a reviewer actually named none in the Cockpit
+            // and as no reviewer at all in the table: the two would agree while meaning opposite things.
+            Assert.True(step.Reviewer != NoReviewerCell,
+                $"Row {number}: BuiltInWorkflows.cs gives the step {Quote(step.Name)} the literal reviewer " +
+                $"{Quote(NoReviewerCell)}, which is the table's spelling for NO reviewer. Use a null Reviewer.");
+
+            AssertCell(number, step.Name, "Step", step.Name, row[0]);
+            AssertCell(number, step.Name, "Doer", step.Doer, row[1]);
+            AssertCell(number, step.Name, "Reviewer", step.Reviewer ?? NoReviewerCell, row[2]);
+            AssertCell(number, step.Name, "Done when", step.Done, row[3]);
+        }
+    }
+
+    /// <summary>Compare one cell against one field, and say WHICH row and WHICH column disagreed and
+    /// what each side holds. "Assert.Equal() Failure" on its own costs the next reader exactly the time
+    /// this test exists to save.</summary>
+    private static void AssertCell(int rowNumber, string stepName, string column, string definition, string table)
+    {
+        Assert.True(string.Equals(definition, table, StringComparison.Ordinal),
+            "The mission workflow's step table and its C# definition disagree." + Environment.NewLine +
+            $"  Row {rowNumber} ({Quote(stepName)}), column {Quote(column)}." + Environment.NewLine +
+            $"  BuiltInWorkflows.cs:      {Quote(definition)}" + Environment.NewLine +
+            $"  mission.instructions.md:  {Quote(table)}" + Environment.NewLine +
+            "Both are served - the Cockpit shows the record, an agent is served the table - so a change " +
+            "to either one has to be made in the other.");
+    }
+
+    private static string Quote(string value) => "\"" + value + "\"";
+
+    /// <summary>
+    /// The rows of the "The five steps" table in the shipped mission conduct, each as its four visible
+    /// cells in table order: Step, Doer, Reviewer, Done when. Read out of the embedded resource - the
+    /// same place the product reads it - so this cannot pass against a file the Gateway does not ship.
+    ///
+    /// The markdown cell padding is stripped and an escaped pipe is unescaped (the one character a
+    /// GitHub-flavoured table cell MUST escape). Nothing else is normalised: a real difference in
+    /// wording, capitalisation or punctuation is a difference, and must fail.
+    ///
+    /// Every failure to FIND the table is loud. A parser that quietly returned no rows would pass this
+    /// test the day the table was deleted, which is the drift it exists to catch.
+    /// </summary>
+    private static IReadOnlyList<string[]> StepTableRows(string body)
+    {
+        var lines = body.Split('\n');
+        var header = -1;
+        for (var i = 0; i < lines.Length && header < 0; i++)
+        {
+            if (!IsTableRow(lines[i]))
+                continue;
+
+            var cells = TableCells(lines[i]);
+            if (cells.Length == 4 && cells[0] == "Step" && cells[1] == "Doer"
+                && cells[2] == "Reviewer" && cells[3] == "Done when")
+                header = i;
+        }
+
+        Assert.True(header >= 0,
+            "The shipped mission conduct has no step table: no row with the cells "
+            + "\"Step | Doer | Reviewer | Done when\" was found in the embedded "
+            + "Workflows/Content/mission.instructions.md. That table is what every agent running a "
+            + "mission is served, so it cannot be removed or renamed without moving this test with it.");
+
+        Assert.True(header + 1 < lines.Length && IsDelimiterRow(lines[header + 1]),
+            "The step table's header row is not followed by a markdown delimiter row (|---|---|---|---|), "
+            + "so what was found is not a table.");
+
+        var rows = new List<string[]>();
+        for (var i = header + 2; i < lines.Length && IsTableRow(lines[i]); i++)
+        {
+            var cells = TableCells(lines[i]);
+            Assert.True(cells.Length == 4,
+                $"Step table row {rows.Count + 1} has {cells.Length} cells, not 4: {lines[i].Trim()}");
+            rows.Add(cells);
+        }
+
+        Assert.True(rows.Count > 0, "The step table has a header row and no step rows at all.");
+        return rows;
+    }
+
+    private static bool IsTableRow(string line) => line.TrimStart().StartsWith("|", StringComparison.Ordinal);
+
+    private static bool IsDelimiterRow(string line)
+    {
+        if (!IsTableRow(line))
+            return false;
+
+        var cells = TableCells(line);
+        return cells.Length > 0 && cells.All(c => c.Length > 0 && c.All(ch => ch == '-' || ch == ':'));
+    }
+
+    /// <summary>The visible cells of one markdown table row: split on UNESCAPED pipes, drop the fencing
+    /// pipe at each end, unescape an escaped pipe, and strip the padding spaces.</summary>
+    private static string[] TableCells(string line)
+    {
+        var row = line.Trim();
+        Assert.True(row.StartsWith("|", StringComparison.Ordinal) && row.EndsWith("|", StringComparison.Ordinal),
+            $"A markdown table row is fenced with a pipe at each end, and this one is not: {row}");
+
+        var cells = new List<string>();
+        var cell = new System.Text.StringBuilder();
+        for (var i = 1; i < row.Length - 1; i++)
+        {
+            // i + 1 == row.Length - 1 is the closing fence, never an escaped cell pipe.
+            if (row[i] == '\\' && i + 1 < row.Length - 1 && row[i + 1] == '|')
+            {
+                cell.Append('|');
+                i++;
+                continue;
+            }
+
+            if (row[i] == '|')
+            {
+                cells.Add(cell.ToString().Trim());
+                cell.Clear();
+                continue;
+            }
+
+            cell.Append(row[i]);
+        }
+
+        cells.Add(cell.ToString().Trim());
+        return cells.ToArray();
     }
 
     private static string Normalize(string text) => text.Replace("\r\n", "\n");
