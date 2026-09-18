@@ -6,6 +6,11 @@ branch. Nothing was merged anywhere.
 
 Built to `RULING-phase-3b-the-one-address.md`.
 
+**I could not tell the Manager.** Every `cc-devthrottle` command refuses in this session with
+"CC_DIRECTOR_API is not set" - the installed `cc_shared` still demands an environment variable the
+remove-the-network-port work retired, while `tools/cc_shared` on main has no reference to it. Filed as
+issue #3045. So this file is the only report, which the brief said it would be anyway.
+
 ## What was broken, confirmed in the code before anything changed
 
 All three of the brief's findings were read in the branch as it stood, not taken on trust:
@@ -188,16 +193,66 @@ Each revert was applied alone and the tree was verified clean against `HEAD` bet
 (`git checkout`) collided with a stale `index.lock` in the shared `.git` mid-loop and left R10 applied under
 R11; both were re-run individually afterwards and the messages above are from those clean runs.
 
+## The parked suites found one regression of mine, and it is fixed
+
+`.\scripts\test-local.ps1 -Parked` failed
+`CcDirector.Core.Tests.MobileViewportContractTests.TheVisibleViewportHook_ExistsAndIsMountedOnceInTheAppShell`
+with "apps/mobile/src/main.tsx does not CALL useVisibleViewportHeight()". **That was mine**: the phone's
+gated layout, which mounts that hook, moved into `routes.tsx` with the route table. The behaviour never
+changed - the layout still calls the hook and every gated screen still hangs off it - but the guard reads
+one named file, and the file it named was no longer where the layout lived.
+
+Fixed in two ways, so the split cannot hide a real break:
+
+- the guard follows the layout: `ShellPath` is `apps/mobile/src/routes.tsx`, and it still requires a real,
+  uncommented CALL.
+- a SECOND half was added, because the first is only worth something while the entry point renders that
+  table: `main.tsx` must really call `createBrowserRouter(MOBILE_ROUTES, ...)`. My first attempt at this was
+  a `Contains("MOBILE_ROUTES")`, which passed happily with the mount swapped for a different array - the
+  import line mentions the name. It is a line-by-line call check now, the same shape as the hook check, and
+  the fake version is recorded in the comment beside it.
+
+**R13 - `main.tsx` mounts a different array.** RED: `apps/mobile/src/main.tsx no longer hands MOBILE_ROUTES
+to createBrowserRouter, so the app shell layout in apps/mobile/src/routes.tsx - and the hook mounted in it -
+is never rendered.`
+**R14 - the hook call removed from `routes.tsx`.** RED: `apps/mobile/src/routes.tsx does not CALL
+useVisibleViewportHeight().`
+Restored: 9 passed, 0 failed.
+
+This also closes one of the gaps I had listed for myself: that `main.tsx` mounts the table the tests mount
+is now asserted, not merely read.
+
+**The other parked failure is not mine, and that was checked rather than assumed.**
+`CcDirector.Gateway.Tests.TurnsVerbUnresolvedTranscriptTests.Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk(agent: Grok)`
+fails with `Expected: "no_transcript" Actual: "ok"`. It fails IDENTICALLY on the parent commit `ab176d48d`,
+in a worktree cut from it - run and read, not inferred - and nothing in my diff is in its call path.
+
 ## What ran
 
 - `.\scripts\test-local.ps1` - 8 projects, all `outcome=Completed`, 2,057 tests, 0 failed. It printed the
   COVERAGE GAP for `Core.Tests`, `Gateway.Tests` and `Gateway.UnitTests`.
-- `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~DevReport"` - 36 passed, 0 failed.
-- `.\scripts\test-local.ps1 -Parked` - see the line at the end of this section.
+- `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~DevReport"` - 36 passed, 0 failed. Twice:
+  once before the revert proofs, and once as their restore leg.
+- `dotnet test CcDirector.Core.Tests --filter MobileViewportContractTests` - 9 passed, 0 failed.
 - `npm --prefix packages/client-core run test` - 111 files, 1,292 passed.
 - `npm --prefix apps/cockpit run test` - 43 files, 363 passed.
 - `npm --prefix apps/mobile run test` - 16 files, 86 passed.
 - `npm run typecheck` (all four workspaces) - clean.
+
+**The FULL `Gateway.Tests` suite has NOT been run against this change, and it is the gap I would chase
+first.** I moved a middleware in the global request pipeline, so the whole Gateway suite is the right reader
+for it, and I could not get a run:
+
+- The first `-Parked` attempt was mine to spoil. I rebuilt other test projects in the same worktree while it
+  was running, which is exactly what stops a gate run being evidence, so I stopped it rather than quote it.
+- The second attempt queued behind another session's `Gateway.Tests` - session `6b9b9276`, worktree
+  `devthrottle-dev-reports-p4-director` - which held the machine-wide lock for over fifty minutes. Mine
+  aborted while still queued and collected ZERO tests. A run that collected zero tests is a broken
+  instrument, and I am not quoting it as anything.
+
+What the spoiled `-Parked` run DID report, offered as an indication and never as a gate: `Gateway.UnitTests`
+5,520 passed with the one pre-existing Grok failure above, and `Core.Tests` 4,412 passed with the one
+viewport failure that is now fixed.
 
 **The cockpit suite intermittently prints 1-3 "Unhandled Errors" (`ReferenceError: window is not defined`,
 after the environment is torn down), and that is NOT mine.** Measured rather than assumed: five runs with
@@ -215,10 +270,10 @@ on both sides. Every test passes in every run either way.
   `/report/{id}` - by calling `router.navigate` on the app's real table, in both shells. I did not drive the
   enrollment callback screen end to end, so "the callback calls navigate with the remembered next" rests on
   reading `DeviceCallback.tsx`, not on a test.
-- **`main.tsx` handing the table to the router is not asserted.** The tests mount `COCKPIT_ROUTES` and
-  `MOBILE_ROUTES`, which are now genuinely the app's arrays - but that `main.tsx` passes them to
-  `createBrowserRouter`, and with the right basename, is verified by reading those two files, not by a test.
-  It is one line in each and both are typechecked.
+- **The COCKPIT's `main.tsx` handing its table to the router is not asserted.** The phone's is, by the
+  viewport contract guard above. The Cockpit has no equivalent guard, so "main.tsx passes COCKPIT_ROUTES to
+  createBrowserRouter" rests on reading that one line. It is typechecked, and nothing else in the repository
+  reads it.
 - **The Gateway's `/report/{id}` shell serving is reasoned, not tested.** `/report` is not in
   `CockpitReactApp.BrowserPageRoots` and there is no top-level `MapGet("/report")`, so a hard navigation
   falls through to the SPA fallback and gets `index.html`. I read that; I did not add a host test for it.
