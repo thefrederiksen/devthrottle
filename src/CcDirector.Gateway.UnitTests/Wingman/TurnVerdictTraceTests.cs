@@ -73,8 +73,17 @@ public sealed class TurnVerdictTraceTests : IDisposable
     public async Task ARefusedAnswer_LeavesATrace_WithTheRawReplyThatFailed_AndTheReason()
     {
         var env = Env();
-        // A receipt that is on neither the screen nor the reply: the contract refuses it.
-        var invented = FakeTurnVerdictEnvironment.Finished("I deployed the Gateway before tagging.", Spoken);
+        // A state word that is not one of the seven: the contract refuses it. (The receipt that used to refuse
+        // an answer here was cut in contract v3 - see AnAnswerTheOldReceiptAndRiskRulesRefused_IsNowARealReading.)
+        const string invented = """
+            {
+              "state": "everything-is-fine",
+              "label": "Deployed the Gateway",
+              "agentRecommends": null,
+              "menu": null,
+              "options": []
+            }
+            """;
         env.Judge = (_, _) => Task.FromResult(invented);
 
         var outcome = await new TurnVerdictService(env).StartTurnEnd(Signal());
@@ -87,6 +96,46 @@ public sealed class TurnVerdictTraceTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(trace.Verdict.FailureReason));
         Assert.NotNull(trace.Prompt);
         Assert.NotNull(trace.Package);
+        // A REFUSED READING MAKES NO NARRATION CALL, so the trace shows that half as never made rather than as
+        // failed. The debug view has to be able to tell "we did not ask" from "we asked and it went wrong".
+        Assert.Null(trace.NarrationPrompt);
+        Assert.Null(trace.NarrationRawReply);
+        Assert.Null(trace.NarrationSeconds);
+    }
+
+    /// <summary>
+    /// BOTH HALVES OF ONE READING ARE ON ONE TRACE (owner ruling, 2026-09-18). The judge call was traced from the
+    /// start; the narration call was not traced at all, so the debug view could show what the Wingman decided and
+    /// never what it then said or why it said it. A reading is one thing now, and its record is one row.
+    ///
+    /// THERE IS NO SECOND PACKAGE, deliberately: the narration call is given the judge's package, so storing it
+    /// twice would be two copies of one screen that could drift apart and be read as two different screens.
+    /// </summary>
+    [Fact]
+    public async Task AnAcceptedReading_LeavesOneTrace_CarryingBothModelCalls()
+    {
+        var env = Env();
+        // SAID EXPLICITLY, because the assertion below is on the narrated WORDS. The double's default narrator
+        // echoes a value the canned judge builders share across the whole test process, so a sibling class judging
+        // a different stop can decide what this one hears - which is a flake when it disagrees and, worse, a pass
+        // when it happens to agree.
+        env.Narrator = (_, _) => Task.FromResult(Spoken);
+
+        var outcome = await new TurnVerdictService(env).StartTurnEnd(Signal());
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
+
+        var trace = Assert.Single(env.Traces);
+        Assert.NotNull(trace.Prompt);
+        Assert.NotNull(trace.RawReply);
+        Assert.NotNull(trace.Package);
+
+        Assert.NotNull(trace.NarrationPrompt);
+        Assert.NotNull(trace.NarrationRawReply);
+        Assert.NotNull(trace.NarrationSeconds);
+        Assert.Null(trace.NarrationFailureDetail);
+        // The two prompts are different questions about the same stop, not the same text stored twice.
+        Assert.NotEqual(trace.Prompt, trace.NarrationPrompt);
+        Assert.Contains(Spoken, trace.NarrationRawReply!);
     }
 
     [Fact]

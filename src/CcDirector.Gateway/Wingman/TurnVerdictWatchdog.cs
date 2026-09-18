@@ -126,6 +126,12 @@ public static class TurnVerdictWatchdog
             Spoken = string.IsNullOrWhiteSpace(original.Summary)
                 ? ExpiredSpokenLead
                 : $"{ExpiredSpokenLead} It had said: {original.Summary}",
+            // ONE TEXT, READ OR HEARD - the same rule every reading follows from contract v3. This record is
+            // written by the CLOCK and no model is asked, so the words are these; carrying them in only two of
+            // the three fields would leave the Wingman screen reading one thing and the ear hearing another.
+            Narration = string.IsNullOrWhiteSpace(original.Summary)
+                ? ExpiredSpokenLead
+                : $"{ExpiredSpokenLead} It had said: {original.Summary}",
             NextScheduledWakeUtc = null,
             FinishedKind = null,
         };
@@ -192,6 +198,8 @@ public static class TurnVerdictWatchdog
             Options = new List<TurnVerdictOptionDto>(),
             Risk = TurnVerdictVocabulary.RiskNone,
             Spoken = CarryingOnAgainSpokenLead,
+            // One text, read or heard - see the note on Expire above.
+            Narration = CarryingOnAgainSpokenLead,
             // The clock runs again from the judging moment, on the ten-minute rule: the announced wake-up the
             // original verdict carried is long past, and an expiry has already dropped it.
             NextScheduledWakeUtc = null,

@@ -97,8 +97,13 @@ public static class WingmanStopsFold
             RowLabel = rowRecorded ? t.RowLabel ?? "" : NotRecorded,
             VerdictWord = accepted ? verdict!.Verdict : null,
             Confidence = accepted ? verdict!.Confidence : null,
+            // THE STATE WORD IS WHAT THE READER IS SHOWN, from contract v3: it is what the judge answered and what
+            // the row's colour comes from. The confidence clause is kept for a record stored BEFORE v3, which
+            // carries one - showing an old reading as it was made rather than re-reading it under the new contract.
             VerdictText = accepted
-                ? string.IsNullOrWhiteSpace(verdict!.Confidence) ? verdict.Verdict : $"{verdict.Verdict}, {verdict.Confidence} confidence"
+                ? string.IsNullOrWhiteSpace(verdict!.Confidence)
+                    ? StateText(verdict)
+                    : $"{StateText(verdict)}, {verdict.Confidence} confidence"
                 : "No verdict",
             Strip = new WingmanStopStripDto
             {
@@ -132,6 +137,11 @@ public static class WingmanStopsFold
         => word is SessionOrdering.VerdictFinished or SessionOrdering.VerdictContinuesAlone;
 
     // ----------------------------------------------------------------------------------------------- words
+
+    /// <summary>The one word a reading answered with, or the stored verdict word for a record so old that the fold
+    /// cannot name a state for it - never an empty cell, which reads as a broken row.</summary>
+    private static string StateText(TurnVerdictDto verdict)
+        => string.IsNullOrWhiteSpace(verdict.State) ? verdict.Verdict : verdict.State;
 
     internal static string TriggerText(string trigger) => trigger switch
     {

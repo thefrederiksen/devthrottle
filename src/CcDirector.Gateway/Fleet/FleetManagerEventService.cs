@@ -751,9 +751,19 @@ public sealed class FleetManagerEventService : IDisposable
             return $"The Wingman's reading of the Fleet Manager's latest turn failed ({v.FailureReason ?? "no reason was given"}), so it cannot be told whether it is asking you something.";
         if (string.Equals(v.Verdict, TurnVerdictVocabulary.NeededYou, StringComparison.Ordinal))
             return "The Fleet Manager is waiting for your answer; events are sent after its next turn that asks you nothing.";
-        if (!TurnVerdictVocabulary.IsCalm(v.Verdict) || !string.Equals(v.Confidence, "high", StringComparison.Ordinal))
-            return $"The Wingman could not say the Fleet Manager's latest turn asks you nothing (it read it as {v.Verdict}, " +
-                   $"{(string.IsNullOrEmpty(v.Confidence) ? "no" : v.Confidence)} confidence); events wait for a turn that does.";
+        // THE GATE IS THE STATE (contract v3, owner ruling 2026-09-18). It used to also require the judge's
+        // "confidence" word to be "high"; that field is cut, so requiring it of every reading would have stopped
+        // every event this service exists to send. The state carries the same meaning on its own: a judge that
+        // could not judge the stop answers cannot-tell, which is not calm.
+        if (!TurnVerdictVocabulary.IsCalm(v.Verdict))
+            return $"The Wingman could not say the Fleet Manager's latest turn asks you nothing (it read it as " +
+                   $"{v.State}); events wait for a turn that does.";
+        // A READING WRITTEN BEFORE v3 IS STILL READ UNDER ITS OWN CONTRACT. It carries a confidence word, so the
+        // check it was written for still answers, and the Fleet Manager does not start sending on the strength of
+        // an old reading that was never good enough to send on. A v3 reading carries no word and nothing to answer.
+        if (!string.IsNullOrWhiteSpace(v.Confidence)
+            && !string.Equals(v.Confidence, SessionOrdering.ConfidenceHigh, StringComparison.Ordinal))
+            return "The Wingman was not sure about the Fleet Manager's latest turn; events wait for a turn it can read.";
         return null;
     }
 

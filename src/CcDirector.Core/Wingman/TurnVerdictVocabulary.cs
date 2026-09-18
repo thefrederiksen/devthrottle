@@ -1,3 +1,5 @@
+using CcDirector.Gateway.Contracts;
+
 namespace CcDirector.Core.Wingman;
 
 /// <summary>
@@ -148,6 +150,80 @@ public static class TurnVerdictVocabulary
     /// beside the verdict rather than splitting it.
     /// </summary>
     public static readonly IReadOnlyList<string> FinishedKinds = new[] { "done", "report" };
+
+    // ---------------------------------------------------------------- the five-field contract's STATE word
+
+    /// <summary>
+    /// THE ONE WORD THE JUDGE ANSWERS WITH FROM CONTRACT v3 - the old verdict word with finishedKind folded into
+    /// it. The words, their meanings and the mapping in both directions live in
+    /// <see cref="TurnVerdictStates"/>, in the Contracts assembly, because <c>TurnVerdictDto.State</c> folds them
+    /// and Contracts may not reference Core. These members forward, so a Core reader finds them where the rest of
+    /// the Wingman's vocabulary is, and <see cref="Tests.StatesMatchVerdictWords"/> pins the six verdict words
+    /// that table spells out to the constants in this class.
+    /// </summary>
+    public static class States
+    {
+        public const string NeedsYou = TurnVerdictStates.NeedsYou;
+        public const string FinishedDone = TurnVerdictStates.FinishedDone;
+        public const string FinishedReport = TurnVerdictStates.FinishedReport;
+        public const string CarryingOn = TurnVerdictStates.CarryingOn;
+        public const string StuckRecoverable = TurnVerdictStates.StuckRecoverable;
+        public const string StuckNeedsPerson = TurnVerdictStates.StuckNeedsPerson;
+        public const string CannotTell = TurnVerdictStates.CannotTell;
+    }
+
+    /// <summary>The seven words the judge may answer with under contract v3.</summary>
+    public static readonly IReadOnlyList<string> WingmanStates = TurnVerdictStates.All;
+
+    /// <summary>What each state word means.</summary>
+    public static readonly IReadOnlyDictionary<string, string> StateMeanings = TurnVerdictStates.Meanings;
+
+    /// <summary>True when the word is one of the seven a v3 answer may carry.</summary>
+    public static bool IsWingmanState(string? word) => TurnVerdictStates.IsState(word);
+
+    /// <summary>The state word split back into the stored pair - see <see cref="TurnVerdictStates.VerdictFor"/>.</summary>
+    public static (string Verdict, string? FinishedKind) SplitState(string state) => TurnVerdictStates.VerdictFor(state);
+
+    /// <summary>The state word for a stored pair - see <see cref="TurnVerdictStates.Of"/>.</summary>
+    public static string StateOf(string? verdict, string? finishedKind) => TurnVerdictStates.Of(verdict, finishedKind);
+
+    /// <summary>
+    /// THE PIN between the two spellings. <see cref="TurnVerdictStates"/> writes the six verdict words as literals
+    /// because it may not reference this class; this proves the two agree, in both directions, for all seven
+    /// states. A change to either spelling that is not made in both fails here rather than silently splitting a
+    /// corpus label from a live reading.
+    /// </summary>
+    public static class Tests
+    {
+        /// <summary>Every state word round-trips through the stored pair, and every verdict word this class
+        /// declares is the one the state table names. Returns the first disagreement, or null when they agree.</summary>
+        public static string? StatesMatchVerdictWords()
+        {
+            var expected = new (string State, string Verdict, string? Kind)[]
+            {
+                (States.NeedsYou, NeededYou, null),
+                (States.FinishedDone, Finished, "done"),
+                (States.FinishedReport, Finished, "report"),
+                (States.CarryingOn, ContinuesAlone, null),
+                (States.StuckRecoverable, StuckRecoverable, null),
+                (States.StuckNeedsPerson, StuckNeedsPerson, null),
+                (States.CannotTell, CannotTell, null),
+            };
+            foreach (var (state, verdict, kind) in expected)
+            {
+                var split = SplitState(state);
+                if (!string.Equals(split.Verdict, verdict, StringComparison.Ordinal))
+                    return $"{state} splits to {split.Verdict}, not {verdict}";
+                if (!string.Equals(split.FinishedKind, kind, StringComparison.Ordinal))
+                    return $"{state} splits to kind {split.FinishedKind ?? "null"}, not {kind ?? "null"}";
+                if (!string.Equals(StateOf(verdict, kind), state, StringComparison.Ordinal))
+                    return $"{verdict}/{kind ?? "null"} folds to {StateOf(verdict, kind)}, not {state}";
+            }
+            return expected.Length == WingmanStates.Count
+                ? null
+                : $"{expected.Length} states are pinned but {WingmanStates.Count} exist";
+        }
+    }
 
     /// <summary>True when the word is one of the six the Wingman may answer with.</summary>
     public static bool IsWingmanVerdict(string? word)

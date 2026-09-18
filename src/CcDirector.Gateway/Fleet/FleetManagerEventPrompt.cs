@@ -98,11 +98,26 @@ internal static class FleetManagerEventPrompt
                   .Append(". Read the session yourself.\n");
                 continue;
             }
+            // THE STATE IS WHAT THE JUDGE ANSWERED (contract v3). "verdict" and "finishedKind" are the two
+            // columns it is STORED in, and they stay for a reader that knows them, but the word the Wingman was
+            // asked for is the one the Fleet Manager should reason about.
+            sb.Append("state: ").Append(v.State).Append('\n');
             sb.Append("verdict: ").Append(v.Verdict).Append('\n');
             sb.Append("finishedKind: ").Append(v.FinishedKind ?? "-").Append('\n');
             sb.Append("label: ").Append(v.Label).Append('\n');
-            sb.Append("summary: ").Append(v.Summary).Append('\n');
-            sb.Append("risk: ").Append(v.Risk).Append('\n');
+            // THE SUMMARY IS THE READING'S OWN WORDS, and from contract v3 it is written by the narration call
+            // rather than by the judge. A session another LIVE session owns - a Worker under this very Fleet
+            // Manager - is read by its owner and gets no narration call, so it has none, and the label above is
+            // what the reading says about it. Writing "summary: " with nothing after it would offer the Fleet
+            // Manager a field that looks answered and is empty, which is the same lie as an empty receipt.
+            if (!string.IsNullOrWhiteSpace(v.Summary))
+                sb.Append("summary: ").Append(v.Summary).Append('\n');
+            // RISK IS CUT IN v3 (owner ruling, 2026-09-18: "the fleet manager asks for its own if it even
+            // needs them"), so it is absent on every reading made since. Writing "risk: " with nothing after it
+            // would hand the Fleet Manager a field that looks answered and is not - a reading it cannot tell
+            // from one that genuinely carried no risk. A record written before v3 still has its word, and shows it.
+            if (!string.IsNullOrWhiteSpace(v.Risk))
+                sb.Append("risk: ").Append(v.Risk).Append('\n');
             sb.Append("answerVia: ").Append(v.AnswerVia).Append('\n');
             sb.Append("options: ");
             if (v.Options.Count == 0) sb.Append('-');
@@ -115,8 +130,15 @@ internal static class FleetManagerEventPrompt
             }
             sb.Append('\n');
             sb.Append("agentRecommends: ").Append(v.AgentRecommends ?? "-").Append('\n');
-            sb.Append(EvidenceStart).Append('\n');
-            sb.Append(EvidenceOpen).Append(v.Evidence).Append(EvidenceClose).Append('\n');
+            // THE RECEIPT IS CUT IN v3, and an empty pair of markers is worse than no markers: it says a quote
+            // was taken from the screen and that the quote was the empty string. The summary above carries the
+            // Wingman's own words about the stop on every reading, which is what this block existed to support.
+            // A record written before v3 still carries its quote, and still shows it between its own markers.
+            if (!string.IsNullOrWhiteSpace(v.Evidence))
+            {
+                sb.Append(EvidenceStart).Append('\n');
+                sb.Append(EvidenceOpen).Append(v.Evidence).Append(EvidenceClose).Append('\n');
+            }
         }
 
         sb.Append('\n');

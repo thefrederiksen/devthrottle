@@ -396,21 +396,21 @@
     },
     {
       "name": "the calm band: report stops listed after the reds, and not counted",
-      "proves": "a row the Wingman judged a report sits in the needs-you section after every red row in waiting-line order, is not counted by the band start, is not listed under Working as well; an ambiguous report stays red and counted, and a brand-new green row with no verdict is not in the band",
+      "proves": "a row the Wingman judged a report sits in the needs-you section after every red row in waiting-line order, is not counted by the band start, is not listed under Working as well; a cannot-tell reading stays red and counted, and a brand-new green row with no verdict is not in the band",
       "sessions": [
         { "sessionId": "red-late", "sortOrder": 0, "createdAt": "2026-09-15T09:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-15T10:05:00Z", "effectiveColor": "red", "triageBucket": "needsYou" },
-        { "sessionId": "done", "sortOrder": 1, "createdAt": "2026-09-15T08:00:00Z", "activityState": "WaitingForInput", "verdictState": "judged", "turnVerdict": { "verdict": "finished", "confidence": "high", "label": "Pushed the branch" }, "verdictLabel": "Pushed the branch", "effectiveColor": "cyan", "triageBucket": "active" },
+        { "sessionId": "done", "sortOrder": 1, "createdAt": "2026-09-15T08:00:00Z", "activityState": "WaitingForInput", "verdictState": "judged", "turnVerdict": { "verdict": "finished", "finishedKind": "done", "label": "Pushed the branch" }, "verdictLabel": "Pushed the branch", "effectiveColor": "cyan", "triageBucket": "active" },
         { "sessionId": "red-early", "sortOrder": 2, "createdAt": "2026-09-15T09:30:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-15T10:00:00Z", "effectiveColor": "red", "triageBucket": "needsYou" },
-        { "sessionId": "carrying", "sortOrder": 3, "createdAt": "2026-09-15T07:00:00Z", "activityState": "WaitingForPerm", "verdictState": "judged", "turnVerdict": { "verdict": "continues-alone", "confidence": "high", "label": "Waiting on the nightly build" }, "verdictLabel": "Waiting on the nightly build", "effectiveColor": "purple", "triageBucket": "active" },
-        { "sessionId": "ambiguous", "sortOrder": 4, "createdAt": "2026-09-15T06:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-15T10:10:00Z", "verdictState": "judged", "turnVerdict": { "verdict": "finished", "confidence": "ambiguous", "label": "Probably finished" }, "verdictLabel": "Probably finished", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "carrying", "sortOrder": 3, "createdAt": "2026-09-15T07:00:00Z", "activityState": "WaitingForPerm", "verdictState": "judged", "turnVerdict": { "verdict": "continues-alone", "label": "Waiting on the nightly build" }, "verdictLabel": "Waiting on the nightly build", "effectiveColor": "purple", "triageBucket": "active" },
+        { "sessionId": "cannot-tell", "sortOrder": 4, "createdAt": "2026-09-15T06:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-15T10:10:00Z", "verdictState": "judged", "turnVerdict": { "verdict": "cannot-tell", "label": "The screen does not say what this stop means" }, "verdictLabel": "The screen does not say what this stop means", "effectiveColor": "red", "triageBucket": "needsYou" },
         { "sessionId": "working", "sortOrder": 5, "createdAt": "2026-09-15T06:30:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
         { "sessionId": "fresh", "sortOrder": 6, "createdAt": "2026-09-15T05:00:00Z", "activityState": "WaitingForInput", "isBrandNew": true, "effectiveColor": "green", "triageBucket": "active" }
       ],
-      "roots": ["red-late", "done", "red-early", "carrying", "ambiguous", "working", "fresh"],
+      "roots": ["red-late", "done", "red-early", "carrying", "cannot-tell", "working", "fresh"],
       "children": {},
       "crews": [],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["red-early", "red-late", "ambiguous", "carrying", "done"], "bandStart": 3 },
+        { "key": "needsYou", "title": "Needs you", "roots": ["red-early", "red-late", "cannot-tell", "carrying", "done"], "bandStart": 3 },
         { "key": "active", "title": "Working", "roots": ["working", "fresh"], "bandStart": 2 }
       ]
     }

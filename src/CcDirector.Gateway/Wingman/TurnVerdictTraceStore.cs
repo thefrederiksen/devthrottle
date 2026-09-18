@@ -67,6 +67,12 @@ public sealed record TurnVerdictTrace
     public bool PromptTruncated { get; init; }
     public string? RawReply { get; init; }
     public bool RawReplyTruncated { get; init; }
+    public string? NarrationPrompt { get; init; }
+    public bool NarrationPromptTruncated { get; init; }
+    public string? NarrationRawReply { get; init; }
+    public bool NarrationRawReplyTruncated { get; init; }
+    public double? NarrationSeconds { get; init; }
+    public string? NarrationFailureDetail { get; init; }
     public TurnVerdictDto? Verdict { get; init; }
     public string? RowColour { get; init; }
     public string? RowLabel { get; init; }
@@ -191,6 +197,12 @@ public sealed class TurnVerdictTraceStore
                 PromptTruncated = trace.PromptTruncated,
                 RawReply = trace.RawReply,
                 RawReplyTruncated = trace.RawReplyTruncated,
+                NarrationPrompt = trace.NarrationPrompt,
+                NarrationPromptTruncated = trace.NarrationPromptTruncated,
+                NarrationRawReply = trace.NarrationRawReply,
+                NarrationRawReplyTruncated = trace.NarrationRawReplyTruncated,
+                NarrationSeconds = trace.NarrationSeconds,
+                NarrationFailureDetail = trace.NarrationFailureDetail,
                 VerdictJson = trace.Verdict is null ? null : SerializeVerdict(trace.Verdict),
                 RowColour = trace.RowColour,
                 RowLabel = trace.RowLabel,
@@ -248,17 +260,26 @@ public sealed class TurnVerdictTraceStore
         ArgumentNullException.ThrowIfNull(trace);
         var raw = Cut(trace.RawReply, MaxRawReplyChars, out var rawCut);
         var prompt = Cut(trace.Prompt, MaxPromptChars, out var promptCut);
+        // The narration call's two texts take the SAME ceilings as the judge's, for the same reason: neither is text
+        // this Gateway controls, and one reading must not be able to write an unbounded row.
+        var narrationRaw = Cut(trace.NarrationRawReply, MaxRawReplyChars, out var narrationRawCut);
+        var narrationPrompt = Cut(trace.NarrationPrompt, MaxPromptChars, out var narrationPromptCut);
         // A COUNT, NOT A SERIALIZATION. This runs on the verdict path before the trace is queued, so it must stay cheap
         // and unable to throw: it adds up the text the package carries. Append checks the serialized length as well.
         var packageTooLarge = trace.Package is not null && PackageCharacters(trace.Package) > MaxPackageJsonChars;
         var reasonTooLong = trace.Verdict?.FailureReason is { Length: > MaxFailureReasonChars };
-        if (!rawCut && !promptCut && !packageTooLarge && !reasonTooLong) return trace;
+        if (!rawCut && !promptCut && !narrationRawCut && !narrationPromptCut && !packageTooLarge && !reasonTooLong)
+            return trace;
         return trace with
         {
             RawReply = raw,
             RawReplyTruncated = trace.RawReplyTruncated || rawCut,
             Prompt = prompt,
             PromptTruncated = trace.PromptTruncated || promptCut,
+            NarrationRawReply = narrationRaw,
+            NarrationRawReplyTruncated = trace.NarrationRawReplyTruncated || narrationRawCut,
+            NarrationPrompt = narrationPrompt,
+            NarrationPromptTruncated = trace.NarrationPromptTruncated || narrationPromptCut,
             Package = packageTooLarge ? null : trace.Package,
             PackageOmitted = trace.PackageOmitted || packageTooLarge,
             Verdict = reasonTooLong ? WithCutReason(trace.Verdict!) : trace.Verdict,
@@ -321,6 +342,12 @@ public sealed class TurnVerdictTraceStore
                 PromptTruncated = row.PromptTruncated,
                 RawReply = row.RawReply,
                 RawReplyTruncated = row.RawReplyTruncated,
+                NarrationPrompt = row.NarrationPrompt,
+                NarrationPromptTruncated = row.NarrationPromptTruncated,
+                NarrationRawReply = row.NarrationRawReply,
+                NarrationRawReplyTruncated = row.NarrationRawReplyTruncated,
+                NarrationSeconds = row.NarrationSeconds,
+                NarrationFailureDetail = row.NarrationFailureDetail,
                 Verdict = row.VerdictJson is null ? null : JsonSerializer.Deserialize<TurnVerdictDto>(row.VerdictJson, JsonOptions),
                 RowColour = row.RowColour,
                 RowLabel = row.RowLabel,

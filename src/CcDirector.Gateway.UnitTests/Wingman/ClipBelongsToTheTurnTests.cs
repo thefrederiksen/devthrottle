@@ -79,8 +79,10 @@ public sealed class ClipBelongsToTheTurnTests : IDisposable
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         var settings = new TenantSettingsResolver(new TenantSettingsStore(_harness.Open()));
         var env = new FakeTurnVerdictEnvironment();
-        // The narration call is not the subject here; leave it silent so the judge's words are the clip.
-        env.Narrator = (_, _) => Task.FromResult("");
+        // THE CLIP'S WORDS COME FROM THE NARRATION CALL from contract v3 - the judge answers no prose at all -
+        // so the default narrator stands, and it answers with the words each stop was canned with. Silencing it
+        // here, as this test did while the judge still wrote the words, now leaves every stop with no clip and
+        // makes the question this class asks - which stop does the clip belong to - unaskable.
         var speech = new HoldableSpeech();
         var translator = new CountingBrain(() => "a translation nobody should have asked for");
         var verdicts = new TurnVerdictService(env);
@@ -96,6 +98,10 @@ public sealed class ClipBelongsToTheTurnTests : IDisposable
         rig.Env.Screen = () => Screen(Sid, rows);
         rig.Env.Conversation = _ => Reply("do the work", reply);
         rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished(reply, spoken));
+        // SAID EXPLICITLY, because these tests assert on the WORDS a listener hears. Contract v3 leaves no prose
+        // on the judge's answer at all, so those words can only come from the narration call - and leaving that
+        // to the double's shared default would make this test depend on a value any sibling test can overwrite.
+        rig.Env.Narrator = (_, _) => Task.FromResult(spoken);
     }
 
     private static async Task TurnEndAsync(Rig rig)

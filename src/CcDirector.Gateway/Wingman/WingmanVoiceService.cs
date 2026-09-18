@@ -126,7 +126,9 @@ public sealed class WingmanVoiceService
         public readonly ConcurrentDictionary<string, byte> NothingToNarrate = new();       // sid -> the last turn has no text reply to read aloud (waiting on a prompt)
         public readonly ConcurrentDictionary<string, byte> DirectorCannotSend = new();     // sid -> the owning Director's build cannot send conversations, so none will ever be stored
         public readonly ConcurrentDictionary<string, DateTime> PreferBackupUntil = new();  // sid -> UTC deadline while this session routes past a silent primary (issue devthrottle_internal#405)
-        public readonly ConcurrentDictionary<string, byte> InFlight = new();               // sid -> a generation is running now
+        // sid -> the stop epoch the running generation started on. The VALUE is what makes a genuinely newer stop
+        // able to supersede it rather than be dropped; see the coalesce in GenerateAsync.
+        public readonly ConcurrentDictionary<string, long> InFlight = new();
 
         /// <summary>
         /// Why the TRANSCRIPT READ for this session did not produce a conversation, or absent when the last
@@ -1028,6 +1030,7 @@ public sealed class WingmanVoiceService
     private static long CurrentStopEpoch(TenantVoiceState state, string sid)
         => state.StopEpochs.TryGetValue(sid, out var e) ? e : 0;
 
+
     /// <summary>
     /// Identity of the narration source a retry budget belongs to. Hashed rather than stored whole: the
     /// ledger is held for every session with a turn still owed a narration, and a reply or terminal window
@@ -1141,6 +1144,20 @@ public sealed class WingmanVoiceService
     /// served or played. The session stays a voice session, so when the turn finishes the turn-end
     /// hook regenerates a fresh summary. Called on the Working transition.
     /// </summary>
+    /// <summary>
+    /// The session is working again, so nothing made for its last stop may be played.
+    ///
+    /// TELLING THIS SERVICE ALSO TELLS THE VERDICT SERVICE, and that is the point of the last line. Two callers
+    /// told only this one - the Working state a Director reports, and the voice-turn endpoint an instant before
+    /// it types a spoken reply - so a reading in flight was never cancelled by either, and the verdict service
+    /// happily stored it. That was survivable while a reading was ONE call stored seconds after the screen read.
+    /// Contract v3 makes a reading BOTH calls, so the window under which a new turn can start is the best part of
+    /// a minute, and the listener hears the older turn - the exact defect the atomic ruling exists to remove.
+    ///
+    /// It is said HERE rather than at each caller because a third caller will be written, and it will make the
+    /// same omission. The verdict service takes the edge twice without harm (GatewayHost tells it directly too):
+    /// it bumps an epoch nothing has captured in between, and invalidates a store that is already empty.
+    /// </summary>
     public void OnSessionWorking(TenantId tenant, string sid)
     {
         var state = StateFor(tenant);
@@ -1161,6 +1178,9 @@ public sealed class WingmanVoiceService
             DeleteReadyAudio(tenant, sid);   // issue #553: keep the durable cache in step so a stale tap can't 404
             FileLog.Write($"[WingmanVoiceService] voice + text cache cleared (session working): tenant={tenant.ToLogString()} sid={sid}");
         }
+        // ...AND THE PLACE THAT RULES ON IT. See the note above: the cache and the ruling must not learn this
+        // separately, or a reading in flight is stored about a screen that is gone.
+        _verdicts?.OnSessionWorking(tenant, sid);
     }
 
     /// <summary>
@@ -1362,13 +1382,33 @@ public sealed class WingmanVoiceService
         // that muted the whole fleet on one bad call. Removed 2026-07-17. The only guard left is
         // per-session coalescing, which never makes one session wait on another.
         //
-        // Coalesce: never run two generations for the SAME session at once (a slow turn overlapping the
-        // idle sweep would otherwise double the spend). First caller wins.
+        // Coalesce: never run two generations for the SAME STOP at once (a slow turn overlapping the idle sweep
+        // would otherwise double the spend). First caller wins.
+        //
+        // FOR THE SAME STOP, NOT FOR THE SAME SESSION, and the difference is a defect contract v3 would otherwise
+        // have shipped. This used to hold the session for as long as a generation ran, which was a judge call and
+        // a fast store - a second or two. A reading is now BOTH model calls, so it holds for the best part of a
+        // minute, and the case that matters happens inside it: the person answers, the session works, and it stops
+        // again on a new reply. That NEW stop was coalesced into a reading of a screen that no longer exists, and
+        // since the old reading is then refused at the store, the newest stop was left with no reading at all -
+        // the silence this whole mission exists to remove.
+        //
+        // So the running generation records the stop it began on. A caller on that same stop still coalesces,
+        // exactly as before. A caller on a LATER stop does not: it supersedes, and the two run together for a
+        // moment. That costs nothing that was not already lost - the older reading describes a screen that is gone,
+        // the verdict service refuses to store it, and its flight is already cancelled by the same Working edge
+        // that moved the stop.
         var state = StateFor(tenant);
-        if (!state.InFlight.TryAdd(sid, 1))
+        var stopNow = CurrentStopEpoch(state, sid);
+        if (!state.InFlight.TryAdd(sid, stopNow))
         {
-            FileLog.Write($"[WingmanVoiceService] GenerateAsync sid={sid}: another generation for this session is running - this one is coalesced into it (sweep={sweepInput is not null}, reattempt={isSpeechReattempt})");
-            return;
+            if (state.InFlight.TryGetValue(sid, out var runningStop) && runningStop == stopNow)
+            {
+                FileLog.Write($"[WingmanVoiceService] GenerateAsync sid={sid}: another generation for this same stop is running - this one is coalesced into it (sweep={sweepInput is not null}, reattempt={isSpeechReattempt})");
+                return;
+            }
+            FileLog.Write($"[WingmanVoiceService] GenerateAsync sid={sid}: a generation for an OLDER stop is running (stop {runningStop}, this one {stopNow}) - superseding it rather than dropping this stop");
+            state.InFlight[sid] = stopNow;
         }
         try
         {
@@ -1399,7 +1439,9 @@ public sealed class WingmanVoiceService
         {
             FileLog.Write($"[WingmanVoiceService] GenerateAsync sid={sid} FAILED: {ex.Message}");
         }
-        finally { state.InFlight.TryRemove(sid, out _); }
+        // REMOVED ONLY IF IT IS STILL OURS. A superseded generation finishing later must not clear the marker a
+        // newer stop's generation put there, or a third caller would run beside it and pay for the same stop twice.
+        finally { state.InFlight.TryRemove(new KeyValuePair<string, long>(sid, stopNow)); }
     }
 
     /// <summary>
@@ -1602,9 +1644,33 @@ public sealed class WingmanVoiceService
                 spoken += Speech.SpokenPhrases.WaitingScreenMenuNarrationSuffix.In(_tenantSettings.SpokenLanguage(tenant));
                 FileLog.Write($"[WingmanVoiceService] narration announces a waiting menu (verdict): sid={sid}");
             }
+            // A READING WITH NO WORDS IS NOT PLAYED AT ALL (contract v3). The judge answered its own short "spoken"
+            // text until 2026-09-18, so this could always assume there was something to say; that field is cut, and
+            // a reading whose narration call failed now has nothing. Assemble would still return the session NAME,
+            // so without this the listener gets a clip that says "the retention sweep" and then stops - which reads
+            // as the Wingman having something to say and losing it, and costs a synthesis to produce.
+            if (!HasWordsToSpeak(verdict, spoken))
+            {
+                FileLog.Write($"[WingmanVoiceService] nothing to play: sid={sid} verdict={verdict.VerdictId} - the reading carries no words");
+                return false;
+            }
+            // THE READING ITSELF IS NOT GUARDED HERE, THE SYNTHESIS IS, and the difference is the whole of a day
+            // that went into this. The verdict service is the one place that rules on "the screen is gone": it
+            // cancels the flight on a Working edge and refuses to store a record about a screen that has moved,
+            // so a stale READING never reaches this line as anything but Cancelled, and a second rule for it here
+            // would be the client re-ruling. Capturing the stop before the reading is worse than redundant - this
+            // same method bumps the stop a few lines above, for the very stop it is reading, so the check fires on
+            // its own work and five good readings went unplayed.
+            //
+            // The SYNTHESIS is a different window, after the record is settled and outside the verdict service's
+            // sight, and a Working edge inside it used to write the old stop back as ready on a session that is
+            // working. So the stop is captured HERE, with the reading finished, exactly as the detached narration
+            // call captured it at its claim, and re-read after the audio comes back.
+            var stopEpoch = CurrentStopEpoch(state, sid);
             var speech = await StoreSpokenAsync(
                 tenant, sid, spoken, outcome.SourceText ?? "", ct,
-                sourceIdentity: verdict.VerdictId, sourceKind: verdict.PackageKind, markAsVoiceSession: false);
+                sourceIdentity: verdict.VerdictId, sourceKind: verdict.PackageKind, markAsVoiceSession: false,
+                stillCurrentAfterSynthesis: () => CurrentStopEpoch(state, sid) == stopEpoch);
             // Log the TRUE outcome: StoreSpokenAsync only makes the session playable when the speech synthesis
             // actually returned audio.
             if (HasVoice(tenant, sid))
@@ -1626,14 +1692,12 @@ public sealed class WingmanVoiceService
                     MarkAbandonedIfNothingPending(state, sid);
             }
 
-            // THE NARRATION CALL (slice J), for a voice session only, and only after the judge's words are stored:
-            // the phone has something to play while the second call runs. The reading window ends first, because
-            // the stop HAS been read - the call only improves what is already playable.
-            // The call runs DETACHED, as explain's does: awaiting it here held this session's in-flight gate for up to a
-            // minute, and the next stop's turn end - which arrives exactly while the person answers the judge's clip -
-            // was coalesced away and never narrated (inspection round 1, finding 2).
-            if (!saved && IsVoiceSession(tenant, sid) && RequireVerdicts().TryClaimNarration(tenant, sid, verdict.VerdictId))
-                StartNarrationCall(tenant, sid, outcome);
+            // THE DETACHED NARRATION CALL THAT USED TO SIT HERE IS GONE (contract v3, owner ruling 2026-09-18).
+            // Slice J made it here, after the judge's words were already stored and playable, so the phone had
+            // something to play while the second call ran and the clip was replaced when it answered. That is
+            // exactly the first-draft-then-replacement the atomic ruling removes: the narration call now runs
+            // INSIDE the reading, before the record is stored, so by the time this method sees a verdict the words
+            // are either on it or were never coming. Re-adding a call here would make a second one for every stop.
             return true;
         }
         finally { if (showReadingWindow) EndGenerating(tenant, sid); }
@@ -1641,6 +1705,16 @@ public sealed class WingmanVoiceService
 
     /// <summary>True when the narration call's text is already saved on this verdict, so it is spoken as it is.</summary>
     private static bool HasSavedNarration(TurnVerdictDto verdict) => !string.IsNullOrWhiteSpace(verdict.Narration);
+
+    /// <summary>
+    /// Whether this reading has anything for a listener. The assembled string is NOT the test on its own: it
+    /// carries the session name, so a reading with no words assembles to a name and nothing else and reads as a
+    /// clip that was cut off. The reading has words when the narration call produced some, or - for a record
+    /// written before contract v3 - when the judge's own "spoken" field carried some.
+    /// </summary>
+    private static bool HasWordsToSpeak(TurnVerdictDto verdict, string assembled)
+        => assembled.Length > 0
+           && (!string.IsNullOrWhiteSpace(verdict.Narration) || !string.IsNullOrWhiteSpace(verdict.Spoken));
 
     /// <summary>
     /// Make one stop's narration call and, when it answers, replace the clip for that verdict id with its words. The
@@ -1847,8 +1921,24 @@ public sealed class WingmanVoiceService
                     : Speech.SpokenForEar.Assemble(
                         _sessionTitleResolver?.Invoke(tenant, sid),
                         Speech.SpeechContract.Finish(verdict.Spoken));
-                await StoreSpokenAsync(tenant, sid, spokenNow, outcome.SourceText ?? "", CancellationToken.None,
-                    sourceIdentity: verdict.VerdictId, sourceKind: verdict.PackageKind, markAsVoiceSession: markAsVoiceSession);
+                if (!HasWordsToSpeak(verdict, spokenNow))
+                {
+                    // NOTHING TO PLAY, AND THIS MUST NOT RETURN. A reading whose narration call failed has no words
+                    // at all under contract v3, and this request is a PERSON pressing the button - the one path that
+                    // is allowed to buy a second narration call. Returning here skipped the re-ask below and made
+                    // that button dead for exactly the stop it exists for. Fall through with nothing to say.
+                    FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: the reading carries no words - nothing to play, and the call below is the way back");
+                    spokenNow = "";
+                }
+                else
+                {
+                    // The synthesis window gets the same check as the turn-end path above, for the same reason.
+                    var state = StateFor(tenant);
+                    var stopEpoch = CurrentStopEpoch(state, sid);
+                    await StoreSpokenAsync(tenant, sid, spokenNow, outcome.SourceText ?? "", CancellationToken.None,
+                        sourceIdentity: verdict.VerdictId, sourceKind: verdict.PackageKind, markAsVoiceSession: markAsVoiceSession,
+                        stillCurrentAfterSynthesis: () => CurrentStopEpoch(state, sid) == stopEpoch);
+                }
             }
             // THE NARRATION CALL (slice J): a person asked, so the stop gets one unless one was already made for this
             // verdict id. The call runs Gateway-owned past this request and replaces the clip when it answers, so the

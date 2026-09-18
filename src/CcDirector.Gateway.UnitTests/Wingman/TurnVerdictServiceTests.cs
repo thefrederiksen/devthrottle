@@ -380,17 +380,45 @@ public sealed class TurnVerdictServiceTests : IDisposable
             (_, _) => Task.FromResult("Sure! The session finished."),
             TurnVerdictFailureKind.Refused, "not valid JSON");
 
+    /// <summary>
+    /// THE TWO REFUSALS CONTRACT v3 DELETED, MEASURED FROM THE OTHER SIDE. Until 2026-09-18 an answer whose quote
+    /// was not on the reply or the screen character for character was refused, and so was one carrying a risk word
+    /// the contract did not know. On the live fleet that morning those rules, with the finishedKind rule beside
+    /// them, accounted for 45 of 110 failed readings out of 273 - and a failed reading is stored against the screen
+    /// and never asked again, so a session it happened to stays silent for good.
+    ///
+    /// The owner cut both fields. This is an answer that carries BOTH of the things that used to refuse it - a
+    /// quote that appears nowhere, and a risk word that was never a risk word - and it is now a real reading. The
+    /// two tests this replaces asserted the refusals; they are gone because the rules are, not because they broke.
+    /// </summary>
     [Fact]
-    public Task ReceiptNotOnTheReplyOrTheScreen_StoresAFailedRecord_AndNoVerdict()
-        => AssertFailed(
-            (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished("I have pushed the branch and merged it.", "Done.")),
-            TurnVerdictFailureKind.Refused, "not found verbatim");
+    public async Task AnAnswerTheOldReceiptAndRiskRulesRefused_IsNowARealReading()
+    {
+        const string answer = """
+            {
+              "state": "finished-report",
+              "label": "Pushed the branch and opened the pull request",
+              "agentRecommends": null,
+              "menu": null,
+              "options": [],
+              "evidence": "I have pushed the branch and merged it.",
+              "risk": "catastrophic"
+            }
+            """;
+        var env = Env();
+        env.Judge = (_, _) => Task.FromResult(answer);
+        var service = new TurnVerdictService(env);
 
-    [Fact]
-    public Task UnknownRiskWord_StoresAFailedRecord_AndNoVerdict()
-        => AssertFailed(
-            (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished(ReplyText, "Done.", risk: "catastrophic")),
-            TurnVerdictFailureKind.Refused, "unknown risk word");
+        var outcome = await service.StartTurnEnd(Signal());
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
+        Assert.True(outcome.HasAcceptedVerdict);
+        Assert.False(outcome.Verdict!.Failed, outcome.Verdict.FailureReason);
+        Assert.Equal(TurnVerdictStates.FinishedReport, outcome.Verdict.State);
+        // The two cut fields are empty on the record, never carried through from an answer that still sent them.
+        Assert.Equal("", outcome.Verdict.Evidence);
+        Assert.Equal("", outcome.Verdict.Risk);
+    }
 
     private static async Task AssertFailed(
         Func<string, CancellationToken, Task<string>> judge,
@@ -584,15 +612,26 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.Equal("menu", needs);
     }
 
+    /// <summary>
+    /// THE ACCOUNT'S LANGUAGE IS CARRIED BY THE CALL THAT WRITES THE WORDS, and from contract v3 that is the
+    /// NARRATION call, not the judge. The judge answers a state word, a label and a menu - things code reads and
+    /// keys typed into a terminal - so a language rule aimed at it pointed at nothing once "spoken" was cut.
+    ///
+    /// A FRENCH ACCOUNT ANSWERED IN ENGLISH is the defect the spoken-path registry exists to stop (issue #1009),
+    /// so this test follows the language to the call that still produces prose rather than dropping the claim.
+    /// </summary>
     [Fact]
-    public async Task ThePromptTheJudgeIsAsked_CarriesTheAccountsLanguage()
+    public async Task ThePromptTheNarrationCallIsAsked_CarriesTheAccountsLanguage_AndTheJudgesDoesNot()
     {
         var env = Env();
         env.LanguageValue = SpokenLanguages.French;
         await new TurnVerdictService(env).StartTurnEnd(Signal());
 
-        var prompt = Assert.Single(env.Prompts);
-        Assert.Contains(SpeechContract.SpeakInLanguageRule(SpokenLanguages.French), prompt);
-        Assert.DoesNotContain(SpeechContract.SpeakInLanguageRule(SpokenLanguages.English), prompt);
+        var narration = Assert.Single(env.NarratorPrompts);
+        Assert.Contains(SpeechContract.SpeakInLanguageRule(SpokenLanguages.French), narration);
+        Assert.DoesNotContain(SpeechContract.SpeakInLanguageRule(SpokenLanguages.English), narration);
+
+        var judge = Assert.Single(env.Prompts);
+        Assert.DoesNotContain(SpeechContract.SpeakInLanguageRule(SpokenLanguages.French), judge);
     }
 }

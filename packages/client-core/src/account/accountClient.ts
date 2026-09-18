@@ -16,6 +16,10 @@ export interface AccountStatus {
   signedIn: boolean;
   email?: string | null;
   provider?: string | null;
+  /** True when this account is on the deployment's staff list, which today unlocks exactly one thing: the Wingman's
+   *  debug view. The GATEWAY decides it - a client never works out what it may see - and the route it unlocks asks
+   *  the same question for itself, so hiding a tab is never what protects anything. */
+  staff?: boolean;
 }
 
 /** One device in the account device list (GET /account/devices). Every field is a display value the
@@ -77,6 +81,7 @@ export async function getAccountStatus(signal?: AbortSignal): Promise<AccountSta
   const body = (await res.json()) as Partial<AccountStatus> | null;
   return {
     signedIn: Boolean(body?.signedIn),
+    staff: Boolean(body?.staff),
     email: body?.email ?? null,
     provider: body?.provider ?? null,
   };

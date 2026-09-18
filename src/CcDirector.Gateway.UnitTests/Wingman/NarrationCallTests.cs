@@ -113,8 +113,11 @@ public sealed class NarrationCallTests : IDisposable
 
     // ================================================================= when the call is made
 
+    /// <summary>ONE CLIP FOR ONE STOP, and this count is the atomic ruling's headline benefit. It was TWO until
+    /// 2026-09-18 - the judge's words synthesised and played, then the narration's synthesised and played over
+    /// them - which is what restarted audio mid-sentence and re-worded a row while the owner looked at it.</summary>
     [Fact]
-    public async Task AVoiceSessionsStop_MakesExactlyOneNarrationCall_AndItsWordsReplaceTheJudgesClip()
+    public async Task AVoiceSessionsStop_MakesExactlyOneNarrationCall_AndExactlyOneClipOfItsWords()
     {
         var rig = Build();
         rig.Voice.Mark(Tenant, Sid);
@@ -126,8 +129,7 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(1, rig.Env.JudgeCalls);
         Assert.Equal(1, rig.Env.NarratorCalls);
         Assert.Equal(TimeSpan.FromSeconds(TurnVerdictSettings.NarrationCallTimeoutSeconds), Assert.Single(rig.Env.NarratorTimeouts));
-        // Two clips for one stop: the judge's words first, so the phone was never silent, then the narration's.
-        Assert.Equal(2, rig.Speech.Calls);
+        Assert.Equal(1, rig.Speech.Calls);
         var ready = rig.Voice.Get(Tenant, Sid)!;
         Assert.Equal(Narrated, ready.Spoken);
         Assert.Equal(verdict.VerdictId, ready.SourceIdentity);
@@ -150,12 +152,19 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(1, rig.Env.NarratorCalls);
     }
 
+    /// <summary>
+    /// A SESSION THAT IS NOT IN VOICE MODE STILL GETS THE WHOLE READING. Until contract v3 the narration call was
+    /// the voice path's to make, so this shape - a refresh that does not enrol the session - got the judge's short
+    /// text and no second call. The reading is now both calls for every stop that answers to the USER, so the words
+    /// exist whether or not anybody is listening, and the clip is those words.
+    ///
+    /// This costs nothing new: a session that answers to the user was already buying a narration call at every stop
+    /// with voice off - see ATurnEndOnASessionThatAnswersToTheUser_WithVoiceOff below, which predates v3. A session
+    /// a LIVE session owns still gets none, which ATurnEndOnASessionAnotherSessionOwns holds.
+    /// </summary>
     [Fact]
-    public async Task ASessionThatIsNotAVoiceSession_MakesNoNarrationCall_WhenItsStopIsNarrated()
+    public async Task ASessionThatIsNotAVoiceSession_StillGetsTheWholeReading_AndItsClipIsTheNarrationsWords()
     {
-        // The model-leg retry's own shape: a narration that does not enrol the session. Its judge text is stored, and
-        // nobody is listening, so there is no second call. REVERT PROOF: drop the voice-session condition on the
-        // turn-end path and this goes red with one call.
         var rig = Build();
 
         await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None,
@@ -163,8 +172,9 @@ public sealed class NarrationCallTests : IDisposable
 
         Assert.False(rig.Voice.IsVoiceSession(Tenant, Sid));
         Assert.Equal(1, rig.Env.JudgeCalls);
-        Assert.Equal(JudgeSpoken, rig.Voice.Get(Tenant, Sid)!.Spoken);
-        Assert.Equal(0, rig.Env.NarratorCalls);
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+        Assert.Equal(1, rig.Speech.Calls);
     }
 
     // ================================================================= every stop of a session that answers to the user
@@ -176,15 +186,17 @@ public sealed class NarrationCallTests : IDisposable
         rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        await rig.Verdicts.WaitForUserNarrationsAsync();
 
         Assert.False(rig.Voice.IsVoiceSession(Tenant, Sid));
         Assert.Equal(1, rig.Env.JudgeCalls);
         Assert.Equal(1, rig.Env.NarratorCalls);
-        // Saved for reading; the judge's own short text is kept beside it, unchanged.
+        // ONE TEXT, READ OR HEARD (contract v3): the narration IS the summary and IS the spoken text. The judge
+        // answered its own shorter "spoken" field until 2026-09-18, and a row then showed a short version and a
+        // long version of one turn depending on which reader you asked.
         var verdict = rig.Env.Latest(Tenant, Sid)!;
         Assert.Equal(Narrated, verdict.Narration);
-        Assert.Equal(JudgeSpoken, verdict.Spoken);
+        Assert.Equal(Narrated, verdict.Spoken);
+        Assert.Equal(Narrated, verdict.Summary);
         // Nobody is listening, so no audio was made.
         Assert.Null(rig.Voice.Get(Tenant, Sid));
     }
@@ -196,7 +208,6 @@ public sealed class NarrationCallTests : IDisposable
         rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
         var judged = await rig.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
         Assert.Equal(TurnVerdictOutcomeKind.Judged, judged.Kind);
-        await rig.Verdicts.WaitForUserNarrationsAsync();
         Assert.Equal(1, rig.Env.NarratorCalls);   // control: the same stop, owned by the user, is narrated
 
         var owned = Build();
@@ -206,7 +217,6 @@ public sealed class NarrationCallTests : IDisposable
         owned.Env.Held = _ => owned.Env.JudgeCalls > 0;
         var outcome = await owned.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
         Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-        await owned.Verdicts.WaitForUserNarrationsAsync();
 
         Assert.Equal(0, owned.Env.NarratorCalls);
         Assert.Null(owned.Env.Latest(Tenant, Sid)!.Narration);
@@ -222,7 +232,6 @@ public sealed class NarrationCallTests : IDisposable
         rig.Env.Plan = () => NarrationPlan.NeedsPro;
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        await rig.Verdicts.WaitForUserNarrationsAsync();
 
         Assert.Equal(0, rig.Env.NarratorCalls);
         Assert.Equal(NarrationPlanRule.NeedsProText, rig.Env.Latest(Tenant, Sid)!.Narration);
@@ -251,7 +260,6 @@ public sealed class NarrationCallTests : IDisposable
         rig.Env.Plan = () => NarrationPlan.Unknown;
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        await rig.Verdicts.WaitForUserNarrationsAsync();
 
         Assert.Equal(0, rig.Env.NarratorCalls);
         Assert.Null(rig.Env.Latest(Tenant, Sid)!.Narration);
@@ -263,7 +271,6 @@ public sealed class NarrationCallTests : IDisposable
         var rig = Build();
         rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        await rig.Verdicts.WaitForUserNarrationsAsync();
         Assert.Equal(1, rig.Env.NarratorCalls);
 
         // Voice is switched on afterwards: the saved text is spoken as it is, and no second call is made for this verdict.
@@ -284,30 +291,36 @@ public sealed class NarrationCallTests : IDisposable
         rig.Voice.Mark(Tenant, Sid);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        await rig.Verdicts.WaitForUserNarrationsAsync();
 
         Assert.Equal(1, rig.Env.NarratorCalls);
         Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
     }
 
+    /// <summary>
+    /// EXPLAIN ON A STOP NOBODY HAS READ YET MAKES THE WHOLE READING AND WAITS FOR IT. Until contract v3 it came
+    /// back at once with the judge's own short text and the narration replaced it seconds later; the judge answers
+    /// no prose now, so there is nothing to come back with early, and the owner's ruling is that nothing is shown
+    /// until the whole reading exists. The wait is bounded by the two calls' own deadlines.
+    /// </summary>
     [Fact]
-    public async Task Explain_OnASessionThatHadNoNarrationCall_MakesOne_AndReturnsTheJudgesWordsWithoutWaitingForIt()
+    public async Task Explain_OnAStopNobodyHasReadYet_WaitsForTheWholeReading_AndReturnsItsWords()
     {
         var rig = Build();
         var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         rig.Env.Narrator = (_, _) => release.Task;
 
-        var narration = await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
-
-        // Answered while the narration call is still running: the judge's words, already playable.
-        Assert.Equal(JudgeSpoken, narration.Spoken);
-        Assert.Equal(JudgeSpoken, rig.Voice.Get(Tenant, Sid)!.Spoken);
+        // Started, NOT awaited: awaiting before the narrator answers would deadlock the test, because the explain
+        // now waits for the reading and the reading waits for this narrator.
+        var explain = rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
         Assert.True(await WaitUntil(() => rig.Env.NarratorCalls == 1));
+        Assert.False(explain.IsCompleted, "the explain must not answer with a reading that is only half made");
 
         release.SetResult(Answer(Narrated));
+        var narration = await explain.WaitAsync(TimeSpan.FromSeconds(30));
         await rig.Voice.WaitForNarrationCallsAsync();
 
         Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, narration.Spoken);
         Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
         Assert.False(rig.Voice.IsVoiceSession(Tenant, Sid));
     }
@@ -376,8 +389,15 @@ public sealed class NarrationCallTests : IDisposable
         Assert.DoesNotContain(MenuSuffix.Trim(), ready.Spoken);
     }
 
+    /// <summary>
+    /// THERE ARE NO JUDGE'S WORDS FOR THE MENU SENTENCE TO BE APPENDED TO ANY MORE, and this test is what says so.
+    /// Until contract v3 a menu stop whose narration call failed still played the judge's own text with the
+    /// press-a-button sentence after it. The judge answers no prose now, so a failed narration leaves the reading
+    /// with nothing to say and nothing is played - see AFailedNarrationCall_LeavesTheReadingWithNoWordsAtAll for
+    /// the measured cost of that, which is the mission's largest accepted loss.
+    /// </summary>
     [Fact]
-    public async Task TheMenuSentence_IsStillAppendedToTheJudgesWords()
+    public async Task AMenuStopWhoseNarrationFailed_HasNoWordsAtAll_AndNoMenuSentenceEither()
     {
         var rig = Build(menu: true);
         rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
@@ -385,12 +405,30 @@ public sealed class NarrationCallTests : IDisposable
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
-        var ready = rig.Voice.Get(Tenant, Sid)!;
-        Assert.Equal(JudgeSpoken + MenuSuffix, ready.Spoken);
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.Equal(0, rig.Speech.Calls);
+        // The JUDGEMENT itself survived - only the words are missing. The row still knows what the stop is.
+        var stored = rig.Env.Latest(Tenant, Sid)!;
+        Assert.False(stored.Failed, stored.FailureReason);
+        Assert.Equal("", stored.Narration ?? "");
+        Assert.NotEqual("", stored.Label);
     }
 
+    /// <summary>
+    /// THE MISSION'S LARGEST ACCEPTED LOSS, WRITTEN DOWN. Until contract v3 the judge answered its own short
+    /// "spoken" text, so a narration call that failed still left something playable. That field is cut, so a stop
+    /// whose narration call fails now has NO WORDS AT ALL and a listener hears nothing for it.
+    ///
+    /// It is not re-attempted by any automatic path, which is unchanged and deliberate - the idle sweep comes past
+    /// every forty-five seconds and a stop that keeps failing would keep costing a model call. A PERSON asking
+    /// again does get a second call: AfterAFailedNarrationCall_APersonAskingAgain_MakesASecondCall.
+    ///
+    /// THE JUDGEMENT IS KEPT. Failing the whole reading over the second call would be worse: a failed reading is
+    /// stored against the screen and never asked again, so it would manufacture exactly the permanent silences
+    /// this mission exists to remove.
+    /// </summary>
     [Fact]
-    public async Task AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted()
+    public async Task AFailedNarrationCall_LeavesTheReadingWithNoWordsAtAll_AndIsNotReattempted()
     {
         var rig = Build();
         rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
@@ -401,14 +439,18 @@ public sealed class NarrationCallTests : IDisposable
         await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: false);
         await rig.Voice.WaitForNarrationCallsAsync();
 
-        Assert.True(rig.Voice.HasVoice(Tenant, Sid));
-        Assert.Equal(JudgeSpoken, rig.Voice.Get(Tenant, Sid)!.Spoken);
-        Assert.Equal(1, rig.Speech.Calls);
-        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.Equal(0, rig.Speech.Calls);
+        Assert.Equal(1, rig.Env.NarratorCalls);   // one call, and no automatic path asks again
+        var stored = rig.Env.Latest(Tenant, Sid)!;
+        Assert.False(stored.Failed, stored.FailureReason);   // the JUDGEMENT stands
+        Assert.Equal("", stored.Narration ?? "");
     }
 
+    /// <summary>A narration call that answers with nothing is the same case as one that fails: no words, and
+    /// nothing played. Both are counted as one call.</summary>
     [Fact]
-    public async Task ANarrationCallThatAnswersNoWords_LeavesTheJudgesWordsPlayable()
+    public async Task ANarrationCallThatAnswersNoWords_LeavesTheReadingWithNoWordsEither()
     {
         var rig = Build();
         rig.Env.Narrator = (_, _) => Task.FromResult(Answer("   "));
@@ -416,7 +458,8 @@ public sealed class NarrationCallTests : IDisposable
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
-        Assert.Equal(JudgeSpoken, rig.Voice.Get(Tenant, Sid)!.Spoken);
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.Equal("", rig.Env.Latest(Tenant, Sid)!.Narration ?? "");
         Assert.Equal(1, rig.Env.NarratorCalls);
     }
 
@@ -446,7 +489,7 @@ public sealed class NarrationCallTests : IDisposable
 
         await HostTurnEndAsync(rig, route);
         Assert.Equal(1, rig.Env.NarratorCalls);
-        Assert.Equal(JudgeSpoken, rig.Voice.Get(Tenant, Sid)!.Spoken);   // the judge's words, as the failed arm leaves them
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));   // nothing playable at all: contract v3 cut the judge's words
 
         // The person presses "Generate narration now".
         await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
@@ -476,11 +519,12 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(1, rig.Env.NarratorCalls);
     }
 
+    /// <summary>An impatient second tap while the reading is still being made joins it rather than paying for a
+    /// second pair of calls. Unchanged in substance by contract v3 - what changed is that the tap now waits for
+    /// the reading it joined instead of being handed the judge's words while it ran.</summary>
     [Fact]
-    public async Task WhileANarrationCallIsRunning_APersonAsking_DoesNotStartASecondCall()
+    public async Task WhileTheReadingIsBeingMade_APersonAsking_DoesNotStartASecondCall()
     {
-        // The release is refused while a call for this same stop is genuinely in flight, so an impatient second tap
-        // joins the call already running instead of paying for another one.
         var rig = Build();
         var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         rig.Env.Narrator = (_, _) => release.Task;
@@ -489,33 +533,38 @@ public sealed class NarrationCallTests : IDisposable
 
         var signal = new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true);
         var judging = rig.Verdicts.StartTurnEnd(signal);
-        await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: true);
-        await judging;
+        Assert.True(await WaitUntil(() => rig.Env.NarratorCalls == 1));
 
-        // The first call is still waiting on `release`; the person asks anyway.
-        await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
-        Assert.Equal(1, rig.Env.NarratorCalls);
+        // The reading is still waiting on `release`; the person asks anyway. Started, not awaited.
+        var explain = rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
 
         release.SetResult(Answer(Narrated));
+        await explain.WaitAsync(TimeSpan.FromSeconds(30));
+        await judging;
         await rig.Voice.WaitForNarrationCallsAsync();
+
         Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(1, rig.Env.JudgeCalls);
     }
 
+    /// <summary>A reading whose session went back to work before it finished is not played: the words describe a
+    /// screen that is gone. Contract v3 makes this cleaner rather than harder - the whole reading is discarded,
+    /// where before a narration could answer late and be written over a record that had already been stored.</summary>
     [Fact]
-    public async Task ANarrationThatAnswersAfterTheSessionWorkedAgain_IsNotStored()
+    public async Task AReadingThatFinishesAfterTheSessionWorkedAgain_IsNotPlayed()
     {
         var rig = Build();
         var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         rig.Env.Narrator = (_, _) => release.Task;
 
-        await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        var explain = rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
         Assert.True(await WaitUntil(() => rig.Env.NarratorCalls == 1));
         rig.Voice.OnSessionWorking(Tenant, Sid);
 
         release.SetResult(Answer(Narrated));
+        await explain.WaitAsync(TimeSpan.FromSeconds(30));
         await rig.Voice.WaitForNarrationCallsAsync();
 
-        Assert.Equal(1, rig.Speech.Calls);
         Assert.NotEqual(Narrated, rig.Voice.Get(Tenant, Sid)?.Spoken);
     }
 
@@ -554,10 +603,11 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     [Fact]
-    public void TheNarrationBound_Is1200_AndTheJudgesSpokenFieldKeeps900()
+    public void TheNarrationBound_Is1200_AndIsNowTheOnlyProseBoundThereIs()
     {
+        // The judge's own 900-character "spoken" field was the other bound. Contract v3 cut that field, so this
+        // is the only one left, and the text it bounds is the ONE body a reading has - read or heard.
         Assert.Equal(1200, NarrationCall.MaxChars);
-        Assert.Equal(900, Core.Wingman.TurnVerdictContract.MaxSpokenChars);
         Assert.Contains("1,200 characters", WingmanTranslator.FidelityPrompt);
         Assert.DoesNotContain("900 characters", WingmanTranslator.FidelityPrompt);
     }
@@ -572,12 +622,17 @@ public sealed class NarrationCallTests : IDisposable
 
     // ================================================================= a refused record with a menu
 
+    /// <summary>
+    /// A REFUSED JUDGEMENT IS NOT NARRATED AT ALL (contract v3), and this is the test that says so. Until
+    /// 2026-09-18 a refused answer that still carried a readable menu was narrated in the menu shape, from a
+    /// decision salvaged out of the raw reply - the row offered no buttons and a listener was told to press one.
+    /// A reading that could not be read now says it could not be read, rather than half-speaking.
+    /// </summary>
     [Fact]
-    public async Task ARefusedRecordWithAMenu_IsNarratedInTheMenuShape_AndItsRowStillOffersNoButtons()
+    public async Task ARefusedRecordWithAMenu_IsNotNarratedAtAll_AndItsRowOffersNoButtons()
     {
         var rig = Build(menu: true);
-        // The receipt is not on the screen, so the contract refuses the answer; it is still readable JSON with a menu.
-        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Menu(MenuQuestion, "a receipt the screen does not show", JudgeSpoken));
+        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.RefusedButReadableMenu(MenuQuestion));
         rig.Voice.Mark(Tenant, Sid);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
@@ -588,36 +643,31 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal("", verdict.AnswerVia);
         Assert.Null(verdict.Menu);
         Assert.Empty(verdict.Options);
-        // The narration call: given the judge's menu as it wrote it, so it is asked for the menu shape.
-        var prompt = Assert.Single(rig.Env.NarratorPrompts);
-        Assert.Contains("How the person answers: KEYS", prompt);
-        Assert.Contains("The menu's question: " + MenuQuestion, prompt);
-        Assert.Contains("1. Proceed (recommended) - Carries on with the change.", prompt);
-        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+        // No second call was bought for an answer there is nothing to narrate from, and nothing is playable.
+        Assert.Empty(rig.Env.NarratorPrompts);
+        Assert.Equal(0, rig.Speech.Calls);
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
     }
 
+    /// <summary>The other half of the same rule: a voice refresh over a refused record does not resurrect it
+    /// either. It reuses the stored refusal without asking the judge again, and buys no narration call for it.</summary>
     [Fact]
-    public async Task AVoiceRefreshThatReusesARefusedRecordWithAMenu_IsStillGivenTheMenu()
+    public async Task AVoiceRefreshThatReusesARefusedRecord_StillNarratesNothing()
     {
         var rig = Build(menu: true);
-        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Menu(MenuQuestion, "a receipt the screen does not show", JudgeSpoken));
+        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.RefusedButReadableMenu(MenuQuestion));
 
-        // Voice is on at the turn end, so the verdict seat leaves the call to the voice path; the record is judged and
-        // refused, and no call is made until the voice refresh below runs.
         rig.Voice.Mark(Tenant, Sid);
         await rig.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
-        await rig.Verdicts.WaitForUserNarrationsAsync();
         Assert.Equal(0, rig.Env.NarratorCalls);
         Assert.True(rig.Env.Latest(Tenant, Sid)!.Failed);
 
-        // A voice refresh reuses that refused record (it never asks the judge again) and the call it makes is given the menu.
         await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: false);
         await rig.Voice.WaitForNarrationCallsAsync();
 
-        Assert.Equal(1, rig.Env.JudgeCalls);
-        var prompt = Assert.Single(rig.Env.NarratorPrompts);
-        Assert.Contains("How the person answers: KEYS", prompt);
-        Assert.Contains("The menu's question: " + MenuQuestion, prompt);
+        Assert.Equal(1, rig.Env.JudgeCalls);         // the refusal is reused, never re-judged
+        Assert.Equal(0, rig.Env.NarratorCalls);
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
     }
 
     // ================================================================= inspection round 1
@@ -639,13 +689,28 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(1, rig.Env.NarratorCalls);
         Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
         Assert.Equal(Narrated, narration.Spoken);
-        Assert.Equal(2, rig.Speech.Calls);   // nothing synthesised again
+        Assert.Equal(1, rig.Speech.Calls);   // nothing synthesised again - and one clip for the stop, never two
     }
 
+    /// <summary>
+    /// AN EXPLAIN THAT ARRIVES WHILE THE READING IS STILL BEING MADE JOINS IT, and comes back with that reading's
+    /// words - it does not pay for a second pair of model calls and it does not lose the narration.
+    ///
+    /// THE SHAPE OF THIS TEST CHANGED WITH CONTRACT v3, and the change is the ruling, not a workaround. A reading
+    /// is now atomic: the narration call runs INSIDE the judgement, so the flight an explain joins covers both
+    /// calls rather than just the first. The person pressing explain therefore waits for the whole reading - which
+    /// is what "nothing is shown until the whole reading exists" means at this button - where before they were
+    /// handed the judge's short text and the fuller narration replaced it seconds later.
+    ///
+    /// IT IS BOUNDED, and that is the thing to keep true. The flight ends when the narration call's own deadline
+    /// does, so the wait is the reading's deadline and never forever. This test AWAITS THE EXPLAIN LAST for that
+    /// reason: awaiting it before releasing the narrator deadlocks the test itself - the explain waits for the
+    /// reading, the reading waits for a narrator this test has not released yet, and nothing moves. Production
+    /// cannot reach that state because the narrator there always answers or times out.
+    /// </summary>
     [Fact]
-    public async Task Explain_WhileTheVoicePathsNarrationCallRuns_DoesNotLoseTheNarration()
+    public async Task Explain_WhileTheReadingIsStillBeingMade_JoinsIt_AndDoesNotLoseTheNarration()
     {
-        // A store of the same verdict's words used to move the epoch, so the call already running was discarded.
         var rig = Build();
         var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         rig.Env.Narrator = (_, _) => release.Task;
@@ -654,34 +719,73 @@ public sealed class NarrationCallTests : IDisposable
         var turnEnd = rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: true);
         Assert.True(await WaitUntil(() => rig.Env.NarratorCalls == 1));
 
-        await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
+        // The person presses explain while that call is still out. Started, NOT awaited - see the note above.
+        var explain = rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
+        Assert.False(explain.IsCompleted, "the explain must wait for the reading, not answer with half of one");
+
         release.SetResult(Answer(Narrated));
+        var narration = await explain.WaitAsync(TimeSpan.FromSeconds(30));
         await turnEnd;
         await rig.Voice.WaitForNarrationCallsAsync();
 
+        // ONE pair of calls for one stop, and the explain got the reading's own words.
         Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(Narrated, narration.Spoken);
         Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
     }
 
+    /// <summary>
+    /// A NEW STOP IS READ WHILE THE OLD STOP'S READING IS STILL RUNNING, and it is the NEW one that plays. The
+    /// old reading is cancelled by the Working edge between them, so nothing it produces is ever heard.
+    ///
+    /// The shape moved with contract v3: the call that used to run on past the turn end was the narration alone,
+    /// detached, and the risk was that awaiting it inside the per-session gate would drop the next stop. The
+    /// narration is inside the reading now, so what runs long is the READING - a bigger thing to be stuck behind,
+    /// and the same rule has to hold.
+    /// </summary>
     [Fact]
-    public async Task ANewStopsTurnEnd_WhileTheOldStopsNarrationCallRuns_IsNarrated()
+    public async Task ANewStopsTurnEnd_WhileTheOldStopsReadingRuns_IsStillRead()
     {
-        // The voice path used to await the call inside the per-session gate, so the next stop's turn end was dropped.
         var rig = Build();
         var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        rig.Env.Narrator = (_, _) => release.Task;
+        const string secondNarration = "The pull request is merged.";
+        // The FIRST reading's narration call hangs on the release; every later one answers at once. One delegate
+        // serves both readings, so it has to tell them apart - and the second must not be stuck behind the first.
+        //
+        // THE HANGING CALL HONOURS ITS CANCELLATION TOKEN, and that is not test decoration. A reading is cancelled
+        // when the session goes back to work, and the whole point of this test is the stop that arrives after that
+        // edge. A fake that ignores the token models a provider that cannot be cancelled, which no real one is, and
+        // it makes the reading outlive the screen it was about - so the test would be measuring the fake.
+        var narratorCalls = 0;
+        rig.Env.Narrator = (_, ct) =>
+            Interlocked.Increment(ref narratorCalls) == 1
+                ? release.Task.WaitAsync(ct)
+                : Task.FromResult(Answer(secondNarration));
         rig.Voice.Mark(Tenant, Sid);
         var first = rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: true);
         Assert.True(await WaitUntil(() => rig.Env.NarratorCalls == 1));
 
         // The person answers; the session works and stops again on a new reply.
         rig.Voice.OnSessionWorking(Tenant, Sid);
+        // The Working edge cancels the old reading, and the agent then takes a turn before it stops again, so by
+        // the time the new stop arrives the old reading has unwound. Waited for rather than assumed, because a
+        // provider notices its cancellation when it notices it.
+        //
+        // A NEW STOP ARRIVING INSIDE THAT UNWIND IS A DIFFERENT CASE, AND IT IS NOT FIXED: it finds the cancelled
+        // flight still on the gate, joins it, and is handed that flight's cancellation instead of a reading of its
+        // own. The turn end fires once, so that stop is then never read. It is a pre-existing race - joining is by
+        // session, and a cancelled flight stays registered until it unwinds - and contract v3 widens the window it
+        // needs, because a reading being cancelled is a model call being cancelled rather than a store. Not fixed
+        // here: it wants the admission lock reworked so a cancelled flight cannot be joined, which is not a change
+        // to make in the same breath as this one.
+        Assert.True(await WaitUntil(() => first.IsCompleted), "the cancelled reading never unwound");
         const string second = "I have merged the pull request.";
         rig.Env.Screen = () => Screen(Sid, second, "> ");
         rig.Env.Conversation = _ => Reply("merge it", second);
-        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished(second, "The pull request is merged."));
+        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished(second, secondNarration));
         var secondTurnEnd = rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: true);
-        var finishedBeforeTheOldCallAnswered = await Task.WhenAny(secondTurnEnd, Task.Delay(TimeSpan.FromSeconds(10))) == secondTurnEnd;
+        var finishedBeforeTheOldReadingAnswered = await Task.WhenAny(secondTurnEnd, Task.Delay(TimeSpan.FromSeconds(10))) == secondTurnEnd;
         var afterSecondTurnEnd = rig.Voice.Get(Tenant, Sid)?.Spoken;
 
         release.SetResult(Answer(Narrated));
@@ -689,9 +793,11 @@ public sealed class NarrationCallTests : IDisposable
         await secondTurnEnd;
         await rig.Voice.WaitForNarrationCallsAsync();
 
-        Assert.True(finishedBeforeTheOldCallAnswered);
-        Assert.Equal("The pull request is merged.", afterSecondTurnEnd);
+        Assert.True(finishedBeforeTheOldReadingAnswered, "the new stop's reading waited on the old stop's reading");
+        Assert.Equal(secondNarration, afterSecondTurnEnd);
         Assert.Equal(2, rig.Env.JudgeCalls);
+        // And the old reading, when it finally answered, was not played over the new one.
+        Assert.Equal(secondNarration, rig.Voice.Get(Tenant, Sid)!.Spoken);
     }
 
     [Fact]
@@ -699,12 +805,16 @@ public sealed class NarrationCallTests : IDisposable
     {
         // Staleness was checked before synthesis only: a Working edge during synthesis let the old stop's narration be
         // written back as ready on a session that is working.
+        //
+        // ONE CLIP, NOT TWO, SINCE CONTRACT v3: the judge answers no prose, so there is no first draft to synthesise
+        // and the reading's only clip is call 1. The window this guards is unchanged - it is the synthesis, which
+        // happens after the record is settled and where the verdict service can no longer see a Working edge.
         var rig = Build();
-        rig.Speech.HoldCall = 2;   // the judge's clip is call 1; the narration's is call 2
+        rig.Speech.HoldCall = 1;   // the reading's one clip
         rig.Voice.Mark(Tenant, Sid);
 
         var turnEnd = HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        Assert.True(await WaitUntil(() => rig.Speech.Calls == 2));
+        Assert.True(await WaitUntil(() => rig.Speech.Calls == 1));
         rig.Voice.OnSessionWorking(Tenant, Sid);
         rig.Speech.Release.SetResult();
         await turnEnd;

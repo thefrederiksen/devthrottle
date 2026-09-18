@@ -108,11 +108,42 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     }
 
     /// <summary>
-    /// The narration call's answer (slice J). By default it answers with NO WORDS, which the product treats as a
-    /// failed call that leaves the judge's text in place - so every test written before the narration call existed
-    /// still describes what a listener hears when that call gives nothing. A test about the call sets this.
+    /// The narration call's answer.
+    ///
+    /// FROM CONTRACT v3 IT IS THE ONLY SOURCE OF WORDS THERE IS. The judge no longer answers with prose at all, so
+    /// a test that wants a reading with a body sets this - or, more simply, passes a <c>spoken</c> string to one of
+    /// the canned judge answers below, which this default hands straight back. That keeps every test written
+    /// before v3 saying what it always said: "the listener hears these words for this stop".
+    ///
+    /// Set it to return "" for the case where the call produced NO words, which is a failed call: the reading is
+    /// then stored with no narration at all, because there is nothing else to fall back on any more.
     /// </summary>
-    public Func<string, CancellationToken, Task<string>> Narrator = (_, _) => Task.FromResult("");
+    public Func<string, CancellationToken, Task<string>> Narrator = (_, _) => Task.FromResult(NarratedAnswer(LastCannedSpoken));
+
+    /// <summary>
+    /// The words the last canned judge answer was built with, which the default narrator answers with.
+    ///
+    /// STATIC, AND IT HAS TO BE. An AsyncLocal was tried here, to stop one test's canned words reaching another
+    /// test's narration call, and it silently broke three tests in ClipBelongsToTheTurnTests: the write happens
+    /// INSIDE the judge lambda, and an AsyncLocal written in a nested flow is invisible to the flow that started
+    /// it - so the narrator answered with nothing and no clip was ever made.
+    ///
+    /// THE HAZARD IS REAL AND THE ANSWER IS TO NOT DEPEND ON IT: a test that asserts on the narrated WORDS sets
+    /// rig.Env.Narrator itself, which is explicit and cannot be written by a sibling. This default exists only so
+    /// that the many tests which assert on COUNTS need not spell a narrator out.
+    /// </summary>
+    private static string LastCannedSpoken = "";
+
+    /// <summary>What the default narrator answers: the last canned judge answer's words, wrapped in the markers a
+    /// real narration call answers between. A test that supplies ONE brain for both calls of a reading answers
+    /// this to the narration prompt - see <see cref="CountingBrain"/>.</summary>
+    public static string DefaultNarration() => NarratedAnswer(LastCannedSpoken);
+
+    /// <summary>A narrator answer as the real model writes one: the words between the two markers.</summary>
+    public static string NarratedAnswer(string spoken)
+        => spoken.Length == 0
+            ? ""
+            : $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
 
     private int _narratorCalls;
     /// <summary>How many narration calls were made. Never counted as judge calls.</summary>
@@ -262,59 +293,103 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     private static string Json(object value) => JsonSerializer.Serialize(value);
 
-    /// <summary>A "cannot-tell" answer: the one verdict that needs no receipt, so it validates against any
-    /// package, of either kind.</summary>
-    public static string CannotTell(string spoken) => Json(new
-    {
-        verdict = "cannot-tell",
-        confidence = "ambiguous",
-        evidence = "",
-        label = "Cannot tell what this stop needs",
-        summary = "The stop does not say enough to judge what it needs.",
-        agentRecommends = (string?)null,
-        answerVia = "reply",
-        menu = (object?)null,
-        options = Array.Empty<object>(),
-        risk = "none",
-        spoken,
-    });
+    // THESE ARE CONTRACT v3 ANSWERS: state, label, agentRecommends, menu, options, and nothing else.
+    //
+    // THE spoken PARAMETER IS STILL HERE, AND IT NO LONGER GOES INTO THE JUDGE'S ANSWER. It now sets what the
+    // default narrator answers with, which is where a reading's words come from under v3. Every caller therefore
+    // keeps saying the same thing it always said - "the listener hears these words for this stop" - without
+    // knowing which of the two calls produces them, which is the point of the change being tested.
+    //
+    // The evidence parameter is kept on the two that had one so callers need not change, and is IGNORED: the
+    // receipt was cut in v3 and nothing checks a quote any more.
 
-    /// <summary>A "finished" answer whose receipt is <paramref name="evidence"/>.</summary>
-    public static string Finished(string evidence, string spoken, string risk = "none") => Json(new
+    /// <summary>A "cannot-tell" answer: the state for a stop the screen does not support a judgement on, so it
+    /// validates against any package, of either kind.</summary>
+    public static string CannotTell(string spoken)
     {
-        verdict = "finished",
-        confidence = "high",
-        evidence,
-        label = "Pushed the branch and opened the pull request",
-        summary = "The branch is pushed and the pull request is open; nothing is waiting on you.",
-        agentRecommends = (string?)null,
-        answerVia = "reply",
-        menu = (object?)null,
-        options = Array.Empty<object>(),
-        risk,
-        spoken,
-        finishedKind = "done",
-    });
-
-    /// <summary>A "needed-you" answer on a single-select picker, receipt <paramref name="evidence"/>.</summary>
-    public static string Menu(string question, string evidence, string spoken) => Json(new
-    {
-        verdict = "needed-you",
-        confidence = "high",
-        evidence,
-        label = "Choose whether to proceed",
-        summary = "The session is waiting on a yes or no in a picker.",
-        agentRecommends = (string?)null,
-        answerVia = "keys",
-        menu = new { question, selectionMode = "single", submit = "" },
-        options = new object[]
+        LastCannedSpoken = spoken;
+        return Json(new
         {
-            new { key = "Proceed", send = "1", recommended = true, note = "Carries on with the change." },
-            new { key = "Stop", send = "2", recommended = false, note = "Leaves the change unmade." },
-        },
-        risk = "none",
-        spoken,
-    });
+            state = "cannot-tell",
+            label = "Cannot tell what this stop needs",
+            agentRecommends = (string?)null,
+            menu = (object?)null,
+            options = Array.Empty<object>(),
+        });
+    }
+
+    /// <summary>A finished answer with something for the owner to read.</summary>
+    public static string Finished(string evidence, string spoken, string risk = "none")
+    {
+        LastCannedSpoken = spoken;
+        return Json(new
+        {
+            state = "finished-report",
+            label = "Pushed the branch and opened the pull request",
+            agentRecommends = (string?)null,
+            menu = (object?)null,
+            options = Array.Empty<object>(),
+        });
+    }
+
+    /// <summary>A "carrying-on" answer: the agent said it is still working and will report back, so the stop is
+    /// calm and a clock is set on it.</summary>
+    public static string CarryingOn(string label, string spoken)
+    {
+        LastCannedSpoken = spoken;
+        return Json(new
+        {
+            state = "carrying-on",
+            label,
+            agentRecommends = (string?)null,
+            menu = (object?)null,
+            options = Array.Empty<object>(),
+        });
+    }
+
+    /// <summary>
+    /// A REFUSED ANSWER THAT IS STILL READABLE, AND STILL CARRIES ITS MENU. The state word is not one of the
+    /// seven, so the contract refuses it; every other field is well formed, so SalvageNarrationDecision can
+    /// still read the picker out of it.
+    ///
+    /// This used to be an answer whose receipt was not on the screen. Contract v3 cut the receipt, so that is
+    /// no longer a refusal at all - it is one of the twenty-five failures in seventy that v3 deletes - and a
+    /// test built on it was quietly testing an accepted answer instead.
+    /// </summary>
+    public static string RefusedButReadableMenu(string question)
+    {
+        LastCannedSpoken = "";
+        return Json(new
+        {
+            state = "waiting-on-you",   // not one of the seven
+            label = "Choose whether to proceed",
+            agentRecommends = (string?)null,
+            menu = new { question, selectionMode = "single", submit = "" },
+            options = new object[]
+            {
+                new { key = "Proceed", send = "1", recommended = true, note = "Carries on with the change." },
+                new { key = "Stop", send = "2", recommended = false, note = "Leaves the change unmade." },
+            },
+        });
+    }
+
+    /// <summary>A "needs-you" answer on a single-select picker.</summary>
+    public static string Menu(string question, string evidence, string spoken)
+    {
+        LastCannedSpoken = spoken;
+        return Json(new
+        {
+            state = "needs-you",
+            label = "Choose whether to proceed",
+            agentRecommends = (string?)null,
+            menu = new { question, selectionMode = "single", submit = "" },
+            options = new object[]
+            {
+                new { key = "Proceed", send = "1", recommended = true, note = "Carries on with the change." },
+                new { key = "Stop", send = "2", recommended = false, note = "Leaves the change unmade." },
+            },
+        });
+    }
 }
 
 /// <summary>A tunnel caller that serves a screen and counts the reads, and a brain that counts its asks.</summary>
@@ -361,17 +436,42 @@ internal static class TurnVerdictTestDoubles
     }
 }
 
-/// <summary>A brain that answers every ask with one fixed text and counts the asks.</summary>
+/// <summary>
+/// A brain that answers the JUDGE with one fixed text and counts what it was asked.
+///
+/// IT TELLS THE TWO CALLS OF A READING APART. From contract v3 a reading is not finished until both the judge
+/// and the narration call are done, and one brain serves both - but the answers are nothing like each other, the
+/// judge being asked for JSON and the narrator for words between two markers. A brain that returned the judge
+/// answer to both would leave every reading with no words, and <see cref="Asks"/> would count two where the
+/// question a test is asking - "was this screen judged again?" - has the answer one.
+/// </summary>
 internal sealed class CountingBrain : IAgentBrain
 {
     private readonly Func<string> _answer;
     private int _asks;
+    private int _narrations;
     public CountingBrain(Func<string> answer) => _answer = answer;
+
+    /// <summary>How many JUDGEMENTS were asked for - never the narration calls beside them.</summary>
     public int Asks => _asks;
+
+    /// <summary>How many narration calls were made.</summary>
+    public int Narrations => _narrations;
+
+    /// <summary>What the narration call is answered with. The default is the words the last canned judge answer
+    /// was built with, so a reading ends up with the text the test named.</summary>
+    public Func<string> NarrationAnswer { get; set; } = FakeTurnVerdictEnvironment.DefaultNarration;
+
     public string? SessionId => "counting-brain";
 
     public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
     {
+        // The narration prompt is the one that asks for the spoken version between two markers.
+        if (prompt.Contains("Output ONLY the spoken version", StringComparison.Ordinal))
+        {
+            Interlocked.Increment(ref _narrations);
+            return Task.FromResult(new AskResult { Text = NarrationAnswer(), ReplySeconds = 0.1 });
+        }
         Interlocked.Increment(ref _asks);
         return Task.FromResult(new AskResult { Text = _answer(), ReplySeconds = 0.1 });
     }

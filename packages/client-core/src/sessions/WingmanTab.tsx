@@ -23,6 +23,8 @@ import { gatewayErrorMessage } from "../api/client";
 import { readWingmanStops, type WingmanStop, type WingmanStopsResponse } from "./wingmanStops";
 import { readWingmanNow, type WingmanNow as WingmanNowDto } from "./wingmanNowRead";
 import { WingmanNow, type WingmanNowActions, type WingmanNowReplyBox } from "./WingmanNow";
+import { WingmanDebugView } from "./WingmanDebugView";
+import { getAccountStatus } from "../account/accountClient";
 import "./wingmanTab.css";
 
 /** How often Now is re-read while the tab is open. It is one session's live stop, read only while it is on screen. */
@@ -55,7 +57,21 @@ export function WingmanTab({
   // reply. They are cleared together, by the session changing.
   const [now, setNow] = useState<WingmanNowDto | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const [view, setView] = useState<"now" | "history">("now");
+  const [view, setView] = useState<"now" | "history" | "debug">("now");
+  // WHETHER THE DEBUG VIEW EXISTS FOR THIS READER, asked once when the tab mounts. The Gateway decides it; this only
+  // decides whether to draw a button. A reader who is not staff is refused by the route as well, so the tab being
+  // absent is tidiness and never the protection.
+  const [staff, setStaff] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getAccountStatus(controller.signal)
+      .then((status) => setStaff(status.staff === true))
+      // A status read that fails leaves the button undrawn. There is nothing to report: the debug view is not
+      // something an ordinary reader is waiting for, and the route would refuse it anyway.
+      .catch(() => setStaff(false));
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -107,12 +123,23 @@ export function WingmanTab({
         >
           History
         </button>
+        {staff && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "debug"}
+            className={`wingman-view ${view === "debug" ? "on" : ""}`}
+            onClick={() => setView("debug")}
+          >
+            Debug
+          </button>
+        )}
       </div>
-      {view === "now" ? (
+      {view === "now" && (
         <NowView sessionId={sessionId} now={now} failure={failure} actions={actions} replyBox={replyBox} />
-      ) : (
-        <WingmanStopsView sessionId={sessionId} />
       )}
+      {view === "history" && <WingmanStopsView sessionId={sessionId} />}
+      {view === "debug" && <WingmanDebugView sessionId={sessionId} />}
     </div>
   );
 }

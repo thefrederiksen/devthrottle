@@ -136,20 +136,11 @@ public sealed class WingmanStopsWritePathTests : IDisposable
         Spoken = "It is watching the test run.",
     };
 
-    private static string ContinuesAloneAnswer() => JsonSerializer.Serialize(new
-    {
-        verdict = "continues-alone",
-        confidence = "high",
-        evidence = ReplyText,
-        label = "Watching the test run",
-        summary = "It is watching the test run by itself and will report back.",
-        agentRecommends = (string?)null,
-        answerVia = "reply",
-        menu = (object?)null,
-        options = Array.Empty<object>(),
-        risk = "none",
-        spoken = "It is watching the test run and will report back.",
-    });
+    /// <summary>The judge's "carrying-on" answer in the contract v3 shape - five fields, and none of the
+    /// seven the owner cut on 2026-09-18. It is built through the canned builder so the narration call that
+    /// now runs inside the same reading answers with these words.</summary>
+    private static string ContinuesAloneAnswer()
+        => FakeTurnVerdictEnvironment.CarryingOn("Watching the test run", "It is watching the test run and will report back.");
 
     [Fact]
     public async Task A_stop_recorded_red_still_shows_red_after_the_row_has_gone_cyan()

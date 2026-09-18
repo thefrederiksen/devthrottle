@@ -34,8 +34,20 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     private static readonly DateTime Start = new(2026, 9, 16, 10, 0, 0, DateTimeKind.Utc);
     private static readonly TimeSpan Stale = TimeSpan.FromMinutes(5);
 
-    /// <summary>Evidence with quotes, a backslash, an arrow and a percent sign - copied exactly or not at all.</summary>
+    /// <summary>A screen line with quotes, a backslash, an arrow and a percent sign - the awkward characters a
+    /// prompt has to carry through unharmed. Contract v3 asks the judge for no quote from it, so this is what the
+    /// session SHOWED, and no longer a receipt the reading has to hand back.</summary>
     private const string Evidence = "Pushed \"feature/roster\" -> origin; 3 files \\ 100% done.";
+
+    /// <summary>The words the Wingman ends up with for that stop. From contract v3 this is the ONE text a reading
+    /// carries - read or heard - and the NARRATION call writes it, not the judge.</summary>
+    private const string Spoken = "The branch is pushed.";
+
+    /// <summary>The label the canned answer gives every stop in this class. Every session here that reaches the
+    /// Fleet Manager is one the Fleet Manager OWNS, and an owned session is read by its owner rather than narrated
+    /// for the person, so it carries no narration and no summary - the label is the whole of what the reading says
+    /// about it. That is what these tests follow to the prompt.</summary>
+    private const string Label = "Pushed the branch and opened the pull request";
 
     private readonly GatewayDbTestHarness _harness = new();
     private DateTime _now = Start;
@@ -46,7 +58,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     private readonly TurnVerdictStore _verdicts;
     private readonly RecordingEnvironment _env;
     private FleetManagerEventService _service;
-    private readonly GateableBrain _brain = new(FakeTurnVerdictEnvironment.Finished(Evidence, "The branch is pushed."));
+    private readonly GateableBrain _brain = new(FakeTurnVerdictEnvironment.Finished(Evidence, Spoken));
     private bool _judgeEnabled = true;
     private string? _marked = "fm";
     private bool _checksIdle = true;
@@ -204,7 +216,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var stored = _verdicts.Latest(Tenant, "worker-1");
         Assert.NotNull(stored);
         Assert.Equal(stored!.VerdictId, e.Verdict!.VerdictId);
-        Assert.Equal(Evidence, e.Verdict.Evidence);
+        Assert.Equal(Label, e.Verdict.Label);
+        Assert.Equal("", e.Verdict.Summary);
         Assert.Null(e.NoVerdictReason);
         Assert.Null(e.DeliveredTo);
     }
@@ -381,7 +394,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         await _service.WhenIdleAsync();
 
         var e = Assert.Single(Open());
-        Assert.Equal(Evidence, e.Verdict!.Evidence);
+        Assert.Equal(Label, e.Verdict!.Label);
         Assert.Equal(1, _brain.Asks);
     }
 
@@ -663,7 +676,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         var stop = Assert.Single(Open());
         Assert.Equal(("stop", "plain", "fm"), (stop.Kind, stop.SessionId, stop.AddressedTo));
-        Assert.Equal(Evidence, stop.Verdict!.Evidence);
+        Assert.Equal(Label, stop.Verdict!.Label);
         // No longer red for the owner, and handed back from the list.
         var folded = Folded("plain");
         Assert.NotEqual("red", folded.EffectiveColor);
@@ -793,11 +806,19 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.StartsWith("[Fleet Manager events] 2 stops and 1 died since your last turn.\n", sent.Text);
         var events = Open();
         Assert.Equal(3, events.Count);
-        // Oldest first, every one of them by its id, each with the evidence exactly as stored.
+        // Oldest first, every one of them by its id, each carrying the reading words exactly as stored.
         var positions = events.Select(e => sent.Text.IndexOf(e.Id, StringComparison.Ordinal)).ToList();
         Assert.All(positions, p => Assert.True(p >= 0));
         Assert.Equal(positions.OrderBy(p => p), positions);
-        Assert.Equal(2, CountOf(sent.Text, FleetManagerEventPrompt.EvidenceOpen + Evidence + FleetManagerEventPrompt.EvidenceClose));
+        Assert.Equal(2, CountOf(sent.Text, "label: " + Label));
+        // AND NO FIELD THAT LOOKS ANSWERED AND IS EMPTY. Contract v3 asks for no quote and no risk word, and an
+        // owned session gets no narration call, so all three are ABSENT rather than written as empty - an empty
+        // pair of receipt markers reads as "a quote was taken and it was blank", which is a lie the reader of
+        // this prompt would have no way to see through.
+        Assert.DoesNotContain(FleetManagerEventPrompt.EvidenceStart, sent.Text);
+        Assert.DoesNotContain("risk: ", sent.Text);
+        Assert.DoesNotContain("summary: ", sent.Text);
+        Assert.Contains("state: finished-report", sent.Text);
         Assert.Contains("session: worker-1 \"Repository - the session named worker-1\"", sent.Text);
         Assert.Contains("verdict: finished", sent.Text);
         // The stop's identity, which a record filed about it names (fleet ... --verdict).
@@ -1262,12 +1283,18 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     }
 
     /// <summary>A reading that cannot say the Fleet Manager asked nothing - stuck, cannot-tell, ambiguous, failed, or
-    /// none at all because no Wingman runs - holds the events.</summary>
+    /// none at all because no Wingman runs - holds the events, and the note says which of those it was.
+    ///
+    /// THE NOTE NAMES THE STATE WORD from contract v3 - what the judge was asked for and answered with - not the
+    /// column it is stored in. The third case is the one that would have been lost: "finished" is a calm word, so
+    /// only the confidence the reading was written under holds it, and a reading written before v3 is still read
+    /// under that word. Deleting the check outright would have started the Fleet Manager sending on the strength of
+    /// an old reading that was never good enough to send on.</summary>
     [Theory]
-    [InlineData("stuck-needs-person", "high")]
-    [InlineData("cannot-tell", "ambiguous")]
-    [InlineData("finished", "ambiguous")]
-    public async Task AReadingThatCannotSayItAskedNothing_HoldsTheEvents(string verdict, string confidence)
+    [InlineData("stuck-needs-person", "high", "it read it as stuck-needs-person")]
+    [InlineData("cannot-tell", "ambiguous", "it read it as cannot-tell")]
+    [InlineData("finished", "ambiguous", "The Wingman was not sure about the Fleet Manager's latest turn")]
+    public async Task AReadingThatCannotSayItAskedNothing_HoldsTheEvents(string verdict, string confidence, string note)
     {
         await TurnEndAsync("worker-1");
         SetState("fm", "WaitingForInput");
@@ -1277,7 +1304,25 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         Assert.Equal(FleetManagerDeliveryResult.TurnNotFinished, await _service.DeliverToAsync(Tenant, "fm"));
         Assert.Empty(_env.Sends);
-        Assert.Contains($"it read it as {verdict}, {confidence} confidence", _service.DeliveryNote(Tenant));
+        Assert.Contains(note, _service.DeliveryNote(Tenant));
+    }
+
+    /// <summary>The same calm word, read under contract v3, which carries no confidence at all: the events go. This
+    /// is the other half of the case above, and the pair is what stops a later reader from either restoring the
+    /// confidence check for every reading (nothing would ever send again) or deleting it outright (an old reading
+    /// the Wingman was unsure about would start sending).</summary>
+    [Fact]
+    public async Task ACalmReadingWithNoConfidenceWord_IsContractV3_AndSendsTheEvents()
+    {
+        await TurnEndAsync("worker-1");
+        SetState("fm", "WaitingForInput");
+        _service.OnTurnEnd(Signal("fm"), wingmanRunning: true);
+        FleetManagerReadAs("finished", confidence: "");
+        await _service.WhenIdleAsync();
+
+        // The gate opened, so the events went on their own - there is nothing left to ask for a second time.
+        Assert.Single(_env.Sends);
+        Assert.Null(_service.DeliveryNote(Tenant));
     }
 
     [Fact]
@@ -1791,7 +1836,21 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         /// <summary>What the judge answers from now on.</summary>
         public string Answer { get; set; }
+
+        /// <summary>What the NARRATION call answers. From contract v3 a reading is not finished until both calls
+        /// are done, so one brain is asked twice per stop and the two answers are nothing like each other: the
+        /// judge is asked for JSON, the narrator for words between two markers. A brain that returned the judge
+        /// answer to both would leave every reading with no words at all, which is what these tests then measure.</summary>
+        public string NarrationAnswer { get; set; } = FakeTurnVerdictEnvironment.NarratedAnswer(Spoken);
+
+        /// <summary>How many JUDGEMENTS were asked for - never the narration calls beside them. "The same screen
+        /// was not judged twice" is a claim about this number, and folding the second call into it would make an
+        /// unchanged screen look re-judged.</summary>
         public int Asks => _asks;
+
+        /// <summary>How many narration calls were made.</summary>
+        public int Narrations => _narrations;
+        private int _narrations;
         public string? SessionId => "gateable-brain";
 
         public void Hold() => _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1807,9 +1866,11 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         public async Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
         {
-            Interlocked.Increment(ref _asks);
+            // The narration prompt is the one that asks for the spoken version between two markers.
+            var narrating = prompt.Contains("Output ONLY the spoken version", StringComparison.Ordinal);
+            if (narrating) Interlocked.Increment(ref _narrations); else Interlocked.Increment(ref _asks);
             await _gate.Task.WaitAsync(ct);
-            return new AskResult { Text = Answer, ReplySeconds = 0.1 };
+            return new AskResult { Text = narrating ? NarrationAnswer : Answer, ReplySeconds = 0.1 };
         }
 
         public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;

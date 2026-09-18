@@ -87,18 +87,10 @@ public static class SpokenPaths
     /// </summary>
     public static readonly IReadOnlyList<SpokenPath> SpokenFieldPaths = new[]
     {
-        new SpokenPath(
-            "turn narration: the spoken field of the turn verdict (TurnVerdictService)",
-            "TurnVerdictPrompt.BuildVerdictPrompt",
-            language => TurnVerdictPrompt.BuildVerdictPrompt(
-                language,
-                new Core.Wingman.TurnVerdictPackage
-                {
-                    SessionTitle = "a session",
-                    LatestReply = "an agent reply",
-                    ConversationAvailable = true,
-                })),
-
+        // THE TURN VERDICT IS NO LONGER IN THIS LIST. Contract v3 (owner ruling, 2026-09-18) cut its "spoken"
+        // field, so the judge answers nothing that is read aloud and its builder moved to NotSpokenOutput below.
+        // The words a listener hears for a stop are written by the narration call, which is a whole-output
+        // spoken path in All above - so the language checks still cover every spoken word, in one place.
         new SpokenPath(
             "menu reading, extracted fields (WingmanTranslator.DetectMenuAsync)",
             "WingmanTranslator.BuildMenuDetectPrompt",
@@ -115,6 +107,12 @@ public static class SpokenPaths
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> NotSpokenOutput = new Dictionary<string, string>(StringComparer.Ordinal)
     {
+        ["TurnVerdictPrompt.BuildVerdictPrompt"] =
+            "Asks what one stop means and returns JSON code parses: a state word from a closed English set, a "
+            + "short label, what the agent recommends, and a menu whose option keys are KEYSTROKES TYPED INTO A "
+            + "TERMINAL. Contract v3 cut the \"spoken\" field it used to answer, so nothing it produces is read "
+            + "aloud; the narration call writes every spoken word and is registered above. Translating this one "
+            + "would change a state word the parser matches and the bytes sent to a live session.",
         ["WingmanTranslator.BuildMenuMapPrompt"] =
             "Returns a single option number for code to act on. Nothing it produces is ever spoken.",
         ["DictionarySuggestionScreen.BuildPrompt"] =

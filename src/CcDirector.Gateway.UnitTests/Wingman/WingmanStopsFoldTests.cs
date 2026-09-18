@@ -56,22 +56,25 @@ public sealed class WingmanStopsFoldTests
 
     // ================================================================= every outcome word
 
+    /// <summary>The history list shows the STATE word from contract v3 - what the judge was asked for and answered
+    /// with - while the row keeps the stored verdict word it has always kept. The two spellings are deliberately
+    /// different, so each case names both: a reader must never be shown a word the judge was not asked to produce.</summary>
     [Theory]
-    [InlineData(TurnVerdictTraceOutcomes.Judged, "needed-you", WingmanStopsFold.GroupNeedsYou)]
-    [InlineData(TurnVerdictTraceOutcomes.Judged, "stuck-needs-person", WingmanStopsFold.GroupNeedsYou)]
-    [InlineData(TurnVerdictTraceOutcomes.Judged, "cannot-tell", WingmanStopsFold.GroupNeedsYou)]
-    [InlineData(TurnVerdictTraceOutcomes.Judged, "finished", WingmanStopsFold.GroupCalm)]
-    [InlineData(TurnVerdictTraceOutcomes.Judged, "continues-alone", WingmanStopsFold.GroupCalm)]
-    [InlineData(TurnVerdictTraceOutcomes.Expired, "needed-you", WingmanStopsFold.GroupNeedsYou)]
-    [InlineData(TurnVerdictTraceOutcomes.Reused, "finished", WingmanStopsFold.GroupNotAsked)]
-    public void A_stop_with_a_verdict_lands_in_its_group_and_shows_its_word(string outcome, string word, string group)
+    [InlineData(TurnVerdictTraceOutcomes.Judged, "needed-you", "needs-you", WingmanStopsFold.GroupNeedsYou)]
+    [InlineData(TurnVerdictTraceOutcomes.Judged, "stuck-needs-person", "stuck-needs-person", WingmanStopsFold.GroupNeedsYou)]
+    [InlineData(TurnVerdictTraceOutcomes.Judged, "cannot-tell", "cannot-tell", WingmanStopsFold.GroupNeedsYou)]
+    [InlineData(TurnVerdictTraceOutcomes.Judged, "finished", "finished-report", WingmanStopsFold.GroupCalm)]
+    [InlineData(TurnVerdictTraceOutcomes.Judged, "continues-alone", "carrying-on", WingmanStopsFold.GroupCalm)]
+    [InlineData(TurnVerdictTraceOutcomes.Expired, "needed-you", "needs-you", WingmanStopsFold.GroupNeedsYou)]
+    [InlineData(TurnVerdictTraceOutcomes.Reused, "finished", "finished-report", WingmanStopsFold.GroupNotAsked)]
+    public void A_stop_with_a_verdict_lands_in_its_group_and_shows_its_state_word(string outcome, string word, string state, string group)
     {
         var stop = One(Trace(outcome, Verdict("v1", word, "The label")));
 
         Assert.Equal(group, stop.Group);
         Assert.Equal(word, stop.VerdictWord);
         Assert.Equal("high", stop.Confidence);
-        Assert.Equal($"{word}, high confidence", stop.VerdictText);
+        Assert.Equal($"{state}, high confidence", stop.VerdictText);
         Assert.Equal("The label", stop.Strip.Label);
         Assert.Equal("The label", stop.Did.VerdictLabel);
         Assert.Null(stop.Did.Reason);

@@ -180,10 +180,15 @@ internal static class AccountStatusEndpoint
         }
 
         var email = tenants?.EmailForTenant(tenant.Value);
+        // THE ONE FLAG THE COCKPIT READS TO DECIDE WHETHER THE WINGMAN DEBUG VIEW EXISTS (see StaffAccess).
+        // It is folded HERE, on the Gateway, from the caller's own account address - a client never decides
+        // what it may see - and the route it unlocks asks StaffAccess the same question for itself, so hiding
+        // the tab and refusing the read are two separate answers and neither depends on the other.
+        var staff = StaffAccess.IsStaff(email);
         // Logged as resolved / unavailable only - the email is user identity and is never written to the log,
         // and neither is the tenant id.
-        FileLog.Write($"[AccountStatusEndpoint] GET /account/status (hosted): signedIn=true (identity {(email is null ? "unavailable" : "resolved")})");
-        return Results.Json(new AccountStatusResponse(true, email, null, null));
+        FileLog.Write($"[AccountStatusEndpoint] GET /account/status (hosted): signedIn=true (identity {(email is null ? "unavailable" : "resolved")}, staff={staff})");
+        return Results.Json(new AccountStatusResponse(true, email, null, null, staff));
     }
 
     /// <summary>How long a resolved nickname is reused before the next status read re-reads the cloud.</summary>
@@ -272,5 +277,10 @@ internal static class AccountStatusEndpoint
         string? Provider,
         [property: System.Text.Json.Serialization.JsonPropertyName("nickname")]
         [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-        string? Nickname);
+        string? Nickname,
+        /// <summary>True when this account is on the deployment's staff list (<see cref="StaffAccess"/>), which
+        /// today unlocks exactly one thing: the Wingman's debug view. False for every ordinary account, and
+        /// false on every self-host answer, which has no staff concept at all.</summary>
+        [property: System.Text.Json.Serialization.JsonPropertyName("staff")]
+        bool Staff = false);
 }

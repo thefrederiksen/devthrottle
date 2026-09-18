@@ -18,9 +18,14 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// voice, and a stop somebody is listening to gets one re-attempt when the judge gave no words at all.
 ///
 /// Of the last 100 stops on 16 September, 29 had no narration because a field check refused the whole answer, and
-/// 24 of those carried a readable spoken field that was thrown away. These tests hold the three halves of the fix
-/// apart: the refused answer's words ARE played, the row still shows the refusal, and a stop with no words at all
-/// (a timeout) is still silent.
+/// 24 of those carried a readable spoken field that was thrown away.
+///
+/// CONTRACT v3 REMOVED THE CAUSE RATHER THAN THE SYMPTOM (owner ruling, 18 September 2026). The receipt check
+/// that refused those 24 answers is gone, and so is the "spoken" field they carried: the judge answers no prose
+/// at all now, and the words come from the narration call inside the same reading. So the tests that proved a
+/// REFUSED answer's words were still played have become tests that the same answer is no longer refused - the
+/// stronger claim, and the one the measured 40 percent failure rate asked for. What is unchanged is the other
+/// half: an answer this contract still refuses carries no words, stamps the row refused, and is silent.
 ///
 /// The turn-end sequence is the host's own, in the host's order, exactly as <see cref="TurnVerdictVoiceMergeTests"/>
 /// drives it: the verdict seat first, then the voice refresh.
@@ -97,48 +102,67 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
         await judging;
     }
 
-    /// <summary>A finished answer whose receipt is not in the reply: readable JSON that the receipt check refuses.</summary>
-    private static string ReceiptRefusedAnswer()
+    /// <summary>The answer the OLD contract refused: a finished stop whose quote appears nowhere in the reply.
+    /// Contract v3 asks for no quote, so this is now an ordinary accepted answer - which is the point.</summary>
+    private static string OnceReceiptRefusedAnswer()
         => FakeTurnVerdictEnvironment.Finished("I rewrote the whole deploy pipeline from scratch.", Spoken);
 
-    // ================================================================= a refused answer is still narrated
+    /// <summary>An answer contract v3 DOES refuse: a state word that is not one of the seven. It carries no prose
+    /// at all, because a v3 refusal carries none - there is no field left for a judge to put words in.</summary>
+    private static string RefusedAnswer()
+        => """
+           {
+             "state": "everything-is-fine",
+             "label": "Pushed the branch",
+             "agentRecommends": null,
+             "menu": null,
+             "options": []
+           }
+           """;
 
+    // ================================================================= the refusal that v3 deleted
+
+    /// <summary>
+    /// THE 24 THROWN-AWAY ANSWERS, FROM THE OTHER SIDE. This is the same answer slice I salvaged words out of, and
+    /// contract v3 does not refuse it at all: it is a reading, the row is accepted, and the listener hears the
+    /// narration call's words rather than a rescued fragment of a rejected answer.
+    /// </summary>
     [Fact]
-    public async Task AReceiptRefusedAnswer_OnAVoiceSession_IsStoredRefused_AndItsSpokenTextIsStillNarrated()
+    public async Task AnAnswerTheReceiptCheckOnceRefused_OnAVoiceSession_IsNowAnAcceptedReading_AndIsNarrated()
     {
         var rig = Build();
-        rig.Env.Judge = (_, _) => Task.FromResult(ReceiptRefusedAnswer());
+        rig.Env.Judge = (_, _) => Task.FromResult(OnceReceiptRefusedAnswer());
         rig.Voice.Mark(Tenant, Sid);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
         var stored = rig.Env.Latest(Tenant, Sid)!;
-        Assert.True(stored.Failed);
-        Assert.Contains("not found verbatim", stored.FailureReason);
+        Assert.False(stored.Failed, stored.FailureReason);
+        Assert.Equal(TurnVerdictStates.FinishedReport, stored.State);
         Assert.Equal(Spoken, stored.Spoken);
 
-        // Narrated exactly as an accepted verdict is: one speech call, the verdict's words, tied to its id.
+        // Narrated once, with the reading's own words, tied to its id.
         Assert.Equal(1, rig.Speech.Calls);
         var ready = rig.Voice.Get(Tenant, Sid);
         Assert.NotNull(ready);
         Assert.Equal(Spoken, ready!.Spoken);
         Assert.Equal(stored.VerdictId, ready.SourceIdentity);
-        // A readable refusal is not re-attempted: its words exist, so one call.
+        // An answer that was accepted is never re-attempted: one judge call.
         Assert.Equal(1, rig.Env.JudgeCalls);
     }
 
     [Fact]
-    public async Task AVoiceRefreshThatArrivesAfterARefusedJudgementEnded_ReusesItsWords_AndDoesNotAskTheJudgeAgain()
+    public async Task AVoiceRefreshThatArrivesAfterAJudgementEnded_ReusesItsWords_AndDoesNotAskTheJudgeAgain()
     {
         // The ordering the host's turn-end sequence only sometimes produces, forced: the judgement has finished and
-        // stored its refused record BEFORE the voice refresh looks. Joining the flight is not available, so only the
-        // reuse rule stands between this stop and a second model call.
+        // stored its record BEFORE the voice refresh looks. Joining the flight is not available, so only the reuse
+        // rule stands between this stop and a second model call.
         var rig = Build();
-        rig.Env.Judge = (_, _) => Task.FromResult(ReceiptRefusedAnswer());
+        rig.Env.Judge = (_, _) => Task.FromResult(OnceReceiptRefusedAnswer());
         rig.Voice.Mark(Tenant, Sid);
 
         var judged = await rig.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
-        Assert.Equal(TurnVerdictOutcomeKind.Failed, judged.Kind);      // CONTROL: the stop really was refused
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, judged.Kind);      // CONTROL: the stop really was read
         Assert.Equal(1, rig.Env.JudgeCalls);
 
         await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: true);
@@ -149,10 +173,10 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task AReceiptRefusedAnswer_OnExplain_IsNarrated_NotReportedAsAnError()
+    public async Task AnAnswerTheReceiptCheckOnceRefused_OnExplain_IsNarrated_NotReportedAsAnError()
     {
         var rig = Build();
-        rig.Env.Judge = (_, _) => Task.FromResult(ReceiptRefusedAnswer());
+        rig.Env.Judge = (_, _) => Task.FromResult(OnceReceiptRefusedAnswer());
 
         var narration = await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
 
@@ -162,15 +186,23 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
         Assert.Equal(1, rig.Speech.Calls);
     }
 
+    /// <summary>An answer contract v3 still refuses stamps the row refused and plays nothing - there are no words
+    /// in it to play, because a v3 refusal carries no prose at all. This is the half of slice I that survives the
+    /// contract change unaltered: a row a reading could not be formed for never reads as calm.</summary>
     [Fact]
-    public async Task AReceiptRefusedStop_ThatIsNarrated_StillStampsTheRowRefused()
+    public async Task AStopV3StillRefuses_StampsTheRowRefused_AndIsSilent()
     {
         var rig = Build();
-        rig.Env.Judge = (_, _) => Task.FromResult(ReceiptRefusedAnswer());
+        rig.Env.Judge = (_, _) => Task.FromResult(RefusedAnswer());
         rig.Voice.Mark(Tenant, Sid);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        Assert.True(rig.Voice.HasVoice(Tenant, Sid));    // CONTROL: the words were played
+
+        var stored = rig.Env.Latest(Tenant, Sid)!;
+        Assert.True(stored.Failed);
+        Assert.Equal("", stored.Spoken);
+        Assert.Equal(0, rig.Speech.Calls);
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
 
         var row = new SessionDto { SessionId = Sid, ActivityState = "WaitingForInput" };
         TurnVerdictRowStamp.Stamp(new[] { row }, new RowsOver(rig.Env, rig.Verdicts), Tenant);
@@ -265,8 +297,13 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
         Assert.Equal(new[] { TimeSpan.FromSeconds(TurnVerdictSettings.DefaultJudgeTimeoutSeconds) }, env.JudgeTimeouts.ToArray());
     }
 
+    /// <summary>
+    /// THE "READABLE REFUSAL" CASE IS GONE, and it is gone because it became the "accepted" case beside it.
+    /// Contract v3 does not refuse an answer over a quote, so the answer that case fed is now a reading - the
+    /// same input, two rows apart, proving the same thing twice. What still has to hold is the rule: a first call
+    /// that produced a reading, or that named its own wait, is never asked a second time.
+    /// </summary>
     [Theory]
-    [InlineData("readable refusal")]
     [InlineData("rate limit")]
     [InlineData("accepted")]
     public async Task AVoiceSession_IsNotReattempted_WhenTheFirstCallCarriedWordsOrNamedItsOwnWait(string firstAnswer)
@@ -275,7 +312,6 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
         env.VoiceSession = _ => true;
         env.Judge = firstAnswer switch
         {
-            "readable refusal" => (_, _) => Task.FromResult(ReceiptRefusedAnswer()),
             "rate limit" => (_, _) => throw new WingmanModelRateLimitedException("429", TimeSpan.FromSeconds(40)),
             _ => (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished(ReplyText, Spoken)),
         };

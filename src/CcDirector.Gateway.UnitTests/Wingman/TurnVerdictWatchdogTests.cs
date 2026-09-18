@@ -506,18 +506,9 @@ public sealed class TurnVerdictWatchdogTests
         Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpiryUndone);
     }
 
-    private static string ContinuesAloneAnswer() => JsonSerializer.Serialize(new
-    {
-        verdict = "continues-alone",
-        confidence = "high",
-        evidence = ReplyText,
-        label = "Watching the nightly build",
-        summary = "It is watching the nightly build by itself and will report back.",
-        agentRecommends = (string?)null,
-        answerVia = "reply",
-        menu = (object?)null,
-        options = Array.Empty<object>(),
-        risk = "none",
-        spoken = "The nightly build. It is watching the build and will report back when it finishes.",
-    });
+    /// <summary>The judge's "carrying-on" answer in the contract v3 shape - five fields, and none of the
+    /// seven the owner cut on 2026-09-18. It is built through the canned builder so the narration call that
+    /// now runs inside the same reading answers with these words.</summary>
+    private static string ContinuesAloneAnswer()
+        => FakeTurnVerdictEnvironment.CarryingOn("Watching the nightly build", "The nightly build. It is watching the build and will report back when it finishes.");
 }

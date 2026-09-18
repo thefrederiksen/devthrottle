@@ -39,8 +39,9 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
             Assert.Equal("20260917110500_AddTurnVerdictAnswerChoice", all[index + 1]);
-            Assert.Equal("20260917110600_AddFleetOutcomeStopIdentity", all[index + 2]); // the only migrations after it
-            Assert.Equal(index + 3, all.Count);
+            Assert.Equal("20260917110600_AddFleetOutcomeStopIdentity", all[index + 2]);
+            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[index + 3]); // the only migrations after it
+            Assert.Equal(index + 4, all.Count);
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
             Assert.Empty(context.Database.GetAppliedMigrations());
