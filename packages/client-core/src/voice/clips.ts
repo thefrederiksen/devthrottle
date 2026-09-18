@@ -157,9 +157,9 @@ export async function ensureClip(sid: string, generatedAt: string): Promise<void
   _inflight.add(key);
 
   // Supersede an older clip for this session: free its object URL and drop its durable entry so the
-  // cache holds only the current narration per session.
+  // cache holds only the current narration per session. releaseClipUrl, not a bare revoke - see there.
   if (current && current.generatedAt !== generatedAt) {
-    if (current.url) URL.revokeObjectURL(current.url);
+    releaseClipUrl(current.url);
     void evictCache(sid, current.generatedAt);
   }
 
@@ -234,6 +234,43 @@ export async function syncVoiceSessions(sessions: SessionDto[]): Promise<void> {
 // tap and kept no reference, so a clip could not be stopped and taps overlapped (it "kept talking").
 let _currentAudio: HTMLAudioElement | null = null;
 let _currentSid: string | null = null; // the session whose clip is playing (for the roster stop toggle)
+let _currentUrl: string | null = null; // the object URL that element is streaming from - see releaseClipUrl
+
+// Object URLs superseded while the element was still streaming from them, revoked once it stops.
+const _deferredRevokes = new Set<string>();
+
+/**
+ * Free a superseded clip's object URL - unless an <audio> element is playing it RIGHT NOW, in which
+ * case the revoke waits until that element stops.
+ *
+ * WHY THIS IS NOT A BARE REVOKE. A narration arrives in two stages: the judge's short words are
+ * synthesised first so there is something to hear at once, and the fuller narration call replaces
+ * the clip when it answers. Both describe the SAME turn, so the replacement is right - but it used
+ * to revoke the URL the element was mid-sentence through. Revoking a blob URL that a live element is
+ * streaming from pulls the bytes out from under it: the audio dies partway, and the screen then hands
+ * over the new, longer clip, which reads as the voice jumping or starting over by itself.
+ *
+ * The rule from issue #1322 - never pull the rug on a listener - is exactly this case. Deferring
+ * costs nothing: the new clip still becomes available the moment it has downloaded, because this
+ * touches only when the OLD bytes are freed, never when the new ones arrive.
+ *
+ * A clip dropped because its turn is over is a different path and is unaffected: the Gateway stops
+ * calling it ready, the screen stops playback, and the URL is then freed here with nothing playing.
+ */
+function releaseClipUrl(url: string | null): void {
+  if (url === null) return;
+  if (url === _currentUrl) {
+    _deferredRevokes.add(url);
+    return;
+  }
+  URL.revokeObjectURL(url);
+}
+
+/** Nothing is playing any more, so any revoke that was waiting on the element can happen now. */
+function drainDeferredRevokes(): void {
+  for (const url of _deferredRevokes) URL.revokeObjectURL(url);
+  _deferredRevokes.clear();
+}
 
 // Stop whatever clip is playing right now, everywhere. Safe to call when nothing is playing. Used by
 // the roster (tap a playing card to stop) and the voice screen (its stop button + leaving the screen).
@@ -242,6 +279,8 @@ export function stopPlayback(): void {
   const wasPlaying = _currentAudio !== null;
   _currentAudio = null;
   _currentSid = null;
+  _currentUrl = null;
+  drainDeferredRevokes();
   if (audio !== null) {
     try {
       audio.pause();
@@ -267,10 +306,13 @@ export function playClip(sid: string): boolean {
   const audio = new Audio(s.url);
   _currentAudio = audio;
   _currentSid = sid;
+  _currentUrl = s.url;
   const clear = () => {
     if (_currentAudio === audio) {
       _currentAudio = null;
       _currentSid = null;
+      _currentUrl = null;
+      drainDeferredRevokes(); // a URL superseded mid-playback is freed now that nothing is streaming it
       notify(); // roster flips this card back to the play triangle
     }
   };
