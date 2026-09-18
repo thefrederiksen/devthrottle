@@ -48,8 +48,8 @@ public static class BuiltInWorkflows
                    + "The owner is bothered once, at the report.",
             WhenToUse: "Work big enough to need a design settled before anyone builds, or work that runs "
                      + "across more than one phase.",
-            HumanCheckpoint: "Once, at the quality report. The Architect directs the Manager; only "
-                           + "owner-level calls reach the human.",
+            HumanCheckpoint: "Once, at the quality report, from the Architect. The Architect directs the "
+                           + "Manager; only owner-level calls reach the human.",
             Steps: new[]
             {
                 new WorkflowStep(
@@ -69,14 +69,16 @@ public static class BuiltInWorkflows
                 new WorkflowStep(
                     Name: "Build",
                     Description: "Workers do the building under the Manager, each in its own worktree so two "
-                               + "workstreams never share a tree.",
+                               + "workstreams never share a tree. The Manager runs the mission's check itself "
+                               + "before accepting the work, and sends it to a Reviewer from a different agent "
+                               + "family before its pull request.",
                     Doer: "Worker",
                     Reviewer: "Manager",
                     Done: "A merged pull request. Committed and pushed is still in progress."),
                 new WorkflowStep(
                     Name: "Land the record",
                     Description: "The Architect lands the mission's own paper trail - brief, rulings, state note, "
-                               + "inspections, fix reports, evidence - as the last slice, from inside the mission "
+                               + "reviews, fix reports, evidence - as the last slice, from inside the mission "
                                + "worktree. A record left uncommitted is one disk away from gone, and it is what "
                                + "the next agent rebuilds the mission from.",
                     Doer: "Architect",
@@ -84,10 +86,11 @@ public static class BuiltInWorkflows
                     Done: "The mission's record is merged to the main branch."),
                 new WorkflowStep(
                     Name: "Report",
-                    Description: "The quality report goes to the owner. This is the one interruption the mission "
+                    Description: "The quality report goes to the owner, from the Architect - the one seat the "
+                               + "owner talks to inside a mission. This is the one interruption the mission "
                                + "is allowed to spend.",
-                    Doer: "Manager",
-                    Reviewer: "Architect",
+                    Doer: "Architect",
+                    Reviewer: null,
                     Done: "The owner has the report."),
             }),
 

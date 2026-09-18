@@ -1,6 +1,6 @@
 ---
 name: mission
-description: How a mission is RUN in this repository - the Architect, the Manager, the Workers, and the independent Inspector, plus the four standing laws (ask up front then run alone, and NEVER guess - bring the owner in when something is genuinely undecidable; the mission branch holds the work and only the Architect lands it on main; a different agent family inspects before anything reaches main; merged to origin/main is the only done). Read this BEFORE starting or seeding any mission, and before writing any mission brief. Triggers on "/mission", "start a mission", "run a mission", "seed an architect", "write a mission brief", "mission brief", "who merges", "mission roles".
+description: How a mission is RUN in this repository - the Architect, the Manager, the Workers, and the independent Reviewer, plus the four standing laws (ask up front then run alone, and NEVER guess - bring the owner in when something is genuinely undecidable; the mission branch holds the work and only the Architect lands it on main; a different agent family reviews before anything reaches main; done is merged - or a pull request, if the mission document set that - with proof committed beside the code). Read this BEFORE starting or seeding any mission, and before writing any mission brief. Triggers on "/mission", "start a mission", "run a mission", "seed an architect", "write a mission brief", "mission brief", "who merges", "mission roles".
 ---
 
 # How a mission runs
@@ -10,8 +10,24 @@ is the run-book for how one is RUN. It is not about what a Mission *is* as an ob
 that is `docs/new_architecture/fleet.html`, which defines the data model,
 the naming, and the attachment rules. Read that for the object. Read this for the conduct.
 
-> **THIS FILE IS THE ONLY PLACE THE RULES LIVE. A mission brief must never restate them, and must
-> never GRANT them.**
+> **THE RULES LIVE IN THE DEVTHROTTLE METHOD. THIS FILE HOLDS THE CONDUCT OF A RUN AND POINTS AT
+> THEM. A mission brief must never restate a rule.**
+>
+> The order of authority, decided by the owner on 18 September 2026:
+>
+> 1. **The mission document** - this job, and anything this mission does differently.
+> 2. **The DevThrottle Method** - how we build software, always: the seats, the laws, the lifecycle.
+> 3. **This workflow** - the shape of one run.
+> 4. **The repository's own files** - coding style, visual style, repository rules.
+>
+> The method is being published as the fleet Skill `devthrottle-method`; until it is, it is
+> `docs/method/method.html` in `devthrottle_internal`. Where this file and the method disagree, the
+> method wins and this file is wrong - say so rather than following it.
+>
+> **The mission document beats both, and that is the point.** A mission that needs a different
+> implementation, cadence or proof says so in its own document and the Architect follows that first.
+> An override is explicit and names what it replaces; silence is never an override. It is written in
+> the owner's own words, and it dies with the mission.
 >
 > Before this file existed, every brief wrote the rules out from memory. They drifted - they
 > contradicted each other on whether a mission could commit at all - and each one read like it was
@@ -27,8 +43,9 @@ the naming, and the attachment rules. Read that for the object. Read this for th
 > is ever needed. The same reasoning is why that brief had the text deleted rather than struck
 > through: strike-through is a visual convention, and it means nothing to a grep.*
 >
-> A brief describes the WORK. This file describes the CONDUCT. A brief that grants a permission is
-> a bug in the brief.
+> A brief describes the WORK. This file describes the CONDUCT. A brief that restates a rule is a bug
+> in the brief. A mission document may record the owner's own override or grant **for that mission**,
+> in his words - that is the one place a grant can exist, and it ends when the mission does.
 
 ---
 
@@ -41,16 +58,18 @@ not cover, and answer the way the house answers.
   alone.
 - **The Architect** owns the mission. Settles the design, writes the brief, hires the builder,
   decides when it is done, and is the only one who signs anything off into `main`.
-- **The Manager** is the builder. Takes the work, gets it done - hiring Workers as needed - and
-  **leaves when the work is finished**. A Manager is a delivery vehicle, not a resident.
+- **The Manager** is the site manager. Takes the work and gets it done by running Workers - hiring
+  them as needed, reviewing what they hand in - and **leaves when the work is finished**. It does not
+  normally build. A Manager is a delivery vehicle, not a resident.
 - **The Workers** are the trades. One task each. They finish and go.
-- **The Inspector** is an independent agent, from a **different family** to the Manager, who comes in
-  after the builder has left and inspects the work. He does not build. He was not there when it was
-  built. That is the entire point of him.
+- **The Reviewer** is an independent agent, from a **different family** to whoever wrote the work,
+  who reads work it did not write. It does not build. That is the entire point of it. ("Inspector"
+  is not a word this fleet uses.)
 
-The Architect does not inspect his own building, and the builder does not inspect his own work. The
-Architect calls the inspection. Failures go back to the builder to fix, not to the inspector to
-patch.
+**Whoever is being judged never arranges the review.** A Worker's code goes to a Reviewer through
+the Manager - the Manager did not write it. A Manager's finished phase goes through the Architect -
+the Manager is the party being judged. Failures go back to the builder to fix, never to the Reviewer
+to patch.
 
 ---
 
@@ -107,16 +126,16 @@ part of building, not a favour to anyone.
 - This section never reaches outside a seated mission branch. It cannot be read as covering the
   shared checkout, another mission's branch, or `main`.
 
-### 3. A DIFFERENT agent inspects before anything reaches main
+### 3. A DIFFERENT agent reviews before anything reaches main
 
-**No work reaches `main` un-inspected, and the inspector is not the one who wrote it.**
+**No work reaches `main` un-reviewed, and the Reviewer is not the one who wrote it.**
 
 Use a genuinely different agent family, not another instance of the same one - if the Manager is
-Claude Code, the Inspector is Codex. The operational requirement is simply *different family*: an
+Claude Code, the Reviewer is Codex. The operational requirement is simply *different family*: an
 agent reviewing its own family's work shares too much of its judgement to be a check on it. That is
 the whole mechanism, and it works:
 
-> On pull request 1598, an independent Codex inspector found **seven real defects across five
+> On pull request 1598, an independent Codex reviewer found **seven real defects across five
 > passes**, and not one was a false alarm. It found that the mission's headline feature **did not
 > work at all** - the value was computed correctly and nothing told the screen to re-read it - and
 > then found that the *fix for that* was itself half-done, and then that the same fault existed in
@@ -127,31 +146,46 @@ the whole mechanism, and it works:
 > 1584, 1585, 1588 and 1596 carry the same shape. Check the branch history rather than take the
 > number on trust - which is, after all, the point of this law.
 
-- **The Architect calls the inspection**, not the Manager. The builder does not book his own
-  inspection, and does not get to mark his own work as passed.
-- **The Manager finishes and leaves. Then the inspection happens.** If it finds something, the
-  Architect brings the Manager back - or seats a fresh one - and hands it over. The Inspector never
-  fixes anything: an inspector who picks up a hammer is no longer an inspector.
-- **Tell the inspector to be adversarial, and tell it not to trust the mission's own report.** A
-  mission's QA report is self-testimony. It is written by the people who did the work, about their
-  own work, and it is exactly as persuasive as it is unreliable.
+- **Whoever is being judged never arranges the review.** A Worker's code is sent by the Manager; a
+  Manager's finished phase is sent by the Architect. Nobody books the review of their own work, and
+  nobody marks their own work as passed.
+- **The Manager finishes and leaves. Then the phase is reviewed.** If it finds something, the
+  Architect brings the Manager back - or seats a fresh one - and hands it over. The Reviewer never
+  fixes anything: a reviewer who picks up a hammer is no longer a reviewer.
+- **Tell the Reviewer not to trust the mission's own report, and that it does not have to find
+  anything.** A mission's QA report is self-testimony: written by the people who did the work, about
+  their own work, and exactly as persuasive as it is unreliable. But a reviewer told to find gaps
+  will find them whether or not they exist, and chasing every finding leads to over-engineering. A
+  finding must prove the harm - what breaks, and why it must change.
+- **A review states its scope as well as its verdict**: what it read, what it ran, what it could not
+  reach. "Nothing found" means nothing found within that scope - otherwise an empty review and a
+  review that never ran look identical, and both get committed as proof.
+- **The agent that built the work decides what to do with each finding** and answers every one,
+  accepted or declined with the reason. If that seat is gone, the seat that opened it answers or
+  seats a fresh Worker with the finding. A Reviewer advises; it does not command.
 - **Give it the sharp questions**: what does this claim that the code does not support? Where could
   a constant be substituted and the suite stay green? What is unguarded?
-- **The review goes in a FILE, not a message.** Have the inspector write it into the mission folder,
+- **The review goes in a FILE, not a message.** Have the Reviewer write it into the mission folder,
   commit it, and say where it is in one `cc-devthrottle session report` line. A message may span
   lines, but it is capped, rationed and read once; a file is what the next seat can find.
 
-### 4. Merged to origin/main is the only "done"
+### 4. Done is merged - or a pull request, if that is what the mission document set - WITH proof
 
-Committed is not done. Pushed is not done. An open pull request is not done. The Architect drives
-each piece all the way to a merged pull request, deletes the branch, and parks the checkout back on
-`main`. A branch that cannot merge today was too big - split it.
+Committed is not done. Pushed is not done. By default the Architect drives each piece all the way to
+a merged pull request, deletes the branch, and parks the checkout back on `main`. A branch that
+cannot merge today was too big - split it.
+
+**The mission document sets where this mission ends** - at a pull request, at merged (the default),
+or, rarely and only when it says so in the owner's words, in production. Whichever it is, **the proof
+is committed beside the code**: a review that states its scope, or a QA report. Code merged with no
+proof is not done, and a mission that ends at a pull request still ends with its proof committed.
 
 ---
 
 ## Who may interrupt the owner
 
-**Three seats may ask him: the Manager, the Standalone and the Architect. Nobody else. Ever.**
+**Inside a mission, the Architect is the seat the owner talks to. A standalone session has no
+Architect and speaks for itself. Nobody else reaches him. Ever.**
 
 This is not etiquette, and it is not something you opt into. The product enforces it: the Gateway
 resolves every session's role across the whole fleet, and a session that is SUPERVISED - a Worker
@@ -181,18 +215,18 @@ attention goes instead**, which is the part no machinery can do for you.
 
 **If you are a Manager:**
 
-- You are the seat the owner hears from, and the only reason it is safe to quieten your workers is
-  that you consolidate what they found and bring him ONE answer. If you pass their output through
-  unmerged, you have not managed anything - you have forwarded your inbox to him.
+- **You surface to your Architect, not to the owner.** The reason it is safe to quieten your Workers
+  is that you consolidate what they found and bring ONE answer upward. If you pass their output
+  through unmerged, you have not managed anything - you have forwarded your inbox.
 - Learn what your workers are doing by READING them, not by waiting to be told. A worker that has
   stopped has finished or is stuck; open it and find out which.
-- Surface to him on your own judgement - a decision you need, or an update worth having. That is
-  what a manager is for and it is never clutter. Once. At the end. With the QA report.
+- Surface on your own judgement - a decision you need, or something the Architect must know. That is
+  what a manager is for and it is never clutter. The Architect decides what reaches the owner.
 
 **If you are an Architect:**
 
-- You are the seat the owner talks to. You surface to him like a Manager does: you go red when you
-  need him, you count in his needs-you total, and the wingman reads you aloud.
+- You are the seat the owner talks to, and the only one inside a mission. You go red when you need
+  him, you count in his needs-you total, and the wingman reads you aloud.
 - Surface on your own judgement, and spend it. You hold the design, so the things you bring him are
   the forks only he can settle - not progress reports. One interruption that settles a decision is
   worth more than five that describe one.
@@ -219,7 +253,7 @@ question a schedule answers is "was anyone there when this started?", and it out
   make it commit and push first (law 2).
 - **Whoever starts a session stops it the moment its work is done.** Not at the end of the mission, not
   when the owner asks - the moment its work is merged or pushed and nothing more is needed from it. The
-  Architect stops every Manager, Worker and Inspector it seated itself; the Manager stops every Worker it
+  Architect stops every Manager, Worker and Reviewer it seated itself; the Manager stops every Worker it
   seated. An idle finished session still costs tokens and clutters the owner's roster, and the owner
   restarts sessions all the time precisely to keep that cost down. Stop it yourself with
   `cc-devthrottle session stop <id> --reason "<why>"`. "Never kill a process" is about Director and build
@@ -239,7 +273,7 @@ question a schedule answers is "was anyone there when this started?", and it out
 
 ---
 
-## Keep the Architect lean. Reset the Manager and Inspector freely.
+## Keep the Architect lean. Reset the Manager and Reviewer freely.
 
 **The Architect is a coordinator, not a doer. Its context must stay small and must not grow much over
 the whole mission.** It holds the design, the brief, the rulings, and the whole picture - and it holds
@@ -263,14 +297,14 @@ lives in the branch and the files.
   uncommitted work), kill it, seat a new Manager named `Mission - Manager`, and hand it ONLY the
   compact note plus a pointer to the mission brief and this workflow. Not the transcript. Not the
   history. Just enough to keep going.
-- The Inspector is even more disposable: seated fresh for each inspection, given the diff to inspect
-  and the sharp questions, and gone when its written review lands. Never keep an Inspector idle
-  between phases.
+- The Reviewer is even more disposable: seated fresh for each review, given the diff to read and the
+  sharp questions, and gone when its written review lands. Never keep a Reviewer idle between
+  phases.
 
 **Why this is a law and not a preference.** A mission runs for hours or overnight. If the Architect's
 context grows with every exchange, it rots and starts contradicting its own earlier rulings; if the
 Manager's context grows, it invents work and mis-remembers what was proven. The fix is structural: the
-Architect stays small by pushing state to files, and the Manager and Inspector are thrown away and
+Architect stays small by pushing state to files, and the Manager and Reviewer are thrown away and
 rebuilt from those files as often as it takes. Killing a Manager mid-mission is not a failure or a
 loss - it is the intended maintenance of the machine. A mission that ends with one giant Manager
 context that ran the whole thing did it wrong, even if the work shipped.
@@ -279,8 +313,9 @@ context that ran the whole thing did it wrong, even if the work shipped.
 
 ## Writing a mission brief
 
-The brief describes the WORK and nothing else. It does not grant, it does not restate these laws, it
-links here.
+The brief describes the WORK and nothing else. It does not restate the rules - it links to the
+DevThrottle Method for those, and here for the conduct of a run. It may record the owner's own
+override or grant for this mission, in his words.
 
 Every brief needs:
 
@@ -292,7 +327,8 @@ Every brief needs:
    mouth.
 3. **The work**, in the order it lands.
 4. **What is explicitly out of scope**, so the Manager does not invent it.
-5. **A link to this file** for how to conduct itself.
+5. **A link to this file** for the conduct of a run, and to the DevThrottle Method for the rules.
+6. **Anything this mission does differently**, named against what it replaces, in the owner's words.
 
 **Mark the status honestly and keep it current.** A brief that says ACTIVE about a finished mission,
 or points at a worktree that no longer exists, is a lie the next agent will believe. When the mission
@@ -326,7 +362,7 @@ authority as the code - as the last slice, before the report. A mission that rep
 committed its record is not finished.**
 
 The record is the brief, the design rulings, the running state note, the handoff notes, the
-inspections, the fix reports, and the evidence files the proofs rest on. If a phase produced it and a
+reviews, the fix reports, and the evidence files the proofs rest on. If a phase produced it and a
 later reader would need it to know what happened, it is record.
 
 **Why this is a rule and not a tidiness preference.** Law 2 says work that exists in one place is work
