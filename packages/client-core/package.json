@@ -23,6 +23,7 @@
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",
     "./devreports/DevReportList": "./src/devreports/DevReportList.tsx",
     "./devreports/DevReportViewer": "./src/devreports/DevReportViewer.tsx",
+    "./devreports/DevReportLanding": "./src/devreports/DevReportLanding.tsx",
     "./devreports/DevReportConversation": "./src/devreports/DevReportConversation.tsx",
     "./*": "./src/*.ts"
   },

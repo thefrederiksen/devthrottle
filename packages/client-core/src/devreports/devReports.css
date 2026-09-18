@@ -61,10 +61,16 @@
   font-size: 13px;
 }
 
+/* ONE SCROLL REGION FOR THE REPORT, and it is the report's own frame.
+   The owner counted three scrollbars on one screen. The report page inside the frame scrolls itself, so
+   every box the app wraps around it is `overflow: hidden` with `min-height: 0` - a flex child without
+   `min-height: 0` refuses to shrink below its content and pushes a scrollbar onto whatever contains it.
+   The conversation is not the report: it is a list of its own and scrolls in its own panel. */
 .dev-report-viewer {
   display: flex;
   min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 .dev-report-viewer-main {
@@ -73,6 +79,7 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .dev-report-viewer-bar {
@@ -92,10 +99,35 @@
   overflow-wrap: anywhere;
 }
 
+/* The session this report came from, in the Gateway's words. */
+.dev-report-viewer-session {
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+/* The way back to that session. Its words are the Gateway's `backLabel`, whole and unedited. */
+.dev-report-back {
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.dev-report-back:hover {
+  border-color: var(--accent);
+}
+
 .dev-report-frame-box {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  overflow: hidden;
 }
 
 .dev-report-frame {
@@ -174,4 +206,16 @@
 .dev-report-send:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* The report landing (phase 3b): one sentence while the report is looked up, or the sentence saying it does
+   not appear. It is on screen for a moment on the way into a report, so it is deliberately plain. */
+.dev-report-landing {
+  padding: 24px 16px;
+}
+
+.dev-report-landing-line {
+  margin: 0;
+  font-size: 15px;
+  color: var(--muted, inherit);
 }

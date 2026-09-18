@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using CcDirector.Core;
@@ -3518,6 +3518,19 @@ public sealed class GatewayHost : IAsyncDisposable
             }
         });
 
+        // Dev reports phase 3b (issue #3025): ONE printed address per report, /r/{reportId}. It decides only
+        // WHICH APP opens the report and 302s to that app's own report landing - it looks nothing up, it
+        // authorises nothing, and it needs no account, because it echoes back an identifier the caller
+        // already held. Registered HERE, BEFORE the authentication middleware and therefore before the
+        // mobile front door further down, because BOTH would otherwise take the request first:
+        //   - authentication would send a signed-out navigation to /signin?next=/r/{id}, and `next` is
+        //     followed at the end of the round trip by the shell's ROUTER, which has no /r/:id route on
+        //     either surface - so the printed address would never be requested a second time;
+        //   - the mobile front door sends every phone HTML navigation to /mobile/, so a phone would land on
+        //     the mobile home screen instead of the report.
+        // Both orderings are pinned by DevReportLinkRouteTests. See DevReportLinkRoute for the full reasoning.
+        Api.DevReportLinkRoute.UseDevReportLink(_app);
+
         if (AuthEnabled)
         {
             // Issue #469: a per-device key issued at enrollment is a valid Bearer credential
@@ -4427,7 +4440,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Dev reports (issue #2958): four session routes (publish, list, read, reply - a session key, its own
         // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
         // SessionKeyGuard allow list; the owner routes deliberately are not.
-        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary);
+        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary, DevReportSessionNaming);
 
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),
@@ -5492,6 +5505,26 @@ public sealed class GatewayHost : IAsyncDisposable
         if (!string.IsNullOrEmpty(history?.EndingKind))
             return new(DevReports.DevReportSessionReach.Ended, null, $"not on the roster, and its history says {history.EndingKind}");
         return new(DevReports.DevReportSessionReach.Busy, null, "not on the roster, and nothing says it ended - its machine is not connected");
+    }
+
+    /// <summary>
+    /// What a report calls the session it came from (phase 3b, issue #3025): its three-digit session number and
+    /// its name, from the Gateway's own records - the live roster first, then the durable session history row -
+    /// exactly the way <see cref="DevReportSessionLiveness"/> answers reach. The words themselves are folded by
+    /// <see cref="DevReports.DevReportSessionLabel"/>, which is pure and testable with no host; this only
+    /// supplies the two facts, and it deliberately hands back no session id, so nothing downstream can put one
+    /// on a screen.
+    /// </summary>
+    private DevReports.DevReportSessionNaming DevReportSessionNaming(TenantId tenant, string sessionId)
+    {
+        var located = PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter);
+        if (located is { } loc)
+            return new(loc.Session.Number, loc.Session.Name);
+
+        Contracts.WorkHistorySessionDto? history;
+        using (_tenantBoundary.EnterScope(tenant))
+            history = _sessionHistory.Get(sessionId);
+        return new(history?.SessionNumber, history?.SessionName);
     }
 
     public async Task<DirectorCommandResult?> SendCommandAsync(string directorId, DirectorCommand command, CancellationToken ct = default)

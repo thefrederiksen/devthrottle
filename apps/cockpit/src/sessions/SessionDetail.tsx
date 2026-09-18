@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { getQueue, type QueueItem, type SessionDto } from "@devthrottle/client-core/api/client";
 import { modelChipOf } from "@devthrottle/client-core/sessions/model";
 import { TerminalPane } from "../panes/TerminalPane";
@@ -35,6 +35,19 @@ type DockTab = "queue" | "shots";
 // conversation beside it, from the shared client-core view the phone also mounts.
 type MainTab = "terminal" | "chat" | "voice" | "sourceControl" | "wingman" | "reports";
 
+// THE ADDRESS HOLDS THE TAB AND THE OPEN REPORT (dev reports mission, phase 3b).
+// These used to be component state, so `/session/{sid}?tab=reports&report={rid}` could not reach them and a
+// link to a report landed on the terminal. They are read from the address instead: a deep link arrives with
+// the tab already chosen and the report already open, and every switch writes the address back so it never
+// describes a screen that is not the one you are looking at. Terminal is the default and is left OUT of the
+// address, so an ordinary session link stays `/session/{sid}`.
+const MAIN_TABS: readonly MainTab[] = ["terminal", "chat", "voice", "sourceControl", "wingman", "reports"];
+const DEFAULT_MAIN_TAB: MainTab = "terminal";
+
+function tabFromAddress(raw: string | null): MainTab {
+  return MAIN_TABS.includes(raw as MainTab) ? (raw as MainTab) : DEFAULT_MAIN_TAB;
+}
+
 export function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -44,7 +57,57 @@ export function SessionDetail() {
   const [compose, setCompose] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [tab, setTab] = useState<DockTab>("queue");
-  const [mainTab, setMainTab] = useState<MainTab>("terminal");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mainTab = tabFromAddress(searchParams.get("tab"));
+  // Only the Reports tab has an open report, so `report=` outside it means nothing and is not read.
+  const openReportId = mainTab === "reports" ? searchParams.get("report") || null : null;
+
+  // Switching tab REPLACES the address (a tab is not a place you go back to) and drops any open report,
+  // because a report is only open on the Reports tab.
+  const setMainTab = useCallback(
+    (next: MainTab) => {
+      setSearchParams(
+        (current) => {
+          const params = new URLSearchParams(current);
+          if (next === DEFAULT_MAIN_TAB) params.delete("tab");
+          else params.set("tab", next);
+          if (next !== "reports") params.delete("report");
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // Opening and closing a report PUSHES, so the browser's own Back closes the report the way the reader
+  // expects - and either way the address says exactly what is on screen.
+  const openReport = useCallback(
+    (reportId: string) => {
+      setSearchParams((current) => {
+        const params = new URLSearchParams(current);
+        params.set("tab", "reports");
+        params.set("report", reportId);
+        return params;
+      });
+    },
+    [setSearchParams],
+  );
+
+  const closeReport = useCallback(() => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      params.set("tab", "reports");
+      params.delete("report");
+      return params;
+    });
+  }, [setSearchParams]);
+
+  // The way back to this session from an open report: the session itself, on its default tab.
+  const backToSession = useCallback(
+    (reportSessionId: string) => navigate(`/session/${encodeURIComponent(reportSessionId)}`),
+    [navigate],
+  );
   // Set by the composer to a function that focuses its textarea, so the Source Control tab can focus the
   // composer after inserting a clicked file's path (issue #1266).
   const composerFocusRef = useRef<(() => void) | null>(null);
@@ -183,7 +246,13 @@ export function SessionDetail() {
           )}
           {mainTab === "reports" && (
             <div className="session-pane">
-              <ReportsTab sessionId={sessionId} />
+              <ReportsTab
+                sessionId={sessionId}
+                openReportId={openReportId}
+                onOpenReport={openReport}
+                onCloseReport={closeReport}
+                onBackToSession={backToSession}
+              />
             </div>
           )}
         </div>

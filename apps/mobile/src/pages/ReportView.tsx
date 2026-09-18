@@ -16,6 +16,13 @@ export function ReportView() {
     navigate(`/session/${encodeURIComponent(sessionId ?? "")}/reports`, { replace: true });
   }, [navigate, sessionId]);
 
+  // The way back to the session this report came from (phase 3b). Its words are the Gateway's; this page only
+  // knows where the session lives on the phone, which is its default view.
+  const backToSession = useCallback(
+    (reportSessionId: string) => navigate(`/session/${encodeURIComponent(reportSessionId)}`),
+    [navigate],
+  );
+
   return (
     <div className="terminal-screen report-screen">
       <header className="app-bar">
@@ -29,6 +36,7 @@ export function ReportView() {
           key={reportId}
           reportId={reportId}
           onNotFound={backToList}
+          onBackToSession={backToSession}
           renderConversation={(conversation) => (
             <>
               <button

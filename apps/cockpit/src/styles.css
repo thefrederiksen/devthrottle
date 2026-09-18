@@ -2889,6 +2889,8 @@ body {
   overflow-y: auto;
 }
 
+/* An OPEN report never scrolls in the app's box: the report page scrolls inside its own frame, and the
+   tab, the body around it and the pane behind it are all clipped. One report, one scrollbar. */
 .reports-tab-open {
   overflow: hidden;
 }
@@ -2913,16 +2915,28 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  overflow: hidden;
 }
 
 .reports-tab-body .dev-report-viewer {
   flex: 1 1 auto;
 }
 
+/* THE conversation - the only one on the screen now that a hosted report page draws none. It is not the
+   report, so it keeps its own scroll: the report's single scrollbar is the frame's, this is the list's. */
 .reports-conversation {
   flex: 0 0 340px;
   min-height: 0;
   overflow-y: auto;
   background: var(--surface);
   border-left: 1px solid var(--border);
+}
+
+.reports-conversation-title {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
 }

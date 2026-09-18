@@ -25,9 +25,22 @@ export interface DevReportViewerProps {
   renderConversation: (conversation: DevReportConversationModel, snapshot: DevReportSnapshot) => ReactNode;
   /** The Gateway answered 404 for this report: it does not appear. The shell usually goes back to the list. */
   onNotFound?: () => void;
+  /**
+   * Take the reader back to the session this report came from, in this app. The viewer draws the link and
+   * the Gateway supplies its words (`backLabel`); the shell only knows how to navigate. Without this - or
+   * without the Gateway's words - there is no back link at all, because the alternative is inventing one.
+   */
+  onBackToSession?: (sessionId: string) => void;
 }
 
 const idleSubscribe = () => () => {};
+
+/** A string the Gateway actually sent, or null. Whitespace is not words. */
+function nonEmpty(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
 const idleSnapshot: DevReportSnapshot = {
   detail: null,
   notFound: false,
@@ -39,7 +52,7 @@ const idleSnapshot: DevReportSnapshot = {
   sendError: null,
 };
 
-export function DevReportViewer({ reportId, renderConversation, onNotFound }: DevReportViewerProps) {
+export function DevReportViewer({ reportId, renderConversation, onNotFound, onBackToSession }: DevReportViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [controller, setController] = useState<DevReportController | null>(null);
 
@@ -72,6 +85,12 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound }: De
     if (snapshot.notFound) onNotFound?.();
   }, [snapshot.notFound, onNotFound]);
 
+  // The Gateway's two finished strings, rendered verbatim or not at all (repository rule 7). A report record
+  // from an older Gateway carries neither, and then there is no back link and no session line - never an
+  // identifier, and never a sentence this file composed.
+  const sessionLabel = nonEmpty(snapshot.detail?.report.sessionLabel);
+  const backLabel = nonEmpty(snapshot.detail?.report.backLabel);
+
   const conversation: DevReportConversationModel = {
     queued: snapshot.pageState.queued,
     sent: snapshot.detail?.items ?? [],
@@ -86,7 +105,22 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound }: De
       <div className="dev-report-viewer-main">
         {snapshot.detail && (
           <div className="dev-report-viewer-bar">
+            {backLabel && onBackToSession && (
+              <button
+                type="button"
+                className="dev-report-back"
+                data-testid="dev-report-back"
+                onClick={() => onBackToSession(snapshot.detail!.report.sessionId)}
+              >
+                {backLabel}
+              </button>
+            )}
             <span className="dev-report-viewer-title">{snapshot.detail.report.title}</span>
+            {sessionLabel && (
+              <span className="dev-report-viewer-session" data-testid="dev-report-session-label">
+                {sessionLabel}
+              </span>
+            )}
             <span className="dev-report-status">{snapshot.detail.report.status}</span>
             <span className="dev-report-viewer-version" data-testid="dev-report-version">
               Version {snapshot.loadedVersion ?? snapshot.detail.report.version}

@@ -93,8 +93,8 @@ def test_open_success_prints_id_version_title_status_and_owner_route(wire, repor
     assert "  version: 3" in result.output
     assert "  title: Phase 2 report" in result.output
     assert "  status: waiting-on-you" in result.output
-    assert "Reports view" in result.output
-    assert f"  route: /dev-reports/{REPORT_ID}" in result.output
+    assert "  opens this address and lands in the report" in result.output
+    assert f"  route: http://gateway.invalid/r/{REPORT_ID}" in result.output
     assert result.output.isascii()
     assert calls[0]["method"] == "POST"
     assert calls[0]["url"] == f"http://gateway.invalid/sessions/{SESSION_ID}/dev-reports"
@@ -283,12 +283,53 @@ def test_json_shape_is_the_same_keys_for_success_and_failure_on_both_commands(wi
     assert parsed[0]["ok"] is True
     assert parsed[0]["report"]["version"] == 2
     assert parsed[0]["created"] is False
-    assert parsed[0]["ownerRoute"] == f"/dev-reports/{REPORT_ID}"
+    assert parsed[0]["ownerRoute"] == f"http://gateway.invalid/r/{REPORT_ID}"
     assert parsed[1]["ok"] is False
     assert parsed[1]["code"] == "shape_check_failed"
     assert parsed[1]["errors"] == ["one", "two"]
     assert parsed[2]["reply"] == reply
     assert parsed[3]["code"] == "no_report"
+
+
+# ONE ADDRESS THE OWNER CLICKS (dev reports mission, phase 3b, proof 6). The tool prints
+# `<gateway>/r/<report id>` - built from the Gateway this session was launched against, with the report id
+# WHOLE - in the human output and in --json, from BOTH commands. A path, a shortened id, or a base this
+# tool invented instead of read would fail here.
+
+
+def test_open_prints_the_whole_gateway_address_for_the_report(wire, report_file, monkeypatch):
+    monkeypatch.setenv("CC_GATEWAY_URL", "https://gw.example.test/")
+    wire((200, {"report": _summary(), "created": True}))
+
+    result = runner.invoke(app, ["open", str(report_file)])
+
+    assert result.exit_code == 0, result.output
+    assert f"  route: https://gw.example.test/r/{REPORT_ID}" in result.output
+    # Not a bare path, and not a shortened identifier.
+    assert "/dev-reports/" not in result.output
+    assert REPORT_ID[:8] + "..." not in result.output
+    assert result.output.isascii()
+
+
+def test_open_json_carries_the_same_whole_address(wire, report_file, monkeypatch):
+    monkeypatch.setenv("CC_GATEWAY_URL", "https://gw.example.test")
+    wire((200, {"report": _summary(), "created": True}))
+
+    result = runner.invoke(app, ["open", str(report_file), "--json"])
+
+    parsed = json.loads(result.output)
+    assert parsed["ownerRoute"] == f"https://gw.example.test/r/{REPORT_ID}"
+    assert tuple(parsed.keys()) == reports_ops.RESULT_KEYS
+
+
+def test_reply_prints_the_same_whole_gateway_address(wire, monkeypatch):
+    monkeypatch.setenv("CC_GATEWAY_URL", "https://gw.example.test")
+    wire((200, {"reply": {"id": "y-1", "text": "x", "at": "2026-09-16T12:00:00Z"}}))
+
+    result = runner.invoke(app, ["reply", "x", "--report", REPORT_ID])
+
+    assert result.exit_code == 0, result.output
+    assert f"  route: https://gw.example.test/r/{REPORT_ID}" in result.output
 
 
 def test_error_lines_keep_quotes_readable_and_escape_only_non_ascii(wire, report_file):

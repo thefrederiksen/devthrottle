@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Test suites: what runs by default, what is parked, and what it costs</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 24px 20px 64px;
+    font: 16px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: #1b1f27; background: #ffffff;
+  }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 20px; margin: 32px 0 10px; }
+  h3 { font-size: 17px; margin: 18px 0 8px; }
+  p { margin: 0 0 12px; }
+  .status {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: #fdf0d5; color: #7a4b00; font-size: 13px; font-weight: 600;
+  }
+  .who { color: #5a6270; font-size: 14px; margin-top: 8px; }
+  section { max-width: 760px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0 18px; font-size: 15px; }
+  caption { text-align: left; color: #5a6270; font-size: 14px; padding-bottom: 6px; }
+  th, td { border: 1px solid #d7dbe2; padding: 8px 10px; text-align: left; vertical-align: top; }
+  thead th { background: #f2f4f8; }
+  tbody th { background: #fafbfd; font-weight: 600; }
+  td.number { text-align: right; font-variant-numeric: tabular-nums; }
+  .question {
+    border: 1px solid #d7dbe2; border-left: 4px solid #2f6fd0;
+    border-radius: 8px; padding: 14px 16px; margin: 0 0 16px; background: #f8fafd;
+  }
+  .question label { display: block; padding: 6px 0; }
+  .question textarea { width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; font: inherit; }
+  .note { color: #5a6270; font-size: 14px; }
+  ul { margin: 0 0 12px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<header data-dev-report="header" data-dev-report-status="waiting-on-you">
+  <span class="status">Waiting on you</span>
+  <h1>Test suites: what runs by default, what is parked, and what it costs</h1>
+  <p class="who">Written for the owner. One question in the next section, and the table it rests on is
+  further down.</p>
+</header>
+
+<section data-dev-report="summary">
+  <h2>In short</h2>
+  <p>The default local gate runs eight suites in under two minutes. Three suites are parked and do not run
+  unless you ask for them, and one of those three - the Gateway's own unit tests - is the one most likely to
+  matter, because it holds four thousand two hundred and fifty nine tests of the part of the product every
+  client talks to.</p>
+  <p>Parking it was the right call at the time: it had grown past the two minute ceiling and was making every
+  agent wait. But a green default run now says nothing at all about the Gateway, and nobody reading the word
+  green would guess that. I would like to change one thing about that, and it needs your call.</p>
+</section>
+
+<section data-dev-report="questions">
+  <h2>What I need from you</h2>
+  <div class="question" data-dev-report-question="unpark-first"
+       data-dev-report-question-text="Which parked suite should we bring back into the default run first?">
+    <h3>Which parked suite should we bring back into the default run first?</h3>
+    <label><input type="radio" name="unpark-first" value="gateway-unit" data-recommended>
+      The Gateway unit tests - the biggest gap, and the part every client depends on</label>
+    <label><input type="radio" name="unpark-first" value="core">
+      The Core tests - smaller, and they would come back sooner</label>
+    <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+  </div>
+  <p class="note">Neither answer costs us anything permanent - either suite can be parked again. The
+  recommendation is the Gateway suite because it is the gap that reads as coverage and is not.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>The measurements</h2>
+  <p>Every number below was taken on this machine on 2026-09-17, from the local gate's own result files rather
+  than from the console summary. Runs by default means the suite is inside the two minute budget and an
+  ordinary local gate run executes it.</p>
+
+  <table id="suites">
+    <caption>The eight default suites and the three parked ones, as measured</caption>
+    <thead>
+      <tr>
+        <th scope="col">Suite</th>
+        <th scope="col">Tests</th>
+        <th scope="col">Seconds</th>
+        <th scope="col">Runs by default</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th scope="row">Gateway unit tests</th>
+        <td class="number">4259</td>
+        <td class="number">204</td>
+        <td>No - parked</td>
+      </tr>
+      <tr>
+        <th scope="row">Core tests</th>
+        <td class="number">612</td>
+        <td class="number">173</td>
+        <td>No - parked</td>
+      </tr>
+      <tr>
+        <th scope="row">Gateway host tests</th>
+        <td class="number">318</td>
+        <td class="number">96</td>
+        <td>No - parked, takes a machine wide lock</td>
+      </tr>
+      <tr>
+        <th scope="row">Client core</th>
+        <td class="number">1275</td>
+        <td class="number">31</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <th scope="row">Cockpit</th>
+        <td class="number">351</td>
+        <td class="number">12</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <th scope="row">Phone app</th>
+        <td class="number">78</td>
+        <td class="number">7</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <th scope="row">Installer</th>
+        <td class="number">479</td>
+        <td class="number">22</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <th scope="row">Everything else</th>
+        <td class="number">1634</td>
+        <td class="number">41</td>
+        <td>Yes</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>The three parked suites add up to five thousand one hundred and eighty nine tests and seven minutes and
+  fifty three seconds. That is the whole trade: the default run stays under two minutes because those seven
+  minutes and fifty three seconds are not in it.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>What a green run actually certifies</h2>
+  <p>This is the part that worries me, and it is why I am asking rather than just doing it.</p>
+  <ul>
+    <li>A green default run certifies the eight suites in the table above, and nothing else.</li>
+    <li>It runs no web tests against a real browser and no Python tests at all.</li>
+    <li>It builds Debug. What people download is Release, and the release gate is the only run that matches it.</li>
+    <li>A regression inside a parked suite therefore reaches the main branch with every light showing green,
+    and the person who merged it has not done anything wrong.</li>
+  </ul>
+  <p>The gate does print a coverage gap line naming what it did not run. That line is correct, and it is easy
+  to miss, because it sits under a large green number.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>What it would cost to un-park the Gateway suite</h2>
+  <p>Three minutes and twenty four seconds today, which would take the default run from one minute fifty to
+  over five minutes. That is not acceptable as it stands, so un-parking it means making it faster first. Two
+  thirds of its time is in one hundred and forty tests that each stand up a whole Gateway; sharing one across
+  a class would bring the suite to about seventy seconds, which fits.</p>
+  <p>That is a week of work, not an afternoon, which is the real reason this is a question for you and not a
+  decision I should make on my own.</p>
+</section>
+
+<section data-dev-report="evidence">
+  <h2>Evidence, and what is not proven</h2>
+  <p>Proven: every count and every duration in the table was read from the result files the local gate writes,
+  not from its console summary, on one machine on one day.</p>
+  <p>Not proven: the seventy second estimate for a shared Gateway is an estimate. It comes from timing ten of
+  the one hundred and forty tests with a shared instance by hand and multiplying. Nobody has run the whole
+  suite that way, and the ten were not chosen at random.</p>
+  <p>Not measured at all: what any of this looks like on the build machine, which is slower than this one and
+  runs other work at the same time.</p>
+</section>
+
+</body>
+</html>
