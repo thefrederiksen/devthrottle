@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Workflows;
@@ -11,12 +10,6 @@ namespace CcDirector.Gateway.Tests;
 /// mission, phase 1). Covers: fresh seeding of the shipped built-ins, idempotent re-seeding (a
 /// restart mints nothing), the ours/yours upgrade trade (newer shipped content auto-publishes ONLY
 /// while the user has not customized the workflow), and the read projections' legacy-shape fields.
-///
-/// The FIDELITY test is the load-bearing one for the mission extraction: the embedded mission
-/// instruction body must equal the body of <c>.claude/skills/mission/SKILL.md</c> modulo exactly the
-/// two listed mechanical self-reference edits. It guards the "faithful extraction, not a rewrite"
-/// requirement until the skill file is stubbed (phase 6), at which point the embedded copy becomes
-/// canonical and this test retires.
 /// </summary>
 public sealed class WorkflowStoreTests : IDisposable
 {
@@ -260,67 +253,5 @@ public sealed class WorkflowStoreTests : IDisposable
                 new[] { ("helpers.py", WorkflowContentHash.ForFile("print()")) }));
     }
 
-    // ---- the mission-extraction fidelity test ------------------------------------------------------
-
-    /// <summary>
-    /// The two mechanical self-reference edits the extraction is allowed (each listed in the plan and
-    /// shown in the pull request): the document stops calling itself "this file" where that would now
-    /// be a lie, and the brief checklist points at the workflow instead of linking the file.
-    /// Everything else must match byte-for-byte (modulo line endings). Each replacement ASSERTS that
-    /// its source phrase was actually present - a silent no-op Replace (the phrase drifted in the
-    /// skill file) would otherwise let an unedited embedded copy pass.
-    /// </summary>
-    private static string ApplyListedEdits(string skillBody)
-    {
-        var edited = ReplaceExactlyOnce(skillBody,
-            "THIS FILE HOLDS THE CONDUCT OF A RUN",
-            "THIS WORKFLOW HOLDS THE CONDUCT OF A RUN");
-        return ReplaceExactlyOnce(edited,
-            "5. **A link to this file** for the conduct of a run, and to the DevThrottle Method for the rules.",
-            "5. **A pointer to the DevThrottle Method** for the rules, and to this workflow -\n" +
-            "   `cc-devthrottle workflow instructions mission` - for how a run is conducted.");
-    }
-
-    private static string ReplaceExactlyOnce(string text, string from, string to)
-    {
-        var first = text.IndexOf(from, StringComparison.Ordinal);
-        Assert.True(first >= 0,
-            $"Expected the skill file to contain the listed-edit source phrase: \"{from}\". " +
-            "If the skill file changed, update the listed edits deliberately.");
-        Assert.Equal(first, text.LastIndexOf(from, StringComparison.Ordinal));
-        return text.Replace(from, to);
-    }
-
-    [Fact]
-    public void Mission_instructions_are_a_faithful_extraction_of_the_skill_file()
-    {
-        var skillPath = Path.Combine(RepoRoot(), ".claude", "skills", "mission", "SKILL.md");
-        Assert.True(File.Exists(skillPath),
-            $"The mission skill file was not found at {skillPath}. If it has been stubbed (phase 6), " +
-            "this fidelity test has done its job and should be retired.");
-
-        var skill = Normalize(File.ReadAllText(skillPath));
-
-        // The body is everything below the YAML frontmatter (between the first two "---" lines).
-        var frontmatterEnd = skill.IndexOf("\n---\n", skill.IndexOf("---\n", StringComparison.Ordinal) + 4,
-            StringComparison.Ordinal);
-        Assert.True(frontmatterEnd > 0, "SKILL.md has no YAML frontmatter fence.");
-        var body = skill[(frontmatterEnd + "\n---\n".Length)..].TrimStart('\n');
-
-        var expected = ApplyListedEdits(body).TrimEnd('\n');
-        var embedded = Normalize(BuiltInWorkflows.InstructionsFor("mission")).TrimEnd('\n');
-
-        Assert.Equal(expected, embedded);
-    }
-
     private static string Normalize(string text) => text.Replace("\r\n", "\n");
-
-    /// <summary>The repository root, located from this source file's own path - the tests always run
-    /// from a checkout, and bin-relative paths would break under different runners.</summary>
-    private static string RepoRoot([CallerFilePath] string thisFile = "")
-    {
-        // this file: <repo>/src/CcDirector.Gateway.Tests/WorkflowStoreTests.cs
-        var dir = Path.GetDirectoryName(thisFile)!;
-        return Path.GetFullPath(Path.Combine(dir, "..", ".."));
-    }
 }

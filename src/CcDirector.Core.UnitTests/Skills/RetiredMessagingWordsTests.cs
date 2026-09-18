@@ -332,7 +332,6 @@ public sealed class RetiredMessagingWordsTests
         "src/CcDirector.Gateway/Skills/Content/fleet-manager.skill.md",
         "src/CcDirector.Gateway/Workflows/Content/mission.instructions.md",
         ".claude/skills/fleet-comms/SKILL.md",
-        ".claude/skills/mission/SKILL.md",
         "plugins/devthrottle/skills/devthrottle-sessions/SKILL.md",
         "docs/FleetMessaging.md",
         "docs/cli-reference.md",
@@ -378,7 +377,7 @@ public sealed class RetiredMessagingWordsTests
         files.AddRange(Directory.GetFiles(Path.Combine(root, "tools", "cc-devthrottle", "src"), "*.py"));
 
         // The repository copies of the shipped skills and of the mission workflow.
-        foreach (var id in new[] { "fleet-comms", "mission", "terminology", "dev-throttle", "move-session" })
+        foreach (var id in new[] { "fleet-comms", "terminology", "dev-throttle", "move-session" })
         {
             var copy = Path.Combine(root, ".claude", "skills", id, "SKILL.md");
             if (File.Exists(copy)) files.Add(copy);

@@ -74,8 +74,26 @@ Enumerated, with why each piece is disposable. Nothing outside this list is remo
    scan still reads the whole `Workflows/Content/` directory, so the workflow body remains covered
    by the retired-words guard.
 
+5. The comment on the `Workflows\Content\*.instructions.md` `EmbeddedResource` item in
+   `src/CcDirector.Gateway/CcDirector.Gateway.csproj` (around line 90), which says the bodies are
+   kept as `.md` files "so the mission conduct stays diffable against its source
+   (`.claude/skills/mission/SKILL.md`)". The whole clause is the twin-file claim, not only the
+   parenthetical, and after the deletion there is no source to be diffable against - so it is
+   rewritten to state the reason that survives, which is that the bodies are `.md` files rather than
+   C# string literals so they stay readable in a diff and cannot drift through escaping. The
+   neighbouring comment on `Skills\Content\*.skill.md` is untouched: shipped skills do still have
+   repository twins, so its wording is still true.
+
 One reference is repointed rather than deleted: the `SessionOrdering.cs` comment that cites the
 skill file is made to cite the workflow, with no change to resolver behaviour.
+
+**This list was incomplete when it was written.** Item 5 was not on it. The Developer found the
+project-file comment while checking the blast radius it had been handed, stopped, and asked before
+touching it rather than deciding on its own - which is the behaviour the mandate asked for and the
+reason the enumeration is done by a second pair of eyes rather than taken on the Tech Lead's word.
+The Tech Lead verified the reference in the source before answering, and widened the fix beyond what
+was proposed, because striking only the parenthetical would have left a sentence that was still
+false.
 
 ## What this does not cover
 
