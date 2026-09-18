@@ -26,10 +26,37 @@ namespace CcDirector.Core.Network;
 public static class GatewayHttp
 {
     /// <summary>
-    /// Connect budget per candidate address. Short enough that a dead first address still leaves
-    /// room for the next one inside the 5-second timeout the tightest gateway clients use.
+    /// Connect budget for a candidate address that HAS A NEXT ONE TO TRY. Short enough that a dead
+    /// first address still leaves room for the next one inside the 5-second timeout the tightest
+    /// gateway clients use.
+    ///
+    /// It does NOT apply to the last candidate - see <see cref="BudgetFor"/> for why.
     /// </summary>
     private static readonly TimeSpan PerAddressConnectTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// The connect budget for candidate <paramref name="index"/> of <paramref name="count"/>, or null
+    /// for no budget at all - in which case the caller's own cancellation (its request timeout) is the
+    /// only deadline.
+    ///
+    /// WHY THE LAST CANDIDATE IS NOT CAPPED. This budget buys exactly one thing: the chance to ABANDON a
+    /// black-holed address and dial the NEXT one. On the last candidate there is no next one, so a cap
+    /// cannot buy anything - it can only fail a connect that was merely slow, and hand the caller a
+    /// "no address accepted a connection" that reads like an unreachable gateway when the gateway was
+    /// fine. A gateway named on the local network resolves to two addresses (the internet protocol
+    /// version six link-local address first, then the version four address) and still behaves exactly as
+    /// before: the first is capped and the dial moves on. A hosted gateway name resolving to ONE address
+    /// is now bounded by the caller's timeout instead of by three seconds.
+    ///
+    /// Measured before this change, on a Director whose machine was starved of processor time: 352
+    /// dialing failures in one day, every one of them this budget expiring, not one of them the far side
+    /// refusing - while a plain command-line request to the same host connected in 27 to 54
+    /// milliseconds. Issue #3090.
+    ///
+    /// Pure, so the rule is tested without opening a socket.
+    /// </summary>
+    public static TimeSpan? BudgetFor(int index, int count) =>
+        index < count - 1 ? PerAddressConnectTimeout : null;
 
     /// <summary>
     /// One shared invoker for websocket upgrades. Never disposed on purpose: the upgraded stream
@@ -94,13 +121,15 @@ public static class GatewayHttp
             throw new SocketException((int)SocketError.HostNotFound);
 
         Exception? lastFailure = null;
-        foreach (var address in addresses)
+        for (var index = 0; index < addresses.Count; index++)
         {
+            var address = addresses[index];
             var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             try
             {
                 using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                attempt.CancelAfter(PerAddressConnectTimeout);
+                if (BudgetFor(index, addresses.Count) is { } budget)
+                    attempt.CancelAfter(budget);
                 await socket.ConnectAsync(new IPEndPoint(address, port), attempt.Token).ConfigureAwait(false);
                 if (lastFailure is not null)
                     FileLog.Write($"[GatewayHttp] ConnectAsync: {host}:{port} connected via {address} after an earlier address failed: {lastFailure.Message}");
