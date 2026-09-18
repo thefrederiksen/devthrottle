@@ -39,7 +39,9 @@ internal static class PtyShim
 
         // Content-addressed file name: same bytes -> same path, new shim build -> new path.
         var hash = Convert.ToHexString(SHA256.HashData(shimBytes))[..16].ToLowerInvariant();
-        var binDir = Path.Combine(CcStorage.Root(), "bin");
+        // The machine's tool directory, not this Director's folder: the shim is one file per set of
+        // bytes and every Director on the machine can use the same one.
+        var binDir = CcStorage.Bin();
         var shimPath = Path.Combine(binDir, $"{ResourceName}-{hash}");
 
         if (File.Exists(shimPath))

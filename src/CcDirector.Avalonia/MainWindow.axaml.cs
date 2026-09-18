@@ -1400,19 +1400,15 @@ public partial class MainWindow : Window
     /// reporting "cannot connect to DevThrottle".
     /// </summary>
     /// <summary>
-    /// THIS Director's own tool directory - the one whose cc-devthrottle can drive it.
+    /// The machine's installed tool directory - the one whose cc-devthrottle can drive this Director.
     ///
-    /// Deliberately NOT <c>InstallLayout.Default().BinDir</c>. That resolves to the flat
-    /// %LOCALAPPDATA%\cc-director\bin, which predates instance homes: on a machine upgraded through the
-    /// move to <c>instances\&lt;slug&gt;</c> it is exactly where the SUPERSEDED tools were left behind.
-    /// Using it made the check name the broken directory as the good one, so a machine whose PATH
-    /// resolved that stale copy reported "same install" and offered no repair - and had the button been
-    /// offered, it would have repointed PATH at the stale copy it was supposed to escape.
-    ///
-    /// Storage is per instance, so the tools that belong to this Director are under ITS home.
+    /// There is one installed copy of the tools per machine and every Director on it uses that copy, so
+    /// this is the machine root's <c>bin</c>. It used to be composed from THIS Director's own folder,
+    /// on the reasoning that storage is per instance and the tools were therefore per instance too.
+    /// They never were: that is the very leak that left one machine with seven copies, each ageing at
+    /// its own pace, and let a two-month-old one answer every agent.
     /// </summary>
-    private static string OwnToolBinDir()
-        => Path.Combine(CcDirector.Core.Instances.InstanceContext.InstanceHome, "bin");
+    private static string OwnToolBinDir() => CcDirector.Core.Storage.CcStorage.Bin();
 
     private async Task RefreshFleetToolReachabilityAsync()
     {

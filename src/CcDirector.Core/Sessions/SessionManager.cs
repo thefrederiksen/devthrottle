@@ -726,7 +726,7 @@ public sealed class SessionManager : IDisposable
             if (!string.IsNullOrEmpty(DirectorId))
                 envVars["CC_DIRECTOR_ID"] = DirectorId;
 
-            // Put THIS Director's own cc-* tools first on the session's PATH.
+            // Put the machine's installed cc-* tools first on the session's PATH.
             //
             // Machine PATH is shared state: any other install, an unfinished migration, or a test rig
             // that leaked an entry can put a different copy of cc-devthrottle in front of ours, and
@@ -738,7 +738,12 @@ public sealed class SessionManager : IDisposable
             // So the session is not asked to find us. It is TOLD. Nothing is removed from the user's
             // PATH here - only which copy of our own command line wins - and this leaves the machine
             // PATH itself untouched.
-            var ownToolBin = Path.Combine(Instances.InstanceContext.InstanceHome, "bin");
+            //
+            // It is the MACHINE's tools, not this Director's own copy: there is one installed copy per
+            // machine and every Director uses it. Composing the path from this Director's folder is what
+            // made each Director carry a copy of its own, drifting a release further behind the product
+            // every time one of them was not reinstalled by hand.
+            var ownToolBin = Storage.CcStorage.Bin();
             if (Directory.Exists(ownToolBin))
             {
                 envVars["PATH"] = Setup.FleetToolPathRepair.PathWithOwnToolsFirst(

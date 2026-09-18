@@ -67,8 +67,13 @@ public static class BrowserHarnessInstaller
     /// </summary>
     public static readonly TimeSpan PipInstallTimeout = TimeSpan.FromMinutes(10);
 
-    /// <summary>The harness's own virtual environment, kept apart from the shared cc-* tools venv.</summary>
-    public static string EnvDir => Path.Combine(CcStorage.Root(), "harness-env");
+    /// <summary>
+    /// The harness's own virtual environment, kept apart from the shared cc-* tools environment but in
+    /// the same place: one per machine, at the machine root. The shim that puts it on PATH is written
+    /// into the machine's <see cref="ShimDir"/>, so an environment inside one Director's folder would
+    /// leave every other Director on the machine pointing at a folder it does not own.
+    /// </summary>
+    public static string EnvDir => Path.Combine(CcStorage.MachineRoot(), "harness-env");
 
     /// <summary>The venv's executables directory: Scripts on Windows, bin elsewhere.</summary>
     public static string EnvBinDir => Path.Combine(EnvDir, OperatingSystem.IsWindows() ? "Scripts" : "bin");
@@ -85,8 +90,8 @@ public static class BrowserHarnessInstaller
     /// The harness venv is created from it so the machine needs no Python of its own.
     /// </summary>
     public static string BundledPython => OperatingSystem.IsWindows()
-        ? Path.Combine(CcStorage.Root(), "python", "python.exe")
-        : Path.Combine(CcStorage.Root(), "python", "bin", "python3");
+        ? Path.Combine(CcStorage.PythonRuntime(), "python.exe")
+        : Path.Combine(CcStorage.PythonRuntime(), "bin", "python3");
 
     /// <summary>
     /// Where the shim goes so the harness is on PATH: the managed <c>bin</c> on Windows (every cc-* shim

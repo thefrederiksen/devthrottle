@@ -28,6 +28,91 @@ public static class CcStorage
     public static string Root() => Base();
 
     /// <summary>
+    /// The MACHINE root: the one folder on this computer that holds the INSTALLED product - the tool
+    /// launchers in <c>bin</c>, the bundled interpreter in <c>python</c>, the shared virtual environment
+    /// in <c>pyenv</c>, and the manifest recording what version each of those is. There is exactly one
+    /// of these per machine, and every Director on the machine uses it.
+    ///
+    /// It is NOT the same question as <see cref="Root"/>. <see cref="Root"/> answers "where does THIS
+    /// process keep its data", and every Director points it at that Director's own folder so sessions,
+    /// settings and logs stay separate. The tools are not data: they are one installed copy that every
+    /// Director shares.
+    ///
+    /// WHY THIS EXISTS. A Director's folder is always <c>&lt;machine root&gt;/instances/&lt;name&gt;</c>,
+    /// and the Director hands that path to every session it starts as the CC_DIRECTOR_ROOT setting. So
+    /// anything that installed tools, or looked for them, by asking <see cref="Root"/> took a Director's
+    /// own folder for the whole machine whenever it ran from inside a Director or a session. One
+    /// computer finished with seven complete copies of the tools, each with its own interpreter, each
+    /// ageing at its own pace, and whichever copy happened to be first on the search path was the one
+    /// that answered. On 17 and 18 September 2026 the copy that answered was two months old and told
+    /// every agent to set a variable for a part of the product that no longer exists.
+    ///
+    /// So a Director's folder is never an install root. This method climbs out of one and returns the
+    /// machine root it sits under. Any other root - a throwaway root a test rig pins with the
+    /// CC_DIRECTOR_ROOT setting, say - comes back exactly as it went in, because a rig keeping its own
+    /// tools is what makes a rig safe to run at all.
+    /// </summary>
+    public static string MachineRoot() => MachineRootOf(Base());
+
+    /// <summary>
+    /// The pure form of <see cref="MachineRoot"/>, so every answer can be tested on any machine without
+    /// touching the environment.
+    ///
+    /// It climbs REPEATEDLY rather than once. One climb is all the shape calls for, but the leak this
+    /// fixes also produced nested folders - there is an <c>instances/default/instances/default</c> on
+    /// the computer that prompted the work - and a single climb out of that lands on another Director's
+    /// folder, which is still not the machine. Climbing on cannot reach past a real machine root,
+    /// because a real machine root is never a child of a folder named <c>instances</c>.
+    /// </summary>
+    /// <param name="root">A storage root: a machine root, a Director's own folder, or a rig's own root.</param>
+    internal static string MachineRootOf(string root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return root;
+
+        var current = root;
+        while (IsDirectorInstanceHome(current))
+        {
+            var instancesDir = Path.GetDirectoryName(
+                current.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var machine = instancesDir is null ? null : Path.GetDirectoryName(instancesDir);
+
+            // A folder named "instances" with nothing above it is not a shape any Director writes.
+            // Refusing to invent a parent that is not there leaves the caller with the path it gave,
+            // which is the honest answer.
+            if (string.IsNullOrEmpty(machine)) return current;
+
+            current = machine;
+        }
+
+        return current;
+    }
+
+    /// <summary>
+    /// Does <paramref name="root"/> have the shape of a Director's own folder -
+    /// <c>&lt;something&gt;/instances/&lt;name&gt;</c> - rather than a machine root?
+    ///
+    /// The test is STRUCTURAL: the parent directory is named <c>instances</c>, which is exactly how a
+    /// Director composes its folder. It is deliberately narrow. A rig serving a throwaway root of its
+    /// own answers false, which is right - an isolated root is a legitimate thing to serve, and
+    /// refusing it would refuse the only safe way to exercise any of this. What this catches is the one
+    /// shape that is wrong by construction.
+    ///
+    /// It lives here rather than beside the Director's instance identity because the storage paths
+    /// above and that identity both have to agree on it, and two implementations of one shape cannot
+    /// stay equal. <c>InstanceContext.LooksLikeAnInstanceHome</c> calls this.
+    /// </summary>
+    public static bool IsDirectorInstanceHome(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return false;
+
+        var trimmed = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var parent = Path.GetDirectoryName(trimmed);
+        if (string.IsNullOrEmpty(parent)) return false;
+
+        return string.Equals(Path.GetFileName(parent), "instances", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The Fleet Manager's own working folder (the Fleet Manager mission, step 5): <c>&lt;root&gt;/fleet-manager</c>.
     /// The Fleet Manager works on no repository, so it runs here on whichever computer the account chose. Not
     /// created by this call - the session create makes it when it is missing, and says so in the log.
@@ -281,10 +366,26 @@ public static class CcStorage
     /// </summary>
     public static string BriefFeedback() => Ensure(Path.Combine(Base(), "brief-feedback"));
 
-    /// <summary>Installed executables (tool binaries). Honors the CC_DIRECTOR_ROOT override via
-    /// <see cref="Base"/> like every other path here, so an isolated root redirects the tool bin too
-    /// (previously this hardcoded %LOCALAPPDATA%\cc-director\bin and silently ignored the override).</summary>
-    public static string Bin() => Path.Combine(Base(), "bin");
+    /// <summary>
+    /// Installed executables (tool launchers): <c>&lt;machine root&gt;\bin</c>.
+    ///
+    /// Resolved from <see cref="MachineRoot"/>, not from <see cref="Base"/>, because there is one
+    /// installed copy of the tools per machine and every Director on it uses that copy. Asking
+    /// <see cref="Base"/> is what let a Director looking for tools, and an installer running from
+    /// inside one, each find and fill that Director's own folder instead.
+    ///
+    /// A root that is not a Director's folder still redirects exactly as it did before, so a test rig
+    /// pinned with the CC_DIRECTOR_ROOT setting keeps its own tools.
+    /// </summary>
+    public static string Bin() => Path.Combine(MachineRoot(), "bin");
+
+    /// <summary>
+    /// The bundled CPython that ships with DevThrottle: <c>&lt;machine root&gt;\python</c>. The shared
+    /// virtual environment every cc-* Python tool installs into is built from it, and so is the browser
+    /// harness's own environment, so it belongs beside the tools at the machine root rather than inside
+    /// whichever Director happened to ask.
+    /// </summary>
+    public static string PythonRuntime() => Path.Combine(MachineRoot(), "python");
 
     // -- Tool-specific shortcuts --
 

@@ -115,9 +115,9 @@ public sealed class CcWorktreesPool : IWorktreePool
 
     /// <summary>
     /// Where the tool is on this machine, or null when it is not installed. The order is: the explicit
-    /// <see cref="ExecutableEnvVar"/>, then THIS Director's own tool directory, then PATH. Our own copy
-    /// comes before PATH for the same reason the session PATH is rewritten at launch: another install's
-    /// copy in front of ours is shared state we do not control.
+    /// <see cref="ExecutableEnvVar"/>, then the machine's installed tool directory, then PATH. Our own
+    /// copy comes before PATH for the same reason the session PATH is rewritten at launch: another
+    /// install's copy in front of ours is shared state we do not control.
     /// </summary>
     public static string? ResolveExecutable()
     {
@@ -132,15 +132,15 @@ public sealed class CcWorktreesPool : IWorktreePool
 
         try
         {
-            var ownBin = Path.Combine(Instances.InstanceContext.InstanceHome, "bin", ToolName);
+            var ownBin = Path.Combine(Storage.CcStorage.Bin(), ToolName);
             var own = ExecutableResolver.Resolve(ownBin);
             if (own is not null)
                 return own;
         }
         catch (Exception ex)
         {
-            // The instance home is not readable on this machine. That is not a reason to stop looking.
-            FileLog.Write($"[CcWorktreesPool] could not look in this Director's own tool directory: {ex.Message}");
+            // The tool directory is not readable on this machine. That is not a reason to stop looking.
+            FileLog.Write($"[CcWorktreesPool] could not look in the machine's tool directory: {ex.Message}");
         }
 
         return ExecutableResolver.Resolve(ToolName);

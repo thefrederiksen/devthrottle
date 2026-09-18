@@ -46,9 +46,16 @@ public sealed class InstallLayout
     }
 
     /// <summary>
-    /// The production layout. The root is <see cref="CcStorage.Root"/> - the SAME resolution the
-    /// Director itself uses, not a second copy of it, because there is one per-user root and two
-    /// implementations of it cannot stay equal.
+    /// The production layout. The root is <see cref="CcStorage.MachineRoot"/> - the ONE folder per
+    /// machine that holds the installed product, resolved by the SAME code the Director itself uses
+    /// rather than a second copy of it, because two implementations of one root cannot stay equal.
+    ///
+    /// A Director's own folder is never an install root. Every Director points the CC_DIRECTOR_ROOT
+    /// setting at its own folder and hands it to every session it starts, so while this asked
+    /// <c>CcStorage.Root()</c> an install or a tools repair started from inside a Director, or from
+    /// inside one of its sessions, installed a complete copy of the product into that Director's data
+    /// folder. One computer ended up with seven of them. <see cref="CcStorage.MachineRoot"/> climbs out
+    /// of a Director's folder and carries the reasoning.
     ///
     /// This method used to compute the root itself:
     ///
@@ -67,7 +74,7 @@ public sealed class InstallLayout
     /// created because "not there yet" is normal, and a throw naming CC_DIRECTOR_ROOT when nothing
     /// resolves all come from the one place that has them.
     /// </summary>
-    public static InstallLayout Default() => new(CcStorage.Root());
+    public static InstallLayout Default() => new(CcStorage.MachineRoot());
 
     public string AppDir => Path.Combine(LocalRoot, "app");
     public string BinDir => Path.Combine(LocalRoot, "bin");
@@ -75,7 +82,15 @@ public sealed class InstallLayout
     /// <summary>The bundled python-build-standalone CPython (from cc-python-win-x64.zip).</summary>
     public string PythonDir => Path.Combine(LocalRoot, "python");
 
-    /// <summary>The shared venv every cc-* Python tool installs into (from the wheelhouse).</summary>
+    /// <summary>
+    /// The shared virtual environment every cc-* Python tool installs into (from the wheelhouse).
+    ///
+    /// "Shared" means one per machine, used by every Director on it - not one per Director. That was
+    /// always the intent and this line said so, but <see cref="Default"/> resolved the root through
+    /// the setting each Director points at its own folder, so a repair run from inside a Director or
+    /// one of its sessions built a whole second environment there. It is one per machine again
+    /// because the root is now the machine root.
+    /// </summary>
     public string PyenvDir => Path.Combine(LocalRoot, "pyenv");
 
     /// <summary>The shared venv's Scripts dir (Windows), where pip generates each tool's console-script exe.</summary>
