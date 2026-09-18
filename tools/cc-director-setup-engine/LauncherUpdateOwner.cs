@@ -171,7 +171,7 @@ public sealed class LauncherUpdateOwner
     /// that could not be done while the order was implied by an <c>if</c> inside the swap.
     /// </summary>
     public LauncherSwapOrder SwapOrder { get; init; } =
-        OperatingSystem.IsMacOS() ? LauncherSwapOrder.PlaceThenRestart : LauncherSwapOrder.StopThenPlaceThenStart;
+        OperatingSystem.IsWindows() ? LauncherSwapOrder.StopThenPlaceThenStart : LauncherSwapOrder.PlaceThenRestart;
 
     /// <summary>
     /// Ask the launcher's supervisor to restart it, for <see cref="LauncherSwapOrder.PlaceThenRestart"/>.
@@ -625,22 +625,24 @@ public sealed class LauncherUpdateOwner
     }
 
     /// <summary>
-    /// Ask launchd to restart the launcher. See <see cref="LauncherLaunchdAutostart.Kickstart"/> for why
-    /// this is one operation and not a stop plus a start.
+    /// Ask the launcher's supervisor to restart it - launchd on macOS, systemd on Linux. See
+    /// <see cref="LauncherLaunchdAutostart.Kickstart"/> and <see cref="LauncherSystemdAutostart.Restart"/>
+    /// for why this is one operation and not a stop plus a start.
     /// </summary>
     private static bool DefaultRestartLauncher()
     {
-        if (!OperatingSystem.IsMacOS())
-        {
-            // Reached only if a caller sets PlaceThenRestart where nothing supervises the launcher. It
-            // answers NO rather than pretending, so the swap reports a refused restart instead of
-            // waiting out a health timeout for a process nobody ever asked to start.
-            FileLog.Write("[LauncherUpdateOwner] a supervisor restart was asked for on a platform that has no "
-                          + "launcher supervisor; nothing was restarted.");
-            return false;
-        }
+        if (OperatingSystem.IsMacOS())
+            return LauncherLaunchdAutostart.Kickstart();
 
-        return LauncherLaunchdAutostart.Kickstart();
+        if (OperatingSystem.IsLinux())
+            return LauncherSystemdAutostart.Restart();
+
+        // Reached only if a caller sets PlaceThenRestart where nothing supervises the launcher. It
+        // answers NO rather than pretending, so the swap reports a refused restart instead of
+        // waiting out a health timeout for a process nobody ever asked to start.
+        FileLog.Write("[LauncherUpdateOwner] a supervisor restart was asked for on a platform that has no "
+                      + "launcher supervisor; nothing was restarted.");
+        return false;
     }
 
     /// <summary>Start the installed launcher. See <see cref="BuildLauncherStartInfo"/> for the environment.</summary>
