@@ -607,7 +607,11 @@ public sealed class SessionManager : IDisposable
     /// starts. Anything a launch-time channel reads off the session - the Pi preamble file, the
     /// preamble a startup hook fetches the instant the agent boots - must be stamped here, not
     /// after create returns, or the earliest readers race the stamp and Pi misses it entirely.</param>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null)
+    /// <param name="reattachPooledWorktree">The pooled worktree this seat ALREADY holds, when it is
+    /// being restored after a Director restart. When supplied, the session runs in that slot on that
+    /// lease and cc-worktrees is not asked for a slot at all - the repository's setting is not even
+    /// read, because the answer is already known. Null on every ordinary create.</param>
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null, Git.PooledWorktree? reattachPooledWorktree = null)
     {
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
@@ -630,7 +634,15 @@ public sealed class SessionManager : IDisposable
         // installed - ends the create here, in the tool's own words, and no session opens. Starting the
         // session in the shared checkout instead would be the precise behaviour the setting was turned
         // on to stop, and it would be silent.
-        var pooled = AcquirePooledWorktree(repoPath, id, birthName);
+        //
+        // A RESTORE BRINGS ITS OWN SLOT AND NO NEW ONE IS TAKEN. When the caller hands back a slot
+        // this seat already held - a workspace restored after a Director restart - the lease is
+        // re-attached and cc-worktrees is not asked for anything. Asking would take a SECOND slot
+        // while the first stayed in use under a holder that no longer exists, so a Director that
+        // restarted a few times would fill its own pool with sessions nobody could give back.
+        var pooled = reattachPooledWorktree is not null
+            ? ReattachPooledWorktree(reattachPooledWorktree, id, birthName)
+            : AcquirePooledWorktree(repoPath, id, birthName);
         var workingDirectory = pooled?.Path ?? repoPath;
 
         var studioMode = backendType == SessionBackendType.Studio;
@@ -1082,6 +1094,29 @@ public sealed class SessionManager : IDisposable
     /// opens. THERE IS NO FALLBACK to the shared checkout: the setting is on precisely because sessions
     /// in this repository are not to run there, and a silent fallback would break that without saying so.
     /// </summary>
+    /// <summary>
+    /// Take back a slot this seat already holds, after a Director restart. NO TOOL IS RUN.
+    ///
+    /// There is nothing to ask cc-worktrees for: the slot is still in use in its pool, the lease is
+    /// still the one it will accept, and there is no second lease to be had for a slot in use - a
+    /// <c>lease</c> call on one is refused, by design. So the only thing that can put this session
+    /// back in charge of its own slot is the lease it was given at birth, which is why it is
+    /// persisted.
+    ///
+    /// Nothing is forced here, and nothing may ever be: this method never reclaims, never releases,
+    /// never resets and never destroys. A slot whose holder is gone for good stays exactly as it is
+    /// until a person decides otherwise with the tool's own <c>lease --reclaim-held</c> or
+    /// <c>release</c>, which are the commands that say out loud what is being given up.
+    /// </summary>
+    private Git.PooledWorktree ReattachPooledWorktree(Git.PooledWorktree pooled, Guid id, string? birthName)
+    {
+        var holder = string.IsNullOrWhiteSpace(birthName) ? id.ToString() : $"{birthName.Trim()} ({id})";
+        FileLog.Write($"[SessionManager] ReattachPooledWorktree: session={id}, slot={pooled.Slot}, " +
+                      $"path={pooled.Path}, repo={pooled.Repo}, holder={holder}; no tool was run and no new slot was taken");
+        _log?.Invoke($"This session takes back the pooled worktree {pooled.Path} (slot {pooled.Slot} of {pooled.Repo}) it already held.");
+        return pooled;
+    }
+
     private Git.PooledWorktree? AcquirePooledWorktree(string repoPath, Guid id, string? birthName)
     {
         Git.WorktreePoolSetting setting;
@@ -1670,6 +1705,18 @@ public sealed class SessionManager : IDisposable
                 RawStartupText = s.RawStartupText,
                 SelectedTabName = s.SelectedTabName,
                 WingmanEnabled = s.WingmanEnabled,
+                // The pooled worktree, WITH ITS LEASE. Without this a Director restart loses the only
+                // evidence cc-worktrees accepts for giving the slot back, and the slot stays in use
+                // under a holder that no longer exists.
+                PooledWorktree = s.PooledWorktree is { } pooled
+                    ? new PersistedPooledWorktree
+                    {
+                        Repo = pooled.Repo,
+                        Slot = pooled.Slot,
+                        Path = pooled.Path,
+                        Lease = pooled.Lease,
+                    }
+                    : null,
                 QueuedPrompts = s.PromptQueue.HasItems
                     ? s.PromptQueue.Items.Select(q => new PersistedPromptQueueItem
                     {
@@ -1693,6 +1740,30 @@ public sealed class SessionManager : IDisposable
     {
         _sessions[session.Id] = session;
         RaiseSessionCreated(session);
+    }
+
+    /// <summary>
+    /// The pooled worktree a persisted record names, or null when it names none or names one only
+    /// partly. A partial record is DROPPED and logged: the missing value is always the one that
+    /// matters, and a slot without its lease is a slot this Director cannot give back.
+    /// </summary>
+    private Git.PooledWorktree? ToPooledWorktree(PersistedPooledWorktree? persisted, Guid sessionId)
+    {
+        if (persisted is null)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(persisted.Repo) || string.IsNullOrWhiteSpace(persisted.Slot)
+            || string.IsNullOrWhiteSpace(persisted.Path) || string.IsNullOrWhiteSpace(persisted.Lease))
+        {
+            FileLog.Write($"[SessionManager] ToPooledWorktree: session={sessionId} carries an incomplete " +
+                          $"pooled worktree (repo=\"{persisted.Repo}\", slot=\"{persisted.Slot}\", " +
+                          $"path=\"{persisted.Path}\", lease present={!string.IsNullOrWhiteSpace(persisted.Lease)}); " +
+                          "it is not attached, so the slot stays in use in the pool and cc-worktrees is the way out");
+            return null;
+        }
+
+        FileLog.Write($"[SessionManager] ToPooledWorktree: session={sessionId} re-attached to slot={persisted.Slot} at {persisted.Path}");
+        return new Git.PooledWorktree(persisted.Repo, persisted.Slot, persisted.Path, persisted.Lease);
     }
 
     /// <summary>Restore a single persisted embedded session into tracking.
@@ -1736,6 +1807,17 @@ public sealed class SessionManager : IDisposable
         // AssignSessionNumber reserves this exact number (keeping it across a restart) when it is
         // still free, or backfills a fresh one when this session had none / it collides.
         session.Number = ps.Number;
+
+        // THE POOLED WORKTREE IS RE-ATTACHED, NOT RE-TAKEN. This session already holds a slot; the
+        // lease it was given at birth is still the one cc-worktrees will accept, and the pool still
+        // has the slot in use. Taking a NEW slot here would leave the old one in use under a holder
+        // that no longer exists AND consume a second slot, so a few restarts would fill the pool.
+        //
+        // An incomplete record is dropped rather than half-attached: a slot named without its lease
+        // is one this Director cannot give back, and carrying it would make the session look properly
+        // restored while close silently did nothing.
+        session.PooledWorktree = ToPooledWorktree(ps.PooledWorktree, ps.Id);
+
         // Restored sessions already have history, so the brand-new gate (which short-
         // circuits the Wingman's first turn-end briefing on fresh sessions) does not apply.
         session.IsBrandNew = false;

@@ -244,6 +244,19 @@ internal static class ControlEndpoints
             GroupId = s.GroupId?.ToString(),
             GroupRole = s.GroupRole,
             RepoPath = s.RepoPath,
+            // The pooled worktree WITH ITS LEASE, so a workspace capture keeps it and a seat restored
+            // after a Director restart can take its own slot back instead of taking a new one. Null
+            // for every session in a repository whose pooled-worktree setting is off, which is the
+            // default and almost every session.
+            PooledWorktree = s.PooledWorktree is { } pooledWorktree
+                ? new PooledWorktreeRef
+                {
+                    Repo = pooledWorktree.Repo,
+                    Slot = pooledWorktree.Slot,
+                    Path = pooledWorktree.Path,
+                    Lease = pooledWorktree.Lease,
+                }
+                : null,
             Status = s.Status.ToString(),
             ActivityState = s.ActivityState.ToString(),
             // Issue #959: the raw crash fact. ActivityState says only "Exited", so without this the fold

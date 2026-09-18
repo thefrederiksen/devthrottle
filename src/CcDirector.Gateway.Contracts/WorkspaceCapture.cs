@@ -111,6 +111,21 @@ public static class WorkspaceCapture
             ModelDisplay = s.ModelDisplay,
 
             RepoPath = s.RepoPath,
+
+            // The pooled worktree, WITH ITS LEASE, copied and not re-derived: it cannot be derived.
+            // cc-worktrees will not issue a second lease for a slot that is in use and does not
+            // report the lease of one, so this is the only copy that will exist once the Director
+            // that held it has stopped - and without it the restored seat cannot give the slot back.
+            PooledWorktree = s.PooledWorktree is { } pooled && pooled.IsComplete()
+                ? new PooledWorktreeRef
+                {
+                    Repo = pooled.Repo,
+                    Slot = pooled.Slot,
+                    Path = pooled.Path,
+                    Lease = pooled.Lease,
+                }
+                : null,
+
             Mission = (s.MissionId is null && string.IsNullOrWhiteSpace(s.MissionName))
                 ? null
                 : new WorkspaceMissionRef

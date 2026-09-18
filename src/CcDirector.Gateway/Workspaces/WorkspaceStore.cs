@@ -308,6 +308,12 @@ public sealed class WorkspaceStore
             seat.Model = from.Model;
             seat.ModelDisplay = from.ModelDisplay;
             seat.RepoPath = from.RepoPath;
+            // The pooled worktree is an OBSERVATION, not a judgment, and it is the one on this list a
+            // caller would most want to choose: the Director hands it straight back on the restore's
+            // create and runs the session in the slot it names, on the lease it names. Restored from
+            // the stored copy like every other observation, so writing to a workspace cannot point a
+            // restore at somebody else's worktree.
+            seat.PooledWorktree = from.PooledWorktree;
             seat.Mission = from.Mission;
             seat.Role = from.Role;
             seat.ReportsTo = from.ReportsTo;

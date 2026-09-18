@@ -130,6 +130,45 @@ public class PersistedSession
     /// one. Null for sessions persisted before this field existed (they are backfilled on restore).
     /// </summary>
     public int? Number { get; set; }
+
+    /// <summary>
+    /// The pooled worktree this session is working in, or null for every session in a repository
+    /// whose pooled-worktree setting is off - which is the default and almost every session.
+    ///
+    /// PERSISTED BECAUSE THE LEASE CANNOT BE RECOVERED. cc-worktrees will not hand out a second
+    /// lease for a slot that is in use, and its listing does not report the lease of one, so a
+    /// Director that restarts without this has no way to give the slot back: it stays in use under
+    /// a holder that no longer exists, and a Director that restarts a few times fills its own pool.
+    /// Nothing in the slot is ever lost by that - the tool's landed-work check still stands between
+    /// it and any reset - but the only ways out are that tool's own <c>lease --reclaim-held</c> and
+    /// <c>release</c>, which are a person's decisions, not a restart's.
+    ///
+    /// Null for sessions persisted before this field existed, which is the truth about them.
+    /// </summary>
+    public PersistedPooledWorktree? PooledWorktree { get; set; }
+}
+
+/// <summary>
+/// A persisted session's pooled worktree: the four values <see cref="Git.PooledWorktree"/> holds.
+///
+/// A plain record of its own rather than the Core type, for the same reason every other persisted
+/// shape here is its own: this is a FILE FORMAT, and a serialization shape that follows a production
+/// type changes whenever that type does - here, silently, to a file that older and newer Directors
+/// both read.
+/// </summary>
+public class PersistedPooledWorktree
+{
+    /// <summary>The repository whose pool the slot belongs to.</summary>
+    public string Repo { get; set; } = string.Empty;
+
+    /// <summary>The slot's name in its pool (<c>wt01</c>).</summary>
+    public string Slot { get; set; } = string.Empty;
+
+    /// <summary>The slot's directory on disk, which is where the session runs.</summary>
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>The lease <c>cc-worktrees return</c> requires. The value this whole record exists for.</summary>
+    public string Lease { get; set; } = string.Empty;
 }
 
 /// <summary>One dictated range of a persisted pending prompt (ruling R20).</summary>

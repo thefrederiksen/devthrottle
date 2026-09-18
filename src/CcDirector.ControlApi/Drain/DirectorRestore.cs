@@ -617,6 +617,16 @@ public sealed class DirectorRestore
             ControllerSessionId = owner,
             PrePrompt = SeedPrompt(seat, order.Seeds),
             OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
+
+            // THE SLOT THIS SEAT ALREADY HOLDS, handed back so the restored session takes it over
+            // rather than taking a new one. The seat's RepoPath is already the slot's directory, so
+            // without this the session would run in the slot as a stranger: no lease, nothing to give
+            // back with, and the pool still holding the slot for a session that no longer exists.
+            //
+            // An incomplete record is dropped rather than sent. Half of it is worse than none - a
+            // slot named without its lease would look like a seat that had been restored properly
+            // while close silently did nothing.
+            PooledWorktree = seat.PooledWorktree is { } pooled && pooled.IsComplete() ? pooled : null,
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) req.MissionId = missionId;
         if (Guid.TryParse(seat.WorkflowRunId, out var runId)) req.WorkflowRunId = runId;
