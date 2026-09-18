@@ -57,6 +57,55 @@ public class GatewayHttpTests
         Assert.Equal(new[] { Ipv6LinkLocal }, ordered);
     }
 
+    // THE PER-ADDRESS CONNECT BUDGET (issue #3090). The budget buys one thing: the chance to abandon a
+    // black-holed address and dial the next one. These pin that it applies where there IS a next one and
+    // nowhere else, so a single-address gateway that is merely slow is bounded by the caller's timeout
+    // rather than failed after three seconds.
+
+    [Fact]
+    public void BudgetFor_TwoCandidates_CapsTheFirstSoTheDialCanReachTheSecond()
+    {
+        // The local-network case this budget was written for, unchanged: link-local first, version four
+        // second. The first address must be abandonable.
+        Assert.NotNull(GatewayHttp.BudgetFor(index: 0, count: 2));
+    }
+
+    [Fact]
+    public void BudgetFor_TwoCandidates_DoesNotCapTheSecond()
+    {
+        // Nothing follows the second, so a cap there could only fail a slow-but-live connect.
+        Assert.Null(GatewayHttp.BudgetFor(index: 1, count: 2));
+    }
+
+    [Fact]
+    public void BudgetFor_SingleCandidate_IsNotCapped()
+    {
+        // The hosted gateway: one address, nothing to move on to. This is the case that produced 352
+        // cancelled dials in one day on a starved machine while the host itself answered in milliseconds.
+        Assert.Null(GatewayHttp.BudgetFor(index: 0, count: 1));
+    }
+
+    [Fact]
+    public void BudgetFor_ThreeCandidates_CapsEveryOneBeforeTheLast()
+    {
+        Assert.NotNull(GatewayHttp.BudgetFor(index: 0, count: 3));
+        Assert.NotNull(GatewayHttp.BudgetFor(index: 1, count: 3));
+        Assert.Null(GatewayHttp.BudgetFor(index: 2, count: 3));
+    }
+
+    [Fact]
+    public void BudgetFor_TheCapIsShortEnoughToLeaveRoomForTheNextAddress()
+    {
+        // The budget exists inside the 5-second timeout the tightest gateway clients use: a dead first
+        // address must still leave room for the second to connect. Pin the magnitude, not just that a
+        // value exists - a 30-second "budget" would satisfy every test above and fix nothing.
+        var budget = GatewayHttp.BudgetFor(index: 0, count: 2);
+
+        Assert.NotNull(budget);
+        Assert.True(budget!.Value <= TimeSpan.FromSeconds(3),
+            $"the first-address budget must stay within three seconds, was {budget}");
+    }
+
     [Fact]
     public void OrderForDialing_Loopback_IsUnaffected()
     {
