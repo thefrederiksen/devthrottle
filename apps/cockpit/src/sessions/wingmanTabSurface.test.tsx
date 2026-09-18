@@ -33,6 +33,7 @@ const PLACEHOLDER = "Or answer in your own words - for example: allow the merge,
 
 const NOW: WingmanNow = {
   sessionId: SID,
+  sessionLine: "112 - Cube Data and Projects - Architect",
   state: "needs-you",
   pillText: "Needs you",
   pillColour: "red",
@@ -72,18 +73,74 @@ const NOW: WingmanNow = {
   voice: { kind: "none", label: null, afterTurnOnText: null },
 };
 
+/**
+ * A WORKING SESSION, as the Gateway folds one: no stop to answer, and a box whose own words say a message sent to
+ * it waits. Every other field is the same answer, so what differs on screen can only be the state.
+ */
+const WORKING: WingmanNow = {
+  ...NOW,
+  state: "working",
+  pillText: "Working",
+  pillColour: "blue",
+  pillColourHex: "#3b82f6",
+  when: { lead: "Working for", atUtc: "2026-09-18T07:12:00Z", showAgo: false, elapsedOnly: true },
+  headline: null,
+  story: null,
+  needs: null,
+  canAnswerByOption: false,
+  verdictId: null,
+  replyPlaceholder: "Send it something while it works - it is queued until it is ready.",
+  replyHint: "Sent to the session as your message.",
+  lastAsked: {
+    heading: "What it was last asked",
+    text: "Carry on with the next slice.",
+    atUtc: "2026-09-18T07:08:00Z",
+    by: null,
+    whenLead: "at",
+  },
+};
+
+/** A FINISHED session, the one state where closing it is the next step - so the close is offered at all. */
+const DONE: WingmanNow = {
+  ...NOW,
+  state: "done",
+  pillText: "Done",
+  pillColour: "cyan",
+  pillColourHex: "#06b6d4",
+  headline: "Release v2.5.0 is tagged and published",
+  needs: null,
+  canAnswerByOption: false,
+  verdictId: null,
+  replyPlaceholder: "Give it something else to do.",
+  replyHint: "Sent to the session as your message.",
+  calmCard: {
+    heading: "The work is complete",
+    body: "Nothing is needed from you. You can close this session when you are ready.",
+    tone: "cyan",
+  },
+};
+
+/** Every call the page made, so a test can say WHICH route a button reached rather than only that something did. */
+let calls: string[] = [];
+
 /** The Gateway, answering the reads this page makes. Anything unasked-for is a failure, not an empty list. */
-function fakeGateway(queue: unknown[] = []) {
+function fakeGateway(queue: unknown[] = [], now: WingmanNow = NOW) {
+  calls = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
+      calls.push(url);
       const body = url.includes("wingman-now")
-        ? NOW
+        ? now
         : url.includes("wingman-stops")
           ? { stops: [], groups: [] }
           : url.includes("/queue")
             ? { items: queue }
-            : null;
+            : url.includes("/prompt")
+              ? {}
+              : url.includes("/stop")
+                ? { verdict: "stopped", headline: "The session was stopped." }
+                : null;
       if (body === null) return new Response("{}", { status: 404 });
       return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
     }),
@@ -144,13 +201,34 @@ describe("the Wingman tab's own screen", () => {
 
     // He dictates. A reply box with no Speak is a box he will not use - and nothing the page's composer offered is
     // left without a home.
+    //
+    // ONE SENDING BUTTON (the review's item N3). This session is STOPPED, so there is nothing to queue behind and
+    // Queue meant nothing beside Send. Speak and Attach stay: neither of them sends.
     const bar = boxes[0].closest(".composer")!;
-    expect([...bar.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
-      "Send",
-      "Speak",
-      "Queue",
-      "Attach",
-    ]);
+    expect([...bar.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Send", "Speak", "Attach"]);
+  });
+
+  it("offers one button named for what it does on a working session, and no Send beside it", async () => {
+    // The box on a working session says a message "is queued until it is ready" - and then offered a Send AND a
+    // Queue. If Send queues, Queue does nothing; if it does not, the words in the box are wrong. One button.
+    fakeGateway([], WORKING);
+    openPage();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Wingman" }));
+    await waitFor(() => expect(screen.getByText("What it was last asked")).toBeTruthy());
+
+    const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(box.placeholder).toBe("Send it something while it works - it is queued until it is ready.");
+    const bar = box.closest(".composer")!;
+    expect([...bar.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Queue it", "Speak", "Attach"]);
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+
+    // And it DOES what it is called. A button named for the queue that reached the prompt route would be the same
+    // defect wearing the other word.
+    fireEvent.change(box, { target: { value: "and tag it afterwards" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue it" }));
+    await waitFor(() => expect(calls.some((url) => url.endsWith(`/sessions/${SID}/queue`))).toBe(true));
+    expect(calls.some((url) => url.includes("/prompt"))).toBe(false);
   });
 
   it("does not put Stop, Interrupt, Compact, Clear context or History under the answers", async () => {
@@ -172,6 +250,36 @@ describe("the Wingman tab's own screen", () => {
     // And going back to the Terminal brings the whole bar back - this tab is the only one that hides it.
     fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
     expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  });
+
+  it("asks once before it closes a session, and stops nothing until he answers", async () => {
+    // THE ONLY BUTTON ON NOW THAT DESTROYS ANYTHING. It sat in the middle of the row between two harmless
+    // buttons, drawn exactly like both, and nothing on the screen said whether a click would just do it.
+    fakeGateway([], DONE);
+    const { container } = openPage();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Wingman" }));
+    await waitFor(() => expect(screen.getByText("The work is complete")).toBeTruthy());
+
+    // Last in the row, and set apart from the buttons that do nothing irreversible.
+    const row = [...container.querySelectorAll(".wnow-quick button")].map((b) => b.textContent);
+    expect(row[row.length - 1]).toBe("Close this session");
+    expect(container.querySelector(".wnow-btn-apart")!.textContent).toBe("Close this session");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close this session" }));
+
+    // It ASKS, by name, and the session is still running while it asks.
+    expect(screen.getByRole("heading", { name: "Stop Cube Data and Projects - Architect?" })).toBeTruthy();
+    expect(calls.some((url) => url.includes("/stop"))).toBe(false);
+
+    // Cancel leaves it alone entirely.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(calls.some((url) => url.includes("/stop"))).toBe(false);
+
+    // And the answer is what closes it.
+    fireEvent.click(screen.getByRole("button", { name: "Close this session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop session" }));
+    await waitFor(() => expect(calls.some((url) => url.endsWith(`/sessions/${SID}/stop`))).toBe(true));
   });
 
   it("gives the empty queue panel's width back to the page, and takes it again the moment something is queued", async () => {

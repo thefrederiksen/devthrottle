@@ -19,11 +19,14 @@
 // ever disagree on a field name again, that test fails instead of every suite staying green.
 import { authHeaders, gatewayFetch, GatewayError } from "../api/client";
 
-/** Which of the ten drawn states this session is in. The Gateway decides; the view never infers it. */
+/** Which of the eleven drawn states this session is in. The Gateway decides; the view never infers it. */
 export type WingmanNowState =
   | "needs-you"
   | "reading"
   | "working"
+  // The owner parked it. The Gateway has folded this state since the pill took the row's colour; the union here
+  // still had ten members and called it "other", so a snoozed session was typed as a row nothing describes.
+  | "snoozed"
   | "just-answered"
   | "carrying-on"
   | "done"
@@ -174,6 +177,15 @@ export interface WingmanNowVoice {
 export interface WingmanNow {
   /** The session this is about. */
   sessionId: string;
+  /**
+   * WHICH SESSION THIS IS, in the Gateway's finished words, for the first line of the view: "112 - Cube Data and
+   * Projects - Architect". Never empty, and sent in EVERY state.
+   *
+   * The Gateway has sent it since the Now route merged and this file did not read it, so the pane said nothing at
+   * all about whose question was on it while the owner moved between a dozen sessions. The damage that costs is not
+   * a misread line - it is the right answer sent to the wrong session.
+   */
+  sessionLine: string;
   state: WingmanNowState;
   pillText: string;
   /** The colour word the row wears. Null only when the row carries none. */
@@ -200,6 +212,19 @@ export interface WingmanNow {
    *  verdict it answers, so nothing was sent." */
   verdictId?: string | null;
   replyPlaceholder?: string | null;
+  /**
+   * What sending the reply box DOES, in the Gateway's words, shown beneath the box. Null exactly when
+   * `replyPlaceholder` is - a box that is not offered needs nothing said about it.
+   *
+   * It differs by state, which is why it is folded rather than written here: the second half, that one reply can
+   * answer more than one question, is true only where something was asked.
+   */
+  replyHint?: string | null;
+  /**
+   * When a snoozed session comes back: "Snoozed until" + the instant. Null when the session is not snoozed, and
+   * null on a snooze with no deadline to name - the Gateway then says what ends it in `headline` instead.
+   */
+  snoozedUntil?: WingmanNowWhen | null;
   calmCard?: WingmanNowCalmCard | null;
   carryingOnDeadline?: WingmanNowDeadline | null;
 

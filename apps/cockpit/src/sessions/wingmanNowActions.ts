@@ -50,6 +50,21 @@ export interface WingmanNowNavigation {
 const CLOSING_IS_THE_NEXT_STEP: readonly string[] = ["done"];
 
 /**
+ * THE STATES IN WHICH A MESSAGE WAITS RATHER THAN LANDING, and the second place in the Cockpit that reads a state
+ * name. It does not belong here either, for the reason above, and it is waiting for the same `quickActions` list.
+ *
+ * Working and just-answered are the two states in which the session is AT WORK. The Gateway's own words in the box
+ * say what happens to a message sent to one - "it is queued until it is ready" - so the box offers that, once,
+ * named for what it does. Every other state is a stopped session, where a message lands now and the button is Send.
+ */
+const THE_SESSION_IS_AT_WORK: readonly string[] = ["working", "just-answered"];
+
+/** Which single sending button the Wingman tab's one box offers for this state. */
+export function sendingButtonFor(nowState: string): "send" | "queue" {
+  return THE_SESSION_IS_AT_WORK.includes(nowState) ? "queue" : "send";
+}
+
+/**
  * Everything Now can do for one session. An action left out here is NOT DRAWN, and that is how the quick actions
  * come to fit the state (the review's item B3): a snoozed session is handed a wake and no snooze, a live one a
  * snooze and no wake, and only finished work is handed a close. Nothing on the screen offers an act that does

@@ -102,6 +102,16 @@ export interface SessionComposerProps {
   placeholder?: string;
   /** False hides Queue and Attach, for a surface that only sends and dictates (the Fleet Manager page). */
   showQueueAndAttach?: boolean;
+  /**
+   * WHICH SENDING BUTTON THIS BOX OFFERS - "send", "queue", or "both".
+   *
+   * "both" is the page's own composer at the bottom of a session, where the reader chooses between interrupting
+   * the session now and waiting for it to stop. The Wingman tab is not that surface: it draws ONE box against one
+   * state, and a Send beside a Queue there was a choice nobody could predict the effect of - on a working session
+   * the words in the box said a message "is queued", and then offered both (the review's item N3). So the tab
+   * asks for one, named for what it does.
+   */
+  sending?: "send" | "queue" | "both";
   /** Called with the words the moment a send succeeds, so the surface can show it went. */
   onSent?: (text: string) => void;
 }
@@ -117,6 +127,7 @@ export function SessionComposer({
   enterSends = false,
   placeholder = DEFAULT_PLACEHOLDER,
   showQueueAndAttach = true,
+  sending = "both",
   onSent,
 }: SessionComposerProps) {
   const [busy, setBusy] = useState(false);
@@ -206,26 +217,35 @@ export function SessionComposer({
     }
   }, [sessionId, busy, value, onChange, onQueued]);
 
+  // WHICH SENDING BUTTONS ARE ON THE BAR, worked out once and used by the bar AND by the keyboard, so a shortcut
+  // can never do something the screen does not offer.
+  const offersSend = sending === "send" || sending === "both";
+  const offersQueue = sending === "queue" || (sending === "both" && showQueueAndAttach);
+  // The one sending button on a box that only queues. It carries the primary weight and is named for what it does.
+  const queueIsTheOnlySend = offersQueue && !offersSend;
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       // Ctrl+Shift+Enter = Queue; Ctrl+Enter = Send; plain Enter = newline (default). With enterSends, plain
       // Enter sends and Shift+Enter is the newline. A key press that is composing text (an input method) is left alone.
+      // A box that only queues does BOTH shortcuts as a queue: the alternative is a key that silently does nothing.
+      const submit = offersSend ? send : queue;
       if (enterSends && e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
-        void send();
+        void submit();
         return;
       }
-      if (e.key === "Enter" && e.ctrlKey && e.shiftKey && showQueueAndAttach) {
+      if (e.key === "Enter" && e.ctrlKey && e.shiftKey && offersQueue) {
         e.preventDefault();
         void queue();
         return;
       }
       if (e.key === "Enter" && e.ctrlKey) {
         e.preventDefault();
-        void send();
+        void submit();
       }
     },
-    [queue, send, enterSends, showQueueAndAttach],
+    [queue, send, enterSends, offersSend, offersQueue],
   );
 
   // The ONE image-upload path (issue #1210): Attach, clipboard paste, and drag-and-drop all call this.
@@ -412,6 +432,19 @@ export function SessionComposer({
 
   const empty = value.trim().length === 0;
 
+  // The queue button, built once and placed once. It takes the SENDING slot - first on the bar, and drawn as the
+  // loud one - when it is the only way to send from this box; otherwise it keeps its ordinary place after Speak.
+  const queueButton = offersQueue ? (
+    <button
+      type="button"
+      className={`composer-btn${queueIsTheOnlySend ? " send" : ""}`}
+      disabled={busy || empty}
+      onClick={() => void queue()}
+    >
+      {queueIsTheOnlySend ? "Queue it" : "Queue"}
+    </button>
+  ) : null;
+
   return (
     <div
       className={`composer ${dragOver ? "composer-dragover" : ""}`}
@@ -436,9 +469,12 @@ export function SessionComposer({
         spellCheck={false}
       />
       <div className="composer-btns">
-        <button type="button" className="composer-btn send" disabled={busy || empty} onClick={() => void send()}>
-          Send
-        </button>
+        {offersSend && (
+          <button type="button" className="composer-btn send" disabled={busy || empty} onClick={() => void send()}>
+            Send
+          </button>
+        )}
+        {queueIsTheOnlySend && queueButton}
         <button
           type="button"
           className="composer-btn"
@@ -448,11 +484,9 @@ export function SessionComposer({
         >
           Speak
         </button>
+        {!queueIsTheOnlySend && queueButton}
         {showQueueAndAttach && (
           <>
-            <button type="button" className="composer-btn" disabled={busy || empty} onClick={() => void queue()}>
-              Queue
-            </button>
             <button
               type="button"
               className="composer-btn"

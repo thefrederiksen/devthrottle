@@ -16,7 +16,7 @@ import { ScreenshotsPanel } from "./ScreenshotsPanel";
 import { appendToCompose } from "./composerInsert";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
 import { WingmanTab } from "@devthrottle/client-core/sessions/WingmanTab";
-import { wingmanNowActions } from "./wingmanNowActions";
+import { sendingButtonFor, wingmanNowActions } from "./wingmanNowActions";
 import { useStopSession } from "./StopSessionProvider";
 
 // The selected session's detail region (issue #972): the live terminal (issue #971's TerminalPane,
@@ -265,13 +265,17 @@ export function SessionDetail() {
                    inside the card beside the question rather than copied - Send, Speak, Queue and Attach are the
                    same controls doing the same things, and the page's copy at the bottom is hidden below while
                    this tab is showing. The words in the empty box are the Gateway's, handed in by the view. */
-                replyBox={(placeholder) => (
+                replyBox={(placeholder, nowState) => (
                   <SessionComposer
                     sessionId={sessionId}
                     value={compose}
                     onChange={setCompose}
                     onQueued={setQueue}
                     placeholder={placeholder}
+                    /* ONE SENDING BUTTON PER STATE (the review's item N3). A stopped session gets Send; a working
+                       one gets the single button the words in the box already describe. Send beside Queue, with a
+                       box saying a message "is queued", was two buttons and no way to tell what either would do. */
+                    sending={sendingButtonFor(nowState)}
                   />
                 )}
               />

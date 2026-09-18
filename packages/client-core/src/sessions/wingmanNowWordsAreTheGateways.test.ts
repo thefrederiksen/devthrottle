@@ -28,6 +28,11 @@ const GATEWAY_WORDS: ReadonlyArray<[field: string, words: string]> = [
   ["now.answered.sentLead", "Sent at"],
   ["now.nextNeedsYou.heading", "Next that needs you"],
   ["now.nextNeedsYou.linkText", "Go there"],
+  // Three the Gateway folds that the view was NOT reading at all, so the words never reached the screen: which
+  // session this is, when a snoozed one comes back, and what sending the box does.
+  ["now.sessionLine", "112 - Cube Data and Projects"],
+  ["now.snoozedUntil", "Snoozed until"],
+  ["now.replyHint", "Sent to the session as your message"],
 ];
 
 describe("the Now view reads the Gateway's words rather than writing its own", () => {
