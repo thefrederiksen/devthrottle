@@ -112,6 +112,9 @@ try:
         load_account_config,
         test_imap_connection,
         test_smtp_connection,
+        config_dir_path,
+        adoption_notes,
+        get_token_path,
     )
     from .gmail_api import GmailClient
     from .imap_client import ImapClient
@@ -145,6 +148,9 @@ except ImportError:
         test_imap_connection,
         test_smtp_connection,
         check_token_scopes,
+        config_dir_path,
+        adoption_notes,
+        get_token_path,
     )
     from src.gmail_api import GmailClient
     from src.imap_client import ImapClient
@@ -475,6 +481,16 @@ def main(
 # Account Management Commands
 # =============================================================================
 
+def _print_adoption_notes() -> None:
+    """Say out loud when a per-instance store from before issue #3011 was adopted.
+
+    The copy is silent otherwise, and a credential arriving from somewhere the
+    user never pointed at is exactly the kind of thing that has to be said.
+    """
+    for note in adoption_notes():
+        console.print(f"[yellow]{note}[/yellow]")
+
+
 @accounts_app.command("list")
 def accounts_list(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON for machine consumption"),
@@ -485,12 +501,16 @@ def accounts_list(
     if json_output:
         result = {
             "tool": "cc-gmail",
+            "store": str(config_dir_path()),
             "accounts": [
                 {
                     "name": acct["name"],
                     "email": acct.get("email", ""),
                     "is_default": acct["is_default"],
                     "authenticated": acct["authenticated"],
+                    "token_state": acct["token_state"],
+                    "status": acct["status"],
+                    "status_detail": acct["status_detail"],
                     "can_send": acct["authenticated"] and bool(acct.get("email")),
                 }
                 for acct in accts
@@ -498,6 +518,8 @@ def accounts_list(
         }
         print(json.dumps(result))
         return
+
+    _print_adoption_notes()
 
     if not accts:
         console.print("[yellow]No accounts configured.[/yellow]")
@@ -517,15 +539,24 @@ def accounts_list(
         method = acct.get("auth_method", "unknown")
         method_display = "App Password" if method == "app_password" else "OAuth" if method == "oauth" else method
 
+        status = acct["status"]
+        color = "green" if acct["authenticated"] else "yellow"
         table.add_row(
             acct["name"],
             "[green]*[/green]" if acct["is_default"] else "",
             method_display,
             acct.get("email", ""),
-            "[green]Ready[/green]" if acct["authenticated"] else "[yellow]Setup needed[/yellow]",
+            f"[{color}]{status}[/{color}]",
         )
 
     console.print(table)
+    console.print(f"\nStore: {config_dir_path()}")
+
+    # Say WHY, for every account that is not Ready. A status column on its own
+    # sent the owner to run an 'auth' that wrote a different store (issue #3011).
+    for acct in accts:
+        if acct["status_detail"]:
+            console.print(f"  {acct['name']}: {acct['status_detail']}")
 
 
 @accounts_app.command("add")
@@ -749,6 +780,7 @@ def accounts_status(
         raise typer.Exit(1)
 
     info = get_auth_status(acct)
+    _print_adoption_notes()
 
     table = Table(title=f"Account Status: {acct}")
     table.add_column("Property", style="cyan")
@@ -772,6 +804,7 @@ def accounts_status(
             "Token File",
             "[green]Found[/green]" if info.get("token_exists") else "[yellow]Not created[/yellow]",
         )
+        table.add_row("Token Path", info.get("token_path", ""))
 
     table.add_row(
         "Authenticated",
@@ -800,11 +833,17 @@ def accounts_status(
 
     console.print(table)
 
+    if info.get("status_detail"):
+        console.print(f"\n[yellow]{info['status_detail']}[/yellow]")
+
     if not info["authenticated"]:
         if info.get("auth_method") == "app_password":
             console.print(f"\n[yellow]Setup needed.[/yellow] Run: cc-gmail accounts add {acct}")
         else:
-            console.print(f"\n[yellow]Setup needed.[/yellow] See: {get_readme_path()}")
+            console.print(
+                f"\n[yellow]Re-authenticate with:[/yellow] cc-gmail --account {acct} auth --force"
+            )
+            console.print(f"See: {get_readme_path()}")
 
 
 # =============================================================================
@@ -826,6 +865,7 @@ def auth(
         raise typer.Exit(1)
 
     auth_method = method or get_auth_method(acct) or "oauth"
+    _print_adoption_notes()
 
     if revoke:
         if auth_method == "app_password":
@@ -909,6 +949,7 @@ def auth(
             profile = client.get_profile()
 
             console.print(f"\n[green]Authenticated as:[/green] {profile.get('emailAddress')}")
+            console.print(f"Token written: {get_token_path(acct)}")
         except HttpError as e:
             handle_api_error(e, acct)
             raise typer.Exit(1)

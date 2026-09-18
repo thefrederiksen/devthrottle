@@ -188,7 +188,14 @@ cc-gmail -a work auth --method oauth
 
 App passwords are **never** stored in plain text config files.
 
-**OAuth tokens** are stored as `token.json` in the account directory.
+**OAuth tokens** are stored as `token.json` in the account directory, which lives
+under `%LOCALAPPDATA%\cc-director\config\gmail\accounts\<account>\` - one store per
+operating-system user, whether cc-gmail runs in a terminal or inside a Director
+session (see Configuration below).
+
+When Google refuses to renew a token, the refusal is written down beside it as
+`token-refresh-error.json`, so `accounts list` reports `Re-auth needed` with the
+reason instead of calling the account `Ready` because a file exists.
 
 **Account config** (`config.json` per account) stores only:
 - Email address
@@ -454,18 +461,30 @@ cc-gmail auth --force
 ## Configuration
 
 ```
-%LOCALAPPDATA%\cc-director\data\gmail\
+%LOCALAPPDATA%\cc-director\config\gmail\
     config.json              # Default account setting
     accounts/
         personal/
             config.json      # Email + auth method (no secrets)
             credentials.json # OAuth only: client credentials
             token.json       # OAuth only: access token
+            token-refresh-error.json  # Written when Google refuses a refresh
         work/
             config.json
 ```
 
-On Windows, this is typically: `C:\Users\<you>\AppData\Local\cc-director\data\gmail\`
+On Windows, this is typically: `C:\Users\<you>\AppData\Local\cc-director\config\gmail\`
+
+**One store per operating-system user.** This path does NOT move with
+`CC_DIRECTOR_ROOT`, which a Director sets to its instance home for every session it
+runs. So `cc-gmail auth` in a plain terminal and `cc-gmail` inside a Director session
+read and write the same token: authenticating once fixes both. It was not always so -
+until issue #3011 there were two stores, and the tool told the user to run an `auth`
+that could not reach the store it was reading.
+
+An account whose setup exists only in an older per-instance store is copied into this
+one the first time cc-gmail runs, and the copy is announced. The older files are left
+where they are.
 
 App passwords are stored separately in your OS credential manager (not in files).
 

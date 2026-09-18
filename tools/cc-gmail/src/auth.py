@@ -13,6 +13,7 @@ OAuth (Gmail API) -- Full Setup:
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -58,13 +59,14 @@ SCOPES = GMAIL_SCOPES + CALENDAR_SCOPES + CONTACTS_SCOPES
 # Keyring service name for storing app passwords
 KEYRING_SERVICE = "cc-gmail"
 
-# Config directory - uses centralized cc-director storage
-CONFIG_DIR = CcStorage.tool_config("gmail")
-ACCOUNTS_DIR = CONFIG_DIR / "accounts"
-CONFIG_FILE = CONFIG_DIR / "config.json"
-
 # README location for help messages
 README_PATH = Path(__file__).parent.parent / "README.md"
+
+# Set once the legacy instance stores have been looked at, so the scan happens
+# at most once per process. The notes survive the scan so a command can print
+# what was adopted even when something else in the process triggered it.
+_adopted_legacy_stores = False
+_adoption_notes: List[str] = []
 
 
 def get_readme_path() -> str:
@@ -74,18 +76,140 @@ def get_readme_path() -> str:
     return "https://github.com/cc-director/cc-director"
 
 
+# ---------------------------------------------------------------------------
+# Where the store lives
+#
+# ONE store per operating-system user, resolved through CcStorage.user_config()
+# so CC_DIRECTOR_ROOT does NOT move it. A Director sets CC_DIRECTOR_ROOT to its
+# instance home for every session it runs; a plain terminal sets nothing. While
+# this tool resolved its store through CcStorage.tool_config() there were two
+# independent stores, and the "Re-authenticate by running: cc-gmail auth" the
+# tool printed inside a session was an instruction that could not work - the
+# auth the owner then ran in a terminal wrote the other store (issue #3011).
+#
+# These are functions, not module constants, so the path is resolved per access
+# and a test can point the tool at a store it wrote.
+# ---------------------------------------------------------------------------
+
+def config_dir_path() -> Path:
+    """The store directory for this user. Not created by this call."""
+    return CcStorage.user_tool_config("gmail")
+
+
+def accounts_dir_path() -> Path:
+    """The directory holding one sub-directory per account. Not created by this call."""
+    return config_dir_path() / "accounts"
+
+
+def config_file_path() -> Path:
+    """The store's own config file (default account). Not created by this call."""
+    return config_dir_path() / "config.json"
+
+
 def get_config_dir() -> Path:
     """Get the configuration directory, creating it if necessary."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    ACCOUNTS_DIR.mkdir(parents=True, exist_ok=True)
-    return CONFIG_DIR
+    config_dir = config_dir_path()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    accounts_dir_path().mkdir(parents=True, exist_ok=True)
+    adopt_legacy_stores()
+    return config_dir
 
 
 def get_account_dir(account: str) -> Path:
     """Get the directory for a specific account."""
-    account_dir = ACCOUNTS_DIR / account
+    get_config_dir()
+    account_dir = accounts_dir_path() / account
     account_dir.mkdir(parents=True, exist_ok=True)
     return account_dir
+
+
+# ---------------------------------------------------------------------------
+# Adopting what the older, per-instance store left behind
+# ---------------------------------------------------------------------------
+
+def legacy_store_dirs() -> List[Path]:
+    """Every older per-instance gmail store on this machine, newest token first.
+
+    Two shapes are looked for: the store under whatever CC_DIRECTOR_ROOT is set
+    to right now (what this process would have used before the fix), and the
+    store inside each named Director instance home (what a session left behind
+    when the owner is running from a plain terminal). The current per-user store
+    is never in the list.
+    """
+    mine = config_dir_path().resolve()
+    candidates = [CcStorage.tool_config("gmail")]
+    for home in CcStorage.instance_homes():
+        candidates.append(home / "config" / "gmail")
+
+    found: List[Path] = []
+    seen = set()
+    for candidate in candidates:
+        if not candidate.is_dir():
+            continue
+        resolved = candidate.resolve()
+        if resolved == mine or resolved in seen:
+            continue
+        seen.add(resolved)
+        found.append(candidate)
+
+    def newest_token(store: Path) -> float:
+        tokens = store.glob("accounts/*/token.json")
+        return max((token.stat().st_mtime for token in tokens), default=0.0)
+
+    return sorted(found, key=newest_token, reverse=True)
+
+
+def adopt_legacy_stores() -> List[str]:
+    """Copy accounts that exist ONLY in an older per-instance store into this one.
+
+    Runs at most once per process, copies and never deletes, and never touches an
+    account this store already has. Without it, moving the store out from under
+    CC_DIRECTOR_ROOT would hide the setup of anyone who only ever ran cc-gmail
+    inside a Director session - which is exactly what issue #3011 told them to do.
+
+    Returns a line per account adopted, for the caller to print.
+    """
+    global _adopted_legacy_stores
+    if _adopted_legacy_stores:
+        return _adoption_notes
+    _adopted_legacy_stores = True
+
+    import shutil
+
+    accounts_dir = accounts_dir_path()
+    adopted = _adoption_notes
+
+    for store in legacy_store_dirs():
+        legacy_accounts = store / "accounts"
+        if legacy_accounts.is_dir():
+            for legacy_account in sorted(legacy_accounts.iterdir()):
+                if not legacy_account.is_dir():
+                    continue
+                # A directory with neither a token nor a credentials file is not an
+                # account - it is a leftover, and adopting it would only add a row
+                # to 'accounts list' that stands for nothing.
+                if not (legacy_account / "token.json").exists() and not (legacy_account / "credentials.json").exists():
+                    continue
+                destination = accounts_dir / legacy_account.name
+                if destination.exists():
+                    continue
+                shutil.copytree(legacy_account, destination)
+                for secret in destination.glob("*.json"):
+                    _harden_file_permissions(secret)
+                note = f"Adopted Gmail account '{legacy_account.name}' from {legacy_account}"
+                logger.warning(note)
+                adopted.append(note)
+
+        legacy_config = store / "config.json"
+        if legacy_config.is_file() and not config_file_path().exists():
+            shutil.copy2(legacy_config, config_file_path())
+
+    return adopted
+
+
+def adoption_notes() -> List[str]:
+    """What this process adopted from an older per-instance store, if anything."""
+    return list(_adoption_notes)
 
 
 def get_credentials_path(account: str) -> Path:
@@ -266,15 +390,16 @@ def test_smtp_connection(email_address: str, password: str) -> bool:
 def load_config() -> Dict[str, Any]:
     """Load the global config file."""
     get_config_dir()  # Ensure directory exists
-    if CONFIG_FILE.exists():
-        return json.loads(CONFIG_FILE.read_text())
+    config_file = config_file_path()
+    if config_file.exists():
+        return json.loads(config_file.read_text())
     return {"default_account": None}
 
 
 def save_config(config: Dict[str, Any]) -> None:
     """Save the global config file."""
     get_config_dir()
-    CONFIG_FILE.write_text(json.dumps(config, indent=2))
+    config_file_path().write_text(json.dumps(config, indent=2))
 
 
 def get_default_account() -> Optional[str]:
@@ -296,10 +421,11 @@ def list_accounts() -> List[Dict[str, Any]]:
     accounts = []
     default = get_default_account()
 
-    if not ACCOUNTS_DIR.exists():
+    accounts_dir = accounts_dir_path()
+    if not accounts_dir.exists():
         return accounts
 
-    for account_dir in ACCOUNTS_DIR.iterdir():
+    for account_dir in accounts_dir.iterdir():
         if account_dir.is_dir():
             name = account_dir.name
             acct_config = load_account_config(name)
@@ -311,17 +437,27 @@ def list_accounts() -> List[Dict[str, Any]]:
                 has_password = get_app_password(name) is not None
                 authenticated = has_password
                 creds_exist = has_password  # For app_password, "credentials" = password in keyring
+                token_state = "ready" if has_password else "no_credentials"
+                status = "Ready" if has_password else "Setup needed"
+                detail = "" if has_password else "No app password in the credential manager"
             else:
-                # OAuth path
+                # OAuth path. The token state comes from describe_token, so an
+                # account whose refresh Google has refused is never called Ready.
+                described = describe_token(name)
                 creds_exist = (account_dir / "credentials.json").exists()
-                token_exist = (account_dir / "token.json").exists()
-                authenticated = token_exist and creds_exist
+                token_state = described["state"]
+                status = described["status"]
+                detail = described["detail"]
+                authenticated = token_state == "ready"
 
             accounts.append({
                 "name": name,
                 "is_default": name == default,
                 "credentials_exists": creds_exist,
                 "authenticated": authenticated,
+                "token_state": token_state,
+                "status": status,
+                "status_detail": detail,
                 "auth_method": auth_method or "unknown",
                 "email": email_addr,
             })
@@ -343,6 +479,117 @@ def token_exists(account: str) -> bool:
     return get_token_path(account).exists()
 
 
+# ---------------------------------------------------------------------------
+# The refresh-failure record
+#
+# A token file on disk says only that an 'auth' ran once. Google can revoke or
+# expire the refresh token behind it at any time, and then every command fails
+# while 'accounts list' still says Ready, because file existence was the whole
+# test (issue #3011). So when a refresh is actually REFUSED, the refusal is
+# written down beside the token, and the status commands read it. Saving a new
+# token clears it.
+# ---------------------------------------------------------------------------
+
+def get_token_error_path(account: str) -> Path:
+    """Where a refused refresh is recorded for an account."""
+    return get_account_dir(account) / "token-refresh-error.json"
+
+
+def record_token_failure(account: str, reason: str) -> None:
+    """Write down that a refresh was refused, so status stops claiming Ready."""
+    record = {
+        "error": reason,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "token_path": str(get_token_path(account)),
+    }
+    get_token_error_path(account).write_text(json.dumps(record, indent=2))
+
+
+def clear_token_failure(account: str) -> None:
+    """Forget a recorded refusal, because a token has just been obtained."""
+    error_path = get_token_error_path(account)
+    if error_path.exists():
+        error_path.unlink()
+
+
+def read_token_failure(account: str) -> Optional[Dict[str, Any]]:
+    """The recorded refusal for an account, or None when the last attempt worked."""
+    error_path = get_token_error_path(account)
+    if not error_path.exists():
+        return None
+    return json.loads(error_path.read_text())
+
+
+def describe_token(account: str) -> Dict[str, Any]:
+    """What is actually known about an OAuth account's token, without a network call.
+
+    Every answer here comes from disk: the credentials file, the token file, and
+    the refresh-failure record. 'ready' means a token exists that is either still
+    valid or carries a refresh token, AND the last refresh was not refused.
+    """
+    credentials_path = get_credentials_path(account)
+    token_path = get_token_path(account)
+
+    described = {
+        "state": "ready",
+        "status": "Ready",
+        "detail": "",
+        "token_path": str(token_path),
+        "credentials_path": str(credentials_path),
+    }
+
+    if not credentials_path.exists():
+        described.update(
+            state="no_credentials",
+            status="Setup needed",
+            detail=f"No OAuth credentials file at {credentials_path}",
+        )
+        return described
+
+    if not token_path.exists():
+        described.update(
+            state="no_token",
+            status="Setup needed",
+            detail=f"No token at {token_path} - run: cc-gmail --account {account} auth",
+        )
+        return described
+
+    failure = read_token_failure(account)
+    if failure:
+        described.update(
+            state="refresh_failed",
+            status="Re-auth needed",
+            detail=(
+                f"Google refused the last refresh of {token_path} "
+                f"at {failure.get('recorded_at', 'an unknown time')}: {failure.get('error', 'no reason recorded')}"
+            ),
+        )
+        return described
+
+    try:
+        token_data = json.loads(token_path.read_text())
+    except (ValueError, OSError) as e:
+        described.update(
+            state="unreadable",
+            status="Re-auth needed",
+            detail=f"Could not read {token_path}: {e}",
+        )
+        return described
+
+    if not token_data.get("refresh_token"):
+        described.update(
+            state="no_refresh_token",
+            status="Re-auth needed",
+            detail=(
+                f"{token_path} holds no refresh token, so it cannot be renewed - "
+                f"run: cc-gmail --account {account} auth --force"
+            ),
+        )
+        return described
+
+    return described
+
+
 def load_credentials(account: str) -> Optional[Credentials]:
     """Load OAuth credentials from token file if available and valid."""
     token_path = get_token_path(account)
@@ -358,6 +605,7 @@ def load_credentials(account: str) -> Optional[Credentials]:
             save_credentials(account, creds)
         except RefreshError as e:
             logger.warning(f"Token refresh failed for account '{account}': {e}")
+            record_token_failure(account, str(e))
             return None
 
     return creds if creds and creds.valid else None
@@ -381,6 +629,7 @@ def save_credentials(account: str, creds: Credentials) -> None:
     token_path = get_token_path(account)
     token_path.write_text(creds.to_json())
     _harden_file_permissions(token_path)
+    clear_token_failure(account)
 
 
 def authenticate(account: str, force: bool = False, open_browser: bool = True,
@@ -420,10 +669,14 @@ def authenticate(account: str, force: bool = False, open_browser: bool = True,
     # If no valid credentials, either run OAuth flow or raise error
     if not creds:
         if not interactive:
+            described = describe_token(account)
+            reason = described["detail"] or "the token could not be used"
             raise ValueError(
                 f"OAuth token expired or missing for account '{account}'.\n\n"
+                f"Token read: {get_token_path(account)}\n"
+                f"Reason: {reason}\n\n"
                 f"Re-authenticate by running:\n"
-                f"  cc-gmail auth\n\n"
+                f"  cc-gmail --account {account} auth --force\n\n"
                 f"Then retry your command."
             )
         flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), SCOPES)
@@ -471,7 +724,10 @@ def get_auth_status(account: str) -> dict:
         "email": acct_config.get("email"),
         "credentials_exists": False,
         "token_exists": False,
+        "token_path": str(get_token_path(account)),
         "authenticated": False,
+        "token_state": "unknown",
+        "status_detail": "",
         "is_default": get_default_account() == account,
     }
 
@@ -479,12 +735,21 @@ def get_auth_status(account: str) -> dict:
         has_password = get_app_password(account) is not None
         status["credentials_exists"] = has_password
         status["authenticated"] = has_password
+        status["token_state"] = "ready" if has_password else "no_credentials"
+        if not has_password:
+            status["status_detail"] = "No app password in the credential manager"
     else:
         status["credentials_exists"] = credentials_exist(account)
         status["token_exists"] = token_exists(account)
+        # This is the one place that goes to the network: a refused refresh is
+        # recorded by load_credentials, so describe_token below reports the real
+        # reason rather than "a token file exists".
         creds = load_credentials(account)
         if creds and creds.valid:
             status["authenticated"] = True
+        described = describe_token(account)
+        status["token_state"] = described["state"]
+        status["status_detail"] = described["detail"]
 
     return status
 
