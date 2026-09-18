@@ -1,15 +1,170 @@
-// The Wingman tab (the Wingman inspector, phase 3): every stop the Wingman judged for one session - what it was
-// shown, exactly what it was asked, what the model answered word for word, and what the product did with it.
+// The Wingman tab. Its default view is NOW - the live stop of this session, and what the owner needs to do about it
+// (the Wingman tab, version 3). History is the version 1 list of every stop the Wingman judged, kept as it is until
+// it is redesigned.
 //
-// THIS VIEW DECIDES NOTHING. Every word, colour, group and count is the Gateway's fold (WingmanStopsFold), rendered
-// verbatim. The only work done here is layout, formatting the UTC instants into local time, and filtering the list
-// by the group key the Gateway already stamped on each stop. It does not answer a stop and does not write feedback.
+// NOW IS THE ONLY VIEW OF THE LIVE STOP, AND A FAILED READ SAYS SO. Now is fed by GET /sessions/{sid}/wingman-now.
+// A Gateway that cannot serve it - refused, unreachable, or too old to have the route - says so in its own sentence,
+// exactly like any other failure. There is no longer a bridge that quietly showed the version 1 list instead: it was
+// scaffolding for a route that had not shipped, and it went out in the same release as the route, because the
+// route's OWN genuine 404s (another account's session, an unknown one) would otherwise have read as "no Now here".
+// History keeps that list, reachable beside Now at all times - including while the Now read is failing.
+//
+// A BACKGROUND REFRESH NEVER TAKES THE SCREEN AWAY. Now is re-read every few seconds without the owner asking, on
+// the screen he types into. A failure on one of those refreshes keeps the last good screen and adds one quiet line
+// beside it, so a 502 during a deploy or a one-second drop cannot unmount the reply box and destroy his draft.
+//
+// THESE VIEWS DECIDE NOTHING. Every word, colour, group and count is the Gateway's own fold - WingmanNowFold for Now,
+// WingmanStopsFold for History - rendered verbatim. The only work done here is layout, formatting the UTC instants
+// into the reader's local time, and filtering the list by the group key the Gateway already stamped.
 //
 // Lives in client-core so the shell stays thin; only the Cockpit mounts it (the owner's ruling - not the phone).
 import { useEffect, useMemo, useState } from "react";
 import { gatewayErrorMessage } from "../api/client";
 import { readWingmanStops, type WingmanStop, type WingmanStopsResponse } from "./wingmanStops";
+import { readWingmanNow, type WingmanNow as WingmanNowDto } from "./wingmanNowRead";
+import { WingmanNow, type WingmanNowActions, type WingmanNowReplyBox } from "./WingmanNow";
 import "./wingmanTab.css";
+
+/** How often Now is re-read while the tab is open. It is one session's live stop, read only while it is on screen. */
+const NOW_REFRESH_MILLISECONDS = 5000;
+
+/**
+ * The Wingman tab: Now by default, History beside it.
+ *
+ * `actions` is everything Now can do, wired by the shell that mounts it. An action with no handler is not drawn, so
+ * this tab never shows a control that would do nothing.
+ */
+export function WingmanTab({
+  sessionId,
+  actions,
+  replyBox,
+}: {
+  sessionId: string;
+  /**
+   * What Now can do, DECIDED ONCE THE ANSWER IS IN HAND. It is a function of the Gateway's answer, not a fixed set,
+   * because which controls belong on the screen depends on what the Gateway said about this session - a snoozed one
+   * is offered a wake and not a snooze, finished work is offered a close (the review's item B3). An action the shell
+   * leaves out is not drawn, so Now never offers a control that would do nothing.
+   */
+  actions?: (now: WingmanNowDto) => WingmanNowActions;
+  /** The shell's own message box, drawn inside Now wherever the Gateway offered a reply (the review's item B1). */
+  replyBox?: WingmanNowReplyBox;
+}) {
+  // The last screen the Gateway served, and the failure of the most recent read, kept APART. A refresh that fails
+  // adds the failure; it never clears the screen, because clearing it is what destroyed the owner's half-typed
+  // reply. They are cleared together, by the session changing.
+  const [now, setNow] = useState<WingmanNowDto | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [view, setView] = useState<"now" | "history">("now");
+
+  useEffect(() => {
+    let live = true;
+    const controller = new AbortController();
+    setNow(null);
+    setFailure(null);
+    setView("now");
+
+    const read = () => {
+      readWingmanNow(sessionId, controller.signal)
+        .then((answer) => {
+          if (!live) return;
+          setNow(answer);
+          setFailure(null);
+        })
+        .catch((err: unknown) => {
+          if (!live || controller.signal.aborted) return;
+          setFailure(gatewayErrorMessage(err, "read what this session needs now"));
+        });
+    };
+
+    read();
+    const timer = setInterval(read, NOW_REFRESH_MILLISECONDS);
+    return () => {
+      live = false;
+      clearInterval(timer);
+      controller.abort();
+    };
+  }, [sessionId]);
+
+  return (
+    <div className="wingman-tab">
+      <div className="wingman-views" role="tablist" aria-label="The Wingman's views of this session">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "now"}
+          className={`wingman-view ${view === "now" ? "on" : ""}`}
+          onClick={() => setView("now")}
+        >
+          Now
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "history"}
+          className={`wingman-view ${view === "history" ? "on" : ""}`}
+          onClick={() => setView("history")}
+        >
+          History
+        </button>
+      </div>
+      {view === "now" ? (
+        <NowView sessionId={sessionId} now={now} failure={failure} actions={actions} replyBox={replyBox} />
+      ) : (
+        <WingmanStopsView sessionId={sessionId} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The Now pane: the live stop while there is one, and what went wrong with the last read.
+ *
+ * With a screen in hand the failure is ONE QUIET LINE beside it - the screen stays exactly where it was, and so does
+ * everything typed into it. With no screen yet (the very first read failed) the failure is all there is to show, and
+ * it is shown as the Gateway wrote it.
+ */
+function NowView({
+  sessionId,
+  now,
+  failure,
+  actions,
+  replyBox,
+}: {
+  sessionId: string;
+  now: WingmanNowDto | null;
+  failure: string | null;
+  actions?: (now: WingmanNowDto) => WingmanNowActions;
+  replyBox?: WingmanNowReplyBox;
+}) {
+  if (now === null) {
+    return failure === null ? (
+      <p className="wingman-state" role="status">
+        Loading this session's live stop...
+      </p>
+    ) : (
+      <p className="wingman-state wingman-state-error" role="alert">
+        {failure}
+      </p>
+    );
+  }
+  return (
+    <>
+      {failure !== null && (
+        <p className="wingman-stale" role="status">
+          {failure}
+        </p>
+      )}
+      {/* Keyed on the session, so moving to another one starts its Now with an empty reply box and no voice sentence
+          carried over, while a refresh of the SAME session never remounts it and never loses a draft.
+          Honest note: the effect above ALSO clears `now` when the session changes, so today either one on its own
+          would empty the box - removing just one keeps the test green, and removing both turns it red. The key is
+          kept because it states the invariant where the reader is looking, rather than leaving it to a reset three
+          screens up that a later change could reasonably drop. */}
+      <WingmanNow key={sessionId} now={now} actions={actions?.(now)} replyBox={replyBox} />
+    </>
+  );
+}
 
 /** What the tab shows when the route answered with no stops, in the phase 3 ruling's words. */
 export const WINGMAN_TAB_EMPTY = "The Wingman has not judged this session in the last seven days.";
@@ -31,7 +186,12 @@ type Load =
   | { kind: "error"; message: string }
   | { kind: "loaded"; answer: WingmanStopsResponse };
 
-export function WingmanTab({ sessionId }: { sessionId: string }) {
+/**
+ * The version 1 list: every stop the Wingman judged for this session - what it was shown, exactly what it was asked,
+ * what the model answered word for word, and what the product did with it. Unchanged; it is what History shows until
+ * History is redesigned, and what the whole tab shows while the Now route does not exist.
+ */
+export function WingmanStopsView({ sessionId }: { sessionId: string }) {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [filter, setFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);

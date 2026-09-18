@@ -12,6 +12,7 @@ import { buildSnoozeMenu } from "@devthrottle/client-core/settings/snoozeMenu";
 import { useDismissOnBackdrop } from "../components";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useStopSession } from "./StopSessionProvider";
+import { runHandOver } from "@devthrottle/client-core/fleetmanager/handOverClient";
 
 // The surface label on every client-error report from this view, so the Gateway log and
 // GET /client-errors/recent name where the user was standing (issue #2189).
@@ -29,6 +30,10 @@ const SURFACE = "cockpit-session-menu";
 // session page, so a successful stop removes the very row that was holding the answer. The question,
 // the request and the Gateway's answer therefore live in StopSessionProvider, mounted in AppShell above
 // the roster and the session page. This menu hands the session up and owns nothing about the stop.
+//
+// THE CHANGE OF OWNER (the Fleet Manager mission, step 8) is offered only when the Gateway offers it
+// (SessionDto.ownerChange): "Hand back to me" on a session the Fleet Manager owns, "Hand to the Fleet Manager" on one
+// that asks the owner directly. The words, and the sentence that comes back either way, are the Gateway's.
 
 export interface SessionMenuProps {
   session: SessionDto;
@@ -49,6 +54,9 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
   const [error, setError] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [handover, setHandover] = useState<SessionHandover | null>(null);
+  // The Gateway's sentence after a change of owner, shown on the button row like an error is.
+  const [ownerNote, setOwnerNote] = useState<string | null>(null);
+  const [ownerBusy, setOwnerBusy] = useState(false);
   // The stop lives above this component, in the one owner that survives this row being removed.
   const { openStop: startStop } = useStopSession();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -120,7 +128,7 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
       // the button's top instead. "Snooze for" is only present when this client knows the user's snooze
       // lengths, so the height is not fixed - measure it off the item count rather than hard-coding a
       // number that silently goes stale the next time a row is added.
-      const MENU_HEIGHT = 184 + (snoozeMenu.choices.length > 0 ? 31 : 0);
+      const MENU_HEIGHT = 184 + (snoozeMenu.choices.length > 0 ? 31 : 0) + (session.ownerChange ? 31 : 0);
       const spaceBelow = window.innerHeight - r.bottom;
       if (spaceBelow < MENU_HEIGHT + 8) {
         setPopPos({ bottom: Math.max(8, window.innerHeight - r.top + 4), right });
@@ -137,7 +145,7 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
     };
     // The choice count is a dependency because it changes the menu's height: the lengths can arrive from
     // the Gateway while the menu is already open, and the flip decision has to be redone when they do.
-  }, [open, snoozeMenu.choices.length]);
+  }, [open, snoozeMenu.choices.length, session.ownerChange]);
 
   // Close the dropdown on an outside click or Escape. The portal'd popover is outside rootRef, so it
   // is excluded explicitly.
@@ -254,6 +262,19 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
     }
   }, [sid]);
 
+  const ownerChange = session.ownerChange ?? null;
+  const doOwnerChange = useCallback(async () => {
+    if (sid.length === 0 || ownerChange === null) return;
+    setOpen(false);
+    setError(null);
+    setOwnerNote(null);
+    setOwnerBusy(true);
+    const outcome = await runHandOver(sid, ownerChange.to);
+    setOwnerBusy(false);
+    if (outcome.ok) setOwnerNote(outcome.sentence);
+    else setError(outcome.error);
+  }, [sid, ownerChange]);
+
   return (
     <div className={`session-menu ${variant}${open ? " open" : ""}`} ref={rootRef}>
       <button
@@ -268,6 +289,7 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
           e.preventDefault();
           e.stopPropagation();
           setError(null);
+          setOwnerNote(null);
           setOpen((o) => !o);
         }}
       >
@@ -316,6 +338,17 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
                 </button>
               </div>
             )}
+            {ownerChange !== null && (
+              <button
+                type="button"
+                role="menuitem"
+                className="session-menu-item"
+                title={ownerChange.title}
+                onClick={() => void doOwnerChange()}
+              >
+                {ownerChange.label}
+              </button>
+            )}
             <button type="button" role="menuitem" className="session-menu-item" onClick={openHandover}>
               Handover info
             </button>
@@ -363,6 +396,16 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
 
       {/* The action error is shown on the button row when no dialog is open (e.g. a failed Hold). */}
       {error !== null && dialog === null && <span className="session-menu-error">{error}</span>}
+      {ownerBusy && ownerChange !== null && (
+        <span className="session-menu-note" role="status">
+          {ownerChange.busyLabel}
+        </span>
+      )}
+      {ownerNote !== null && error === null && (
+        <span className="session-menu-note" role="status">
+          {ownerNote}
+        </span>
+      )}
 
       {dialog !== null && (
         <div className="session-dialog-overlay" {...dismissDialog}>

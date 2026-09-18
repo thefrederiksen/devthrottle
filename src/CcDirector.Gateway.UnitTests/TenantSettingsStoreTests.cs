@@ -55,11 +55,11 @@ public sealed class TenantSettingsStoreTests
         using var h = new GatewayDbTestHarness();
         var store = new TenantSettingsStore(h.Open());
 
-        store.Set(TenantA, TenantSettingKeys.CarModeModel, "a-model", Now);
-        store.Set(TenantB, TenantSettingKeys.CarModeModel, "b-model", Now);
+        store.Set(TenantA, TenantSettingKeys.WingmanFastModel, "a-model", Now);
+        store.Set(TenantB, TenantSettingKeys.WingmanFastModel, "b-model", Now);
 
-        Assert.Equal("a-model", store.Get(TenantA, TenantSettingKeys.CarModeModel));
-        Assert.Equal("b-model", store.Get(TenantB, TenantSettingKeys.CarModeModel));
+        Assert.Equal("a-model", store.Get(TenantA, TenantSettingKeys.WingmanFastModel));
+        Assert.Equal("b-model", store.Get(TenantB, TenantSettingKeys.WingmanFastModel));
     }
 
     [Fact]
@@ -81,13 +81,13 @@ public sealed class TenantSettingsStoreTests
         var store = new TenantSettingsStore(h.Open());
 
         store.Set(TenantA, TenantSettingKeys.TtsVoice, "shimmer", Now);
-        store.Set(TenantA, TenantSettingKeys.CarModeModel, "a-model", Now);
+        store.Set(TenantA, TenantSettingKeys.WingmanFastModel, "a-model", Now);
         store.Set(TenantB, TenantSettingKeys.TtsVoice, "echo", Now);
 
         var a = store.GetAll(TenantA);
         Assert.Equal(2, a.Count);
         Assert.Equal("shimmer", a[TenantSettingKeys.TtsVoice]);
-        Assert.Equal("a-model", a[TenantSettingKeys.CarModeModel]);
+        Assert.Equal("a-model", a[TenantSettingKeys.WingmanFastModel]);
 
         var b = store.GetAll(TenantB);
         Assert.Single(b);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { getQueue, type QueueItem, type SessionDto } from "@devthrottle/client-core/api/client";
 import { modelChipOf } from "@devthrottle/client-core/sessions/model";
 import { TerminalPane } from "../panes/TerminalPane";
@@ -15,8 +15,9 @@ import { QueuePanel } from "./QueuePanel";
 import { ScreenshotsPanel } from "./ScreenshotsPanel";
 import { appendToCompose } from "./composerInsert";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
-import { VerdictPanel } from "@devthrottle/client-core/sessions/VerdictPanel";
 import { WingmanTab } from "@devthrottle/client-core/sessions/WingmanTab";
+import { sendingButtonFor, wingmanNowActions } from "./wingmanNowActions";
+import { useStopSession } from "./StopSessionProvider";
 
 // The selected session's detail region (issue #972): the live terminal (issue #971's TerminalPane,
 // reused verbatim) stacked over the driver action bar and the composer, with a tabbed dock for the
@@ -35,16 +36,81 @@ type DockTab = "queue" | "shots";
 // conversation beside it, from the shared client-core view the phone also mounts.
 type MainTab = "terminal" | "chat" | "voice" | "sourceControl" | "wingman" | "reports";
 
+// THE ADDRESS HOLDS THE TAB AND THE OPEN REPORT (dev reports mission, phase 3b).
+// These used to be component state, so `/session/{sid}?tab=reports&report={rid}` could not reach them and a
+// link to a report landed on the terminal. They are read from the address instead: a deep link arrives with
+// the tab already chosen and the report already open, and every switch writes the address back so it never
+// describes a screen that is not the one you are looking at. Terminal is the default and is left OUT of the
+// address, so an ordinary session link stays `/session/{sid}`.
+const MAIN_TABS: readonly MainTab[] = ["terminal", "chat", "voice", "sourceControl", "wingman", "reports"];
+const DEFAULT_MAIN_TAB: MainTab = "terminal";
+
+function tabFromAddress(raw: string | null): MainTab {
+  return MAIN_TABS.includes(raw as MainTab) ? (raw as MainTab) : DEFAULT_MAIN_TAB;
+}
+
 export function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const { sessions } = useOutletContext<SessionsOutletContext>();
   const selected = sessions?.find((s) => s.sessionId === sessionId);
+  const { openStop } = useStopSession();
 
   const [compose, setCompose] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [tab, setTab] = useState<DockTab>("queue");
-  const [mainTab, setMainTab] = useState<MainTab>("terminal");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mainTab = tabFromAddress(searchParams.get("tab"));
+  // Only the Reports tab has an open report, so `report=` outside it means nothing and is not read.
+  const openReportId = mainTab === "reports" ? searchParams.get("report") || null : null;
+
+  // Switching tab REPLACES the address (a tab is not a place you go back to) and drops any open report,
+  // because a report is only open on the Reports tab.
+  const setMainTab = useCallback(
+    (next: MainTab) => {
+      setSearchParams(
+        (current) => {
+          const params = new URLSearchParams(current);
+          if (next === DEFAULT_MAIN_TAB) params.delete("tab");
+          else params.set("tab", next);
+          if (next !== "reports") params.delete("report");
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // Opening and closing a report PUSHES, so the browser's own Back closes the report the way the reader
+  // expects - and either way the address says exactly what is on screen.
+  const openReport = useCallback(
+    (reportId: string) => {
+      setSearchParams((current) => {
+        const params = new URLSearchParams(current);
+        params.set("tab", "reports");
+        params.set("report", reportId);
+        return params;
+      });
+    },
+    [setSearchParams],
+  );
+
+  const closeReport = useCallback(() => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      params.set("tab", "reports");
+      params.delete("report");
+      return params;
+    });
+  }, [setSearchParams]);
+
+  // The way back to this session from an open report: the session itself, on its default tab.
+  const backToSession = useCallback(
+    (reportSessionId: string) => navigate(`/session/${encodeURIComponent(reportSessionId)}`),
+    [navigate],
+  );
+
   // Set by the composer to a function that focuses its textarea, so the Source Control tab can focus the
   // composer after inserting a clicked file's path (issue #1266).
   const composerFocusRef = useRef<(() => void) | null>(null);
@@ -79,8 +145,13 @@ export function SessionDetail() {
     [appendCompose],
   );
 
+  // THE EMPTY QUEUE PANEL GIVES ITS WIDTH BACK, on this tab only (the review's item C3). Three hundred pixels of a
+  // thousand said "No queued prompts." beside a screen that wanted the room; the Wingman tab is a page to read, not
+  // a console with a dock. The moment anything is queued the panel returns, and every other tab keeps it always.
+  const showDock = mainTab !== "wingman" || queue.length > 0;
+
   return (
-    <div className="session-detail">
+    <div className={`session-detail${showDock ? "" : " session-detail-wide"}`}>
       <div className="session-main">
         <div className="session-tabs" role="tablist" aria-label="Session view">
           <button
@@ -172,25 +243,61 @@ export function SessionDetail() {
           )}
           {mainTab === "wingman" && sessionId && (
             <div className="session-pane">
-              {/* What the Wingman read at this stop, and the owner's answer to it - the shared client-core panel.
-                  It shows on the Wingman tab ONLY (the owner, 2026-09-17): above every tab it crowded the
-                  terminal, chat, voice and source control views it has nothing to do with.
-                  THIS SHELL DECIDES NOTHING ABOUT WHAT IT SHOWS: it hands over the selected row and this route's
-                  session id, and the panel owns whether there is anything to show and what is live on it. */}
-              {selected && <VerdictPanel sessionId={sessionId} session={selected} />}
-              <WingmanTab sessionId={sessionId} />
+              {/* ONE STOP, DRAWN ONCE. The shared VerdictPanel used to mount above this tab, so once Now could read
+                  the live stop the same stop appeared twice on one screen, each copy with its own answer buttons.
+                  The approved mockup draws no panel above Now, and Now renders that stop with more room. The
+                  component itself is untouched and still mounts wherever else it is used.
+                  What Now can DO is wired in wingmanNowActions, because the shell owns the tabs and the router;
+                  the tab owns what is worth showing. An action that is not passed is not drawn, so Now never
+                  offers a control that would do nothing - which is why "Why this colour?" and the rating thumbs
+                  are still absent: Debug and ratings are not built yet. */}
+              <WingmanTab
+                sessionId={sessionId}
+                actions={(now) =>
+                  wingmanNowActions(sessionId, selected, now.state, {
+                    openTerminal: () => setMainTab("terminal"),
+                    goToSession: (id) => navigate(`/session/${id}`),
+                    openSettings: () => navigate("/settings"),
+                    openStop: () => selected && openStop(selected, () => navigate("/sessions")),
+                  })
+                }
+                /* THE ONE MESSAGE BOX ON THIS TAB (the review's item B1). It is the page's own composer, moved
+                   inside the card beside the question rather than copied - Send, Speak, Queue and Attach are the
+                   same controls doing the same things, and the page's copy at the bottom is hidden below while
+                   this tab is showing. The words in the empty box are the Gateway's, handed in by the view. */
+                replyBox={(placeholder, nowState) => (
+                  <SessionComposer
+                    sessionId={sessionId}
+                    value={compose}
+                    onChange={setCompose}
+                    onQueued={setQueue}
+                    placeholder={placeholder}
+                    /* ONE SENDING BUTTON PER STATE (the review's item N3). A stopped session gets Send; a working
+                       one gets the single button the words in the box already describe. Send beside Queue, with a
+                       box saying a message "is queued", was two buttons and no way to tell what either would do. */
+                    sending={sendingButtonFor(nowState)}
+                  />
+                )}
+              />
             </div>
           )}
           {mainTab === "reports" && (
             <div className="session-pane">
-              <ReportsTab sessionId={sessionId} />
+              <ReportsTab
+                sessionId={sessionId}
+                openReportId={openReportId}
+                onOpenReport={openReport}
+                onCloseReport={closeReport}
+                onBackToSession={backToSession}
+              />
             </div>
           )}
         </div>
 
-        {/* A prompt to this session was not delivered (issue internal#811). It sits directly above the
-            composer - the place the words were typed and the place the next attempt will be made - and it
-            stays until something actually lands. The sentence is the Gateway's, rendered verbatim. */}
+        {/* A prompt to this session was not delivered (issue internal#811). It stays until something actually
+            lands, on EVERY tab - a prompt that never reached the session is worth saying wherever he is standing,
+            and the next attempt is the box below on most tabs and the one inside the card on the Wingman tab.
+            The sentence is the Gateway's, rendered verbatim. */}
         {selected && promptDeliveryNotice(selected) !== null && (
           <div className="delivery-failure-banner" role="alert">
             <span className="delivery-failure-title">{promptDeliveryNotice(selected)}</span>
@@ -199,16 +306,27 @@ export function SessionDetail() {
             )}
           </div>
         )}
-        <SessionActionBar sessionId={sessionId} capabilities={selected?.driverCapabilities} />
-        <SessionComposer
-          sessionId={sessionId}
-          value={compose}
-          onChange={setCompose}
-          onQueued={setQueue}
-          focusHandleRef={composerFocusRef}
-        />
+        {/* NEITHER OF THESE BELONGS ON THE WINGMAN TAB (the review's items B7 and B1).
+            The driver bar puts Stop, Interrupt, Compact, Clear context and History directly under the place the
+            owner clicks his answers - the design kept destructive controls off Now on purpose, and they arrived
+            here by the back door, on every state including the ones where none of them means anything.
+            The composer is the second message box: the tab already has one, inside the card, beside the question.
+            Every other tab keeps both, unchanged. */}
+        {mainTab !== "wingman" && (
+          <>
+            <SessionActionBar sessionId={sessionId} capabilities={selected?.driverCapabilities} />
+            <SessionComposer
+              sessionId={sessionId}
+              value={compose}
+              onChange={setCompose}
+              onQueued={setQueue}
+              focusHandleRef={composerFocusRef}
+            />
+          </>
+        )}
       </div>
 
+      {showDock && (
       <aside className="session-dock">
         <div className="dock-tabs">
           <button type="button" className={`dock-tab ${tab === "queue" ? "on" : ""}`} onClick={() => setTab("queue")}>
@@ -226,6 +344,7 @@ export function SessionDetail() {
           )}
         </div>
       </aside>
+      )}
     </div>
   );
 }

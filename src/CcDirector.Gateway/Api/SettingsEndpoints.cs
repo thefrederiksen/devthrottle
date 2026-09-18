@@ -28,9 +28,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET+PUT /gateway/daily-report               (per-account report cadence; issue #1000)
 ///   GET+PUT /gateway/mentor-report              (per-account mentor report on/off;
 ///                                                devthrottle_internal#1661)
-///   GET  /gateway/ai-provider     -> { provider, wingmanModel, wingmanFastModel, carModeModel,
-///                                       carModeEndPhrase, transcriptionModel, ttsModel, ttsVoice, voices[],
-///                                       catalogAvailable }
+///   GET  /gateway/ai-provider     -> { provider, wingmanModel, wingmanFastModel, transcriptionModel,
+///                                       ttsModel, ttsVoice, voices[], catalogAvailable }
 ///   PUT  /gateway/ai-provider     body { "provider": "devthrottle" } (resets this tenant's model defaults)
 ///   GET+PUT /gateway/tts-voice
 ///   GET  /gateway/spoken-language -> { language, voice, languages[{ code, label, note, sample,
@@ -268,10 +267,12 @@ internal static class SettingsEndpoints
                 if (body is not JsonObject obj || !obj.TryGetPropertyValue("sessionId", out var value))
                     return Results.BadRequest(new { error = "body { \"sessionId\": \"<session id>\" | null } is required" });
 
+                // Through the placement service: under the gate a restart or a move looks under, so a replacement under
+                // way sees the owner's change as the owner's (and a session waiting to take over is told once).
                 if (value is null)
                 {
-                    var removed = host.TenantSettingsResolver.ClearFleetManagerSessionId(t.Value);
-                    FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id cleared (removed={removed}) for tenant={t.Value.ToLogString()}");
+                    await host.FleetManagerPlacement.SetMarkByOwnerAsync(t.Value, null, ctx.RequestAborted);
+                    FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id cleared for tenant={t.Value.ToLogString()}");
                     return Results.Json(new { sessionId = (string?)null });
                 }
 
@@ -279,11 +280,9 @@ internal static class SettingsEndpoints
                 if (raw is null || !Guid.TryParse(raw, out _))
                     return Results.BadRequest(new { error = "\"sessionId\" must be a full session id or null" });
 
-                var now = DateTime.UtcNow;
-                host.TenantSettingsResolver.SetFleetManagerSessionId(t.Value, raw, now);
-                var stored = host.TenantSettingsResolver.FleetManagerSessionId(t.Value);
-                // The history beside the mark: the digest still finds the sessions an earlier Fleet Manager started.
-                host.FleetManagerMarks.Record(t.Value, stored!, now);
+                // The history beside the mark is written in the same transaction: the digest still finds the sessions an
+                // earlier Fleet Manager started.
+                var stored = await host.FleetManagerPlacement.SetMarkByOwnerAsync(t.Value, raw, ctx.RequestAborted);
                 FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id set to {stored} for tenant={t.Value.ToLogString()}");
                 return Results.Json(new { sessionId = stored });
             }
@@ -862,10 +861,6 @@ internal static class SettingsEndpoints
             // default, so models picked on the AI tab round-trip across a reload for THIS tenant.
             wingmanModel = resolver.WingmanModel(tenant, mode, Core.Configuration.WingmanModelRole.Thinking).Value,
             wingmanFastModel = resolver.WingmanModel(tenant, mode, Core.Configuration.WingmanModelRole.Fast).Value,
-            // Car Mode runs its OWN model, separate from the Wingman (a fast tier + tool_choice=required).
-            carModeModel = resolver.CarModeModel(tenant).Value,
-            // Car Mode's hands-free sign-off phrase, per tenant. Default "over and out".
-            carModeEndPhrase = resolver.CarModeEndPhrase(tenant),
             // transcriptionModel + voices are provider-level facts (one hosted option), not per-tenant.
             transcriptionModel = Core.Configuration.TranscriptionEndpointResolver.Resolve(mode).Model,
             ttsModel = resolver.TtsModel(tenant, mode),
@@ -874,7 +869,7 @@ internal static class SettingsEndpoints
             // Issue #2022: whether the live model CATALOG and the Test button are available. The catalog
             // (/gateway/ai/models) and test-chat (/gateway/ai/test-chat) spend the shared deployment provider
             // credential with no per-caller scoping, so they STAY denied on hosted until that credential is
-            // scoped per account. The AI/Car Mode tabs read this Gateway-owned flag (never guess from the
+            // scoped per account. The AI tab reads this Gateway-owned flag (never guess from the
             // surface) to disable model browsing + Test on hosted and show a concise explanation, rather than
             // offer a control that would fail. On self-host the catalog is available.
             catalogAvailable = !GatewayHostedMode.IsHosted,

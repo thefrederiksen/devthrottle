@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import gitrun
+import host
 from errors import ToolError
 from gitrun import GitError
 
@@ -645,11 +646,32 @@ def drop_pins(repo: Path, pins: tuple[tuple[str, str], ...]) -> None:
             raise NotLanded(f"the pin {ref} could not be removed: {ex.short()}") from ex
 
 
-def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> None:
+def ask_the_host(worktree: Path, tip: RemoteTip, commits: list[str]) -> tuple[tuple[host.Proof, ...], str | None]:
+    """What the repository's host can prove about commits git could not.
+
+    Only ever called with commits git has already failed to prove, so the host can turn held into free and
+    can never turn free into held. The answer is the proofs that free them, and the note for the hold
+    reason when the host could not be asked. A test replaces this whole function."""
+    return host.prove(worktree, tip.branch, tip.commit, commits, network_timeout())
+
+
+def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> tuple[host.Proof, ...]:
+    """Raise unless every commit is proven landed. Returns the host proofs that freed commits git could not
+    prove - empty when git proved everything on its own, which is the ordinary case and costs no network
+    call."""
     try:
         found = unproven_commits(worktree, tip, tips)
     except GitError as ex:
         raise cannot_verify(ex.short()) from ex
+    proofs: tuple[host.Proof, ...] = ()
+    note: str | None = None
+    if found.commits:
+        proofs, note = ask_the_host(worktree, tip, found.commits)
+        freed = {commit for proof in proofs for commit in proof.commits}
+        if freed:
+            found = Unproven([c for c in found.commits if c not in freed],
+                             [c for c in found.not_current if c not in freed],
+                             [c for c in found.branch_gone if c not in freed])
     if found.commits:
         count = len(found.commits)
         noun = "1 commit is" if count == 1 else f"{count} commits are"
@@ -660,7 +682,10 @@ def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> N
         if found.branch_gone:
             reason += (f"; the remote branch that proved {_short_list(found.branch_gone)} at the fetch is gone "
                        f"from the remote or moved")
+        if note:
+            reason += f"; {note}"
         raise UnprovenWork(reason, found.commits)
+    return proofs
 
 
 @dataclass(frozen=True)
@@ -773,6 +798,7 @@ class Checked:
     reflog: tuple[ReflogEntry, ...]   # the whole HEAD reflog the proof examined, newest first
     pins: tuple[tuple[str, str], ...] = ()  # the slot's pins, all proven landed; dropped after the act
     stash: str | None = None          # refs/stash as recorded when the slot was handed out, proven unmoved
+    proof: tuple[host.Proof, ...] = ()  # the host answers that freed commits git could not prove, if any
 
 
 def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | None,
@@ -786,6 +812,10 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
     reflog mark that cannot be vouched for) does not stop the commit proof: every commit it cannot prove is
     pinned first, so a slot held for any reason cannot lose a commit to git gc while it waits. With the mark
     unusable, every reflog entry is checked. The first reason found is the one raised.
+
+    `ask_the_host` is asked only about commits git could not prove, so the host can turn held into free and
+    never free into held. The Checked returned names every commit the host freed and the pull request that
+    freed it; everything else in it was proven by git alone.
     """
     if not worktree.is_dir():
         raise NotLanded("the worktree directory is missing")
@@ -815,7 +845,7 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
         if commit not in starts:
             starts.append(commit)
     try:
-        require_commits_landed(worktree, tip, starts)
+        proof = require_commits_landed(worktree, tip, starts)
     except NotLanded as ex:
         reason = str(ex)
         if isinstance(ex, UnprovenWork):
@@ -825,7 +855,7 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
         raise NotLanded(f"{held}; {reason}" if held is not None else reason) from ex
     if held is not None:
         raise held
-    return Checked(tip, head, gitdir, tuple(entries), pins, stash)
+    return Checked(tip, head, gitdir, tuple(entries), pins, stash, proof)
 
 
 def _z_list(worktree: Path, *args: str) -> list[str]:

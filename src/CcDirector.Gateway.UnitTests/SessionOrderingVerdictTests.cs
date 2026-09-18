@@ -1,4 +1,4 @@
-using CcDirector.Core.Wingman;
+﻿using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -317,7 +317,7 @@ public sealed class SessionOrderingVerdictTests
 
     [Theory]
     [InlineData("done", "Done - " + ReportLabel)]
-    [InlineData("report", "Report - " + ReportLabel)]
+    [InlineData("report", "Telling you - " + ReportLabel)]
     public void StateLabel_FinishedKind_LeadsTheCalmLabel_AndBothKindsAreCyanAndUncounted(string kind, string expected)
     {
         var s = Calm();
@@ -338,7 +338,7 @@ public sealed class SessionOrderingVerdictTests
         report.TurnVerdict!.FinishedKind = "report";
 
         Assert.Equal("Done", SessionOrdering.StateLabel(done));
-        Assert.Equal("Report", SessionOrdering.StateLabel(report));
+        Assert.Equal("Telling you", SessionOrdering.StateLabel(report));
     }
 
     [Fact]

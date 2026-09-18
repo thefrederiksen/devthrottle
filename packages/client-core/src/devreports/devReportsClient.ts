@@ -20,6 +20,14 @@ export interface DevReportSummary {
   updatedAtUtc: string;
   sessionEnded: boolean;
   openItems: number;
+  /**
+   * The session this report came from, in the owner's words - e.g. `121 devthrottle - tool not working on
+   * linux`. The Gateway composes it; every view renders it verbatim (repository rule 7). A Gateway too old
+   * to send it leaves it undefined, and a view then shows nothing rather than composing one of its own.
+   */
+  sessionLabel?: string;
+  /** The way back to that session, in the owner's words - e.g. `back to 121 devthrottle - tool not working on linux`. Same rule: verbatim, or nothing. */
+  backLabel?: string;
 }
 
 /** An item as the Gateway recorded it: the contract's item shape plus the Gateway's state and times. */

@@ -418,7 +418,7 @@ public sealed class WingmanVoiceService
     /// The one HTTP client for the narration speech leg, used whenever no test client is injected.
     ///
     /// Static and never disposed, matching the hosted-call pattern used across this codebase
-    /// (AiModelsEndpoint, CarModeChat, HostedInferenceBrain, ...) and the /wingman/tts endpoint's own
+    /// (AiModelsEndpoint, HostedInferenceBrain, ...) and the /wingman/tts endpoint's own
     /// SharedTtsHttp. Safe to share because the credential goes on each REQUEST inside TtsSynthesis,
     /// never on this client's default headers.
     ///
@@ -1067,16 +1067,38 @@ public sealed class WingmanVoiceService
     public string? GetAudioContentType(TenantId tenant, string sid) => StateFor(tenant).Ready.TryGetValue(sid, out var v) ? v.ContentType : null;
 
     /// <summary>
-    /// Remove a ready clip after the stored conversation proves that a later user message superseded it.
-    /// This is the missed-Working-transition repair: the source read is a second independent observation
-    /// that the old clip is stale, so neither memory nor the durable cache may keep serving it.
+    /// Remove a ready clip that a NEWER STOP has superseded, so neither memory nor the durable cache can keep
+    /// serving audio about a turn that is no longer the latest one.
+    ///
+    /// THE OWNER'S RULE (2026-09-18): "the audio you can play must always belong to the turn you are looking at".
+    /// The narration TEXT is permanent - it is written for every turn of a session the user owns, and nothing here
+    /// touches it. The CLIP is disposable: it is a rendering of one turn, and the moment the session moves on it is
+    /// about the past.
+    ///
+    /// THE DELETION THAT WAS SUPPOSED TO DO THIS RUNS ON AN EDGE, AND THE EDGE CAN BE MISSED. OnSessionWorking
+    /// clears the clip when a session goes blue, but that transition is observed by a sampled watcher and this file
+    /// already documents, in several places, that a quick turn can be missed entirely. Every protection keyed off
+    /// that edge is therefore conditional on somebody noticing it.
+    ///
+    /// The window that opens when it is missed is exactly the "old voice" the owner reported. The session works
+    /// (edge missed, clip survives), the next turn ends, the roster goes back to waiting - and in the gap before the
+    /// new audio is synthesised the Gateway still holds a clip, so the folded verdict says READY and the phone
+    /// offers PREVIOUS turn's audio as though it were this turn's. Both ends agree, and both are wrong.
+    ///
+    /// So the clip stops being playable the moment a stop with a different identity is seen, not when replacement
+    /// audio arrives. That is a state check rather than an edge, so a missed transition costs nothing.
+    ///
+    /// WHAT THIS COSTS, stated rather than glossed: a listener mid-clip is cut off when a genuinely new stop
+    /// arrives. Issue #1322's rule - never pull the rug on a listener - is about RE-narrating the SAME stop, and
+    /// that is untouched: an identical verdict id does not reach here (see ShouldRegenerate). A different one means
+    /// the agent worked and finished another turn, which is the very case the owner says must clear.
     /// </summary>
-    private void DropReadyForSupersedingUserMessage(TenantId tenant, TenantVoiceState state, string sid)
+    private void DropReadySupersededByANewerStop(TenantId tenant, TenantVoiceState state, string sid, string why)
     {
         SupersedeStop(state, sid);
         if (!state.Ready.TryRemove(sid, out _)) return;
         DeleteReadyAudio(tenant, sid);
-        FileLog.Write($"[WingmanVoiceService] stale voice + text cache cleared (later user message): tenant={tenant.ToLogString()} sid={sid}");
+        FileLog.Write($"[WingmanVoiceService] stale voice + text cache cleared ({why}): tenant={tenant.ToLogString()} sid={sid}");
     }
 
     /// <summary>Mark the session as a voice session (persisted, so the gateway keeps its voice fresh
@@ -1460,9 +1482,20 @@ public sealed class WingmanVoiceService
                 && outcome.Verdict is { } stop)
             {
                 state.NothingToNarrate.TryRemove(sid, out _);
-                if (WingmanNarrationSource.EndsWithALaterUserMessage(_conversationReader?.Invoke(tenant, sid)?.Widgets)
-                    && ShouldRegenerate(tenant, sid, stop.VerdictId))
-                    DropReadyForSupersedingUserMessage(tenant, state, sid);
+                // A CLIP MADE FROM AN EARLIER STOP STOPS BEING PLAYABLE NOW, not when its replacement arrives.
+                // ShouldRegenerate is the identity check - the same trimmed, ordinal comparison of the stop this
+                // clip was made from against the stop in hand - so a re-hit of the SAME stop never reaches here and
+                // a listener on this turn's clip is never disturbed. See DropReadySupersededByANewerStop.
+                //
+                // The later-user-message arm is kept as a REASON rather than a condition. It used to be the only
+                // way in, which made this repair depend on a conversation that happened to end with the person's
+                // own message; the same staleness arrives with no message at all whenever the working edge is
+                // missed, and that case went unrepaired.
+                if (ShouldRegenerate(tenant, sid, stop.VerdictId))
+                    DropReadySupersededByANewerStop(tenant, state, sid,
+                        WingmanNarrationSource.EndsWithALaterUserMessage(_conversationReader?.Invoke(tenant, sid)?.Widgets)
+                            ? "later user message"
+                            : "a newer stop");
             }
 
             switch (outcome.Kind)
@@ -1658,7 +1691,26 @@ public sealed class WingmanVoiceService
     private void StartNarrationCall(TenantId tenant, string sid, TurnVerdictOutcome outcome)
     {
         var epoch = CurrentStopEpoch(StateFor(tenant), sid);
-        var call = Task.Run(() => RunNarrationCallAsync(tenant, sid, outcome, epoch, CancellationToken.None));
+        var call = Task.Run(async () =>
+        {
+            try
+            {
+                await RunNarrationCallAsync(tenant, sid, outcome, epoch, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // A detached call has no caller to throw to; log it rather than losing it.
+                FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={outcome.Verdict?.VerdictId ?? "(none)"}: narration call FAILED ({ex.GetType().Name}): {ex.Message}");
+            }
+            finally
+            {
+                // THE CALL IS OVER, however it ended. The claim stays, so no automatic path re-attempts this stop; it
+                // only stops being a RUNNING call, which is what lets a PERSON pressing "Generate narration now" ask
+                // for it again. Without this the claim looked live for ever and that button made no call at all.
+                if (outcome.Verdict?.VerdictId is { } finishedId)
+                    RequireVerdicts().NarrationCallFinished(tenant, sid, finishedId);
+            }
+        });
         _narrationCalls[call] = 1;
         _ = call.ContinueWith(done => _narrationCalls.TryRemove(done, out _), TaskScheduler.Default);
     }
@@ -1801,7 +1853,15 @@ public sealed class WingmanVoiceService
             // THE NARRATION CALL (slice J): a person asked, so the stop gets one unless one was already made for this
             // verdict id. The call runs Gateway-owned past this request and replaces the clip when it answers, so the
             // phone is never left waiting on a second model call.
-            if (!HasSavedNarration(verdict) && verdicts.TryClaimNarration(tenant, sid, verdict.VerdictId))
+            // A PERSON ASKED, so a claim spent by an earlier failed attempt is given back first. Without it, a person
+            // asking about an UNCHANGED stop - the reused verdict, so the same verdict id - was refused the claim and
+            // made no narration call at all, however many times they pressed; they got the judge's short text and
+            // never the fuller narration. (A stop that HAS moved on mints a new verdict id and was never affected.)
+            // ReleaseNarrationClaimForRequest answers false only while a call for this same stop is genuinely in
+            // flight, and then this joins it rather than paying for a second one.
+            if (!HasSavedNarration(verdict)
+                && verdicts.ReleaseNarrationClaimForRequest(tenant, sid, verdict.VerdictId)
+                && verdicts.TryClaimNarration(tenant, sid, verdict.VerdictId))
                 StartNarrationCall(tenant, sid, outcome);
             FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: {outcome.Kind} verdict={verdict.VerdictId} kind={verdict.PackageKind} spokenLen={spokenNow.Length} voiceSession={IsVoiceSession(tenant, sid)}");
             return new StopNarration(outcome.SourceText ?? "", spokenNow, outcome.ReplySeconds,

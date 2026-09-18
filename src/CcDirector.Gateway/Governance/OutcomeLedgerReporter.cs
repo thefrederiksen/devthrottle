@@ -88,6 +88,9 @@ public sealed class OutcomeLedgerReporter
                 .Where(e => sessionIds.Contains(e.SessionId) &&
                             e.Category == GovernanceAuditCategory.Intervention &&
                             e.EventType != GovernanceAuditEventType.Stopped &&
+                            // A change of owner (step 8 of the Fleet Manager mission) is not the session needing a
+                            // person either, for the same reason.
+                            e.EventType != GovernanceAuditEventType.HandedOver &&
                             e.OccurredUtc >= since && e.OccurredUtc < until)
                 .ToList()
                 .GroupBy(e => e.SessionId, StringComparer.Ordinal)

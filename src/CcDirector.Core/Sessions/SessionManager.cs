@@ -200,6 +200,79 @@ public sealed class SessionManager : IDisposable
     /// </summary>
     public bool PlacesSkillsOnLaunch { get; init; }
 
+    /// <summary>
+    /// Where this Director keeps its sessions on disk (<c>sessions.json</c>). Set by the app; null in tests that do not
+    /// persist. Written at once when a session's owner changes (<see cref="PersistOwnerChange"/>).
+    /// </summary>
+    public SessionStateStore? DurableStateStore { get; set; }
+
+    /// <summary>
+    /// This Director's crash journal - the roster a Director started after a crash reads back
+    /// (<see cref="DirectorCrashJournal.DetectAndClaim"/>). Set by the app once the Director's id is known. Written at
+    /// once when a session's owner changes (<see cref="PersistOwnerChange"/>).
+    /// </summary>
+    public DirectorCrashJournal? CrashJournal { get; set; }
+
+    /// <summary>
+    /// Change a session's owner (the Gateway's hand over, the Fleet Manager mission, step 8), only if it is still
+    /// <paramref name="expectedOwner"/>, and write the change to disk before answering (<see cref="PersistOwnerChange"/>).
+    /// Throws when the change cannot be written; the session then keeps its previous owner.
+    /// </summary>
+    public OwnerChangeResult ChangeOwner(Session session, Guid? expectedOwner, Guid? newOwner)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        FileLog.Write($"[SessionManager] ChangeOwner: session={session.Id}, expected={expectedOwner?.ToString() ?? "(the user)"}, " +
+                      $"owner={newOwner?.ToString() ?? "(the user)"}");
+        var result = session.SetController(expectedOwner, newOwner, PersistOwnerChange);
+        FileLog.Write($"[SessionManager] ChangeOwner: session={session.Id}, outcome={result.Outcome}");
+        return result;
+    }
+
+    /// <summary>
+    /// Write a session's changed owner to disk NOW, before the verb answers, rather than on the next routine save - a
+    /// Director that stops right after a hand over must come back knowing who owns the session.
+    ///
+    /// THE DURABLE RECORD IS THE CRASH JOURNAL. A Director started after a stop reads its crash journal
+    /// (<see cref="DirectorCrashJournal.DetectAndClaim"/>); the app clears <c>sessions.json</c> at start and never
+    /// restores from it. So when this Director has a crash journal, the journal write must succeed - it throws, and the
+    /// change is undone, when it does not - and a failed <c>sessions.json</c> write is logged but does not undo a change
+    /// the journal already holds. A Director with no crash journal yet has only <c>sessions.json</c>, and then that
+    /// write must succeed. A manager with neither (a test) writes nothing.
+    /// </summary>
+    internal void PersistOwnerChange(Session session)
+    {
+        var owner = session.ControllerSessionId?.ToString();
+        FileLog.Write($"[SessionManager] PersistOwnerChange: session={session.Id}, owner={owner ?? "(the user)"}, " +
+                      $"journal={(CrashJournal is null ? "none" : CrashJournal.FilePath)}, " +
+                      $"store={(DurableStateStore is null ? "none" : DurableStateStore.FilePath)}");
+        if (CrashJournal is { } journal && !journal.SetSessionOwner(session.Id.ToString(), owner))
+            journal.Update(BuildCrashJournalRoster());
+        if (DurableStateStore is { } store && !store.Save(BuildPersistedSessions()))
+        {
+            if (CrashJournal is null)
+                throw new IOException($"the owner of session {session.Id} could not be written to {store.FilePath}");
+            FileLog.Write($"[SessionManager] PersistOwnerChange: {store.FilePath} was NOT written for {session.Id}; " +
+                          $"the change is durable in the crash journal {CrashJournal.FilePath}, which is what a restarted Director reads");
+        }
+    }
+
+    /// <summary>The crash-journal roster of every tracked session, in rail order.</summary>
+    public IReadOnlyList<DirectorCrashJournalSession> BuildCrashJournalRoster()
+        => _sessions.Values.OrderBy(s => s.SortOrder).Select(ToCrashJournalSession).ToList();
+
+    /// <summary>One session as its crash-journal row. The desktop's routine save builds its rows here too, so the two
+    /// writers of the journal can never disagree about what a row carries.</summary>
+    public static DirectorCrashJournalSession ToCrashJournalSession(Session s) => new()
+    {
+        SessionId = s.Id.ToString(),
+        Name = s.CustomName,
+        RepoPath = s.RepoPath,
+        Agent = s.AgentKind.ToString(),
+        ClaudeSessionId = s.ClaudeSessionId,
+        CreatedAtUtc = s.CreatedAt,
+        ControllerSessionId = s.ControllerSessionId?.ToString(),
+    };
+
     /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)
     /// can announce sessions they created without going through CreateSession overloads.</summary>
     public void RaiseSessionCreated(Session session)

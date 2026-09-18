@@ -1,3 +1,4 @@
+using CcDirector.Gateway.Contracts;
 using CcDirector.Core.HostedAi;
 using CcDirector.Gateway.Wingman;
 using Xunit;
@@ -12,6 +13,23 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class VoiceDisplayFoldTests
 {
+    // ===================================================== a session a live session owns is not the user's to hear
+
+    [Fact]
+    public void HeldDisplay_OffersNothing()
+    {
+        // The card that replaces the phone's own "Voice mode is off for this session" + "Switch to voice mode" on a
+        // held session. That button could not succeed - the enrolment sweep refuses a held session - and it was drawn
+        // under a banner claiming every session narrates. Twelve of the owner's twenty sessions showed that pair.
+        var d = VoiceDisplayFold.HeldDisplay();
+        Assert.Equal(VoiceDisplayKinds.Held, d.Kind);
+        Assert.False(d.CanPlay);
+        Assert.False(d.CanGenerate);
+        Assert.Null(d.Reason);
+        Assert.NotEqual("", d.Label);
+        Assert.NotEqual("", d.Message);
+    }
+
     [Fact]
     public void NotVoiceMode_IsOff_NoActions()
     {

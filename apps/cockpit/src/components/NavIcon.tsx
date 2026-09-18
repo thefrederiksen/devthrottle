@@ -14,8 +14,8 @@
 // states, and the set reads as one family rather than fourteen separate drawings.
 
 export type NavIconName =
+  | "fleet-manager"
   | "fleet-map"
-  | "assistant"
   | "sessions"
   | "history"
   | "directors"
@@ -37,21 +37,24 @@ export type NavIconName =
 // The shapes, keyed by name. Each value is the icon's paint - the <svg> wrapper (grid, stroke, size)
 // is applied once below, so no glyph can drift off the shared geometry.
 const PAINT: Record<NavIconName, JSX.Element> = {
+  // A ring around a centre, with four sighting ticks: the one place everything is watched from (the Fleet
+  // Manager, step 6). The ticks keep it distinct from the plain circles (network, about, help) below it.
+  "fleet-manager": (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 1v3" />
+      <path d="M12 20v3" />
+      <path d="M1 12h3" />
+      <path d="M20 12h3" />
+    </>
+  ),
   // A folded map: the fleet's spatial picture.
   "fleet-map": (
     <>
       <path d="M14.1 5.55a2 2 0 0 1-1.79 0L8.1 3.45a2 2 0 0 0-1.79 0L3.55 4.83A1 1 0 0 0 3 5.72v12.76a1 1 0 0 0 1.45.9l2.86-1.43a2 2 0 0 1 1.79 0l4.21 2.11a2 2 0 0 0 1.79 0l3.66-1.83a1 1 0 0 0 .55-.9V4.62a1 1 0 0 0-1.45-.9z" />
       <path d="M9 3.24v15" />
       <path d="M15 5.76v15" />
-    </>
-  ),
-  // A speech bubble with text lines: the fleet-level chat + voice assistant. Rounded outline keeps
-  // it distinct from the square-cornered terminal beside it.
-  assistant: (
-    <>
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      <path d="M8 8h8" />
-      <path d="M8 12h5" />
     </>
   ),
   // A terminal prompt: the thing a session actually is.

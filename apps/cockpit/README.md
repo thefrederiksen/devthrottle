@@ -52,5 +52,6 @@ npm run dev --workspace @devthrottle/cockpit   # Vite dev server; proxy API path
 
 - `src/AppShell.tsx` - the three-region desktop layout frame (left rail / main pane / right rail).
 - `src/panes/` - placeholder panes, each replaced by a real ported page in its own issue.
-- `src/main.tsx` - the router (rooted at the site root `/`).
+- `src/main.tsx` - the router (rooted at the site root `/`); the pages it routes to are listed in
+  `src/routes.tsx`. `/` opens the Fleet Manager page (`/fleet-manager`).
 - Everything shared with the mobile shell lives in `@devthrottle/client-core`.

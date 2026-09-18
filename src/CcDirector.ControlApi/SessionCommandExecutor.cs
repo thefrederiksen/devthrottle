@@ -7,6 +7,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Git;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
@@ -93,6 +94,8 @@ internal static class SessionCommandExecutor
         // The Gateway stamping a session's FOLDED display state down onto this Director, so the desktop
         // rail renders the Gateway's answer instead of re-folding from local facts it cannot see.
         new FleetDisplayStateExecutor(),
+        // The Fleet Manager mission, step 8: the Gateway changing which session owns an existing session.
+        new SessionOwnerExecutor(),
         // Remove-the-network-port mission, phase 2: the automation browsers. Machine-local by construction -
         // a loopback debug port and a profile directory on this disk - so the Gateway never drives one; it
         // carries the command to the Director that does.
@@ -805,6 +808,21 @@ internal static class SessionCommandExecutor
     internal static DirectorCommandResult Create(SessionManager sessionManager, string directorId, DirectorCommand command, SessionCommandServices? services = null)
     {
         var req = Deserialize<NewSessionRequest>(command.PayloadJson);
+
+        // THE FLEET MANAGER'S OWN FOLDER (the Fleet Manager mission, step 5), decided BEFORE the repository path is
+        // required: a Fleet Manager start carries no repository, and the folder is this computer's to name. Any
+        // RepoPath sent with it is ignored, and the folder is created when it is missing.
+        if (req?.FleetManagerHome == true)
+        {
+            var home = CcStorage.FleetManagerHome();
+            if (!Directory.Exists(home))
+            {
+                Directory.CreateDirectory(home);
+                FileLog.Write($"[SessionCommandExecutor] create: created the Fleet Manager folder {home}");
+            }
+            FileLog.Write($"[SessionCommandExecutor] create: Fleet Manager start - using {home} (ignored repoPath=\"{req.RepoPath}\")");
+            req.RepoPath = home;
+        }
 
         if (req is null || string.IsNullOrWhiteSpace(req.RepoPath))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "repoPath is required");

@@ -28,6 +28,10 @@ public sealed class TurnVerdictStoreTests : IDisposable
 
     private TurnVerdictStore NewStore() => new(_harness.Open());
 
+    /// <summary>An answer to the verdict <see cref="Verdict"/> builds for this judged moment and id: its first option.</summary>
+    private static TurnVerdictStoredAnswer AnswerTo(string verdictId, DateTime judgedAt)
+        => new(verdictId, judgedAt.AddSeconds(-12), new[] { 0 }, "yes");
+
     private static TurnVerdictDto Verdict(
         DateTime judgedAt,
         DateTime? observedAt = null,
@@ -95,13 +99,46 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.Null(store.FindById(TenantA, "tv-answered")!.AnsweredAtUtc);
 
         var answeredAt = judgedAt.AddMinutes(1);
-        Assert.True(store.MarkAnswered(TenantA, "tv-answered", answeredAt));
-        Assert.False(store.MarkAnswered(TenantA, "tv-answered", answeredAt.AddMinutes(5)));
+        Assert.True(store.MarkAnswered(TenantA, AnswerTo("tv-answered", judgedAt), answeredAt));
+        Assert.False(store.MarkAnswered(TenantA, AnswerTo("tv-answered", judgedAt), answeredAt.AddMinutes(5)));
 
         var read = store.FindById(TenantA, "tv-answered")!;
         Assert.Equal(answeredAt, read.AnsweredAtUtc);
         Assert.Equal(DateTimeKind.Utc, read.AnsweredAtUtc!.Value.Kind);
-        Assert.False(store.MarkAnswered(TenantA, "tv-no-such-verdict", answeredAt));
+        // The answer is stored with the mark, and the second mark did not move it either.
+        Assert.Equal(("tv-answered", judgedAt.AddSeconds(-12), "0", "yes"),
+            (read.Answer!.VerdictId, read.Answer.TurnEndObservedAtUtc, string.Join(",", read.Answer.OptionIndexes), read.Answer.Words));
+        Assert.False(store.MarkAnswered(TenantA, AnswerTo("tv-no-such-verdict", judgedAt), answeredAt));
+    }
+
+    /// <summary>
+    /// THE HISTORY HANDS BACK WHAT HE ANSWERED, not merely that he answered - and it is the answer the answer
+    /// route stored, read out of the row's own column, never a second record of the same fact.
+    ///
+    /// This is the read the Wingman tab's Now view folds "You answered ..." from. A view that kept its own copy
+    /// of the decision would be free to disagree with the walkthrough about what he decided, so it does not keep
+    /// one: <see cref="TurnVerdictStore.HistoryWithAnswers"/> reads the stored answer and the Now fold reads that.
+    /// An unanswered stop carries neither the moment nor the answer.
+    /// </summary>
+    [Fact]
+    public void The_history_hands_back_the_stored_answer_beside_the_moment_it_was_confirmed()
+    {
+        var store = NewStore();
+        var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-answered"));
+        store.Store(TenantA, "sid-2", Verdict(judgedAt, verdictId: "tv-unanswered"));
+        var answeredAt = judgedAt.AddMinutes(1);
+
+        Assert.True(store.MarkAnswered(TenantA, AnswerTo("tv-answered", judgedAt), answeredAt));
+
+        var answered = store.HistoryWithAnswers(TenantA, "sid-1")[0];
+        Assert.Equal(answeredAt, answered.AnsweredAtUtc);
+        Assert.Equal(("tv-answered", "0", "yes"),
+            (answered.Answer!.VerdictId, string.Join(",", answered.Answer.OptionIndexes), answered.Answer.Words));
+
+        var unanswered = store.HistoryWithAnswers(TenantA, "sid-2")[0];
+        Assert.Null(unanswered.AnsweredAtUtc);
+        Assert.Null(unanswered.Answer);
     }
 
     [Fact]
@@ -111,10 +148,10 @@ public sealed class TurnVerdictStoreTests : IDisposable
         var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
         store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-answered-a"));
 
-        Assert.False(store.MarkAnswered(TenantB, "tv-answered-a", judgedAt.AddMinutes(1)));
+        Assert.False(store.MarkAnswered(TenantB, AnswerTo("tv-answered-a", judgedAt), judgedAt.AddMinutes(1)));
         Assert.Null(store.FindById(TenantA, "tv-answered-a")!.AnsweredAtUtc);
 
-        Assert.True(store.MarkAnswered(TenantA, "tv-answered-a", judgedAt.AddMinutes(2)));
+        Assert.True(store.MarkAnswered(TenantA, AnswerTo("tv-answered-a", judgedAt), judgedAt.AddMinutes(2)));
         Assert.Null(store.FindById(TenantB, "tv-answered-a"));
     }
 
@@ -124,13 +161,45 @@ public sealed class TurnVerdictStoreTests : IDisposable
         var store = NewStore();
         var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
         store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-same"));
-        Assert.True(store.MarkAnswered(TenantA, "tv-same", judgedAt.AddMinutes(1)));
+        Assert.True(store.MarkAnswered(TenantA, AnswerTo("tv-same", judgedAt), judgedAt.AddMinutes(1)));
 
         store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-same"));
         Assert.NotNull(store.FindById(TenantA, "tv-same")!.AnsweredAtUtc);
 
         store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-replaced"));
         Assert.Null(store.FindById(TenantA, "tv-replaced")!.AnsweredAtUtc);
+        Assert.Null(store.FindById(TenantA, "tv-replaced")!.Answer);
+    }
+
+    [Fact]
+    public void An_answer_naming_another_turn_end_than_the_stored_verdict_is_not_marked()
+    {
+        var store = NewStore();
+        var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-turn"));
+
+        var otherTurn = new TurnVerdictStoredAnswer("tv-turn", judgedAt.AddMinutes(-30), new[] { 0 }, "yes");
+        Assert.False(store.MarkAnswered(TenantA, otherTurn, judgedAt.AddMinutes(1)));
+
+        var read = store.FindById(TenantA, "tv-turn")!;
+        Assert.Null(read.AnsweredAtUtc);
+        Assert.Null(read.Answer);
+    }
+
+    [Fact]
+    public void The_newest_judged_stop_includes_a_superseded_one_and_is_per_session()
+    {
+        var store = NewStore();
+        var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-old"));
+        store.Store(TenantA, "sid-1", Verdict(judgedAt.AddMinutes(5), verdictId: "tv-new"));
+        store.Store(TenantA, "sid-2", Verdict(judgedAt.AddMinutes(9), verdictId: "tv-other-session"));
+        store.Invalidate(TenantA, "sid-1");
+
+        Assert.Null(store.Latest(TenantA, "sid-1"));
+        Assert.Equal("tv-new", store.NewestJudged(TenantA, "sid-1")!.VerdictId);
+        Assert.Null(store.NewestJudged(TenantB, "sid-1"));
+        Assert.Null(store.NewestJudged(TenantA, "sid-never"));
     }
 
     [Fact]

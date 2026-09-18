@@ -804,6 +804,13 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("OutcomeId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OutcomeTitle")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("ReadingPending")
                         .HasColumnType("INTEGER");
 
@@ -831,9 +838,14 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("VerdictJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Words")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "OutcomeId");
 
                     b.HasIndex("TenantId", "SessionId");
 
@@ -1020,6 +1032,20 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("AboutTurnEndObservedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AboutVerdictId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Advice")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("AdviceSetAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool?>("AnswerMatchedOption")
                         .HasColumnType("INTEGER");
 
@@ -1049,9 +1075,20 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("FleetManagerPick")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnerNote")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("OwnerNoteAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Status")
@@ -2287,6 +2324,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("AnsweredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AnswerJson")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Failed")

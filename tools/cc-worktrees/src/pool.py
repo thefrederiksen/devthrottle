@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import gitrun
+import host
 import landed
 from errors import EXIT_HELD, EXIT_POOL_FULL, ToolError
 from gitrun import GitError
@@ -393,21 +394,34 @@ def _slot_view(pool: Pool, name: str) -> dict:
             "holder": e["holder"], "reason": e["reason"], "updated": e.get("updated")}
 
 
-def _lease_view(pool: Pool, name: str, tip: landed.RemoteTip, reused: bool) -> dict:
+def _lease_view(pool: Pool, name: str, tip: landed.RemoteTip, reused: bool,
+                proof: tuple[host.Proof, ...] = ()) -> dict:
     e = pool.slots[name]
     return {"repo": str(pool.repo), "slot": name, "path": e["path"], "lease": e["lease"],
-            "holder": e["holder"], "base": tip.branch, "commit": tip.commit, "reused": reused}
+            "holder": e["holder"], "base": tip.branch, "commit": tip.commit, "reused": reused,
+            **_proof_view(proof)}
 
 
-def _reset_to_tip(pool: Pool, name: str, tip: landed.RemoteTip | None) -> tuple[landed.RemoteTip | None, str | None]:
-    """Prove the slot's work landed and reset it. Returns (tip, None) or (None, reason)."""
+def _proof_view(proof: tuple[host.Proof, ...]) -> dict:
+    """What proved the work that was in the slot, named commit by commit. Every commit the host freed is
+    listed with the pull request that freed it; every other commit was proven by git alone, which is what
+    "git" means here and is the ordinary case."""
+    freed = [{"commit": commit, "host": p.host, "detail": p.detail}
+             for p in proof for commit in p.commits]
+    return {"proved_by": "git and the host" if freed else "git", "host_proof": freed}
+
+
+def _reset_to_tip(pool: Pool, name: str,
+                  tip: landed.RemoteTip | None) -> tuple[landed.RemoteTip | None, str | None,
+                                                         tuple[host.Proof, ...]]:
+    """Prove the slot's work landed and reset it. Returns (tip, None, proof) or (None, reason, ())."""
     entry = pool.slots[name]
     path = Path(entry["path"])
     try:
         checked = landed.check(path, pool.repo, tip, entry["gitdir"], _mark(entry), name, entry["stash"])
         mark = landed.reset(path, pool.repo, checked)
     except NotLanded as ex:
-        return None, str(ex)
+        return None, str(ex), ()
     _record_mark(entry, checked.gitdir, mark)
     # The slot is handed out again here, so its stash record is written again: this is the value the
     # check proved was still there, last of all under HEAD.lock, never a fresh read of refs/stash.
@@ -416,8 +430,8 @@ def _reset_to_tip(pool: Pool, name: str, tip: landed.RemoteTip | None) -> tuple[
     try:
         landed.drop_pins(pool.repo, checked.pins)
     except NotLanded as ex:
-        return None, f"reset to the default branch, but {ex}"
-    return checked.tip, None
+        return None, f"reset to the default branch, but {ex}", ()
+    return checked.tip, None, checked.proof
 
 
 def _record_mark(entry: dict, gitdir: Path, mark: landed.ReflogMark) -> None:
@@ -492,14 +506,14 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
                             [f"git -C {repo} fetch origin"])
         pool = load(home, repo)
         for name in sorted(n for n, e in pool.slots.items() if e["state"] == FREE):
-            ready, reason = _reset_to_tip(pool, name, tip)
+            ready, reason, proof = _reset_to_tip(pool, name, tip)
             if ready is None:
                 pool.set(name, HELD, None, None, reason)
                 pool.save()
                 continue
             pool.set(name, IN_USE, holder, _new_lease(), None)
             pool.save()
-            return _lease_view(pool, name, tip, reused=True)
+            return _lease_view(pool, name, tip, reused=True, proof=proof)
 
         if len(pool.slots) >= pool_size:
             taken = ", ".join(
@@ -573,7 +587,7 @@ def return_slot(target: str, lease: str, repo_opt: str | None) -> dict:
         if tip is None:
             ready, reason = None, fetch_reason
         else:
-            ready, reason = _reset_to_tip(pool, name, tip)
+            ready, reason, proof = _reset_to_tip(pool, name, tip)
         if ready is None:
             _hold(pool, name, reason)
             pool.save()
@@ -583,7 +597,8 @@ def return_slot(target: str, lease: str, repo_opt: str | None) -> dict:
                             exit_code=EXIT_HELD, details=_slot_view(pool, name))
         pool.set(name, FREE, None, None, None)
         pool.save()
-        return {**_slot_view(pool, name), "base": ready.branch, "commit": ready.commit}
+        return {**_slot_view(pool, name), "base": ready.branch, "commit": ready.commit,
+                **_proof_view(proof)}
 
 
 def lease_slot(target: str, holder: str, reclaim_held: bool, repo_opt: str | None) -> dict:
@@ -613,7 +628,7 @@ def lease_slot(target: str, holder: str, reclaim_held: bool, repo_opt: str | Non
         if tip is None:
             ready, reason = None, fetch_reason
         else:
-            ready, reason = _reset_to_tip(pool, name, tip)
+            ready, reason, proof = _reset_to_tip(pool, name, tip)
         if ready is None:
             pool.set(name, HELD, None, None, reason)
             pool.save()
@@ -622,7 +637,7 @@ def lease_slot(target: str, holder: str, reclaim_held: bool, repo_opt: str | Non
                             details=_slot_view(pool, name))
         pool.set(name, IN_USE, holder, _new_lease(), None)
         pool.save()
-        return _lease_view(pool, name, ready, reused=True)
+        return _lease_view(pool, name, ready, reused=True, proof=proof)
 
 
 def _destroy_allowed(pool: Pool, name: str, allow_held: bool, allow_in_use: bool) -> dict:
@@ -664,7 +679,8 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
             checked = landed.check(path, repo, tip, entry["gitdir"], _mark(entry), name, entry["stash"])
         except NotLanded as ex:
             raise refuse(str(ex)) from ex
-        view = {**_slot_view(pool, name), "dry_run": not yes, "removed": False}
+        view = {**_slot_view(pool, name), "dry_run": not yes, "removed": False,
+                **_proof_view(checked.proof)}
         if not yes:
             return view
         try:

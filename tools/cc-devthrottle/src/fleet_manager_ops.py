@@ -6,6 +6,11 @@ directly owns. The workflow a session is seated on never makes it the Fleet Mana
 
 `set` resolves the session the same way every session verb does (number, id prefix, or name), and with
 no target marks the session running the command. `clear` removes the mark. `show` prints it.
+
+`session hand-over` (the Fleet Manager mission, step 8) changes who owns a running session: to the Fleet
+Manager, or back to the owner. The Gateway allows it from the owner's own phone or browser, and from the
+account's Fleet Manager with its own session key (which acts only when the owner has asked it to); every
+other session key is refused, and this command prints the Gateway's refusal in words, not a status number.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from rich.console import Console
 
 from cc_shared import gateway
 
+from . import axi_cli
 from . import session_ops
 
 console = Console()
@@ -106,3 +112,55 @@ def clear(json_output: bool) -> None:
         print(json.dumps({"sessionId": payload.get("sessionId")}))
         return
     _print_mark(None, None, " (cleared)")
+
+
+HAND_OVER_PATH = "gateway/fleet-manager/hand-over"
+HAND_OVER_DIRECTIONS = ("fleet-manager", "owner")
+
+
+def hand_over(target: str, to: Optional[str], json_output: bool) -> None:
+    """Hand a running session to the Fleet Manager, or back to the owner, through the Gateway."""
+    direction = (to or "").strip().lower()
+    if direction not in HAND_OVER_DIRECTIONS:
+        axi_cli.usage_error(
+            f"--to must be one of: {', '.join(HAND_OVER_DIRECTIONS)}"
+            + (f" (got '{to}')." if to else " - it was not given.")
+        )
+    session = session_ops.resolve_session(target, command_name="cc-devthrottle session hand-over")
+    session_id = gateway.field(session, "sessionId", "SessionId")
+    other = "owner" if direction == "fleet-manager" else "fleet-manager"
+    try:
+        payload = gateway.post_json(HAND_OVER_PATH, {"session": session_id, "to": direction}) or {}
+    except gateway.GatewayError as err:
+        axi_cli.fail(
+            f"session {session_id} was not handed over: {err}",
+            ["cc-devthrottle session list --fields id,name,state", "cc-devthrottle fleet-manager show"],
+        )
+    # REPORTED FROM THE ANSWER, never from the request: the answer must name this session, and an owner that
+    # matches the direction - a session owner when handed to the Fleet Manager, none when handed back.
+    check = ["cc-devthrottle session list --fields id,name,state", "cc-devthrottle fleet-manager show"]
+    what = f"the hand over of session {session_id}"
+    answered = axi_cli.confirmed(
+        payload, ["sessionId"], what, check,
+        accept=lambda v: isinstance(v, str) and v.lower() == session_id.lower(),
+    )
+    if direction == "fleet-manager":
+        owner = axi_cli.confirmed(
+            payload, ["ownerSessionId"], what, check,
+            accept=lambda v: isinstance(v, str) and v.strip() != "" and v.lower() != session_id.lower(),
+        )
+    else:
+        owner = axi_cli.confirmed(payload, ["ownerSessionId"], what, check, accept=axi_cli.is_cleared)
+    if json_output:
+        print(json.dumps(payload))
+        return
+    session_id = answered
+    axi_cli.write_lines(
+        payload.get("sentence") or "The Gateway answered without a sentence.",
+        f"session: {session_id}",
+        f"owner: {owner if owner else 'you'}",
+    )
+    axi_cli.print_next([
+        "cc-devthrottle session list --fields id,name,state",
+        f"cc-devthrottle session hand-over {axi_cli.bare(session_id, '<session>')} --to {other}",
+    ])

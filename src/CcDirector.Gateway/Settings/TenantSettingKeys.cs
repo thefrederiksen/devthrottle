@@ -26,12 +26,6 @@ public static class TenantSettingKeys
     /// <summary>The voice the text-to-speech engine uses (global default: <c>tts_voice</c>).</summary>
     public const string TtsVoice = "tts_voice";
 
-    /// <summary>The conversational model Car Mode drives (global default: <c>car_mode_model</c>).</summary>
-    public const string CarModeModel = "car_mode_model";
-
-    /// <summary>The spoken phrase that ends a Car Mode turn (global default: <c>car_mode_end_phrase</c>).</summary>
-    public const string CarModeEndPhrase = "car_mode_end_phrase";
-
     /// <summary>The snooze lengths every Snooze menu offers, as the serialized presets list (global default:
     /// <c>snooze_presets</c>).</summary>
     public const string SnoozePresets = "snooze_presets";
@@ -187,16 +181,80 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FleetManagerSessionId = "fleet_manager_session_id";
 
+    /// <summary>
+    /// WHICH AGENT THE ACCOUNT'S FLEET MANAGER RUNS ON, as <c>NewSessionRequest.Agent</c> takes it (for example
+    /// "ClaudeCode") - Fleet Manager mission, step 5. Saved together with <see cref="FleetManagerMachine"/>; no
+    /// row means the default, which the Gateway works out and shows as the default without storing it.
+    /// </summary>
+    public const string FleetManagerAgent = "fleet_manager_agent";
+
+    /// <summary>
+    /// WHICH COMPUTER THE ACCOUNT'S FLEET MANAGER RUNS ON, by machine name - Fleet Manager mission, step 5. Saved
+    /// together with <see cref="FleetManagerAgent"/>; no row means the default.
+    /// </summary>
+    public const string FleetManagerMachine = "fleet_manager_machine";
+
+    /// <summary>
+    /// THE NEW FLEET MANAGER THAT IS WAITING TO TAKE OVER, as that session's id - the steps 5 and 6 fixes. Set when a
+    /// restart or a move has started a new Fleet Manager while the old one is still running; the mark stays on the
+    /// old one until its turn has ended and it has been closed, and then moves here and this row is removed. No row
+    /// means no replacement is under way. Kept in storage so a Gateway restart carries the replacement on.
+    /// </summary>
+    public const string FleetManagerSuccessorSessionId = "fleet_manager_successor_session_id";
+
+    /// <summary>
+    /// THE MARKED FLEET MANAGER A WAITING REPLACEMENT IS TO CLOSE, as that session's id - the steps 5 and 6 fixes,
+    /// round 2. Written in the same save as <see cref="FleetManagerSuccessorSessionId"/>, so a Gateway restart still
+    /// knows exactly which session the replacement may close. If the mark no longer names this session, the mark was
+    /// changed by hand and the replacement is abandoned without closing anything.
+    /// </summary>
+    public const string FleetManagerSuccessorReplaces = "fleet_manager_successor_replaces";
+
+    /// <summary>
+    /// THE MARKED FLEET MANAGER THE GATEWAY ITSELF UNMARKED, as that session's id - the steps 5 and 6 fixes, round 3.
+    /// The Gateway removes the mark only while a replacement is under way, and only from the session that replacement
+    /// was recorded to replace, once that session has exited or the replacement has closed it. This row and
+    /// <see cref="FleetManagerMarkClearedReason"/> are written in the same save as the removal, so a replacement that
+    /// finds no mark (after a failed promotion, or a Gateway restart) can tell the Gateway's own removal - carry on -
+    /// from the owner's - abandon. Any mark the owner sets or clears removes both rows.
+    /// </summary>
+    public const string FleetManagerMarkClearedSession = "fleet_manager_mark_cleared_session";
+
+    /// <summary>Why the Gateway removed the mark: <c>exited</c> or <c>closed</c>. Written with
+    /// <see cref="FleetManagerMarkClearedSession"/>.</summary>
+    public const string FleetManagerMarkClearedReason = "fleet_manager_mark_cleared_reason";
+
+    /// <summary>
+    /// THE SESSIONS STARTED TO TAKE OVER AS FLEET MANAGER THAT HAVE NOT BEEN TOLD YET, as a comma-separated list of
+    /// session ids, most recent last - the steps 5 and 6 fixes, round 3. Such a session's first prompt tells it to do
+    /// nothing until an event says it is the Fleet Manager, so whenever the mark is set to one of them - by the
+    /// replacement or by the owner - it is told once and leaves this list. Bounded to
+    /// <see cref="Fleet.FleetManagerPlacementService.MaxWaitingSuccessors"/> ids.
+    /// </summary>
+    public const string FleetManagerWaitingSuccessors = "fleet_manager_waiting_successors";
+
+    /// <summary>
+    /// WHEN A REPLACEMENT BEGAN STARTING ITS NEW FLEET MANAGER, as a round-trip UTC time - the steps 5 and 6 fixes,
+    /// round 3. Written before the start and removed in the same save that records the new session, so a Gateway that
+    /// stopped in between leaves this row behind: the sweep then finds the session that started and remembers it as
+    /// waiting (it closes nothing and marks nothing on that guess).
+    /// </summary>
+    public const string FleetManagerReplacementStartingAt = "fleet_manager_replacement_starting_at";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         WingmanModel, WingmanFastModel, TtsModel, TtsVoice,
-        CarModeModel, CarModeEndPhrase, SnoozePresets, SnoozeDefaultMinutes, TimeZone, InjectedText,
+        SnoozePresets, SnoozeDefaultMinutes, TimeZone, InjectedText,
         VoiceModeAll, DictationSuggestionsInDailyEmail, DictationEmailCadence, DailyReportCadence,
         MentorReportEnabled, SpokenLanguage, SpokenVoiceByLanguage,
         SessionSupervisorEnabled, SessionSupervisorFirstRetrySeconds, SessionSupervisorRetryCadenceMinutes,
         SessionSupervisorMaxLongRetries, SessionSupervisorModelFallbackEnabled,
         TurnVerdictJudgeEnabled, TurnVerdictColourEnabled,
         FleetManagerSessionId,
+        FleetManagerAgent, FleetManagerMachine,
+        FleetManagerSuccessorSessionId, FleetManagerSuccessorReplaces,
+        FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
+        FleetManagerReplacementStartingAt,
     };
 }

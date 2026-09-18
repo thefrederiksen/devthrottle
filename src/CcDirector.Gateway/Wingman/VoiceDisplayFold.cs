@@ -322,6 +322,36 @@ public static class VoiceDisplayFold
     public static bool IsWaitingForVoice(bool voiceMode, bool hasAudio, bool agentWorking)
         => voiceMode && !hasAudio && !agentWorking;
 
+    /// <summary>
+    /// The card for a session a live session owns. No play, no Generate, and - the point - no "Switch to voice mode":
+    /// there is no action here for the person reading it, because the session is not theirs to be read aloud.
+    ///
+    /// IT IS NOT AN ARM OF <see cref="Fold"/>, and that is an ordering fact rather than a preference. Both callers that
+    /// fold a voice verdict do it in a loop that runs BEFORE <see cref="SessionDto.HasLiveSupervisor"/> is resolved -
+    /// the push store nulls the resolved facts at ingest on purpose, so only this Gateway decides them, and the one
+    /// place that has decided them is <c>GatewayEndpoints.StampFleetRolesAndFold</c>. A <c>heldByAnotherSession</c>
+    /// parameter on Fold would therefore be passed a default false by every caller in the product: a branch nothing
+    /// reaches, tested green and dead. So the stamp REPLACES the folded verdict with this one, at the first moment the
+    /// answer exists, and that replacement is what the tests drive.
+    ///
+    /// Replacing rather than pre-empting also gives the precedence for free: this outranks every state Fold can
+    /// produce, including a playable clip. That is the one place the voice screen deliberately takes audio away from a
+    /// listener, and it is right here - a held session's narration was spent on a turn the user never asked to hear.
+    ///
+    /// The wording names the RULE rather than the seat. "A Worker is not narrated" would be wrong the moment its
+    /// supervisor exits, which is the whole reason supervision is read from liveness and not from the role stamp
+    /// (SessionOrdering.IsSupervised). The same session becomes the user's, and narrated, with nothing to repair.
+    /// </summary>
+    public static VoiceDisplay HeldDisplay() => new()
+    {
+        Kind = VoiceDisplayKinds.Held,
+        Tone = "neutral",
+        Label = "Another session is running this one",
+        Message = "Voice mode narrates the sessions you own. This one answers to another live session, "
+                + "which reads its turns - so it is not narrated to you. It starts being narrated by itself "
+                + "if that session finishes or exits.",
+    };
+
     /// <summary>The terminal verdict, in one place so the two arms that reach it cannot word it differently.</summary>
     private static VoiceDisplay GaveUpDisplay(string? waited) => new()
     {

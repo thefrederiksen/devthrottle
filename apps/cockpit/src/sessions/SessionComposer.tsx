@@ -93,9 +93,43 @@ export interface SessionComposerProps {
    * matching instruction straight away. Cleared on unmount so a stale focuser is never called.
    */
   focusHandleRef?: MutableRefObject<(() => void) | null>;
+  /**
+   * The Fleet Manager page (step 6) talks to one session like a chat: plain Enter sends and Shift+Enter starts a
+   * new line. Sessions keep Ctrl+Enter, because a prompt there is often several lines.
+   */
+  enterSends?: boolean;
+  /** The hint in the empty box. */
+  placeholder?: string;
+  /** False hides Queue and Attach, for a surface that only sends and dictates (the Fleet Manager page). */
+  showQueueAndAttach?: boolean;
+  /**
+   * WHICH SENDING BUTTON THIS BOX OFFERS - "send", "queue", or "both".
+   *
+   * "both" is the page's own composer at the bottom of a session, where the reader chooses between interrupting
+   * the session now and waiting for it to stop. The Wingman tab is not that surface: it draws ONE box against one
+   * state, and a Send beside a Queue there was a choice nobody could predict the effect of - on a working session
+   * the words in the box said a message "is queued", and then offered both (the review's item N3). So the tab
+   * asks for one, named for what it does.
+   */
+  sending?: "send" | "queue" | "both";
+  /** Called with the words the moment a send succeeds, so the surface can show it went. */
+  onSent?: (text: string) => void;
 }
 
-export function SessionComposer({ sessionId, value, onChange, onQueued, focusHandleRef }: SessionComposerProps) {
+const DEFAULT_PLACEHOLDER = "Type a message... (Ctrl+Enter to send, Ctrl+Shift+Enter to queue)";
+
+export function SessionComposer({
+  sessionId,
+  value,
+  onChange,
+  onQueued,
+  focusHandleRef,
+  enterSends = false,
+  placeholder = DEFAULT_PLACEHOLDER,
+  showQueueAndAttach = true,
+  sending = "both",
+  onSent,
+}: SessionComposerProps) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,13 +190,14 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
     try {
       await sendPrompt(sessionId, text, true, undefined, undefined, sent.spans);
       setStatus("Sent");
+      onSent?.(text);
     } catch (err) {
       onChange(text); // restore so a failed send never loses the typed text
       setError(describeAndReport(SURFACE, "send that to the session", err));
     } finally {
       setBusy(false);
     }
-  }, [sessionId, busy, value, onChange]);
+  }, [sessionId, busy, value, onChange, onSent]);
 
   const queue = useCallback(async () => {
     if (!sessionId || busy) return;
@@ -182,20 +217,35 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
     }
   }, [sessionId, busy, value, onChange, onQueued]);
 
+  // WHICH SENDING BUTTONS ARE ON THE BAR, worked out once and used by the bar AND by the keyboard, so a shortcut
+  // can never do something the screen does not offer.
+  const offersSend = sending === "send" || sending === "both";
+  const offersQueue = sending === "queue" || (sending === "both" && showQueueAndAttach);
+  // The one sending button on a box that only queues. It carries the primary weight and is named for what it does.
+  const queueIsTheOnlySend = offersQueue && !offersSend;
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Ctrl+Shift+Enter = Queue; Ctrl+Enter = Send; plain Enter = newline (default).
-      if (e.key === "Enter" && e.ctrlKey && e.shiftKey) {
+      // Ctrl+Shift+Enter = Queue; Ctrl+Enter = Send; plain Enter = newline (default). With enterSends, plain
+      // Enter sends and Shift+Enter is the newline. A key press that is composing text (an input method) is left alone.
+      // A box that only queues does BOTH shortcuts as a queue: the alternative is a key that silently does nothing.
+      const submit = offersSend ? send : queue;
+      if (enterSends && e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        void submit();
+        return;
+      }
+      if (e.key === "Enter" && e.ctrlKey && e.shiftKey && offersQueue) {
         e.preventDefault();
         void queue();
         return;
       }
       if (e.key === "Enter" && e.ctrlKey) {
         e.preventDefault();
-        void send();
+        void submit();
       }
     },
-    [queue, send],
+    [queue, send, enterSends, offersSend, offersQueue],
   );
 
   // The ONE image-upload path (issue #1210): Attach, clipboard paste, and drag-and-drop all call this.
@@ -330,6 +380,7 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
       try {
         await sendPrompt(sessionId, combined, true, undefined, spoken, sent.spans);
         setStatus("Sent");
+        onSent?.(combined);
       } catch (err) {
         onChange(combined); // restore so a failed send never loses the typed + dictated text
         setError(describeAndReport(SURFACE, "send that to the session", err));
@@ -337,7 +388,7 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
         setBusy(false);
       }
     },
-    [sessionId, value, onChange],
+    [sessionId, value, onChange, onSent],
   );
 
   // Immediate (fire-and-forget) Send from the Speak dialog, the same shape as the mobile
@@ -381,6 +432,19 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
 
   const empty = value.trim().length === 0;
 
+  // The queue button, built once and placed once. It takes the SENDING slot - first on the bar, and drawn as the
+  // loud one - when it is the only way to send from this box; otherwise it keeps its ordinary place after Speak.
+  const queueButton = offersQueue ? (
+    <button
+      type="button"
+      className={`composer-btn${queueIsTheOnlySend ? " send" : ""}`}
+      disabled={busy || empty}
+      onClick={() => void queue()}
+    >
+      {queueIsTheOnlySend ? "Queue it" : "Queue"}
+    </button>
+  ) : null;
+
   return (
     <div
       className={`composer ${dragOver ? "composer-dragover" : ""}`}
@@ -392,7 +456,7 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
         ref={textareaRef}
         className="composer-input"
         rows={3}
-        placeholder="Type a message... (Ctrl+Enter to send, Ctrl+Shift+Enter to queue)"
+        placeholder={placeholder}
         value={value}
         onChange={(e) => {
           // The caret AFTER the change is what tells a deletion of the first of two identical copies from a
@@ -405,9 +469,12 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
         spellCheck={false}
       />
       <div className="composer-btns">
-        <button type="button" className="composer-btn send" disabled={busy || empty} onClick={() => void send()}>
-          Send
-        </button>
+        {offersSend && (
+          <button type="button" className="composer-btn send" disabled={busy || empty} onClick={() => void send()}>
+            Send
+          </button>
+        )}
+        {queueIsTheOnlySend && queueButton}
         <button
           type="button"
           className="composer-btn"
@@ -417,26 +484,28 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
         >
           Speak
         </button>
-        <button type="button" className="composer-btn" disabled={busy || empty} onClick={() => void queue()}>
-          Queue
-        </button>
-        <button
-          type="button"
-          className="composer-btn"
-          disabled={busy}
-          onClick={() => fileRef.current?.click()}
-          title="Upload a device-local image and insert its path (or paste / drag one in)"
-        >
-          Attach
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="composer-file"
-          onChange={(e) => void onAttach(e)}
-        />
+        {!queueIsTheOnlySend && queueButton}
+        {showQueueAndAttach && (
+          <>
+            <button
+              type="button"
+              className="composer-btn"
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+              title="Upload a device-local image and insert its path (or paste / drag one in)"
+            >
+              Attach
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="composer-file"
+              onChange={(e) => void onAttach(e)}
+            />
+          </>
+        )}
         {status !== null && <span className="composer-status">{status}</span>}
         {error !== null && <span className="composer-error">{error}</span>}
       </div>

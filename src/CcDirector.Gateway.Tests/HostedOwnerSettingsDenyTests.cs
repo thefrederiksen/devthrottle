@@ -276,7 +276,6 @@ public sealed class HostedOwnerSettingsDenyTests : IAsyncLifetime
     {
         var timeZoneBefore = TimeZoneConfig.Get();
         var voiceBefore = TtsVoiceConfig.Resolve(TranscriptionModeConfig.Get());
-        var carModelBefore = CarModeModelConfig.Get();
 
         foreach (var route in OwnerSettingsRoutes.All.Where(r => r.Body is not null))
             await OwnerSettingsRoutes.AssertIsNothingButTheRefusal(
@@ -284,7 +283,6 @@ public sealed class HostedOwnerSettingsDenyTests : IAsyncLifetime
 
         Assert.Equal(timeZoneBefore, TimeZoneConfig.Get());
         Assert.Equal(voiceBefore, TtsVoiceConfig.Resolve(TranscriptionModeConfig.Get()));
-        Assert.Equal(carModelBefore, CarModeModelConfig.Get());
     }
 
     /// <summary>

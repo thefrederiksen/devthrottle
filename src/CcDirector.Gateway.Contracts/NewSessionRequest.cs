@@ -49,6 +49,16 @@ public sealed class NewSessionRequest
     /// </summary>
     public string Agent { get; set; } = "ClaudeCode";
 
+    /// <summary>
+    /// Start the session in the Fleet Manager's own working folder (the Fleet Manager mission, step 5). When
+    /// true the Director IGNORES <see cref="RepoPath"/> and uses <c>&lt;data root&gt;/fleet-manager</c>, creating it
+    /// when it is missing. The Gateway sends it for every Fleet Manager start, because the Fleet Manager works on
+    /// no repository and no computer is guaranteed to have any other folder. A Director older than this field
+    /// ignores it, so the Gateway only sends it to a Director that said on connecting that it understands it
+    /// (<see cref="DirectorStreamHello.CreatesFleetManagerHome"/>).
+    /// </summary>
+    public bool? FleetManagerHome { get; set; }
+
     /// <summary>Optional extra arguments to pass to the agent CLI.</summary>
     public string? Args { get; set; }
 

@@ -209,3 +209,41 @@ def in_process(local_world, monkeypatch):
 
 def on_any_ref(repo: Path, commit: str) -> bool:
     return commit in git(repo, "rev-list", "--all").split()
+
+
+def _hosted(kind: str, tmp_path):
+    """A world on one named hosted testbed. A skip here is recorded and shouted about in the summary:
+    the host layer cannot be proven against a local bare remote, so a skipped hosted run is a gap."""
+    if not os.environ.get(HOSTED_ENV[kind]):
+        _SKIPPED_HOSTED.add(kind)
+        pytest.skip(f"HOSTED RUN SKIPPED: {HOSTED_ENV[kind]} is not set")
+    w = make_world(tmp_path, kind)
+    yield w
+    for branch in w.created_branches:
+        git(w.repo, "push", "-q", "origin", "--delete", branch, check=False)
+
+
+@pytest.fixture
+def github_world(tmp_path):
+    yield from _hosted("github", tmp_path)
+
+
+@pytest.fixture
+def azure_world(tmp_path):
+    yield from _hosted("azure", tmp_path)
+
+
+def path_without(*executables: str) -> str:
+    """PATH with every directory that holds one of these executables taken out, so a command that looks
+    for one there does not find it. git and everything else stay where they are."""
+    gone = set()
+    for name in executables:
+        found = shutil.which(name)
+        while found:
+            directory = os.path.dirname(found)
+            gone.add(os.path.normcase(os.path.normpath(directory)))
+            remaining = [d for d in os.environ.get("PATH", "").split(os.pathsep)
+                         if os.path.normcase(os.path.normpath(d)) not in gone]
+            found = shutil.which(name, path=os.pathsep.join(remaining))
+    return os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep)
+                           if os.path.normcase(os.path.normpath(d)) not in gone)

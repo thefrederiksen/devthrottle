@@ -18,6 +18,20 @@
   --needsyou-text: #f1d8d8;
   --needsyou-fyi-bg: #262017;
   --needsyou-fyi-text: #e8dcc8;
+  /* The Fleet Manager page (the Fleet Manager mission, step 6), drawn from its mockups: the owner's bubble, the
+     light accent text, the ready green, the decision card's tint, the panel's deeper navy and the stopped dot. */
+  --owner-bubble-bg: #1e3a6b;
+  --owner-bubble-border: #2c5391;
+  --accent-text: #9cc2ff;
+  --ok: #22c55e;
+  --ok-text: #6ee79b;
+  --danger-text: #ff8b8b;
+  --decision-bg: #1b1522;
+  --panel-deep: #0f1528;
+  --dot-idle: #5b6480;
+  /* The pinned Fleet Manager row in the session list (step 8), drawn from its mockup: a blue tint and the mark's edge. */
+  --pin-bg: #16254a;
+  --pin-mark-border: #3a4f7a;
 
   --rail-left-width: 220px;
 }
@@ -1089,6 +1103,27 @@ body {
   min-height: 0;
   display: grid;
   grid-template-columns: 1fr 300px;
+}
+
+/* The dock's 300 pixels handed back to the page, on a tab that has nothing to put in it (the Wingman tab with an
+   empty queue). The dock is not drawn at all then, so the column would otherwise be an empty strip. */
+.session-detail-wide {
+  grid-template-columns: 1fr;
+}
+
+/* THE REPLY BOX INSIDE THE WINGMAN CARD. It is the page's own composer, so it arrives dressed as the bar at the
+   bottom of a page - a full-width panel with its own top edge and its own background. Inside a card it needs
+   neither: the card already draws the edge and the background, and the box belongs to the question above it. */
+.wnow-reply .composer {
+  padding: 0;
+  background: transparent;
+  border-top: none;
+  gap: 6px;
+}
+
+.wnow-reply .composer-input {
+  min-height: 70px;
+  font-size: 13.5px;
 }
 
 .session-main {
@@ -2889,6 +2924,8 @@ body {
   overflow-y: auto;
 }
 
+/* An OPEN report never scrolls in the app's box: the report page scrolls inside its own frame, and the
+   tab, the body around it and the pane behind it are all clipped. One report, one scrollbar. */
 .reports-tab-open {
   overflow: hidden;
 }
@@ -2913,16 +2950,97 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  overflow: hidden;
 }
 
 .reports-tab-body .dev-report-viewer {
   flex: 1 1 auto;
 }
 
+/* THE conversation - the only one on the screen now that a hosted report page draws none. It is not the
+   report, so it keeps its own scroll: the report's single scrollbar is the frame's, this is the list's. */
 .reports-conversation {
   flex: 0 0 340px;
   min-height: 0;
   overflow-y: auto;
   background: var(--surface);
   border-left: 1px solid var(--border);
+}
+
+.reports-conversation-title {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ---- the pinned Fleet Manager (the Fleet Manager mission, step 8) ---- */
+/* The pinned block sits above both views. Its row is tinted and ringed so it reads as the one place to talk to,
+   and its team collapses under it like any crew. */
+.roster-pinned {
+  margin-bottom: 6px;
+}
+
+.roster-row.roster-row-pinned {
+  background: var(--pin-bg);
+  box-shadow: inset 0 0 0 1px var(--owner-bubble-border);
+}
+
+.roster-row.roster-row-pinned.roster-row-selected {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.roster-pin-mark {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-text);
+  border: 1px solid var(--pin-mark-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 14px;
+  /* Clear of the row's menu button, which sits over the card's top-right corner. */
+  margin-right: 18px;
+}
+
+/* The heading over the sessions that are not the Fleet Manager's. */
+.roster-others-head {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  padding: 8px 6px 4px;
+}
+
+.roster-handover-link {
+  display: block;
+  margin: 8px 6px 4px;
+  font-size: 12px;
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.roster-handover-link:hover {
+  text-decoration: underline;
+}
+
+/* The Gateway's sentence after a change of owner from the session menu (step 8), placed where an action error is. */
+.session-menu-note {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  max-width: 240px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--owner-bubble-border);
+  border-radius: 6px;
 }

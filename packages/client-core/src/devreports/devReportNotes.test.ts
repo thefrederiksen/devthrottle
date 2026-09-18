@@ -22,9 +22,12 @@ type Model = {
   applyStatus(updates: unknown[]): void;
   restore(state: unknown): void;
 };
+type Rect = { top: number; bottom: number; left: number; right: number; width: number; height: number };
+type Placed = { left: number; top: number; scrollBy: number };
 type Api = {
   selectorFor(el: Element): string;
   escapeIdent(value: string): string;
+  placeNoteBox(anchor: Rect, question: Rect | null, box: { width: number; height: number }, viewport: { width: number; height: number }): Placed;
   anchorFor(el: Element): Anchor | null;
   tableCellAnchor(el: Element): Anchor | null;
   svgPartAnchor(el: Element): Anchor | null;
@@ -58,6 +61,13 @@ function uiAll<T extends Element = HTMLElement>(selector: string): T[] {
 
 function ui<T extends Element = HTMLElement>(selector: string): T | null {
   return uiAll<T>(selector)[0] ?? null;
+}
+
+// Every word the notes interface draws on the page, across all of its shadow roots.
+function uiText(): string {
+  return Array.from(document.querySelectorAll("[data-dev-report-ui]"))
+    .map((host) => host.shadowRoot?.textContent ?? "")
+    .join(" ");
 }
 
 function envelope(type: string, payload: unknown) {
@@ -193,24 +203,33 @@ describe("svg and element anchors", () => {
     expect(api.anchorFor(document.querySelector("p")!)).toEqual({ type: "element", selector: "html > body > p", quote: "The Gateway keeps the report." });
   });
 
-  it("never anchors to the notes tray the script added", () => {
+  it("never anchors to the notes interface the script added", () => {
     document.body.innerHTML = `<p>text</p>`;
     api.start({ window });
+    // The tray and the note box, each in its own shadow root.
     const hosts = Array.from(document.querySelectorAll("[data-dev-report-ui]")).filter((h) => h.shadowRoot);
-    expect(hosts.length).toBe(1);
+    expect(hosts.length).toBe(2);
     // A click inside a shadow root reaches the page as a click on its host, so the host is what is checked.
-    expect(api.anchorFor(hosts[0])).toBeNull();
+    for (const host of hosts) expect(api.anchorFor(host)).toBeNull();
     expect(ui("[data-drn=send]")).not.toBeNull();
+    expect(ui("[data-drn=composer]")).not.toBeNull();
   });
 
-  it("keeps the tray out of reach of the report's CSS", () => {
+  it("keeps the tray and the note box out of reach of the report's CSS", () => {
     // Second review, finding 6: a report stylesheet could hide the tray by its class name.
     document.body.innerHTML = `<p>text</p>`;
     api.start({ window });
     expect(document.querySelector(".drn-tray")).toBeNull();
-    const host = Array.from(document.querySelectorAll<HTMLElement>("[data-dev-report-ui]")).find((h) => h.shadowRoot)!;
-    expect(host.shadowRoot!.querySelector(".drn-tray")).not.toBeNull();
-    expect(host.style.getPropertyPriority("display")).toBe("important");
+    expect(document.querySelector(".drn-notebox")).toBeNull();
+    const hosts = Array.from(document.querySelectorAll<HTMLElement>("[data-dev-report-ui]")).filter((h) => h.shadowRoot);
+    expect(hosts.find((h) => h.shadowRoot!.querySelector(".drn-tray"))).toBeTruthy();
+    expect(hosts.find((h) => h.shadowRoot!.querySelector(".drn-notebox"))).toBeTruthy();
+    // The note box gets the same inline protections as the tray - a report cannot move it or hide it.
+    for (const host of hosts) {
+      for (const property of ["display", "visibility", "opacity", "position", "transform", "filter", "clip-path"]) {
+        expect(host.style.getPropertyPriority(property), property).toBe("important");
+      }
+    }
   });
 
   it("does not let report markup copy the tray's attribute to opt out of notes", () => {
@@ -594,7 +613,7 @@ describe("the tray's theme", () => {
     expect(css).toContain("#141a2e");
     expect(css).toContain('"Segoe UI"');
     expect(css).not.toContain(":host");
-    expect(css).toMatch(/\.drn-tray, \.drn-row \{ font-family: -apple-system/);
+    expect(css).toMatch(/\.drn-tray, \.drn-notebox, \.drn-row \{ font-family: -apple-system/);
   });
 
   it("bakes a host theme into the shadow-root stylesheet and removes the attribute", () => {
@@ -624,5 +643,246 @@ describe("the tray's theme", () => {
   it("keeps the default look when the host's theme is refused", () => {
     const themed = loadAsInjected({ "data-dev-report-theme": JSON.stringify({ ...theme, accent: "url(x)" }) });
     expect(themed.theme().surface).toBe("#141a2e");
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// Hosted: the app owns the conversation (phase 3b). The owner saw the page's own queued/sent/replies
+// lists and its Send next to the app's, and one of the two Sends did nothing. Hosted, the page draws
+// only the note-taking parts.
+// -------------------------------------------------------------------------------------------------
+
+const CONVERSATION_PARTS = ["conversation", "queued", "sent", "replies", "send", "payload-box"];
+const NOTE_TAKING_PARTS = ["toggle", "pick", "note-selection", "composer", "composer-text", "composer-queue", "composer-cancel"];
+
+const pageReport = `
+  <header data-dev-report="header" data-dev-report-status="waiting-on-you"><h1>Report</h1></header>
+  <section data-dev-report="questions">
+    <div data-dev-report-question="deploy" data-dev-report-question-text="When should we deploy?">
+      <label><input type="radio" name="deploy" value="tonight" data-recommended> Tonight</label>
+      <label><input type="radio" name="deploy" value="monday"> Monday</label>
+      <textarea data-dev-report-comment></textarea>
+    </div>
+  </section>
+  <section data-dev-report="detail"><p id="para">A paragraph.</p></section>`;
+
+function clickOn(el: Element) {
+  el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+}
+
+// A host, the way CONTRACT.md section 3 describes one: the page posts its ready to the parent with one end
+// of a MessageChannel it made, and everything after that goes over that port. jsdom's window IS the top
+// window, so the test hands start() a window whose parent is a stand-in host and keeps the port the real
+// script really handed over - nothing about the message path is faked.
+type Hosted = {
+  page: { model: Model; isHosted(): boolean; lastPayload(): unknown };
+  ready: { type: string; payload: { questionIds: string[] } };
+  fromPage: Array<{ type: string; payload: { state: State; items?: Item[] } }>;
+  restore(state?: State): Promise<void>;
+};
+
+function startFramed(): Hosted {
+  let handed: MessagePort | null = null;
+  let ready: Hosted["ready"] | null = null;
+  const parent = {
+    postMessage(message: Hosted["ready"], _targetOrigin: string, ports: MessagePort[]) {
+      ready = message;
+      handed = ports[0];
+    },
+  };
+  const framedWindow = new Proxy(window, {
+    get(target, property) {
+      if (property === "parent") return parent;
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as unknown as Window;
+  const page = api.start({ window: framedWindow });
+  if (!handed || !ready) throw new Error("the page did not hand its host a port with its ready");
+  const port = handed as MessagePort;
+  const fromPage: Hosted["fromPage"] = [];
+  port.onmessage = (event: MessageEvent) => fromPage.push(event.data);
+  return {
+    page,
+    ready,
+    fromPage,
+    async restore(state: State = emptyState) {
+      const before = fromPage.length;
+      port.postMessage(envelope("restore", { state }));
+      // A status makes the page post state-changed straight back. A port delivers in order, so the arrival of
+      // that answer proves the restore ahead of it has already been handled - no sleeping and hoping.
+      port.postMessage(envelope("status", { updates: [] }));
+      for (let i = 0; i < 400 && fromPage.length === before; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+      if (fromPage.length === before) throw new Error("the page never answered its host");
+    },
+  };
+}
+
+describe("hosted, the app owns the conversation", () => {
+  it("draws only the note-taking parts - no queued, sent or replies list, no Send, no payload box", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+
+    expect(host.page.isHosted()).toBe(true);
+    for (const part of CONVERSATION_PARTS) expect(ui(`[data-drn=${part}]`), part).toBeNull();
+    expect(uiAll(".drn-h")).toHaveLength(0);
+    for (const heading of ["Queued - not sent yet", "Sent", "Replies from the agent"]) {
+      expect(uiText(), heading).not.toContain(heading);
+    }
+    for (const part of NOTE_TAKING_PARTS) expect(ui(`[data-drn=${part}]`), part).not.toBeNull();
+    expect(uiAll("[data-drn=queue-answer]")).toHaveLength(1);
+  });
+
+  it("unhosted, the page keeps the whole tray - the conversation and Send belong to a page with no app", () => {
+    document.body.innerHTML = pageReport;
+    const page = api.start({ window });
+    expect(page.isHosted()).toBe(false);
+    for (const part of CONVERSATION_PARTS.concat(NOTE_TAKING_PARTS)) expect(ui(`[data-drn=${part}]`), part).not.toBeNull();
+    for (const heading of ["Queued - not sent yet", "Sent", "Replies from the agent"]) {
+      expect(uiText(), heading).toContain(heading);
+    }
+    // And Send still does what it does today: it shows the exact message it would have posted.
+    clickOn(ui("[data-drn=queue-answer]")!);
+    clickOn(ui("[data-drn=send]")!);
+    const shown = JSON.parse(ui("[data-drn=payload]")!.textContent!);
+    expect(shown).toEqual(page.lastPayload());
+    expect(shown).toMatchObject({ type: "send", payload: { items: [{ questionId: "deploy", optionValue: "tonight" }] } });
+    expect(ui("[data-drn=payload-box]")!.hasAttribute("hidden")).toBe(false);
+    expect(page.model.snapshot().queued).toHaveLength(1);
+  });
+
+  it("is the RESTORE that takes Send away, not being framed: a framed page whose host never answers keeps it", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    // Framed, its ready posted, its port handed over - and still unhosted, because no restore has come back.
+    expect(host.ready.type).toBe("ready");
+    expect(host.page.isHosted()).toBe(false);
+    expect(ui("[data-drn=send]")).not.toBeNull();
+    expect(ui("[data-drn=queued]")).not.toBeNull();
+
+    await host.restore();
+
+    expect(host.page.isHosted()).toBe(true);
+    expect(ui("[data-drn=send]")).toBeNull();
+    expect(ui("[data-drn=queued]")).toBeNull();
+  });
+
+  it("tells the owner where the one Send is, in words true of either app and naming nothing internal", async () => {
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+    clickOn(ui("[data-drn=queue-answer]")!);
+    const line = ui("[data-drn=question-state]")!.textContent!;
+    expect(line).toBe("Queued: Tonight - press Send in the app to send it.");
+    expect(line).not.toContain("tray");
+    expect(line).not.toMatch(/deploy|report|session|[0-9a-f]{8}/);
+  });
+
+  it("hands the app the same state hosted as the page keeps unhosted - the panel still gets everything", async () => {
+    // Nothing about what the page SENDS changes; only what it draws.
+    function noteAndAnswer() {
+      clickOn(ui("[data-drn=pick]")!);
+      clickOn(document.getElementById("para")!);
+      ui<HTMLTextAreaElement>("[data-drn=composer-text]")!.value = "This number is wrong";
+      clickOn(ui("[data-drn=composer-queue]")!);
+      document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!.value = "after 8pm";
+      clickOn(ui("[data-drn=queue-answer]")!);
+    }
+    // Ids are 16 random bytes, so they differ between two pages by design; everything else must match.
+    const withoutIds = (state: State) => ({ ...state, queued: state.queued.map(({ id, ...rest }) => rest) });
+
+    document.body.innerHTML = pageReport;
+    const host = startFramed();
+    await host.restore();
+    noteAndAnswer();
+    const hostedState = host.page.model.snapshot();
+    // A port delivers on the next turn of the loop, so let what the page posted arrive before reading it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const pushed = host.fromPage.filter((m) => m.type === "state-changed");
+    expect(pushed.length).toBeGreaterThan(0);
+    expect(pushed[pushed.length - 1].payload.state).toEqual(hostedState);
+    expect(hostedState.queued).toHaveLength(2);
+
+    document.head.innerHTML = "";
+    document.body.innerHTML = "";
+    api = load();
+    delete (window as unknown as Record<symbol, unknown>)[api.started];
+    document.body.innerHTML = pageReport;
+    const unhosted = api.start({ window });
+    noteAndAnswer();
+
+    expect(withoutIds(hostedState)).toEqual(withoutIds(unhosted.model.snapshot()));
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// Where the note box goes. The rule is a pure function of rectangles, so it is checked as one.
+// -------------------------------------------------------------------------------------------------
+
+describe("placing the note box", () => {
+  const box = { width: 320, height: 160 };
+  const viewport = { width: 1400, height: 900 };
+  const rect = (top: number, left: number, height: number, width: number): Rect =>
+    ({ top, left, bottom: top + height, right: left + width, width, height });
+  const boxRect = (at: Placed): Rect => rect(at.top, at.left, box.height, box.width);
+  const overlap = (a: Rect, b: Rect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+  it("goes below what the note is about when there is room, without touching it", () => {
+    const anchor = rect(200, 300, 40, 120);
+    const at = api.placeNoteBox(anchor, null, box, viewport);
+    expect(at.scrollBy).toBe(0);
+    expect(at.top).toBeGreaterThan(anchor.bottom);
+    expect(overlap(boxRect(at), anchor)).toBe(false);
+    expect(at.left).toBe(anchor.left);
+  });
+
+  it("goes above when there is no room below, without touching it", () => {
+    const anchor = rect(700, 300, 40, 120);
+    const at = api.placeNoteBox(anchor, null, box, viewport);
+    expect(at.scrollBy).toBe(0);
+    expect(at.top + box.height).toBeLessThan(anchor.top);
+    expect(overlap(boxRect(at), anchor)).toBe(false);
+  });
+
+  it("clears the whole question that contains the anchor, above and below", () => {
+    // A note on a paragraph near the top of a tall question: below the paragraph is still inside the question.
+    const question = rect(120, 280, 500, 600);
+    const anchor = rect(140, 300, 30, 200);
+    const below = api.placeNoteBox(anchor, question, box, viewport);
+    expect(overlap(boxRect(below), anchor)).toBe(false);
+    expect(overlap(boxRect(below), question)).toBe(false);
+    expect(below.top).toBeGreaterThan(question.bottom);
+
+    // And with the question running to the bottom of the screen, it goes above the whole question.
+    const tall = rect(300, 280, 580, 600);
+    const anchorInTall = rect(820, 300, 30, 200);
+    const above = api.placeNoteBox(anchorInTall, tall, box, viewport);
+    expect(overlap(boxRect(above), anchorInTall)).toBe(false);
+    expect(overlap(boxRect(above), tall)).toBe(false);
+    expect(above.top + box.height).toBeLessThan(tall.top);
+  });
+
+  it("stays inside the viewport when the anchor is at the right edge or off the left", () => {
+    const atRight = api.placeNoteBox(rect(100, 1380, 20, 20), null, box, viewport);
+    expect(atRight.left + box.width).toBeLessThanOrEqual(viewport.width);
+    const atLeft = api.placeNoteBox(rect(100, -40, 20, 20), null, box, viewport);
+    expect(atLeft.left).toBeGreaterThanOrEqual(0);
+    const narrow = api.placeNoteBox(rect(100, 10, 20, 20), null, box, { width: 300, height: 900 });
+    expect(narrow.left).toBeGreaterThanOrEqual(0);
+  });
+
+  it("when it fits neither above nor below, scrolls the page and still goes below, never on top", () => {
+    // A tall anchor filling most of a short screen: there is no room either side of it as the page stands.
+    const viewportShort = { width: 800, height: 400 };
+    const anchor = rect(60, 100, 300, 300);
+    const at = api.placeNoteBox(anchor, null, box, viewportShort);
+    expect(at.scrollBy).toBeGreaterThan(0);
+    // top is where the box lands AFTER that scroll, and the anchor has moved up by the same amount.
+    const anchorAfter = rect(anchor.top - at.scrollBy, anchor.left, anchor.height, anchor.width);
+    expect(overlap(boxRect(at), anchorAfter)).toBe(false);
+    expect(at.top).toBeGreaterThan(anchorAfter.bottom);
+    // What the note is about is still on screen - the page never scrolls it away to make room.
+    expect(anchorAfter.bottom).toBeGreaterThan(0);
   });
 });

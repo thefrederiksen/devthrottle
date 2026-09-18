@@ -420,6 +420,87 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(1, rig.Env.NarratorCalls);
     }
 
+    // ============================================== a failed call does not make the stop permanently unnarratable
+
+    [Fact]
+    public async Task AfterAFailedNarrationCall_APersonAskingAgain_MakesASecondCall_AndItsWordsBecomeTheClip()
+    {
+        // THE STOP IS UNCHANGED, so the stored verdict is REUSED and its id is the same one the failed turn-end call
+        // claimed. That is the case where pressing "Generate narration now" was refused the claim, made no call at all,
+        // and left the person with the judge's short text however many times they pressed. (A stop that has moved on
+        // mints a new verdict id and was never affected - measured recovering on the live fleet, so this test is
+        // deliberately written on the unchanged screen, which is the case that stays broken.)
+        //
+        // REVERT PROOF: take ReleaseNarrationClaimForRequest back out of NarrateStopOnRequestAsync and this goes red
+        // with NarratorCalls still 1 and the judge's words still on the clip.
+        var rig = Build();
+        var calls = 0;
+        rig.Env.Narrator = (_, _) =>
+        {
+            calls++;
+            if (calls == 1) throw new TimeoutException("the narration call did not answer");
+            return Task.FromResult(Answer(Narrated));
+        };
+        rig.Voice.Mark(Tenant, Sid);
+        var route = RouteServing("dir-1", rig.Env.Screen);
+
+        await HostTurnEndAsync(rig, route);
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(JudgeSpoken, rig.Voice.Get(Tenant, Sid)!.Spoken);   // the judge's words, as the failed arm leaves them
+
+        // The person presses "Generate narration now".
+        await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(2, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        Assert.EndsWith(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+    }
+
+    [Fact]
+    public async Task AfterAFailedNarrationCall_TheAutomaticPathsStillDoNotReattempt()
+    {
+        // The other half of the same rule, and the reason the release is a PERSON'S verb rather than a blanket one: the
+        // idle sweep comes past every forty-five seconds, so a stop that keeps failing would keep costing a model call.
+        // Only a person's ask releases a spent claim; a turn end and a refresh do not.
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
+        rig.Voice.Mark(Tenant, Sid);
+        var route = RouteServing("dir-1", rig.Env.Screen);
+
+        await HostTurnEndAsync(rig, route);
+        await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: false);
+        await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+    }
+
+    [Fact]
+    public async Task WhileANarrationCallIsRunning_APersonAsking_DoesNotStartASecondCall()
+    {
+        // The release is refused while a call for this same stop is genuinely in flight, so an impatient second tap
+        // joins the call already running instead of paying for another one.
+        var rig = Build();
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.Narrator = (_, _) => release.Task;
+        rig.Voice.Mark(Tenant, Sid);
+        var route = RouteServing("dir-1", rig.Env.Screen);
+
+        var signal = new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true);
+        var judging = rig.Verdicts.StartTurnEnd(signal);
+        await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: true);
+        await judging;
+
+        // The first call is still waiting on `release`; the person asks anyway.
+        await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
+        Assert.Equal(1, rig.Env.NarratorCalls);
+
+        release.SetResult(Answer(Narrated));
+        await rig.Voice.WaitForNarrationCallsAsync();
+        Assert.Equal(1, rig.Env.NarratorCalls);
+    }
+
     [Fact]
     public async Task ANarrationThatAnswersAfterTheSessionWorkedAgain_IsNotStored()
     {

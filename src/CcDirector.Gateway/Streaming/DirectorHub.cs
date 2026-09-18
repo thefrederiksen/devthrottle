@@ -64,8 +64,10 @@ public sealed class DirectorHub : Hub
         Pairing.SessionKeyRegistry? sessionKeys = null,
         History.SessionTurnStore? sessionTurns = null,
         TurnPushCapabilityRegistry? turnPushCapabilities = null,
-        Briefing.TurnEndWatcher? turnEnds = null)
+        Briefing.TurnEndWatcher? turnEnds = null,
+        FleetManagerHomeCapabilityRegistry? fleetManagerHomeCapabilities = null)
     {
+        _fleetManagerHomeCapabilities = fleetManagerHomeCapabilities;
         _turnEnds = turnEnds;
         _turnPushCapabilities = turnPushCapabilities;
         _sessionTurns = sessionTurns;
@@ -106,6 +108,7 @@ public sealed class DirectorHub : Hub
     private readonly History.SessionTurnStore? _sessionTurns;
     /// <summary>Which connected Directors send their conversations - learned here, from Hello.</summary>
     private readonly TurnPushCapabilityRegistry? _turnPushCapabilities;
+    private readonly FleetManagerHomeCapabilityRegistry? _fleetManagerHomeCapabilities;
 
     /// <summary>
     /// A full repository/worktree snapshot from the bound Director (repositories mission, #510
@@ -199,6 +202,31 @@ public sealed class DirectorHub : Hub
             Context.Abort();
             return null;
         }
+        // A DIRECTOR ID BELONGS TO THE CREDENTIAL THAT FIRST REGISTERED IT (the Message Load mission,
+        // inspection 12, finding 1). The tenant check above only proves the caller is in the right ACCOUNT;
+        // within one account any device key could, until this, say Hello under another Director's id and take
+        // the registry's credential binding over - and that binding is exactly what the restore-mark route asks
+        // when it decides whether its caller really is that Director. So a Hello naming an id this account has
+        // already bound to a DIFFERENT key is refused here, BEFORE any connection state is written, and the
+        // connection is closed. The same key re-binds freely: an ordinary reconnect is unchanged.
+        //
+        // HOW A RE-ENROLLED DIRECTOR RECOVERS. The binding lives exactly as long as the registry entry: it is
+        // cleared when the entry is removed - a goodbye, the instance file going away, or the stale sweep once
+        // the old Director has stopped refreshing it (the eviction horizon, a day by default). So a Director
+        // whose device key was legitimately re-enrolled takes its own id back once the OLD registration is
+        // gone, and the refusal below names the command that shows whether it still is. A Director that cannot
+        // wait comes back under a fresh id (its id file is local to the machine).
+        var registeringCredential = AuthMiddleware.RegisteringCredential(Context.GetHttpContext());
+        if (_registry.IsBoundToAnotherCredential(tenant, directorId, registeringCredential))
+        {
+            FileLog.Write($"[DirectorHub] Hello REJECTED ({directorId} is already registered on another device key of this "
+                          + "account; a Director id stays with the key that first registered it until that registration is gone - "
+                          + "'cc-devthrottle director list' shows whether it is still there, and it ages out once the old Director "
+                          + $"stops connecting): conn={Short(Context.ConnectionId)}");
+            Context.Abort();
+            return null;
+        }
+
         Context.Items[DirectorIdItemKey] = directorId;
         Context.Items[TenantIdItemKey] = tenant;
         _store.RegisterConnection(tenant, directorId, Context.ConnectionId);
@@ -220,11 +248,25 @@ public sealed class DirectorHub : Hub
         // authenticated device key - never the Hello payload, which the client writes.
         // The credential this Hello authenticated with is recorded against the id, so a route can tell this
         // Director's own calls from another key of the same account (the Message Load mission, inspection 11).
-        _registry.RegisterFromStream(directorId, hello.MachineName, hello.User, hello.Version, hello.Pid, hello.StartedAt, tenant,
-            hello.DisplayName, AuthMiddleware.RegisteringCredential(Context.GetHttpContext()));
+        try
+        {
+            _registry.RegisterFromStream(directorId, hello.MachineName, hello.User, hello.Version, hello.Pid, hello.StartedAt, tenant,
+                hello.DisplayName, registeringCredential);
+        }
+        catch (DirectorIdBoundToAnotherCredentialException ex)
+        {
+            // The race the check above cannot close on its own: another key bound this id between that question
+            // and this write. The registry answers the same way under its own gate, so the refusal is decided in
+            // ONE place and this is only how it reaches the connection. Aborting runs OnDisconnectedAsync, which
+            // clears the connection registration written just above.
+            FileLog.Write($"[DirectorHub] Hello REJECTED (raced another Hello for the same id): {ex.Message}: conn={Short(Context.ConnectionId)}");
+            Context.Abort();
+            return null;
+        }
         // What this build can do, kept against the CONNECTION: the same machine can come back on an older
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.
         _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns, hello.ChecksIdleBeforeTyping);
+        _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome, hello.ChangesOwnerIfExpected);
         FileLog.Write($"[DirectorHub] Hello: director={directorId} bound to conn={Short(Context.ConnectionId)} (version={hello.Version}, machine={hello.MachineName})");
         return CapabilitiesFor(tenant, directorId);
     }

@@ -3100,15 +3100,9 @@ public partial class MainWindow : Window
             // Mirror the live roster into the durable crash journal (issue #212 L5). Same
             // snapshot, but keyed per-Director and preserved across an abnormal death so the
             // sessions can be recovered (unlike sessions.json, which is cleared every startup).
-            app.CrashJournal?.Update(_sessions.Select(vm => new DirectorCrashJournalSession
-            {
-                SessionId = vm.Session.Id.ToString(),
-                Name = vm.Session.CustomName,
-                RepoPath = vm.Session.RepoPath,
-                Agent = vm.Session.AgentKind.ToString(),
-                ClaudeSessionId = vm.Session.ClaudeSessionId,
-                CreatedAtUtc = vm.Session.CreatedAt,
-            }));
+            // Each row is built by the one builder the owner-change write uses too, so this routine save never drops
+            // the owner a hand over wrote a moment earlier.
+            app.CrashJournal?.Update(_sessions.Select(vm => SessionManager.ToCrashJournalSession(vm.Session)));
         }
         catch (Exception ex)
         {

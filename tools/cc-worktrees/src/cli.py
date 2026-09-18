@@ -125,11 +125,19 @@ def _pairs(record: dict, keys: list[str]) -> str:
     return "\n".join(lines)
 
 
+PROOF_FIELDS = ["commit", "host", "detail"]
+
+
 def _emit(args: argparse.Namespace, record: dict, keys: list[str], help_lines: list[str]) -> None:
+    """The plain output is the same answer as `--json`, in the AXI shape. `proved_by` and the
+    `host_proof` list are on it for the same reason they are in the JSON: "free" must name what proved
+    the work, and a commit the HOST freed must name the pull request that freed it."""
     if args.json:
         sys.stdout.write(json.dumps(record) + "\n")
         return
     blocks = [_pairs(record, keys)]
+    if "host_proof" in record:
+        blocks.append(axi_output.render_list("host_proof", PROOF_FIELDS, record["host_proof"]))
     if help_lines:
         blocks.append(axi_output.format_help(help_lines))
     axi_output.write_blocks(sys.stdout, *blocks)
@@ -169,14 +177,14 @@ def cmd_get(args: argparse.Namespace) -> int:
     if args.pool_size < 1:
         raise _UsageError("--pool-size must be at least 1")
     result = pool.get(args.repo, args.holder, args.pool_size)
-    _emit(args, result, ["slot", "path", "lease", "holder", "base", "commit", "reused"],
+    _emit(args, result, ["slot", "path", "lease", "holder", "base", "commit", "reused", "proved_by"],
           [f"{PROG} return {_q(result['path'])} --lease {result['lease']}"])
     return EXIT_OK
 
 
 def cmd_return(args: argparse.Namespace) -> int:
     result = pool.return_slot(args.target, args.lease, args.repo)
-    _emit(args, result, ["slot", "path", "state", "base", "commit"],
+    _emit(args, result, ["slot", "path", "state", "base", "commit", "proved_by"],
           [f"{PROG} get --repo {_q(result['repo'])} --holder <holder>"])
     return EXIT_OK
 
@@ -185,7 +193,7 @@ def cmd_lease(args: argparse.Namespace) -> int:
     if not args.holder.strip():
         raise _UsageError("--holder must not be empty")
     result = pool.lease_slot(args.target, args.holder, args.reclaim_held, args.repo)
-    _emit(args, result, ["slot", "path", "lease", "holder", "base", "commit"],
+    _emit(args, result, ["slot", "path", "lease", "holder", "base", "commit", "proved_by"],
           [f"{PROG} return {_q(result['path'])} --lease {result['lease']}"])
     return EXIT_OK
 
@@ -197,7 +205,7 @@ def cmd_destroy(args: argparse.Namespace) -> int:
         help_lines.append(f"{PROG} destroy {result['slot']} --repo {_q(result['repo'])} --yes"
                           + (" --allow-held" if result["state"] == pool.HELD else "")
                           + (" --allow-in-use" if result["state"] == pool.IN_USE else ""))
-    _emit(args, result, ["slot", "path", "state", "reason", "dry_run", "removed"], help_lines)
+    _emit(args, result, ["slot", "path", "state", "reason", "dry_run", "removed", "proved_by"], help_lines)
     return EXIT_OK
 
 

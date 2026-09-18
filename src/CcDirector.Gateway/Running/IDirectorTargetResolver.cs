@@ -203,7 +203,12 @@ public sealed class RegistryDirectorTargetResolver : IDirectorTargetResolver
     {
         // Confine the machine-name match to the caller's OWN tenant partition (audit H1, gap audit-e): a
         // fleet-global scan could return another tenant's Director that happens to run on the same machine.
+        //
+        // A Director that said goodbye is not a target (the Fleet Manager mission, step 5). The registry keeps a
+        // stopped Director's row for a day so the fleet view can say "Stopped"; picking it here sent the create to a
+        // process that no longer exists and never asked the launcher to start a new one.
         return _listDirectors(tenant).FirstOrDefault(x =>
-            string.Equals(x.MachineName, machine, StringComparison.OrdinalIgnoreCase));
+            x.StoppedAtUtc is null
+            && string.Equals(x.MachineName, machine, StringComparison.OrdinalIgnoreCase));
     }
 }

@@ -236,6 +236,56 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
         Assert.True(outcome.Accepted);
         Assert.Equal(new[] { ("31\r", false) }, channel.Writes);
         Assert.Equal(1, channel.Reads);
+        // What was sent is stored with the verdict, in the order sent, for the walkthrough's record.
+        var answer = _store.FindById(Tenant, v.VerdictId)!.Answer!;
+        Assert.Equal((v.VerdictId, v.TurnEndObservedAtUtc, "2,0", "the seed rows, the schema"),
+            (answer.VerdictId, answer.TurnEndObservedAtUtc, string.Join(",", answer.OptionIndexes), answer.Words));
+    }
+
+    /// <summary>
+    /// WHAT THE ANSWER ROUTE STORED IS WHAT THE WINGMAN TAB READS BACK - one record of the owner's answer, read
+    /// through the history rather than copied into a second one.
+    ///
+    /// The bytes written to the session are "31", an index nobody can read a minute later; the stored answer keeps
+    /// "the seed rows, the schema", which is what he actually decided, in the order he decided it. The Now view
+    /// folds "You answered ..." from <c>HistoryWithAnswers</c>, so this test joins the route that WRITES the record
+    /// to the read that SERVES it - a Now view carrying a second column of its own would be free to disagree with
+    /// the walkthrough about what he chose, and this is the join that stops it.
+    ///
+    /// The parked reply is the control: it chose no option, so its record carries no positions and its words are
+    /// about the sending rather than about a decision. That is why the Now fold reads only an answer that chose
+    /// something, and falls through to the reply he actually typed otherwise.
+    /// </summary>
+    [Fact]
+    public async Task WhatWasStoredForAnAnsweredStop_IsWhatTheHistoryHandsTheWingmanTab()
+    {
+        var chosen = Stored(Sid, Base("tv-recorded", "keys", Menu("multiple", "\r"),
+            Option("the schema", "1"), Option("the data", "2"), Option("the seed rows", "3")));
+        var channel = Matching();
+        channel.RowsAfterWrite = ChangedRows;
+
+        var outcome = await Service().AnswerAsync(Tenant, Dir, Sid, Request(chosen.VerdictId, 2, 0), channel, CancellationToken.None);
+
+        Assert.True(outcome.Accepted);
+        // CONTROL: the bytes are still the indexes - this reads the decision back, it does not change what is sent.
+        Assert.Equal(new[] { ("31\r", false) }, channel.Writes);
+        var read = _store.HistoryWithAnswers(Tenant, Sid)[0];
+        Assert.NotNull(read.AnsweredAtUtc);
+        Assert.Equal("2,0", string.Join(",", read.Answer!.OptionIndexes));
+        Assert.Equal("the seed rows, the schema", read.Answer.Words);
+
+        var parked = Stored("sid-parked", Base("tv-parked-record", "keys", new TurnVerdictMenuDto
+        {
+            Question = "Send the reply already typed: run the tests first", SelectionMode = "single", Submit = "\r",
+        }));
+
+        Assert.True((await Service().AnswerAsync(Tenant, Dir, "sid-parked", Request(parked.VerdictId), Matching(),
+            CancellationToken.None)).Accepted);
+
+        var parkedRead = _store.HistoryWithAnswers(Tenant, "sid-parked")[0];
+        Assert.NotNull(parkedRead.AnsweredAtUtc);
+        Assert.Empty(parkedRead.Answer!.OptionIndexes);
+        Assert.Equal(TurnVerdictStoredAnswer.TypedReplyWords, parkedRead.Answer.Words);
     }
 
     [Fact]
@@ -252,6 +302,9 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
 
         Assert.True(outcome.Accepted);
         Assert.Equal(new[] { ("\r", false) }, channel.Writes);
+        var answer = _store.FindById(Tenant, v.VerdictId)!.Answer!;
+        Assert.Empty(answer.OptionIndexes);
+        Assert.Equal(TurnVerdictStoredAnswer.TypedReplyWords, answer.Words);
     }
 
     [Fact]

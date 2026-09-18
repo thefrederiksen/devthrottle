@@ -285,3 +285,34 @@
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* The tab's two views: Now (the live stop) and History (the version 1 list). Version 3 adds Debug beside them. */
+.wingman-views {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wingman-view {
+  padding: 5px 14px;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+}
+
+.wingman-view.on {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+/* The quiet line beside a screen that is still good: the last background refresh failed, and the screen below it is
+   the last one the Gateway served. It is deliberately not an alert - nothing was lost and nothing is being asked. */
+.wingman-stale {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}

@@ -342,6 +342,9 @@ _ACTIONS_ADDED_SINCE_PIN = {
     # reads when it opens a session, and without it the setting could only be turned on by editing a
     # JSON file by hand.
     "worktree-pool-status", "worktree-pool-on", "worktree-pool-off",
+    "fleet-advise",
+    # The Fleet Manager mission, step 8.
+    "session-hand-over",
 }
 
 

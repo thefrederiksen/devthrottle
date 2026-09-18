@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { setVoiceModeAllSessions, type SessionDto } from "@devthrottle/client-core/api/client";
 import {
@@ -23,6 +23,7 @@ import {
   type SessionTree,
 } from "@devthrottle/client-core/sessions/tree";
 import { changesBadge, changesTitle } from "@devthrottle/client-core/sessions/changes";
+import { splitPinned, type PinnedSplit } from "@devthrottle/client-core/sessions/pinning";
 import {
   DELIVERY_BADGE_TEXT,
   hasUndeliveredPrompt,
@@ -68,6 +69,11 @@ import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRe
 // machine): "My order" groups the tree's ROOTS by Director, a child nests under its parent wherever the
 // parent lives, and a child on another machine carries its machine line. The tree and the crew summary
 // live in client-core/sessions/tree, shared with the phone.
+//
+// THE FLEET MANAGER IS PINNED FIRST (the Fleet Manager mission, step 8), in both views, with its team collapsed under
+// it like any crew. Which row is pinned, and every word it and the heading below it wear, is the Gateway's
+// (SessionDto.pin); client-core/sessions/pinning lifts it out, and the rows that are not pinned are laid out exactly as
+// before, under the Gateway's heading.
 
 export type RosterView = "my-order" | "attention";
 
@@ -146,39 +152,84 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
         <div className="roster-empty">No sessions. The Gateway returned an empty roster.</div>
       )}
 
-      {sessions !== null && total > 0 && view === "my-order" && (
-        <MyOrderGroups sessions={sessions} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
-      )}
-
-      {sessions !== null && total > 0 && view === "attention" && (
-        <AttentionGroups
-          sessions={sessions}
-          directors={directors}
-          portByDirector={portByDirector}
-          selectedId={selectedId}
-        />
+      {sessions !== null && total > 0 && (
+        <PinnedAndRest sessions={sessions} directors={directors} portByDirector={portByDirector} selectedId={selectedId}>
+          {(tree, rest) =>
+            view === "my-order" ? (
+              <MyOrderGroups tree={tree} roots={rest} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
+            ) : (
+              <AttentionGroups tree={tree} roots={rest} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
+            )
+          }
+        </PinnedAndRest>
       )}
     </div>
   );
 }
 
-// "My order": ONE tree over the whole roster, and its ROOTS grouped by their owning Director under a
-// "computer:port" header. A child sits under its parent whichever Director it is on.
-function MyOrderGroups({
+// ONE tree over the whole roster. The pinned rows (the Fleet Manager, step 8) come first, each with its team under it;
+// the rest of the roots go to the view the owner chose, under the Gateway's heading, laid out as they always were.
+function PinnedAndRest({
   sessions,
   directors,
   portByDirector,
   selectedId,
+  children,
 }: {
   sessions: SessionDto[];
   directors: DirectorReachability[];
   portByDirector: Map<string, string>;
   selectedId: string | undefined;
+  children: (tree: SessionTree, rest: SessionDto[]) => ReactNode;
 }) {
   const tree = buildSessionTree(sessions);
+  const split: PinnedSplit = splitPinned(tree.roots);
   return (
     <>
-          {groupByDirector(tree.roots, portByDirector).map((group) => (
+      {split.pinned.length > 0 && (
+        <div className="roster-pinned" data-testid="roster-pinned">
+          <TreeList
+            tree={{ roots: split.pinned, childrenOf: tree.childrenOf }}
+            directors={directors}
+            portByDirector={portByDirector}
+            showMachine
+            selectedId={selectedId}
+          />
+        </div>
+      )}
+      {split.pin !== null && split.rest.length > 0 && (
+        <div className="roster-others-head" data-testid="roster-others-head">
+          {split.pin.othersHeading}
+        </div>
+      )}
+      {children(tree, split.rest)}
+      {split.pin !== null && split.rest.some((r) => r.ownerChange?.to === "fleet-manager") && (
+        <Link className="roster-handover-link" to="/fleet-manager?handover=1" data-testid="roster-handover-link">
+          {split.pin.handOverLinkLabel}
+        </Link>
+      )}
+    </>
+  );
+}
+
+// "My order": the tree's ROOTS grouped by their owning Director under a "computer:port" header. A child sits under its
+// parent whichever Director it is on.
+function MyOrderGroups({
+  tree,
+  roots,
+  directors,
+  portByDirector,
+  selectedId,
+}: {
+  tree: SessionTree;
+  roots: SessionDto[];
+  directors: DirectorReachability[];
+  portByDirector: Map<string, string>;
+  selectedId: string | undefined;
+}) {
+  return (
+    <>
+          {groupByDirector(roots, portByDirector).map((group) => (
             <div className="roster-group" key={group.directorId || "(no-director)"}>
               <div className="roster-group-head">
                 <span className="roster-group-name">
@@ -261,20 +312,21 @@ function VoiceAllButton({ sessions }: { sessions: SessionDto[] }) {
 // These sections mix machines, so - unlike the grouped "My order" view - each card still shows its own
 // "computer:port" line so you can see which cc-director a needs-you session lives on.
 function AttentionGroups({
-  sessions,
+  tree,
+  roots,
   directors,
   portByDirector,
   selectedId,
 }: {
-  sessions: SessionDto[];
+  tree: SessionTree;
+  roots: SessionDto[];
   directors: DirectorReachability[];
   portByDirector: Map<string, string>;
   selectedId: string | undefined;
 }) {
-  const tree = buildSessionTree(sessions);
   return (
     <>
-      {attentionSections(tree.roots).map((section) => (
+      {attentionSections(roots).map((section) => (
         <div className="roster-bucket" key={section.key}>
           <div className={`roster-bucket-head ${section.key === "needsYou" ? "needs" : section.key === "onHold" ? "hold" : ""}`}>
             {section.title} <span className="roster-bucket-count">{section.bandStart}</span>
@@ -436,7 +488,7 @@ function RosterRow({
         />
       )}
       <Link
-        className={`roster-row${selected ? " roster-row-selected" : ""}${attention ? " roster-row-attention" : ""}${wobbly ? " roster-row-wobbly" : ""}${offline ? " roster-row-offline" : ""}`}
+        className={`roster-row${selected ? " roster-row-selected" : ""}${attention ? " roster-row-attention" : ""}${wobbly ? " roster-row-wobbly" : ""}${offline ? " roster-row-offline" : ""}${session.pin ? " roster-row-pinned" : ""}`}
         style={{ borderLeftColor: dotHex(session) }}
         to={`/session/${encodeURIComponent(sid)}`}
         title={dotTitle(session, legend)}
@@ -447,6 +499,11 @@ function RosterRow({
           <span className="roster-name">
             {hasNum && <span className="num-badge">{num}</span>}
             <span className="roster-name-text">{name}</span>
+            {session.pin && (
+              <span className="roster-pin-mark" title={session.pin.title}>
+                {session.pin.mark}
+              </span>
+            )}
           </span>
           {/* Line 2: the Gateway-stamped status, on its own line so it is never squeezed to "Wor...". */}
           <span className="roster-state">{contextLine(session)}</span>

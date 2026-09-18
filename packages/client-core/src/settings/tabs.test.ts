@@ -7,7 +7,7 @@ describe("visibleTabs", () => {
       "notifications",
       "language",
       "transcription",
-      "assistant",
+      "fleetmanager",
     ]);
   });
 
@@ -16,7 +16,7 @@ describe("visibleTabs", () => {
       "notifications",
       "language",
       "transcription",
-      "assistant",
+      "fleetmanager",
       "injectedtext",
     ]);
   });
@@ -56,13 +56,31 @@ describe("visibleTabs", () => {
     for (const t of visibleTabs("mobile")) expect(cockpit.get(t.id)).toBe(t.label);
   });
 
+  // The Fleet Manager mission: the Fleet Manager tab takes the Assistant's place on both surfaces (step 5), and
+  // the Assistant tab is gone from the product (step 9).
+  it("offers Fleet Manager where Assistant was, on both surfaces, and no Assistant", () => {
+    for (const surface of ["cockpit", "mobile"] as const) {
+      const tabs = visibleTabs(surface);
+      const ids = tabs.map((t) => t.id);
+      expect(ids.indexOf("fleetmanager")).toBe(3);
+      expect(tabs[3].label).toBe("Fleet Manager");
+      expect(ids).not.toContain("assistant");
+    }
+  });
+
+  it("sends an old link to the Assistant tab to the default, and a Fleet Manager link to its tab", () => {
+    for (const surface of ["cockpit", "mobile"] as const) {
+      expect(tabFromParam("assistant", surface)).toBe("notifications");
+      expect(tabFromParam("fleetmanager", surface)).toBe("fleetmanager");
+    }
+  });
+
   it("keeps Injected text off the phone - it is Cockpit only (issue #550)", () => {
     expect(visibleTabs("mobile").map((t) => t.id)).not.toContain("injectedtext");
   });
 
-  // Car Mode was removed from the product (#1028). The tab it used to own is now the Assistant tab - the
-  // one setting it held that was never Car Mode's alone - so "carmode" is a retired id like the others: an
-  // old link lands on the default rather than on a tab that no longer exists.
+  // Car Mode was removed from the product (#1028), so "carmode" is a retired id like the others: an old link
+  // lands on the default rather than on a tab that no longer exists.
   it("no longer offers a Car Mode tab on either surface", () => {
     for (const surface of ["cockpit", "mobile"] as const) {
       expect(visibleTabs(surface).map((t) => t.id as string)).not.toContain("carmode");

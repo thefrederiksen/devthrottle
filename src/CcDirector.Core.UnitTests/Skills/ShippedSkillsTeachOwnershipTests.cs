@@ -97,6 +97,26 @@ public sealed class ShippedSkillsTeachOwnershipTests
     }
 
     /// <summary>
+    /// THE FLEET MANAGER TAKES OVER A SESSION ONLY WHEN THE OWNER HAS ASKED (the Fleet Manager mission, step 8). Its
+    /// session key may hand a session over, so what it is taught decides whether it quietens sessions nobody asked it
+    /// to. Both texts it reads - the skill and the workflow - say so, and name the exact command in both directions.
+    /// </summary>
+    [Theory]
+    [InlineData("Skills", "fleet-manager.skill.md")]
+    [InlineData("Workflows", "fleet-manager.instructions.md")]
+    public void The_Fleet_Manager_is_taught_to_take_over_only_when_the_owner_asked_and_how(string area, string file)
+    {
+        var path = Path.Combine(Path.GetDirectoryName(SkillContentDirectory())!, "..", area, "Content", file);
+        var text = File.ReadAllText(path).Replace("\r\n", "\n");
+
+        Assert.Contains("only when the owner has asked you to", text, StringComparison.Ordinal);
+        Assert.Contains("cc-devthrottle session hand-over <session> --to fleet-manager", text, StringComparison.Ordinal);
+        Assert.Contains("cc-devthrottle session hand-over <session> --to owner", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Until the product can change a session's", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("you cannot take a session yourself", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The shipped skill directory, found from this source file's own path - the pattern the other
     /// document guards in this repository use, because the suites run from a checkout and a bin-relative
     /// path breaks under different runners.

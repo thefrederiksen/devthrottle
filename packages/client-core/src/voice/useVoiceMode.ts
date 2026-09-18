@@ -15,6 +15,7 @@ import {
 import { backgroundTranscribeAndSend, type CapturedUtterance } from "../dictation/backgroundSend";
 import { ensureClip, getClipState, getVoiceMeta, saveVoiceMeta, stopPlayback, useVoiceClips, type ClipPhase } from "./clips";
 import { positionFor, saveMark, wasAutoPlayed } from "./playbackPositions";
+import { switchVoiceModeOn } from "./switchVoiceMode";
 import { speakLocally } from "../speech/localSpeech";
 import { utteranceFor } from "../speech/spokenUtterance";
 import { isWorking } from "../sessions/ordering";
@@ -173,6 +174,26 @@ export function useVoiceMode(
   // Seed the narration state + text from the on-device cache so it shows instantly (issue #1015).
   const [voice, setVoice] = useState<WingmanVoice | null>(() => getVoiceMeta(sid));
   const [error, setError] = useState<string | null>(null);
+  // WHOSE ERROR IS ON SCREEN. An error a USER ACTION produced - a failed "Switch to voice mode", a failed
+  // "Generate narration now" - must survive the poll, and before this it did not: the poll runs every three
+  // seconds and cleared the error unconditionally on both of its good paths, so a switch that failed put a
+  // message up and the next tick took it away. What the owner saw was a button that did nothing at all, with
+  // no explanation - the 503 on POST /sessions/{sid}/voice-mode was invisible on screen.
+  //
+  // A POLL may only clear what a POLL set. An action's error is cleared when that action is tried again (or
+  // when it succeeds), which is the only moment the person has actually asked for it to go away.
+  const actionErrorRef = useRef(false);
+  const setActionError = useCallback((message: string) => {
+    actionErrorRef.current = true;
+    setError(message);
+  }, []);
+  const beginAction = useCallback(() => {
+    actionErrorRef.current = false;
+    setError(null);
+  }, []);
+  const clearPollError = useCallback(() => {
+    if (!actionErrorRef.current) setError(null);
+  }, []);
   const [autoPlayBlocked, setAutoPlayBlocked] = useState(false);
   // Whether a real poll has resolved the true state yet. Until it has, we never paint the OFF card -
   // the screen starts blank (or ON when the roster seeded it) and only shows OFF once confirmed.
@@ -268,7 +289,7 @@ export function useVoiceMode(
         const on = localEnabledRef.current || Boolean(match.voiceMode);
         if (!on) {
           setVoice(null);
-          setError(null);
+          clearPollError();
           return;
         }
 
@@ -277,7 +298,7 @@ export function useVoiceMode(
         saveVoiceMeta(sid, v); // keep the cached state + text fresh for the next instant entry (#1015)
         // Kick the phone-side download the moment a (new) clip is ready on the Gateway.
         if (v.ready && v.generatedAt) void ensureClip(sid, v.generatedAt);
-        setError(null);
+        clearPollError();
       } catch (err) {
         if (signal.aborted) return;
         // Background poll: keep the last-known view on screen and surface a soft note; the next tick
@@ -285,7 +306,7 @@ export function useVoiceMode(
         setError(err instanceof Error ? err.message : "Voice update failed");
       }
     },
-    [sid],
+    [sid, clearPollError],
   );
 
   useEffect(() => {
@@ -438,7 +459,7 @@ export function useVoiceMode(
   const onSwitchOn = useCallback(async () => {
     if (sid.length === 0 || enabling) return;
     setEnabling(true);
-    setError(null);
+    beginAction();
     setLocalEnabled(true); // show the working screen immediately (responsive UI)
     // Voice was just switched on, so nothing has asked about THIS session's narration yet. Without
     // this the old answer ("off", hence no voice) survived the switch and the screen flashed the red
@@ -448,18 +469,22 @@ export function useVoiceMode(
       // session on the owning Director (ViewMode=Voice) so SessionDto.VoiceMode flips true and the
       // state persists across navigation and shows on the roster; then explain on the Gateway, which
       // marks its turn-end re-narration set and reads the first turn (caching the spoken text + audio).
-      await setVoiceMode(sid, true);
-      const explained = await markVoiceAndExplain(sid);
+      // Both live in switchVoiceModeOn, which is the ONE place that pair is made - the Wingman tab's Now
+      // view switches voice on too, and a second copy of the pair would be free to drift from this one.
+      const explained = await switchVoiceModeOn(sid);
       // A fresh/text-only session has nothing to read yet - show its truthful note in the working
       // card instead of spinning forever waiting for audio that will not come until the next turn.
       setEnableNote(explained.nothingYet ? explained.spoken : "");
     } catch (err) {
       setLocalEnabled(false); // the enable did not take - fall back to the off screen, no half state
-      setError(err instanceof Error ? err.message : "Could not switch to voice mode");
+      // STICKY. The poll runs every three seconds and used to clear this, so a switch that failed - a 503 from
+      // an unreachable computer, say - showed nothing at all and the button looked inert. It stays until the
+      // person tries again.
+      setActionError(err instanceof Error ? err.message : "Could not switch to voice mode");
     } finally {
       setEnabling(false);
     }
-  }, [sid, enabling]);
+  }, [sid, enabling, beginAction, setActionError]);
 
   const onSwitchOff = useCallback(async () => {
     if (sid.length === 0) return;
@@ -485,9 +510,9 @@ export function useVoiceMode(
       await setVoiceMode(sid, false);
       await stopWingmanVoice(sid);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not turn voice off");
+      setActionError(err instanceof Error ? err.message : "Could not turn voice off");
     }
-  }, [sid]);
+  }, [sid, setActionError]);
 
   // Manual recovery when the screen is stuck on "Voice unavailable": generate the narration on
   // demand. This is the SAME proven server path entering voice mode uses (POST /wingman/explain) -
@@ -500,7 +525,7 @@ export function useVoiceMode(
   const onGenerateNow = useCallback(async () => {
     if (sid.length === 0 || regenerating) return;
     setRegenerating(true);
-    setError(null);
+    beginAction();
     try {
       const explained = await markVoiceAndExplain(sid);
       // Nothing to narrate yet (a fresh/text-only session): show the truthful note, which moves the
@@ -517,14 +542,14 @@ export function useVoiceMode(
       // 404 - all three the same story, "that computer is not reachable" - but only the 404s got the
       // plain-English line and the 502 leaked a raw message. Same cause, same sentence.
       if (err instanceof GatewayError && (err.status === 404 || err.status === 502)) {
-        setError("This session's computer looks offline. Voice can't be generated until it reconnects.");
+        setActionError("This session's computer looks offline. Voice can't be generated until it reconnects.");
       } else {
-        setError(err instanceof Error ? err.message : "Could not generate narration");
+        setActionError(err instanceof Error ? err.message : "Could not generate narration");
       }
     } finally {
       setRegenerating(false);
     }
-  }, [sid, regenerating]);
+  }, [sid, regenerating, beginAction, setActionError]);
 
   // The whole second we last persisted, so onTimeUpdate saves the position roughly once a second
   // rather than on every ~4Hz tick (issue #1003 per-session resume).
@@ -744,7 +769,18 @@ export function useVoiceMode(
   // The ONE piece of state the phone still owns: whether it is holding playable clip bytes RIGHT NOW,
   // so it can play them without pulling the rug on a listener when the agent resumes (issue #1322). This
   // is playback, not ruling - "do I have the bytes", not "what state is voice in".
-  const speaking = voiceOn && phoneReady && (voice?.spoken.length ?? 0) > 0 && !agentWorking;
+  // pollDone IS PART OF THIS, and its absence was a real way to hear last turn's voice. `voice` is seeded
+  // from this phone's own cache at mount (issue #1015) and the clip is warmed from Cache Storage, so on a cold
+  // entry both sides agree about a stamp that may be minutes old. agentWorking cannot contradict them yet -
+  // it is `session !== null && isWorking(session)`, and a session that has not loaded is treated as
+  // not-working - so the player appeared, holding the previous turn's audio, for a session that had since
+  // gone blue. Auto-play was already guarded this way (it waits for pollDone and a resolved session); the
+  // manual play control was not, and a tap in that window played the stale clip.
+  //
+  // "I do not know yet" is not "there is nothing to play" - it is a reason to offer nothing until the first
+  // poll answers. The cost is a fraction of a second of no player on entry; the alternative is the wrong turn.
+  const speaking = pollDone && session !== null
+    && voiceOn && phoneReady && (voice?.spoken.length ?? 0) > 0 && !agentWorking;
   const narrative = voice?.spoken ?? "";
   const title = session?.number ? `${session.number} ${name ?? "Session"}` : name ?? "Session";
 

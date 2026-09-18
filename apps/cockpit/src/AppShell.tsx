@@ -6,6 +6,7 @@ import { resumePendingDictations } from "@devthrottle/client-core/dictation/back
 import { NavIcon, type NavIconName } from "./components";
 import { CockpitStatusPill } from "./network/CockpitStatusPill";
 import { StopSessionProvider } from "./sessions/StopSessionProvider";
+import { useFleetManagerWaitingCount } from "./fleetmanager/useWaitingCount";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -38,10 +39,10 @@ import { StopSessionProvider } from "./sessions/StopSessionProvider";
 // DEVELOPER page (the Director processes on the Gateway's own machine, and the local_builds slots), so
 // putting it in an end-user rail was the mistake, not leaving it out.
 //
-// Sessions is first, then Fleet Map, then Assistant: the sessions are the work, so the destination you
-// reach for most sits at the top of the rail, with the whole-fleet picture and the assistant behind it.
-// The Fleet Map remains the default landing (issue #1303): a fresh boot at "/" redirects to it, so the
-// Cockpit still opens on the whole-fleet picture (main.tsx). Sessions lives at its own /sessions
+// The Fleet Manager is first, then Sessions, then Fleet Map: the sessions are the work, the Fleet Manager is where
+// the owner asks for it, and the whole-fleet picture sits behind them. The Fleet Manager is the default landing (step
+// 6 of its mission; it was the Fleet Map, issue #1303): a fresh boot at "/" redirects to it (routes.tsx). Sessions
+// lives at its own /sessions
 // home. `subtree` marks a destination active for a route family that does NOT share its path prefix:
 // the session detail routes into "/session/:id" - a different path from "/sessions" - so Sessions
 // needs an explicit subtree to stay highlighted while a session is being driven (the Directors item
@@ -60,15 +61,22 @@ interface NavItem {
   // the Gateway and rendered here verbatim - the client never re-derives it (rule 7: the client is dumb).
   // Only the Dictionary item carries one today (pending dictionary suggestions).
   badge?: number;
+  /** The badge's hover text; defaults to "N pending". */
+  badgeTitle?: string;
 }
 
 // The fleet work: what is running, how it is driven, and the corpora and tools it reads and writes.
 // Workflows sits with Schedule on purpose - Schedule is what runs when, Workflows is how work runs,
 // and it is next to the place you start work rather than filed away under settings.
+//
+// The Fleet Manager sits at the TOP (the Fleet Manager mission, step 6): it is the one place the owner talks to
+// about all the work, and the page the Cockpit opens on. It replaced the Assistant, which step 9 removed from the
+// product; the old /assistant address redirects here. Its red
+// badge is the Gateway's count of what is waiting on the owner.
 const NAV_MAIN: ReadonlyArray<NavItem> = [
+  { to: "/fleet-manager", label: "Fleet Manager", icon: "fleet-manager" },
   { to: "/sessions", label: "Sessions", icon: "sessions", subtree: "/session" },
   { to: "/fleet-map", label: "Fleet Map", icon: "fleet-map" },
-  { to: "/assistant", label: "Assistant", icon: "assistant" },
   // History sits right behind the live views: Sessions and the Fleet Map are "what is happening",
   // History is "what happened" (issue #2194) - the same record, one step back in time.
   { to: "/history", label: "History", icon: "history" },
@@ -141,8 +149,14 @@ export function AppShell() {
     };
   }, [location.pathname]);
 
+  const waitingCount = useFleetManagerWaitingCount(location.pathname);
+
   const mainNav = NAV_MAIN.map((item) =>
-    item.to === "/dictionary" ? { ...item, badge: suggestCount } : item,
+    item.to === "/dictionary"
+      ? { ...item, badge: suggestCount }
+      : item.to === "/fleet-manager"
+        ? { ...item, badge: waitingCount, badgeTitle: `${waitingCount} waiting on you` }
+        : item,
   );
 
   // THE STOP ANSWER IS OWNED HERE, above every roster row and every session page (mission "Stop a
@@ -210,7 +224,7 @@ function NavList({
                 <NavIcon name={item.icon} />
                 <span className="nav-link-label">{item.label}</span>
                 {item.badge !== undefined && item.badge > 0 && (
-                  <span className="nav-badge" title={`${item.badge} pending`}>
+                  <span className="nav-badge" title={item.badgeTitle ?? `${item.badge} pending`}>
                     {item.badge}
                   </span>
                 )}

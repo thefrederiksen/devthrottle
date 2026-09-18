@@ -10,14 +10,6 @@ export interface AiProviderSnapshot {
   provider: AiProviderId;
   wingmanModel: string;
   wingmanFastModel: string;
-  /** The model the FLEET BRAIN runs on - its OWN setting, separate from the wingman's (the brain runs a fast
-   *  tier + tool_choice=required). Set on the Assistant settings tab. The user's saved choice, or the
-   *  Qwen2.5-72B default. The wire name is unchanged: it is the same stored setting it always was. */
-  carModeModel: string;
-  /** The sign-off phrase the removed Car Mode surface used (default "over and out"). Still on the Gateway's
-   *  snapshot because the setting is still there and the brain's spoken help still quotes it; nothing in the
-   *  client sets it any more - the control went with Car Mode (#1028). */
-  carModeEndPhrase: string;
   transcriptionModel: string;
   ttsModel: string;
   ttsVoice: string;
@@ -27,7 +19,7 @@ export interface AiProviderSnapshot {
    * Whether the live model CATALOG (GET /gateway/ai/models) and the Test button are available (issue #2022).
    * Gateway-owned, never guessed from the surface: false on the hosted Gateway, where the catalog and
    * test-chat routes stay denied because they spend the shared deployment credential with no per-caller
-   * scoping. The AI and Car Mode tabs read this to disable browsing/Test and show a concise explanation
+   * scoping. The AI tab reads this to disable browsing/Test and show a concise explanation
    * instead of offering a control that would fail. True on self-host.
    */
   catalogAvailable: boolean;
@@ -104,13 +96,6 @@ export function setWingmanModel(model: string): Promise<{ model: string }> {
 
 export function setWingmanFastModel(model: string): Promise<{ model: string }> {
   return putJson<{ model: string }>("/gateway/ai/wingman-fast-model", { model });
-}
-
-// PUT /gateway/ai/car-mode-model { model } - persist the model Car Mode's fleet brain runs on (its own
-// setting, separate from the Wingman). The Gateway resolves the effective model at turn time as env
-// override, then this saved setting, then the Qwen2.5-72B default.
-export function setCarModeModel(model: string): Promise<{ model: string }> {
-  return putJson<{ model: string }>("/gateway/ai/car-mode-model", { model });
 }
 
 export function setTtsModel(model: string): Promise<{ model: string }> {

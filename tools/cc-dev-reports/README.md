@@ -14,13 +14,24 @@ cc-dev-reports reply "<text>" [--report <id>] [--json] # default: this session's
 - A shape-check refusal prints every error, one per line, and exits 1. Nothing is published.
 - A file over 10485760 bytes is refused before anything is sent, with the Gateway's own sentence.
 - `--json` always has the same keys: `ok`, `command`, `report`, `created`, `reply`, `ownerRoute`,
-  `error`, `code`, `errors`.
+  `error`, `code`, `errors`. `ownerRoute` carries the same whole address the human output prints.
 - Needs `CC_GATEWAY_URL`, `CC_GATEWAY_SESSION_KEY` and `CC_SESSION_ID` (every DevThrottle session
   has them). A missing one is named. Every request times out after 30 seconds.
 - Unknown flags fail. Output is ASCII.
 
-The owner reads a report in the Reports view, which arrives in phase 3; until then the owner route
-is `/dev-reports/<id>`.
+## The address the owner clicks
+
+Both commands print ONE address, whole, and it is the only one anyone needs:
+
+```
+<CC_GATEWAY_URL>/r/<report id>
+```
+
+The Gateway routes it by the device that opened it - a phone lands on the phone's report screen, anything
+else on the Cockpit's Reports tab - and in both cases it lands INSIDE that report, not on a list. Signed
+out, the sign-in round trip ends on the same report.
+
+The report id is printed in full. A shortened identifier is not something an agent can act on.
 
 ## Install
 

@@ -208,6 +208,34 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
         Assert.Empty(Events());
     }
 
+    /// <summary>THE MARK ROUTE GOES THROUGH THE PLACEMENT SERVICE (steps 5 and 6 fixes, round 3): marking a session that
+    /// was started to take over tells it once, however often it is marked, and the owner's clear records nothing a
+    /// replacement could read as the Gateway's own removal.</summary>
+    [Fact]
+    public async Task MarkRoute_AWaitingSuccessor_IsToldOnce_AndTheOwnersClearIsNotTheGateways()
+    {
+        var waiting = Guid.NewGuid().ToString();
+        _gateway.TenantSettingsResolver.SetFleetManagerSuccessor(_tenant, waiting, _fleetManagerId, DateTime.UtcNow);
+
+        for (var i = 0; i < 2; i++)
+        {
+            var (status, _) = await Send(_owner, "PUT", "gateway/fleet-manager", new { sessionId = waiting });
+            Assert.Equal(HttpStatusCode.OK, status);
+        }
+
+        var marked = Assert.Single(Events(), e => e.Kind == FleetManagerEventStore.KindMarked);
+        Assert.Equal((waiting, waiting), (marked.SessionId, marked.AddressedTo));
+        Assert.Null(_gateway.TenantSettingsResolver.FleetManagerSuccessorSessionId(_tenant));
+
+        _gateway.TenantSettingsResolver.ClearFleetManagerMarkByGateway(_tenant, waiting,
+            Settings.TenantSettingsResolver.MarkClearedExited, DateTime.UtcNow);
+        var (cleared, body) = await Send(_owner, "PUT", "gateway/fleet-manager", new { sessionId = (string?)null });
+        Assert.Equal(HttpStatusCode.OK, cleared);
+        Assert.Contains("null", body);
+        Assert.Null(_gateway.TenantSettingsResolver.FleetManagerSessionId(_tenant));
+        Assert.Null(_gateway.TenantSettingsResolver.FleetManagerMarkClearedByGateway(_tenant));
+    }
+
     /// <summary>THE EXIT HOOK: the worker seen working, then exited, is a death.</summary>
     [Fact]
     public async Task Exit_OfAnOwnedSession_IsStoredAsADeath()

@@ -20,6 +20,7 @@ import {
   type SessionTree,
 } from "@devthrottle/client-core/sessions/tree";
 import { DELIVERY_BADGE_TEXT, hasUndeliveredPrompt, promptDeliveryTitle } from "@devthrottle/client-core/sessions/delivery";
+import { splitPinned } from "@devthrottle/client-core/sessions/pinning";
 import { applyFilter, filterIsActive, filterSummary, machineName, pruneFilter } from "@devthrottle/client-core/sessions/filter";
 import { useDictationStatusFor } from "@devthrottle/client-core/dictation/status";
 import { useNow, waitingLabel } from "@devthrottle/client-core/sessions/waiting";
@@ -264,9 +265,13 @@ export function Home() {
   // Attention order, top level only: "Needs you" as a waiting line (the session that has been waiting
   // for you the longest sits at the top, one that only just started needing you drops in at the
   // bottom, so the list never reshuffles under you), then "Working", then "Snoozed" at the bottom.
-  const sections = tree ? attentionSections(tree.roots) : [];
+  // THE FLEET MANAGER IS PINNED FIRST (the Fleet Manager mission, step 8), above both orders, with its team collapsed
+  // in its band like any crew. Which row, and every word, is the Gateway's (SessionDto.pin); the rest keep their order.
+  const split = tree ? splitPinned(tree.roots) : null;
+  const restRoots = split ? split.rest : [];
+  const sections = tree ? attentionSections(restRoots) : [];
   // My order: the top level grouped by machine, in desktop order.
-  const machineGroups = tree ? groupRootsByMachine(tree.roots) : [];
+  const machineGroups = tree ? groupRootsByMachine(restRoots) : [];
   const total = sessions ? sessions.length : 0;
   const shownTotal = filtered ? filtered.length : 0;
   const active = filterIsActive(filter);
@@ -522,6 +527,19 @@ export function Home() {
           only tunes its layout under .screen. Renders nothing while no request exists. */}
       {tab === "all" && <RestartRequestsPanel />}
 
+      {tab === "all" && tree !== null && split !== null && split.pinned.length > 0 && (
+        <section className="group group-pinned" data-testid="roster-pinned">
+          <ul className="roster">
+            {split.pinned.map((s) => (
+              <SessionRow key={`pinned-${s.sessionId}`} session={s} tree={tree} mark={marks.get(s.sessionId ?? "")} marks={marks} />
+            ))}
+          </ul>
+          {split.pin !== null && restRoots.length > 0 && (
+            <h2 className="group-title pinned-others-head" data-testid="roster-others-head">{split.pin.othersHeading}</h2>
+          )}
+        </section>
+      )}
+
       {tab === "all" && tree !== null && order === "attention" && sections.map((section) => (
         <section className="group" key={section.key}>
           <h2 className={`group-title${section.key === "needsYou" ? " group-title-attention" : ""}`}>{section.title}</h2>
@@ -765,7 +783,7 @@ export function SessionRow({
   const sid = encodeURIComponent(session.sessionId ?? "");
   const to = session.voiceMode ? `/session/${sid}/voice` : `/session/${sid}`;
   return (
-    <li className={`row${attention ? " row-attention" : ""}${dimmed ? " row-unreachable" : ""}`}>
+    <li className={`row${attention ? " row-attention" : ""}${dimmed ? " row-unreachable" : ""}${session.pin ? " row-pinned" : ""}`}>
       {/* Hand the known voice-mode state to the destination (issue #1015) so the Voice screen paints
           the right state on the first render instead of flashing OFF while its first poll resolves. */}
       <Link className="row-link" to={to} state={{ voiceMode: Boolean(session.voiceMode), fromTab }}>
@@ -781,6 +799,11 @@ export function SessionRow({
           <span className="row-name">
             {hasNum && <span className="row-num">{num}</span>}
             {name}
+            {session.pin && (
+              <span className="row-pin-mark" title={session.pin.title}>
+                {session.pin.mark}
+              </span>
+            )}
           </span>
           {/* The status / what-is-happening text sits on its own line below the name. On a needs-you
               card the live "waiting <dur>" is pinned to the right of this same line (issue #844). */}

@@ -28,6 +28,13 @@ public static class CcStorage
     public static string Root() => Base();
 
     /// <summary>
+    /// The Fleet Manager's own working folder (the Fleet Manager mission, step 5): <c>&lt;root&gt;/fleet-manager</c>.
+    /// The Fleet Manager works on no repository, so it runs here on whichever computer the account chose. Not
+    /// created by this call - the session create makes it when it is missing, and says so in the log.
+    /// </summary>
+    public static string FleetManagerHome() => Path.Combine(Root(), "fleet-manager");
+
+    /// <summary>
     /// The Gateway's EF Core database file (gateway.db) under the storage root, beside the existing
     /// gateway-stats.db. One SQLite file holds the structured stores that have moved off hand-rolled JSON
     /// onto the EF data layer (Hosted Gateway mission, Step 1b). Resolved through the root so

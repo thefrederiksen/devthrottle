@@ -5,7 +5,6 @@ using CcDirector.AgentBrain;
 using CcDirector.Core;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Tenancy;
-using CcDirector.Gateway.CarMode;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Wingman;
@@ -125,32 +124,6 @@ public sealed class TenantSettingsRuntimeThreadingTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CarModeChat_TwoTenants_SendDistinctModelValues()
-    {
-        using var data = new GatewayDbTestHarness();
-        var settings = new TenantSettingsResolver(new TenantSettingsStore(data.Open()));
-        // Distinct per-tenant values drawn from the DevThrottle internal included ids (issue #1360) -
-        // a non-devthrottle override falls forward to the default and could not tell the tenants apart.
-        settings.SetCarModeModel(TenantA, "devthrottle/wingman", Now);
-        settings.SetCarModeModel(TenantB, "devthrottle/wingman-fast", Now);
-
-        var handler = new RecordingCarModeHandler();
-        var chat = new HostedCarModeChat(
-            HostedCarModeChat.DefaultResolver(_ => "test-key", settings),
-            new HttpClient(handler),
-            _ => { });
-
-        await chat.CompleteAsync(TenantA, "[]", "[]", CancellationToken.None);
-        await chat.CompleteAsync(TenantB, "[]", "[]", CancellationToken.None);
-
-        Assert.Collection(handler.Requests,
-            request => Assert.Equal("devthrottle/wingman", JsonDocument.Parse(request).RootElement.GetProperty("model").GetString()),
-            request => Assert.Equal("devthrottle/wingman-fast", JsonDocument.Parse(request).RootElement.GetProperty("model").GetString()));
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            chat.CompleteAsync(default, "[]", "[]", CancellationToken.None));
-    }
-
-    [Fact]
     public void SelfHostedRuntimeSelectors_UseExplicitLocalAndKeepGlobalDefaults()
     {
         var mode = TranscriptionModeConfig.Get();
@@ -182,23 +155,6 @@ public sealed class TenantSettingsRuntimeThreadingTests : IAsyncLifetime
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new ByteArrayContent(new byte[] { 1, 2, 3 }),
-            };
-        }
-    }
-
-    private sealed class RecordingCarModeHandler : HttpMessageHandler
-    {
-        public List<string> Requests { get; } = new();
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            Requests.Add(await request.Content!.ReadAsStringAsync(ct));
-            const string response = """
-                {"choices":[{"message":{"content":null,"tool_calls":[{"id":"speak","function":{"name":"speak_answer","arguments":"{\"text\":\"okay\"}"}}]}}]}
-                """;
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(response, Encoding.UTF8, "application/json"),
             };
         }
     }

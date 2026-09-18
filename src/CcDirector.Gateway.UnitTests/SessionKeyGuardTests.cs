@@ -239,6 +239,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/fleet-manager/digest")]
     [InlineData("GET", "/gateway/fleet-manager/events")]
     [InlineData("POST", "/gateway/fleet-manager/events/ack")]
+    [InlineData("PUT", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/advice")]
     public void The_fleet_manager_routes_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
@@ -257,8 +258,48 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/fleet-manager/events/ack")]
     [InlineData("POST", "/gateway/fleet-manager/events/5b1c2d3e-0000-4000-8000-000000000001")]
     [InlineData("POST", "/gateway/fleet-manager/events/ack/all")]
+    [InlineData("GET", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/advice")]
+    [InlineData("POST", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/advice")]
+    [InlineData("PUT", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/advice/again")]
     public void Fleet_manager_shapes_the_gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");
+
+    // The Fleet Manager mission, step 5: where the Fleet Manager runs, and starting, restarting and moving it, are
+    // the OWNER's. A Fleet Manager that could move or restart itself would answer to nobody. Every verb is listed,
+    // including the ones the Gateway does not route, so no future verb on these words slips through.
+    [Theory]
+    [InlineData("GET", "/gateway/fleet-manager/placement")]
+    [InlineData("PUT", "/gateway/fleet-manager/placement")]
+    [InlineData("POST", "/gateway/fleet-manager/placement")]
+    [InlineData("POST", "/gateway/fleet-manager/start")]
+    [InlineData("POST", "/gateway/fleet-manager/restart")]
+    [InlineData("POST", "/gateway/fleet-manager/move")]
+    [InlineData("POST", "/Gateway/Fleet-Manager/Move")]
+    [InlineData("GET", "/gateway/fleet-manager/start")]
+    [InlineData("GET", "/gateway/fleet-manager/page")]
+    [InlineData("HEAD", "/gateway/fleet-manager/page")]
+    // Step 7: the walkthrough and its answered, snoozed and close verbs are the owner's too.
+    [InlineData("GET", "/gateway/fleet-manager/walkthrough")]
+    [InlineData("POST", "/gateway/fleet-manager/walkthrough/5b1c2d3e-0000-4000-8000-000000000001/answered")]
+    [InlineData("POST", "/gateway/fleet-manager/walkthrough/5b1c2d3e-0000-4000-8000-000000000001/snoozed")]
+    [InlineData("POST", "/gateway/fleet-manager/walkthrough/5b1c2d3e-0000-4000-8000-000000000001/close")]
+    public void The_fleet_manager_placement_routes_are_the_owners(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be refused to a session key");
+
+    // The Fleet Manager mission, step 8: the guard lets a session key POST a hand over - the route then refuses every
+    // session key but the account's live Fleet Manager (FleetManagerHandOverService). Any other verb or shape is refused.
+    [Theory]
+    [InlineData("POST", "/gateway/fleet-manager/hand-over")]
+    [InlineData("POST", "/Gateway/Fleet-Manager/Hand-Over")]
+    public void Check_HandOverPost_ReachesTheRouteWithASessionKey(string method, string path)
+        => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must reach the route, which decides");
+
+    [Theory]
+    [InlineData("GET", "/gateway/fleet-manager/hand-over")]
+    [InlineData("PUT", "/gateway/fleet-manager/hand-over")]
+    [InlineData("POST", "/gateway/fleet-manager/hand-over/5b1c2d3e-0000-4000-8000-000000000001")]
+    public void Check_HandOverOtherShapes_AreRefusedToASessionKey(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be refused to a session key");
 
     [Fact]
     public void Restarting_a_Director_is_still_refused_even_though_capturing_its_fleet_is_not()
@@ -524,6 +565,10 @@ public sealed class SessionKeyGuardTests
     // judge's raw answer, so it is the account's devices' only - never a session key's, whatever the colour switch
     // says. It is deliberately NOT on the allow list, and its handler refuses a session key on its own as well.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/wingman-stops")]
+    // The Wingman tab's live stop (version 3, item 1). Same reasoning, same refusal: it carries the agent's decisive
+    // sentence and its whole last reply, so it is the account's devices' only. Deliberately NOT on the allow list,
+    // and its handler refuses a session key on its own as well.
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/wingman-now")]
     // The diagnostics and reporting surfaces.
     [InlineData("GET", "/diag/loadmetrics")]
     [InlineData("GET", "/gateway/reports/morning")]
