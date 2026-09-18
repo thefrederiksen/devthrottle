@@ -46,6 +46,21 @@ Owner rulings are in the issue. These are the Architect's, settling the inferred
 |---|---|
 | 1. Note-taking script and shape check | MERGED to main (pull request #2948, ce017b08c) after three inspection rounds |
 | 2. Gateway record and delivery | pull request #3006 open; inspected (INSPECTION-phase-2.md: 0 high, 2 medium, 5 low); fix round running |
-| 3. Cockpit and phone viewer (then deploy) | not started |
+| 3. Cockpit and phone viewer | not started |
 | 4. Director pane | not started |
 | 5. Tool, skill, global instruction rule | not started |
+
+## Mission stood down 2026-09-17 (owner)
+
+Live: phases 1, 2 and 3, plus 3b (one conversation, one Send, one link per report routed by device, the way back
+named for a human). Last deploy 2026-09-17, external outage 4.4 s, inside the 10 s budget.
+
+NOT done, and each has a written handoff in this folder:
+- Phase 4, the Director's Reports pane - `HANDOFF-phase-4.md`, branch `mission/dev-reports-p4`, worker branch
+  `mission/dev-reports-p4-director`. Paused so it would not inherit the 3b fix.
+- Phase 5, the tool in the installer, the `dev-reports` skill, and the rule in the owner's global instructions.
+- The proof the owner asked for: a QA report from an Architect-driven run on the LIVE site. Not done.
+- Phase 3b was merged without a second-family inspection and without that live run, at the owner's instruction.
+
+`cc-dev-reports` on this machine is installed from the `../devthrottle-dev-reports-p3b` worktree. Removing that
+worktree breaks the command until phase 5 puts it in the installer.
