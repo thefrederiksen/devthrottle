@@ -190,15 +190,35 @@ describe("the Wingman tab's views", () => {
       );
       expect(screen.getByRole("status").textContent).toContain("The Gateway is restarting.");
 
-      // And the next good refresh takes the line away again.
+      // And the next good refresh takes the line away again - and still does not touch the draft. A refresh of the
+      // same session must never remount the screen the owner is typing into.
       answer = [200, NOW];
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5000);
       });
       expect(screen.queryByRole("status")).toBeNull();
+      expect((screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement).value).toBe(
+        "allow the merge, tag straight after it",
+      );
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("never carries a draft over to another session", async () => {
+    fakeGateway({ "wingman-now": [200, NOW], "wingman-stops": [200, STOPS] });
+    const actions = { onSendReply: async () => ({ accepted: true, message: "" }) };
+    const { rerender } = render(<WingmanTab sessionId={SID} actions={actions} />);
+    await waitFor(() => expect(screen.getByLabelText("Your reply to this session")).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText("Your reply to this session"), {
+      target: { value: "meant for the first session" },
+    });
+
+    rerender(<WingmanTab sessionId="4c7e1b90-0000-4000-8000-000000000051" actions={actions} />);
+    await waitFor(() =>
+      expect((screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement).value).toBe(""),
+    );
   });
 
   it("says it is loading rather than showing a blank tab", () => {

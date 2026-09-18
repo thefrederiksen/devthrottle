@@ -139,7 +139,11 @@ function NowView({
         </p>
       )}
       {/* Keyed on the session, so moving to another one starts its Now with an empty reply box and no voice sentence
-          carried over - and so a refresh of the SAME session never remounts it and never loses a draft. */}
+          carried over, while a refresh of the SAME session never remounts it and never loses a draft.
+          Honest note: the effect above ALSO clears `now` when the session changes, so today either one on its own
+          would empty the box - removing just one keeps the test green, and removing both turns it red. The key is
+          kept because it states the invariant where the reader is looking, rather than leaving it to a reset three
+          screens up that a later change could reasonably drop. */}
       <WingmanNow key={sessionId} now={now} actions={actions} />
     </>
   );
