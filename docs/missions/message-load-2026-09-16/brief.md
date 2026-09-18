@@ -1,6 +1,6 @@
 # Mission: Message Load - fewer messages, and none that interrupt
 
-**Status: ACTIVE.** Started 16 September 2026. Worktree `~/ReposFred/devthrottle-message-load` on
+**Status: FINISHED, 18 September 2026.** Merged to main as ddc78ac4 (pull request 3016) on top of slice 1 (a8fa8041, pull request 2970); post-merge fix 7b6afbdc; released as v2.6.0; the report is `report.html` beside this file. Started 16 September 2026. Worktree `~/ReposFred/devthrottle-message-load` on
 devthrottle-mac-mini, branch `mission/message-load`, cut from `origin/main` at `66609c3c`. Mission
 record on the Gateway: `7e6c9c04`. Conduct: `cc-devthrottle workflow instructions mission`.
 Owner-facing version of this brief: `design-and-questions.html` beside this file. Survey of what is

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Message Load Report</title>
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1f24; --muted: #5d6470; --line: #e3e0d8;
+  --accent: #1f5f8b; --accent-soft: #e6f0f7; --warn: #8a5a00; --warn-soft: #fff4dc;
+  --good: #1f6b43; --good-soft: #e5f4ec; --bad: #9b2c2c; --bad-soft: #fbe9e9; --code: #f3f1ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b; --panel: #1d2026; --ink: #e8e6e1; --muted: #a0a6b0; --line: #2e323a;
+    --accent: #7fb6de; --accent-soft: #1d2d3a; --warn: #e6b45c; --warn-soft: #33291a;
+    --good: #7cc79c; --good-soft: #1b2e24; --bad: #e08a8a; --bad-soft: #3a1f1f; --code: #23262d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171b; --panel: #1d2026; --ink: #e8e6e1; --muted: #a0a6b0; --line: #2e323a;
+  --accent: #7fb6de; --accent-soft: #1d2d3a; --warn: #e6b45c; --warn-soft: #33291a;
+  --good: #7cc79c; --good-soft: #1b2e24; --bad: #e08a8a; --bad-soft: #3a1f1f; --code: #23262d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 Georgia, "Iowan Old Style", "Times New Roman", serif; }
+.wrap { max-width: 900px; margin: 0 auto; padding: 40px 16px 80px; }
+header { border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 26px; }
+.kicker { font: 600 12px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: 36px; line-height: 1.15; margin: 10px 0 8px; }
+.sub { color: var(--muted); font-size: 17px; margin: 0; }
+.meta { font: 13px/1.5 system-ui, sans-serif; color: var(--muted); margin-top: 12px; }
+h2 { font-size: 25px; margin: 44px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 18px; margin: 24px 0 6px; }
+p, li { max-width: 74ch; }
+code { font: 13.5px/1.5 Consolas, "SFMono-Regular", Menlo, monospace; background: var(--code); border-radius: 4px; padding: 1px 5px; }
+.box { padding: 14px 18px; border-radius: 4px; margin: 14px 0; }
+.info { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+.warn { background: var(--warn-soft); border-left: 4px solid var(--warn); }
+.good { background: var(--good-soft); border-left: 4px solid var(--good); }
+.box p { margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; font: 14px/1.45 system-ui, sans-serif; margin: 12px 0; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.tablewrap { overflow-x: auto; }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 18px; margin: 14px 0; }
+.item h3 { margin-top: 0; }
+@media (max-width: 600px) { h1 { font-size: 28px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Mission report, for the owner</div>
+  <h1>Message Load: messages no longer interrupt</h1>
+  <p class="sub">What changed for you, what is proven, what is not, and what went wrong on the way.</p>
+  <div class="meta">Architect session 120. 16 and 17 September 2026. Slice 1 merged as commit a8fa8041 (pull request 2970); the rest as pull request 3016, merged as ddc78ac4. The post-merge fix from the final review is commit 7b6afbdc (pull request 3041). Release v2.6.0 carries it to your Directors.</div>
+</header>
+
+<h2>1. What it does for you</h2>
+
+<div class="box good">
+<p><b>A session can no longer be interrupted by another session.</b> A fleet message is a record in a Gateway inbox. Nothing is typed into a session until it has finished its turn and its composer is empty, and then only one fixed line: "N fleet messages waiting. To read, run: cc-devthrottle message inbox".</p>
+<p><b>Sending is rare and gated.</b> A session may message only the session that started it and the sessions it started. Six an hour, one per recipient per ten minutes, exact duplicates dropped. Everyone else is refused with the reason. <code>message ask</code>, which blocked a session for two minutes, is gone.</p>
+<p><b>No agent can type into another session by any route.</b> Prompt, interrupt, escape, fan-out, compaction follow-up and verdict answers are refused to agents. The inspectors found and closed three side doors that were open before this mission: an agent could still answer a verdict into a session, could name any live session as the owner of a session it spawned, and could raise a hand on someone else's behalf.</p>
+<p><b>Nothing is lost silently.</b> An unread message is rung again after five minutes and marked stuck after three rings, and the sender is told. A message that asks for a reply gets one in the sender's inbox, or a notice when the deadline passes. Every screen shows "2 messages waiting" on the session row.</p>
+<p><b>Your snooze survives a doorbell.</b> Your decision of 17 September: another agent's message never wakes a session you parked. Your own typing still does.</p>
+<p><b>Director restart's restore is now the Director's own act.</b> Your decision of 17 September: because a session may no longer spawn a session owned by someone else, the Director performs the restore spawns itself, owners come only from the capture, a seat starts at most once, and one Director holds a workspace at a time.</p>
+</div>
+
+<h2>2. What is proven, and how</h2>
+
+<ul>
+  <li><b>Twelve independent inspections</b> (eleven before the merge, one after it) by a reviewer of a different agent family, none trusting the builders' reports. They found real defects at every stage: 2 high in slice 1, 3 high in the doorbell, a critical one in restore. Every finding was ruled on, fixed, and confirmed closed by a later inspection.</li>
+  <li><b>Every guard watched failing.</b> Each fix was reverted or mutated, the named test seen red with the reported symptom, then restored. The breaks are recorded under <code>docs/missions/message-load-2026-09-16/</code>.</li>
+  <li><b>Seven live runs</b> with real agent sessions on a test Director on this Mac: a message sent mid-turn was not typed until the turn ended; your unsent text, and even three typed spaces, held the ring; a worker that never read was rung three times and marked stuck, and the sender was told; a doorbell kept an armed snooze and your first keystroke ended it.</li>
+  <li><b>Postgres.</b> Both migrations and this mission's collation columns proven on real PostgreSQL on the Windows machine.</li>
+  <li><b>Every suite</b> on the final tree matches the known Mac-only baseline with no new failure; all nine checks on the pull request are green on Windows, macOS and Linux.</li>
+</ul>
+
+<h2>3. What is not proven</h2>
+
+<div class="box warn">
+<p><b>Only two agents get the doorbell.</b> The composer reader exists for the two agents with captured screens. Other agents' messages wait until read and never go stuck; the row line shows them waiting. The second agent was proven on captured screens, not live, because it ran out of usage credit during capture.</p>
+<p><b>A race of milliseconds remains.</b> Between the Director's last look at the screen and its first keystroke, the agent can start a turn on its own. The worst case is one short fixed line queued behind the current tool call, never lost text. Written into the code as a gap.</p>
+<p><b>A read is marked before the answer is sent.</b> If the connection drops in between, the message is recoverable for 24 hours with <code>message inbox --all</code>, but the reader has to ask.</p>
+<p><b>Not exercised:</b> the hosted Gateway with more than one tenant, the graphical Director and your installed Director, a live Director restart with the new restore.</p>
+<p><b>No baseline count.</b> The messages-per-day figure was never measured; the count exists in the Gateway's activity table, but nobody queried it. The report cannot say "from N a day to M".</p>
+</div>
+
+<h2>4. What went wrong on the way</h2>
+
+<ul>
+  <li><b>The inspector was the bottleneck.</b> Codex hit its usage limit three times, at two inspections a window, and stalled the merge queue for hours each time. No other agent family is installed on this Mac or the Windows machines.</li>
+  <li><b>Continuous integration fought us.</b> The .NET check takes an hour and a half; main moved several times an hour; the first pull request conflicted twice while waiting. Your latest-only rule (pull request 2991) fixed the queue; a mistake of mine nearly cancelled a green run by pushing a record file to the branch, caught and moved to a record branch.</li>
+  <li><b>An account spend limit</b> stopped a Manager mid-merge. Its work was on disk; a fresh Manager finished it under your new login.</li>
+  <li><b>Seats died at spawn twice:</b> one because a spawn that timed out client-side had in fact landed (two Managers in one worktree, one stopped at once), one because a first prompt never arrived (issue 2841's shape).</li>
+  <li><b>The review after the merge found the restore-mark binding could still be taken by a Hello.</b> You had chosen to merge first, so it became a follow-up: fixed on main the same night as commit 7b6afbdc, its other findings filed as issues.</li>
+  <li><b>The release fought back too.</b> v2.5.0 had never actually been tagged; main went red on a help-text test after our merge and on a flaky Gateway test, both fixed forward; the release checks ran four times; the deploy's outage gate failed on a slow slot swap while production served the new code. The release seat ended up on the Windows machine because this Mac's Director kept dropping its Gateway stream (issue 3058).</li>
+  <li><b>The words slice found</b> hidden files teaching the old behaviour that the inspector's search skipped, in the agent-expert skill folder. A test now walks the whole tree.</li>
+</ul>
+
+<h2>5. Found on main and filed, not fixed here</h2>
+
+<div class="tablewrap">
+<table>
+<tr><th>Issue</th><th>What</th></tr>
+<tr><td>2998</td><td>The Gateway database's Dispose clears every SQLite pool in the process, so parallel tests dispose each other's handles. Reproduction included.</td></tr>
+<tr><td>3000</td><td>The submit verifier's nudges can submit your half-typed words after any product send. Seen live during a snooze run.</td></tr>
+<tr><td>3017</td><td>The Postgres collation census on main does not list the Fleet Manager columns, so the parked proof is red and its second assertion never runs.</td></tr>
+<tr><td>3058</td><td>This Mac's old Director flaps offline against the redeployed hosted Gateway with 400s on its pushes and no reason in its log.</td></tr>
+<tr><td>2845</td><td>Evidence added: Escape does not clear a collapsed paste; a product send welds onto it. The doorbell is safe by construction; other sends are not.</td></tr>
+</table>
+</div>
+
+<h2>6. Decisions that were yours, and what you said</h2>
+
+<ul>
+  <li>All five design questions of 16 September: "all recommended".</li>
+  <li>Snooze versus the doorbell, 17 September: keep the exception.</li>
+  <li>Restore versus the spawn owner pin, 17 September: make restore a Director act.</li>
+  <li>Continuous integration: only the newest commit on a branch gets a run, main included.</li>
+</ul>
+
+<h2>7. What you might do next</h2>
+
+<ul>
+  <li>Install a second reviewer family (Gemini or Grok) on one machine, or add Codex credit, before the next mission. Every inspection here found something real.</li>
+  <li>Let the next mission put outcomes on this queue: "a pull request opened", "a session died", reported by the Gateway rather than remembered by the model, as firstmate does.</li>
+  <li>A composer reader per agent, so every agent gets the doorbell.</li>
+</ul>
+
+<p class="meta">The full record, twelve inspections, the running note, the evidence and this report, is on main under <code>docs/missions/message-load-2026-09-16/</code>.</p>
+
+</div>
+</body>
+</html>
