@@ -87,6 +87,10 @@ public sealed class Uninstaller
             targets.Add(new UninstallTarget(
                 UninstallKind.Autostart, "Launcher launch agent (launchd)",
                 LauncherLaunchdAutostart.PlistPath, LauncherLaunchdAutostart.IsRegistered()));
+        else if (OperatingSystem.IsLinux())
+            targets.Add(new UninstallTarget(
+                UninstallKind.Autostart, "Launcher user unit (systemd)",
+                LauncherSystemdAutostart.UnitPath, LauncherSystemdAutostart.IsRegistered()));
 
         foreach (var (desc, path) in Directories(role))
             targets.Add(new UninstallTarget(UninstallKind.Directory, desc, path, Directory.Exists(path)));
@@ -173,6 +177,26 @@ public sealed class Uninstaller
             catch (Exception ex)
             {
                 errors.Add($"Launcher launch agent: {ex.Message}");
+            }
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            progress?.Report("Removing the Launcher user unit");
+            try
+            {
+                // Same reasoning as the launchd branch above, with systemd in the supervisor's seat: a
+                // unit that is still enabled keeps its Restart=on-failure definition, so systemd can
+                // bring the launcher back after the stop below has already been certified - and the
+                // restarted process then runs while the files around it are being deleted.
+                if (LauncherSystemdAutostart.UnregisterVerified(out var unitFailure))
+                    steps.Add("Removed the Launcher user unit (systemd)");
+                else
+                    errors.Add($"Launcher user unit: {unitFailure}. systemd may restart the launcher, "
+                               + "so this uninstall cannot be trusted to have stopped it.");
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Launcher user unit: {ex.Message}");
             }
         }
 

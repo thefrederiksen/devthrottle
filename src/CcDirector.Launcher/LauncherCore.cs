@@ -23,12 +23,15 @@ namespace CcDirector.Launcher;
 /// Extracted from LauncherTrayController so the launcher can run in two modes:
 ///   - Tray mode (normal): LauncherTrayController owns a core and adds the menu-bar
 ///     icon and flyout on top.
-///   - Headless mode (degraded): on an unattended machine whose screen is locked, the
-///     operating system refuses to start a user-interface session (Avalonia cannot
-///     create its render timer). A supervisor that dies because an icon cannot be
-///     drawn is useless, so Program falls back to running JUST this core - every
-///     remote capability (registration, stream commands, self-update) stays alive;
-///     only the menu-bar icon is missing.
+///   - Headless mode: JUST this core, with no tray icon - every remote capability
+///     (registration, stream commands, self-update) alive, only the menu-bar icon
+///     missing. Reached two ways, and the registration file tells them apart:
+///       * "headless" - the INTENDED mode on Linux, which has no dependable tray and
+///         needs no window for either of the launcher's jobs. Nothing has failed.
+///       * "degraded" - a tray platform that could not start its user interface, for
+///         example a macOS machine whose screen is locked when the launcher starts
+///         (Avalonia cannot create its render timer). A supervisor that dies because
+///         an icon cannot be drawn is useless, so Program falls back to this core.
 /// </summary>
 public sealed class LauncherCore : IAsyncDisposable
 {
@@ -50,8 +53,9 @@ public sealed class LauncherCore : IAsyncDisposable
     /// <summary>
     /// Start the lifecycle signals, write the registration file, register with the Gateway, and join
     /// the persistent command stream. <paramref name="requestShutdownAsync"/> is invoked when the
-    /// shutdown lifecycle signal is raised. <paramref name="userInterfaceState"/> is "tray" (normal)
-    /// or "degraded" (headless fallback) and is recorded in the registration file.
+    /// shutdown lifecycle signal is raised. <paramref name="userInterfaceState"/> is "tray" (normal on
+    /// Windows and macOS), "headless" (normal on Linux) or "degraded" (a tray platform that could not
+    /// start its user interface), and is recorded in the registration file.
     /// </summary>
     public async Task StartAsync(Func<Task> requestShutdownAsync, string userInterfaceState = "tray")
     {
@@ -261,7 +265,15 @@ public sealed class LauncherCore : IAsyncDisposable
 
     /// <summary>
     /// Register the start-at-login autostart for the current executable (the Run key on
-    /// Windows, the launchd launch agent on macOS), honoring --no-autostart.
+    /// Windows, the launchd launch agent on macOS, the systemd user unit on Linux), honoring
+    /// --no-autostart.
+    ///
+    /// EVERY PLATFORM HAS A MECHANISM NOW, AND LINUX WAS THE ONE THAT DID NOT. This method used to
+    /// return early for anything that was not Windows or macOS, recording "not registered" as a normal
+    /// outcome, so no launcher ever started at login on a Linux machine. Because the launcher is what
+    /// installs a staged Director update (issue #1033), the consequence was not a missing tray icon: a
+    /// Linux Director downloaded every release and installed none of them, with no error in any log.
+    /// See <see cref="LauncherSystemdAutostart"/>.
     ///
     /// A failure does NOT take the launcher down - it is still useful without autostart - but it is
     /// recorded in <see cref="AutostartFailure"/> and in the registration file. Silence was the defect.
@@ -276,7 +288,7 @@ public sealed class LauncherCore : IAsyncDisposable
             return;
         }
 
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
         {
             RecordAutostartState(failure: null, registered: false);   // no mechanism on this platform
             return;
@@ -287,26 +299,35 @@ public sealed class LauncherCore : IAsyncDisposable
             var exePath = Environment.ProcessPath
                           ?? Process.GetCurrentProcess().MainModule?.FileName
                           ?? throw new InvalidOperationException("Could not resolve own exe path for autostart");
-            // EnsureRegistered returns FALSE for "already correct, nothing written" on both platforms, so
+            // EnsureRegistered returns FALSE for "already correct, nothing written" on every platform, so
             // its return value cannot be read as success or failure. Ask the machine what the state IS.
             // Getting this wrong would have reported every normally-registered launcher as broken from
             // its second login onward - and on macOS from the FIRST run, because the installer now
             // registers the agent before the launcher starts.
+            // Each branch names its platform positively rather than leaning on a trailing else. The
+            // platform analyzer cannot carry the guard above through an else, and an unnamed branch is
+            // how a mechanism ends up being called on a platform that does not have it.
             if (OperatingSystem.IsWindows())
                 LauncherAutostart.EnsureRegistered(exePath, LauncherAppOptions.AutostartArguments());
-            else
+            else if (OperatingSystem.IsMacOS())
                 LauncherLaunchdAutostart.EnsureRegistered(exePath, LauncherAppOptions.AutostartArguments());
+            else if (OperatingSystem.IsLinux())
+                LauncherSystemdAutostart.EnsureRegistered(exePath, LauncherAppOptions.AutostartArguments());
 
             var registered = OperatingSystem.IsWindows()
                 ? LauncherAutostart.IsRegistered()
-                : LauncherLaunchdAutostart.IsRegistered();
+                : OperatingSystem.IsMacOS()
+                    ? LauncherLaunchdAutostart.IsRegistered()
+                    : LauncherSystemdAutostart.IsRegistered();
 
             RecordAutostartState(
                 registered
                     ? null
                     : (OperatingSystem.IsWindows()
                         ? "the autostart Run key is not present after registering"
-                        : "the launch agent property list is not present after registering"),
+                        : OperatingSystem.IsMacOS()
+                            ? "the launch agent property list is not present after registering"
+                            : "the systemd user unit is not present after registering"),
                 registered);
         }
         catch (Exception ex)
