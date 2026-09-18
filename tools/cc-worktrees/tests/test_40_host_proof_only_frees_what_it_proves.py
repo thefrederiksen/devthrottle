@@ -143,6 +143,7 @@ def test_the_host_answer_frees_the_commits_and_the_answer_names_it(in_process, m
     assert returned["proved_by"] == "git and the host"
     assert sorted(entry["commit"] for entry in returned["host_proof"]) == sorted([first, second])
     assert all(entry["detail"].startswith("pull request #7") for entry in returned["host_proof"])
+    assert all(entry["host"] == host.GITHUB for entry in returned["host_proof"])
     assert w.slot(got["slot"])["state"] == "free"
 
 

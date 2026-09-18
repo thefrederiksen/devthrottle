@@ -303,17 +303,22 @@ asked and has no merged pull request that accounts for all of them*.
 
 ### The answer names what proved the work
 
-`get`, `return`, `lease` and `destroy` say how the work in the slot was proven:
+`get`, `return`, `lease` and `destroy` say how the work in the slot was proven, in the plain output and
+in `--json` alike. A real `return` of a slot whose two commits were squash-merged:
 
 ```
+slot: wt01
+path: C:\...epo.worktrees\wt01
+state: free
+base: main
+commit: 254dc03b147692f589a73e88cb954eb1a3711d87
 proved_by: git and the host
-host_proof[1]:
-  commit: 9a3c1f0e5b2d...
-  proved_by: github
-  detail: pull request #1 on an-owner/a-repo, merged as 3fe990344544 into main
+host_proof[2]{commit,host,detail}:
+  714d7db46841088ecd424e5f225a24a007c94828,github,"pull request #62 on an-owner/a-repo, merged as 254dc03b1476 into main"
+  0fcc6e11dae2bc8402c98523155c7055f5a6266b,github,"pull request #62 on an-owner/a-repo, merged as 254dc03b1476 into main"
 ```
 
-`proved_by: git` with an empty `host_proof` is the ordinary case: git proved every commit on its own and
+`proved_by: git` with `host_proof[0]{...}:` is the ordinary case: git proved every commit on its own and
 no host was asked. Every commit the host freed is listed with the pull request that freed it, so "free"
 is never something to take on trust.
 

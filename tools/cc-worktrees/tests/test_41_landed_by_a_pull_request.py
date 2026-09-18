@@ -313,3 +313,25 @@ def test_azure_with_az_not_signed_in_the_work_is_held_and_checked_by_git_only(az
 
     _assert_held_with(w, got, path, res, "checked by git only", "az repos pr list failed")
     assert git(path, "rev-parse", "HEAD") == commits[0]
+
+
+def test_github_the_plain_output_names_the_pull_request_that_freed_each_commit(github_world):
+    """The plain AXI output says what proved the work, not only `--json`. A person reading a returned
+    slot must be able to see that a HOST freed it, and which pull request did."""
+    w = github_world
+    got = w.get()
+    path = Path(got["path"])
+    branch = w.unique_branch()
+    commits = _branch_with_a_merge_commit(w, path, branch)
+    _github_merge(w, _github_pull_request(w, branch), "--squash")
+
+    res = w.run("return", got["path"], "--lease", got["lease"])
+
+    assert res.code == 0, res.out + res.err
+    assert "proved_by: git and the host" in res.out, res.out
+    assert f"host_proof[{len(commits)}]{{commit,host,detail}}:" in res.out, res.out
+    for commit in commits:
+        row = [line for line in res.out.splitlines() if line.strip().startswith(commit)]
+        assert len(row) == 1, (commit, res.out)
+        assert ",github," in row[0], row[0]
+        assert "pull request #" in row[0] and "merged as" in row[0], row[0]

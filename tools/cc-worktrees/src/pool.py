@@ -406,7 +406,7 @@ def _proof_view(proof: tuple[host.Proof, ...]) -> dict:
     """What proved the work that was in the slot, named commit by commit. Every commit the host freed is
     listed with the pull request that freed it; every other commit was proven by git alone, which is what
     "git" means here and is the ordinary case."""
-    freed = [{"commit": commit, "proved_by": p.host, "detail": p.detail}
+    freed = [{"commit": commit, "host": p.host, "detail": p.detail}
              for p in proof for commit in p.commits]
     return {"proved_by": "git and the host" if freed else "git", "host_proof": freed}
 
