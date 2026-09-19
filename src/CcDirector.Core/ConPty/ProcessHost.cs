@@ -277,7 +277,8 @@ public sealed class ProcessHost : IDisposable
     ///
     /// EVERY exit from this method is logged, and that is the whole point (issue #1551). On
     /// 2026-07-14 a 1031-character phone dictation never reached Claude Code's composer. The
-    /// terminal's OUTPUT is recorded byte-for-byte (session-logs/&lt;id&gt;/raw.jsonl), so we could
+    /// terminal's OUTPUT was being recorded byte-for-byte at the time (session-logs/&lt;id&gt;/raw.jsonl,
+    /// then on for every session, now off unless switched on), so we could
     /// prove the text was absent from the composer - but this direction recorded NOTHING, so we
     /// could not tell whether the bytes failed to leave here or left and were dropped by the TUI.
     /// Those two causes need opposite fixes and the evidence to separate them did not exist.

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -7,18 +8,23 @@ namespace CcDirector.Core.Storage;
 
 /// <summary>
 /// Phase 5: per-Director coordinator that creates a <see cref="SessionLogWriter"/>
-/// for every session and tears it down when the session is gone. Mirrors the
+/// for every session and tears it down when the session is gone - WHEN session
+/// logging is switched on. It is off by default (<see cref="SessionLogConfig"/>),
+/// and off means this manager subscribes to nothing and writes nothing at all. Mirrors the
 /// pattern used by <c>SessionStatusWingman</c> and <c>TurnSummaryCache</c>:
 /// subscribe to <c>SessionManager.OnSessionCreated</c>, own the per-session helper.
 ///
-/// External consumers (the TurnSummaryCache, the wingman, future agent-view
-/// pipeline) push their records through the writer via this manager:
+/// The forwarding methods below exist so that a consumer could push a record
+/// through this manager rather than hold a writer instance and take a lifecycle
+/// dependency on it:
 ///
 ///   manager.WriteTurnSummary(sessionId, summary);
 ///
-/// We expose those forwarding methods rather than the underlying writer so
-/// SessionManager-only code can never accidentally take a lifecycle dependency
-/// on a writer instance.
+/// NOTHING CALLS THEM TODAY. This comment used to name the TurnSummaryCache, the
+/// wingman and a future agent-view pipeline as consumers that push through here,
+/// and none of them do - the only calls anywhere are tests invoking the writer
+/// directly. So turns.jsonl and agent-view.jsonl are never written by the product
+/// at all, which is part of why the whole capture is off by default.
 /// </summary>
 public sealed class SessionLogManager : IDisposable
 {
@@ -32,12 +38,31 @@ public sealed class SessionLogManager : IDisposable
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
     }
 
-    /// <summary>Begin watching sessions. Idempotent.</summary>
+    /// <summary>
+    /// Begin watching sessions. Idempotent.
+    ///
+    /// Writes nothing unless session logging is switched on - see <see cref="SessionLogConfig"/>.
+    /// When it is off this manager attaches to no session and opens no file, so the four streams
+    /// are not merely empty, they are absent.
+    /// </summary>
     public void Start()
     {
         if (_started || _disposed) return;
         _started = true;
-        FileLog.Write("[SessionLogManager] Start");
+
+        // OFF by default. The raw stream records every byte the terminal painted - spinner frames
+        // included - base64-encoded, uncapped and unaged, and nothing in the product reads it. It is
+        // switched on for a terminal investigation by session_logs.enabled in config.json or the
+        // CC_DIRECTOR_SESSION_LOGS override, and switched off again afterwards.
+        if (!SessionLogConfig.IsEnabled())
+        {
+            FileLog.Write(
+                $"[SessionLogManager] Start: session logging is OFF, writing nothing "
+                + $"(turn on with {SessionLogConfig.SectionName}.enabled in config.json)");
+            return;
+        }
+
+        FileLog.Write($"[SessionLogManager] Start: session logging is ON ({SessionLogConfig.SectionName}.enabled)");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
         _sessionManager.OnSessionRemoved += OnSessionRemoved;
