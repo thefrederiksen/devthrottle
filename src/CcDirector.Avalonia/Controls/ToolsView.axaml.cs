@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Setup;
 using CcDirector.Core.Tools;
@@ -49,6 +50,7 @@ public partial class ToolsView : UserControl
     {
         if (_loaded) return;
         _loaded = true;
+        RenderToolCopySweep(DirectorToolCopySweep.Last);
         await LoadCatalogAsync();
 
         // Re-ask the reachability question now the page is up. The window's verdict can be minutes old
@@ -68,6 +70,63 @@ public partial class ToolsView : UserControl
                 FileLog.Write($"[ToolsView] fleet tool re-check FAILED: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// What the sweep that ran at this Director's start did with the superseded copies of the tools.
+    ///
+    /// EVERY STRING COMES FROM THE SWEEP AND IS RENDERED VERBATIM. This method reads a verdict and a
+    /// reason and paints them; it never works out what a state means. The one thing it decides is
+    /// layout - the colour behind the word the sweep chose - which is what a client is for.
+    ///
+    /// A REFUSAL IS STILL A REPORT. A sweep that did nothing because the master is empty, or because an
+    /// install held the lock, has no rows and a summary that says exactly that, and it is shown. Only a
+    /// Director that has not swept at all hides the panel, because there is then nothing true to say.
+    ///
+    /// Internal and taking the result as a parameter, rather than reaching for the static itself, so a
+    /// test can drive every shape of report through it without a Director having started.
+    /// </summary>
+    internal void RenderToolCopySweep(ToolCopySweepResult? result)
+    {
+        if (result is null || string.IsNullOrWhiteSpace(result.Summary))
+        {
+            ToolCopySweepPanel.IsVisible = false;
+            return;
+        }
+
+        ToolCopySweepSummary.Text = result.Summary;
+        ToolCopySweepItems.ItemsSource = result.Looked
+            .Select(d => new SweptDirectoryViewModel(d))
+            .ToList();
+        ToolCopySweepPanel.IsVisible = true;
+    }
+
+    /// <summary>One row of the sweep report. Holds the sweep's own words and a colour for the verdict.</summary>
+    internal sealed class SweptDirectoryViewModel
+    {
+        public SweptDirectoryViewModel(SweptDirectory swept)
+        {
+            Path = swept.Path;
+            // A delete that could not finish says so here rather than anywhere else, because "removed"
+            // for a directory that still exists is the one thing this report must never say.
+            Verdict = swept.Action == SweepAction.Delete
+                ? (swept.Removed ? "REMOVED" : "LEFT")
+                : "KEPT";
+            Reason = swept.Action == SweepAction.Delete && !swept.Removed
+                ? $"{swept.Reason} - but it could not be removed: {swept.RemovalFailure}. It is off the path, and the next start tries again."
+                : swept.Reason;
+        }
+
+        public string Path { get; }
+        public string Verdict { get; }
+        public string Reason { get; }
+
+        public IBrush VerdictBrush => Verdict switch
+        {
+            "REMOVED" => SolidColorBrush.Parse("#8FC97F"),
+            "LEFT" => SolidColorBrush.Parse("#D8B15A"),
+            _ => SolidColorBrush.Parse("#7E9478"),
+        };
     }
 
     /// <summary>Reload the catalog and re-run the checks. Called after a repair changes what is

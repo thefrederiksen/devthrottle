@@ -419,30 +419,59 @@ public sealed class PythonToolsInstaller
     }
 
     /// <summary>
-    /// Command names that no longer ship, and whose bin shim an older install may still be carrying.
-    /// Two groups:
+    /// Command names the product does not ship, and whose bin shim an older install may still be
+    /// carrying. Two groups:
     /// <list type="bullet">
     /// <item>The retired per-tool fleet commands consolidated into the single cc-devthrottle command
     /// (issue #823): cc-send, cc-ask, cc-spawn, cc-sessions, cc-whoami, cc-settings, cc-cron,
-    /// cc-fleet-selftest.</item>
-    /// <item>cc-playwright, cut from the shipped toolbelt (issue #1002).</item>
+    /// cc-fleet-selftest. These were never tools and appear in no registry, so they are listed by
+    /// hand.</item>
+    /// <item>THE LAUNCHER OF ANY TOOL THE REGISTRY KNOWS AND THE PRODUCT DOES NOT SHIP - every name in
+    /// <c>tools/registry.json</c> that is absent from <c>src/CcDirector.Core/Tools/tools-manifest.json</c>.
+    /// This used to be a hand-written list that happened to contain cc-playwright and not cc-comm-queue,
+    /// while both shims were sitting on the machine that prompted this work. Held to the derivation by
+    /// <c>LegacyAliasShimNames_CoverEveryKnownUnshippedTool</c>, so the list cannot drift again.</item>
     /// </list>
     /// In both cases the venv console script is gone, so a leftover shim resolves to a missing target.
     /// For the fleet aliases that is exit 127; for a tool dropped from the manifest it is worse - the
     /// self-checking shim body tells a HEALTHY install that "cc-* tools are not fully installed" and
     /// sends the user to a repair that will never put the tool back. Note the ordinary
     /// <c>RemoveManagedShims</c> pass cannot clean either group: it only walks the CURRENT manifest, and
-    /// these names are in no manifest. That is precisely why this explicit purge exists, and why cutting
-    /// a tool from the shipped set means adding its name here.
-    /// The installer purges these on every install/repair. Kept in sync with cc-devthrottle's
-    /// setup_ops.LEGACY_ALIAS_NAMES (the doctor diagnostic) so the same retired names are reported and
-    /// cleaned. These names never overlap the shipping tools, so purging them can never remove a live
-    /// tool's shim - guarded by a test against the shipped manifest rather than left as a promise.
+    /// these names are in no manifest. That is precisely why this explicit purge exists.
+    ///
+    /// A NAME ON THIS LIST IS NOT ON ITS OWN PERMISSION TO DELETE A FILE - see
+    /// <see cref="IsShimTheProductWrote"/>. The list says WHICH names may be considered; the content
+    /// test says which FILES were ours to write, and both have to hold. That second condition exists
+    /// because this list now names tools the owner runs BY HAND: cc-docgen, cc-excel, cc-video and the
+    /// rest are registry-known and unshipped, and his own launcher for one of them is a file the product
+    /// did not write and could never put back.
+    ///
+    /// THIS LIST IS NO LONGER EQUAL TO cc-devthrottle's setup_ops.LEGACY_ALIAS_NAMES, and the sentence
+    /// that used to say it was is gone rather than left to be believed. That one is a DIAGNOSTIC: doctor
+    /// prints where each name resolves on the path, and it covers the nine retired fleet aliases only.
+    /// Widening it to every registry-known unshipped tool would have doctor report the owner's own
+    /// working cc-docgen as a retired alias, which is a false statement about his machine. The two lists
+    /// answer different questions and the first eight names are their whole overlap.
+    ///
+    /// These names never overlap the shipping tools, so purging them can never remove a live tool's
+    /// shim - guarded by a test against the shipped manifest rather than left as a promise.
     /// </summary>
     public static readonly IReadOnlyList<string> LegacyAliasShimNames = new[]
     {
-        "cc-send", "cc-ask", "cc-spawn", "cc-sessions", "cc-whoami", "cc-settings", "cc-cron", "cc-fleet-selftest",
-        "cc-playwright",
+        // The retired per-tool fleet commands (issue #823). These are in no registry - they were never
+        // tools, they were command names folded into cc-devthrottle - so the guard test cannot derive
+        // them and they are listed here by hand.
+        "cc-send", "cc-ask", "cc-spawn", "cc-sessions", "cc-whoami", "cc-settings", "cc-cron",
+        "cc-fleet-selftest",
+
+        // Every tool the registry KNOWS and the product does not SHIP. Derived by hand from
+        // tools/registry.json minus src/CcDirector.Core/Tools/tools-manifest.json, and held to that
+        // derivation by LegacyAliasShimNames_CoverEveryKnownUnshippedTool so it cannot drift again.
+        "cc-brandingrecommendations", "cc-browser", "cc-click", "cc-comm-queue", "cc-computer",
+        "cc-crawl4ai", "cc-docgen", "cc-excel", "cc-facebook", "cc-hardware", "cc-photos", "cc-playwright",
+        "cc-posthog", "cc-powerpoint", "cc-reddit", "cc-scrub", "cc-transcribe", "cc-trisight",
+        "cc-twitter", "cc-video", "cc-voice", "cc-websiteaudit", "cc-whisper", "cc-youtube",
+        "cc-youtube-info",
     };
 
     /// <summary>
@@ -469,7 +498,70 @@ public sealed class PythonToolsInstaller
     /// name list and path set the purge uses instead of re-deriving them.
     /// </summary>
     internal IReadOnlyList<string> FindOrphanedLegacyAliasShims() =>
-        LegacyAliasShimNames.SelectMany(LegacyAliasShimPaths).Where(File.Exists).ToList();
+        LegacyAliasShimNames
+            .SelectMany(name => LegacyAliasShimPaths(name).Select(path => (Name: name, Path: path)))
+            .Where(candidate => File.Exists(candidate.Path) && IsShimTheProductWrote(candidate.Path, candidate.Name))
+            .Select(candidate => candidate.Path)
+            .ToList();
+
+    /// <summary>
+    /// The launcher files on this list's names that the product did NOT write, each with the reason it
+    /// is being left alone. Pure detection, no mutation - so the purge can say what it kept as well as
+    /// what it removed, and a person can see that a hand-made launcher survived rather than having to
+    /// infer it from a file that is still there.
+    /// </summary>
+    internal IReadOnlyList<(string Path, string Reason)> FindHandWrittenLegacyAliasLaunchers() =>
+        LegacyAliasShimNames
+            .SelectMany(name => LegacyAliasShimPaths(name).Select(path => (Name: name, Path: path)))
+            .Where(candidate => File.Exists(candidate.Path) && !IsShimTheProductWrote(candidate.Path, candidate.Name))
+            .Select(candidate => (candidate.Path,
+                Reason: $"it does not forward to pyenv/Scripts/{candidate.Name}, so the product did not write it"))
+            .ToList();
+
+    /// <summary>
+    /// Did THIS product write THIS file as a shim for THIS name?
+    ///
+    /// WHY NAME ALONE IS NOT ENOUGH, AND WHY THIS LEANS TO KEEPING. The name list above now covers every
+    /// tool the registry knows and the product does not ship, and several of those are tools the owner
+    /// runs by hand. On the machine that prompted this work, <c>cc-playwright.cmd</c> and
+    /// <c>cc-comm-queue.cmd</c> both carry the product's own forwarding line, and <c>cc-linkedin.cmd</c>
+    /// is <c>py -3.11 "D:\ReposFred\cc-linkedin\cc_linkedin.py" %*</c> - a launcher a person wrote,
+    /// for a tool that still works, which no install could ever put back.
+    ///
+    /// Name alone is a rule that can only ever delete MORE than it should. Name-and-content can only ever
+    /// delete LESS. Given that a false delete here is unrecoverable and a false keep is a stale file, the
+    /// second is the rule to have.
+    ///
+    /// The positive test is the product's OWN forwarding line for that exact name -
+    /// <c>pyenv\Scripts\&lt;name&gt;.exe</c> on Windows, <c>pyenv/Scripts/&lt;name&gt;.exe</c> in the bash
+    /// shim - so this is an allow-list of one shape and not a list of things to skip. Anything that
+    /// cannot be read as text, anything binary, and anything whose body says something else is KEPT.
+    ///
+    /// IT NARROWS THE OLD PURGE AND THAT IS DELIBERATE. A <c>bin\&lt;name&gt;.exe</c> left by a
+    /// PyInstaller-era install carries no such line and is no longer deleted. That file is dead weight;
+    /// the alternative reading of the same bytes is a launcher somebody built on purpose, and the two
+    /// cannot be told apart from the outside. Leaving it costs disk. Removing the wrong one costs a tool
+    /// the owner uses and cannot get back from us.
+    /// </summary>
+    internal static bool IsShimTheProductWrote(string path, string name)
+    {
+        string body;
+        try
+        {
+            body = File.ReadAllText(path);
+        }
+        catch (Exception ex)
+        {
+            // Unreadable is not permission. A file this process cannot read is a file it cannot prove
+            // anything about, and the whole boundary is that only a positive proof deletes.
+            EngineLog.Write($"[PythonToolsInstaller] keeping {path}: it could not be read ({ex.Message}), "
+                            + "so it cannot be shown to be a shim this product wrote");
+            return false;
+        }
+
+        return body.Contains($@"pyenv\Scripts\{name}.exe", StringComparison.OrdinalIgnoreCase)
+            || body.Contains($"pyenv/Scripts/{name}.exe", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Delete any orphaned legacy alias shims from the install (issue #823). Each retired alias may have left
@@ -482,6 +574,12 @@ public sealed class PythonToolsInstaller
     /// </summary>
     public void RemoveLegacyAliasShims()
     {
+        // Said out loud rather than inferred from a file that is still there. A launcher that survived
+        // because the product did not write it looks, from the outside, exactly like one the purge never
+        // looked at - and those are different machines.
+        foreach (var (kept, reason) in FindHandWrittenLegacyAliasLaunchers())
+            EngineLog.Write($"[PythonToolsInstaller] KEPT {kept}: {reason}");
+
         foreach (var path in FindOrphanedLegacyAliasShims())
         {
             try

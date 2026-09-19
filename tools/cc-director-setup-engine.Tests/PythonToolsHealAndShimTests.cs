@@ -211,15 +211,25 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     [Fact]
     public void LegacyAliasShimNames_AreTheRetiredFleetCommandsPlusUnshippedTools()
     {
-        // The retired per-tool fleet commands consolidated into cc-devthrottle (#823), plus cc-playwright,
-        // cut from the shipped toolbelt (#1002). Guards the list against accidental drift.
-        Assert.Equal(
-            new[]
-            {
-                "cc-send", "cc-ask", "cc-spawn", "cc-sessions", "cc-whoami", "cc-settings", "cc-cron", "cc-fleet-selftest",
-                "cc-playwright",
-            },
-            PythonToolsInstaller.LegacyAliasShimNames);
+        // The list is EXACTLY two groups and nothing else: the retired per-tool fleet commands
+        // consolidated into cc-devthrottle (#823), which are in no registry and are named here by hand,
+        // plus every tool the registry knows and the product does not ship.
+        //
+        // DERIVED RATHER THAN TRANSCRIBED. This test used to repeat the nine names the list held, which
+        // meant it guarded the list against an edit and not against being WRONG: it was green the whole
+        // time the list omitted cc-comm-queue, whose shim was sitting on the owner's machine. Copying
+        // the answer into the test proves only that somebody copied it twice.
+        var retiredFleetCommands = new[]
+        {
+            "cc-send", "cc-ask", "cc-spawn", "cc-sessions", "cc-whoami", "cc-settings", "cc-cron", "cc-fleet-selftest",
+        };
+        var shipped = ShippedToolNames();
+        var expected = retiredFleetCommands
+            .Concat(RegistryToolNames().Where(n => !shipped.Contains(n)))
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, PythonToolsInstaller.LegacyAliasShimNames.OrderBy(n => n, StringComparer.Ordinal));
     }
 
     [Fact]
@@ -268,14 +278,17 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         // bin\<name>.cmd and a bare-name bash shim whose pyenv\Scripts\<name>.exe target no longer ships, so
         // running it fails with exit 127. InstallAsync must delete every one. The purge runs up front, so it
         // happens even though this install then fails at SHA-verify (a network-free way to drive InstallAsync).
+        // WRITTEN WITH THE PRODUCT'S OWN SHIM BODIES, not a stub, because the purge now requires a file
+        // to prove the product wrote it before deleting it. A stub body would leave every one of these
+        // standing and this test would report a purge that never happened.
         Directory.CreateDirectory(_layout.BinDir);
         var orphans = new List<string>();
         foreach (var name in PythonToolsInstaller.LegacyAliasShimNames)
         {
             var cmd = Path.Combine(_layout.BinDir, $"{name}.cmd");
             var bare = Path.Combine(_layout.BinDir, name);
-            File.WriteAllText(cmd, "@echo off\r\n");
-            File.WriteAllText(bare, "#!/bin/sh\n");
+            File.WriteAllText(cmd, PythonToolsInstaller.BuildWindowsShimBody(name));
+            File.WriteAllText(bare, PythonToolsInstaller.BuildWindowsBashShimBody(name));
             orphans.Add(cmd);
             orphans.Add(bare);
         }
@@ -295,14 +308,106 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         Directory.CreateDirectory(_layout.BinDir);
         var liveShim = Path.Combine(_layout.BinDir, "cc-pdf.cmd");
         var legacyShim = Path.Combine(_layout.BinDir, "cc-send.cmd");
-        File.WriteAllText(liveShim, "@echo off\r\n");
-        File.WriteAllText(legacyShim, "@echo off\r\n");
+        File.WriteAllText(liveShim, PythonToolsInstaller.BuildWindowsShimBody("cc-pdf"));
+        File.WriteAllText(legacyShim, PythonToolsInstaller.BuildWindowsShimBody("cc-send"));
 
         var result = await new PythonToolsInstaller(_layout).InstallAsync(StageBadShaRelease("1.0.0"), new ReleaseSource());
 
         Assert.False(result.Success);
         Assert.True(File.Exists(liveShim), "purge wrongly removed a live tool shim (cc-pdf.cmd)");
         Assert.False(File.Exists(legacyShim), "purge failed to remove a retired alias shim (cc-send.cmd)");
+    }
+
+    /// <summary>
+    /// The list must COVER every tool the registry knows and the product does not ship.
+    ///
+    /// The other direction is already guarded (a shipped tool's name must never appear here). This is
+    /// the direction that actually drifted: the list was nine hand-written names that happened to
+    /// include cc-playwright and not cc-comm-queue, while both shims were on the owner's machine. A
+    /// hand-written list of names that must equal a derived set is a list that goes stale the next time
+    /// a tool is unshipped, so the derivation is the test.
+    /// </summary>
+    [Fact]
+    public void LegacyAliasShimNames_CoverEveryKnownUnshippedTool()
+    {
+        var known = RegistryToolNames();
+        var shipped = ShippedToolNames();
+        Assert.NotEmpty(known);
+        Assert.NotEmpty(shipped);
+
+        var listed = new HashSet<string>(PythonToolsInstaller.LegacyAliasShimNames, StringComparer.OrdinalIgnoreCase);
+        var missing = known.Where(n => !shipped.Contains(n) && !listed.Contains(n)).OrderBy(n => n).ToArray();
+
+        Assert.True(missing.Length == 0,
+            "tools/registry.json knows these, the product does not ship them, and LegacyAliasShimNames does "
+            + "not name them, so their leftover launchers are never purged: " + string.Join(", ", missing));
+    }
+
+    /// <summary>
+    /// A NAME ON THE LIST IS NOT PERMISSION ON ITS OWN. The launcher has to prove the product wrote it.
+    ///
+    /// This is the condition that makes it safe for the list to name cc-docgen, cc-excel, cc-video and
+    /// the other tools the owner runs by hand: his own launcher for one of those is a file no install
+    /// could ever put back, and name alone would delete it on every repair.
+    /// </summary>
+    [Fact]
+    public void AHandWrittenLauncherForAListedNameIsKept_AndTheProductsOwnShimIsRemoved()
+    {
+        Directory.CreateDirectory(_layout.BinDir);
+
+        // Measured on the owner's machine: this is what his cc-linkedin.cmd actually says. cc-docgen is
+        // on the list (registry-known, unshipped) and he runs it by hand.
+        var handWritten = Path.Combine(_layout.BinDir, "cc-docgen.cmd");
+        File.WriteAllText(handWritten, "py -3.11 \"D:\\ReposFred\\cc-docgen\\cc_docgen.py\" %*\r\n");
+
+        var ourShim = Path.Combine(_layout.BinDir, "cc-comm-queue.cmd");
+        File.WriteAllText(ourShim, PythonToolsInstaller.BuildWindowsShimBody("cc-comm-queue"));
+
+        var installer = new PythonToolsInstaller(_layout);
+        installer.RemoveLegacyAliasShims();
+
+        Assert.True(File.Exists(handWritten),
+            "the purge removed a launcher the product did not write, and could never put back");
+        Assert.False(File.Exists(ourShim),
+            "the purge left a shim the product itself wrote for a tool it no longer ships");
+    }
+
+    [Fact]
+    public void AShimBodyForADIFFERENTNameDoesNotCountAsOurs()
+    {
+        // The content test is keyed to the name of the file it is judging. A cc-docgen.cmd that forwards
+        // to cc-pdf is somebody's own wrapper, not our shim for cc-docgen, and deleting it on the
+        // strength of a pyenv path that names a different tool would be exactly the too-wide rule the
+        // content test replaced.
+        Directory.CreateDirectory(_layout.BinDir);
+        var wrapper = Path.Combine(_layout.BinDir, "cc-docgen.cmd");
+        File.WriteAllText(wrapper, PythonToolsInstaller.BuildWindowsShimBody("cc-pdf"));
+
+        new PythonToolsInstaller(_layout).RemoveLegacyAliasShims();
+
+        Assert.True(File.Exists(wrapper));
+    }
+
+    /// <summary>The tool names in tools/registry.json, found the same way the shipped manifest is.</summary>
+    private static HashSet<string> RegistryToolNames()
+    {
+        var relative = Path.Combine("tools", "registry.json");
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        string? found = null;
+        while (dir is not null && found is null)
+        {
+            var candidate = Path.Combine(dir.FullName, relative);
+            if (File.Exists(candidate)) found = candidate;
+            dir = dir.Parent;
+        }
+        Assert.NotNull(found);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(found!));
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tool in doc.RootElement.GetProperty("tools").EnumerateArray())
+            if (tool.TryGetProperty("name", out var n) && n.GetString() is { } name)
+                names.Add(name);
+        return names;
     }
 
     // --- Self-checking Windows shim body -----------------------------------------------------------

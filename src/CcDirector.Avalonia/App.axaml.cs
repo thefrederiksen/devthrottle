@@ -380,6 +380,33 @@ public partial class App : Application
             log($"Tool path repair FAILED (ignored, startup must not block): {ex.Message}");
         }
 
+        // Delete the superseded copies of the tools the per-Director install leak left behind.
+        //
+        // IMMEDIATELY AFTER THE PATH REPAIR ABOVE, AND THE ORDER IS THE SAFETY. A copy is taken OFF THE
+        // PATH before it is deleted, and that is what makes deleting it safe at all: by the time this
+        // line runs, nothing on this machine can resolve a command through any of those folders. Run the
+        // other way round, this would be removing files that something could still be executing.
+        //
+        // BEFORE SessionManager for the same reason the repair is: a session inherits this process's
+        // path, and no session has been opened or restored yet, which is also what lets this Director's
+        // OWN folder count as not running for itself.
+        //
+        // The lock name is handed in because it belongs to the setup engine and CcDirector.Core does not
+        // reference it - one definition of one machine-wide lock, not two.
+        //
+        // Guarded because startup must never fail over a tidy-up. The sweep itself never throws; the
+        // catch is the belt to that brace.
+        try
+        {
+            var sweep = CcDirector.Core.Setup.DirectorToolCopySweep.RunAtDirectorStart(
+                CcDirector.Setup.Engine.ToolReconciler.HeavyRepairMutexName);
+            log($"Tool copies at start: {sweep.Summary}");
+        }
+        catch (Exception ex)
+        {
+            log($"Tool copy sweep FAILED (ignored, startup must not block): {ex.Message}");
+        }
+
         UpdateSplashStatus(splash, "Initializing sessions...");
         // The ONE place skill placement is turned on. It writes into the user's own home directory, so
         // it is opt-in and the running app is what opts in - see SessionManager.PlacesSkillsOnLaunch.

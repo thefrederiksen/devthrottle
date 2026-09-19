@@ -81,6 +81,42 @@
             </StackPanel>
         </Border>
 
+        <!-- ============ What the last start's tool-copy sweep did ============
+             A REPORT, NOT A FEATURE. The sweep runs once, at Director start, before any session opens;
+             this is where a person reads what it removed and - the part that matters more - what it
+             LEFT and why. Hidden entirely when the sweep found nothing to say, because a permanently
+             present card becomes furniture.
+
+             Every string here is written by the Gateway-side rule (DirectorToolCopySweep) and rendered
+             verbatim. This panel decides nothing: it has no branch that reads a state and works out
+             what it means. -->
+        <Border x:Name="ToolCopySweepPanel" DockPanel.Dock="Top" IsVisible="False"
+                Background="#232A22" BorderBrush="#3D5238" BorderThickness="0,0,0,1" Padding="16,10">
+            <StackPanel Orientation="Vertical" Spacing="6">
+                <TextBlock x:Name="ToolCopySweepSummary" Text="" Foreground="#CFE3C8"
+                           FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <ScrollViewer MaxHeight="160" HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl x:Name="ToolCopySweepItems">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="64,*" Margin="0,0,0,3">
+                                    <TextBlock Grid.Column="0" Text="{Binding Verdict}"
+                                               Foreground="{Binding VerdictBrush}" FontSize="10"
+                                               FontWeight="Bold" FontFamily="Consolas,monospace" />
+                                    <StackPanel Grid.Column="1" Orientation="Vertical">
+                                        <TextBlock Text="{Binding Path}" Foreground="#D8E6D2" FontSize="10"
+                                                   FontFamily="Consolas,monospace" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Reason}" Foreground="#94A98D" FontSize="10"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
+
         <!-- ============ Session-first hint: this page is a dashboard; everything is scriptable ============ -->
         <Border DockPanel.Dock="Top" Background="#1B2A33"
                 BorderBrush="#264E5E" BorderThickness="0,0,0,1" Padding="16,7">

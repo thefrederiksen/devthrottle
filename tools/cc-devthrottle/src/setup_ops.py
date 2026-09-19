@@ -65,9 +65,15 @@ SETUP_CLI_COMMAND_NAMES = [
 # is gone: the retired per-tool fleet commands consolidated into the single cc-devthrottle command
 # (issue #823), plus cc-playwright, cut from the shipped toolbelt (issue #1002). A leftover fleet
 # alias fails with exit 127; a leftover shim for a tool dropped from the manifest instead tells a
-# healthy install that "cc-* tools are not fully installed", which is worse. The installer engine
-# purges these (PythonToolsInstaller.LegacyAliasShimNames - keep the two lists in sync); doctor
-# reports their resolved path so a machine that still carries one is visible.
+# healthy install that "cc-* tools are not fully installed", which is worse. Doctor reports their
+# resolved path so a machine that still carries one is visible.
+#
+# THIS IS NOT A COPY OF PythonToolsInstaller.LegacyAliasShimNames AND MUST NOT BE MADE ONE. That list
+# is what the installer PURGES, and it now covers every tool the registry knows and the product does
+# not ship - including tools the owner runs by hand, whose launchers the installer keeps because it
+# can see it did not write them. This list is what doctor PRINTS, and printing "cc-docgen: retired
+# alias" about a command that works would be a false statement about the machine. Two questions, two
+# lists; the eight retired fleet commands are their whole overlap.
 LEGACY_ALIAS_NAMES = [
     "cc-send",
     "cc-ask",
