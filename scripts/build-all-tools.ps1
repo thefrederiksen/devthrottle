@@ -101,6 +101,7 @@ $nodeTools = @(
 )
 
 $dotnetTools = @(
+    @{ Name = "cc-cleanup-storage"; Solution = "cc-cleanup-storage.slnx"; Project = $null },
     @{ Name = "cc-click"; Solution = "cc-click.slnx"; Project = $null },
     @{ Name = "cc-trisight"; Solution = "cc-trisight.slnx"; Project = $null },
     @{ Name = "cc-computer"; Solution = "cc-computer.slnx"; Project = "ComputerApp" }
