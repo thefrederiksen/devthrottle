@@ -174,7 +174,16 @@ public static class FleetToolPathRepair
 
         try
         {
-            var saved = RepairSavedPath(masterBinDir);
+            // The same guard the start-time repair uses, and it belongs here for the same reason: the
+            // saved path is permanent machine state, and the button is reachable from a Director serving
+            // a throwaway root just as the start is. Without it, one press on a rig writes the rig's own
+            // bin into the user's saved path, where it outlives the rig's directory by months - which is
+            // exactly the entry sitting on this machine pointing at a harness root deleted in July.
+            var saved = OwnsTheSavedPath(CcStorage.MachineRoot(), CcStorage.DefaultRoot())
+                ? RepairSavedPath(masterBinDir)
+                : $"The saved path was not touched: this Director serves {CcStorage.MachineRoot()}, which " +
+                  $"is not this machine's install root ({CcStorage.DefaultRoot()}). Only the sessions this " +
+                  "Director starts were repaired.";
             RepairProcessPath(masterBinDir);
 
             FileLog.Write($"[FleetToolPathRepair] PutFirstOnPath done: {saved}");
