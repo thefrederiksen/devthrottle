@@ -28,6 +28,16 @@ public static class CcStorage
     public static string Root() => Base();
 
     /// <summary>
+    /// The fleet's account key vault file: keyvault.json under the storage root. It holds the API keys
+    /// every feature on the machine draws on, and it is the one file in the storage root that is a
+    /// credential store in its own right. It is named here, once, so that <see cref="ProtectedPaths"/>
+    /// can protect it without carrying its own copy of the composition - and so that a path nobody
+    /// else can compose does not exist. <see cref="KeyVault"/> resolves its default through this
+    /// method, which keeps the two from drifting apart.
+    /// </summary>
+    public static string KeyVaultFile() => Path.Combine(Root(), "keyvault.json");
+
+    /// <summary>
     /// The MACHINE root: the one folder on this computer that holds the INSTALLED product - the tool
     /// launchers in <c>bin</c>, the bundled interpreter in <c>python</c>, the shared virtual environment
     /// in <c>pyenv</c>, and the manifest recording what version each of those is. There is exactly one
@@ -768,4 +778,49 @@ public static class CcStorage
     {
         return string.Join("_", name.Split(Path.GetInvalidFileNameChars()));
     }
+
+    // -- Paths nothing may ever remove --
+
+    /// <summary>
+    /// One path that must never be touched, with what it is in plain words.
+    /// </summary>
+    /// <param name="Source">The name of the member of this class that names the path.</param>
+    /// <param name="Path">The path itself, and everything under it.</param>
+    /// <param name="WhatItIs">What it holds, in one plain sentence a refusal reason can quote.</param>
+    public sealed record ProtectedPath(string Source, string Path, string WhatItIs);
+
+    /// <summary>
+    /// Every path that must NEVER be touched by anything that removes files: the vault, the secrets
+    /// store, the config folder with the OAuth tokens and credentials in it, the account key vault
+    /// file, the account credential blobs, and the signed-in browser profiles.
+    ///
+    /// This is an EXPLICIT enumeration, declared here beside the paths it names, and it exists because
+    /// the alternative was tried and rejected. Finding these paths by reflecting over the method names
+    /// of this class and taking the ones containing "vault", "credential" or "secret" protects a path
+    /// only when somebody happens to name a method well: <see cref="Config"/> - whose own documentation
+    /// comment reads "Tool settings, OAuth tokens, credentials, app state" - and
+    /// <see cref="KeyVaultFile"/> were both invisible to that test, and refusal 1 of the reclaim tool
+    /// would have protected two paths by luck of naming and left the OAuth tokens and the key vault
+    /// exposed. A check that protects the right things only by coincidence answers confidently and
+    /// wrongly, and it fails in the direction that loses the owner's credentials.
+    ///
+    /// The staleness that made a hand-typed list unsafe is caught instead by a test in this
+    /// repository's Core tests: it enumerates the public static path members of this class and FAILS
+    /// when one is neither in this list nor in that test's explicit not-protected list. Adding a new
+    /// storage path therefore forces a decision here instead of defaulting to unprotected, silently.
+    ///
+    /// Every entry composes from the live methods above rather than restating a path, so the
+    /// environment overrides those methods honour are honoured here too, at the moment this is called.
+    /// </summary>
+    public static IReadOnlyList<ProtectedPath> ProtectedPaths() =>
+    [
+        new ProtectedPath(nameof(Vault), Vault(), "the vault, which holds the owner's personal data"),
+        new ProtectedPath(nameof(SecretsStore), SecretsStore(), "the cc-secrets store, which holds the owner's own secrets"),
+        new ProtectedPath(nameof(Config), Config(), "the config folder, which holds tool settings, OAuth tokens, credentials and app state"),
+        new ProtectedPath(nameof(KeyVaultFile), KeyVaultFile(), "the account key vault file, which holds the fleet's API keys"),
+        new ProtectedPath(nameof(DevThrottleCredentialBlob), DevThrottleCredentialBlob(), "the encrypted DevThrottle account credential the Director holds"),
+        new ProtectedPath(nameof(GatewayDevThrottleCredentialBlob), GatewayDevThrottleCredentialBlob(), "the encrypted DevThrottle account credential the Gateway holds"),
+        new ProtectedPath(nameof(Browsers), Browsers(), "the automation browser root, which holds browser profiles signed in as the owner"),
+        new ProtectedPath(nameof(Connections), Connections(), "the browser connections directory, which holds browser profiles signed in as the owner")
+    ];
 }
