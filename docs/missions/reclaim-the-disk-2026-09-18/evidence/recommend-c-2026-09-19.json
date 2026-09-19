@@ -1,0 +1,1974 @@
+{
+  "command": "recommend",
+  "ok": true,
+  "verdict": "ok",
+  "brokenReason": null,
+  "rootPath": "C:\\",
+  "indexPath": "C:\\Users\\soren\\AppData\\Local\\cc-director\\reclaim\\index\\c-28f709d79730.json",
+  "scannedUtc": "2026-09-19T22:05:36.9317256+00:00",
+  "rulesRun": 6,
+  "rulesBroken": 0,
+  "rulesNotRun": [],
+  "rulesSawMoreThanTheScan": false,
+  "itemsOffered": 208,
+  "reclaimableBytes": 55755888629,
+  "unclassifiedBytes": 640187692748,
+  "unseenBytes": 77178528063,
+  "volume": {
+    "available": true,
+    "name": "C:\\",
+    "totalBytes": 999149268992,
+    "usedBytes": 773122109440,
+    "freeBytes": 226027159552,
+    "unavailableReason": null
+  },
+  "reachLines": [
+    "volume: C:\\ is 999149268992 bytes (930.5 gigabytes), of which 773122109440 bytes (720.0 gigabytes) are used and 226027159552 bytes (210.5 gigabytes) are free",
+    "seen: 695943581377 bytes (648.1 gigabytes) in 3531656 files and 1168877 folders",
+    "unseen: 77178528063 bytes (71.9 gigabytes) that the volume counts as used and this scan did not see",
+    "refused: 245 folders refused a listing, and every one of them is named below"
+  ],
+  "rules": [
+    {
+      "rule": "orphaned-windows-installer-packages",
+      "name": "Orphaned Windows installer packages",
+      "proof": "SystemRecord",
+      "proofInWords": "a record the system keeps says nothing needs it",
+      "verdict": "ok",
+      "ok": true,
+      "brokenReason": null,
+      "whatItRemoves": "cached installer package files in C:\\WINDOWS\\Installer that no installed product and no applied patch points at",
+      "whyItIsSafe": "Windows records, for every installed product and every applied patch, the cached package it needs to repair or uninstall that thing; a package no record names cannot be asked for",
+      "whatIsLost": "nothing that is installed: these packages belong to products and patches that are no longer installed, or to installs that left their cache behind",
+      "howToGetItBack": "from the holding folder until it is purged; after that only by obtaining the original installer again, and for a package whose product is gone there is nothing left that would ask for it",
+      "ageGateDays": 30,
+      "needsAdministrator": true,
+      "commandToRun": "run cc-cleanup-storage from a command prompt opened with Run as administrator",
+      "controls": [
+        {
+          "name": "records-read",
+          "count": 576,
+          "mustNotBeEmpty": true
+        },
+        {
+          "name": "records-found-on-disk",
+          "count": 576,
+          "mustNotBeEmpty": true
+        },
+        {
+          "name": "candidates-examined",
+          "count": 787,
+          "mustNotBeEmpty": true
+        },
+        {
+          "name": "product-records-read",
+          "count": 362,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "patch-records-read",
+          "count": 216,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "orphans-too-young-to-offer",
+          "count": 7,
+          "mustNotBeEmpty": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "C:\\WINDOWS\\Installer\\10033dfe.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-06-11T09:50:02+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10033e11.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-06-11T09:54:46+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10033e27.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-06-11T10:31:46+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10033e3b.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-06-11T10:37:48+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\100dfcbd.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2026-06-29T21:28:39.1182654+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10602bdc.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2026-02-21T14:03:18.8489973+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1072319.msp",
+          "bytes": 90542080,
+          "sizeInWords": "86.3 megabytes",
+          "lastWrittenUtc": "2026-08-11T05:43:44+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1093a971.msp",
+          "bytes": 941375488,
+          "sizeInWords": "897.8 megabytes",
+          "lastWrittenUtc": "2025-01-30T11:25:35+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\109ee.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-08-16T15:46:45.710351+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10a9f.msi",
+          "bytes": 14049280,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-08-16T15:46:46.0025663+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10c20.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-07-26T04:36:12.0038178+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10cd1.msi",
+          "bytes": 14045184,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-07-26T04:36:13.2640043+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10e14.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2026-05-05T19:51:13.423889+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10e23e24.msp",
+          "bytes": 745459712,
+          "sizeInWords": "710.9 megabytes",
+          "lastWrittenUtc": "2025-09-30T11:30:41+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\10e23e28.msp",
+          "bytes": 745459712,
+          "sizeInWords": "710.9 megabytes",
+          "lastWrittenUtc": "2025-09-30T11:30:41+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1133f6ea.msp",
+          "bytes": 1197608960,
+          "sizeInWords": "1.1 gigabytes",
+          "lastWrittenUtc": "2025-09-30T11:30:55+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1139a7b4.msi",
+          "bytes": 8441856,
+          "sizeInWords": "8.1 megabytes",
+          "lastWrittenUtc": "2026-02-14T17:16:56.5306366+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\12135c8d.msp",
+          "bytes": 754212864,
+          "sizeInWords": "719.3 megabytes",
+          "lastWrittenUtc": "2025-11-03T12:17:50+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1224907b.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-11-01T18:02:53.704885+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\12640.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-07-15T23:22:31.0482665+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\126f1.msi",
+          "bytes": 14045184,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-07-15T23:22:32.2793472+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\12e7d.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-03-09T16:57:22.3434471+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\12f2e.msi",
+          "bytes": 14020608,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-03-09T16:57:23.5783739+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1357cb50.msi",
+          "bytes": 14028800,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-06-24T09:37:45.9916413+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1404a72.msi",
+          "bytes": 176250880,
+          "sizeInWords": "168.1 megabytes",
+          "lastWrittenUtc": "2025-05-05T17:47:15.001826+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\140977b.msi",
+          "bytes": 4677632,
+          "sizeInWords": "4.5 megabytes",
+          "lastWrittenUtc": "2026-06-19T12:46:22+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\140c5a2.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2026-06-26T04:50:42+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\141a45dc.msp",
+          "bytes": 34009088,
+          "sizeInWords": "32.4 megabytes",
+          "lastWrittenUtc": "2026-02-02T09:51:08+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\14cc1b21.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-12-07T23:02:57.7635671+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1626f8bf.msi",
+          "bytes": 14016512,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-05-06T20:57:35.8173516+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\16309994.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-08-01T23:32:35.2049434+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\16309a45.msi",
+          "bytes": 14053376,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-08-01T23:32:36.4781794+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\16e3b285.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-03-15T19:22:01.2337799+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\16e3b336.msi",
+          "bytes": 14024704,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-03-15T19:22:02.4650789+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\16e68fcc.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-01-12T16:08:46.8088122+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\16e6907d.msi",
+          "bytes": 14020608,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-01-12T16:08:48.0488773+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\18155457.msp",
+          "bytes": 783446016,
+          "sizeInWords": "747.2 megabytes",
+          "lastWrittenUtc": "2026-02-06T08:46:02+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1815545b.msp",
+          "bytes": 783446016,
+          "sizeInWords": "747.2 megabytes",
+          "lastWrittenUtc": "2026-02-06T08:46:02+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\190dc7b.msp",
+          "bytes": 1260605440,
+          "sizeInWords": "1.2 gigabytes",
+          "lastWrittenUtc": "2025-12-08T11:38:53+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\19198405.msi",
+          "bytes": 13996032,
+          "sizeInWords": "13.3 megabytes",
+          "lastWrittenUtc": "2024-12-14T16:59:41.8434588+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\193c8290.msp",
+          "bytes": 162926592,
+          "sizeInWords": "155.4 megabytes",
+          "lastWrittenUtc": "2026-07-31T11:38:12+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\193c8294.msp",
+          "bytes": 162926592,
+          "sizeInWords": "155.4 megabytes",
+          "lastWrittenUtc": "2026-07-31T11:38:12+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\19db9ad5.msp",
+          "bytes": 914296832,
+          "sizeInWords": "871.9 megabytes",
+          "lastWrittenUtc": "2026-07-31T11:38:22+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\19e1ceab.msi",
+          "bytes": 8441856,
+          "sizeInWords": "8.1 megabytes",
+          "lastWrittenUtc": "2026-03-29T14:49:17.6745684+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1a516cf1.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-10-05T08:10:18.7192905+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1bf4c4ec.msi",
+          "bytes": 684032,
+          "sizeInWords": "668.0 kilobytes",
+          "lastWrittenUtc": "2025-07-14T18:39:32.5957578+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1bf4c4f9.msi",
+          "bytes": 2441216,
+          "sizeInWords": "2.3 megabytes",
+          "lastWrittenUtc": "2025-07-14T18:39:32.7424888+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1bf4c794.msi",
+          "bytes": 512000,
+          "sizeInWords": "500.0 kilobytes",
+          "lastWrittenUtc": "2025-07-14T18:39:33.3967842+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1bf4c844.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-07-14T18:39:34.6751635+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1bf4c856.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-07-14T18:39:34.9515475+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1bf4c94d.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-07-14T18:39:39.1418854+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1bf4c972.msi",
+          "bytes": 454656,
+          "sizeInWords": "444.0 kilobytes",
+          "lastWrittenUtc": "2025-07-14T18:39:40.1496215+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1bf4c981.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-07-14T18:39:40.4265313+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1d43d7b1.msi",
+          "bytes": 14028800,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-07-02T15:16:28.9197944+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1d5f2fbe.msp",
+          "bytes": 89092096,
+          "sizeInWords": "85.0 megabytes",
+          "lastWrittenUtc": "2026-04-13T11:39:16+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1df69069.msi",
+          "bytes": 688128,
+          "sizeInWords": "672.0 kilobytes",
+          "lastWrittenUtc": "2025-10-14T18:00:26.6691659+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1df69076.msi",
+          "bytes": 2465792,
+          "sizeInWords": "2.4 megabytes",
+          "lastWrittenUtc": "2025-10-14T18:00:26.8783591+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1df69311.msi",
+          "bytes": 512000,
+          "sizeInWords": "500.0 kilobytes",
+          "lastWrittenUtc": "2025-10-14T18:00:27.7120188+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1df693c2.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-10-14T18:00:29.7141238+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1df693d4.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-10-14T18:00:30.0301707+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1df694cb.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-10-14T18:00:35.8480048+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1df694f0.msi",
+          "bytes": 454656,
+          "sizeInWords": "444.0 kilobytes",
+          "lastWrittenUtc": "2025-10-14T18:00:37.1999375+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1df694ff.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-10-14T18:00:37.5868885+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1ef93fb.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2026-04-23T00:19:40.7997084+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\1fcf2107.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-09-26T07:39:10+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\20d7c0b4.msi",
+          "bytes": 1392640,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-05-17T00:00:16+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\21283c07.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-10-28T17:47:18+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\212fb706.msi",
+          "bytes": 14024704,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-05-20T15:09:00.2348967+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\21b7c5c9.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2026-07-23T15:08:20+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\22b1f511.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2024-10-29T10:16:16+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\22b1f524.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2024-10-29T10:21:20+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\24e57ce.msp",
+          "bytes": 745037824,
+          "sizeInWords": "710.5 megabytes",
+          "lastWrittenUtc": "2025-11-19T15:34:50+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\2597d579.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2026-03-20T12:40:04+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\27456abe.msp",
+          "bytes": 817414144,
+          "sizeInWords": "779.5 megabytes",
+          "lastWrittenUtc": "2026-01-20T06:55:10+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\274da63.msi",
+          "bytes": 8441856,
+          "sizeInWords": "8.1 megabytes",
+          "lastWrittenUtc": "2026-06-02T02:58:36.4110125+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\28f733b1.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-11-22T04:12:18+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\28f733c5.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-11-22T04:18:36+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\28f733db.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-11-22T03:25:12+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\28f733ee.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-11-22T03:31:14+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\29d406e.msp",
+          "bytes": 557998080,
+          "sizeInWords": "532.1 megabytes",
+          "lastWrittenUtc": "2025-06-09T10:57:38+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\2aa5f.msp",
+          "bytes": 512196608,
+          "sizeInWords": "488.5 megabytes",
+          "lastWrittenUtc": "2025-03-07T10:00:45+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\2ac170be.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-02-07T13:44:31.7332666+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\2ac1716f.msi",
+          "bytes": 14012416,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-02-07T13:44:31.9748035+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\2bc40a57.msi",
+          "bytes": 1392640,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-04-17T09:24:56+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\2fde788.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2026-07-08T17:25:05.0383283+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3014a9f.msi",
+          "bytes": 688128,
+          "sizeInWords": "672.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:22:09.9716041+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3014aac.msi",
+          "bytes": 2424832,
+          "sizeInWords": "2.3 megabytes",
+          "lastWrittenUtc": "2025-11-19T14:22:10.1321256+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3014d3c.msi",
+          "bytes": 512000,
+          "sizeInWords": "500.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:22:10.8867107+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3014def.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:22:12.3460482+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3014e01.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:22:12.6580828+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3014ef8.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:22:17.2453158+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3014f1d.msi",
+          "bytes": 454656,
+          "sizeInWords": "444.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:22:18.4136249+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3014f2c.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:22:18.7842193+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\301539f.msi",
+          "bytes": 49152,
+          "sizeInWords": "48.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:30:38.6577974+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\30153bd.msi",
+          "bytes": 49152,
+          "sizeInWords": "48.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:30:38.4423579+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\30153d4.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-10-11T03:46:40+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\30153e7.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-10-11T03:52:30+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\30153fd.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-10-11T04:29:16+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3015411.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-10-11T04:34:42+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3015427.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:30:41.7504627+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\301543f.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-11-19T14:30:42.1850126+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3053300c.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-07-06T13:45:03.6182961+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\305330bd.msi",
+          "bytes": 14049280,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-07-06T13:45:03.9391561+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\31d5a2a9.msi",
+          "bytes": 14020608,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-04-17T20:50:40.350675+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\32eb15f6.msi",
+          "bytes": 61440,
+          "sizeInWords": "60.0 kilobytes",
+          "lastWrittenUtc": "2025-06-03T14:49:23.9580324+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\32eb1625.msi",
+          "bytes": 49152,
+          "sizeInWords": "48.0 kilobytes",
+          "lastWrittenUtc": "2025-06-03T14:49:46.6556422+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\33039e8b.msi",
+          "bytes": 61440,
+          "sizeInWords": "60.0 kilobytes",
+          "lastWrittenUtc": "2025-06-03T15:15:16.3428109+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\33039e97.msi",
+          "bytes": 49152,
+          "sizeInWords": "48.0 kilobytes",
+          "lastWrittenUtc": "2025-06-03T15:15:43.0341928+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\33039e9d.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-05-24T04:22:50+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\33039eb0.msi",
+          "bytes": 204800,
+          "sizeInWords": "200.0 kilobytes",
+          "lastWrittenUtc": "2025-05-24T04:27:40+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\33039ec6.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-05-24T05:07:36+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\33039eda.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2025-05-24T05:13:06+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\33039fd8.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-06-03T15:28:46.1418838+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3303a12a.msi",
+          "bytes": 684032,
+          "sizeInWords": "668.0 kilobytes",
+          "lastWrittenUtc": "2025-06-03T15:31:25.5280327+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3303a135.msi",
+          "bytes": 3710976,
+          "sizeInWords": "3.5 megabytes",
+          "lastWrittenUtc": "2025-06-03T15:31:25.6735456+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3303a217.msi",
+          "bytes": 458752,
+          "sizeInWords": "448.0 kilobytes",
+          "lastWrittenUtc": "2025-06-03T15:31:32.305725+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3365d843.msi",
+          "bytes": 8441856,
+          "sizeInWords": "8.1 megabytes",
+          "lastWrittenUtc": "2026-03-21T04:01:25.651327+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\39f5e99.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-08-20T14:17:54+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3b3ed40.msi",
+          "bytes": 8441856,
+          "sizeInWords": "8.1 megabytes",
+          "lastWrittenUtc": "2026-03-03T16:01:15.1351572+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3e39ba.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-07-23T00:10:06+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\3f5d060.msp",
+          "bytes": 107458560,
+          "sizeInWords": "102.5 megabytes",
+          "lastWrittenUtc": "2026-06-25T04:20:25+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\429ded92.msi",
+          "bytes": 1384448,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-01-17T13:00:10+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\4a7b554.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2026-05-17T09:23:18.5941675+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\53ca5ee.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2026-05-20T02:44:52+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\568813a.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-08-24T13:56:31.1099029+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\56881eb.msi",
+          "bytes": 14053376,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-08-24T13:56:33.3399777+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\5a6d0c.msi",
+          "bytes": 177664,
+          "sizeInWords": "173.5 kilobytes",
+          "lastWrittenUtc": "2011-06-11T09:29:54+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\5a74.msi",
+          "bytes": 8441856,
+          "sizeInWords": "8.1 megabytes",
+          "lastWrittenUtc": "2025-06-03T15:37:32.5726782+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\5b25.msi",
+          "bytes": 14024704,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-06-03T15:37:36.8861781+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\5cbb6bf.msi",
+          "bytes": 8441856,
+          "sizeInWords": "8.1 megabytes",
+          "lastWrittenUtc": "2026-08-15T13:59:17.5153696+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\5cdc443.msp",
+          "bytes": 50528256,
+          "sizeInWords": "48.2 megabytes",
+          "lastWrittenUtc": "2025-08-25T09:50:30+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\6051517.msp",
+          "bytes": 643641344,
+          "sizeInWords": "613.8 megabytes",
+          "lastWrittenUtc": "2026-03-10T07:16:37+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\60706b4a.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2024-10-29T11:54:56+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\60706b5e.msi",
+          "bytes": 212992,
+          "sizeInWords": "208.0 kilobytes",
+          "lastWrittenUtc": "2024-10-29T11:59:12+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\633d4.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-04-06T21:19:17.5328442+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\63485.msi",
+          "bytes": 14028800,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-04-06T21:19:18.9905475+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\662cae6.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-02-13T10:28:26+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\6a314d8.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-10-17T03:55:58.1198485+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\6cedeae.msp",
+          "bytes": 165597184,
+          "sizeInWords": "157.9 megabytes",
+          "lastWrittenUtc": "2026-06-09T10:31:50+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\765a5a1.msi",
+          "bytes": 14024704,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-05-24T20:14:20.7581926+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\7952faa.msp",
+          "bytes": 608509952,
+          "sizeInWords": "580.3 megabytes",
+          "lastWrittenUtc": "2025-09-08T13:32:57+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\7afb6fc.msi",
+          "bytes": 202194944,
+          "sizeInWords": "192.8 megabytes",
+          "lastWrittenUtc": "2025-05-15T18:29:55.7793494+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8935ec5.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-10-09T17:04:28.996764+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\89c902.msi",
+          "bytes": 7122944,
+          "sizeInWords": "6.8 megabytes",
+          "lastWrittenUtc": "2025-05-07T16:01:22+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8c14c2d.msi",
+          "bytes": 1392640,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-06-18T00:06:28+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8c411df.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-08-09T17:33:32.940559+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8c41290.msi",
+          "bytes": 14053376,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-08-09T17:33:33.1781681+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8e8dd1f.msi",
+          "bytes": 8441856,
+          "sizeInWords": "8.1 megabytes",
+          "lastWrittenUtc": "2026-03-10T08:43:02.2644998+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8e8f1e8.msi",
+          "bytes": 1384448,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2024-12-04T12:01:34+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8e9b927.msp",
+          "bytes": 388993024,
+          "sizeInWords": "371.0 megabytes",
+          "lastWrittenUtc": "2026-04-02T10:15:20+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8e9b92b.msp",
+          "bytes": 388993024,
+          "sizeInWords": "371.0 megabytes",
+          "lastWrittenUtc": "2026-04-02T10:15:20+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8f21.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2024-12-06T21:43:23.5936112+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\8fd2.msi",
+          "bytes": 14000128,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2024-12-06T21:43:25.1038377+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\9012.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-02-13T23:05:05.1134872+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\90c3.msi",
+          "bytes": 14016512,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-02-13T23:05:06.3565435+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\95d10ed.msp",
+          "bytes": 879628288,
+          "sizeInWords": "838.9 megabytes",
+          "lastWrittenUtc": "2026-04-02T10:15:39+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\963e646.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2026-02-13T10:24:22+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\97a45f.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-09-07T19:55:24.8378194+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\98162e6.msp",
+          "bytes": 618455040,
+          "sizeInWords": "589.8 megabytes",
+          "lastWrittenUtc": "2025-08-18T07:15:18+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\98162ea.msp",
+          "bytes": 618455040,
+          "sizeInWords": "589.8 megabytes",
+          "lastWrittenUtc": "2025-08-18T07:15:18+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\990b.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-01-20T14:45:13.8418541+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\99bc.msi",
+          "bytes": 14020608,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-01-12T16:08:48.0488773+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\9a472f9.msp",
+          "bytes": 1060712448,
+          "sizeInWords": "1011.6 megabytes",
+          "lastWrittenUtc": "2025-08-18T07:15:29+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\9b409e5.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2026-01-23T01:09:06+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\9b54203.msi",
+          "bytes": 176615424,
+          "sizeInWords": "168.4 megabytes",
+          "lastWrittenUtc": "2025-06-13T01:47:31.9787784+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\9d01a63.msp",
+          "bytes": 532463616,
+          "sizeInWords": "507.8 megabytes",
+          "lastWrittenUtc": "2024-12-09T12:08:44+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\9f96688.msi",
+          "bytes": 8437760,
+          "sizeInWords": "8.0 megabytes",
+          "lastWrittenUtc": "2025-10-25T20:56:24.5570217+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\a123a7d.msp",
+          "bytes": 201748480,
+          "sizeInWords": "192.4 megabytes",
+          "lastWrittenUtc": "2026-04-30T10:33:46+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\a22e1.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-12-10T03:54:38+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\a7fb.msi",
+          "bytes": 14028800,
+          "sizeInWords": "13.4 megabytes",
+          "lastWrittenUtc": "2025-06-10T08:24:56.7687058+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\a931212.msp",
+          "bytes": 88752128,
+          "sizeInWords": "84.6 megabytes",
+          "lastWrittenUtc": "2026-05-15T05:11:36+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\a931216.msp",
+          "bytes": 88752128,
+          "sizeInWords": "84.6 megabytes",
+          "lastWrittenUtc": "2026-05-15T05:11:36+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\ae3a996.msi",
+          "bytes": 688128,
+          "sizeInWords": "672.0 kilobytes",
+          "lastWrittenUtc": "2025-11-07T16:55:43.3924864+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\ae3a9a3.msi",
+          "bytes": 2424832,
+          "sizeInWords": "2.3 megabytes",
+          "lastWrittenUtc": "2025-11-07T16:55:43.5634351+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\ae3ac27.msi",
+          "bytes": 512000,
+          "sizeInWords": "500.0 kilobytes",
+          "lastWrittenUtc": "2025-11-07T16:55:44.3966928+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\ae3acd9.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-11-07T16:55:45.9856899+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\ae3aceb.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-11-07T16:55:46.299182+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\ae3ade8.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-11-07T16:55:51.3491233+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\ae3ae0d.msi",
+          "bytes": 454656,
+          "sizeInWords": "444.0 kilobytes",
+          "lastWrittenUtc": "2025-11-07T16:55:52.5614896+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\ae3ae1c.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2025-11-07T16:55:52.8642835+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\b09aba4.msi",
+          "bytes": 175616000,
+          "sizeInWords": "167.5 megabytes",
+          "lastWrittenUtc": "2025-04-09T00:40:00.9010316+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\b5056f4.msi",
+          "bytes": 1388544,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2025-03-16T05:15:10+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\b50c58c.msp",
+          "bytes": 524062720,
+          "sizeInWords": "499.8 megabytes",
+          "lastWrittenUtc": "2025-07-17T07:12:43+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\b5125ec.msp",
+          "bytes": 881876992,
+          "sizeInWords": "841.0 megabytes",
+          "lastWrittenUtc": "2026-05-15T05:11:44+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\b63ad7.msi",
+          "bytes": 1392640,
+          "sizeInWords": "1.3 megabytes",
+          "lastWrittenUtc": "2026-04-30T16:02:36+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\beda6.msp",
+          "bytes": 983121920,
+          "sizeInWords": "937.6 megabytes",
+          "lastWrittenUtc": "2025-04-28T09:59:55+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\c54fb.msp",
+          "bytes": 463290368,
+          "sizeInWords": "441.8 megabytes",
+          "lastWrittenUtc": "2025-02-24T08:27:13+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\d0a573.msp",
+          "bytes": 806694912,
+          "sizeInWords": "769.3 megabytes",
+          "lastWrittenUtc": "2025-12-08T11:38:40+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\d0a577.msp",
+          "bytes": 806694912,
+          "sizeInWords": "769.3 megabytes",
+          "lastWrittenUtc": "2025-12-08T11:38:40+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\d828e.msp",
+          "bytes": 1284026368,
+          "sizeInWords": "1.2 gigabytes",
+          "lastWrittenUtc": "2026-02-06T08:46:16+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\d9102b2.msp",
+          "bytes": 470405120,
+          "sizeInWords": "448.6 megabytes",
+          "lastWrittenUtc": "2025-03-19T08:35:53+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\d9102b6.msp",
+          "bytes": 470405120,
+          "sizeInWords": "448.6 megabytes",
+          "lastWrittenUtc": "2025-03-19T08:35:53+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\e51d946.msp",
+          "bytes": 961388544,
+          "sizeInWords": "916.9 megabytes",
+          "lastWrittenUtc": "2025-03-19T08:36:09+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f00b643.msi",
+          "bytes": 688128,
+          "sizeInWords": "672.0 kilobytes",
+          "lastWrittenUtc": "2026-02-18T17:06:51.4175301+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f00b653.msi",
+          "bytes": 2424832,
+          "sizeInWords": "2.3 megabytes",
+          "lastWrittenUtc": "2026-02-18T17:06:51.718642+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f00b8e6.msi",
+          "bytes": 512000,
+          "sizeInWords": "500.0 kilobytes",
+          "lastWrittenUtc": "2026-02-18T17:06:52.8632788+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f00b9de.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2026-02-18T17:06:55.0227266+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f00ba14.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2026-02-18T17:06:55.4846606+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f00bff0.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2026-02-18T17:07:01.8068457+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f00c16f.msi",
+          "bytes": 454656,
+          "sizeInWords": "444.0 kilobytes",
+          "lastWrittenUtc": "2026-02-18T17:07:03.451541+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f00c1e1.msi",
+          "bytes": 450560,
+          "sizeInWords": "440.0 kilobytes",
+          "lastWrittenUtc": "2026-02-18T17:07:03.8837767+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\f1888bd.msp",
+          "bytes": 655192064,
+          "sizeInWords": "624.8 megabytes",
+          "lastWrittenUtc": "2026-02-18T08:44:16+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\fd2efea.msp",
+          "bytes": 526508032,
+          "sizeInWords": "502.1 megabytes",
+          "lastWrittenUtc": "2025-01-30T11:24:36+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        },
+        {
+          "path": "C:\\WINDOWS\\Installer\\fd2efee.msp",
+          "bytes": 526508032,
+          "sizeInWords": "502.1 megabytes",
+          "lastWrittenUtc": "2025-01-30T11:24:36+00:00",
+          "why": "no installed product and no applied patch names this file, and it is older than the age gate"
+        }
+      ],
+      "itemsOffered": 204,
+      "bytes": 28550125056,
+      "lines": [
+        "rule: orphaned-windows-installer-packages",
+        "name: Orphaned Windows installer packages",
+        "proof: a record the system keeps says nothing needs it",
+        "verdict: ok",
+        "items: 204",
+        "reclaimable: 28550125056 bytes (26.6 gigabytes)",
+        "removes: cached installer package files in C:\\WINDOWS\\Installer that no installed product and no applied patch points at",
+        "safe-because: Windows records, for every installed product and every applied patch, the cached package it needs to repair or uninstall that thing; a package no record names cannot be asked for",
+        "what-is-lost: nothing that is installed: these packages belong to products and patches that are no longer installed, or to installs that left their cache behind",
+        "how-to-get-it-back: from the holding folder until it is purged; after that only by obtaining the original installer again, and for a package whose product is gone there is nothing left that would ask for it",
+        "age-gate: 30 days",
+        "needs-administrator: yes",
+        "command: run cc-cleanup-storage from a command prompt opened with Run as administrator",
+        "control-records-read: 576",
+        "control-records-found-on-disk: 576",
+        "control-candidates-examined: 787",
+        "control-product-records-read: 362",
+        "control-patch-records-read: 216",
+        "control-orphans-too-young-to-offer: 7"
+      ]
+    },
+    {
+      "rule": "npm-cache",
+      "name": "The npm package cache",
+      "proof": "OwnersOwnCommand",
+      "proofInWords": "the tool that made the data has its own command to clear it",
+      "verdict": "ok",
+      "ok": true,
+      "brokenReason": null,
+      "whatItRemoves": "the contents of C:\\Users\\soren\\AppData\\Local\\npm-cache, by running the command its own tool ships",
+      "whyItIsSafe": "the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+      "whatIsLost": "nothing but the time to fetch a package again the next time a build asks for one; how long that takes depends on the size of the package and the connection, and is not known here",
+      "howToGetItBack": "it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+      "ageGateDays": 0,
+      "needsAdministrator": false,
+      "commandToRun": "npm cache clean --force",
+      "controls": [
+        {
+          "name": "cache-folders-looked-for",
+          "count": 1,
+          "mustNotBeEmpty": true
+        },
+        {
+          "name": "cache-folders-found",
+          "count": 1,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "files-measured",
+          "count": 92262,
+          "mustNotBeEmpty": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "C:\\Users\\soren\\AppData\\Local\\npm-cache",
+          "bytes": 4832445846,
+          "sizeInWords": "4.5 gigabytes",
+          "lastWrittenUtc": "2026-09-19T22:04:23.1748379+00:00",
+          "why": "the whole cache, cleared by its own tool with: npm cache clean --force"
+        }
+      ],
+      "itemsOffered": 1,
+      "bytes": 4832445846,
+      "lines": [
+        "rule: npm-cache",
+        "name: The npm package cache",
+        "proof: the tool that made the data has its own command to clear it",
+        "verdict: ok",
+        "items: 1",
+        "reclaimable: 4832445846 bytes (4.5 gigabytes)",
+        "removes: the contents of C:\\Users\\soren\\AppData\\Local\\npm-cache, by running the command its own tool ships",
+        "safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+        "what-is-lost: nothing but the time to fetch a package again the next time a build asks for one; how long that takes depends on the size of the package and the connection, and is not known here",
+        "how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+        "age-gate: none",
+        "needs-administrator: no",
+        "command: npm cache clean --force",
+        "control-cache-folders-looked-for: 1",
+        "control-cache-folders-found: 1",
+        "control-files-measured: 92262"
+      ]
+    },
+    {
+      "rule": "pip-cache",
+      "name": "The pip package cache",
+      "proof": "OwnersOwnCommand",
+      "proofInWords": "the tool that made the data has its own command to clear it",
+      "verdict": "ok",
+      "ok": true,
+      "brokenReason": null,
+      "whatItRemoves": "the contents of C:\\Users\\soren\\AppData\\Local\\pip\\Cache, by running the command its own tool ships",
+      "whyItIsSafe": "the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+      "whatIsLost": "nothing but the time to download a wheel again the next time one is installed; how long that takes is not known here",
+      "howToGetItBack": "it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+      "ageGateDays": 0,
+      "needsAdministrator": false,
+      "commandToRun": "pip cache purge",
+      "controls": [
+        {
+          "name": "cache-folders-looked-for",
+          "count": 1,
+          "mustNotBeEmpty": true
+        },
+        {
+          "name": "cache-folders-found",
+          "count": 1,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "files-measured",
+          "count": 7964,
+          "mustNotBeEmpty": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "C:\\Users\\soren\\AppData\\Local\\pip\\Cache",
+          "bytes": 4726368455,
+          "sizeInWords": "4.4 gigabytes",
+          "lastWrittenUtc": "2026-09-18T23:51:12.2081047+00:00",
+          "why": "the whole cache, cleared by its own tool with: pip cache purge"
+        }
+      ],
+      "itemsOffered": 1,
+      "bytes": 4726368455,
+      "lines": [
+        "rule: pip-cache",
+        "name: The pip package cache",
+        "proof: the tool that made the data has its own command to clear it",
+        "verdict: ok",
+        "items: 1",
+        "reclaimable: 4726368455 bytes (4.4 gigabytes)",
+        "removes: the contents of C:\\Users\\soren\\AppData\\Local\\pip\\Cache, by running the command its own tool ships",
+        "safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+        "what-is-lost: nothing but the time to download a wheel again the next time one is installed; how long that takes is not known here",
+        "how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+        "age-gate: none",
+        "needs-administrator: no",
+        "command: pip cache purge",
+        "control-cache-folders-looked-for: 1",
+        "control-cache-folders-found: 1",
+        "control-files-measured: 7964"
+      ]
+    },
+    {
+      "rule": "uv-cache",
+      "name": "The uv package cache",
+      "proof": "OwnersOwnCommand",
+      "proofInWords": "the tool that made the data has its own command to clear it",
+      "verdict": "ok",
+      "ok": true,
+      "brokenReason": null,
+      "whatItRemoves": "the contents of C:\\Users\\soren\\AppData\\Local\\uv\\cache, by running the command its own tool ships",
+      "whyItIsSafe": "the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+      "whatIsLost": "nothing but the time to fetch a package again; uv refills its cache as it installs, and how long that takes is not known here",
+      "howToGetItBack": "it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+      "ageGateDays": 0,
+      "needsAdministrator": false,
+      "commandToRun": "uv cache clean",
+      "controls": [
+        {
+          "name": "cache-folders-looked-for",
+          "count": 1,
+          "mustNotBeEmpty": true
+        },
+        {
+          "name": "cache-folders-found",
+          "count": 1,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "files-measured",
+          "count": 172699,
+          "mustNotBeEmpty": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "C:\\Users\\soren\\AppData\\Local\\uv\\cache",
+          "bytes": 5926169194,
+          "sizeInWords": "5.5 gigabytes",
+          "lastWrittenUtc": "2026-09-18T23:50:57.0198221+00:00",
+          "why": "the whole cache, cleared by its own tool with: uv cache clean"
+        }
+      ],
+      "itemsOffered": 1,
+      "bytes": 5926169194,
+      "lines": [
+        "rule: uv-cache",
+        "name: The uv package cache",
+        "proof: the tool that made the data has its own command to clear it",
+        "verdict: ok",
+        "items: 1",
+        "reclaimable: 5926169194 bytes (5.5 gigabytes)",
+        "removes: the contents of C:\\Users\\soren\\AppData\\Local\\uv\\cache, by running the command its own tool ships",
+        "safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+        "what-is-lost: nothing but the time to fetch a package again; uv refills its cache as it installs, and how long that takes is not known here",
+        "how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+        "age-gate: none",
+        "needs-administrator: no",
+        "command: uv cache clean",
+        "control-cache-folders-looked-for: 1",
+        "control-cache-folders-found: 1",
+        "control-files-measured: 172699"
+      ]
+    },
+    {
+      "rule": "nuget-cache",
+      "name": "The NuGet package caches",
+      "proof": "OwnersOwnCommand",
+      "proofInWords": "the tool that made the data has its own command to clear it",
+      "verdict": "ok",
+      "ok": true,
+      "brokenReason": null,
+      "whatItRemoves": "the contents of C:\\Users\\soren\\.nuget\\packages, by running the command its own tool ships",
+      "whyItIsSafe": "the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+      "whatIsLost": "nothing but the time for the next build to restore its packages again, which for a large solution is minutes rather than seconds; the exact time is not known here",
+      "howToGetItBack": "it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+      "ageGateDays": 0,
+      "needsAdministrator": false,
+      "commandToRun": "dotnet nuget locals all --clear",
+      "controls": [
+        {
+          "name": "cache-folders-looked-for",
+          "count": 1,
+          "mustNotBeEmpty": true
+        },
+        {
+          "name": "cache-folders-found",
+          "count": 1,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "files-measured",
+          "count": 41831,
+          "mustNotBeEmpty": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "C:\\Users\\soren\\.nuget\\packages",
+          "bytes": 11720780078,
+          "sizeInWords": "10.9 gigabytes",
+          "lastWrittenUtc": "2026-09-16T18:06:31.1940772+00:00",
+          "why": "the whole cache, cleared by its own tool with: dotnet nuget locals all --clear"
+        }
+      ],
+      "itemsOffered": 1,
+      "bytes": 11720780078,
+      "lines": [
+        "rule: nuget-cache",
+        "name: The NuGet package caches",
+        "proof: the tool that made the data has its own command to clear it",
+        "verdict: ok",
+        "items: 1",
+        "reclaimable: 11720780078 bytes (10.9 gigabytes)",
+        "removes: the contents of C:\\Users\\soren\\.nuget\\packages, by running the command its own tool ships",
+        "safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+        "what-is-lost: nothing but the time for the next build to restore its packages again, which for a large solution is minutes rather than seconds; the exact time is not known here",
+        "how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+        "age-gate: none",
+        "needs-administrator: no",
+        "command: dotnet nuget locals all --clear",
+        "control-cache-folders-looked-for: 1",
+        "control-cache-folders-found: 1",
+        "control-files-measured: 41831"
+      ]
+    },
+    {
+      "rule": "devthrottle-test-scratch-folders",
+      "name": "DevThrottle test scratch folders in the temporary folder",
+      "proof": "WeMadeIt",
+      "proofInWords": "we made it, by an exact name, and it is old and closed",
+      "verdict": "ok",
+      "ok": true,
+      "brokenReason": null,
+      "whatItRemoves": "folders in C:\\Users\\soren\\AppData\\Local\\Temp\\ created by DevThrottle\u0027s own test suites, by one of 16 exact names, with nothing in them open",
+      "whyItIsSafe": "each name is created by DevThrottle\u0027s own code and by nothing else, and only from a test project: the folder held one test run\u0027s scratch work and that run ended",
+      "whatIsLost": "the scratch files of test runs that have already finished. No test reads them again and no product reads them at all",
+      "howToGetItBack": "from the holding folder until it is purged. After that, by running the suite again, which builds its own scratch tree from nothing every time",
+      "ageGateDays": 7,
+      "needsAdministrator": false,
+      "commandToRun": null,
+      "controls": [
+        {
+          "name": "names-looked-for",
+          "count": 16,
+          "mustNotBeEmpty": true
+        },
+        {
+          "name": "folders-examined",
+          "count": 27169,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "folders-matching-one-of-our-names",
+          "count": 4464,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "matches-too-young-to-offer",
+          "count": 4464,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "matches-with-a-file-still-open",
+          "count": 0,
+          "mustNotBeEmpty": false
+        },
+        {
+          "name": "matches-that-would-not-be-listed",
+          "count": 0,
+          "mustNotBeEmpty": false
+        }
+      ],
+      "candidates": [],
+      "itemsOffered": 0,
+      "bytes": 0,
+      "lines": [
+        "rule: devthrottle-test-scratch-folders",
+        "name: DevThrottle test scratch folders in the temporary folder",
+        "proof: we made it, by an exact name, and it is old and closed",
+        "verdict: ok",
+        "items: 0",
+        "reclaimable: 0 bytes",
+        "removes: folders in C:\\Users\\soren\\AppData\\Local\\Temp\\ created by DevThrottle\u0027s own test suites, by one of 16 exact names, with nothing in them open",
+        "safe-because: each name is created by DevThrottle\u0027s own code and by nothing else, and only from a test project: the folder held one test run\u0027s scratch work and that run ended",
+        "what-is-lost: the scratch files of test runs that have already finished. No test reads them again and no product reads them at all",
+        "how-to-get-it-back: from the holding folder until it is purged. After that, by running the suite again, which builds its own scratch tree from nothing every time",
+        "age-gate: 7 days",
+        "needs-administrator: no",
+        "control-names-looked-for: 16",
+        "control-folders-examined: 27169",
+        "control-folders-matching-one-of-our-names: 4464",
+        "control-matches-too-young-to-offer: 4464",
+        "control-matches-with-a-file-still-open: 0",
+        "control-matches-that-would-not-be-listed: 0"
+      ]
+    }
+  ],
+  "lines": [
+    "verdict: ok",
+    "root: C:\\",
+    "rules-run: 6",
+    "rules-broken: 0",
+    "items-offered: 208",
+    "reclaimable: 55755888629 bytes (51.9 gigabytes)",
+    "volume: C:\\ is 999149268992 bytes (930.5 gigabytes), of which 773122109440 bytes (720.0 gigabytes) are used and 226027159552 bytes (210.5 gigabytes) are free",
+    "seen: 695943581377 bytes (648.1 gigabytes) in 3531656 files and 1168877 folders",
+    "unseen: 77178528063 bytes (71.9 gigabytes) that the volume counts as used and this scan did not see",
+    "refused: 245 folders refused a listing, and every one of them is named below",
+    "unclassified: 640187692748 bytes (596.2 gigabytes) seen by the scan and matched by no rule, which is never offered for removal",
+    "",
+    "rule: orphaned-windows-installer-packages",
+    "name: Orphaned Windows installer packages",
+    "proof: a record the system keeps says nothing needs it",
+    "verdict: ok",
+    "items: 204",
+    "reclaimable: 28550125056 bytes (26.6 gigabytes)",
+    "removes: cached installer package files in C:\\WINDOWS\\Installer that no installed product and no applied patch points at",
+    "safe-because: Windows records, for every installed product and every applied patch, the cached package it needs to repair or uninstall that thing; a package no record names cannot be asked for",
+    "what-is-lost: nothing that is installed: these packages belong to products and patches that are no longer installed, or to installs that left their cache behind",
+    "how-to-get-it-back: from the holding folder until it is purged; after that only by obtaining the original installer again, and for a package whose product is gone there is nothing left that would ask for it",
+    "age-gate: 30 days",
+    "needs-administrator: yes",
+    "command: run cc-cleanup-storage from a command prompt opened with Run as administrator",
+    "control-records-read: 576",
+    "control-records-found-on-disk: 576",
+    "control-candidates-examined: 787",
+    "control-product-records-read: 362",
+    "control-patch-records-read: 216",
+    "control-orphans-too-young-to-offer: 7",
+    "",
+    "rule: npm-cache",
+    "name: The npm package cache",
+    "proof: the tool that made the data has its own command to clear it",
+    "verdict: ok",
+    "items: 1",
+    "reclaimable: 4832445846 bytes (4.5 gigabytes)",
+    "removes: the contents of C:\\Users\\soren\\AppData\\Local\\npm-cache, by running the command its own tool ships",
+    "safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+    "what-is-lost: nothing but the time to fetch a package again the next time a build asks for one; how long that takes depends on the size of the package and the connection, and is not known here",
+    "how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+    "age-gate: none",
+    "needs-administrator: no",
+    "command: npm cache clean --force",
+    "control-cache-folders-looked-for: 1",
+    "control-cache-folders-found: 1",
+    "control-files-measured: 92262",
+    "",
+    "rule: pip-cache",
+    "name: The pip package cache",
+    "proof: the tool that made the data has its own command to clear it",
+    "verdict: ok",
+    "items: 1",
+    "reclaimable: 4726368455 bytes (4.4 gigabytes)",
+    "removes: the contents of C:\\Users\\soren\\AppData\\Local\\pip\\Cache, by running the command its own tool ships",
+    "safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+    "what-is-lost: nothing but the time to download a wheel again the next time one is installed; how long that takes is not known here",
+    "how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+    "age-gate: none",
+    "needs-administrator: no",
+    "command: pip cache purge",
+    "control-cache-folders-looked-for: 1",
+    "control-cache-folders-found: 1",
+    "control-files-measured: 7964",
+    "",
+    "rule: uv-cache",
+    "name: The uv package cache",
+    "proof: the tool that made the data has its own command to clear it",
+    "verdict: ok",
+    "items: 1",
+    "reclaimable: 5926169194 bytes (5.5 gigabytes)",
+    "removes: the contents of C:\\Users\\soren\\AppData\\Local\\uv\\cache, by running the command its own tool ships",
+    "safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+    "what-is-lost: nothing but the time to fetch a package again; uv refills its cache as it installs, and how long that takes is not known here",
+    "how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+    "age-gate: none",
+    "needs-administrator: no",
+    "command: uv cache clean",
+    "control-cache-folders-looked-for: 1",
+    "control-cache-folders-found: 1",
+    "control-files-measured: 172699",
+    "",
+    "rule: nuget-cache",
+    "name: The NuGet package caches",
+    "proof: the tool that made the data has its own command to clear it",
+    "verdict: ok",
+    "items: 1",
+    "reclaimable: 11720780078 bytes (10.9 gigabytes)",
+    "removes: the contents of C:\\Users\\soren\\.nuget\\packages, by running the command its own tool ships",
+    "safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else\u0027s store, because only that tool knows what its own store still needs",
+    "what-is-lost: nothing but the time for the next build to restore its packages again, which for a large solution is minutes rather than seconds; the exact time is not known here",
+    "how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back",
+    "age-gate: none",
+    "needs-administrator: no",
+    "command: dotnet nuget locals all --clear",
+    "control-cache-folders-looked-for: 1",
+    "control-cache-folders-found: 1",
+    "control-files-measured: 41831",
+    "",
+    "rule: devthrottle-test-scratch-folders",
+    "name: DevThrottle test scratch folders in the temporary folder",
+    "proof: we made it, by an exact name, and it is old and closed",
+    "verdict: ok",
+    "items: 0",
+    "reclaimable: 0 bytes",
+    "removes: folders in C:\\Users\\soren\\AppData\\Local\\Temp\\ created by DevThrottle\u0027s own test suites, by one of 16 exact names, with nothing in them open",
+    "safe-because: each name is created by DevThrottle\u0027s own code and by nothing else, and only from a test project: the folder held one test run\u0027s scratch work and that run ended",
+    "what-is-lost: the scratch files of test runs that have already finished. No test reads them again and no product reads them at all",
+    "how-to-get-it-back: from the holding folder until it is purged. After that, by running the suite again, which builds its own scratch tree from nothing every time",
+    "age-gate: 7 days",
+    "needs-administrator: no",
+    "control-names-looked-for: 16",
+    "control-folders-examined: 27169",
+    "control-folders-matching-one-of-our-names: 4464",
+    "control-matches-too-young-to-offer: 4464",
+    "control-matches-with-a-file-still-open: 0",
+    "control-matches-that-would-not-be-listed: 0",
+    "rules-not-run[0]{rule,name,looks-in}:"
+  ]
+}

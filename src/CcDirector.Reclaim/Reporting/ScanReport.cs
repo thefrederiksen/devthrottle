@@ -48,4 +48,18 @@ public sealed record ScanReport
 
     /// <summary>The report itself: finished sentences, printed as they stand.</summary>
     public required IReadOnlyList<string> Lines { get; init; }
+
+    /// <summary>
+    /// The lines that say how far this scan reached: what the volume holds, what the scan saw, the
+    /// difference between them, and the folders that refused a listing. They are a subset of
+    /// <see cref="Lines"/> and appear there in this order.
+    ///
+    /// They are carried as their own list because another report builds on this one and must repeat
+    /// them: a set of recommendations made against a scan that could not see a third of the disk
+    /// would read as a complete answer when it is not one. Picking them back out of
+    /// <see cref="Lines"/> by matching how each one starts would leave that reader silently without a
+    /// reach line the day a line here is reworded - a check whose pass condition is finding
+    /// something, quietly passing by finding nothing.
+    /// </summary>
+    public required IReadOnlyList<string> ReachLines { get; init; }
 }

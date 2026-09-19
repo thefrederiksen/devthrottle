@@ -264,7 +264,7 @@
       "name": "cc-cleanup-storage",
       "category": "data-utilities",
       "type": "dotnet",
-      "description": "Walk a disk, save what was seen, and report it - including how much of the disk the scan could not see",
+      "description": "Walk a disk, say what fills it, and recommend only what can be proven safe to remove - it never deletes, moves or changes anything",
       "built": true,
       "requirements": [".NET runtime"]
     },

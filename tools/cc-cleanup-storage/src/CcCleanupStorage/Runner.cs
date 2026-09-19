@@ -2,6 +2,7 @@ using System.Globalization;
 using CcDirector.Core.Utilities;
 using CcDirector.Reclaim.Indexing;
 using CcDirector.Reclaim.Reporting;
+using CcDirector.Reclaim.Rules;
 using CcDirector.Reclaim.Scanning;
 
 namespace CcCleanupStorage;
@@ -31,6 +32,7 @@ public static class Runner
             CommandName.SavedScans => SavedScans(request),
             CommandName.Scan => Scan(request),
             CommandName.Report => Report(request),
+            CommandName.Recommend => Recommend(request),
             _ => throw new InvalidOperationException($"There is no command {request.Command}.")
         };
 
@@ -157,6 +159,56 @@ public static class Runner
             ToJson("report", report, indexPath));
     }
 
+    private static Answer Recommend(Request request)
+    {
+        var folder = request.FolderPath
+            ?? throw new InvalidOperationException("A recommendation was asked for with no folder, which the command line refuses.");
+
+        // The recommendations are made against a saved scan, the same one a screen will render. They
+        // never walk the disk themselves: a caller who asked what is safe to remove did not ask for a
+        // three minute walk, and a command that quietly started one would be doing something nobody
+        // asked for. When there is no saved scan the answer says so and prints the command that makes
+        // one, rather than falling back to scanning.
+        var indexPath = ScanIndexStore.PathFor(request.IndexDirectory, folder);
+        var index = ScanIndexStore.Load(indexPath);
+        var scanReport = ScanReportBuilder.Build(index.Scan, request.LargestFolders);
+
+        var context = new RuleContext
+        {
+            ScanRootPath = index.Scan.RootPath,
+            NowUtc = DateTimeOffset.UtcNow
+        };
+
+        // Only the rules that look inside the folder that was asked about. The rest are named in the
+        // answer, never merely left out.
+        var selection = RuleSelection.For(MachineRules.ForThisMachine(), index.Scan.RootPath);
+
+        var findings = selection.ToRun
+            .Select(rule => RuleFold.Fold(rule, rule.Examine(context)))
+            .ToList();
+
+        var report = RecommendationBuilder.Build(scanReport, findings, selection.NotRun);
+
+        var lines = new List<string>(report.Lines)
+        {
+            string.Empty,
+            $"index: {indexPath}",
+            $"saved: {index.WrittenUtc.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)}",
+            "removal: this tool cannot remove anything. It reads, measures and explains"
+        };
+        lines.AddRange(AxiOutput.Help(
+        [
+            $"cc-cleanup-storage recommend \"{index.Scan.RootPath}\" --json",
+            $"cc-cleanup-storage report \"{index.Scan.RootPath}\"",
+            $"cc-cleanup-storage scan \"{index.Scan.RootPath}\""
+        ]));
+
+        return new Answer(
+            report.Verdict == ReportVerdict.Ok ? ExitCodes.Ok : ExitCodes.Failed,
+            lines,
+            ToRecommendJson(report, indexPath, index.WrittenUtc));
+    }
+
     private static Answer SavedScans(Request request)
     {
         var listing = ScanIndexStore.List(request.IndexDirectory);
@@ -240,7 +292,13 @@ public static class Runner
                 "report",
                 "cc-cleanup-storage report \"<folder>\" [flags]",
                 "report the saved scan of a folder",
-                CommandLine.ReportFlags)
+                CommandLine.ReportFlags),
+            new(
+                "recommend",
+                "recommend",
+                "cc-cleanup-storage recommend \"<folder>\" [flags]",
+                "say what is provably safe to remove, and why",
+                CommandLine.RecommendFlags)
         };
 
         var flags = new List<HelpFlagJson>
@@ -273,6 +331,12 @@ public static class Runner
             "  the bytes the scan saw, the bytes the volume counts as used, and the difference",
             "  between them, with every folder that refused a listing named underneath. A scan that",
             "  saw nothing reports broken, never that there is nothing there.",
+            "",
+            "what a recommendation always says:",
+            "  the rule, what it removes, the proof that it is safe, what is lost, how to get it",
+            "  back, and the rule's own controls. A rule that could not do its work reports broken",
+            "  and offers nothing, never that there is nothing to remove. Anything no rule matched",
+            "  is reported as unclassified and is never offered.",
             "",
             "what this tool does not do:",
             "  it never deletes, moves or changes anything. It reads."
@@ -315,6 +379,64 @@ public static class Runner
             Notes = notes
         });
     }
+
+    private static RecommendJson ToRecommendJson(
+        RecommendationReport report, string indexPath, DateTimeOffset scannedUtc) => new()
+    {
+        Command = "recommend",
+        Ok = report.Verdict == ReportVerdict.Ok,
+        Verdict = report.Verdict == ReportVerdict.Ok ? "ok" : "broken",
+        BrokenReason = report.BrokenReason,
+        RootPath = report.Scan.Scan.RootPath,
+        IndexPath = indexPath,
+        ScannedUtc = scannedUtc,
+        RulesRun = report.Findings.Count,
+        RulesBroken = report.BrokenRules.Count,
+        RulesNotRun = report.RulesNotRun
+            .Select(rule => new RuleNotRunJson(rule.RuleId, rule.RuleName, rule.LooksIn))
+            .ToList(),
+        RulesSawMoreThanTheScan = report.RulesSawMoreThanTheScan,
+        ItemsOffered = report.ItemsOffered,
+        ReclaimableBytes = report.ReclaimableBytes,
+        UnclassifiedBytes = report.UnclassifiedBytes,
+        UnseenBytes = report.Scan.UnseenBytes,
+        Volume = report.Scan.Scan.Volume,
+        ReachLines = report.Scan.ReachLines,
+        Rules = report.Findings.Select(ToRuleJson).ToList(),
+        Lines = report.Lines
+    };
+
+    private static RuleFindingJson ToRuleJson(RuleFinding finding) => new()
+    {
+        Rule = finding.RuleId,
+        Name = finding.RuleName,
+        Proof = finding.Proof.ToString(),
+        ProofInWords = RuleFinding.ProofWords(finding.Proof),
+        Verdict = finding.Verdict == RuleVerdict.Ok ? "ok" : "broken",
+        Ok = finding.Verdict == RuleVerdict.Ok,
+        BrokenReason = finding.BrokenReason,
+        WhatItRemoves = finding.WhatItRemoves,
+        WhyItIsSafe = finding.WhyItIsSafe,
+        WhatIsLost = finding.WhatIsLost,
+        HowToGetItBack = finding.HowToGetItBack,
+        AgeGateDays = finding.AgeGateDays,
+        NeedsAdministrator = finding.NeedsAdministrator,
+        CommandToRun = finding.CommandToRun,
+        Controls = finding.Controls
+            .Select(control => new RuleControlJson(control.Name, control.Count, control.MustNotBeEmpty))
+            .ToList(),
+        Candidates = finding.Candidates
+            .Select(candidate => new ReclaimCandidateJson(
+                candidate.Path,
+                candidate.Bytes,
+                SizeText.Describe(candidate.Bytes),
+                candidate.LastWrittenUtc,
+                candidate.Why))
+            .ToList(),
+        ItemsOffered = finding.Candidates.Count,
+        Bytes = finding.CandidateBytes,
+        Lines = finding.Lines
+    };
 
     private static ReportJson ToJson(string command, ScanReport report, string? indexPath) => new()
     {

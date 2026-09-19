@@ -48,10 +48,14 @@ public class CommandLineTests
     [Fact]
     public void Parse_ACommandThatDoesNotExist_IsAUsageErrorNamingTheCommandsThatDo()
     {
-        var error = Refused(["recommend", "C:\\"]);
+        // The word here was "recommend" until phase 2 made recommend a real command, which is exactly
+        // why the example is now one that will never be one: a test whose "no such thing" example
+        // quietly becomes a real thing stops testing what it was written to test.
+        var error = Refused(["not-a-command", "C:\\"]);
 
-        Assert.Contains("there is no command recommend", error, StringComparison.Ordinal);
-        Assert.Contains("scan and report", error, StringComparison.Ordinal);
+        Assert.Contains("there is no command not-a-command", error, StringComparison.Ordinal);
+        foreach (var command in new[] { "scan", "report", "recommend" })
+            Assert.Contains(command, error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -239,4 +243,40 @@ public class CommandLineTests
         Assert.NotNull(outcome.UsageError);
         return outcome.UsageError;
     }
+
+    /// <summary>
+    /// The recommend command is read exactly as scan and report are: it takes a folder, and the flags
+    /// the page names for it are the flags the reader takes.
+    /// </summary>
+    [Fact]
+    public void Parse_RecommendWithAFolder_IsRead()
+    {
+        var outcome = CommandLine.Parse(["recommend", "C:\\some\\folder"], "C:\\index");
+
+        Assert.Null(outcome.UsageError);
+        Assert.NotNull(outcome.Request);
+        Assert.Equal(CommandName.Recommend, outcome.Request.Command);
+        Assert.Equal("C:\\some\\folder", outcome.Request.FolderPath);
+        Assert.Equal("recommend", outcome.Request.CommandWord);
+    }
+
+    [Fact]
+    public void Parse_RecommendWithNoFolder_IsAUsageErrorNamingTheCommand()
+    {
+        var outcome = CommandLine.Parse(["recommend"], "C:\\index");
+
+        Assert.Null(outcome.Request);
+        Assert.Contains("needs a folder", outcome.UsageError!, StringComparison.Ordinal);
+        Assert.Contains("recommend", outcome.UsageError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_RecommendWithAFlagItDoesNotTake_IsRefusedNamingTheFlagsItDoes()
+    {
+        var outcome = CommandLine.Parse(["recommend", "C:\\some\\folder", "--folder-depth", "2"], "C:\\index");
+
+        Assert.Null(outcome.Request);
+        Assert.Contains("there is no flag --folder-depth", outcome.UsageError!, StringComparison.Ordinal);
+    }
+
 }

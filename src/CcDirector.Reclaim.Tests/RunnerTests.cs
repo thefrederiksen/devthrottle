@@ -1,6 +1,9 @@
 using System.Text.Json;
 using CcCleanupStorage;
+using CcDirector.Reclaim.Indexing;
 using CcDirector.Reclaim.Reporting;
+using CcDirector.Reclaim.Rules;
+using CcDirector.Reclaim.Windows;
 using Xunit;
 
 namespace CcDirector.Reclaim.Tests;
@@ -505,6 +508,121 @@ public class RunnerTests
         return read.RootElement.GetProperty("command").GetString() == "version" &&
                read.RootElement.GetProperty("ok").GetBoolean() &&
                read.RootElement.GetProperty("version").GetString() == Runner.VersionLine();
+    }
+
+    /// <summary>
+    /// A recommendation is made against a saved scan, never by walking the disk. A caller who asked
+    /// what is safe to remove did not ask for a three minute walk, so with no saved scan the answer
+    /// is the same refusal a report gives, naming the command that makes one.
+    /// </summary>
+    [Fact]
+    public void Run_RecommendWithNoSavedScan_RefusesAndNeverWalksTheDisk()
+    {
+        using var tree = StandardFixture.Build(nameof(Run_RecommendWithNoSavedScan_RefusesAndNeverWalksTheDisk));
+        using var home = new FixtureTree("index-home");
+
+        var thrown = Assert.Throws<FileNotFoundException>(
+            () => Runner.Run(Request(CommandName.Recommend, tree.Root, home.Root)));
+
+        Assert.Contains("cc-cleanup-storage scan", thrown.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Asked about a folder none of the machine's rules look inside, the answer is BROKEN with the
+    /// rules named - never exit nought and "nothing to remove", which is the same answer a genuinely
+    /// clean disk would give and is the failure this whole mission exists to prevent.
+    /// </summary>
+    [Fact]
+    public void Run_RecommendForAFolderNoRuleLooksInside_ReportsBrokenAndNamesTheRulesItDidNotRun()
+    {
+        using var tree = StandardFixture.Build(nameof(Run_RecommendForAFolderNoRuleLooksInside_ReportsBrokenAndNamesTheRulesItDidNotRun));
+        using var home = new FixtureTree("index-home");
+
+        Runner.Run(Request(CommandName.Scan, tree.Root, home.Root));
+        var answer = Runner.Run(Request(CommandName.Recommend, tree.Root, home.Root));
+
+        Assert.Equal(ExitCodes.Failed, answer.ExitCode);
+        var json = Assert.IsType<RecommendJson>(answer.JsonPayload);
+        Assert.False(json.Ok);
+        Assert.Equal("broken", json.Verdict);
+        Assert.Equal(0, json.RulesRun);
+        Assert.Contains("no rule ran at all", json.BrokenReason!, StringComparison.Ordinal);
+
+        // On Windows the machine has rules; they look elsewhere, and every one of them is named.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.NotEmpty(json.RulesNotRun);
+            Assert.All(json.RulesNotRun, rule => Assert.False(string.IsNullOrWhiteSpace(rule.LooksIn)));
+        }
+    }
+
+    /// <summary>
+    /// A recommendation that says only how many bytes could be freed is not one. Every part a caller
+    /// needs in order to decide is its own field, read here the way a machine reads it.
+    /// </summary>
+    [Fact]
+    public void Run_RecommendInMachineReadableForm_CarriesTheProofWhatIsLostAndHowToGetItBack()
+    {
+        using var tree = StandardFixture.Build(nameof(Run_RecommendInMachineReadableForm_CarriesTheProofWhatIsLostAndHowToGetItBack));
+        using var home = new FixtureTree("index-home");
+
+        Runner.Run(Request(CommandName.Scan, tree.Root, home.Root));
+        var answer = Runner.Run(Request(CommandName.Recommend, tree.Root, home.Root));
+
+        var written = JsonSerializer.Serialize(answer.JsonPayload, JsonShape.Options);
+        using var read = JsonDocument.Parse(written);
+        var root = read.RootElement;
+
+        Assert.Equal("recommend", root.GetProperty("command").GetString());
+        foreach (var field in new[]
+        {
+            "ok", "verdict", "brokenReason", "rootPath", "indexPath", "scannedUtc", "rulesRun",
+            "rulesBroken", "rulesNotRun", "rulesSawMoreThanTheScan", "itemsOffered", "reclaimableBytes",
+            "unclassifiedBytes", "unseenBytes", "volume", "reachLines", "rules", "lines"
+        })
+        {
+            Assert.True(root.TryGetProperty(field, out _), $"the machine-readable answer is missing {field}");
+        }
+
+        // The unseen gap travels with the recommendations, because recommendations made on a scan
+        // that could not see a third of the disk are not a complete answer.
+        Assert.NotEmpty(root.GetProperty("reachLines").EnumerateArray().ToList());
+    }
+
+    /// <summary>
+    /// Every field the mission requires of a recommendation reaches a machine reader: the rule, what
+    /// it removes, the proof, what is lost, how to get it back, and the rule's controls.
+    /// </summary>
+    [Fact]
+    public void Run_RecommendInMachineReadableForm_GivesEachRuleItsProofAndItsControls()
+    {
+        using var tree = StandardFixture.Build(nameof(Run_RecommendInMachineReadableForm_GivesEachRuleItsProofAndItsControls));
+        using var home = new FixtureTree("index-home");
+        using var cache = new FixtureTree("a-cache");
+        cache.File("one.tgz", 500);
+
+        Runner.Run(Request(CommandName.Scan, tree.Root, home.Root));
+        var scan = ScanIndexStore.Load(ScanIndexStore.PathFor(home.Root, tree.Root));
+
+        // One rule, pointed at a cache inside the folder that was asked about, so the answer has a
+        // rule in it on every platform this suite runs on.
+        var rule = new PackageCacheRule(
+            "a-cache", "A cache", cache.Root, "the command its own tool ships", "nothing but a download");
+        var findings = new[] { RuleFold.Fold(rule, rule.Examine(new RuleContext
+        {
+            ScanRootPath = scan.Scan.RootPath,
+            NowUtc = DateTimeOffset.UtcNow
+        })) };
+
+        var report = RecommendationBuilder.Build(
+            ScanReportBuilder.Build(scan.Scan, 5), findings, []);
+
+        var single = Assert.Single(report.Findings);
+        Assert.Equal("the command its own tool ships", single.CommandToRun);
+        Assert.Equal("nothing but a download", single.WhatIsLost);
+        Assert.NotEmpty(single.HowToGetItBack);
+        Assert.NotEmpty(single.WhyItIsSafe);
+        Assert.NotEmpty(single.Controls);
     }
 
     private static Request Request(CommandName command, string? folder, string indexDirectory) => new()

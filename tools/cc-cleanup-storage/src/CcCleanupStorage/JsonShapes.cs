@@ -227,3 +227,172 @@ public static class JsonShape
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 }
+
+/// <summary>One control on a rule's answer, as a machine reads it.</summary>
+/// <param name="Name">What was counted.</param>
+/// <param name="Count">How many.</param>
+/// <param name="MustNotBeEmpty">
+/// True when a count of nought means the rule could not do its work rather than that there is
+/// nothing to remove.
+/// </param>
+public sealed record RuleControlJson(string Name, long Count, bool MustNotBeEmpty);
+
+/// <summary>One thing a rule proved disposable, as a machine reads it.</summary>
+/// <param name="Path">The full path of the item.</param>
+/// <param name="Bytes">The bytes it occupies on this disk.</param>
+/// <param name="SizeInWords">The same size in the words a report prints.</param>
+/// <param name="LastWrittenUtc">When it was last written.</param>
+/// <param name="Why">Why this particular item passed the rule.</param>
+public sealed record ReclaimCandidateJson(
+    string Path,
+    long Bytes,
+    string SizeInWords,
+    DateTimeOffset LastWrittenUtc,
+    string Why);
+
+/// <summary>
+/// What one rule found, as a machine reads it.
+///
+/// Every part of the answer is its own field, because a recommendation that says only how many bytes
+/// could be freed is not one. A caller deciding whether to act needs the proof, what is lost and how
+/// to get it back as much as it needs the number, and it must never have to read them out of a
+/// sentence.
+/// </summary>
+public sealed record RuleFindingJson
+{
+    /// <summary>The rule's name as an identifier a machine matches on.</summary>
+    public required string Rule { get; init; }
+
+    /// <summary>The rule's name as a person reads it.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Which of the three proofs this rule holds.</summary>
+    public required string Proof { get; init; }
+
+    /// <summary>The proof in the words a report prints.</summary>
+    public required string ProofInWords { get; init; }
+
+    /// <summary>Either "ok" or "broken".</summary>
+    public required string Verdict { get; init; }
+
+    /// <summary>True when the rule did its work and its answer can be acted on.</summary>
+    public required bool Ok { get; init; }
+
+    /// <summary>Why the rule is a broken instrument, or null.</summary>
+    public required string? BrokenReason { get; init; }
+
+    /// <summary>What this rule removes.</summary>
+    public required string WhatItRemoves { get; init; }
+
+    /// <summary>Why removing it is safe.</summary>
+    public required string WhyItIsSafe { get; init; }
+
+    /// <summary>What is lost by removing it.</summary>
+    public required string WhatIsLost { get; init; }
+
+    /// <summary>How to get it back.</summary>
+    public required string HowToGetItBack { get; init; }
+
+    /// <summary>How old an item must be before this rule will touch it, in days; nought for no gate.</summary>
+    public required int AgeGateDays { get; init; }
+
+    /// <summary>True when acting on this rule needs an administrator.</summary>
+    public required bool NeedsAdministrator { get; init; }
+
+    /// <summary>The exact command the owner runs, or null when there is none.</summary>
+    public required string? CommandToRun { get; init; }
+
+    /// <summary>Everything the rule counted while reaching its answer.</summary>
+    public required IReadOnlyList<RuleControlJson> Controls { get; init; }
+
+    /// <summary>What the rule proved disposable. Always empty on a broken rule.</summary>
+    public required IReadOnlyList<ReclaimCandidateJson> Candidates { get; init; }
+
+    /// <summary>How many items this rule offers.</summary>
+    public required int ItemsOffered { get; init; }
+
+    /// <summary>The bytes those items hold.</summary>
+    public required long Bytes { get; init; }
+
+    /// <summary>The rule's own lines, exactly as the text answer prints them.</summary>
+    public required IReadOnlyList<string> Lines { get; init; }
+}
+
+/// <summary>A rule that was not run, and where it looks instead.</summary>
+/// <param name="Rule">The rule's identifier.</param>
+/// <param name="Name">The rule's name as a person reads it.</param>
+/// <param name="LooksIn">The folder it looks in.</param>
+public sealed record RuleNotRunJson(string Rule, string Name, string LooksIn);
+
+/// <summary>A whole set of recommendations, as a machine reads it.</summary>
+public sealed record RecommendJson
+{
+    /// <summary>The command that produced this answer.</summary>
+    public required string Command { get; init; }
+
+    /// <summary>True when the recommendations can be believed.</summary>
+    public required bool Ok { get; init; }
+
+    /// <summary>Either "ok" or "broken".</summary>
+    public required string Verdict { get; init; }
+
+    /// <summary>Why the recommendations are a broken instrument, or null.</summary>
+    public required string? BrokenReason { get; init; }
+
+    /// <summary>The folder they are about.</summary>
+    public required string RootPath { get; init; }
+
+    /// <summary>Where the saved scan they rest on lives.</summary>
+    public required string IndexPath { get; init; }
+
+    /// <summary>When that scan was saved.</summary>
+    public required DateTimeOffset ScannedUtc { get; init; }
+
+    /// <summary>How many rules were run.</summary>
+    public required int RulesRun { get; init; }
+
+    /// <summary>How many of those could not do their work and therefore offer nothing.</summary>
+    public required int RulesBroken { get; init; }
+
+    /// <summary>
+    /// The machine's rules that were not run because they look outside the folder asked about. They
+    /// are named rather than absent, so a smaller answer is never mistaken for a cleaner disk.
+    /// </summary>
+    public required IReadOnlyList<RuleNotRunJson> RulesNotRun { get; init; }
+
+    /// <summary>
+    /// True when the rules measured more bytes than the scan saw, which means the unclassified count
+    /// below is a floor rather than a measurement and is not to be read as one.
+    /// </summary>
+    public required bool RulesSawMoreThanTheScan { get; init; }
+
+    /// <summary>How many items are offered across every rule.</summary>
+    public required long ItemsOffered { get; init; }
+
+    /// <summary>The bytes every rule that did its work proved disposable, added together.</summary>
+    public required long ReclaimableBytes { get; init; }
+
+    /// <summary>
+    /// The bytes the scan saw that no rule matched. Never offered for removal, whatever they are.
+    /// </summary>
+    public required long UnclassifiedBytes { get; init; }
+
+    /// <summary>
+    /// The bytes the volume counts as used that the scan did not see, or null when the volume would
+    /// not say. This is the unseen gap, and it is carried here because recommendations made on a
+    /// scan that could not see a third of the disk are not a complete answer.
+    /// </summary>
+    public required long? UnseenBytes { get; init; }
+
+    /// <summary>What the volume says about itself.</summary>
+    public required VolumeUsage Volume { get; init; }
+
+    /// <summary>The scan report's own words about how far it reached.</summary>
+    public required IReadOnlyList<string> ReachLines { get; init; }
+
+    /// <summary>What every rule found, in the order the rules were run.</summary>
+    public required IReadOnlyList<RuleFindingJson> Rules { get; init; }
+
+    /// <summary>The whole answer in finished sentences, exactly as the text answer prints them.</summary>
+    public required IReadOnlyList<string> Lines { get; init; }
+}

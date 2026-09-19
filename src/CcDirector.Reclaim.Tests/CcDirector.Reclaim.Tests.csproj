@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Reclaim\CcDirector.Reclaim.csproj" />
+    <ProjectReference Include="..\CcDirector.Reclaim.Windows\CcDirector.Reclaim.Windows.csproj" />
     <!-- The command line tool is covered by this suite too, so that phase 1 has ONE suite and it is
          the one in the default gate. The tool is thin - it reads the command line and prints what the
          engine decided - and what it is tested for is exactly that: the flags it refuses, the exit

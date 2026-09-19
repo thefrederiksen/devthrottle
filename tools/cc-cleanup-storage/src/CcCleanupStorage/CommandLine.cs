@@ -17,6 +17,9 @@ public enum CommandName
     /// <summary>Read a saved scan and report it.</summary>
     Report,
 
+    /// <summary>Read a saved scan, run the rules, and say what is safe to remove.</summary>
+    Recommend,
+
     /// <summary>Show how to use the tool.</summary>
     Help,
 
@@ -83,6 +86,10 @@ public static class CommandLine
     public static IReadOnlyList<string> ReportFlags { get; } =
         ["--json", "--index-directory", "--top", "--help", "-h"];
 
+    /// <summary>Every flag the recommend command takes.</summary>
+    public static IReadOnlyList<string> RecommendFlags { get; } =
+        ["--json", "--index-directory", "--top", "--help", "-h"];
+
     /// <summary>
     /// Read one command line.
     /// </summary>
@@ -131,8 +138,14 @@ public static class CommandLine
                     allowed = ReportFlags;
                     takesFolder = true;
                     break;
+                case "recommend":
+                    command = CommandName.Recommend;
+                    allowed = RecommendFlags;
+                    takesFolder = true;
+                    break;
                 default:
-                    return new ParseOutcome(null, $"there is no command {commandWord}; the commands are scan and report");
+                    return new ParseOutcome(null,
+                        $"there is no command {commandWord}; the commands are scan, report and recommend");
             }
         }
 
