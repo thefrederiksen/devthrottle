@@ -739,10 +739,38 @@ def show_log(
         raise typer.Exit(EXIT_FAILED)
 
 
+def _version_line() -> str:
+    """The one line both the `--version` flag and the `version` command print."""
+    return f"cc-secrets {__version__}"
+
+
+def _version_callback(value: bool) -> None:
+    """`--version` belongs to the tool, not to any one command. The Director's Tools page runs exactly
+    `cc-secrets --version` against every tool it lists and marks the row failed on a non-zero exit, so a
+    tool that answered only `cc-secrets version` was reported as broken on a machine where nothing was
+    wrong with it."""
+    if value:
+        _say(_version_line())
+        raise typer.Exit()
+
+
+@app.callback()
+def _root(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Print the version and exit.",
+    ),
+) -> None:
+    """Use a stored password without the model ever seeing it."""
+
+
 @app.command()
 def version():
     """Print the version."""
-    _say(__version__)
+    _say(_version_line())
 
 
 def main() -> None:
