@@ -1587,6 +1587,22 @@ public sealed class TurnVerdictService : IDisposable
     /// A voice session is no longer left to the voice path: that path made the same call a second time, against an
     /// already-published record, and that second call is the seam this ruling removes. It now finds the words
     /// already on the record and speaks them.
+    ///
+    /// IT GETS ONE IMMEDIATE SECOND ATTEMPT, and the reason is that this call changed meaning under it. The judge
+    /// leg has had a ladder for months - three re-attempts at ten, thirty and ninety seconds - and this leg had
+    /// none, deliberately: the idle sweep comes past every forty-five seconds, and spending a model call to
+    /// improve on words the reader ALREADY HAD was not worth it. Contract v3 cut the judge's own prose, so these
+    /// are now the only words a reading has, and "no automatic re-attempt" silently stopped meaning "you keep the
+    /// short version" and started meaning silence.
+    ///
+    /// ONE, NOT THREE, AND WITH NO BACKOFF, because the ruling above puts this inside the reading: every second
+    /// spent here is a second the row says "being read" and the owner is told nothing. Two attempts at the
+    /// sixty-second deadline is the most a person will sit in front of; the judge's ladder can afford three and a
+    /// ninety-second wait because it books them for later instead of holding a reading open.
+    ///
+    /// NOT ASKED AGAIN: a rate limit, which named its own delay and has nowhere to wait it out here, and a plan
+    /// that stood in or could not be read, where no call was made and asking twice asks the same unanswerable
+    /// question. After both attempts, only a PERSON pressing the button buys another.
     /// </summary>
     private async Task<NarrationCallResult> NarrateForReadingAsync(
         TenantId tenant, string sid, TurnVerdictDto record, Lazy<TurnVerdictPackage> package, CancellationToken ct)
@@ -1597,12 +1613,27 @@ public sealed class TurnVerdictService : IDisposable
             return new NarrationCallResult(null, null, "", 0);
         }
         // The claim still exists so that the phone's explain button and the voice path cannot ask a second time for
-        // a stop this reading is already narrating.
+        // a stop this reading is already narrating. It covers BOTH attempts below - they are one reading's call.
         if (!TryClaimNarration(tenant, sid, record.VerdictId))
             return new NarrationCallResult(null, "a narration call for this stop was already running", "", 0);
         try
         {
-            return await NarrateAsync(tenant, sid, record, package, ct).ConfigureAwait(false);
+            var first = await NarrateAsync(tenant, sid, record, package, ct).ConfigureAwait(false);
+            if (first.Spoken is { Length: > 0 }) return first;
+            // No prompt means no call was made: the plan stood in, or could not be read.
+            if (first.Prompt.Length == 0) return first;
+            if (WasRateLimited(first.FailureDetail))
+            {
+                FileLog.Write($"[TurnVerdictService] narration sid={sid} verdict={record.VerdictId}: rate limited - no second attempt, it named its own delay and a reading cannot wait it out");
+                return first;
+            }
+            ct.ThrowIfCancellationRequested();
+            FileLog.Write($"[TurnVerdictService] narration sid={sid} verdict={record.VerdictId}: first attempt gave no words ({first.FailureDetail}) - one immediate second attempt");
+            var second = await NarrateAsync(tenant, sid, record, package, ct).ConfigureAwait(false);
+            FileLog.Write(second.Spoken is { Length: > 0 }
+                ? $"[TurnVerdictService] narration sid={sid} verdict={record.VerdictId}: the second attempt answered"
+                : $"[TurnVerdictService] narration sid={sid} verdict={record.VerdictId}: BOTH attempts gave no words - this reading has none, and only a person asking buys another");
+            return second;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1620,6 +1651,17 @@ public sealed class TurnVerdictService : IDisposable
             NarrationCallFinished(tenant, sid, record.VerdictId);
         }
     }
+
+    /// <summary>
+    /// Did this narration attempt fail because the provider rate-limited it? Read off the recorded reason, because
+    /// <see cref="NarrateAsync"/> catches the rate limit and hands back a result rather than throwing - so the
+    /// exception type is gone by the time a caller decides whether to ask again.
+    /// </summary>
+    private static bool WasRateLimited(string? failureDetail)
+        => failureDetail is { Length: > 0 } detail
+           && (detail.Contains("rate limit", StringComparison.OrdinalIgnoreCase)
+               || detail.Contains("rate-limit", StringComparison.OrdinalIgnoreCase)
+               || detail.Contains("429", StringComparison.Ordinal));
 
     /// <summary>
     /// Claim one verdict id's narration call for a session. True for the first claim of that id, false while a call for

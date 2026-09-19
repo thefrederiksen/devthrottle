@@ -441,14 +441,79 @@ public sealed class NarrationCallTests : IDisposable
 
         Assert.False(rig.Voice.HasVoice(Tenant, Sid));
         Assert.Equal(0, rig.Speech.Calls);
-        Assert.Equal(1, rig.Env.NarratorCalls);   // one call, and no automatic path asks again
+        // TWO attempts, both inside the one reading, and then no automatic path asks again. It was one until
+        // 19 September 2026 - see the note on NarrateForReadingAsync for why a second was added the moment
+        // these words became the only words a reading has.
+        Assert.Equal(2, rig.Env.NarratorCalls);
         var stored = rig.Env.Latest(Tenant, Sid)!;
         Assert.False(stored.Failed, stored.FailureReason);   // the JUDGEMENT stands
         Assert.Equal("", stored.Narration ?? "");
     }
 
-    /// <summary>A narration call that answers with nothing is the same case as one that fails: no words, and
-    /// nothing played. Both are counted as one call.</summary>
+    /// <summary>
+    /// THE SECOND ATTEMPT IS WHAT SAVES THE READING when the first one simply did not answer, and this is the
+    /// test that says so. The words exist, the row carries them, and the listener hears them - from a reading
+    /// that would have been silent the day before.
+    ///
+    /// REVERT PROOF: take the second attempt out of NarrateForReadingAsync and this goes red with no narration
+    /// on the record, no clip, and one call.
+    /// </summary>
+    [Fact]
+    public async Task ANarrationWhoseFirstAttemptDidNotAnswer_IsSavedByTheSecond()
+    {
+        var rig = Build();
+        var attempts = 0;
+        rig.Env.Narrator = (_, _) => Interlocked.Increment(ref attempts) == 1
+            ? throw new TimeoutException("the narration call did not answer")
+            : Task.FromResult(Answer(Narrated));
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        Assert.Equal(2, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        Assert.True(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+        // Still ONE clip: the second attempt happens inside the reading, before anything is stored, so nothing
+        // was synthesised and then replaced.
+        Assert.Equal(1, rig.Speech.Calls);
+    }
+
+    /// <summary>An answer that came back with no words is re-attempted on the same terms as one that did not
+    /// come back at all - both are a reading with nothing to say.</summary>
+    [Fact]
+    public async Task ANarrationWhoseFirstAttemptAnsweredNothing_IsAlsoAskedAgain()
+    {
+        var rig = Build();
+        var attempts = 0;
+        rig.Env.Narrator = (_, _) => Task.FromResult(
+            Interlocked.Increment(ref attempts) == 1 ? Answer("   ") : Answer(Narrated));
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        Assert.Equal(2, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+    }
+
+    /// <summary>A RATE LIMIT IS NOT ASKED AGAIN. It named a delay, and a reading has nowhere to wait it out -
+    /// asking again immediately spends a call to be refused by the same limit and holds the row open longer.</summary>
+    [Fact]
+    public async Task ANarrationRefusedByARateLimit_IsNotAskedAgain()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new CcDirector.Gateway.Wingman.WingmanModelRateLimitedException(
+            "the model rate limited the narration call", TimeSpan.FromSeconds(30));
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal("", rig.Env.Latest(Tenant, Sid)!.Narration ?? "");
+    }
+
+    /// <summary>A narration call that answers with nothing, twice, is the same case as one that fails twice:
+    /// no words, and nothing played.</summary>
     [Fact]
     public async Task ANarrationCallThatAnswersNoWords_LeavesTheReadingWithNoWordsEither()
     {
@@ -460,7 +525,7 @@ public sealed class NarrationCallTests : IDisposable
 
         Assert.False(rig.Voice.HasVoice(Tenant, Sid));
         Assert.Equal("", rig.Env.Latest(Tenant, Sid)!.Narration ?? "");
-        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(2, rig.Env.NarratorCalls);
     }
 
     // ============================================== a failed call does not make the stop permanently unnarratable
@@ -481,21 +546,23 @@ public sealed class NarrationCallTests : IDisposable
         rig.Env.Narrator = (_, _) =>
         {
             calls++;
-            if (calls == 1) throw new TimeoutException("the narration call did not answer");
+            // BOTH of the reading's own attempts fail, because the reading now makes two. Only then is there a
+            // wordless stop for a person to rescue, which is what this test is about.
+            if (calls <= 2) throw new TimeoutException("the narration call did not answer");
             return Task.FromResult(Answer(Narrated));
         };
         rig.Voice.Mark(Tenant, Sid);
         var route = RouteServing("dir-1", rig.Env.Screen);
 
         await HostTurnEndAsync(rig, route);
-        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(2, rig.Env.NarratorCalls);
         Assert.False(rig.Voice.HasVoice(Tenant, Sid));   // nothing playable at all: contract v3 cut the judge's words
 
         // The person presses "Generate narration now".
         await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
         await rig.Voice.WaitForNarrationCallsAsync();
 
-        Assert.Equal(2, rig.Env.NarratorCalls);
+        Assert.Equal(3, rig.Env.NarratorCalls);
         Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
         Assert.EndsWith(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
     }
@@ -516,7 +583,10 @@ public sealed class NarrationCallTests : IDisposable
         await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: false);
         await rig.Voice.WaitForNarrationCallsAsync();
 
-        Assert.Equal(1, rig.Env.NarratorCalls);
+        // TWO: the reading's own pair of attempts, and not one more however many times an automatic path comes
+        // past. The pair is bounded and happens once, inside one reading; what this test forbids is the sweep
+        // turning a stop that keeps failing into a standing model bill.
+        Assert.Equal(2, rig.Env.NarratorCalls);
     }
 
     /// <summary>An impatient second tap while the reading is still being made joins it rather than paying for a

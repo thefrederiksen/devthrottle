@@ -29,6 +29,12 @@ with no other members:
   "options": [ { "key": "short label", "send": "exact text or key sequence", "recommended": true or false, "note": "at most 18 words: consequence and risk" } ]
 }
 
+"options" IS ALWAYS A LIST, AND NEVER null. Two fields above are written "null or ..." - the menu and
+what the agent recommends - and on a stop with no menu both of those ARE null. "options" is not one of
+them. When there is nothing to offer, write it as the empty list:
+
+  "menu": null, "options": []
+
 WHAT EACH STATE WORD MEANS. Pick exactly one. These are the only words accepted; anything else throws
 the whole answer away.
 
