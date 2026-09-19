@@ -130,8 +130,8 @@ public sealed class TerminatingFaultClassifierTests
     // Issue #3117: the usage-limit blocks. Every line below is verbatim from a captured turn-end screen
     // (devthrottle_internal/corpus/turn-log, 16-17 September 2026, 2,232 records over 336 sessions). The
     // shipped classifier carried one usage-limit signature - "usage limit reached" - which no agent
-    // prints; over those two days it matched nothing while 15 sessions sat dead on a real limit and the
-    // supervisor called every one of them a clean turn end.
+    // prints; over those two days it matched nothing while 23 distinct sessions showed a printed block,
+    // across 27 turn-end records, of which the supervisor called 25 a clean turn end and 2 unclassified.
     //
     // A BLOCK is pinned from three directions, because the failure has two mirror images:
     //   1. the printed notice MUST be seen (the defect being fixed),
@@ -157,7 +157,7 @@ public sealed class TerminatingFaultClassifierTests
     [InlineData("⚠ Heads up, you have less than 25% of your weekly limit left. Run /status for a breakdown.")]   // Codex
     [InlineData("You've used 94% of your weekly limit, which resets 21 September")]                             // Claude Code
     [InlineData("You've used 95% of your weekly limit · resets Sep 21, 6pm (America/Toronto)")]                 // Claude Code
-    [InlineData("• You have 1 usage limit reset available. Run /usage to use one.")]                             // Grok
+    [InlineData("• You have 1 usage limit reset available. Run /usage to use one.")]                             // Codex
     public void AUsageLimitWarning_IsNotAFault(string line)
     {
         // A WARNING does not stop the work - it appeared on many more screens than the block did, on
@@ -175,9 +175,10 @@ public sealed class TerminatingFaultClassifierTests
     public void ProseDiscussingAUsageLimit_IsNotAFault(string line)
     {
         // The negative control, and its inputs are real: all five lines are verbatim from turn-end screens
-        // in the corpus, written by healthy sessions REPORTING another session's limit. The last three are
-        // the hard cases - prose that QUOTES the notice. The full stop on the Codex signature exists
-        // precisely so the quote with an ellipsis or a comma does not fire while the printed sentence does.
+        // in the corpus, written by healthy sessions REPORTING another session's limit. The third and fourth
+        // are the hard cases - prose that QUOTES the notice; the fifth is a near-miss paraphrase. The full
+        // stop on the Codex signature exists precisely so the quote with an ellipsis or a comma does not
+        // fire while the printed sentence does.
         var fault = TerminatingFaultClassifier.Classify(Screen(line));
         Assert.Equal(SessionFaultClass.None, fault.Class);
     }

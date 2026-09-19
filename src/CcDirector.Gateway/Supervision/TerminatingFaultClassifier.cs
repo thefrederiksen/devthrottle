@@ -184,9 +184,9 @@ public static class TerminatingFaultClassifier
     /// turn-log): Grok prints "You hit your free usage limit.", Codex prints "You've hit your usage limit.
     /// Visit https://chatgpt.com/codex/settings/usage ..." or "... Upgrade to Pro ...", and Claude Code prints
     /// "You've hit your weekly limit · resets ...". The signature this list used to carry, "usage limit
-    /// reached", is printed by no agent - it was written from an imagined message and matched nothing, so 15
-    /// sessions stopped dead on a real limit over those two days while the supervisor called every one of
-    /// them a clean turn end.
+    /// reached", is printed by no agent - it was written from an imagined message and matched nothing. Over
+    /// those two days 23 distinct sessions showed a printed block, across 27 turn-end records, and the
+    /// supervisor called 25 of those 27 a clean turn end and the other 2 unclassified.
     ///
     /// WHY THE CODEX SIGNATURE KEEPS ITS FULL STOP. A notice is a complete sentence the agent prints, and
     /// both measured screens where a healthy session merely QUOTED the notice in prose carried it without one:
