@@ -68,7 +68,10 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.True(index > 0, $"'{MigrationUnderTest}' is not in the Postgres migration set.");
             Assert.Equal(MigrationBefore, all[index - 1]);
             Assert.Equal("20260917110609_AddFleetOutcomeStopIdentity", all[index + 1]);
-            Assert.Equal(index + 2, all.Count);
+            // The Wingman narration call trace (pull request 3105) landed after this proof was written and the
+            // pin below moved with it, so the migration under test is third from the end rather than second.
+            Assert.Equal("20260918181205_AddWingmanNarrationCallTrace", all[index + 2]);
+            Assert.Equal(index + 3, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

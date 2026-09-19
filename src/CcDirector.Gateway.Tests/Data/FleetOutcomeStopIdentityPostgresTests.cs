@@ -67,7 +67,10 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             var index = all.IndexOf(MigrationUnderTest);
             Assert.True(index > 0, $"'{MigrationUnderTest}' is not in the Postgres migration set.");
             Assert.Equal(MigrationBefore, all[index - 1]);
-            Assert.Equal(MigrationUnderTest, all[^1]);
+            // The Wingman narration call trace (pull request 3105) landed after this proof was written, so the
+            // migration under test is second from the end rather than last.
+            Assert.Equal("20260918181205_AddWingmanNarrationCallTrace", all[index + 1]);
+            Assert.Equal(all.Count - 2, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -81,7 +84,9 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
         using (var ctx = NewContext())
         {
             ctx.GetService<IMigrator>().Migrate();
-            Assert.Equal(MigrationUnderTest, ctx.Database.GetAppliedMigrations().Last());
+            // The Wingman narration call trace (pull request 3105) is now the last migration in the set, so
+            // migrating fully applies it after the migration under test.
+            Assert.Equal("20260918181205_AddWingmanNarrationCallTrace", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

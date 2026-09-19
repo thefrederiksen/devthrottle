@@ -442,8 +442,10 @@ public sealed class FleetManagerRoutesHostTests : IAsyncLifetime
         Assert.Null(Row(_fleetManagerId).OwnerChange);
         Assert.Equal("owner", Row(_ownedId).OwnerChange!.To);
         Assert.Equal("fleet-manager", Row(_otherSessionId).OwnerChange!.To);
-        // Owned by another running session: nothing is offered.
-        Assert.Null(Row(_ownedByNextId).OwnerChange);
+        // Owned by ANOTHER live session (the second Fleet Manager): the owner's undo of a taking, offered
+        // with the words that do not name the holder (issue #3096) - the row already shows it.
+        Assert.Equal("owner", Row(_ownedByNextId).OwnerChange!.To);
+        Assert.Equal("Hand back to me", Row(_ownedByNextId).OwnerChange!.Label);
     }
 
     // The Fleet Manager's own key reaching the hand over is proven in FleetManagerHandOverAuthorityHostTests.
