@@ -4326,8 +4326,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Track last used time for repository sorting
-        registry?.MarkUsed(dialog.SelectedPath);
+        // THE LAST-USED WRITE WAS HERE, AND IT IS GONE ON PURPOSE (the one-repository-list mission,
+        // phase 1). It was the only writer of the last-used time in the whole product, so the order of
+        // the repository list was decided by this one button: a session started from the Cockpit, the
+        // phone, a schedule or an agent moved nothing, and a machine where nobody pressed this button
+        // showed an empty recently-used list after days of work. RepositoryUsageRecorder now records it
+        // for every session this Director creates, this one included - do not put a call back here.
 
         if (!string.IsNullOrEmpty(resumeSessionId))
         {
