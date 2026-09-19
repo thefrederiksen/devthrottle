@@ -470,8 +470,16 @@ public sealed class PythonToolsInstaller
         // Every tool the registry KNOWS and the product does not SHIP. Derived by hand from
         // tools/registry.json minus src/CcDirector.Core/Tools/tools-manifest.json, and held to that
         // derivation by LegacyAliasShimNames_CoverEveryKnownUnshippedTool so it cannot drift again.
-        "cc-brandingrecommendations", "cc-browser", "cc-click", "cc-comm-queue", "cc-computer",
-        "cc-crawl4ai", "cc-docgen", "cc-excel", "cc-facebook", "cc-hardware", "cc-photos", "cc-playwright",
+        //
+        // SOME OF THESE ARE DOTNET TOOLS, AND THAT IS NOT A MISTAKE. The manifest subtracted here is the
+        // PYTHON bundle, so a dotnet tool is "unshipped" by this derivation whether or not users get it -
+        // cc-hardware has been here on those terms for a long time, and cc-cleanup-storage joins it. It is
+        // inert for them either way: IsShimTheProductWrote only ever matches a launcher carrying the
+        // product's own relative pyenv\Scripts forwarding line, which a dotnet tool's launcher never has.
+        // The name buys permission to LOOK at a file, never to delete one.
+        "cc-brandingrecommendations", "cc-browser", "cc-cleanup-storage", "cc-click", "cc-comm-queue",
+        "cc-computer", "cc-crawl4ai", "cc-docgen", "cc-excel", "cc-facebook", "cc-hardware",
+        "cc-photos", "cc-playwright",
         "cc-posthog", "cc-powerpoint", "cc-reddit", "cc-scrub", "cc-transcribe", "cc-trisight",
         "cc-twitter", "cc-video", "cc-voice", "cc-websiteaudit", "cc-whisper", "cc-youtube",
         "cc-youtube-info",
