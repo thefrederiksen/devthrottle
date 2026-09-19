@@ -465,18 +465,31 @@ public static class TurnVerdictContract
                 + "null; it is not read as no recommendation, because that stores a silence the judge "
                 + "did not answer with";
 
-        // options is REQUIRED and is an array - empty when there are none, exactly as the prompt shows.
-        // Round three made an explicit null refuse and left ABSENT meaning "there are none", which is a
-        // second way to say one thing: the same answer could arrive with the member missing or with an
-        // empty array, and the same list was synthesised from either. The shape declares the member, so
-        // the member is there.
+        // options is REQUIRED, and a null is the judge writing "there are none".
+        //
+        // THIS RULE WAS MEASURED ON THE LIVE GATEWAY AND AMENDED, 19 September 2026. It used to refuse an
+        // explicit null, on the principle of one shape and not two: a list and a null are two spellings of
+        // one answer, and the judge does not get to choose between them. That principle is right about
+        // SYNTHESIS - no pass here may invent a value the judge did not write - and it was wrong about this
+        // member. In contract v3's first hours live, TWELVE of its fourteen refusals were this single rule:
+        // twenty-nine per cent of every reading made, thrown away whole.
+        //
+        // The cause is in the prompt we write, not in the model. Two of the five fields are declared
+        // "null or ..." - the menu, and what the agent recommends - so on a stop with no menu, null is the
+        // correct and documented way to say nothing, twice on the same answer. A judge that then writes
+        // "options": null beside "menu": null has read the shape we gave it and matched it.
+        //
+        // Reading that null as empty invents nothing: the judge said there are no options, and there are
+        // none. A MISSING member is still refused - that is the field going unanswered, which is different.
+        // The prompt now says outright that options is [] and never null, so the second spelling should
+        // stop arriving; this accepts it meanwhile, and for any judge that ignores the instruction.
         if (!root.TryGetProperty("options", out var options))
             return "the answer has no 'options'; the shape declares it as a list, empty when there is "
                 + "nothing to offer, and a missing member is not an empty list - one shape, not two";
-        if (options.ValueKind != JsonValueKind.Array)
+        if (options.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null))
             return $"options is present but is not a list (it is {options.ValueKind}); the shape declares "
-                + "an array and never a null, so a malformed answer is thrown away whole rather than read "
-                + "as an answer that offered nothing";
+                + "an array, or a null meaning there are none, so a malformed answer is thrown away whole "
+                + "rather than read as an answer that offered nothing";
 
         if (root.TryGetProperty("menu", out var menu)
             && menu.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null))
@@ -595,9 +608,13 @@ public static class TurnVerdictContract
     private static OptionsResult ReadOptions(JsonElement root)
     {
         var options = new List<TurnVerdictOptionDto>();
-        // Present, and an array: the shape pass has already proved both, so an empty list here is the
-        // judge saying there is nothing to offer - the ordinary shape of a report.
+        // Present, and either an array or a null: the shape pass has already proved that much, so an
+        // empty list here is the judge saying there is nothing to offer - the ordinary shape of a
+        // report. A null is that same answer in the other spelling; see the shape pass for why it is
+        // accepted and why reading it as empty invents nothing.
         var array = root.GetProperty("options");
+        if (array.ValueKind == JsonValueKind.Null)
+            return new OptionsResult(options, null);
 
         foreach (var element in array.EnumerateArray())
         {

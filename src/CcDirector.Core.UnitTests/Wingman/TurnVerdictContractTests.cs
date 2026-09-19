@@ -642,15 +642,55 @@ public sealed class TurnVerdictContractTests
         Assert.Contains("'options'", result.FailureReason);
     }
 
+    /// <summary>
+    /// AN EXPLICIT NULL IS THE JUDGE SAYING THERE ARE NONE, AND IT IS ACCEPTED. This test said the
+    /// opposite until 19 September 2026, on the principle of one shape and not two.
+    ///
+    /// The live Gateway settled it. In contract v3's first hours, TWELVE of its fourteen refusals were
+    /// this one rule - twenty-nine per cent of every reading made, thrown away whole - and a thrown-away
+    /// reading is stored against the screen and never asked again. Two of the five fields are declared
+    /// "null or ...", so on a stop with no menu the judge is writing null twice on the same answer and
+    /// matching the shape we handed it when it writes a third.
+    ///
+    /// Reading it as empty invents nothing, which is what the principle actually protects: the judge said
+    /// there are no options and there are none. The member going MISSING is still refused - see the test
+    /// above - because that is the field not being answered at all.
+    /// </summary>
     [Fact]
-    public void ParseAndValidate_OptionsExplicitlyNull_Rejected()
+    public void ParseAndValidate_OptionsExplicitlyNull_IsReadAsThereAreNone()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.FinishedDone, label: "Sweep done", optionsNull: true),
             ReportStop(), Model, ObservedAt);
 
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Empty(result.Options);
+        Assert.Null(result.Menu);
+        Assert.Equal("reply", result.AnswerVia);
+    }
+
+    /// <summary>The prompt no longer leaves the judge to guess: it says outright that options is a list
+    /// and never null, and shows the pair. The acceptance above is for judges that answer anyway.</summary>
+    [Fact]
+    public void ThePrompt_SaysOptionsIsNeverNull_AndShowsTheEmptyPair()
+    {
+        var prompt = TurnVerdictContract.BuildPrompt(ReportStop());
+
+        Assert.Contains("\"options\" IS ALWAYS A LIST, AND NEVER null", prompt);
+        Assert.Contains("\"menu\": null, \"options\": []", prompt);
+    }
+
+    /// <summary>A null where the list belongs is accepted; anything else there is still thrown away. An
+    /// object or a number is a malformed answer, not a way of saying nothing.</summary>
+    [Fact]
+    public void ParseAndValidate_OptionsThatIsNeitherAListNorNull_IsStillRejected()
+    {
+        var result = TurnVerdictContract.ParseAndValidate(
+            Answer(state: TurnVerdictStates.FinishedDone, label: "Sweep done", optionsRaw: new { key = "Proceed" }),
+            ReportStop(), Model, ObservedAt);
+
         Assert.True(result.Failed);
-        Assert.Contains("options", result.FailureReason);
+        Assert.Contains("is not a list", result.FailureReason);
     }
 
     [Fact]
