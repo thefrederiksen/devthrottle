@@ -96,6 +96,40 @@ a sign-in bypass), `none` (no deployed surface; the verifier runs what it can), 
   with `install.py`. A hand-made launcher and the installed tool are two sources for one
   name, so keep the launcher out of the folder the installer owns.
 
+## Its own tests
+
+`python -m pytest` from `tools/cc-ship`, 171 tests. Two things about this suite are worth
+knowing before you read a failure as damage you caused. Both were measured on 18 September
+2026, six full runs on a loaded Windows machine - three on the packaged copy and three on
+origin/main's copy, extracted to a separate folder - and both behave identically on the two.
+
+**One test fails on every Windows run, and always has.**
+`test_run_NonAsciiRepositoryPath_BriefsStillWritten` renames the repository folder while that
+folder is the process's own current directory. Windows refuses that outright
+(`PermissionError: [WinError 32]`), so the test fails before it reaches the non-ASCII path it
+is about. Six runs out of six, on both copies. It is not a lock held by git and it is not
+intermittent.
+
+**Forty-four of the 171 tests share a five-second wall clock.** Each calls
+`cc-ship wait --seconds 5`, and `engine.wait` treats that as a real deadline: on a busy
+machine the five seconds run out before the scripted run reaches its end state, and the test
+fails with `assert 'working' == 'merged'` (or whichever state it expected). Which of the
+forty-four goes varies run to run - six runs turned up six different ones, none in one run and
+two in another, on both copies. **A failure whose left-hand side is `'working'` is this, not a defect in what
+the test is checking** - the run never reached its end state, so nothing the test asserts about
+that state was ever exercised.
+
+Re-running the test on its own does not settle it either, because the cause is the machine, not
+the neighbours: one of them run alone eight times, four on each copy, passed four and failed
+four. The margin is thin by construction - the test gives the engine five seconds, while the
+test's own call took between eight and thirty-five seconds to do its real git work in the same
+measurements.
+
+So the honest expectation for a full run on Windows is one certain failure and zero to two
+more drawn from those forty-four, and a clean-looking `170 passed, 1 failed` is one sample
+rather than the suite's settled result. Neither problem comes from packaging the tool, and
+neither is fixed here.
+
 ## Run folder
 
 `<cc-director data>/ship/runs/<run id>/`: `run.json`, `intent.md`, `brief-*.md`,
