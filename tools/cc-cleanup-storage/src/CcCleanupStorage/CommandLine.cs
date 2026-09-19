@@ -63,18 +63,25 @@ public sealed record ParseOutcome(Request? Request, string? UsageError);
 /// untidiness but a wrong answer, and the AXI standard names it as a defect.
 ///
 /// The flag lists below are the one source of what each command takes: the reader refuses anything
-/// they do not name, and the help page prints them as they stand.
+/// they do not name, and the help page prints them as they stand. Every flag the reader takes is in
+/// them, including the short spelling of help and the version flag, because a flag that works while
+/// sitting outside the list is a flag the help page cannot name - the page would then be telling a
+/// machine that a working flag does not exist, which is the same wrong answer as naming one that
+/// does not work.
 /// </summary>
 public static class CommandLine
 {
     /// <summary>Every flag the tool takes when it is run with no command word.</summary>
-    public static IReadOnlyList<string> SavedScansFlags { get; } = ["--json", "--index-directory", "--help"];
+    public static IReadOnlyList<string> SavedScansFlags { get; } =
+        ["--json", "--index-directory", "--help", "-h", "--version"];
 
     /// <summary>Every flag the scan command takes.</summary>
-    public static IReadOnlyList<string> ScanFlags { get; } = ["--json", "--index-directory", "--top", "--folder-depth", "--help"];
+    public static IReadOnlyList<string> ScanFlags { get; } =
+        ["--json", "--index-directory", "--top", "--folder-depth", "--help", "-h"];
 
     /// <summary>Every flag the report command takes.</summary>
-    public static IReadOnlyList<string> ReportFlags { get; } = ["--json", "--index-directory", "--top", "--help"];
+    public static IReadOnlyList<string> ReportFlags { get; } =
+        ["--json", "--index-directory", "--top", "--help", "-h"];
 
     /// <summary>
     /// Read one command line.
@@ -158,6 +165,17 @@ public static class CommandLine
                 continue;
             }
 
+            // Every flag is judged against the command's own list first, help and version included.
+            // They used to be answered before the list was consulted, which let them work while
+            // sitting outside it, so --version was taken with no command word and named in no list
+            // and -h was taken everywhere and named nowhere. Which command takes which flag is one
+            // statement, in the lists above, and nothing decides it a second time here.
+            if (!allowed.Contains(argument, StringComparer.Ordinal))
+            {
+                return new ParseOutcome(null,
+                    $"there is no flag {argument} for {Named(commandWord)}; the flags are {string.Join(", ", allowed)}");
+            }
+
             // Help and version stop the command line, but not from inside the loop: the request is
             // built only after every flag has been read, so the machine-readable flag survives in
             // whichever order it is given - before them, or after them. When both are given, the
@@ -168,16 +186,10 @@ public static class CommandLine
                 continue;
             }
 
-            if (argument == "--version" && command == CommandName.SavedScans)
+            if (argument == "--version")
             {
                 earlyAnswer ??= CommandName.Version;
                 continue;
-            }
-
-            if (!allowed.Contains(argument, StringComparer.Ordinal))
-            {
-                return new ParseOutcome(null,
-                    $"there is no flag {argument} for {Named(commandWord)}; the flags are {string.Join(", ", allowed)}");
             }
 
             switch (argument)

@@ -223,9 +223,24 @@ public static class Runner
         // the reader refuses or miss one it takes.
         var commands = new List<HelpCommandJson>
         {
-            new("saved-scans", "the saved scans on this machine", CommandLine.SavedScansFlags),
-            new("scan", "walk a folder and save what was seen", CommandLine.ScanFlags),
-            new("report", "report the saved scan of a folder", CommandLine.ReportFlags)
+            new(
+                "saved-scans",
+                string.Empty,
+                "cc-cleanup-storage",
+                "the saved scans on this machine",
+                CommandLine.SavedScansFlags),
+            new(
+                "scan",
+                "scan",
+                "cc-cleanup-storage scan \"<folder>\" [flags]",
+                "walk a folder and save what was seen",
+                CommandLine.ScanFlags),
+            new(
+                "report",
+                "report",
+                "cc-cleanup-storage report \"<folder>\" [flags]",
+                "report the saved scan of a folder",
+                CommandLine.ReportFlags)
         };
 
         var flags = new List<HelpFlagJson>
@@ -235,7 +250,8 @@ public static class Runner
             new("--top <number>", "how many of the largest folders to name, 1 to 1000"),
             new("--folder-depth <number>", "how deep a scan records folder totals, 1 to 10 (scan only)"),
             new("--help", "this page"),
-            new("--version", "the version of this tool")
+            new("-h", "this page, the short spelling"),
+            new("--version", "the version of this tool (no command word only)")
         };
 
         var exitCodes = new List<ExitCodeJson>
@@ -245,12 +261,11 @@ public static class Runner
             new(ExitCodes.Usage, "the command line was wrong: an unknown command, an unknown flag, or a bad value")
         };
 
-        var usage = new[]
-        {
-            "cc-cleanup-storage",
-            "cc-cleanup-storage scan \"<folder>\" [flags]",
-            "cc-cleanup-storage report \"<folder>\" [flags]"
-        };
+        // The usage lines are the commands' own invocation lines, read off the commands themselves.
+        // They used to be a separate list joined to the commands by nothing but position, so a fourth
+        // command with no fourth line added beside it threw from the help page - the one answer that
+        // must never fail. There is now one list, and a command cannot be added without its line.
+        var usage = commands.Select(command => command.Invocation).ToList();
 
         var notes = new[]
         {
@@ -269,12 +284,19 @@ public static class Runner
             "",
             "usage:"
         };
-        for (var at = 0; at < commands.Count; at++)
-            lines.Add("  " + usage[at].PadRight(47) + commands[at].Purpose);
+        // The columns are wide enough for the longest entry in them and never narrower than the
+        // widths the page has always used, so a longer command or flag added later pushes its column
+        // out instead of running into the words beside it, and today's page is unchanged to the
+        // character. One space is the gap the page already leaves at its widest flag.
+        const int smallestGap = 1;
+        var usageColumn = Math.Max(47, commands.Max(command => command.Invocation.Length) + smallestGap);
+        foreach (var command in commands)
+            lines.Add("  " + command.Invocation.PadRight(usageColumn) + command.Purpose);
         lines.Add("");
         lines.Add("flags:");
+        var flagColumn = Math.Max(27, flags.Max(flag => flag.Name.Length) + smallestGap);
         foreach (var flag in flags)
-            lines.Add("  " + flag.Name.PadRight(27) + flag.Purpose);
+            lines.Add("  " + flag.Name.PadRight(flagColumn) + flag.Purpose);
         lines.Add("");
         lines.Add("exit codes:");
         foreach (var exitCode in exitCodes)

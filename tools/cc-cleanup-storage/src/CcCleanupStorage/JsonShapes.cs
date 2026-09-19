@@ -131,11 +131,30 @@ public sealed record SavedScansJson
     public required IReadOnlyList<UnreadableIndexJson> Unreadable { get; init; }
 }
 
-/// <summary>One command this tool offers, as the help page gives it.</summary>
-/// <param name="Name">The command word, or "saved-scans" when the tool is run with no command word.</param>
+/// <summary>
+/// One command this tool offers, as the help page gives it.
+///
+/// The entry carries how the command is called, so nothing has to be pieced together from two lists
+/// that happen to be in the same order, and a name that is not a word anybody can type cannot be
+/// mistaken for one.
+/// </summary>
+/// <param name="Name">
+/// The name this command answers under: the value the command field carries in every answer it
+/// gives. It is not always something that can be typed - the tool run with no command word answers
+/// under the name saved-scans, and there is no command word saved-scans. Word is what is typed.
+/// </param>
+/// <param name="Word">
+/// The command word to type, or empty when this command is the tool run with no command word.
+/// </param>
+/// <param name="Invocation">How the command is called, as a whole line, flags included.</param>
 /// <param name="Purpose">What the command does, in one line.</param>
 /// <param name="Flags">Every flag the command takes, exactly as the command line reader knows them.</param>
-public sealed record HelpCommandJson(string Name, string Purpose, IReadOnlyList<string> Flags);
+public sealed record HelpCommandJson(
+    string Name,
+    string Word,
+    string Invocation,
+    string Purpose,
+    IReadOnlyList<string> Flags);
 
 /// <summary>One flag, as the help page gives it.</summary>
 /// <param name="Name">The flag as it is typed, with the value it takes after it.</param>

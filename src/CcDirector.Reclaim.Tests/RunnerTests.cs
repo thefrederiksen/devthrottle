@@ -282,6 +282,134 @@ public class RunnerTests
         Assert.Contains("command line was wrong", usage.GetProperty("purpose").GetString(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The second fix round's first finding: the page named a command called saved-scans, which the
+    /// tool refuses, beside two whose name IS the word that is typed. A machine reading the name
+    /// field would type it and be turned away.
+    ///
+    /// Every command entry now carries how it is called, and this test takes the page at its word:
+    /// for each entry it reads the word out of the payload and gives that word to the command line
+    /// reader, which either takes it or is the thing that would have refused it. A command whose
+    /// word is empty is the tool run with no command word, and its invocation must be the bare tool.
+    /// </summary>
+    [Fact]
+    public void Run_HelpInMachineReadableForm_EveryCommandSaysHowItIsCalledAndTheReaderTakesThatWord()
+    {
+        using var home = new FixtureTree("index-home");
+        var answer = Runner.Run(Request(CommandName.Help, null, "unused"));
+
+        var written = JsonSerializer.Serialize(answer.JsonPayload, JsonShape.Options);
+        using var read = JsonDocument.Parse(written);
+        var commands = read.RootElement.GetProperty("commands").EnumerateArray().ToList();
+        Assert.NotEmpty(commands);
+
+        foreach (var command in commands)
+        {
+            var word = command.GetProperty("word").GetString();
+            var invocation = command.GetProperty("invocation").GetString();
+            Assert.NotNull(word);
+            Assert.NotNull(invocation);
+            Assert.StartsWith("cc-cleanup-storage", invocation, StringComparison.Ordinal);
+
+            if (word.Length == 0)
+            {
+                Assert.Equal("cc-cleanup-storage", invocation);
+                continue;
+            }
+
+            Assert.Contains(word, invocation, StringComparison.Ordinal);
+
+            // The word the page hands a machine is given to the reader that would refuse it.
+            var outcome = CommandLine.Parse([word, home.Root], home.Root);
+            Assert.Null(outcome.UsageError);
+            Assert.NotNull(outcome.Request);
+            Assert.Equal(word, outcome.Request.CommandWord);
+        }
+    }
+
+    /// <summary>
+    /// The second fix round's third finding: the usage lines and the command entries were two lists
+    /// joined by nothing but their order, so a fourth command with no fourth usage line added beside
+    /// it threw from the help page - the one answer that must never fail.
+    ///
+    /// The usage lines are now read off the commands themselves. This test says so: one line per
+    /// command, in order, each equal to that command's own invocation. Two lists that could fall out
+    /// of step cannot satisfy it.
+    /// </summary>
+    [Fact]
+    public void Run_HelpInMachineReadableForm_TheUsageLinesAreTheCommandsOwnInvocationsOneForEach()
+    {
+        var answer = Runner.Run(Request(CommandName.Help, null, "unused"));
+
+        var written = JsonSerializer.Serialize(answer.JsonPayload, JsonShape.Options);
+        using var read = JsonDocument.Parse(written);
+
+        var usage = read.RootElement.GetProperty("usage").EnumerateArray()
+            .Select(line => line.GetString()).ToList();
+        var invocations = read.RootElement.GetProperty("commands").EnumerateArray()
+            .Select(command => command.GetProperty("invocation").GetString()).ToList();
+
+        Assert.NotEmpty(invocations);
+        Assert.Equal(invocations, usage);
+    }
+
+    /// <summary>
+    /// The second fix round's second finding: the page missed two flags the reader takes. The short
+    /// spelling of help was taken by every command and named by none, and the version flag was taken
+    /// with no command word and left out of that command's list.
+    ///
+    /// This test does not read the lists and compare them with themselves, which would prove nothing.
+    /// It asks the reader, one flag at a time, whether it takes that flag for that command, and then
+    /// requires the page to name exactly the flags the reader took - no fewer, so a working flag is
+    /// never hidden, and no more, so the page never sends a caller to a refusal.
+    /// </summary>
+    [Fact]
+    public void Run_HelpInMachineReadableForm_EachCommandsFlagsAreExactlyTheOnesTheReaderTakes()
+    {
+        using var home = new FixtureTree("index-home");
+
+        // Every flag spelling this tool has anywhere, with a value for the ones that need one.
+        (string Flag, string? Value)[] everySpelling =
+        [
+            ("--json", null),
+            ("--index-directory", home.Root),
+            ("--top", "5"),
+            ("--folder-depth", "2"),
+            ("--help", null),
+            ("-h", null),
+            ("--version", null)
+        ];
+
+        var answer = Runner.Run(Request(CommandName.Help, null, "unused"));
+        var written = JsonSerializer.Serialize(answer.JsonPayload, JsonShape.Options);
+        using var read = JsonDocument.Parse(written);
+
+        foreach (var command in read.RootElement.GetProperty("commands").EnumerateArray())
+        {
+            var word = command.GetProperty("word").GetString();
+            Assert.NotNull(word);
+            var named = command.GetProperty("flags").EnumerateArray()
+                .Select(flag => flag.GetString()).ToList();
+
+            var taken = new List<string?>();
+            foreach (var (flag, value) in everySpelling)
+            {
+                var arguments = new List<string>();
+                if (word.Length > 0) arguments.Add(word);
+                arguments.Add(flag);
+                if (value is not null) arguments.Add(value);
+                if (word.Length > 0) arguments.Add(home.Root);
+
+                // A request built at all means the reader took the flag; a flag it does not take is
+                // the one thing that stops a command line this well formed from being understood.
+                if (CommandLine.Parse(arguments, home.Root).Request is not null)
+                    taken.Add(flag);
+            }
+
+            Assert.Equal(taken.Order(StringComparer.Ordinal), named.Order(StringComparer.Ordinal));
+        }
+    }
+
     [Fact]
     public void Run_Version_NamesTheToolAndItsNumber()
     {
