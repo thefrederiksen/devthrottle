@@ -87,6 +87,52 @@ public class RuleFoldTests
         Assert.Contains("no controls", finding.BrokenReason!, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The phase 2 review's finding. A rule that counts nothing at all is refused, but a rule that
+    /// counts only things it has declared MAY be empty is the same failure wearing different clothes:
+    /// no count it reports can ever alarm, so it can never report broken, so its empty answer is
+    /// always believed. The fold accepted that rule until this test was written, and it answered
+    /// "verdict: ok, items: 0" - which is "nothing to remove", said by a rule with nothing behind it.
+    ///
+    /// It matters most for the rules that do not exist yet: phase 5 turns rules into data refreshed
+    /// from the Gateway, and this fold is the single gate a refreshed rule passes through.
+    /// </summary>
+    [Fact]
+    public void Fold_ARuleWhoseEveryControlMayBeEmpty_ReportsBrokenBecauseNoCountCouldEverAlarm()
+    {
+        var answer = new RuleAnswer(
+            [new RuleControl("files-examined", 0, MustNotBeEmpty: false)],
+            []);
+
+        var finding = RuleFold.Fold(new StubRule(), answer);
+
+        Assert.Equal(RuleVerdict.Broken, finding.Verdict);
+        Assert.Contains("no control that must not be empty", finding.BrokenReason!, StringComparison.Ordinal);
+        Assert.Empty(finding.Candidates);
+        Assert.DoesNotContain("verdict: ok", finding.Lines);
+    }
+
+    /// <summary>
+    /// The same rule with one load-bearing control that did count something is fine. This is the
+    /// other half of the test above: the fold asks for a control that COULD alarm, not for one that
+    /// did.
+    /// </summary>
+    [Fact]
+    public void Fold_ARuleWithOneLoadBearingControlThatCounted_IsOkEvenWhenItOffersNothing()
+    {
+        var answer = new RuleAnswer(
+            [
+                new RuleControl("names-looked-for", 16, MustNotBeEmpty: true),
+                new RuleControl("files-examined", 0, MustNotBeEmpty: false)
+            ],
+            []);
+
+        var finding = RuleFold.Fold(new StubRule(), answer);
+
+        Assert.Equal(RuleVerdict.Ok, finding.Verdict);
+        Assert.Empty(finding.Candidates);
+    }
+
     [Fact]
     public void Fold_ARuleThatSaidItCouldNotRun_ReportsBrokenWithThatReason()
     {

@@ -73,6 +73,19 @@ public static class RuleFold
                    "nothing to remove from a rule that could not do its work";
         }
 
+        // A rule whose every control MAY be empty is a rule no count can ever alarm, so it can never
+        // report broken, so its empty answer is always believed. That is the same failure as counting
+        // nothing at all wearing different clothes, and it is the one the next rule written is most
+        // likely to arrive in: phase 5 turns rules into data refreshed from the Gateway, and this fold
+        // is the single gate a refreshed rule passes through. An empty result is a broken instrument
+        // until proven otherwise, and a rule with no load-bearing control proves nothing.
+        if (!answer.Controls.Any(control => control.MustNotBeEmpty))
+        {
+            return $"the rule {rule.Id} declared no control that must not be empty, so no count it " +
+                   "reports can ever tell an answer of nothing to remove from a rule that could not " +
+                   "do its work";
+        }
+
         var empty = answer.Controls.Where(control => control.MustNotBeEmpty && control.Count == 0).ToList();
         if (empty.Count == 0) return null;
 
