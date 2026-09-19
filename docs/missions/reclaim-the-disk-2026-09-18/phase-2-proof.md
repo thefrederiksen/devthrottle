@@ -122,10 +122,40 @@ none of it is old enough yet".
 
 ## 6. The revert proofs
 
-Each was run by breaking the fix by hand, rebuilding, seeing the named test red, restoring,
-rebuilding, and seeing it green. **No run used `--no-build`, including the restores.**
+Each was run by breaking the fix by hand, rebuilding, seeing the named tests red, restoring with
+`git checkout --`, rebuilding, and seeing them green. **No run used `--no-build` anywhere, including
+the restores.** The work was committed before the first mutation, so a restore could not eat it, and
+`git diff HEAD` is empty at the end: every hand revert was undone.
 
-To be completed by the seat that runs them; see section 2 for which tests each one turns red.
+**One: the emptiness check itself.** In `RuleFold.BrokenReasonFor`, `if (empty.Count == 0) return
+null;` was changed to `if (empty.Count >= 0) return null;`, so a rule with an empty control is treated
+as having nothing to remove. **Five tests red**, across two files, which is the right number because
+this one line is what four separate failure shapes all land on:
+
+    Fold_AControlThatMustNotBeEmptyIsNought_ReportsBrokenRatherThanNothingToRemove   FAIL
+    Fold_ABrokenRule_OffersNothingEvenThoughItCollectedCandidates                    FAIL
+    Examine_NoRecordsAtAll_ReportsBrokenAndOffersNothing                             FAIL
+    Examine_RecordsThatNameOnlyFilesThatAreGone_ReportsBroken                        FAIL
+    Examine_APackageFolderWithNoPackagesInIt_ReportsBroken                           FAIL
+
+Restored and rebuilt: 18 passed, 0 failed.
+
+**Two: the no-controls-at-all check.** The branch that refuses a rule reporting no controls was made
+to return null. `Fold_ARuleThatCountedNothingAtAll_ReportsBroken` **red**. This is the one that stops
+a rule written later from failing open by simply not counting anything. Restored: green.
+
+**Three: a broken rule keeping what it gathered.** `Candidates = broken ? [] : answer.Candidates` was
+changed to `Candidates = answer.Candidates`. `Fold_ABrokenRule_OffersNothingEvenThoughItCollectedCandidates`
+and `Examine_NoRecordsAtAll_ReportsBrokenAndOffersNothing` both **red** - so the two halves are
+independent: one says the verdict must be broken, the other says a broken verdict must offer nothing.
+Restored: green.
+
+**Four: rules left out being silently absent.** The line naming the rules that look outside the folder
+asked about was deleted. `Build_RulesLeftOutBecauseTheyLookElsewhere_AreNamedWithWhereTheyLook`
+**red**. Restored: green.
+
+After the last restore the whole suite ran on a fresh build: **191 passed, 0 failed, 0 skipped**, and
+`git diff HEAD` is empty.
 
 ## 7. What this proof does NOT cover
 
