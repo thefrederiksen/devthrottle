@@ -18,7 +18,8 @@ Kept current by the Architect. If this file and a session's memory disagree, thi
 
 | Phase | What it is | State |
 |---|---|---|
-| A | The rail tells the truth about colour (items 1, 3, 6) | NOT STARTED |
+| A | The rail tells the truth about colour (items 1, 3, 6) | BUILT, pushed at 9c707d2a4. Under inspection. |
+| A2 | The legend gets words for the two rendering sentinels | NOT STARTED - added after Phase A, see ruling below |
 | B | Everything that comes off the cards (9, 7, 13, 2, 5, 15, then 8) | NOT STARTED |
 | C | Every card says what the session is (10, 11, 14, 4) | NOT STARTED |
 | D | The agreement test over the card field list | NOT STARTED |
@@ -26,19 +27,22 @@ Kept current by the Architect. If this file and a session's memory disagree, thi
 
 ## Next Worker task
 
-Phase A, and it is three items in one area. The desktop only; it needs nothing from the push seam,
-so it blocks on nothing.
+**Phase A2**, once the Phase A inspection is cleared. Small, and it closes a hole Phase A found
+rather than created.
 
-1. An unrecognised colour name paints a neutral instead of the magenta broken sentinel. The sentinel
-   keeps its real and separate job - the Gateway stamped nothing while the tunnel is up and settled.
-2. A colour legend on the desktop, reading the Gateway's existing legend route and rendering it
-   verbatim.
-3. The colour hover reads the legend title plus the Gateway's stamped label; the Director's own
-   locally written reason stops being rendered.
+The desktop now paints two pixels the Gateway's legend has no words for: the NEUTRAL (a colour name
+this build never learned) and desktop MAGENTA (which since Phase A means only that the Gateway
+stamped nothing, while the Gateway's own legend note still describes magenta as "a colour this app
+does not understand"). The Phase A seat correctly refused to show that now-wrong note and left it
+out, so an unstamped session's hover is empty.
 
-**The acceptance it proves:** a Director too old to know a colour says so honestly, in a neutral that
-cannot be mistaken for a state; and no user-visible word about a session's state is written by the
-desktop.
+Build: a legend note per RENDERING SENTINEL on the Gateway, and the desktop rendering them. The
+words are the Gateway's, as every word about a session is.
+
+**The acceptance it proves:** every pixel a person can see on the rail can be explained, in the
+Gateway's words, from the rail.
+
+Then Phase B, unchanged in the mission document.
 
 ## Facts verified at v2.8.0, so nobody re-derives them
 
@@ -67,11 +71,34 @@ Re-checked at `74485174f` after `origin/main` moved during the design round. All
   value reached an old build and became an alarm. Prove the old-build path, not just the new one.
 - **Do not reintroduce pushing the colour hex.** The owner rejected it explicitly.
 
-## Open, and the Architect's to answer - not the owner's
+## Architect rulings made during the run
 
-- The exact neutral value. Settle against the visual style guide; do not ship the Architect's guess.
-- The word on the surviving cumulative number: "waited", not "idle". Recorded as an Architect call in
-  the mission document.
+- **The neutral is SETTLED: gray-200 `#E5E7EB`.** Measured, not chosen - 3.90:1 against the palette
+  grey `#6B7280`, where the Architect's original guess of `#D1D5DB` reached only 3.28:1. Both would
+  have passed; the shipped one buys margin for nothing. Do not "simplify" it back.
+- **"Both themes" is one theme, and that is a finding, not an oversight.** `App.axaml` pins the dark
+  variant and nothing changes it. Recorded so a later reader does not think the light theme was
+  skipped.
+- **The legend gap is accepted and scheduled as Phase A2** (above), not waved through. A visible pixel
+  nobody can get an explanation for is against the owner's standing ruling that the words are always
+  the Gateway's - but it is not a regression, since the desktop had no legend at all before.
+- **The word on the surviving cumulative number: "waited", not "idle".** Unchanged, Phase B.
+
+## The test gate - how Phase A is allowed to land
+
+**The owner's standing ruling: zero test failures on any platform, and NEVER quote a "pre-existing
+failures" baseline as a pass.** The Phase A seat reported the macOS Avalonia suite at 567 passed and
+7 failed, and verified the same 7 fail at v2.8.0. That verification was honest work and it is NOT
+acceptance - it is precisely the baseline quote the owner banned.
+
+So: **Phase A does not land on a Mac result.** Before the pull request, the default gate runs on
+Windows and must be green. At the time of writing the only live Windows Director is on the owner's
+main machine; the other Windows machine has been off the tunnel for two hours. Deferred until the
+inspection is cleared so the gate runs once, on final code.
+
+Two pre-existing findings for the owner's report, NOT mission work and not to be fixed here: the
+macOS suite is red, and `CcDirector.Gateway.UnitTests` is parked (issue #2824), so a proof that lives
+only there is a proof nobody sees at commit time.
 
 ## Where the owner's answers live
 
