@@ -4,14 +4,18 @@ namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// The morning report for ONE account and ONE calendar day (issue #2119, slice 2 of #2096) - the JSON the
-/// website's 7:00 cron reads, renders into the approved email design, and sends. Three headline numbers, the
-/// needs-your-attention list, and the exact window every number was measured over.
+/// website's 7:00 cron reads, renders into the approved email design, and sends. The needs-your-attention
+/// list, and the exact window the report covers.
+///
+/// NO YESTERDAY-STATS, BY OWNER RULING (2026-09-20, issue #3124): "telling me how much shit I did yesterday
+/// is not going to help me today." The daily report answers WHAT NEEDS YOU TODAY. The scoreboard -
+/// sessions run, work accepted, hosted-AI spend - is weekly-report material, and no weekly personal-stats
+/// surface exists yet (mission item in #3124).
 ///
 /// THE HONESTY RULE IS STRUCTURAL, NOT EDITORIAL. Anything the Gateway has no data for is ABSENT from the
-/// JSON - never zero-filled, never estimated. A missing <see cref="MorningReportStatsDto.SessionsRan"/> means
-/// "this Gateway holds no session history for this account", which is a different statement from "no sessions
-/// ran", and the email must be able to tell them apart. Every optional member below is therefore
-/// <see cref="JsonIgnoreCondition.WhenWritingNull"/>: a null does not serialize at all.
+/// JSON - never zero-filled, never estimated. A missing section means "this Gateway holds no data for
+/// this account", which is a different statement from "nothing happened", and the email must be able to
+/// tell them apart.
 ///
 /// The field names here are the CONTRACT the website sender is coded against (owner-relayed, 24 July 2026).
 /// They are camelCase on the wire (minimal-API web defaults). Renaming one breaks the email.
@@ -22,16 +26,9 @@ public sealed class MorningReportDto
     /// sender can prove the report it is about to email belongs to the recipient it is emailing.</summary>
     public string Account { get; set; } = "";
 
-    /// <summary>The exact coordinates every number below was measured over - the resolved UTC range, plus
-    /// the calendar day and zone it came from. Every number carries its coordinates.</summary>
+    /// <summary>The exact coordinates of the report - the resolved UTC range, plus the calendar day and
+    /// zone it came from. Every claim in the report carries its coordinates.</summary>
     public MorningReportWindowDto Window { get; set; } = new();
-
-    /// <summary>The three headline numbers. Each is individually optional (see the honesty rule).</summary>
-    public MorningReportStatsDto Stats { get; set; } = new();
-
-    /// <summary>How the account's microphones are doing, ranked best first. NULL - the whole section
-    /// absent - when nothing has been measured yet, per the honesty rule.</summary>
-    public MorningMicrophonesDto? Microphones { get; set; }
 
     /// <summary>
     /// The needs-your-attention list, one typed item per row the email renders. ALWAYS PRESENT, possibly
@@ -51,72 +48,6 @@ public sealed class MorningReportDto
 }
 
 /// <summary>The resolved reporting window: the UTC range the calendar day covers in the caller's zone.</summary>
-/// <summary>
-/// How the account's microphones are doing, ranked best first, for the daily report.
-///
-/// This is a SECTION rather than an attention row on purpose. The attention list answers "what needs
-/// you today"; this answers "which of your microphones should you be using", which is worth seeing even
-/// when nothing is wrong - it is the comparison that makes the advice actionable, and a user cannot
-/// make it for themselves because the defect that matters most sounds merely dull to a human ear.
-///
-/// THE HONESTY RULE APPLIES: this whole section is ABSENT when the Gateway holds no measurements for the
-/// account, or too few for any device to be judged. "We have never measured your microphones" and "your
-/// microphones are fine" are different statements and only one of them has been established.
-/// </summary>
-public sealed class MorningMicrophonesDto
-{
-    /// <summary>One line naming the best microphone, or saying they are all fine.</summary>
-    public string Headline { get; set; } = "";
-
-    /// <summary>What to change, present ONLY when switching or fixing something would actually help.
-    /// Absent when the microphones are all good - a daily email that always has advice is one nobody
-    /// reads.</summary>
-    public string? Advice { get; set; }
-
-    /// <summary>A prewritten sentence pointing the reader at the Cockpit's Transcription Health page
-    /// for the per-measurement history and the quality-over-time trend. The email stays a summary by
-    /// design; this is the door to the detail. The sender prints it verbatim.</summary>
-    public string DetailHint { get; set; } = "";
-
-    /// <summary>The devices, best first. Never empty when this section is present.</summary>
-    public List<MorningMicrophoneDto> Devices { get; set; } = new();
-}
-
-/// <summary>One microphone's standing in the daily report.</summary>
-public sealed class MorningMicrophoneDto
-{
-    /// <summary>The name the operating system gave it, or "Unnamed microphone".</summary>
-    public string Device { get; set; } = "";
-
-    /// <summary>What kind of machine it lives on: "mobile", "mac", "windows" or "unknown".</summary>
-    public string Platform { get; set; } = "unknown";
-
-    /// <summary>The finished display string for the platform ("Phone or tablet", "Mac", "Windows").
-    /// Empty when unknown, so the email renders nothing rather than a guess.</summary>
-    public string PlatformLabel { get; set; } = "";
-
-    /// <summary>How many dictations this verdict rests on.</summary>
-    public int Samples { get; set; }
-
-    /// <summary>"good" or "bad" - the same fold the Cockpit renders.</summary>
-    public string Status { get; set; } = "";
-
-    /// <summary>A plain sentence about this device, already written. The email prints it verbatim.</summary>
-    public string Summary { get; set; } = "";
-
-    /// <summary>Share of this device's dictations that arrived band-limited (0..1).</summary>
-    public double NarrowbandShare { get; set; }
-
-    /// <summary>Share of this device's dictations that were distorting (0..1).</summary>
-    public double ClippingShare { get; set; }
-
-    /// <summary>Typical level of the voice, in dBFS.</summary>
-    public double SpeechLevelDb { get; set; }
-
-    /// <summary>Typical margin of the voice over the room, in dB.</summary>
-    public double SignalToNoiseDb { get; set; }
-}
-
 public sealed class MorningReportWindowDto
 {
     /// <summary>Inclusive start of the reported day, in UTC.</summary>
@@ -130,26 +61,6 @@ public sealed class MorningReportWindowDto
 
     /// <summary>The IANA zone the calendar day was resolved in, as the caller supplied it.</summary>
     public string Tz { get; set; } = "";
-}
-
-/// <summary>
-/// The three headline numbers. Each is null - and therefore ABSENT from the JSON - when this Gateway holds
-/// no backing data at all for the account. A present zero is a measured zero and may be rendered as such.
-/// </summary>
-public sealed class MorningReportStatsDto
-{
-    /// <summary>Distinct sessions that recorded at least one state transition inside the window.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? SessionsRan { get; set; }
-
-    /// <summary>Workflow runs ACCEPTED in the window - the outcome ledger's delivered count.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? WorkDelivered { get; set; }
-
-    /// <summary>Hosted-AI service dollars spent in the window, CEIL-rounded to the cent so the figure can
-    /// never undercount real money.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public decimal? HostedAiSpendUsd { get; set; }
 }
 
 /// <summary>

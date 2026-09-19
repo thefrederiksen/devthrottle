@@ -310,10 +310,7 @@ public sealed class MorningReportEndpointTests : IDisposable
         SeedTenant(db, Alice, "sub-alice", "alice@example.com");
         SeedTenant(db, Bob, "sub-bob", "bob@example.com");
 
-        var inWindow = new DateTime(2026, 7, 23, 15, 0, 0, DateTimeKind.Utc);
-        SeedSessionEvent(db, Alice, "alice-1", GovernanceEventState.Active, inWindow);
-        SeedSessionEvent(db, Bob, "bob-1", GovernanceEventState.Active, inWindow);
-        SeedSessionEvent(db, Bob, "bob-2", GovernanceEventState.Active, inWindow);
+        SeedSessionEvent(db, Alice, "alice-1", GovernanceEventState.Active, Now.AddHours(-1));
         SeedSessionEvent(db, Bob, "bob-waiting", GovernanceEventState.WaitingOnHuman, Now.AddHours(-5));
 
         var aliceCtx = Request($"Bearer {Token}");
@@ -325,12 +322,9 @@ public sealed class MorningReportEndpointTests : IDisposable
         Assert.Equal(StatusCodes.Status200OK, aliceStatus);
         Assert.Equal(StatusCodes.Status200OK, bobStatus);
 
-        Assert.Equal(1, aliceBody.GetProperty("stats").GetProperty("sessionsRan").GetInt32());
+        // Bob waited 5 hours ago - after the reported day closed - so it is Bob's attention row, and
+        // it appears NOWHERE in Alice's payload.
         Assert.Equal(0, aliceBody.GetProperty("attention").GetArrayLength());
-
-        // bob-1 and bob-2 transitioned inside the reported day; bob-waiting started waiting after it closed,
-        // so it is an attention row without being counted as a session that ran yesterday.
-        Assert.Equal(2, bobBody.GetProperty("stats").GetProperty("sessionsRan").GetInt32());
         Assert.Equal(1, bobBody.GetProperty("attention").GetArrayLength());
 
         // The strongest form of the claim: Bob's session identifiers appear NOWHERE in Alice's payload.
@@ -345,11 +339,8 @@ public sealed class MorningReportEndpointTests : IDisposable
         Environment.SetEnvironmentVariable(MorningReportEndpoint.ServiceTokenEnvVar, Token);
         var db = Db;
         SeedTenant(db, Alice, "sub-alice", "alice@example.com");
-        // One session that ran INSIDE the reported day (the stat), and one that has been waiting since
-        // after the day closed (the attention row). Deliberately different sessions: the two answer
-        // different questions and the email shows them in different places.
-        SeedSessionEvent(db, Alice, "ran-yesterday", GovernanceEventState.Active,
-            new DateTime(2026, 7, 23, 15, 0, 0, DateTimeKind.Utc));
+        // One session has been waiting since after the reported day closed - the attention row, and with
+        // the stats gone (owner ruling, 2026-09-20) the ONLY content this report carries.
         SeedSessionEvent(db, Alice, "s1", GovernanceEventState.WaitingOnHuman, Now.AddHours(-7));
 
         var ctx = Request($"Bearer {Token}");
@@ -364,12 +355,9 @@ public sealed class MorningReportEndpointTests : IDisposable
         Assert.True(window.TryGetProperty("startUtc", out _));
         Assert.True(window.TryGetProperty("endUtc", out _));
 
-        // The session ledger has rows, so sessionsRan is present. Nothing has ever written a workflow run or
-        // a hosted-AI debit for this tenant, so those two keys are ABSENT - not zero.
-        var stats = body.GetProperty("stats");
-        Assert.Equal(1, stats.GetProperty("sessionsRan").GetInt32());
-        Assert.False(stats.TryGetProperty("workDelivered", out _));
-        Assert.False(stats.TryGetProperty("hostedAiSpendUsd", out _));
+        // NO YESTERDAY-STATS ON THE DAILY REPORT (owner ruling, 2026-09-20, issue #3124): the report
+        // carries no scoreboard at all, so the key is ABSENT from the wire - not zero, not empty.
+        Assert.False(body.TryGetProperty("stats", out _));
 
         // The Gateway invents no prose.
         Assert.False(body.TryGetProperty("observation", out _));
@@ -386,35 +374,6 @@ public sealed class MorningReportEndpointTests : IDisposable
         Assert.False(item.TryGetProperty("$type", out _));
     }
 
-    [Fact]
-    public async Task Money_reaches_the_wire_as_a_ceil_rounded_number()
-    {
-        Environment.SetEnvironmentVariable(MorningReportEndpoint.ServiceTokenEnvVar, Token);
-        var db = Db;
-        SeedTenant(db, Alice, "sub-alice", "alice@example.com");
-        using (var seed = db.CreateContext(Alice))
-        {
-            seed.AccountHostedAiSpend.Add(new AccountHostedAiSpendEntity
-            {
-                TenantId = Alice.Value,
-                AmountMicros = 1_234_567,
-                Kind = "debit",
-                TransactionCreatedUtc = new DateTime(2026, 7, 23, 15, 0, 0, DateTimeKind.Utc),
-                ObservedUtc = Now,
-            });
-            seed.SaveChanges();
-        }
-
-        var ctx = Request($"Bearer {Token}");
-        var (status, body) = await ExecuteAsync(Call(ctx, "alice@example.com", db, HostedBoundary()), ctx);
-
-        Assert.Equal(StatusCodes.Status200OK, status);
-        // A number, not a string - the sender formats it - and rounded UP to the cent.
-        var spend = body.GetProperty("stats").GetProperty("hostedAiSpendUsd");
-        Assert.Equal(JsonValueKind.Number, spend.ValueKind);
-        Assert.Equal(1.24m, spend.GetDecimal());
-    }
-
     // ---- self-host -------------------------------------------------------------------------------------
 
     [Fact]
@@ -422,8 +381,6 @@ public sealed class MorningReportEndpointTests : IDisposable
     {
         Environment.SetEnvironmentVariable(MorningReportEndpoint.ServiceTokenEnvVar, Token);
         var db = _h.Open(); // SingleTenantContext -> everything is TenantId.Local
-        SeedSessionEvent(db, TenantId.Local, "s1", GovernanceEventState.Active,
-            new DateTime(2026, 7, 23, 15, 0, 0, DateTimeKind.Utc));
 
         // A self-host install has no account census, so the account names the one install - but the service
         // token is still required.
@@ -435,6 +392,6 @@ public sealed class MorningReportEndpointTests : IDisposable
         var (status, body) = await ExecuteAsync(Call(ctx, "whoever@example.com", db, SelfHostBoundary()), ctx);
 
         Assert.Equal(StatusCodes.Status200OK, status);
-        Assert.Equal(1, body.GetProperty("stats").GetProperty("sessionsRan").GetInt32());
+        Assert.False(body.TryGetProperty("stats", out _));
     }
 }
