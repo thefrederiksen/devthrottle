@@ -176,10 +176,38 @@ public static class TerminatingFaultClassifier
         "prompt is too long", "context limit reached", "context window is full", "conversation is too long",
     };
 
-    /// <summary>Faults that mean the work cannot proceed. Never auto-continued (issue #758's class).</summary>
+    /// <summary>
+    /// Faults that mean the work cannot proceed. Never auto-continued (issue #758's class).
+    ///
+    /// THE USAGE-LIMIT BLOCKS (issue #3117) are the strings the agents actually print, captured verbatim from
+    /// turn-end screens on 16-17 September 2026 (2,232 records, 336 sessions, devthrottle_internal/corpus/
+    /// turn-log): Grok prints "You hit your free usage limit.", Codex prints "You've hit your usage limit.
+    /// Visit https://chatgpt.com/codex/settings/usage ..." or "... Upgrade to Pro ...", and Claude Code prints
+    /// "You've hit your weekly limit · resets ...". The signature this list used to carry, "usage limit
+    /// reached", is printed by no agent - it was written from an imagined message and matched nothing, so 15
+    /// sessions stopped dead on a real limit over those two days while the supervisor called every one of
+    /// them a clean turn end.
+    ///
+    /// WHY THE CODEX SIGNATURE KEEPS ITS FULL STOP. A notice is a complete sentence the agent prints, and
+    /// both measured screens where a healthy session merely QUOTED the notice in prose carried it without one:
+    /// "stopped at \"You've hit your usage limit ... try again at ...\"" and "hit its usage limit. Session 101
+    /// was the Codex Inspector, stopped at \"You've hit your usage limit\",". The printed notice always ends
+    /// the sentence. Grok's and Claude Code's blocks had no prose collisions in the measurement, so theirs
+    /// stay unadorned - the dot is bought where the corpus proved it necessary, not sprinkled for symmetry.
+    ///
+    /// THE WARNINGS ARE DELIBERATELY ABSENT. "You've used 94% of your weekly limit", "less than 25% of your
+    /// weekly limit left" and "you have 1 usage limit reset available" appeared on many more screens than the
+    /// blocks did, and every session showing one was still working. A warning must never reach any list here:
+    /// it would stop or escalate a healthy session, which is worse than blind.
+    ///
+    /// Which class a usage limit belongs in - in particular whether a printed reset time may be read as a
+    /// waiting time - is a separate decision (the research behind issue #3117 raises it) and is deliberately
+    /// not settled here. Until it is, a block sits in this class: it escalates and is never retried.
+    /// </summary>
     private static readonly string[] NonRecoverableSignatures =
     {
-        "credit balance is too low", "out of credits", "insufficient credits", "usage limit reached",
+        "credit balance is too low", "out of credits", "insufficient credits",
+        "hit your free usage limit", "hit your usage limit.", "hit your weekly limit",
         "invalid api key", "invalid x-api-key", "api key auth failed", "authentication_error", "authentication failed",
         "oauth token has expired", "please run /login", "permission_error", "403 forbidden",
     };
