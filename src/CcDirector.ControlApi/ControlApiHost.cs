@@ -750,8 +750,15 @@ public sealed class ControlApiHost : IAsyncDisposable
         if (_stateServicesStarted) return;
         _stateServicesStarted = true;
 
-        // Phase 5: persistent JSONL log per session. Must start FIRST so brand-new
-        // sessions have a writer attached before any events fire.
+        // Phase 5: persistent JSONL log per session, OFF by default. Started FIRST so that when it
+        // is switched on, brand-new sessions have a writer attached before any events fire.
+        //
+        // It used to run for every session on every install with no setting, writing every byte the
+        // terminal painted (spinner frames and all), base64-encoded, uncapped and unaged - while
+        // nothing in the product read one: the only readers are the tests and cc-raw-view-harness.
+        // One machine held 35 GB of it. Switch it on with session_logs.enabled in config.json when
+        // chasing a terminal defect, and off again after. Same defect and same remedy as the terminal
+        // recorder below; that one was fixed and this one was missed.
         _sessionLogManager = new Core.Storage.SessionLogManager(_sessionManager);
         _sessionLogManager.Start();
 

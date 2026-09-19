@@ -14,6 +14,11 @@
 // Director rebuild required between iterations.
 //
 // Session log dirs live under %LOCALAPPDATA%\cc-director\session-logs\<sid>\.
+//
+// Capture is OFF by default, so a fresh machine has nothing here to replay. Switch it on for the
+// investigation - "session_logs": { "enabled": true } in config.json, or CC_DIRECTOR_SESSION_LOGS=1 -
+// restart the Director, reproduce the defect, then switch it off again: raw.jsonl records every byte
+// the terminal painted and grows into the hundreds of megabytes on a busy session.
 
 using System.Text;
 using System.Text.Json;
