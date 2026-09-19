@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -11,7 +12,7 @@ using Xunit;
 namespace CcDirector.Core.Tests.Setup;
 
 /// <summary>
-/// The four conditions of the tool-copy sweep, each watched deciding and each watched refusing.
+/// The five conditions of the tool-copy sweep, each watched deciding and each watched refusing.
 ///
 /// THEY RUN THROUGH THE PURE CLASSIFIER because that is what the classifier is for: it takes facts and
 /// returns a verdict, so "a Director is running there" and "the master is empty" are arguments rather
@@ -40,8 +41,9 @@ public class DirectorToolCopySweepTests
     private static OwningDirectorState Idle => new(DirectorResolution.NotRunning, false);
     private static OwningDirectorState Own => new(DirectorResolution.NotRunning, true);
 
-    private static SweepVerdict Classify(string candidate, OwningDirectorState? owner, bool masterAlive = true)
-        => DirectorToolCopySweep.Classify(candidate, MachineRoot, masterAlive, owner);
+    private static SweepVerdict Classify(string candidate, OwningDirectorState? owner, bool masterAlive = true,
+        DirectoryKind kind = DirectoryKind.RealDirectory)
+        => DirectorToolCopySweep.Classify(candidate, kind, MachineRoot, masterAlive, owner);
 
     // ---------------------------------------------------------------------------------------------
     // The positives: what the sweep is FOR. Without these the tests below would pass on a classifier
@@ -239,6 +241,47 @@ public class DirectorToolCopySweepTests
     }
 
     // ---------------------------------------------------------------------------------------------
+    // CONDITION 5 - a link is never a candidate. Through the pure classifier first, because the rule
+    // itself is a rule about a fact, and the fact is an argument.
+    // ---------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("bin")]
+    [InlineData("pyenv")]
+    [InlineData("python")]
+    [InlineData(RetiredInterpreter)]
+    public void ALinkWithAQualifyingNameInsideADirectorFolderIsKept(string name)
+    {
+        // The name qualifies, the placement qualifies, no Director is running there and the master is
+        // alive - four conditions out of five, all of them facts about the LINK. Everything that would
+        // be destroyed is at the other end of it, where nothing has looked.
+        var verdict = Classify(Path.Combine(DirectorHome, name), Idle, kind: DirectoryKind.Link);
+
+        Assert.Equal(SweepAction.Keep, verdict.Action);
+        Assert.Contains("it is a link, and the sweep never follows one", verdict.Reason);
+    }
+
+    [Fact]
+    public void ALinkShapedLikeARetiredInterpreterInTheMachineRootIsKept()
+    {
+        var verdict = Classify(Path.Combine(MachineRoot, RetiredInterpreter), owner: null, kind: DirectoryKind.Link);
+
+        Assert.Equal(SweepAction.Keep, verdict.Action);
+        Assert.Contains("it is a link, and the sweep never follows one", verdict.Reason);
+    }
+
+    [Fact]
+    public void ADirectoryWhoseKindCouldNotBeReadIsKept()
+    {
+        // The same answer an unreadable Director state gets, for the same reason: a question nobody
+        // could answer must never read as a yes.
+        var verdict = Classify(Path.Combine(DirectorHome, "bin"), Idle, kind: DirectoryKind.CouldNotTell);
+
+        Assert.Equal(SweepAction.Keep, verdict.Action);
+        Assert.Contains("unknown is never permission", verdict.Reason);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // The runner, on a throwaway directory. Fast: it creates about thirty small files and deletes some
     // of them. It belongs in the parallel suite because it holds no shared state and reads no clock -
     // every test gets a directory of its own.
@@ -363,6 +406,136 @@ public class DirectorToolCopySweepTests
         }
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // CONDITION 5 ON A REAL LINK. These build an actual junction on Windows and an actual symbolic
+    // link elsewhere, because the entire finding is about what the operating system's own file APIs
+    // do with one: GetDirectories lists the TARGET's children through a junction, and a delete through
+    // a junction path destroys the real file at the far end. A stand-in for a link cannot be wrong in
+    // those two ways, so it would prove nothing.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void AJunctionStandingInForATOOLSFolderIsKept_AndWHATITPOINTSATSURVIVES()
+    {
+        using var rig = new Rig();
+        rig.Master();
+        var own = rig.Instance("default");
+
+        // THE WORST CASE, BUILT. A person short of disk on a machine carrying seven copies of a 345
+        // megabyte tools folder replaces a Director's bin with a junction to the machine's master bin.
+        // Conditions 1 to 4 all say delete. Condition 5 is the only thing standing between this sweep
+        // and emptying the master THROUGH the link - seconds after it verified that same master was
+        // alive, by a different path.
+        var masterBin = Path.Combine(rig.Root, "bin");
+        var link = Path.Combine(own, "bin");
+        Directory.Delete(link, recursive: true);
+        MakeDirectoryLink(link, masterBin);
+
+        var result = rig.Sweep(sweepingHome: own, running: Array.Empty<string>());
+
+        var row = result.Looked.SingleOrDefault(d => d.Path == link);
+        Assert.NotNull(row);
+        Assert.Equal(SweepAction.Keep, row!.Action);
+        Assert.Contains("it is a link, and the sweep never follows one", row.Reason);
+
+        Assert.True(Directory.Exists(link), $"{link} is a link and should have been left exactly where it was");
+        Assert.True(File.Exists(Path.Combine(masterBin, Rig.MasterLauncher)),
+            "the master's own launcher was destroyed THROUGH the junction");
+    }
+
+    [Fact]
+    public void AJunctionNamedInstancesNeverMakesITSTARGETSChildrenReadAsDirectorFolders()
+    {
+        using var rig = new Rig();
+        rig.Master();
+
+        // Somebody else's tree, moved off this disk and junctioned back in under the one name the sweep
+        // walks. Directory.GetDirectories through the junction lists the TARGET's children, so without
+        // the refusal every folder in it reads as a Director folder BY SHAPE and its bin, pyenv and
+        // python are all candidates - deleted at the far end of a link nobody classified.
+        var elsewhere = Path.Combine(rig.Root, "elsewhere");
+        var theirs = rig.PopulateAt(Path.Combine(elsewhere, "default"));
+        MakeDirectoryLink(Path.Combine(rig.Root, "instances"), elsewhere);
+
+        // The sweeping Director is named as the folder reached THROUGH the link, which is the strongest
+        // form of the test: it would also carry the own-folder exception to condition 4.
+        var result = rig.Sweep(
+            sweepingHome: Path.Combine(rig.Root, "instances", "default"), running: Array.Empty<string>());
+
+        var row = result.Looked.SingleOrDefault(d => d.Path == Path.Combine(rig.Root, "instances"));
+        Assert.NotNull(row);
+        Assert.Equal(SweepAction.Keep, row!.Action);
+        Assert.Contains("it is a link, and the sweep never follows one", row.Reason);
+
+        var through = Path.Combine(rig.Root, "instances", "default");
+        Assert.DoesNotContain(result.Looked, d => d.Path.StartsWith(through, StringComparison.OrdinalIgnoreCase));
+
+        foreach (var copy in new[] { "bin", "pyenv", "python" })
+            Assert.True(File.Exists(Path.Combine(theirs, copy, "tool.txt")),
+                $"{copy} at the far end of the junction was destroyed");
+    }
+
+    [Fact]
+    public void ACopyIsRemovedWithoutFollowingAJunctionINSIDEIt()
+    {
+        using var rig = new Rig();
+        rig.Master();
+        var own = rig.Instance("default");
+
+        // A separate hole from the one above: the CANDIDATE is an ordinary directory and is genuinely
+        // disposable, but something inside it is a link. Walking it would delete the target's files one
+        // by one before unlinking, which is the same unrecoverable loss by a longer route.
+        var elsewhere = Path.Combine(rig.Root, "elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        File.WriteAllText(Path.Combine(elsewhere, "not-ours.txt"), "a file the sweep never enumerated");
+        MakeDirectoryLink(Path.Combine(own, "pyenv", "lib"), elsewhere);
+
+        rig.Sweep(sweepingHome: own, running: Array.Empty<string>());
+
+        Assert.False(Directory.Exists(Path.Combine(own, "pyenv")),
+            "the copy itself is an ordinary directory and should still have been removed");
+        Assert.True(File.Exists(Path.Combine(elsewhere, "not-ours.txt")),
+            "a file at the far end of a junction INSIDE the copy was destroyed");
+    }
+
+    /// <summary>
+    /// Make a real directory LINK at <paramref name="link"/> pointing at <paramref name="target"/>.
+    ///
+    /// A JUNCTION ON WINDOWS, VIA mklink, AND NOT <c>Directory.CreateSymbolicLink</c>. A symbolic link
+    /// needs SeCreateSymbolicLinkPrivilege - an administrator, or Developer Mode switched on - and a
+    /// junction needs nothing at all. That is not a convenience: a junction is precisely the thing the
+    /// finding is about, because a person short of disk can make one with no permission from anybody.
+    /// On macOS and Linux an ordinary symbolic link is the same shape and is equally unprivileged.
+    ///
+    /// It FAILS when the link could not be made, and it checks the reparse-point attribute rather than
+    /// mere existence. A test that skipped here, or that accepted an ordinary directory, would report a
+    /// pass on a run that never built the thing it is about.
+    /// </summary>
+    private static void MakeDirectoryLink(string link, string target)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateSymbolicLink(link, target);
+        }
+        else
+        {
+            using var mklink = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            Assert.NotNull(mklink);
+            var output = mklink!.StandardOutput.ReadToEnd() + mklink.StandardError.ReadToEnd();
+            mklink.WaitForExit();
+            Assert.True(mklink.ExitCode == 0, $"mklink /J \"{link}\" \"{target}\" failed: {output}");
+        }
+
+        Assert.True(File.GetAttributes(link).HasFlag(FileAttributes.ReparsePoint),
+            $"{link} was created but is not a reparse point, so this test would prove nothing");
+    }
+
     /// <summary>A throwaway machine root shaped like the owner's, built and torn down per test.</summary>
     private sealed class Rig : IDisposable
     {
@@ -371,13 +544,15 @@ public class DirectorToolCopySweepTests
 
         public Rig() => Directory.CreateDirectory(Root);
 
+        /// <summary>The file inside the master bin that makes it answer cc-devthrottle.</summary>
+        public static string MasterLauncher => OperatingSystem.IsWindows() ? "cc-devthrottle.cmd" : "cc-devthrottle";
+
         /// <summary>The master: a bin holding a runnable cc-devthrottle, plus pyenv and python beside it.</summary>
         public void Master()
         {
             var bin = Path.Combine(Root, "bin");
             Directory.CreateDirectory(bin);
-            File.WriteAllText(Path.Combine(bin, OperatingSystem.IsWindows() ? "cc-devthrottle.cmd" : "cc-devthrottle"),
-                "#!/bin/sh\necho master\n");
+            File.WriteAllText(Path.Combine(bin, MasterLauncher), "#!/bin/sh\necho master\n");
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(Path.Combine(bin, "cc-devthrottle"),
                     UnixFileMode.UserRead | UnixFileMode.UserExecute | UnixFileMode.UserWrite);
@@ -391,6 +566,9 @@ public class DirectorToolCopySweepTests
         /// <summary>The nested leak: a Director folder inside a Director folder's own instances.</summary>
         public string NestedInstance(string outer, string inner) =>
             Populate(Path.Combine(Root, "instances", outer, "instances", inner));
+
+        /// <summary>The same folder contents at an arbitrary path - used to build a junction's target.</summary>
+        public string PopulateAt(string home) => Populate(home);
 
         private string Populate(string home)
         {

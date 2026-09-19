@@ -451,7 +451,10 @@ public sealed class PythonToolsInstaller
     /// prints where each name resolves on the path, and it covers the nine retired fleet aliases only.
     /// Widening it to every registry-known unshipped tool would have doctor report the owner's own
     /// working cc-docgen as a retired alias, which is a false statement about his machine. The two lists
-    /// answer different questions and the first eight names are their whole overlap.
+    /// answer different questions. Their overlap is NINE names, not eight: the eight retired fleet
+    /// commands plus cc-playwright, which the doctor prints and this list also purges. Put another way,
+    /// the doctor's whole list is contained in this one - so a name added to the doctor's list should
+    /// already be here, while a name added here usually does not belong there.
     ///
     /// These names never overlap the shipping tools, so purging them can never remove a live tool's
     /// shim - guarded by a test against the shipped manifest rather than left as a promise.
@@ -515,7 +518,8 @@ public sealed class PythonToolsInstaller
             .SelectMany(name => LegacyAliasShimPaths(name).Select(path => (Name: name, Path: path)))
             .Where(candidate => File.Exists(candidate.Path) && !IsShimTheProductWrote(candidate.Path, candidate.Name))
             .Select(candidate => (candidate.Path,
-                Reason: $"it does not forward to pyenv/Scripts/{candidate.Name}, so the product did not write it"))
+                Reason: $"it does not carry the product's own relative forwarding line for {candidate.Name}, "
+                        + "so the product did not write it"))
             .ToList();
 
     /// <summary>
@@ -532,10 +536,35 @@ public sealed class PythonToolsInstaller
     /// delete LESS. Given that a false delete here is unrecoverable and a false keep is a stale file, the
     /// second is the rule to have.
     ///
-    /// The positive test is the product's OWN forwarding line for that exact name -
-    /// <c>pyenv\Scripts\&lt;name&gt;.exe</c> on Windows, <c>pyenv/Scripts/&lt;name&gt;.exe</c> in the bash
-    /// shim - so this is an allow-list of one shape and not a list of things to skip. Anything that
-    /// cannot be read as text, anything binary, and anything whose body says something else is KEPT.
+    /// The positive test is the product's OWN RELATIVE forwarding line for that exact name, in whichever
+    /// of the two forms the product writes: <c>%~dp0..\pyenv\Scripts\&lt;name&gt;.exe</c> in the
+    /// <c>.cmd</c> (see <see cref="BuildWindowsShimBody"/>) and
+    /// <c>$(dirname "$0")/../pyenv/Scripts/&lt;name&gt;.exe</c> in the bare-name bash shim (see
+    /// <see cref="BuildWindowsBashShimBody"/>). So this is an allow-list of two shapes and not a list of
+    /// things to skip. Anything that cannot be read as text, anything binary, and anything whose body
+    /// says something else is KEPT.
+    ///
+    /// THE RELATIVE COMPOSITION IS THE WHOLE TEST, NOT DECORATION. A hand-written launcher that points
+    /// STRAIGHT at the venv executable by absolute path - <c>"C:\...\cc-director\pyenv\Scripts\cc-docgen.exe" %*</c>,
+    /// the most natural way for a person to write one - names the same executable and would pass a test
+    /// that only looked for <c>pyenv\Scripts\&lt;name&gt;.exe</c>. It is a file the product did not write
+    /// and could never put back. The <c>%~dp0..\</c> and the <c>$(dirname "$0")/../</c> are what tell the
+    /// product's own relative composition apart from that wrapper, and both forms are required because
+    /// the two shims compose the same relative path differently - taking only the <c>.cmd</c> wording
+    /// would make the purge inert on every bare-name bash shim, which is the form both of the launchers
+    /// this purge exists to remove are written in on the machine that prompted the work.
+    ///
+    /// ON macOS AND LINUX THIS PURGE IS STRUCTURALLY INERT, AND THAT IS SAID HERE RATHER THAN DISCOVERED.
+    /// <see cref="LegacyAliasShimPaths"/> offers exactly one candidate per name off Windows: the
+    /// <c>~/.local/bin/&lt;name&gt;</c> SYMLINK that <see cref="WriteUnixShims"/> writes. Reading a
+    /// symlink to a venv console script reads the console script - a binary - and a dangling symlink
+    /// cannot be read at all, so neither can ever contain a forwarding line and this method answers
+    /// false for every one of them. The widened purge therefore removes NOTHING on those platforms, and
+    /// <see cref="ToolReconciler"/> reports no orphaned-shim drift there either. That is disk rather than
+    /// a safety problem - it leans to keeping - but it is inert by construction and not merely unwatched.
+    /// Giving the symlink branch its own positive test (a link whose target resolves inside this
+    /// install's own pyenv) is a real change to what gets deleted on a platform nobody here can run, and
+    /// it belongs in its own work item with someone on a Mac, not in this one.
     ///
     /// IT NARROWS THE OLD PURGE AND THAT IS DELIBERATE. A <c>bin\&lt;name&gt;.exe</c> left by a
     /// PyInstaller-era install carries no such line and is no longer deleted. That file is dead weight;
@@ -559,8 +588,8 @@ public sealed class PythonToolsInstaller
             return false;
         }
 
-        return body.Contains($@"pyenv\Scripts\{name}.exe", StringComparison.OrdinalIgnoreCase)
-            || body.Contains($"pyenv/Scripts/{name}.exe", StringComparison.OrdinalIgnoreCase);
+        return body.Contains($@"%~dp0..\pyenv\Scripts\{name}.exe", StringComparison.OrdinalIgnoreCase)
+            || body.Contains($"$(dirname \"$0\")/../pyenv/Scripts/{name}.exe", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

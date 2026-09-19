@@ -73,7 +73,8 @@ SETUP_CLI_COMMAND_NAMES = [
 # not ship - including tools the owner runs by hand, whose launchers the installer keeps because it
 # can see it did not write them. This list is what doctor PRINTS, and printing "cc-docgen: retired
 # alias" about a command that works would be a false statement about the machine. Two questions, two
-# lists; the eight retired fleet commands are their whole overlap.
+# lists. Their overlap is NINE names, not eight: every name below, the eight retired fleet commands
+# plus cc-playwright, is also on the installer's list. This whole list is contained in that one.
 LEGACY_ALIAS_NAMES = [
     "cc-send",
     "cc-ask",

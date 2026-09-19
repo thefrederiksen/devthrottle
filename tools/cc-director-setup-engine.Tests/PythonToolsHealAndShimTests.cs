@@ -388,6 +388,67 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         Assert.True(File.Exists(wrapper));
     }
 
+    /// <summary>
+    /// THE RELATIVE COMPOSITION IS THE TEST, NOT THE VENV PATH.
+    ///
+    /// The most natural way for a person to write their own launcher for a tool the product no longer
+    /// ships is to point straight at the executable. Such a file names exactly the same
+    /// pyenv\Scripts\&lt;name&gt;.exe the product's own shim names, so a content test that looked only for
+    /// that tail would delete it - and no install could ever put it back. What tells the two apart is the
+    /// product's own RELATIVE composition: %~dp0..\ in the .cmd and $(dirname "$0")/../ in the bash shim.
+    /// A hand-written absolute path cannot have either.
+    /// </summary>
+    [Fact]
+    public void ALauncherNamingTheVenvExecutableByABSOLUTEPathIsKept()
+    {
+        Directory.CreateDirectory(_layout.BinDir);
+
+        var windowsForm = Path.Combine(_layout.BinDir, "cc-docgen.cmd");
+        File.WriteAllText(windowsForm,
+            "@echo off\r\n\"C:\\Users\\soren\\AppData\\Local\\cc-director\\pyenv\\Scripts\\cc-docgen.exe\" %*\r\n");
+
+        var bashForm = Path.Combine(_layout.BinDir, "cc-excel");
+        File.WriteAllText(bashForm,
+            "#!/bin/sh\nexec \"/c/Users/soren/AppData/Local/cc-director/pyenv/Scripts/cc-excel.exe\" \"$@\"\n");
+
+        new PythonToolsInstaller(_layout).RemoveLegacyAliasShims();
+
+        Assert.True(File.Exists(windowsForm),
+            "the purge removed a hand-written .cmd that points straight at the venv executable");
+        Assert.True(File.Exists(bashForm),
+            "the purge removed a hand-written bash launcher that points straight at the venv executable");
+    }
+
+    /// <summary>
+    /// BOTH FORMS THE PRODUCT WRITES MUST STILL BE PURGED, and the bash one is not decoration.
+    ///
+    /// Measured on the owner's machine before the release: cc-playwright and cc-comm-queue are both
+    /// present as BARE-NAME BASH shims, which compose the same relative path a different way from the
+    /// .cmd. A rule taking only the .cmd wording (%~dp0..\) would be inert on every one of them, and the
+    /// purge would quietly stop working on exactly the two files it exists to remove while every other
+    /// test here stayed green.
+    /// </summary>
+    [Fact]
+    public void BothFormsTheProductWritesAreStillPurged()
+    {
+        Directory.CreateDirectory(_layout.BinDir);
+        var written = new List<string>();
+        foreach (var name in new[] { "cc-playwright", "cc-comm-queue" })
+        {
+            var cmd = Path.Combine(_layout.BinDir, $"{name}.cmd");
+            var bare = Path.Combine(_layout.BinDir, name);
+            File.WriteAllText(cmd, PythonToolsInstaller.BuildWindowsShimBody(name));
+            File.WriteAllText(bare, PythonToolsInstaller.BuildWindowsBashShimBody(name));
+            written.Add(cmd);
+            written.Add(bare);
+        }
+
+        new PythonToolsInstaller(_layout).RemoveLegacyAliasShims();
+
+        foreach (var path in written)
+            Assert.False(File.Exists(path), $"a launcher the product itself wrote survived the purge: {path}");
+    }
+
     /// <summary>The tool names in tools/registry.json, found the same way the shipped manifest is.</summary>
     private static HashSet<string> RegistryToolNames()
     {

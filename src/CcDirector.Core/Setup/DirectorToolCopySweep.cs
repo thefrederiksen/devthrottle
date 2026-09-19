@@ -11,7 +11,7 @@ public enum SweepAction
     /// <summary>Leave it exactly where it is. Everything the sweep cannot positively classify lands here.</summary>
     Keep,
 
-    /// <summary>A superseded copy of the tools, positively established as disposable on all four conditions.</summary>
+    /// <summary>A superseded copy of the tools, positively established as disposable on all five conditions.</summary>
     Delete,
 }
 
@@ -46,6 +46,36 @@ public sealed record SweepVerdict(SweepAction Action, string Reason)
 /// home, never by process id.
 /// </param>
 public sealed record OwningDirectorState(DirectorResolution Resolution, bool IsTheSweepingDirectorsOwnFolder);
+
+/// <summary>
+/// What a directory entry actually IS, as distinct from what its name and its placement say.
+///
+/// WHY THIS EXISTS AT ALL. On Windows a directory junction, and on every platform a directory symbolic
+/// link, is TRANSPARENT to the file APIs this sweep uses. Two primitives were measured on this machine
+/// rather than assumed: <c>Directory.GetDirectories</c> through a junction lists the TARGET's children,
+/// and a delete through a junction path destroys the real file at the other end. So a link named
+/// <c>bin</c> sitting in a Director folder would pass placement and pass the name rule, and the removal
+/// would then empty whatever folder it points at - which can be anywhere on the machine, including the
+/// master the sweep had just verified was alive, seconds earlier, through a different path.
+///
+/// A link's target is content this sweep never enumerated, never classified and can say nothing about.
+/// Under the rule this whole class is built on - only what can be POSITIVELY PROVEN disposable is
+/// removed - a link is a "cannot tell", and cannot tell KEEPS.
+/// </summary>
+public enum DirectoryKind
+{
+    /// <summary>An ordinary directory. The only kind that can ever be a candidate.</summary>
+    RealDirectory,
+
+    /// <summary>A junction or a symbolic link. Never a candidate, never enumerated through, never followed.</summary>
+    Link,
+
+    /// <summary>
+    /// Its attributes could not be read, so whether it is a link is unknown - and unknown is never
+    /// permission. It keeps, exactly as an unreadable Director state does.
+    /// </summary>
+    CouldNotTell,
+}
 
 /// <summary>One directory the sweep looked at, what it decided, and what actually happened on disk.</summary>
 /// <param name="Path">The full path of the directory.</param>
@@ -85,13 +115,13 @@ public sealed record ToolCopySweepResult(bool Swept, string Summary, IReadOnlyLi
 ///
 /// HOW THE BOUNDARY IS DRAWN. A false delete here is unrecoverable and lands on a real person's
 /// machine; a false keep is disk. Those costs are not the same, so the boundary is not in the middle.
-/// This ENUMERATES WHAT TO DELETE and never what to skip: a directory is removed only when all four
+/// This ENUMERATES WHAT TO DELETE and never what to skip: a directory is removed only when all five
 /// conditions below are positively established, and everything else survives WITH ITS REASON REPORTED.
 /// A name nobody thought of, a Director whose state could not be read, a machine whose tools are not
 /// installed - each of those is a survival, and each survival is the boundary working rather than
 /// leaking.
 ///
-/// THE FOUR CONDITIONS, EACH A PRESENCE:
+/// THE FIVE CONDITIONS, EACH A PRESENCE:
 ///
 /// 1. PLACEMENT. The directory's parent IS a Director folder
 ///    (<see cref="CcStorage.IsDirectorInstanceHome"/>) or IS the machine root. Directly - a folder two
@@ -109,12 +139,18 @@ public sealed record ToolCopySweepResult(bool Swept, string Summary, IReadOnlyLi
 ///    mean keep. The one exception is the Director doing the sweep, for its OWN folder, which has
 ///    opened no session yet. A candidate in the machine root has no owning Director and this condition
 ///    does not apply to it.
+/// 5. IT IS A REAL DIRECTORY, NOT A LINK. A junction or symbolic link is content this sweep can prove
+///    NOTHING about: the file APIs are transparent to one, so <c>Directory.GetDirectories</c> lists the
+///    TARGET's children through it and a delete through it destroys the real files at the other end -
+///    both measured on Windows. A link is therefore a "cannot tell", and cannot tell KEEPS. See
+///    <see cref="DirectoryKind"/> for where this is established and the three places it is enforced.
 ///
-/// WHAT IT NEVER DOES. It never deletes a FILE. It never touches <c>app</c>, <c>launcher</c>, a nested
-/// <c>instances</c> folder, or any other name - those are REPORTED and left, for the owner to remove by
-/// hand with his own word. It never touches a data folder anywhere: sessions, settings, logs, the
-/// vault, secrets, config. It never throws: startup must not fail over this, so every outcome is a
-/// reported result.
+/// WHAT IT NEVER DOES. It never deletes a FILE. It never follows a link, anywhere - not as a candidate,
+/// not as a folder to enumerate through, and not inside a tree it is removing. It never touches
+/// <c>app</c>, <c>launcher</c>, a nested <c>instances</c> folder, or any other name - those are REPORTED
+/// and left, for the owner to remove by hand with his own word. It never touches a data folder anywhere:
+/// sessions, settings, logs, the vault, secrets, config. It never throws: startup must not fail over
+/// this, so every outcome is a reported result.
 /// </summary>
 public static class DirectorToolCopySweep
 {
@@ -138,9 +174,15 @@ public static class DirectorToolCopySweep
     /// How deep the walk through nested <c>instances</c> folders goes before it stops and says so.
     ///
     /// The leak produced <c>instances/default/instances/default</c>, which is two. The bound is not a
-    /// guess at how bad it could get - it is a refusal to follow an unbounded structure (a directory
-    /// junction pointing at its own ancestor would otherwise be walked forever) inside a method whose
-    /// binding promise is that Director startup never hangs on it.
+    /// guess at how bad it could get - it is a refusal to follow an unbounded structure inside a method
+    /// whose binding promise is that Director startup never hangs on it.
+    ///
+    /// IT IS NOT THE LINK GUARD, AND MUST NOT BE READ AS ONE. It bounds how long the walk can take; it
+    /// says nothing about WHAT gets deleted, and a cycle four folders long would sit well inside it.
+    /// Condition 5 is what refuses a link, and it refuses one at every level (see
+    /// <see cref="DirectoryKind"/>) - which also means a self-referring junction can no longer be
+    /// entered at all, so this bound now guards a hang that condition 5 has already made unreachable.
+    /// It stays because depth is a promise about this method, not about junctions.
     /// </summary>
     internal const int MaximumNestingDepth = 8;
 
@@ -276,9 +318,10 @@ public static class DirectorToolCopySweep
 
     /// <summary>Classify one directory and, when the verdict is delete, carry it out.</summary>
     private static SweptDirectory Consider(
-        string candidate, string machineRoot, bool masterAlive, OwningDirectorState? owner)
+        ChildDirectory child, string machineRoot, bool masterAlive, OwningDirectorState? owner)
     {
-        var verdict = Classify(candidate, machineRoot, masterAlive, owner);
+        var (candidate, kind) = child;
+        var verdict = Classify(candidate, kind, machineRoot, masterAlive, owner);
         if (verdict.Action == SweepAction.Keep)
             return new SweptDirectory(candidate, SweepAction.Keep, verdict.Reason);
 
@@ -296,6 +339,13 @@ public static class DirectorToolCopySweep
     /// build, or a running Director.
     /// </summary>
     /// <param name="candidate">The full path of the directory being judged.</param>
+    /// <param name="kind">
+    /// Condition 5: what the candidate actually IS. Read from disk by the caller and passed in, like
+    /// every other fact, so that the rule stays pure and a link can be classified in a test without one.
+    /// It is a REQUIRED argument and not an optional one with a permissive default, because a default of
+    /// "it is an ordinary directory" is a fact nobody established, and this is the condition whose whole
+    /// job is to refuse facts nobody established.
+    /// </param>
     /// <param name="machineRoot">The machine root this sweep is running against.</param>
     /// <param name="holdsFleetToolInMaster">Condition 3: does the master hold a runnable cc-devthrottle?</param>
     /// <param name="directorState">
@@ -303,12 +353,22 @@ public static class DirectorToolCopySweep
     /// candidate sits in the machine root and has no owning Director.
     /// </param>
     internal static SweepVerdict Classify(
-        string candidate, string machineRoot, bool holdsFleetToolInMaster, OwningDirectorState? directorState)
+        string candidate, DirectoryKind kind, string machineRoot, bool holdsFleetToolInMaster,
+        OwningDirectorState? directorState)
     {
         // CONDITION 3 first, so that a machine with no usable master produces one answer for everything
         // it looked at rather than a mixture that would need reading twice.
         if (!holdsFleetToolInMaster)
             return SweepVerdict.Keep("the master holds no cc-devthrottle; nothing was swept anywhere");
+
+        // CONDITION 5, BEFORE THE NAME AND THE PLACEMENT ARE EVEN LOOKED AT. A link's name and its
+        // position are facts about the link; everything that would be DELETED is on the other side of
+        // it, where this sweep has never looked. Asking the cheap questions first would let a junction
+        // named bin reach a Delete verdict on two facts that say nothing about what gets destroyed.
+        if (kind != DirectoryKind.RealDirectory)
+            return SweepVerdict.Keep(kind == DirectoryKind.Link
+                ? "it is a link, and the sweep never follows one - what it points at was never looked at"
+                : "whether it is a link could not be read, and unknown is never permission");
 
         var trimmed = candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var name = Path.GetFileName(trimmed);
@@ -390,33 +450,86 @@ public static class DirectorToolCopySweep
 
             foreach (var home in DirectChildDirectories(Path.Combine(root, "instances")))
             {
-                yield return home;
-                queue.Enqueue((home, depth + 1));
+                // A Director folder that is itself a link is yielded so that it is REPORTED rather than
+                // silently absent, but nothing under it is ever listed: DirectChildDirectories refuses
+                // to enumerate through a link, so its children never become candidates and it is never
+                // descended into for nested Director folders either.
+                yield return home.Path;
+                if (home.Kind == DirectoryKind.RealDirectory)
+                    queue.Enqueue((home.Path, depth + 1));
             }
         }
     }
 
+    /// <summary>One directory entry, with what it actually is read off the disk beside it.</summary>
+    private readonly record struct ChildDirectory(string Path, DirectoryKind Kind);
+
     /// <summary>
-    /// The direct child directories of a path, or nothing when it is absent or cannot be listed.
+    /// The direct child directories of a path, or nothing when it is absent, is a LINK, or cannot be
+    /// listed.
+    ///
+    /// NOTHING IS EVER ENUMERATED THROUGH A LINK, AND THAT IS CONDITION 5 AT THIS LEVEL.
+    /// <c>Directory.GetDirectories</c> follows a junction and returns the TARGET's children - measured,
+    /// not assumed - so without this refusal a junction named <c>instances</c> would make somebody
+    /// else's folders read as Director folders by shape, and a junction standing in for a Director
+    /// folder would make its target's children read as candidates. Both are paths to deleting files at
+    /// the far end of a link, which is the one thing this sweep must never do.
     ///
     /// A directory that cannot be listed yields NOTHING, which means nothing under it is deleted - the
     /// failure direction that keeps. It is not silent: the caller's report simply never names anything
-    /// there, and the log line below says why.
+    /// there, and the log lines below say why.
     /// </summary>
-    private static IReadOnlyList<string> DirectChildDirectories(string path)
+    private static IReadOnlyList<ChildDirectory> DirectChildDirectories(string path)
     {
+        if (KindOf(path) == DirectoryKind.Link)
+        {
+            FileLog.Write($"[DirectorToolCopySweep] {path} is a link, so nothing under it was looked at "
+                          + "or swept: the sweep never follows one");
+            return Array.Empty<ChildDirectory>();
+        }
+
+        string[] children;
         try
         {
-            return Directory.GetDirectories(path);
+            children = Directory.GetDirectories(path);
         }
         catch (DirectoryNotFoundException)
         {
-            return Array.Empty<string>();
+            return Array.Empty<ChildDirectory>();
         }
         catch (Exception ex)
         {
             FileLog.Write($"[DirectorToolCopySweep] could not list {path}, so nothing under it was swept: {ex.Message}");
-            return Array.Empty<string>();
+            return Array.Empty<ChildDirectory>();
+        }
+
+        return children.Select(child => new ChildDirectory(child, KindOf(child))).ToList();
+    }
+
+    /// <summary>
+    /// What a directory entry IS - an ordinary directory, a link, or something whose attributes could
+    /// not be read. The one place the disk is asked; every rule above takes the answer as a fact.
+    ///
+    /// An ABSENT path answers <see cref="DirectoryKind.CouldNotTell"/> without a log line, because it is
+    /// the ordinary case rather than a surprise: most Director folders have no <c>instances</c> folder
+    /// of their own, and the caller's listing gives the same empty answer a moment later.
+    /// </summary>
+    private static DirectoryKind KindOf(string path)
+    {
+        try
+        {
+            return File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint)
+                ? DirectoryKind.Link
+                : DirectoryKind.RealDirectory;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return DirectoryKind.CouldNotTell;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorToolCopySweep] could not read what {path} is, so it was kept: {ex.Message}");
+            return DirectoryKind.CouldNotTell;
         }
     }
 
@@ -442,6 +555,17 @@ public static class DirectorToolCopySweep
     /// Depth-first and file-by-file rather than one recursive delete, so that a single file another
     /// process holds open leaves the rest removed and names the file that stopped it, instead of an
     /// opaque failure on the top directory.
+    ///
+    /// A LINK MET INSIDE THE TREE IS REMOVED AS A LINK AND NEVER WALKED. This is condition 5 at removal
+    /// level, and it is a separate hole from the candidate test: a candidate is proved to be an ordinary
+    /// directory before it is removed, but a <c>pyenv\lib</c> INSIDE it may still be a junction pointing
+    /// somewhere else entirely, and walking it would delete the target's files one by one.
+    /// <c>Directory.Delete</c> on the link itself unlinks it and leaves everything at the other end
+    /// exactly where it was.
+    ///
+    /// A directory whose kind could not be read is LEFT WHOLE, not walked and not deleted, and the
+    /// failure is recorded - so the parent cannot be removed either and the whole candidate is reported
+    /// LEFT with a reason. A tree this sweep cannot read its way through is a tree it does not delete.
     /// </summary>
     private static string? RemoveTree(string directory)
     {
@@ -449,6 +573,21 @@ public static class DirectorToolCopySweep
 
         void Walk(string dir)
         {
+            var kind = KindOf(dir);
+            if (kind != DirectoryKind.RealDirectory)
+            {
+                if (kind == DirectoryKind.CouldNotTell)
+                {
+                    firstFailure ??= $"{dir}: what it is could not be read, so it was left rather than followed";
+                    return;
+                }
+
+                // Unlink it. Never walk it: everything it names lives on the other side.
+                try { Directory.Delete(dir); }
+                catch (Exception ex) { firstFailure ??= $"{dir}: {ex.Message}"; }
+                return;
+            }
+
             foreach (var child in SafeList(() => Directory.GetDirectories(dir)))
                 Walk(child);
 
