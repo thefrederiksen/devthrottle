@@ -65,3 +65,60 @@ that merely stops a test running on macOS were all ruled out as fixes in their m
 
 `Core.Tests` is green and was left alone. A memory carried into this session claimed 65 macOS
 failures in it as of 18 September; that is no longer true and was corrected rather than worked around.
+
+---
+
+# Correction, same day, after the work was done
+
+**Most of what is written above about the web failures is wrong, and it was wrong in my favour - it
+made `main` look broken when it was not.** It is left standing rather than edited, because a record
+that quietly rewrites itself teaches nothing. What follows replaces it.
+
+The Developer who fixed the web suites disproved the framing I gave it, and proved the replacement in
+one line: **pristine `origin/main` at `74485174f`, untouched, run under Node 22.20.0 - the version
+continuous integration pins - is green. 2117 passed, exit 0.** The only difference from my red run was
+the Node binary: mine was v26. `main` was never broken. Continuous integration was right to be green
+throughout.
+
+Three things I got wrong:
+
+1. **The count was 97, not 74.** I read the tail of an `npm test --workspaces` run and missed
+   `client-core`'s 23 failures, because that workspace runs first and had scrolled past. The split was
+   client-core 23, cockpit 38, mobile 36.
+2. **The `gatewayFetch` group was never a failure.** The 38 `No "gatewayFetch" export is defined`
+   lines, the 4 colour-legend lines, the 9 `window.scrollTo` and the 2 canvas `getContext` lines are
+   **stderr written by tests that PASS**, before this mission and after it. They print on a fully green
+   run today. I counted them because they sat next to the real failures in the output, which is
+   adjacency mistaken for causation. I then briefed a second Developer on that same wrong framing and
+   had to correct it.
+3. **The cause was the runtime, not stale tests.** From Node 24, `localStorage` and `sessionStorage`
+   ship as globals. Vitest's jsdom environment skips any `window` key already present on `globalThis`
+   that is not on its own hard-coded list, and Web Storage is not on that list - so Storage read back
+   `undefined` and 91 tests fell. Separately, jsdom's `AbortController` *is* on that list and replaces
+   Node's, while `fetch`/`Request` remain Node's because jsdom implements neither; from Node 24 undici
+   brand-checks the signal, so `new Request(url, {signal})` threw. React Router builds that Request on
+   every navigation, so the authentication gate's redirect threw inside the router and the test saw the
+   address it started at. The 5 "route" assertions were not telling anyone anything true about routes.
+
+The Delivery Lead verified the fix independently rather than accepting the report: `npm run typecheck`
+green and `npm test --workspaces --if-present` at **2117 passed, 0 failed, exit 0**, run on Node v26 in
+a separate checkout of the branch.
+
+## What this changes about the mission
+
+The web half of the "red baseline" was an artefact of the machine the mission happens to be running
+on. The fix is still worth having - it makes the suites run the same on every version of Node, and the
+repository will meet Node 24+ again - but it repaired the test environment, not the product. **No
+product code was touched.**
+
+The fourteen .NET failures are a separate question and are not explained by Node. They were still
+being worked when this correction was written.
+
+## Deliberately left undone
+
+Ten Cockpit roster test files mock `client-core/api/client` with hand-written factories that predate
+the colour-legend reader, so `attentionOrder.test.tsx` opens a legend with no colours in it and proves
+less than its name claims. `FleetMapView.test.tsx` holds the pattern to copy; roughly twenty minutes of
+work. The Delivery Lead ruled it **out of scope**: it is the roster, not the New Session tab, and a
+mission that absorbs every adjacent defect it walks past stops being a mission. Recorded here so it is
+found rather than lost.
