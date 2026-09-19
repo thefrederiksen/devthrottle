@@ -13,7 +13,24 @@
 
     It then starts a slot Director on that root through a scheduled task - never from the agent's own
     process tree (CLAUDE.md rule 0b) - with a crafted process path carrying all six, reads the line the
-    Director itself writes at start, and stops it with its named signal (CLAUDE.md rule 0).
+    Director itself writes at start, and stops it with its named signal (CLAUDE.md rule 0b).
+
+    HOW THE SIGNAL NAME IS FOUND, AND WHY NOT FROM THE INSTANCE REGISTRATION. The signal is named for
+    the Director's own identifier. This script reads that identifier out of the Director's OWN LOG, from
+    the line it writes the moment the listener comes up: "Lifecycle signals listening for directorId=".
+    An earlier version of this script looked for the identifier in the instance registration file
+    instead and never found one in time: that file is written inside ControlApiHost.StartAsync, on a
+    background task that starts well after the listener, so every run of this proof ended in the
+    force-kill branch below while the script's own description said it had signalled. The log line is
+    written by the same process, names the identifier, and exists exactly when the listener does.
+
+    FORCE-KILL IS STILL THE LAST RESORT AND IT STILL EXISTS. If the identifier never appears, or nothing
+    is listening for it, or the signalled shutdown does not exit within its grace period, the script
+    force-kills the process it started - guarded to the slot 5 or higher executable at the path it
+    launched. A force-killed Director gets no chance to clean up and leaves an interrupted crash journal
+    entry behind (issue #960); on a throwaway rig root that journal is discarded with the root, which is
+    why it is tolerable here and is not tolerable against a real Director. Every run prints which of the
+    two happened, and the report at the end repeats it.
 
     WHAT IT PROVES
       1. After one Director start the running path holds exactly one DevThrottle tools folder, and it
@@ -176,49 +193,68 @@ if ($directorPid -gt 0) {
     }
 }
 
+# The identifier the shutdown signal is named for, read from the Director's own log. It is written by
+# StartLifecycleSignals, which runs AFTER the tool path line above, so this waits again rather than
+# assuming the line has already landed.
+$directorId = ''
+if ($logFile) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $idHit = Select-String -Path $logFile -Pattern 'Lifecycle signals listening for directorId=([0-9a-fA-F-]+)' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($idHit) { $directorId = $idHit.Matches[0].Groups[1].Value; break }
+        Start-Sleep -Milliseconds 300
+    }
+    if ($directorId) { Write-Host "[rig] the Director says it is listening as directorId=$directorId" }
+    else { Write-Host "[rig] the Director never said it was listening for a shutdown signal" }
+}
+
 # ---- Stop it the way a Director is stopped: its own named signal ----
 
-function Stop-RigDirector([int]$TargetPid) {
-    if ($TargetPid -le 0) { return }
-    $directorId = ''
-    $regFiles = @(Get-ChildItem $RigRoot -Recurse -Directory -Filter 'instances' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Parent.Name -ieq 'director' } |
-        ForEach-Object { Get-ChildItem $_.FullName -Filter *.json -ErrorAction SilentlyContinue })
-    foreach ($f in $regFiles) {
-        try {
-            $j = Get-Content $f.FullName -Raw | ConvertFrom-Json
-            if ($j.Pid -eq $TargetPid -and $j.DirectorId) { $directorId = [string]$j.DirectorId; break }
-        } catch {}
-    }
+function Stop-RigDirector([int]$TargetPid, [string]$TargetDirectorId) {
+    if ($TargetPid -le 0) { return 'there was no Director to stop' }
     $exited = $false
-    if ($directorId) {
-        $signal = "Local\cc-director-shutdown-$($directorId.ToLowerInvariant())"
+    $how = ''
+    if ($TargetDirectorId) {
+        $signal = "Local\cc-director-shutdown-$($TargetDirectorId.ToLowerInvariant())"
         Write-Host "[rig] signalling $signal (PID $TargetPid)"
         try {
             $evt = [System.Threading.EventWaitHandle]::OpenExisting($signal)
             $evt.Set() | Out-Null
             $evt.Dispose()
-            $d = (Get-Date).AddSeconds(30)
+            $d = (Get-Date).AddSeconds(60)
             while ((Get-Date) -lt $d) {
                 if ($null -eq (Get-Process -Id $TargetPid -ErrorAction SilentlyContinue)) { $exited = $true; break }
                 Start-Sleep -Milliseconds 250
             }
+            if ($exited) { $how = 'stopped by its named signal' }
+            else { $how = 'signalled, but it did not exit within 60 seconds' }
         } catch {
-            Write-Host "[rig] nothing is listening for $signal"
+            # OpenExisting throwing means nothing is listening for that name - the one case where a
+            # Director genuinely cannot be asked to stop (CLAUDE.md rule 0b).
+            $how = "nothing is listening for $signal"
+            Write-Host "[rig] $how"
         }
     } else {
-        Write-Host "[rig] no instance registration names PID $TargetPid"
+        $how = 'the Director never reported a directorId, so there was no name to signal'
+        Write-Host "[rig] $how"
     }
     if (-not $exited) {
         $alive = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
         if ($alive -and $alive.Path -and ($alive.Path -ieq (Resolve-Path $Exe).Path)) {
-            Write-Host "[rig] LAST RESORT: the signalled shutdown did not exit in time - force killing PID $TargetPid"
+            Write-Host "[rig] LAST RESORT: force killing PID $TargetPid - $how. A force-killed Director"
+            Write-Host "      leaves an interrupted crash journal entry behind; it goes with this rig root."
             Stop-Process -Id $TargetPid -Force -Confirm:$false
+            $how = "FORCE KILLED - $how"
+        } else {
+            $how = "$how, and the process was already gone"
         }
     }
+    return $how
 }
 
-Stop-RigDirector $directorPid
+$stopOutcome = Stop-RigDirector $directorPid $directorId
+Write-Host "[rig] how the Director was stopped: $stopOutcome"
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 
 # ---- The verdict ----
@@ -257,6 +293,13 @@ $savedPathAfter = Read-SavedPathRaw
 Check "the real user's saved path is byte-for-byte unchanged" `
     ($savedPathAfter -ceq $savedPathBefore) `
     "the saved user path CHANGED during this run"
+
+# Checked, not asserted in a docstring. The eleven checks above are all read from the log BEFORE the
+# stop, so a forced stop does not make any of them untrue - but a script that says it signals and
+# quietly forces is a claim the next reader will believe. This is the claim, answerable.
+Check "the Director was stopped by its named signal, not force-killed" `
+    ($stopOutcome -eq 'stopped by its named signal') `
+    "it was stopped another way: $stopOutcome"
 
 Write-Host ""
 if ($failures.Count -eq 0) {
