@@ -3,10 +3,11 @@ namespace CcDirector.Reclaim.Tests;
 /// <summary>
 /// The other spelling of one path: the same path with the case of one letter changed.
 ///
-/// One folder spelled two ways is one folder on Windows and two folders on every other platform, and
-/// the tests that prove the saved index follows that rule need the second spelling. On Windows the
-/// first letter of a path is the drive letter, so the spelling this returns there is the one an agent
-/// produces by lowercasing a drive letter - the exact spelling the review's first finding is about.
+/// One folder spelled two ways is one folder on Windows and on a default macOS volume, and two
+/// folders on every platform whose file system tells them apart, and the tests that prove the saved
+/// index follows that rule need the second spelling. On Windows the first letter of a path is the
+/// drive letter, so the spelling this returns there is the one an agent produces by lowercasing a
+/// drive letter - the exact spelling the review's first finding is about.
 /// </summary>
 internal static class SpelledPath
 {

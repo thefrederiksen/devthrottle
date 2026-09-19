@@ -194,6 +194,30 @@ public class CommandLineTests
         Assert.Equal(CommandName.Help, Parsed(["scan", "--help"]).Command);
     }
 
+    /// <summary>
+    /// The fix-round review's second finding: a word after --help was judged as a folder and turned
+    /// the request for the help page into a usage error, where before the fix round it printed the
+    /// page. The word is the command the caller wants the page about, and the page answers for every
+    /// command, so the word is not judged at all. Version answers the same way, for the same reason.
+    /// </summary>
+    [Theory]
+    [InlineData("--help")]
+    [InlineData("-h")]
+    public void Parse_HelpFollowedByAWord_ShowsTheHelpPageRatherThanAUsageError(string helpFlag)
+    {
+        var request = Parsed([helpFlag, "scan"]);
+
+        Assert.Equal(CommandName.Help, request.Command);
+    }
+
+    [Fact]
+    public void Parse_VersionFollowedByAWord_AnswersTheVersionRatherThanAUsageError()
+    {
+        var request = Parsed(["--version", "scan"]);
+
+        Assert.Equal(CommandName.Version, request.Command);
+    }
+
     [Fact]
     public void Parse_NoIndexDirectoryGiven_UsesTheOneForThisMachine()
     {

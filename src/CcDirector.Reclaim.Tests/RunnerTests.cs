@@ -84,13 +84,13 @@ public class RunnerTests
     }
 
     /// <summary>
-    /// The review's first finding, end to end. On Windows the file system does not tell folders apart
-    /// by letter case, so one folder spelled two ways is one folder: a report asked for with the
-    /// drive letter in the other case must resolve the scan saved under the first spelling, must
-    /// read the same saved file, and must print the same sentences. Without the case fold in the
-    /// fingerprint this answers that there is no saved scan and sends the caller to walk the disk
-    /// again for nothing. On every other platform the two spellings are two real folders, so the
-    /// report rightly refuses and the refusal is what is asserted there.
+    /// The review's first finding, end to end. On Windows and on a default macOS volume the file
+    /// system does not tell folders apart by letter case, so one folder spelled two ways is one
+    /// folder: a report asked for with the drive letter in the other case must resolve the scan
+    /// saved under the first spelling, must read the same saved file, and must print the same
+    /// sentences. Without the case fold in the fingerprint this answers that there is no saved scan
+    /// and sends the caller to walk the disk again for nothing. On Linux the two spellings are two
+    /// real folders, so the report rightly refuses and the refusal is what is asserted there.
     /// </summary>
     [Fact]
     public void Run_ReportAfterAScanWithThePathCaseFlipped_FollowsThePlatformItRunsOn()
@@ -101,7 +101,7 @@ public class RunnerTests
 
         var scan = Runner.Run(Request(CommandName.Scan, tree.Root, home.Root));
 
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
             var report = Runner.Run(Request(CommandName.Report, respelled, home.Root));
 
@@ -239,6 +239,47 @@ public class RunnerTests
         Assert.Contains("cc-cleanup-storage report", text, StringComparison.Ordinal);
         foreach (var code in new[] { "  0 ", "  1 ", "  2 " })
             Assert.Contains(code, text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The fix-round review's first finding: the machine-readable help page carried no help - two
+    /// fields and none of the page. The payload now carries the same content the text page prints,
+    /// and this test reads it the way a machine does, out of the serialized answer: a flag name the
+    /// scan command takes, a flag with its purpose, an exit code with its meaning, and the usage
+    /// lines.
+    /// </summary>
+    [Fact]
+    public void Run_HelpInMachineReadableForm_CarriesThePageAndAFlagNameCanBeReadOutOfIt()
+    {
+        var answer = Runner.Run(Request(CommandName.Help, null, "unused"));
+
+        Assert.Equal(ExitCodes.Ok, answer.ExitCode);
+        var written = JsonSerializer.Serialize(answer.JsonPayload, JsonShape.Options);
+        using var read = JsonDocument.Parse(written);
+
+        Assert.Equal("help", read.RootElement.GetProperty("command").GetString());
+        Assert.True(read.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains(read.RootElement.GetProperty("usage").EnumerateArray(), line =>
+        {
+            var text = line.GetString();
+            return text is not null &&
+                   text.StartsWith("cc-cleanup-storage scan", StringComparison.Ordinal);
+        });
+
+        var scan = read.RootElement.GetProperty("commands").EnumerateArray()
+            .Single(command => command.GetProperty("name").GetString() == "scan");
+        Assert.Contains(scan.GetProperty("flags").EnumerateArray(), flag =>
+        {
+            var name = flag.GetString();
+            return name is not null && name == "--folder-depth";
+        });
+
+        Assert.Contains(read.RootElement.GetProperty("flags").EnumerateArray(), flag =>
+            flag.GetProperty("name").GetString() == "--json");
+
+        var usage = read.RootElement.GetProperty("exitCodes").EnumerateArray()
+            .Single(code => code.GetProperty("code").GetInt32() == 2);
+        Assert.Contains("command line was wrong", usage.GetProperty("purpose").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]

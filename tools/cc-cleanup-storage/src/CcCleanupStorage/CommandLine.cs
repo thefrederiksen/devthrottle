@@ -61,12 +61,20 @@ public sealed record ParseOutcome(Request? Request, string? UsageError);
 /// than something quietly ignored. An agent that passes a flag and receives no complaint reasonably
 /// concludes the flag did something; a flag that is read and dropped is therefore not a small
 /// untidiness but a wrong answer, and the AXI standard names it as a defect.
+///
+/// The flag lists below are the one source of what each command takes: the reader refuses anything
+/// they do not name, and the help page prints them as they stand.
 /// </summary>
 public static class CommandLine
 {
-    private static readonly string[] SavedScansFlags = ["--json", "--index-directory", "--help"];
-    private static readonly string[] ScanFlags = ["--json", "--index-directory", "--top", "--folder-depth", "--help"];
-    private static readonly string[] ReportFlags = ["--json", "--index-directory", "--top", "--help"];
+    /// <summary>Every flag the tool takes when it is run with no command word.</summary>
+    public static IReadOnlyList<string> SavedScansFlags { get; } = ["--json", "--index-directory", "--help"];
+
+    /// <summary>Every flag the scan command takes.</summary>
+    public static IReadOnlyList<string> ScanFlags { get; } = ["--json", "--index-directory", "--top", "--folder-depth", "--help"];
+
+    /// <summary>Every flag the report command takes.</summary>
+    public static IReadOnlyList<string> ReportFlags { get; } = ["--json", "--index-directory", "--top", "--help"];
 
     /// <summary>
     /// Read one command line.
@@ -134,6 +142,14 @@ public static class CommandLine
 
             if (!argument.StartsWith('-'))
             {
+                // Help and version have been asked for and the whole command line is still being
+                // read, so their answer carries every flag. A bare word here is the command the
+                // caller wants the page about, not a folder: judging it as a folder would turn a
+                // request for help into a usage error, which is a wrong answer, not a strict one.
+                // The page answers for every command, so the word needs nothing done on it.
+                if (earlyAnswer is not null)
+                    continue;
+
                 if (!takesFolder)
                     return new ParseOutcome(null, $"the command {Named(commandWord)} takes no folder, and one was given: {argument}");
                 if (folder is not null)

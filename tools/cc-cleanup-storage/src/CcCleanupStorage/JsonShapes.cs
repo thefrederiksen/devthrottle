@@ -131,6 +131,52 @@ public sealed record SavedScansJson
     public required IReadOnlyList<UnreadableIndexJson> Unreadable { get; init; }
 }
 
+/// <summary>One command this tool offers, as the help page gives it.</summary>
+/// <param name="Name">The command word, or "saved-scans" when the tool is run with no command word.</param>
+/// <param name="Purpose">What the command does, in one line.</param>
+/// <param name="Flags">Every flag the command takes, exactly as the command line reader knows them.</param>
+public sealed record HelpCommandJson(string Name, string Purpose, IReadOnlyList<string> Flags);
+
+/// <summary>One flag, as the help page gives it.</summary>
+/// <param name="Name">The flag as it is typed, with the value it takes after it.</param>
+/// <param name="Purpose">What the flag does, in one line.</param>
+public sealed record HelpFlagJson(string Name, string Purpose);
+
+/// <summary>One exit code, as the help page gives it.</summary>
+/// <param name="Code">The number.</param>
+/// <param name="Purpose">What it means, in one line.</param>
+public sealed record ExitCodeJson(int Code, string Purpose);
+
+/// <summary>
+/// The help page, as a machine reads it. Every section the text page prints is here as its own
+/// field, so asking for the page in machine-readable form loses nothing.
+/// </summary>
+public sealed record HelpJson
+{
+    /// <summary>The command that produced this answer.</summary>
+    public required string Command { get; init; }
+
+    /// <summary>True: the help page is always an answer.</summary>
+    public required bool Ok { get; init; }
+
+    /// <summary>Every way of calling the tool, one line each.</summary>
+    public required IReadOnlyList<string> Usage { get; init; }
+
+    /// <summary>The commands, and the flags each one takes.</summary>
+    public required IReadOnlyList<HelpCommandJson> Commands { get; init; }
+
+    /// <summary>Every flag, and what each one does.</summary>
+    public required IReadOnlyList<HelpFlagJson> Flags { get; init; }
+
+    /// <summary>Every exit code, and what each one means.</summary>
+    public required IReadOnlyList<ExitCodeJson> ExitCodes { get; init; }
+
+    /// <summary>
+    /// The rest of the page: what a report always says, and what this tool does not do.
+    /// </summary>
+    public required IReadOnlyList<string> Notes { get; init; }
+}
+
 /// <summary>Anything that went wrong, as a machine reads it.</summary>
 public sealed record ErrorJson
 {

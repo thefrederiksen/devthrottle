@@ -217,28 +217,43 @@ public static class Runner
 
     private static Answer Help()
     {
-        string[] lines =
-        [
-            "cc-cleanup-storage - walk a disk, save what was seen, and report it",
-            "",
-            "usage:",
-            "  cc-cleanup-storage                            the saved scans on this machine",
-            "  cc-cleanup-storage scan \"<folder>\" [flags]     walk a folder and save what was seen",
-            "  cc-cleanup-storage report \"<folder>\" [flags]   report the saved scan of a folder",
-            "",
-            "flags:",
-            "  --json                     answer as machine-readable text, with every field",
-            "  --index-directory <folder> where saved scans live",
-            "  --top <number>             how many of the largest folders to name, 1 to 1000",
-            "  --folder-depth <number>    how deep a scan records folder totals, 1 to 10 (scan only)",
-            "  --help                     this page",
-            "  --version                  the version of this tool",
-            "",
-            "exit codes:",
-            "  0  the command succeeded",
-            "  1  the command failed, or the scan behind it is a broken instrument",
-            "  2  the command line was wrong: an unknown command, an unknown flag, or a bad value",
-            "",
+        // The one place the help page is written. Both pages - the text one and the machine-readable
+        // one - are rendered from the data below, so they cannot drift apart, and the flags each
+        // command takes are the command line reader's own lists, so the page can never name a flag
+        // the reader refuses or miss one it takes.
+        var commands = new List<HelpCommandJson>
+        {
+            new("saved-scans", "the saved scans on this machine", CommandLine.SavedScansFlags),
+            new("scan", "walk a folder and save what was seen", CommandLine.ScanFlags),
+            new("report", "report the saved scan of a folder", CommandLine.ReportFlags)
+        };
+
+        var flags = new List<HelpFlagJson>
+        {
+            new("--json", "answer as machine-readable text, with every field"),
+            new("--index-directory <folder>", "where saved scans live"),
+            new("--top <number>", "how many of the largest folders to name, 1 to 1000"),
+            new("--folder-depth <number>", "how deep a scan records folder totals, 1 to 10 (scan only)"),
+            new("--help", "this page"),
+            new("--version", "the version of this tool")
+        };
+
+        var exitCodes = new List<ExitCodeJson>
+        {
+            new(ExitCodes.Ok, "the command succeeded"),
+            new(ExitCodes.Failed, "the command failed, or the scan behind it is a broken instrument"),
+            new(ExitCodes.Usage, "the command line was wrong: an unknown command, an unknown flag, or a bad value")
+        };
+
+        var usage = new[]
+        {
+            "cc-cleanup-storage",
+            "cc-cleanup-storage scan \"<folder>\" [flags]",
+            "cc-cleanup-storage report \"<folder>\" [flags]"
+        };
+
+        var notes = new[]
+        {
             "what a report always says:",
             "  the bytes the scan saw, the bytes the volume counts as used, and the difference",
             "  between them, with every folder that refused a listing named underneath. A scan that",
@@ -246,9 +261,37 @@ public static class Runner
             "",
             "what this tool does not do:",
             "  it never deletes, moves or changes anything. It reads."
-        ];
+        };
 
-        return new Answer(ExitCodes.Ok, lines, new { command = "help", ok = true });
+        var lines = new List<string>
+        {
+            "cc-cleanup-storage - walk a disk, save what was seen, and report it",
+            "",
+            "usage:"
+        };
+        for (var at = 0; at < commands.Count; at++)
+            lines.Add("  " + usage[at].PadRight(47) + commands[at].Purpose);
+        lines.Add("");
+        lines.Add("flags:");
+        foreach (var flag in flags)
+            lines.Add("  " + flag.Name.PadRight(27) + flag.Purpose);
+        lines.Add("");
+        lines.Add("exit codes:");
+        foreach (var exitCode in exitCodes)
+            lines.Add("  " + exitCode.Code.ToString(CultureInfo.InvariantCulture).PadRight(3) + exitCode.Purpose);
+        lines.Add("");
+        lines.AddRange(notes);
+
+        return new Answer(ExitCodes.Ok, lines, new HelpJson
+        {
+            Command = "help",
+            Ok = true,
+            Usage = usage,
+            Commands = commands,
+            Flags = flags,
+            ExitCodes = exitCodes,
+            Notes = notes
+        });
     }
 
     private static ReportJson ToJson(string command, ScanReport report, string? indexPath) => new()
