@@ -1,5 +1,11 @@
 # Measured baseline - clean `origin/main`, before any of this phase's changes
 
+> **READ THE CORRECTION AT THE BOTTOM OF THIS FILE BEFORE YOU TRUST THIS BASELINE.** Its scope was
+> wrong: it covers two test projects and the CI gate runs three. A change measured green against it
+> broke `main` on tests that assert on the very file that changed. What the baseline omits is at the
+> bottom under "Correction - this baseline's SCOPE was the hole", and the rule that replaces it is one
+> line: run what CI runs.
+
 Run by the Tech Lead on 18 September 2026, on SOREN_NORTH, in a separate worktree
 (`D:\ReposFred\devthrottle.worktrees\wt02`) at commit `c135d44b2`, with nothing from this phase
 applied. The gate run gets its own worktree so nobody can move the files underneath it.
@@ -49,6 +55,12 @@ cause is recorded there as the test using the shared temporary directory as a re
 phase changes none of that and is not fixing any of it.
 
 **It does not cover** the suites this phase does not touch, the web tests, or the Python tools.
+
+**That last sentence is the defect, not a caveat, and it is the reason `main` went red.** The CI
+gate runs the whole solution, and `src/CcDirector.Gateway.Tests` - not measured here - holds two
+tests that assert on the very file this phase rewrote. See the correction at the bottom of this
+file. The rule that replaces this sentence is: run what CI runs, and name any suite you could not
+run together with the reason it cannot hide a regression in what you changed.
 
 **Correction to what this Tech Lead was told.** The Delivery Lead passed on one known pre-existing
 failure, number 2 above, and said the check was that the suite was "otherwise green". On this machine
