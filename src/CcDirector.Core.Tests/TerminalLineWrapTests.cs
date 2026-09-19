@@ -69,6 +69,22 @@ public class TerminalLineWrapTests
     }
 
     [Fact]
+    public void BuildLogicalLine_ExactlyFullWidthRow_JoinsNextRow_AcceptedFalsePositive()
+    {
+        // A row whose text exactly fills the width is indistinguishable from a wrapped
+        // row by the cell signal alone. This PINS the accepted trade-off of the
+        // inference: such a row joins with the line after it. If this test ever fails,
+        // the inference changed - update the TerminalLineWrap documentation with it.
+        var rows = new[] { "abcdefghij", "next line" };
+
+        var text = TerminalLineWrap.BuildLogicalLine(
+            row => rows[row], row => row == 0, 0, rows.Length, out int rowsConsumed);
+
+        Assert.Equal("abcdefghijnext line", text);
+        Assert.Equal(2, rowsConsumed);
+    }
+
+    [Fact]
     public void BuildLogicalLine_ZeroRows_ReturnsEmpty()
     {
         var text = TerminalLineWrap.BuildLogicalLine(

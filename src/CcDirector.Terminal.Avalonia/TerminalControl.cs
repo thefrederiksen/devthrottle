@@ -945,8 +945,8 @@ public class TerminalControl : Control
             // exact detection.
             if (row > 0 && IsRowWrapped(row - 1))
                 continue;
-            string lineText = TerminalLineWrap.BuildLogicalLine(GetLineText, IsRowWrapped, row, _rows - row, out _);
-            foreach (var m in FindAllLinkMatches(lineText))
+            var (matches, _) = FindWrappedLinkMatches(row);
+            foreach (var m in matches)
                 if (m.Type == LinkDetector.LinkType.Path) n++;
         }
         return n;
@@ -985,9 +985,7 @@ public class TerminalControl : Control
             if (row > 0 && IsRowWrapped(row - 1))
                 continue;
 
-            string lineText = TerminalLineWrap.BuildLogicalLine(
-                GetLineText, IsRowWrapped, row, _rows - row, out _);
-            var linkMatches = FindAllLinkMatches(lineText);
+            var (linkMatches, _) = FindWrappedLinkMatches(row);
 
             foreach (var match in linkMatches)
             {
@@ -1576,6 +1574,38 @@ public class TerminalControl : Control
     }
 
     /// <summary>
+    /// Detect link matches over the logical line anchored at <paramref name="row"/>: the
+    /// row's text joined with each following row the terminal hard-wrapped, so a URL that
+    /// wraps across rows is detected as one whole URL.
+    ///
+    /// The logical line can be CUT at the viewport bottom (BuildLogicalLine stops at the
+    /// last visible row while its last consumed row is still wrapped, so the line
+    /// continues below the fold). A match whose end reaches the cut is a fragment of a
+    /// longer token - emitting it would hand the user a link that LOOKS complete but
+    /// is not. Those matches are suppressed; scrolling reveals the full line and its
+    /// links. The rare cost: a token that genuinely ends exactly in the last column of
+    /// the last visible row is also suppressed until the view scrolls - accepted.
+    ///
+    /// A cut at the TOP is safe without a guard: a URL cannot match mid-token because
+    /// the pattern requires the scheme prefix at the match start, so nothing
+    /// false-complete is ever emitted from the top fold.
+    /// </summary>
+    private (List<LinkDetector.LinkMatch> matches, int rowsConsumed) FindWrappedLinkMatches(int row)
+    {
+        string lineText = TerminalLineWrap.BuildLogicalLine(
+            GetLineText, IsRowWrapped, row, _rows - row, out int rowsConsumed);
+        var linkMatches = FindAllLinkMatches(lineText);
+
+        if (IsRowWrapped(row + rowsConsumed - 1))
+        {
+            int cut = lineText.Length;
+            linkMatches.RemoveAll(m => m.EndCol >= cut);
+        }
+
+        return (linkMatches, rowsConsumed);
+    }
+
+    /// <summary>
     /// Find all link matches (paths and URLs) in a line of text.
     /// Delegates to LinkDetector with cache-backed path existence checking.
     /// </summary>
@@ -1615,15 +1645,6 @@ public class TerminalControl : Control
         bool found = File.Exists(fullPath) || Directory.Exists(fullPath);
         _pathExistsCache[fullPath] = found;
         return found;
-    }
-
-    /// <summary>
-    /// Detect if there's a path or URL at the specified cell position.
-    /// </summary>
-    private (string? text, LinkDetector.LinkType type) DetectLinkAtCell(int col, int row)
-    {
-        string lineText = GetLineText(row);
-        return LinkDetector.DetectLinkAtPosition(lineText, col, _session?.RepoPath, PathExistsCheckForClick);
     }
 
     /// <summary>

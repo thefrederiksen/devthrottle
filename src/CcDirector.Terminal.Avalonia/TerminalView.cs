@@ -428,19 +428,17 @@ public class TerminalView : Control
 
             for (int col = colStart; col <= colEnd; col++)
             {
-                var cell = _cells[col, row];
-                char ch = cell.Character;
+                char ch = GetCellAt(col, row).Character;
                 lineBuilder.Append(ch == '\0' ? ' ' : ch);
             }
 
             sb.Append(lineBuilder.ToString().TrimEnd());
-            if (row < endRow)
+            if (row < endRow && !IsRowWrapped(row))
             {
                 // A row the terminal hard-wrapped (its last cell written) continues on the
                 // next row - no line break between them, so a URL wrapped across rows
                 // copies as one unbroken URL. See TerminalLineWrap for the wrap signal.
-                if (_cells[_cols - 1, row].Character == '\0')
-                    sb.AppendLine();
+                sb.AppendLine();
             }
         }
 
@@ -451,6 +449,48 @@ public class TerminalView : Control
             if (clipboard != null)
                 await clipboard.SetTextAsync(text);
         }
+    }
+
+    /// <summary>
+    /// Get the cell at a VISUAL row (0 = top of the scrolled viewport), mapping through
+    /// the scrollback when the view is scrolled up - the same mapping the renderer uses,
+    /// so a selection made while scrolled up copies the rows the user can actually see.
+    /// </summary>
+    private TerminalCell GetCellAt(int col, int row)
+    {
+        if (_scrollOffset > 0)
+        {
+            int virtualIndex = _scrollback.Count - _scrollOffset + row;
+
+            if (virtualIndex < 0)
+                return default;
+            if (virtualIndex < _scrollback.Count)
+            {
+                var line = _scrollback[virtualIndex];
+                return col < line.Length ? line[col] : default;
+            }
+
+            int screenRow = virtualIndex - _scrollback.Count;
+            return (screenRow >= 0 && screenRow < _rows)
+                ? _cells[col, screenRow]
+                : default;
+        }
+
+        return (col >= 0 && col < _cols && row >= 0 && row < _rows)
+            ? _cells[col, row]
+            : default;
+    }
+
+    /// <summary>
+    /// True when the terminal hard-wrapped <paramref name="row"/>: a printable character
+    /// was written into the row's LAST column and the line continues on the next row.
+    /// The last cell being written (not '\0') is the signal - erased and never-written
+    /// tails hold '\0'. See <see cref="CcDirector.Core.Utilities.TerminalLineWrap"/> for
+    /// what this inference does and does not cover.
+    /// </summary>
+    private bool IsRowWrapped(int row)
+    {
+        return _cols > 0 && GetCellAt(_cols - 1, row).Character != '\0';
     }
 
     private void ClearSelection()

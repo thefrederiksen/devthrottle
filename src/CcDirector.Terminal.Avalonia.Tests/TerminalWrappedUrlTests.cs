@@ -133,4 +133,43 @@ public sealed class TerminalWrappedUrlTests
         Assert.Equal(3, urlTexts.Count);
         Assert.All(urlTexts, t => Assert.Equal(Url, t));
     }
+
+    [AvaloniaFact]
+    public void WrappedUrl_CutAtViewportBottom_NoLinkUntilFullyVisible()
+    {
+        var terminal = NewTerminal();
+
+        var feed = new StringBuilder();
+        for (int i = 1; i <= 8; i++)
+            feed.Append($"FILL{i}\r\n");
+        feed.Append(UrlLine).Append("\r\n");
+        for (int i = 1; i <= 12; i++)
+            feed.Append($"TAIL{i}\r\n");
+        terminal.HarnessRebuild(Bytes(feed.ToString()));
+
+        // Scroll up until the URL's SECOND row (the wrapped one) sits on the last
+        // visible row: the logical line is cut at the viewport bottom and the URL's
+        // tail is below the fold.
+        int anchor = -1;
+        for (int scroll = 1; scroll <= 30 && anchor < 0; scroll++)
+        {
+            terminal.HarnessScrollUp(1);
+            if (terminal.HarnessVisibleLine(Rows - 2).Contains("https://claude.ai/oa"))
+                anchor = Rows - 2;
+        }
+        Assert.True(anchor >= 0, "viewport should show the URL's first row above its cut tail");
+        Assert.Contains("authorize?client_id=a", terminal.HarnessVisibleLine(Rows - 1));
+
+        // The cut logical line must NOT emit a URL region: the match would run into
+        // the cut and hand over a truncated URL that looks complete.
+        ForceRender(terminal);
+        Assert.Empty(terminal.HarnessUrlLinkTexts);
+
+        // One line further up the whole URL is visible again and links whole.
+        terminal.ScrollOffset = terminal.HarnessScrollOffset - 1;
+        ForceRender(terminal);
+        var urlTexts = terminal.HarnessUrlLinkTexts;
+        Assert.Equal(3, urlTexts.Count);
+        Assert.All(urlTexts, t => Assert.Equal(Url, t));
+    }
 }
