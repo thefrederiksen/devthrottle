@@ -213,15 +213,38 @@ public sealed class PostgresProviderProofTests
             ("device_import_markers", "SourcePath"),
             ("dictation_suggestion_dismissals", "Term"),
             ("dictation_suggestion_verdicts", "Term"),
+            // The Fleet Manager's stop events (the Fleet Manager mission): the event kind selects and groups, the
+            // session the event is about and the session it was delivered to are the two inbox reads, the verdict id
+            // binds an event to the stop it was about, and the outcome id binds it to the record it was filed on -
+            // five identities that have to mean the same thing on both providers. They arrived with migrations
+            // 20260917110009, 20260917110109 and 20260917110409 on 17 September and were not listed here, so the
+            // census was red in the parked gate from that day; this list is the side that catches up.
+            ("fleet_manager_events", "DeliveredTo"),
+            ("fleet_manager_events", "Kind"),
+            ("fleet_manager_events", "OutcomeId"),
+            ("fleet_manager_events", "SessionId"),
+            ("fleet_manager_events", "VerdictId"),
             // Main's column, from pull request 2997 (the fleet manager marks), which declares SessionId with
             // collation "C" and did not add it here. Listed so the census runs to its end on the Message Load
             // branch (postgres-proof-2.md) instead of stopping at the first name it does not know.
             ("fleet_manager_marks", "SessionId"),
+            // The Fleet Manager's ownership tree (the mark history): which Fleet Manager session owns which
+            // session, the pair the digest reads and the mark's owner resolution joins on. A history row whose
+            // pair Postgres considered equal to another's and SQLite did not would put a session under a different
+            // Fleet Manager on one provider than the other. From the same 17 September Fleet Manager migrations,
+            // missed here with the ones above.
+            ("fleet_manager_owned_sessions", "FleetManagerSessionId"),
+            ("fleet_manager_owned_sessions", "SessionId"),
             // The fleet message inbox (the Message Load mission): the minted message id, and the two session
             // ids the inbox read and the sender's limits select on.
             ("fleet_messages", "MessageId"),
             ("fleet_messages", "RecipientSessionId"),
             ("fleet_messages", "SenderSessionId"),
+            // The owner's outcome records (the Fleet Manager mission): the kind selects the section, and the
+            // status is what the walkthrough filters open records by - both are enumerated values the product
+            // reads back for equality, from the same 17 September migrations as the two groups above.
+            ("fleet_outcomes", "Kind"),
+            ("fleet_outcomes", "Status"),
             ("known_repositories", "MachineKey"),
             ("known_repositories", "PathKey"),
             ("mission_notes", "Key"),
