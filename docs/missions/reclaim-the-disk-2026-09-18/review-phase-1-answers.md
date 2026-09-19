@@ -213,3 +213,111 @@ small things the review listed as needing no action to merge - the `VersionAnswe
 its conditions into one boolean, and `HelpRequest` carrying an index directory that `Runner.Help()`
 never reads - are left exactly as they are, reported here rather than fixed. The suite now holds 132
 tests and all are green under `dotnet test src\CcDirector.Reclaim.Tests`.
+
+## Fix round three
+
+Answering the three findings the round-two review recorded against the machine-readable help page
+it approved. The review called all three non-blocking and offered the choice of carrying them into
+phase 2; they are answered here instead, because the help page is the thing an agent reads before
+it does anything else with this tool, and a page that misdescribes the tool is the defect this
+whole round exists to remove.
+
+Written by the Delivery Lead, which built this round under the owner's explicit override recorded
+in `handover-delivery-lead-2.md`. The round-three change therefore needs a Reviewer from a
+different agent family, and the Delivery Lead sends it - the seat being judged never arranges its
+own review.
+
+### Finding 1: the page named a command the tool refuses
+
+**Accepted.** `commands` carried an entry whose `name` was `saved-scans`, beside two whose name IS
+the word that is typed. A machine reading that field would type `saved-scans` and be refused.
+
+**What the fix does.** Every command entry now carries three separate things instead of one
+overloaded one: `name` is the name the command answers under, which is the value the `command`
+field carries in every answer it gives; `word` is the word that is typed, and it is empty for the
+tool run with no command word; `invocation` is the whole line the command is called with. Nothing
+has to be inferred from a name any more, and the name that is not a word cannot be mistaken for
+one, because the entry beside it says plainly that there is no word.
+
+**The test that fails without the fix.**
+`Run_HelpInMachineReadableForm_EveryCommandSaysHowItIsCalledAndTheReaderTakesThatWord` in
+`RunnerTests.cs` reads each entry out of the serialized payload, the way a machine does, and hands
+the `word` it finds to the command line reader - the very thing that would refuse it. An empty word
+must come with the bare tool as its invocation.
+
+**The revert proof.** The first command's `word` was set back to `saved-scans` by hand, the project
+rebuilt, and the test run: **red**. The fix was restored, rebuilt, and the test ran **green**.
+
+### Finding 2: the page missed two flags the reader takes
+
+**Accepted.** `-h` was taken by every command and named nowhere; `--version` was taken with no
+command word and left out of that command's flag list while the global list named it.
+
+**The root cause, and why the fix is not an addition to the page.** Both flags worked because they
+were answered *before* the command's flag list was consulted, which let them work while sitting
+outside it. Adding them to the page's text would have left that arrangement in place and fixed the
+symptom. The fix is that the lists now hold every flag the reader takes, and the reader judges
+every flag against the command's list first, help and version included. Which command takes which
+flag is now one statement, in the lists, and nothing decides it a second time.
+
+**Behaviour is unchanged.** Verified on the built tool: `-h`, `scan -h` and `report -h` all print
+the page and exit 0; `--version` and `--json --version` answer the version; `scan --version` is
+still refused with exit 2, now naming `-h` among the flags scan takes. The narrow skip the previous
+round added - a bare word after help or version is passed over, an unknown flag after it is still
+refused - is untouched.
+
+**The test that fails without the fix.**
+`Run_HelpInMachineReadableForm_EachCommandsFlagsAreExactlyTheOnesTheReaderTakes` in
+`RunnerTests.cs`. It does not compare the lists with themselves, which would prove nothing. It
+takes every flag spelling this tool has anywhere, asks the reader one at a time whether it takes
+that flag for that command, and then requires the page to name exactly the flags the reader took -
+no fewer, so a working flag is never hidden, and no more, so the page never sends a caller to a
+refusal.
+
+**The revert proof.** `CommandLine.cs` was restored to the pre-round-three reader by hand, the
+project rebuilt, and the test run: **red**, reporting the defect itself - the reader takes
+`--help, --index-directory, --json, --version, -h` with no command word while the page names three
+of them. The fix was restored, rebuilt, and the test ran **green**.
+
+### Finding 3: the usage lines and the commands were coupled only by position
+
+**Accepted.** `usage` was a separate literal array and the text renderer walked it as `usage[at]`
+while bounded by `commands.Count`, so a fourth command added without a fourth usage line beside it
+threw `IndexOutOfRangeException` from the help page - the one answer that must never fail.
+
+**What the fix does.** The usage lines are read off the commands themselves, so there is one list
+and a command cannot be added without its line. The help columns also widen for a longer entry
+rather than running into the words beside them, and their widths never fall below the ones the page
+has always used, so today's page is unchanged to the character.
+
+**The tests.** `Run_HelpInMachineReadableForm_TheUsageLinesAreTheCommandsOwnInvocationsOneForEach`
+in `RunnerTests.cs` requires one usage line per command, in order, each equal to that command's own
+invocation. It is the standing pin: two lists that can fall out of step cannot satisfy it.
+
+**The revert proof, which is a demonstration rather than a test run, and why.** A test cannot add a
+fourth command, because the command list is written inside `Runner.Help()`. Exposing it to a test
+would change the design to suit the proof. So the finding's own stated harm was reproduced by hand,
+both ways, on a real build each time:
+
+- `Runner.cs` and `JsonShapes.cs` were restored to the pre-round-three structure, a fourth command
+  was added with no fourth usage line, and the project rebuilt. `cc-cleanup-storage --help` answered
+  `error: failed` / `message: Index was outside the bounds of the array.` and exited **1**.
+- The fix was restored, the same fourth command added, and the project rebuilt.
+  `cc-cleanup-storage --help` printed the whole page including the fourth command's usage line, and
+  exited **0**. No second edit anywhere was needed to make that line appear.
+
+The fourth command was then removed, `git diff HEAD` is empty, and the suite is green.
+
+### What changed in the text page, disclosed
+
+The text page is byte-identical to the round-two page but for the two lines the finding asked for,
+measured by rendering both pages from two builds and diffing them: `-h` is now listed, and
+`--version` now says it is taken with no command word only. Nothing else moved - the column
+positions are the same, because the widths are floored at the ones the page already used.
+
+### What this leaves alone
+
+No removal code of any kind exists in this phase, and nothing outside the three findings was
+changed. The suite now holds 135 tests, all green under `dotnet test src\CcDirector.Reclaim.Tests`
+on a build the run made itself; no `--no-build` run was used anywhere in this round, including on
+the restores.
