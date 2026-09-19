@@ -58,7 +58,8 @@ public static class ScanReportBuilder
             .Take(largestFolders)
             .ToList();
 
-        var lines = WriteLines(scan, verdict, brokenReason, unseen, largest);
+        var reach = WriteReachLines(scan, unseen);
+        var lines = WriteLines(scan, verdict, brokenReason, reach, largest);
 
         FileLog.Write(
             $"[ScanReportBuilder] Build done: root={scan.RootPath}, verdict={verdict}, " +
@@ -72,7 +73,8 @@ public static class ScanReportBuilder
             Scan = scan,
             UnseenBytes = unseen,
             LargestFolders = largest,
-            Lines = lines
+            Lines = lines,
+            ReachLines = reach
         };
     }
 
@@ -121,11 +123,51 @@ public static class ScanReportBuilder
         return null;
     }
 
+    // How far the scan reached: what the volume holds, what the scan saw, the difference between
+    // them, and the folders that refused a listing. Written once, here, because the report prints
+    // these lines and the recommendations built on the report have to repeat them. Two renderings of
+    // the same numbers would eventually disagree, and the reader would have no way to tell which was
+    // the honest one.
+    private static IReadOnlyList<string> WriteReachLines(ScanResult scan, long? unseen)
+    {
+        var lines = new List<string>
+        {
+            scan.Volume.Available
+                ? $"volume: {scan.Volume.Name} is {SizeText.Exact(scan.Volume.TotalBytes)}, of which " +
+                  $"{SizeText.Exact(scan.Volume.UsedBytes)} are used and " +
+                  $"{SizeText.Exact(scan.Volume.FreeBytes)} are free"
+                : $"volume: {scan.Volume.Name} would not say how big it is or how much of it is used, because " +
+                  $"{scan.Volume.UnavailableReason ?? "no reason was given"}",
+
+            $"seen: {SizeText.Exact(scan.BytesSeen)} in " +
+            $"{Count(scan.FilesSeen, "file", "files")} and " +
+            $"{Count(scan.FoldersSeen, "folder", "folders")}",
+
+            unseen.HasValue
+                ? $"unseen: {SizeText.Exact(unseen.Value)} that the volume counts as used and this scan did not see"
+                : "unseen: unknown, because the volume would not say how much of it is used"
+        };
+
+        if (!scan.RootIsVolumeRoot)
+        {
+            lines.Add($"scope: the scan covered {scan.RootPath}, which is one folder on volume " +
+                      $"{scan.Volume.Name}, so the unseen number also counts everything on that volume " +
+                      "outside this folder");
+        }
+
+        lines.Add(scan.RefusedFolders.Count == 0
+            ? "refused: no folder refused its listing"
+            : $"refused: {Count(scan.RefusedFolders.Count, "folder", "folders")} refused a listing, " +
+              "and every one of them is named below");
+
+        return lines;
+    }
+
     private static IReadOnlyList<string> WriteLines(
         ScanResult scan,
         ReportVerdict verdict,
         string? brokenReason,
-        long? unseen,
+        IReadOnlyList<string> reach,
         IReadOnlyList<FolderTotal> largest)
     {
         var lines = new List<string>
@@ -141,33 +183,7 @@ public static class ScanReportBuilder
         }
 
         lines.Add($"root: {scan.RootPath}");
-
-        lines.Add(scan.Volume.Available
-            ? $"volume: {scan.Volume.Name} is {SizeText.Exact(scan.Volume.TotalBytes)}, of which " +
-              $"{SizeText.Exact(scan.Volume.UsedBytes)} are used and " +
-              $"{SizeText.Exact(scan.Volume.FreeBytes)} are free"
-            : $"volume: {scan.Volume.Name} would not say how big it is or how much of it is used, because " +
-              $"{scan.Volume.UnavailableReason ?? "no reason was given"}");
-
-        lines.Add($"seen: {SizeText.Exact(scan.BytesSeen)} in " +
-                  $"{Count(scan.FilesSeen, "file", "files")} and " +
-                  $"{Count(scan.FoldersSeen, "folder", "folders")}");
-
-        lines.Add(unseen.HasValue
-            ? $"unseen: {SizeText.Exact(unseen.Value)} that the volume counts as used and this scan did not see"
-            : "unseen: unknown, because the volume would not say how much of it is used");
-
-        if (!scan.RootIsVolumeRoot)
-        {
-            lines.Add($"scope: the scan covered {scan.RootPath}, which is one folder on volume " +
-                      $"{scan.Volume.Name}, so the unseen number also counts everything on that volume " +
-                      "outside this folder");
-        }
-
-        lines.Add(scan.RefusedFolders.Count == 0
-            ? "refused: no folder refused its listing"
-            : $"refused: {Count(scan.RefusedFolders.Count, "folder", "folders")} refused a listing, " +
-              "and every one of them is named below");
+        lines.AddRange(reach);
 
         lines.Add(scan.Links.Count == 0
             ? "links: no link or junction was found"

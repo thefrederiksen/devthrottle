@@ -79,6 +79,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{660DB7F3-FA6
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CcCleanupStorage", "tools\cc-cleanup-storage\src\CcCleanupStorage\CcCleanupStorage.csproj", "{2328F351-C478-4041-B1F2-457B3425AF19}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CcDirector.Reclaim.Windows", "src\CcDirector.Reclaim.Windows\CcDirector.Reclaim.Windows.csproj", "{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -497,6 +499,18 @@ Global
 		{2328F351-C478-4041-B1F2-457B3425AF19}.Release|x64.Build.0 = Release|Any CPU
 		{2328F351-C478-4041-B1F2-457B3425AF19}.Release|x86.ActiveCfg = Release|Any CPU
 		{2328F351-C478-4041-B1F2-457B3425AF19}.Release|x86.Build.0 = Release|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Debug|x64.Build.0 = Debug|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Debug|x86.Build.0 = Debug|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Release|x64.ActiveCfg = Release|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Release|x64.Build.0 = Release|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Release|x86.ActiveCfg = Release|Any CPU
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -536,5 +550,6 @@ Global
 		{F142C975-EF90-20B3-51E1-1D1290CFD98E} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 		{660DB7F3-FA64-DAE7-BFFA-6E0D21CA057C} = {F142C975-EF90-20B3-51E1-1D1290CFD98E}
 		{2328F351-C478-4041-B1F2-457B3425AF19} = {660DB7F3-FA64-DAE7-BFFA-6E0D21CA057C}
+		{7FC1DDFB-46B2-4BE4-985E-7DC3B8BE7794} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

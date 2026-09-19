@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CcDirector.Reclaim.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Windows rules. They sit beside the engine rather than inside it: macOS and Linux arrive
+         later as sibling rule sets, not as a rewrite of anything here. The engine knows nothing
+         about Windows and nothing here knows how to scan a disk. -->
+    <ProjectReference Include="..\CcDirector.Reclaim\CcDirector.Reclaim.csproj" />
+  </ItemGroup>
+
+</Project>
