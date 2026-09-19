@@ -135,7 +135,11 @@ $defaultProjects = @(
     "src\CcDirector.Engine.Tests\CcDirector.Engine.Tests.csproj",
     "src\CcDirector.HostedAgent.Tests\CcDirector.HostedAgent.Tests.csproj",
     "src\CcDirector.Launcher.Tests\CcDirector.Launcher.Tests.csproj",
-    "src\CcDirector.Terminal.Avalonia.Tests\CcDirector.Terminal.Avalonia.Tests.csproj"
+    "src\CcDirector.Terminal.Avalonia.Tests\CcDirector.Terminal.Avalonia.Tests.csproj",
+    # Reclaim the Disk, phase 1. 116 tests in about six seconds, measured 2026-09-19: it builds small
+    # trees on disk and walks them, so the cost is real work and not startup. It covers the engine AND
+    # the cc-cleanup-storage command line tool, which is why there is one suite here and not two.
+    "src\CcDirector.Reclaim.Tests\CcDirector.Reclaim.Tests.csproj"
 )
 
 # THE INSTALLER, WHICH IS IN THE DEFAULT RUN AND IS NOT IN THE SOLUTION.
