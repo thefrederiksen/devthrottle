@@ -53,14 +53,38 @@ public static class RulePrimitives
         return resolvedTarget.StartsWith(rootWithSeparator, comparison);
     }
 
+    /// <summary>How many times a link may lead to another link's ancestor before this gives up. A path that
+    /// needs more than this is a cycle, and the documented contract is to say so rather than to guess.</summary>
+    private const int MaximumLinkDepth = 40;
+
     /// <summary>
     /// The real, absolute location a path names: <c>..</c> and <c>.</c> collapsed, and every segment that
     /// exists and is a link followed to its final target. Walking segment by segment matters - resolving
     /// only the last one would miss a link ANCESTOR, which is exactly how a path inside the repository
     /// ends up outside it.
+    ///
+    /// A LINK'S TARGET HAS ANCESTORS OF ITS OWN, AND THEY GET RESOLVED TOO. This is not tidiness; without
+    /// it the answer is wrong on macOS and on Linux for ordinary paths. On those systems the operating
+    /// system call behind <c>ResolveLinkTarget</c> follows the chain of links but leaves the target's own
+    /// directories exactly as they were written, so a link pointing at <c>/var/folders/x/repo/real</c>
+    /// answers with that string even though <c>/var</c> is itself a link to <c>/private/var</c>. The root
+    /// beside it, walked segment by segment, resolves to <c>/private/var/folders/x/repo</c> - and then one
+    /// resolved path and one half-resolved path are compared, and a file plainly inside the repository is
+    /// reported as outside it. Windows does not show this because its own call canonicalises the whole
+    /// path; resolving the target here makes every system give the one answer.
     /// </summary>
-    private static string ResolveFinalPath(string path)
+    private static string ResolveFinalPath(string path) => ResolveFinalPath(path, 0);
+
+    /// <param name="depth">How many link targets deep this already is. Guards the cycle that
+    /// <c>a -> b/c</c> with <c>b -> a</c> would otherwise spin in.</param>
+    private static string ResolveFinalPath(string path, int depth)
     {
+        if (depth > MaximumLinkDepth)
+            throw new IOException(
+                $"'{path}' could not be resolved: it passes through more than {MaximumLinkDepth} links, " +
+                "which means they lead in a circle. A containment check that cannot see where a path leads " +
+                "must say so rather than answer.");
+
         var full = Path.GetFullPath(path);
         var pathRoot = Path.GetPathRoot(full) ?? "";
         var segments = full[pathRoot.Length..]
@@ -73,7 +97,7 @@ public static class RulePrimitives
             current = Path.Combine(current, segment);
             var linkTarget = ResolveLinkTarget(current);
             if (linkTarget is not null)
-                current = Path.GetFullPath(linkTarget);
+                current = ResolveFinalPath(linkTarget, depth + 1);
         }
 
         return TrimTrailingSeparator(current);

@@ -259,7 +259,9 @@ public sealed class CronJobStoreTests : IDisposable
         // commits, its rename-aside fails because the file is held open, and it does NOT throw; the next
         // construction sees the table already populated and renames the lingering file aside WITHOUT
         // re-importing.
-        var legacy = LegacyPath();
+        // Its own directory, because BlockedRename closes the whole directory to writing on macOS and Linux
+        // and the harness's database lives in the directory above.
+        var legacy = _h.LegacyPath(Path.Combine("import-" + Guid.NewGuid().ToString("N"), "cronjobs.json"));
         var seeded = ValidJob();
         seeded.Id = "cj_recover1";
         WriteLegacyJobsFile(legacy, seeded);
@@ -267,9 +269,10 @@ public sealed class CronJobStoreTests : IDisposable
         var dir = Path.GetDirectoryName(legacy)!;
         var migratedGlob = Path.GetFileName(legacy) + ".migrated-*";
 
-        // Hold the legacy file open with a share mode that permits a read (so the import can parse it) but
-        // blocks a move (File.Move needs delete-sharing on the source), so the post-commit rename-aside fails.
-        using (new FileStream(legacy, FileMode.Open, FileAccess.Read, FileShare.Read))
+        // Close the legacy file off so it can still be READ (the import has to parse it) but cannot be
+        // MOVED, so the post-commit rename-aside fails. Each system's own mechanism, and the fixture proves
+        // the refusal really happened before the test proceeds.
+        using (new BlockedRename(legacy))
         {
             // First construction: imports the job (committed), then the rename-aside fails on the locked file.
             // Best-effort - it is logged, NOT thrown - so the store constructs and holds the imported data.

@@ -38,10 +38,12 @@ public sealed class RuleCandidateFilterTests
             Now,
             Now);
 
-    private static RuleSessionFacts Facts(string activityState = "WaitingForInput") => new(
+    private static RuleSessionFacts Facts(
+        string activityState = "WaitingForInput",
+        string repositoryPath = @"D:\ReposFred\scratch") => new(
         SessionId: "sid-1",
         Agent: "RawCli",
-        RepositoryPath: @"D:\ReposFred\scratch",
+        RepositoryPath: repositoryPath,
         Machine: "SOREN_NORTH",
         Mission: "Session Rules",
         ActivityState: activityState);
@@ -138,13 +140,61 @@ public sealed class RuleCandidateFilterTests
         Assert.Contains("RawCli", skipped.Reason);
     }
 
+    /// <summary>
+    /// A WINDOWS REPOSITORY IS MATCHED THE WAY WINDOWS MATCHES ONE, WHEREVER THE GATEWAY IS RUNNING.
+    ///
+    /// The scope and the session name one directory in two casings, and on the machine that reported them
+    /// those are the same directory. This used to be answered with the case rules of whatever host the code
+    /// was executing on, so it was true on a Windows desktop and false on the hosted Linux Gateway - where
+    /// rules actually run - and the rule silently stopped firing. Separators are unified here too, because
+    /// the same place reaches us written both ways.
+    /// </summary>
     [Fact]
     public void A_rule_scoped_to_this_sessions_repository_is_a_candidate()
     {
-        var rule = Rule(scope: new RuleScope(null, @"d:\reposfred\scratch", null, null));
+        var rule = Rule(scope: new RuleScope(null, @"d:/reposfred/scratch\", null, null));
 
         var result = RuleCandidateFilter.Choose(
             new[] { rule }, Facts(), TheNotice, previousScreenText: null, NoFirings, Now);
+
+        Assert.Single(result.Chosen);
+    }
+
+    /// <summary>
+    /// AND A POSIX REPOSITORY IS MATCHED THE WAY LINUX AND MACOS MATCH ONE - which is exactly, because two
+    /// names differing in case there are two different directories.
+    ///
+    /// This is the same defect read from the other end, and it is the half that fails on a Windows host: the
+    /// old comparison took its case rules from the executing machine, so on a Windows developer's machine
+    /// these two unrelated directories answered as one place and a rule scoped to one repository would have
+    /// acted on a session in another.
+    /// </summary>
+    [Fact]
+    public void A_rule_scoped_to_a_POSIX_repository_does_not_match_a_different_casing_of_it()
+    {
+        var rule = Rule(scope: new RuleScope(null, "/users/dev/reposfred/scratch", null, null));
+
+        var result = RuleCandidateFilter.Choose(
+            new[] { rule },
+            Facts(repositoryPath: "/Users/dev/ReposFred/scratch"),
+            TheNotice, previousScreenText: null, NoFirings, Now);
+
+        Assert.Empty(result.Chosen);
+        var skipped = Assert.Single(result.Skipped);
+        Assert.Contains("/users/dev/reposfred/scratch", skipped.Reason);
+        Assert.Contains("/Users/dev/ReposFred/scratch", skipped.Reason);
+    }
+
+    /// <summary>The same POSIX repository, written with and without its trailing separator, is one place.</summary>
+    [Fact]
+    public void A_rule_scoped_to_a_POSIX_repository_matches_it_written_with_a_trailing_separator()
+    {
+        var rule = Rule(scope: new RuleScope(null, "/Users/dev/ReposFred/scratch/", null, null));
+
+        var result = RuleCandidateFilter.Choose(
+            new[] { rule },
+            Facts(repositoryPath: "/Users/dev/ReposFred/scratch"),
+            TheNotice, previousScreenText: null, NoFirings, Now);
 
         Assert.Single(result.Chosen);
     }

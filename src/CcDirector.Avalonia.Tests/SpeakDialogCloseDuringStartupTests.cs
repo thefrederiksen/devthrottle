@@ -68,6 +68,11 @@ public sealed class SpeakDialogCloseDuringStartupTests : IDisposable
         int built = 0;
         var dialog = new SpeakDialog(new AgentOptions())
         {
+            // Pinned for the reason given on the test below - and here it matters twice over, because this
+            // test's assertion is that NO recorder was built. A startup that died in device enumeration
+            // would satisfy that without the dialog's own guard existing at all.
+            ResolveMicForTests = () => new MicDevice(1, "Fake Test Microphone"),
+            EnumerateMicsForTests = () => new List<MicDevice> { new(1, "Fake Test Microphone") },
             RecorderFactoryForTests = _ =>
             {
                 Interlocked.Increment(ref built);
@@ -105,6 +110,12 @@ public sealed class SpeakDialogCloseDuringStartupTests : IDisposable
 
         var dialog = new SpeakDialog(new AgentOptions())
         {
+            // PIN THE DEVICE, because this test is not about device discovery. Without these the dialog
+            // runs the real winmm enumeration on its way to the recorder factory, so the test depended on
+            // whatever microphones the machine running it happens to have - and on macOS and Linux, where
+            // there is no winmm at all, startup threw before the factory was ever reached.
+            ResolveMicForTests = () => new MicDevice(1, "Fake Test Microphone"),
+            EnumerateMicsForTests = () => new List<MicDevice> { new(1, "Fake Test Microphone") },
             RecorderFactoryForTests = async _ =>
             {
                 factoryReached.TrySetResult();
