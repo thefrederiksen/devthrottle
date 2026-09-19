@@ -164,7 +164,10 @@ public sealed class ToolReconcilerTests : IDisposable
         RecordBundleInstalled();
         Directory.CreateDirectory(_layout.BinDir);
         var legacy = Path.Combine(_layout.BinDir, "cc-send.cmd");
-        File.WriteAllText(legacy, "@echo off\r\n");
+        // The product's OWN shim body: the purge deletes a launcher only when the file proves this
+        // product wrote it, so a stub body would be kept and this test would be asserting on a purge
+        // that never happened.
+        File.WriteAllText(legacy, PythonToolsInstaller.BuildWindowsShimBody("cc-send"));
         var heavy = new FakeHeavyRepair(success: true);
 
         var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
@@ -445,7 +448,8 @@ public sealed class ToolReconcilerTests : IDisposable
     public void HasDrift_OrphanedLegacyShim_ReturnsTrue()
     {
         Directory.CreateDirectory(_layout.BinDir);
-        File.WriteAllText(Path.Combine(_layout.BinDir, "cc-send.cmd"), "@echo off\r\n");
+        File.WriteAllText(Path.Combine(_layout.BinDir, "cc-send.cmd"),
+            PythonToolsInstaller.BuildWindowsShimBody("cc-send"));
 
         Assert.True(new ToolReconciler(_layout).HasDrift());
     }

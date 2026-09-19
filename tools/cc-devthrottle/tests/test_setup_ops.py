@@ -362,9 +362,11 @@ def test_run_autostart_shells_to_setup_cli_autostart(monkeypatch):
 
 def test_legacy_alias_names_cover_all_retired_fleet_commands():
     # The retired per-tool fleet commands consolidated into cc-devthrottle (issue #823), plus
-    # cc-playwright, cut from the shipped toolbelt (issue #1002). Kept in sync with the installer
-    # engine's PythonToolsInstaller.LegacyAliasShimNames so the same names the installer purges are
-    # the ones doctor reports. cc-fleet-selftest must be present (it was missing).
+    # cc-playwright, cut from the shipped toolbelt (issue #1002). cc-fleet-selftest must be present
+    # (it was missing).
+    #
+    # DELIBERATELY NOT EQUAL to the installer engine's PythonToolsInstaller.LegacyAliasShimNames any
+    # more - see the comment on LEGACY_ALIAS_NAMES for why one list purges and the other prints.
     assert setup_ops.LEGACY_ALIAS_NAMES == [
         "cc-send",
         "cc-ask",
