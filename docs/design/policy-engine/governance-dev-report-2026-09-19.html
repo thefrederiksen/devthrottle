@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Governance in DevThrottle - what an owner and a development manager get</title>
+<style>
+  :root {
+    --ink: #1c1f26; --muted: #5b6270; --line: #e3e6eb; --bg: #ffffff; --soft: #f5f6f8;
+    --accent: #0f5fbf; --accent-soft: #e8f0fb; --ok: #1a7f37; --warn: #9a6700; --bad: #b42318;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: var(--ink); background: var(--bg); line-height: 1.55; font-size: 16px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-size: 32px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 { font-size: 24px; margin: 56px 0 12px; padding-top: 16px; border-top: 2px solid var(--ink); }
+  h3 { font-size: 18px; margin: 30px 0 8px; }
+  p { margin: 10px 0; }
+  .sub { color: var(--muted); font-size: 15px; margin: 0 0 20px; }
+  .tag { display: inline-block; font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
+  .tag.draft { background: #fff8e6; color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0 20px; font-size: 14.5px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; font-size: 13px; letter-spacing: .02em; }
+  code { font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 13.5px; background: var(--soft); padding: 1px 5px; border-radius: 3px; }
+  .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; margin: 18px 0; border-radius: 0 4px 4px 0; }
+  .callout.warn { border-color: var(--warn); background: #fff8e6; }
+  .callout.bad { border-color: var(--bad); background: #fdecec; }
+  ul, ol { padding-left: 24px; }
+  li { margin: 5px 0; }
+  .q { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 0 6px 6px 0; padding: 14px 18px; margin: 16px 0; background: #fff; }
+  .q h5 { margin: 0 0 6px; font-family: system-ui, sans-serif; font-size: 15.5px; }
+  .q .rec { font-size: 14px; color: var(--muted); }
+  .q .rec b { color: var(--ok); }
+  .toc { background: var(--soft); border: 1px solid var(--line); padding: 16px 22px; border-radius: 4px; font-family: system-ui, sans-serif; font-size: 14.5px; }
+  .v { font-family: system-ui, sans-serif; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 3px; white-space: nowrap; }
+  .v.allow { background: #e6f4ea; color: var(--ok); }
+  .v.warn { background: #fff8e6; color: var(--warn); }
+  .v.ask { background: var(--accent-soft); color: var(--accent); }
+  .v.block { background: #fdecec; color: var(--bad); }
+  .stop { color: var(--ok); font-weight: 600; }
+  .late { color: var(--warn); font-weight: 600; }
+  .none { color: var(--bad); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<span class="tag">Dev report</span><span class="tag draft">Draft to talk from</span>
+<h1>Governance in DevThrottle: what a team owner and a development manager get</h1>
+<p class="sub">2026-09-19 &nbsp;|&nbsp; Policy Engine mission, first turn &nbsp;|&nbsp; Nothing here is implemented, and nothing here is decided. This is the feature picture, written so we have something concrete to argue with.</p>
+
+<div class="toc">
+  <b>What is in here</b>
+  <ol>
+    <li>The shape in one paragraph</li>
+    <li>Who sets a policy - the roles ladder</li>
+    <li>What a policy is, and the four verdicts</li>
+    <li>Where we can actually intercept - the honest map</li>
+    <li>Worked example: "no personal data in our sessions"</li>
+    <li>Governed storage - the half nobody has</li>
+    <li>The record, and why it is the product</li>
+    <li>The governance report to the manager</li>
+    <li>The Governance tab on the Cockpit</li>
+    <li>What version one should be</li>
+    <li>Decisions waiting on you</li>
+  </ol>
+</div>
+
+<h2>1. The shape in one paragraph</h2>
+
+<p>A company buys DevThrottle and gets a team. The team has an <b>owner</b> and one or more
+<b>development managers</b>. They write the rules the team's agents run under - what may be started,
+what may be spent, what may be said, what may be kept, and what may leave the building. The
+<b>Gateway</b> and the <b>Director</b> enforce those rules at the moments they can, and record what
+they did at every moment, including the ones where all they could do was watch. The manager reads
+the result on a <b>Governance tab</b> in the Cockpit, and gets it as a <b>report on a schedule</b>.
+That last sentence is the product. The rules are the mechanism; the answerable record is what a
+company is actually buying.</p>
+
+<div class="callout">
+<b>The distinction worth keeping straight.</b> A <b>policy</b> is one rule. <b>Governance</b> is the
+system around the rules: who may set them, who may override them, what is written down, who reads it,
+and who is answerable when it goes wrong. Our closest competitor shipped the rules. Nobody has
+shipped the system.
+</div>
+
+<h2>2. Who sets a policy - the roles ladder</h2>
+
+<p>Four levels. Each one can only make the rules <b>stricter</b> than the level above it. This is the
+single most important design decision in the whole feature, and it is the opposite of how the
+competitor built theirs: in their engine the end user is evaluated first and can short-circuit, which
+means the person being governed gets the first word. In a team product that is not governance, it is
+a suggestion.</p>
+
+<table>
+<tr><th>Level</th><th>Who</th><th>What they set</th><th>May they loosen the level above?</th></tr>
+<tr><td><b>Company</b></td><td>Owner</td><td>The rules nobody in the company can escape - what is never stored, what never leaves, the ceiling on spend, which agents and models are allowed at all.</td><td class="none">No. This is the floor.</td></tr>
+<tr><td><b>Team</b></td><td>Development manager</td><td>Rules for this team's work - repositories, machines, branches, the team's own spend cap, what needs a human first.</td><td class="none">No - only tighten</td></tr>
+<tr><td><b>Agent</b></td><td>Whoever authors an agent definition</td><td>Rules that travel with that agent wherever it runs.</td><td class="none">No - only tighten</td></tr>
+<tr><td><b>Session</b></td><td>The person doing the work</td><td>Extra care for this one piece of work - "ask me before anything destructive today".</td><td class="none">No - only tighten</td></tr>
+</table>
+
+<p>Two things fall out of "tighten only". The first is that an override is a <b>separate, recorded
+act</b>, not a policy edit: if a developer needs past a manager's rule, they ask, a named person
+grants it, and that grant has a scope and an expiry and sits in the record forever. The second is
+that the roles are not a list of permission checkboxes - they are a chain of answerability. When the
+report says something was allowed, it can say whose rule allowed it.</p>
+
+<h3>The role list itself</h3>
+<table>
+<tr><th>Role</th><th>Can set policy</th><th>Can override</th><th>Reads the report</th><th>Notes</th></tr>
+<tr><td>Owner</td><td>Company level</td><td>Anything, recorded</td><td>Yes</td><td>Owns billing and the ceiling. There is always exactly one answerable person.</td></tr>
+<tr><td>Development manager</td><td>Team level</td><td>Within their team, recorded</td><td>Yes - this is who the report is written for</td><td>Adds and removes people, assigns machines and repositories.</td></tr>
+<tr><td>Developer</td><td>Their own agents and sessions</td><td>No - may request, cannot grant</td><td>Their own activity only</td><td>The person the governance is about.</td></tr>
+<tr><td>Auditor</td><td>No</td><td>No</td><td>Everything, read only</td><td>The seat a security review or a customer's compliance officer sits in. Sells the enterprise tier on its own.</td></tr>
+</table>
+
+<h2>3. What a policy is, and the four verdicts</h2>
+
+<p>A policy has five parts, and a person should be able to read one out loud: <b>who</b> it applies
+to, <b>where</b> it is checked, <b>what</b> it is looking for, <b>what happens</b> when it finds it,
+and <b>what gets written down</b>.</p>
+
+<p>The competitor has three verdicts. We need four, because you said it yourself: in some places we
+can stop it, and in some places we can only warn about it. Pretending a warning is a block is the
+lie that would make the whole feature untrustworthy.</p>
+
+<table>
+<tr><th>Verdict</th><th>What happens</th><th>Who feels it</th></tr>
+<tr><td><span class="v allow">Allow</span></td><td>It proceeds. Still recorded when the policy asks to be - "this was checked and was fine" is evidence too.</td><td>Nobody</td></tr>
+<tr><td><span class="v warn">Warn</span></td><td>It proceeds, and it is recorded as a breach, counted, surfaced on the tab and in the report. Used where we found out too late to stop it.</td><td>The manager, later</td></tr>
+<tr><td><span class="v ask">Ask</span></td><td>It stops and waits for a named person to say yes or no. Their answer is recorded against their name.</td><td>The developer, now</td></tr>
+<tr><td><span class="v block">Block</span></td><td>It does not happen. The agent is told why, in plain English.</td><td>The agent and the developer, now</td></tr>
+</table>
+
+<p>Two rules bind all four, and neither is negotiable:</p>
+<ul>
+<li><b>An engine that cannot decide must never allow.</b> If a check errors, times out, or the
+database is unreachable, the verdict is Block or Ask - never a quiet Allow. A policy engine that
+fails open is worse than no policy engine, because it sells a promise it then drops silently.</li>
+<li><b>Every policy is born in dry run.</b> It records what it would have done and does nothing, and
+a named person moves it to live. We already do exactly this for standing instructions in the
+product, and it is the only way a manager can turn on a strict rule without stopping the team's work
+on a Monday morning.</li>
+</ul>
+
+<h2>4. Where we can actually intercept - the honest map</h2>
+
+<p>This is the part of your question I want to answer carefully, because the answer is not uniform.
+We have two enforcers and they see different things.</p>
+
+<p>The <b>Gateway</b> is a server. It sees every request that crosses it and it owns the database, so
+it is the only place that can govern what is <b>kept</b>. The <b>Director</b> runs on the machine. It
+starts the agent, owns the pipe that types into it, reads the terminal screen, and installs the
+agent's own hook files. Between them, here is what we can and cannot do:</p>
+
+<table>
+<tr><th>Interception point</th><th>Enforcer</th><th>Strongest verdict available</th><th>What it covers</th></tr>
+<tr><td>Starting a session</td><td>Director and Gateway</td><td class="stop">Block</td><td>Which agent, which model, which repository, which machine, who asked for it, and how many at once.</td></tr>
+<tr><td>The prompt or message going in</td><td>Both - we own the pipe</td><td class="stop">Block</td><td>Every word that reaches an agent from a person, a schedule, or another session. Checked before a key is typed.</td></tr>
+<tr><td>Money</td><td>Gateway</td><td class="stop">Block</td><td>Spend per session, per person, per team, per day. Enforced at the turn boundary.</td></tr>
+<tr><td>Anything written to the record</td><td>Gateway</td><td class="stop">Block, before the write</td><td>Transcripts, logs, handovers, notes, briefs, reports. <b>This is our strongest point and the one nobody else has.</b></td></tr>
+<tr><td>Anything leaving the building through our own tools</td><td>Both</td><td class="stop">Block</td><td>Email, issues and pull requests, posts, push notifications, messages between sessions.</td></tr>
+<tr><td>What the agent decides to do - its individual tool calls</td><td>Director, through the agent's own hooks</td><td class="late">Block only where that agent offers a blocking hook; otherwise nothing</td><td>Shell commands, file writes, network calls. <b>Today we install one observational hook and read no tool calls at all.</b> This is real work, it differs per agent, and it is the seam that breaks when the agent vendors ship a new version.</td></tr>
+<tr><td>The terminal screen, as it changes</td><td>Director</td><td class="late">Warn only, after the fact</td><td>Everything - whatever the agent read, wrote, printed or was told. The widest net we have, and always the latest.</td></tr>
+<tr><td>Turn end</td><td>Gateway</td><td class="stop">Block the next turn</td><td>Caps, stopping a session that has gone wrong, requiring a human before it continues.</td></tr>
+</table>
+
+<div class="callout warn">
+<b>The sentence to remember.</b> The earlier we catch something the more we can stop; the later we
+catch it the more we can see. A serious policy uses both ends - <b>block where we own the door, warn
+where we only have a window</b> - and says which one it was, every time, to the manager's face.
+</div>
+
+<h2>5. Worked example: "no personal data in our sessions"</h2>
+
+<p>You asked how we would create this one. Here is the honest walk-through, which is also the
+template for every policy of this shape.</p>
+
+<table>
+<tr><th>Where it could appear</th><th>What we can do</th><th>Verdict</th></tr>
+<tr><td>In a prompt somebody types or dictates</td><td>We own the pipe. We check the text before it is typed.</td><td><span class="v block">Block</span> or <span class="v ask">Ask</span></td></tr>
+<tr><td>In a file the agent opened on its own</td><td>We do not see it unless that agent reports its tool calls to us.</td><td><span class="v warn">Warn</span>, once it reaches the screen</td></tr>
+<tr><td>On the terminal screen</td><td>We read the screen. We find out after it happened.</td><td><span class="v warn">Warn</span>, recorded and counted</td></tr>
+<tr><td>In anything we store - transcript, log, handover, report</td><td>The Gateway is the writer. Nothing is stored until the check has run.</td><td><span class="v block">Block the write</span>, or store it redacted with the redaction recorded</td></tr>
+<tr><td>In anything going out - an email, an issue, a commit, a post</td><td>Those go through our own tools.</td><td><span class="v block">Block</span></td></tr>
+</table>
+
+<p>So "no personal data in our sessions" is not one promise. It is three honest ones, and they are
+worth more than one dishonest one:</p>
+<ol>
+<li>It is <b>never stored</b> by us unredacted.</li>
+<li>It <b>never leaves</b> through anything we control.</li>
+<li>It is <b>flagged and counted</b> the moment it appears on a screen, and the manager sees it.</li>
+</ol>
+
+<p>What we cannot promise is that an agent never lays eyes on it, and we should say so in those
+words. A vendor who claims that fourth promise is either sandboxing the whole machine or lying.</p>
+
+<h2>6. Governed storage - the half nobody has</h2>
+
+<p>Everyone's policy engine governs what an agent may <b>do</b>. Nobody governs what is <b>kept</b>.
+We own the ledger end to end, so this is ours to take, and it needs no competitor to exist first.</p>
+
+<ul>
+<li><b>Redaction on the way in.</b> The check runs before the write, not as a cleanup job afterwards.
+A cleanup job means the unredacted version existed, and in a compliance conversation that is the only
+fact that matters.</li>
+<li><b>Every redaction is itself a record.</b> What was found, which rule found it, what was put in
+its place, when, and under whose policy. A redaction nobody can see is indistinguishable from data
+loss.</li>
+<li><b>Reversible where the company says so.</b> Some teams need the original held under a stricter
+key; some need it gone. That is a policy, set once.</li>
+<li><b>Retention.</b> How long each kind of record lives - transcripts, screens, logs, reports - per
+company, with a legal hold that overrides deletion and is itself recorded.</li>
+<li><b>Answering for one person.</b> Show me everything you hold about this individual; remove it.
+This is a feature, not a support ticket, and it is table stakes the moment a real company buys.</li>
+</ul>
+
+<div class="callout bad">
+<b>One hard constraint that overrides any convenience here.</b> The spoken-words rule in this
+repository binds every path that turns audio into text: the raw transcript is the speech model's
+output word for word, and the cleaned version may differ only by corrections the user listed by hand
+and by whole sentences a silence gate dropped, each one recorded. A personal-data policy over stored
+dictation must therefore be a <b>recorded, answerable edit of exactly that shape</b> - never a
+rewrite, never a quiet shrink. If the design cannot be made to fit that, the design changes, not the
+rule.
+</div>
+
+<h2>7. The record, and why it is the product</h2>
+
+<p>Every verdict is written down, including Allow. The row says what was being attempted, which
+policy looked at it, what it decided, why, at which level that policy was set and by whom, who
+overrode it if anyone did, and what was recorded in place of what was blocked.</p>
+
+<p>We already have most of the shelf for this - an append-only governance log that already carries
+permission decisions, a session ledger, and a spend ledger. The policy engine should write into that
+furniture rather than build a second one beside it. An append-only record is the whole basis of the
+claim; a record you can edit is not evidence.</p>
+
+<p>The test of whether we built this right is one sentence: <b>can a manager ask a question in plain
+English and get an answer out of the record?</b> "Did anything with personal data get stored last
+month?" "Who approved the deployment on the fourteenth?" "Which rule is stopping this team the
+most?" If those need an engineer, we have built a log and not a governance system.</p>
+
+<h2>8. The governance report to the manager</h2>
+
+<p>On a schedule the manager chooses. Written for a person who was not watching, so it leads with
+what needs them and never with a table of counts.</p>
+
+<ul>
+<li><b>What needs you.</b> Requests waiting for a decision, overrides about to expire, rules stuck in
+dry run that somebody asked for weeks ago.</li>
+<li><b>What was stopped.</b> Blocks and asks, grouped by rule, with the two or three that matter
+named in a sentence each.</li>
+<li><b>What we could only warn about.</b> Kept separate, never mixed into the stopped pile. This is
+the honest column, and it is also the useful one - it is where the next thing worth building shows
+itself.</li>
+<li><b>Who overrode what,</b> and whether it has expired.</li>
+<li><b>Spend against the cap,</b> per team and per person.</li>
+<li><b>Drift.</b> Rules that never fire and probably should go; rules that fire constantly and are
+really a broken process; people who are blocked every day and need a conversation rather than a
+tighter rule.</li>
+</ul>
+
+<p>Same content on the tab and in the report - the report is the tab, addressed to somebody and sent.
+One source, not two things that drift apart.</p>
+
+<h2>9. The Governance tab on the Cockpit</h2>
+
+<p>A new top-level tab, not a page buried in settings. Settings is where you configure a thing;
+Governance is where you watch it. Sections, in the order a manager wants them:</p>
+
+<table>
+<tr><th>Section</th><th>What is on it</th></tr>
+<tr><td><b>Needs you</b></td><td>Asks waiting on a human, override requests, expiring grants. When it is empty it says so plainly rather than showing an empty table.</td></tr>
+<tr><td><b>Policies</b></td><td>Every rule in force, grouped by level, each showing who set it, when, whether it is live or in dry run, and how often it has fired. Adding one is a sentence plus a scope, not a configuration file.</td></tr>
+<tr><td><b>Activity</b></td><td>The verdict stream. Filter by person, team, repository, rule, verdict. This is what an auditor is shown.</td></tr>
+<tr><td><b>People and roles</b></td><td>Who is in the team, what role they hold, what they may set and override.</td></tr>
+<tr><td><b>Storage</b></td><td>What we hold, for how long, what has been redacted, what is on legal hold. The governed-storage half made visible - otherwise it is invisible work nobody pays for.</td></tr>
+<tr><td><b>Reports</b></td><td>The schedule, the recipients, and every report we have sent, kept.</td></tr>
+</table>
+
+<p>The phone gets the same tab with the same sections in the same order and reduced cards - the rule
+in this repository is that a screen exists once and both surfaces mount it, because two lists in two
+files drift apart by default. On the phone, "Needs you" is the whole point: approving an ask from a
+queue at a traffic light is the best demonstration of this feature we will ever have.</p>
+
+<h2>10. What version one should be</h2>
+
+<p>My recommendation, to argue with:</p>
+
+<ol>
+<li><b>The engine and the record first</b> - four verdicts, the four levels with tighten-only, fails
+closed, every verdict recorded in the governance log, every policy born in dry run.</li>
+<li><b>Block where we own the door</b> - starting a session, the prompt going in, spend, what is
+stored, what leaves. All of these are ours today and need no cooperation from any agent vendor.</li>
+<li><b>Warn where we only have a window</b> - the terminal screen. One watcher, honestly labelled,
+which is what makes a personal-data policy meaningful rather than theatre.</li>
+<li><b>Governed storage as the headline</b> - redaction before the write, recorded, with retention.
+The half nobody has, and the half that does not need us to win a feature race.</li>
+<li><b>The tab and the report</b>, because a policy nobody reads the results of is not governance.</li>
+<li><b>Not in version one:</b> reaching inside a running agent to gate its individual tool calls. It
+is a blocking hook per agent family, only some of them offer one, and it is exactly the brittle seam
+we point at as the competitor's weakness. It gets its own phase with its own honest cost.</li>
+</ol>
+
+<h2>11. Decisions waiting on you</h2>
+
+<div class="q">
+<h5>A. Does the ladder tighten only, so a developer can never loosen a manager's rule?</h5>
+<p class="rec"><b>Recommended: yes, tighten only, with an override as a separate recorded grant.</b>
+The competitor evaluates the end user first, which means the governed party gets the first word. That
+is fine for a single-player tool and wrong for a team product. Overturn this and the feature becomes
+a convenience rather than something a company can point an auditor at.</p>
+</div>
+
+<div class="q">
+<h5>B. Four verdicts including Warn, rather than the three everyone else has?</h5>
+<p class="rec"><b>Recommended: four.</b> You said it in your own words - some places we stop it, some
+places we warn. Without Warn, everything we can only see after the fact has to be dressed up as a
+block or dropped entirely, and both of those are lies to the manager.</p>
+</div>
+
+<div class="q">
+<h5>C. Is Governance its own top-level tab, or a section inside Settings?</h5>
+<p class="rec"><b>Recommended: its own tab.</b> Settings is where you configure; Governance is where
+you watch. It is also the screen we demonstrate the whole team tier from, and a screen you sell from
+does not live three clicks down.</p>
+</div>
+
+<div class="q">
+<h5>D. Does version one gate only what the Gateway and Director already own, leaving tool-call
+interception to a later, named phase?</h5>
+<p class="rec"><b>Recommended: yes.</b> What we own is real and unique - refuse the session, refuse
+the prompt, cap the spend, govern the record forever. Reaching inside a running agent buys the
+competitor's fragility in order to match a feature. The one thing this scope cannot demonstrate is a
+shell command stopped mid-run, so if that demonstration is what sells it, this is the one to
+overturn.</p>
+</div>
+
+<div class="q">
+<h5>E. Who is the report actually written for - the development manager, or the owner?</h5>
+<p class="rec"><b>Recommended: the development manager, with the owner getting a shorter roll-up
+across teams.</b> One document written for two readers ends up serving neither, and the manager is
+the one who can act on what is in it.</p>
+</div>
+
+<h2>Where this lives</h2>
+<p>This report: <code>docs/design/policy-engine/governance-dev-report-2026-09-19.html</code> in the
+product repository. The design document that follows from it, once these decisions are settled:
+<code>docs/design/policy-engine/design.md</code>. The backlog it implements: the policy-engine epic
+and its two children - the request-side gates, and governed storage.</p>
+
+</div>
+</body>
+</html>

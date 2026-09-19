@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Policy enforcement, phase one: everything the Gateway can do on its own</title>
+<style>
+  :root {
+    --ink: #1c1f26; --muted: #5b6270; --line: #e3e6eb; --bg: #ffffff; --soft: #f5f6f8;
+    --accent: #0f5fbf; --accent-soft: #e8f0fb; --ok: #1a7f37; --ok-soft: #e6f4ea;
+    --warn: #9a6700; --warn-soft: #fff8e6; --bad: #b42318; --bad-soft: #fdecec;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: var(--ink); background: var(--bg); line-height: 1.55; font-size: 16px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 36px 32px 80px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 { font-size: 23px; margin: 48px 0 12px; padding-top: 14px; border-top: 2px solid var(--ink); }
+  h3 { font-size: 17.5px; margin: 26px 0 8px; }
+  p { margin: 10px 0; }
+  .sub { color: var(--muted); font-size: 15px; margin: 0 0 6px; }
+  .tag { display: inline-block; font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
+  .tag.wait { background: var(--warn-soft); color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0 20px; font-size: 14.5px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; font-size: 13px; letter-spacing: .02em; }
+  code { font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 13px; background: var(--soft); padding: 1px 5px; border-radius: 3px; }
+  .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; margin: 18px 0; border-radius: 0 4px 4px 0; }
+  .callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .callout.bad { border-color: var(--bad); background: var(--bad-soft); }
+  .callout.ok { border-color: var(--ok); background: var(--ok-soft); }
+  ul, ol { padding-left: 24px; }
+  li { margin: 5px 0; }
+  .stop { color: var(--ok); font-weight: 600; }
+  .late { color: var(--warn); font-weight: 600; }
+  .none { color: var(--bad); font-weight: 600; }
+  .q { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 0 6px 6px 0; padding: 14px 18px; margin: 18px 0; background: #fff; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .q h3 { margin: 0 0 4px; font-size: 16px; }
+  .q p { font-size: 14px; }
+  .q label { display: block; padding: 5px 0; font-size: 14.5px; }
+  .q textarea { width: 100%; min-height: 48px; font-family: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; }
+  .rec { color: var(--muted); font-size: 14px; }
+  figure { margin: 22px 0; }
+  figcaption { font-family: system-ui, sans-serif; font-size: 13.5px; color: var(--muted); margin-top: 8px; }
+  .legend { font-family: system-ui, sans-serif; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header data-dev-report="header" data-dev-report-status="waiting-on-you">
+  <span class="tag">Architecture</span><span class="tag wait">Waiting on you</span>
+  <h1>Policy enforcement, phase one: everything the Gateway can do on its own</h1>
+  <p class="sub">2026-09-19 &nbsp;|&nbsp; Policy Engine mission &nbsp;|&nbsp; Phase one is Gateway-only and needs no change to any agent. Phase two adds the per-agent hooks. Every claim about our own code below was read from the main branch, and section 7 says what I did not prove.</p>
+</header>
+
+<section data-dev-report="summary">
+<h2>Executive summary</h2>
+
+<p><b>Almost all of it can be done on the Gateway, and one piece of it is stronger than I expected.</b>
+I checked your premise in the code first. One half of it needs correcting and the correction works in
+our favour.</p>
+
+<p><b>The correction.</b> The Director does not send the terminal to the Gateway all the time. The
+live byte stream only exists while somebody is watching a terminal, and it is paced by that viewer.
+What the Gateway gets continuously is session <i>state</i>. But the Gateway can <b>pull</b> any
+session's screen or terminal buffer at any moment over the tunnel, mid-turn, with no Director change
+at all - and it already does, in three different places. So you get the capability you wanted; it is
+a read we choose to make rather than a feed we receive, which means <b>sampling cadence is a cost we
+design, not a free gift</b>.</p>
+
+<p><b>The stronger piece.</b> Session creation goes through the Gateway carrying a
+<code>BypassPermissions</code> flag and the agent's launch arguments. A policy that refuses a bypassed
+launch <b>forces every agent in the fleet to keep its own permission prompt</b>. That prompt shows the
+proposed action <i>before it runs</i>, on a screen we already know how to read, in a state we are
+already told about. <b>That is a real preventive gate, mid-turn, on every agent, with no hooks.</b> It
+is the single best thing in phase one and I did not see it until I read the create path.</p>
+
+<p><b>So phase one has six gates</b>, four of which genuinely prevent. It reuses the supervisor's
+engine shape, the rules engine's dry-run promotion and recorded firings, the Wingman's model, and the
+governance audit log. Phase two replaces one gate's implementation with a per-agent hook; it is not a
+new architecture.</p>
+
+<p><b>The one thing phase one cannot do</b> is stop a tool that a bypassed or auto-approving session
+launches. There it detects and stops what comes next, and it says so in those words rather than
+pretending otherwise.</p>
+</section>
+
+<section data-dev-report="questions">
+<h2>What I need from you</h2>
+
+<div class="q" data-dev-report-question="bypass-ban" data-dev-report-question-text="Should a policy be able to refuse a session that launches with permissions bypassed?">
+  <h3>1. Should a policy be able to refuse a session launched with permissions bypassed?</h3>
+  <p class="rec">This is what turns the agent's own permission prompt into our gate on every agent, with no hook work. The cost is that a team with a strict policy loses the unattended speed of a bypassed run, so the policy has to be theirs to set rather than ours to impose.</p>
+  <label><input type="radio" name="bypass-ban" value="refuse" data-recommended> Yes - a policy may refuse it, and phase one ships that (recommended)</label>
+  <label><input type="radio" name="bypass-ban" value="warn"> No - record it as a warning only, never refuse the launch</label>
+  <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+</div>
+
+<div class="q" data-dev-report-question="midturn-sampling" data-dev-report-question-text="Should phase one sample the terminal mid-turn, or only look at turn end?">
+  <h3>2. Should phase one watch mid-turn, or only at turn end?</h3>
+  <p class="rec">Mid-turn sampling is the only thing that catches a bypassed or auto-approving session before the turn finishes, and it is what lets us interrupt. It costs one tunnel read per sample per working session, and a cheap model call only on samples the pattern pass cannot settle. Turn-end only is free but always late.</p>
+  <label><input type="radio" name="midturn-sampling" value="adaptive" data-recommended> Sample while working, backing off when nothing changes (recommended)</label>
+  <label><input type="radio" name="midturn-sampling" value="turnend"> Turn end only in phase one - add sampling later</label>
+  <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+</div>
+
+<div class="q" data-dev-report-question="model-on-every-prompt" data-dev-report-question-text="Should the small model judge every incoming prompt, or only where patterns are inconclusive?">
+  <h3>3. Should the small model judge every incoming prompt?</h3>
+  <p class="rec">This is the open question from earlier today. Patterns catch what has a shape - keys, card numbers, identifiers. A password typed as prose has no shape, so if the model only runs after a pattern hits, it never sees the case it exists for.</p>
+  <label><input type="radio" name="model-on-every-prompt" value="every" data-recommended> Every prompt, small model, as a per-team setting a manager can turn down (recommended)</label>
+  <label><input type="radio" name="model-on-every-prompt" value="inconclusive"> Only where the pattern pass is inconclusive, to add no latency</label>
+  <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+</div>
+</section>
+
+<section data-dev-report="detail">
+<h2>1. The diagram</h2>
+
+<figure>
+<svg viewBox="0 0 1040 700" width="100%" role="img" aria-label="Phase one architecture: six Gateway gates across the life of a session, and the engine behind them">
+  <title>Phase one architecture</title>
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 z" fill="#5b6270"/>
+    </marker>
+    <marker id="arw" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 z" fill="#0f5fbf"/>
+    </marker>
+  </defs>
+
+  <g aria-label="The machine" data-label="The machine">
+    <rect x="14" y="60" width="196" height="300" rx="8" fill="#f5f6f8" stroke="#c9ced6"/>
+    <text x="112" y="84" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="#1c1f26">THE MACHINE</text>
+    <rect x="34" y="100" width="156" height="58" rx="6" fill="#ffffff" stroke="#c9ced6"/>
+    <text x="112" y="125" text-anchor="middle" font-family="system-ui" font-size="13.5" fill="#1c1f26">Director</text>
+    <text x="112" y="143" text-anchor="middle" font-family="system-ui" font-size="11.5" fill="#5b6270">owns the terminal</text>
+    <rect x="34" y="176" width="156" height="78" rx="6" fill="#ffffff" stroke="#c9ced6"/>
+    <text x="112" y="200" text-anchor="middle" font-family="system-ui" font-size="13.5" fill="#1c1f26">The agent</text>
+    <text x="112" y="218" text-anchor="middle" font-family="system-ui" font-size="11.5" fill="#5b6270">Claude Code, Codex,</text>
+    <text x="112" y="234" text-anchor="middle" font-family="system-ui" font-size="11.5" fill="#5b6270">Cursor, Gemini, ...</text>
+    <rect x="34" y="272" width="156" height="66" rx="6" fill="#fff8e6" stroke="#d8c48a"/>
+    <text x="112" y="294" text-anchor="middle" font-family="system-ui" font-size="12.5" font-weight="600" fill="#9a6700">Phase two only</text>
+    <text x="112" y="311" text-anchor="middle" font-family="system-ui" font-size="11.5" fill="#9a6700">pre-tool hook, per agent</text>
+    <text x="112" y="327" text-anchor="middle" font-family="system-ui" font-size="11.5" fill="#9a6700">(nothing here in phase one)</text>
+  </g>
+
+  <g aria-label="The tunnel" data-label="The tunnel">
+    <line x1="212" y1="150" x2="286" y2="150" stroke="#0f5fbf" stroke-width="1.6" marker-end="url(#arw)"/>
+    <text x="249" y="142" text-anchor="middle" font-family="system-ui" font-size="10.5" fill="#0f5fbf">state</text>
+    <line x1="286" y1="196" x2="212" y2="196" stroke="#5b6270" stroke-width="1.6" marker-end="url(#ar)"/>
+    <text x="249" y="188" text-anchor="middle" font-family="system-ui" font-size="10.5" fill="#5b6270">reads</text>
+    <text x="249" y="211" text-anchor="middle" font-family="system-ui" font-size="9.5" fill="#5b6270">screen-grid, buffer</text>
+    <line x1="286" y1="250" x2="212" y2="250" stroke="#b42318" stroke-width="1.6" marker-end="url(#ar)"/>
+    <text x="249" y="242" text-anchor="middle" font-family="system-ui" font-size="10.5" fill="#b42318">stops</text>
+    <text x="249" y="265" text-anchor="middle" font-family="system-ui" font-size="9.5" fill="#b42318">escape, interrupt, kill</text>
+    <text x="249" y="300" text-anchor="middle" font-family="system-ui" font-size="10" fill="#5b6270">THE TUNNEL</text>
+  </g>
+
+  <g aria-label="The six gates" data-label="The six gates">
+    <rect x="300" y="42" width="430" height="336" rx="8" fill="#ffffff" stroke="#1c1f26" stroke-width="1.4"/>
+    <text x="515" y="64" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="#1c1f26">THE GATEWAY - SIX GATES, IN ORDER OF TIME</text>
+
+    <g aria-label="Gate 1 session start" data-label="Gate 1 session start">
+      <rect x="316" y="76" width="398" height="40" rx="5" fill="#e6f4ea" stroke="#8fc39f"/>
+      <text x="328" y="94" font-family="system-ui" font-size="12.5" font-weight="700" fill="#1a7f37">G1  Session start</text>
+      <text x="328" y="109" font-family="system-ui" font-size="11" fill="#1a7f37">agent, model, repository, machine, launch arguments, permissions bypass</text>
+      <text x="700" y="100" text-anchor="end" font-family="system-ui" font-size="11" font-weight="700" fill="#1a7f37">BLOCKS</text>
+    </g>
+
+    <g aria-label="Gate 2 permission prompt" data-label="Gate 2 permission prompt">
+      <rect x="316" y="122" width="398" height="40" rx="5" fill="#e6f4ea" stroke="#8fc39f"/>
+      <text x="328" y="140" font-family="system-ui" font-size="12.5" font-weight="700" fill="#1a7f37">G2  The agent's own permission prompt</text>
+      <text x="328" y="155" font-family="system-ui" font-size="11" fill="#1a7f37">the proposed action is on screen BEFORE it runs - read it, judge it, refuse it</text>
+      <text x="700" y="146" text-anchor="end" font-family="system-ui" font-size="11" font-weight="700" fill="#1a7f37">BLOCKS</text>
+    </g>
+
+    <g aria-label="Gate 3 the prompt going in" data-label="Gate 3 the prompt going in">
+      <rect x="316" y="168" width="398" height="40" rx="5" fill="#e6f4ea" stroke="#8fc39f"/>
+      <text x="328" y="186" font-family="system-ui" font-size="12.5" font-weight="700" fill="#1a7f37">G3  The prompt going in</text>
+      <text x="328" y="201" font-family="system-ui" font-size="11" fill="#1a7f37">every word from a person, a schedule or another session - before a key is typed</text>
+      <text x="700" y="192" text-anchor="end" font-family="system-ui" font-size="11" font-weight="700" fill="#1a7f37">BLOCKS</text>
+    </g>
+
+    <g aria-label="Gate 4 mid turn buffer watch" data-label="Gate 4 mid turn buffer watch">
+      <rect x="316" y="214" width="398" height="40" rx="5" fill="#fff8e6" stroke="#d8c48a"/>
+      <text x="328" y="232" font-family="system-ui" font-size="12.5" font-weight="700" fill="#9a6700">G4  Mid-turn terminal watch</text>
+      <text x="328" y="247" font-family="system-ui" font-size="11" fill="#9a6700">samples the buffer while working - detects, then stops what comes NEXT</text>
+      <text x="700" y="238" text-anchor="end" font-family="system-ui" font-size="11" font-weight="700" fill="#9a6700">STOPS LATE</text>
+    </g>
+
+    <g aria-label="Gate 5 turn end wingman" data-label="Gate 5 turn end wingman">
+      <rect x="316" y="260" width="398" height="40" rx="5" fill="#fff8e6" stroke="#d8c48a"/>
+      <text x="328" y="278" font-family="system-ui" font-size="12.5" font-weight="700" fill="#9a6700">G5  Turn end - the Wingman</text>
+      <text x="328" y="293" font-family="system-ui" font-size="11" fill="#9a6700">every turn gets a recorded verdict, including sessions nothing else looked at</text>
+      <text x="700" y="284" text-anchor="end" font-family="system-ui" font-size="11" font-weight="700" fill="#9a6700">WARNS</text>
+    </g>
+
+    <g aria-label="Gate 6 storage and egress" data-label="Gate 6 storage and egress">
+      <rect x="316" y="306" width="398" height="40" rx="5" fill="#e6f4ea" stroke="#8fc39f"/>
+      <text x="328" y="324" font-family="system-ui" font-size="12.5" font-weight="700" fill="#1a7f37">G6  Storage and egress</text>
+      <text x="328" y="339" font-family="system-ui" font-size="11" fill="#1a7f37">before the write, and before anything leaves - the half nobody else has</text>
+      <text x="700" y="330" text-anchor="end" font-family="system-ui" font-size="11" font-weight="700" fill="#1a7f37">BLOCKS</text>
+    </g>
+
+    <text x="515" y="366" text-anchor="middle" font-family="system-ui" font-size="10.5" fill="#5b6270">every gate calls the same engine and writes to the same record</text>
+  </g>
+
+  <g aria-label="The engine" data-label="The engine">
+    <rect x="300" y="400" width="430" height="278" rx="8" fill="#ffffff" stroke="#0f5fbf" stroke-width="1.4"/>
+    <text x="515" y="422" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="#0f5fbf">ONE ENGINE, SIX ENTRY POINTS</text>
+
+    <rect x="318" y="436" width="394" height="34" rx="5" fill="#f5f6f8" stroke="#c9ced6"/>
+    <text x="515" y="457" text-anchor="middle" font-family="system-ui" font-size="12" fill="#1c1f26">1  Resolve the policy set: company, then team, then agent, then session</text>
+
+    <rect x="318" y="478" width="192" height="60" rx="5" fill="#e6f4ea" stroke="#8fc39f"/>
+    <text x="414" y="498" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="600" fill="#1a7f37">2a  Patterns first</text>
+    <text x="414" y="514" text-anchor="middle" font-family="system-ui" font-size="10.5" fill="#1a7f37">free, instant, answerable</text>
+    <text x="414" y="529" text-anchor="middle" font-family="system-ui" font-size="10.5" fill="#1a7f37">proved against its own controls</text>
+
+    <rect x="520" y="478" width="192" height="60" rx="5" fill="#e8f0fb" stroke="#9dbde4"/>
+    <text x="616" y="498" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="600" fill="#0f5fbf">2b  Small model second</text>
+    <text x="616" y="514" text-anchor="middle" font-family="system-ui" font-size="10.5" fill="#0f5fbf">for what has no shape</text>
+    <text x="616" y="529" text-anchor="middle" font-family="system-ui" font-size="10.5" fill="#0f5fbf">spotlit, structured, fails closed</text>
+
+    <rect x="318" y="546" width="394" height="34" rx="5" fill="#f5f6f8" stroke="#c9ced6"/>
+    <text x="515" y="567" text-anchor="middle" font-family="system-ui" font-size="12" fill="#1c1f26">3  Compose: tighten only, a refusal short-circuits, an ask is remembered</text>
+
+    <rect x="318" y="588" width="394" height="34" rx="5" fill="#f5f6f8" stroke="#c9ced6"/>
+    <text x="515" y="609" text-anchor="middle" font-family="system-ui" font-size="12" fill="#1c1f26">4  Enforce with the strongest action THIS gate has - or warn, and say so</text>
+
+    <rect x="318" y="630" width="394" height="34" rx="5" fill="#fdecec" stroke="#e0a9a3"/>
+    <text x="515" y="651" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="600" fill="#b42318">5  Record: the gate, the detector, the level, the person - always</text>
+  </g>
+
+  <g aria-label="The record and the surfaces" data-label="The record and the surfaces">
+    <rect x="750" y="400" width="276" height="88" rx="8" fill="#fdecec" stroke="#e0a9a3"/>
+    <text x="888" y="424" text-anchor="middle" font-family="system-ui" font-size="13.5" font-weight="700" fill="#b42318">The record</text>
+    <text x="888" y="444" text-anchor="middle" font-family="system-ui" font-size="11" fill="#b42318">the append-only governance log</text>
+    <text x="888" y="461" text-anchor="middle" font-family="system-ui" font-size="11" fill="#b42318">that already exists</text>
+    <text x="888" y="478" text-anchor="middle" font-family="system-ui" font-size="11" fill="#b42318">answerable by query</text>
+
+    <line x1="730" y1="647" x2="888" y2="647" stroke="#5b6270" stroke-width="1.4"/>
+    <line x1="888" y1="647" x2="888" y2="492" stroke="#5b6270" stroke-width="1.4" marker-end="url(#ar)"/>
+
+    <rect x="750" y="510" width="276" height="76" rx="8" fill="#e8f0fb" stroke="#9dbde4"/>
+    <text x="888" y="534" text-anchor="middle" font-family="system-ui" font-size="13.5" font-weight="700" fill="#0f5fbf">The Governance tab</text>
+    <text x="888" y="553" text-anchor="middle" font-family="system-ui" font-size="11" fill="#0f5fbf">needs you, policies, activity,</text>
+    <text x="888" y="570" text-anchor="middle" font-family="system-ui" font-size="11" fill="#0f5fbf">people, storage, reports</text>
+
+    <rect x="750" y="602" width="276" height="62" rx="8" fill="#f5f6f8" stroke="#c9ced6"/>
+    <text x="888" y="626" text-anchor="middle" font-family="system-ui" font-size="13.5" font-weight="700" fill="#1c1f26">The manager's report</text>
+    <text x="888" y="645" text-anchor="middle" font-family="system-ui" font-size="11" fill="#5b6270">the same content, on a schedule</text>
+
+    <line x1="888" y1="488" x2="888" y2="506" stroke="#5b6270" stroke-width="1.4" marker-end="url(#ar)"/>
+    <line x1="888" y1="586" x2="888" y2="598" stroke="#5b6270" stroke-width="1.4" marker-end="url(#ar)"/>
+  </g>
+
+  <g aria-label="Legend" data-label="Legend">
+    <rect x="14" y="400" width="272" height="88" rx="8" fill="#ffffff" stroke="#c9ced6"/>
+    <text x="30" y="422" font-family="system-ui" font-size="12.5" font-weight="700" fill="#1c1f26">Reading the gates</text>
+    <rect x="30" y="432" width="14" height="12" rx="2" fill="#e6f4ea" stroke="#8fc39f"/>
+    <text x="52" y="442" font-family="system-ui" font-size="11" fill="#1a7f37">Prevents - it never happens</text>
+    <rect x="30" y="452" width="14" height="12" rx="2" fill="#fff8e6" stroke="#d8c48a"/>
+    <text x="52" y="462" font-family="system-ui" font-size="11" fill="#9a6700">Detects - stops what comes next</text>
+    <rect x="30" y="472" width="14" height="12" rx="2" fill="#fdecec" stroke="#e0a9a3"/>
+    <text x="52" y="482" font-family="system-ui" font-size="11" fill="#b42318">Always recorded, either way</text>
+  </g>
+</svg>
+<figcaption>Phase one: six gates, one engine, one record. Nothing in the machine column changes. You can
+click any box in this diagram to leave a note on it.</figcaption>
+</figure>
+
+<h2>2. What I checked, and where your premise needed correcting</h2>
+
+<p>You said the Gateway is sent the terminal all the time. Half right, and the half that is wrong
+matters for cost, so here it is precisely.</p>
+
+<table>
+<tr><th>What I expected to find</th><th>What the code actually says</th></tr>
+<tr><td>The Director streams the terminal to the Gateway continuously</td><td><b>No.</b> The live byte stream is opened by the Gateway only when a viewer wants one, and it is paced by that viewer - a slow browser slows the producer. It is not an always-on feed.</td></tr>
+<tr><td>Then the Gateway cannot see mid-turn</td><td><b>It can.</b> The Gateway <i>pulls</i>: a live screen read, and a terminal buffer read from a byte cursor the session already reports. Both are ordinary tunnel calls with no model and no Director change, and three parts of the product already use them.</td></tr>
+<tr><td>Stopping a session needs new plumbing</td><td><b>It does not.</b> Escape, interrupt and kill are already verbs the Gateway routes to a Director today.</td></tr>
+<tr><td>Session creation is opaque to policy</td><td><b>The opposite.</b> The create request carries the repository, the agent, the launch arguments and an explicit permissions-bypass flag - all visible to the Gateway before the Director is asked to do anything.</td></tr>
+</table>
+
+<div class="callout ok">
+<b>The consequence.</b> You get what you wanted - the Gateway can look at any session's terminal at
+any moment, including mid-turn. It is a read we choose to make, not a feed we are given, so
+<b>how often we look is a cost we design</b>. That is a better position than an always-on feed
+anyway: an always-on feed would put every customer's terminal bytes through our server whether any
+policy needed them or not.
+</div>
+
+<h2>3. The six gates</h2>
+
+<table>
+<tr><th>Gate</th><th>What it sees</th><th>What it can do</th><th>Which agents</th></tr>
+<tr><td><b>G1 Session start</b></td><td>Agent, model, repository, machine, worktree, launch arguments, the permissions-bypass flag, who asked</td><td class="stop">Refuse before the Director is told anything</td><td>All</td></tr>
+<tr><td><b>G2 Permission prompt</b></td><td>The proposed action, on screen, before it runs - reached by a live screen read when the session enters the waiting-on-permission state</td><td class="stop">Let the human answer, answer it ourselves, or hold it for the Governance tab</td><td>Every agent that prompts - which is all of them, unless bypassed, which G1 can forbid</td></tr>
+<tr><td><b>G3 Prompt in</b></td><td>Every word reaching an agent from a person, a schedule or another session</td><td class="stop">Block, ask, or redact before a key is typed</td><td>All</td></tr>
+<tr><td><b>G4 Mid-turn watch</b></td><td>New terminal bytes since the last cursor, sampled while the session is working</td><td class="late">Escape, interrupt or kill what comes next; quarantine everything after the hit so it never reaches storage or egress</td><td>All</td></tr>
+<tr><td><b>G5 Turn end</b></td><td>The finished turn, through the Wingman that already reads it and already calls a model</td><td class="late">Warn, record, raise it on the tab</td><td>All</td></tr>
+<tr><td><b>G6 Storage and egress</b></td><td>Everything about to be written, and everything about to leave through our own tools</td><td class="stop">Block the write, or store redacted with the redaction recorded</td><td>All</td></tr>
+</table>
+
+<h3>Why G1 and G2 together are the interesting part</h3>
+
+<p>On their own, each looks minor. Together they are the whole phase.</p>
+
+<p>Every agent we drive has its own permission prompt. That prompt is a moment where the agent has
+<b>decided</b> to do something and has <b>not yet done it</b>, and it puts the proposed action on the
+screen. We are already told when a session enters that state, and we already know how to read that
+screen without a model.</p>
+
+<p>The only thing that removes that moment is launching the agent with its prompting turned off - and
+that is a flag on the create request we already see. So:</p>
+
+<div class="callout">
+<b>A policy that says "never launch with permissions bypassed" converts every agent's own prompt into
+our enforcement point.</b> We do not have to build an interception. We have to refuse to throw away
+the one the agent already gives us. That is phase one's answer to "how do we stop the agent mid-turn",
+and it needs nothing from any agent vendor.
+</div>
+
+<p>It is not free: a bypassed run is faster and quieter, and some unattended work wants exactly that.
+Which is why it must be a <b>policy a team sets</b>, visible on the tab, and not a rule we impose -
+that is question 1.</p>
+
+<h3>What G4 honestly is</h3>
+
+<p>G4 is the gate that catches what the others miss: a session a team deliberately allowed to run
+bypassed, a tool the agent auto-approved, personal data appearing in output nobody proposed. It reads
+new bytes since a cursor, so each sample carries only what is new.</p>
+
+<p>It is <b>detect-then-stop</b>, not prevent. By the time a command's output is in the buffer, the
+command ran. What G4 can do is stop the <i>next</i> thing - and that is worth more than it sounds,
+because the damage pattern we actually care about is rarely one command. It is a session that has
+started doing the wrong thing and will keep doing it for twenty minutes. And for a data rule it is
+close to fully preventive anyway, because the leak only matters when it is <b>stored</b> or
+<b>sent</b>, and G6 stands in front of both.</p>
+
+<h2>4. One engine, six entry points</h2>
+
+<p>All six gates call the same five-step path. Only step four differs between them.</p>
+
+<ol>
+<li><b>Resolve</b> the policy set for this company, team, agent and session, tightening only.</li>
+<li><b>Detect</b>: patterns first, because they are free, instant and answerable; the small model
+second, and only for what patterns cannot describe. The model call is spotlit against injection,
+structured, and fails closed.</li>
+<li><b>Compose</b>: declaration order, a refusal short-circuits, an ask is remembered and can still be
+overtaken by a later refusal.</li>
+<li><b>Enforce</b> with the strongest action this gate actually has. A policy states what it wants;
+the gate states what it can do; the engine resolves the two and the answer is part of the verdict.</li>
+<li><b>Record</b>, always, including allow - the gate, the detector that answered, the level the
+policy came from, and the person answerable for it.</li>
+</ol>
+
+<div class="callout">
+<b>The structural idea worth keeping.</b> A policy does not say "block". It says what it wants, and
+each gate reports what it could do about it. So one rule resolves to <i>blocked at G1, G3 and G6,
+asked at G2, warn-only at G4 and G5</i> - and the Governance tab shows exactly that. The honesty
+about stopping some things and only warning about others stops being a caveat in a sales
+conversation and becomes a computed property on a screen. It is also the table that later shows what
+phase two would upgrade.
+</div>
+
+<h2>5. What we are reusing rather than building</h2>
+
+<table>
+<tr><th>Already in the product</th><th>What the policy engine takes from it</th></tr>
+<tr><td>The session supervisor</td><td>The whole engine shape: an environment seam so the tests run the ladder in milliseconds with no clock, no tunnel and no model; live screen reads; a cheap model for one tight question; a recovery log where nothing it does is invisible.</td></tr>
+<tr><td>The rules engine for standing instructions</td><td>Scope by agent, repository, machine and mission; born in dry run and promoted by a named person; cooldown and daily cap; the refusal to act when the act cannot be written down; and grounding a stated reason against the screen so a model cannot justify itself with text the screen does not contain.</td></tr>
+<tr><td>The Wingman</td><td>The turn-end reading and the model behind it. G5 is a new question asked at an existing moment, not a new pipeline.</td></tr>
+<tr><td>The governance audit log</td><td>The record. It is append-only by contract and already carries permission decisions, so a policy verdict is a new event type on an existing ledger.</td></tr>
+<tr><td>The secret sweep</td><td>The deterministic detector, and more importantly its discipline: it refuses to report a clean result until every pattern has fired on its own known-bad control, and it reports a redacted excerpt rather than quoting what it found.</td></tr>
+</table>
+
+<p>The genuinely new parts are small: the policy store and its four levels, the composition, the
+per-gate capability resolution, the sampling loop behind G4, and the tab.</p>
+
+<h2>6. Phase two, so the seam is designed now</h2>
+
+<p>Phase two adds the agent's own pre-tool hook, answered by the Gateway - which is exactly what the
+competitor does for wrapped command-line agents, using the agent vendor's published contract rather
+than anything exotic. It changes <b>one gate's implementation</b>: G4 stops being detect-then-stop for
+tool calls and becomes prevent, per agent.</p>
+
+<p>So G4 should be built with two implementations behind one gate from the start - the sampler now,
+the hook later - and the tab should display which one a given agent is getting. Phase two then ships
+per agent, visibly, and a manager watches the coverage improve instead of being told it did.</p>
+
+<h2>7. What I have not proven</h2>
+
+<ul>
+<li><b>Sampling cost at fleet scale.</b> I have not measured what a terminal buffer read costs per
+session per sample, nor what a realistic cadence does to a busy Director. The design assumes it is
+cheap because the read is incremental from a cursor and the pattern pass is free. That assumption
+needs a measurement before G4's cadence is chosen, and it is the number most likely to change the
+shape.</li>
+<li><b>That every agent we drive actually has a permission prompt we can read.</b> I checked the
+mechanism and the state exist and that three parts of the product already read screens this way. I
+have not gone agent by agent and confirmed the prompt is recognisable on each of the nine. That is a
+short, concrete piece of work and it decides how much of the fleet G2 really covers.</li>
+<li><b>Latency on the prompt gate.</b> A model call in front of every prompt is one call before a turn
+that costs far more - but I have not measured the added wait as a person experiences it when
+dictating.</li>
+<li><b>Nothing here has been built or tested.</b> Every claim about our own code is a read of the main
+branch, not a running system.</li>
+</ul>
+</section>
+
+<section data-dev-report="evidence">
+<h2>Evidence</h2>
+<p>Read from the main branch of the product repository: the streaming hub the Directors connect to and
+what it receives; the session contract and its buffer cursor; the verb client and the read and write
+verbs it exposes; the executor that lists which verbs a Director accepts; the create request and its
+launch arguments and bypass flag; the session supervisor and its environment seam; the standing-rules
+evaluator, its scope, its promotion states and its firing record; the Wingman's screen reader and
+classifier; the governance audit log and event ledger; the handover secret sweep and its self-proof;
+and the agent plugin registry listing the nine agents the Director drives.</p>
+<p>The competitor's behaviour referred to here was read from their clone on disk and is written up in
+the enforcement research note beside this document.</p>
+</section>
+
+</div>
+</body>
+</html>
