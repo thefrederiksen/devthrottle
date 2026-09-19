@@ -354,6 +354,32 @@ public partial class App : Application
         Action<string> log = msg => FileLog.Write($"[CcDirector] {msg}");
         log($"CC Director (Avalonia) starting (SandboxMode={SandboxMode}), log file: {FileLog.CurrentLogPath}");
 
+        // Put the machine's ONE tools directory first on the path, and take off the copies it replaces.
+        //
+        // It runs here, at every start, and not from a button. There is one installed copy of the tools
+        // per machine; a copy inside a Director's own folder is a leak that ages at its own pace, and
+        // whichever entry comes first on the path is the one that answers. On 17 and 18 September 2026
+        // the one that answered was two months old and told every agent to set a setting for a part of
+        // the product that no longer exists. A repair that only ran when somebody noticed and clicked is
+        // a repair that runs after the damage.
+        //
+        // BEFORE SessionManager is constructed on purpose: a session inherits this process's path, so
+        // repairing it later would leave every session of this run on what the Director inherited at
+        // launch. A Director serving a throwaway root repairs only its own running path - see
+        // FleetToolPathRepair.OwnsTheSavedPath.
+        //
+        // Guarded because startup must never fail over the path: the tools may not be installed yet on a
+        // first run, and the reconcile below provisions them minutes later.
+        try
+        {
+            var pathRepair = CcDirector.Core.Setup.FleetToolPathRepair.RepairAtDirectorStart();
+            log($"Tool path at start: {pathRepair.Detail}");
+        }
+        catch (Exception ex)
+        {
+            log($"Tool path repair FAILED (ignored, startup must not block): {ex.Message}");
+        }
+
         UpdateSplashStatus(splash, "Initializing sessions...");
         // The ONE place skill placement is turned on. It writes into the user's own home directory, so
         // it is opt-in and the running app is what opts in - see SessionManager.PlacesSkillsOnLaunch.

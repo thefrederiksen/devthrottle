@@ -127,6 +127,22 @@ public static class CcStorage
     /// </summary>
     public static string GatewayDb() => Path.Combine(Root(), "gateway.db");
 
+    /// <summary>
+    /// The root this machine uses when NOTHING overrides it: the platform's per-user data directory plus
+    /// <c>cc-director</c>. It ignores the CC_DIRECTOR_ROOT setting entirely, which is the whole point of
+    /// it - it answers "where is this machine's own install", not "where is this process pointed".
+    ///
+    /// It exists so that a Director can tell whether it is the machine's install or something serving a
+    /// root of its own. A test rig, a wizard harness or an unpacked bundle is a legitimate Director and
+    /// must repair its own running path, but it must never write itself into permanent machine state:
+    /// the saved path outlives a throwaway directory by months, and there is an entry on the computer
+    /// that prompted this work pointing at a harness root that has not existed since July.
+    /// </summary>
+    public static string DefaultRoot() => ResolveDefaultBase(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        Environment.GetEnvironmentVariable("XDG_DATA_HOME"),
+        Environment.GetEnvironmentVariable("HOME"));
+
     private static string Base()
     {
         var overrideRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");

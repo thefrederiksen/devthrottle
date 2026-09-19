@@ -1722,7 +1722,7 @@ public partial class MainWindow : Window
                         "Agents in your sessions will report \"cannot connect to DevThrottle\",\n" +
                         "even though this Director's own Gateway connection is healthy.\n\n" +
                         $"Your PATH gives: {fleetFault.ResolvedPath}\n" +
-                        $"This Director is: {fleetFault.ExpectedBinDir}\n\n" +
+                        $"This machine's tools are: {fleetFault.ExpectedBinDir}\n\n" +
                         "Click to open Settings and repair it.");
                 }
                 else
