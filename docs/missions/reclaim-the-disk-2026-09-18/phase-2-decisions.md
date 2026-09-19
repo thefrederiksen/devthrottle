@@ -89,8 +89,8 @@ it is counted and left alone rather than offered on an incomplete reading.
 
 Sixteen names. Each was found by reading where it is created in this repository, and each is created
 only inside a project whose name ends in Tests. **The bare name `cc-director` is deliberately not on
-the list** although it appears in the temporary folder: product code creates it too, in
-`CcDirector.AgentBrain` and `CcDirector.Avalonia`, so it fails the proof. A rule that matched it would
+the list**: product code creates it too, in `CcDirector.AgentBrain` and `CcDirector.Avalonia`, so it
+fails the proof - the name is not one we can say only a test made. A rule that matched it would
 offer a running Director's own folder.
 
 `cc-reclaim-tests`, which this suite's own fixtures create, is also absent: those fixtures delete
