@@ -433,14 +433,17 @@ public class DirectorToolCopySweepTests
 
         var result = rig.Sweep(sweepingHome: own, running: Array.Empty<string>());
 
+        // THE DESTRUCTION FIRST, deliberately. The verdict and the reason are asserted below and both
+        // matter, but this is the sentence a failing run should open with: a guard that has been taken
+        // out must say what it was holding back, not that an enum differed.
+        Assert.True(File.Exists(Path.Combine(masterBin, Rig.MasterLauncher)),
+            "the master's own launcher was destroyed THROUGH the junction");
+        Assert.True(Directory.Exists(link), $"{link} is a link and should have been left exactly where it was");
+
         var row = result.Looked.SingleOrDefault(d => d.Path == link);
         Assert.NotNull(row);
         Assert.Equal(SweepAction.Keep, row!.Action);
         Assert.Contains("it is a link, and the sweep never follows one", row.Reason);
-
-        Assert.True(Directory.Exists(link), $"{link} is a link and should have been left exactly where it was");
-        Assert.True(File.Exists(Path.Combine(masterBin, Rig.MasterLauncher)),
-            "the master's own launcher was destroyed THROUGH the junction");
     }
 
     [Fact]
@@ -462,17 +465,17 @@ public class DirectorToolCopySweepTests
         var result = rig.Sweep(
             sweepingHome: Path.Combine(rig.Root, "instances", "default"), running: Array.Empty<string>());
 
-        var row = result.Looked.SingleOrDefault(d => d.Path == Path.Combine(rig.Root, "instances"));
-        Assert.NotNull(row);
-        Assert.Equal(SweepAction.Keep, row!.Action);
-        Assert.Contains("it is a link, and the sweep never follows one", row.Reason);
+        foreach (var copy in new[] { "bin", "pyenv", "python" })
+            Assert.True(File.Exists(Path.Combine(theirs, copy, "tool.txt")),
+                $"{copy} at the far end of the junction was destroyed");
 
         var through = Path.Combine(rig.Root, "instances", "default");
         Assert.DoesNotContain(result.Looked, d => d.Path.StartsWith(through, StringComparison.OrdinalIgnoreCase));
 
-        foreach (var copy in new[] { "bin", "pyenv", "python" })
-            Assert.True(File.Exists(Path.Combine(theirs, copy, "tool.txt")),
-                $"{copy} at the far end of the junction was destroyed");
+        var row = result.Looked.SingleOrDefault(d => d.Path == Path.Combine(rig.Root, "instances"));
+        Assert.NotNull(row);
+        Assert.Equal(SweepAction.Keep, row!.Action);
+        Assert.Contains("it is a link, and the sweep never follows one", row.Reason);
     }
 
     [Fact]
