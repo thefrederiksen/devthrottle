@@ -110,8 +110,9 @@ accepts: the reasoning goes in the pull request, where the gate told the writer 
   this machine was removed, moved or changed by this review; the one thing I pointed at the real
   machine was a read-only comparison of the committed evidence against the index file.
 - **Every touched file is pure ASCII**, checked character by character.
-- **Nothing is signed.** No co-authored-by, no generated-with, no mention of any assistant, model
-  or vendor in the two commit messages, the documents, the code comments or the answers document.
+- **Nothing is signed.** No attribution trailer, no generated-with footer, no mention of any assistant,
+  model or vendor in the two commit messages, the documents, the code comments or the answers
+  document.
 - **The answers document accepts all five findings and declines none**, and I verified that
   "accepted" means fixed in the code and the files rather than agreed with in prose: each fix is
   in the delta and I re-ran or re-counted every one.
