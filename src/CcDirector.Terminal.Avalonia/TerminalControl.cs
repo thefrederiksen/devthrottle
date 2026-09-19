@@ -913,6 +913,25 @@ public class TerminalControl : Control
     internal int HarnessPathLinkRegionCount =>
         _linkRegions.Count(r => r.Type == LinkDetector.LinkType.Path);
 
+    /// <summary>Harness: the text of every URL link region from the most recent render, in draw
+    /// order. A URL the terminal wrapped across rows must appear here as ONE text carried by
+    /// one region per wrapped row, and every region carries the FULL URL.</summary>
+    internal IReadOnlyList<string> HarnessUrlLinkTexts =>
+        _linkRegions.Where(r => r.Type == LinkDetector.LinkType.Url).Select(r => r.Text).ToList();
+
+    /// <summary>Harness: place a selection exactly as a finished pointer drag would, so the
+    /// real copy path can be driven in tests.</summary>
+    internal void HarnessSetSelection(int startCol, int startRow, int endCol, int endRow)
+    {
+        _selectionStart = (startCol, startRow);
+        _selectionEnd = (endCol, endRow);
+        _hasSelection = true;
+        _isSelecting = false;
+    }
+
+    /// <summary>Harness: the selected text, through the same path the clipboard copy uses.</summary>
+    internal string HarnessSelectedText => GetSelectedText();
+
     /// <summary>Harness: run the renderer's exact path-link detection over the visible grid and count
     /// PATH links right now. This calls <see cref="PathExistsCheckForRender"/>, so the FIRST call
     /// after the path cache is cleared returns fewer links (existing paths report missing for that
@@ -921,8 +940,15 @@ public class TerminalControl : Control
     {
         int n = 0;
         for (int row = 0; row < _rows; row++)
-            foreach (var m in FindAllLinkMatches(GetLineText(row)))
+        {
+            // Same wrapped-row walk the render loop uses, so this stays the renderer's
+            // exact detection.
+            if (row > 0 && IsRowWrapped(row - 1))
+                continue;
+            string lineText = TerminalLineWrap.BuildLogicalLine(GetLineText, IsRowWrapped, row, _rows - row, out _);
+            foreach (var m in FindAllLinkMatches(lineText))
                 if (m.Type == LinkDetector.LinkType.Path) n++;
+        }
         return n;
     }
 
@@ -947,24 +973,37 @@ public class TerminalControl : Control
         if (_parser == null)
             return;  // Background already drawn above
 
-        // Build link regions for this frame
+        // Build link regions for this frame. A row the terminal wrapped continues on the
+        // next row with no separator, so detection runs over the JOINED logical line and
+        // each match is split back into per-row regions - a login URL longer than the
+        // pane width is one link carrying the whole URL, not a fragment per row.
+        // Continuation rows are skipped: their anchor row already claimed them. Row 0 is
+        // always an anchor because anything above it is off-screen.
         var renderLinkRegions = new List<LinkRegionInfo>();
         for (int row = 0; row < _rows; row++)
         {
-            string lineText = GetLineText(row);
+            if (row > 0 && IsRowWrapped(row - 1))
+                continue;
+
+            string lineText = TerminalLineWrap.BuildLogicalLine(
+                GetLineText, IsRowWrapped, row, _rows - row, out _);
             var linkMatches = FindAllLinkMatches(lineText);
 
             foreach (var match in linkMatches)
             {
-                double linkX = match.StartCol * _cellWidth;
-                double linkY = row * _cellHeight;
-                double linkWidth = (match.EndCol - match.StartCol) * _cellWidth;
-                var termRect = new TerminalRect(linkX, linkY, linkWidth, _cellHeight);
-                var avaloniaRect = new Rect(linkX, linkY, linkWidth, _cellHeight);
+                foreach (var seg in TerminalLineWrap.SplitLogicalRangeIntoSegments(match.StartCol, match.EndCol, _cols))
+                {
+                    int segRow = row + seg.RowOffset;
+                    double linkX = seg.StartCol * _cellWidth;
+                    double linkY = segRow * _cellHeight;
+                    double linkWidth = (seg.EndCol - seg.StartCol) * _cellWidth;
+                    var termRect = new TerminalRect(linkX, linkY, linkWidth, _cellHeight);
+                    var avaloniaRect = new Rect(linkX, linkY, linkWidth, _cellHeight);
 
-                var linkType = match.Type == LinkDetector.LinkType.Url ? TerminalLinkType.Url : TerminalLinkType.Path;
-                renderLinkRegions.Add(new LinkRegionInfo(termRect, match.Text, linkType));
-                _linkRegions.Add(new LinkRegion(avaloniaRect, match.Text, match.Type));
+                    var linkType = match.Type == LinkDetector.LinkType.Url ? TerminalLinkType.Url : TerminalLinkType.Path;
+                    renderLinkRegions.Add(new LinkRegionInfo(termRect, match.Text, linkType));
+                    _linkRegions.Add(new LinkRegion(avaloniaRect, match.Text, match.Type));
+                }
             }
         }
 
@@ -1525,6 +1564,18 @@ public class TerminalControl : Control
     }
 
     /// <summary>
+    /// True when the terminal hard-wrapped <paramref name="row"/>: a printable character
+    /// was written into the row's LAST column and the line continues on the next row.
+    /// The last cell being written (not '\0') is the signal - erased and never-written
+    /// tails hold '\0'. See <see cref="CcDirector.Core.Utilities.TerminalLineWrap"/> for
+    /// what this inference does and does not cover.
+    /// </summary>
+    private bool IsRowWrapped(int row)
+    {
+        return _cols > 0 && GetCellAt(_cols - 1, row).Character != '\0';
+    }
+
+    /// <summary>
     /// Find all link matches (paths and URLs) in a line of text.
     /// Delegates to LinkDetector with cache-backed path existence checking.
     /// </summary>
@@ -1652,8 +1703,11 @@ public class TerminalControl : Control
             string lineText = lineBuilder.ToString().TrimEnd();
             sb.Append(lineText);
 
-            if (row < endRow)
+            if (row < endRow && !IsRowWrapped(row))
             {
+                // The row below continues this one (the terminal hard-wrapped it), so
+                // no line break between them - a URL wrapped across rows must be
+                // copied as one unbroken URL.
                 sb.AppendLine();
             }
         }

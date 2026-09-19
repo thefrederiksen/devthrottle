@@ -434,7 +434,14 @@ public class TerminalView : Control
             }
 
             sb.Append(lineBuilder.ToString().TrimEnd());
-            if (row < endRow) sb.AppendLine();
+            if (row < endRow)
+            {
+                // A row the terminal hard-wrapped (its last cell written) continues on the
+                // next row - no line break between them, so a URL wrapped across rows
+                // copies as one unbroken URL. See TerminalLineWrap for the wrap signal.
+                if (_cells[_cols - 1, row].Character == '\0')
+                    sb.AppendLine();
+            }
         }
 
         var text = sb.ToString();
