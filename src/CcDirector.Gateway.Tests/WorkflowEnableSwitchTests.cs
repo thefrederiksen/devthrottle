@@ -56,8 +56,11 @@ public sealed class WorkflowEnableSwitchTests : IDisposable
         Assert.Contains("turned OFF", refusal.Message);
         Assert.Contains("workflow enable mission", refusal.Message);
 
-        // Pinned history is untouchable: a seated run's conduct never disappears under it.
-        Assert.Contains("THE FOUR LAWS", workflows.GetInstructions("mission", version: 1));
+        // Pinned history is untouchable: a seated run's conduct never disappears under it. The
+        // property is "this read resolved to the shipped mission conduct", so it is asserted
+        // against the shipped source itself - never a phrase copied out of it, which rots the
+        // moment the conduct is reworded.
+        Assert.Equal(BuiltInWorkflows.InstructionsFor("mission"), workflows.GetInstructions("mission", version: 1));
     }
 
     [Fact]
@@ -75,7 +78,7 @@ public sealed class WorkflowEnableSwitchTests : IDisposable
         Assert.True(workflows.SetEnabled("mission", true, "test:owner"));
         Assert.True(runs.IsWorkflowEnabled("mission"));
         Assert.Equal("mission", runs.Create("mission", "Governed again").WorkflowId);
-        Assert.Contains("THE FOUR LAWS", workflows.GetInstructions("mission", version: null));
+        Assert.Equal(BuiltInWorkflows.InstructionsFor("mission"), workflows.GetInstructions("mission", version: null));
     }
 
     [Fact]
