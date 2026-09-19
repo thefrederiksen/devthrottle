@@ -1,19 +1,19 @@
 # cc-cleanup-storage
 
-Walk a disk, save what was seen, and report it - including how much of the disk the scan could not
-see.
+Walk a disk, say what fills it, and recommend only what can be proven safe to remove.
 
-This is phase 1 of the Reclaim the Disk mission. The mission document is
+This is phases 1 and 2 of the Reclaim the Disk mission. The mission document is
 `docs/missions/reclaim-the-disk-2026-09-18/mission.md`.
 
-**It never deletes, moves or changes anything.** There is no removal code in it of any kind. Rules
-and recommendations arrive in phase 2, removal with a holding folder in phase 3.
+**It never deletes, moves or changes anything.** There is no removal code in it of any kind. It
+reads, measures and explains. Removal with a holding folder arrives in phase 3.
 
 ## Commands
 
-    cc-cleanup-storage                            the saved scans on this machine
-    cc-cleanup-storage scan "<folder>" [flags]    walk a folder and save what was seen
-    cc-cleanup-storage report "<folder>" [flags]  report the saved scan of a folder
+    cc-cleanup-storage                               the saved scans on this machine
+    cc-cleanup-storage scan "<folder>" [flags]       walk a folder and save what was seen
+    cc-cleanup-storage report "<folder>" [flags]     report the saved scan of a folder
+    cc-cleanup-storage recommend "<folder>" [flags]  say what is provably safe to remove, and why
 
 Flags:
 
@@ -23,8 +23,8 @@ Flags:
 | `--index-directory <folder>` | Where saved scans live. The default is one folder per machine. |
 | `--top <number>` | How many of the largest folders to name, 1 to 1000. Default 20. |
 | `--folder-depth <number>` | How deep a scan records folder totals, 1 to 10. Default 2. Scan only. |
-| `--help` | The help page. |
-| `--version` | The version of the tool. |
+| `--help`, `-h` | The help page. |
+| `--version` | The version of the tool. Taken with no command word only. |
 
 Exit codes:
 
@@ -52,6 +52,48 @@ An empty or zero result reports `verdict: broken`, never "nothing here". A worki
 folder and a scan that failed produce the same zeroes, and only one of the two is safe to act on. A
 broken scan is not saved either: the saved scan is what a screen will show later without walking
 anything, and a measurement this tool has just called broken must not become that answer.
+
+## What a recommendation always says
+
+A rule may recommend removing something only when it holds one of exactly three proofs, and it can
+hold no other:
+
+1. **A record says nothing needs it.** Windows records, for every installed product and every applied
+   patch, the cached package it needs to repair or uninstall that thing. A package no record names
+   cannot be asked for.
+2. **The owner has its own cleanup command.** The tool that wrote the data ships a command that
+   clears it, and that command is what runs. We never delete inside somebody else's store, because
+   only that tool knows what its own store still needs.
+3. **We made it, by an exact name, and it is old and closed.** A folder matching a name DevThrottle's
+   own code creates, older than the rule's age gate, with nothing in it open.
+
+**Anything no rule matched is reported as unclassified and is never offered for removal**, whatever
+it is and however large it grows. This is an allow-list: the tool enumerates what to remove, never
+what to skip. A path pattern from somebody else's product is not a proof.
+
+Every recommendation carries the rule, what it removes, the proof that it is safe, what is lost, how
+to get it back, whether an administrator is needed, the age gate, and the rule's own controls.
+
+## A rule that could not do its work says so
+
+Every rule reports what it counted. A rule that compares two lists and finds one of them empty
+reports `verdict: broken` and offers nothing - never "nothing to remove". A comparison against a
+record set that failed to load finds nothing every single time and reads exactly like a clean disk,
+and only one of those two is safe to act on. A rule that counted nothing at all is broken for the
+same reason.
+
+One rule failing does not take the rest down with it: it says why and offers nothing, and the rules
+beside it still stand.
+
+## Rules look in one place each
+
+A rule examines one known folder. `recommend` runs the rules whose folder is inside the folder you
+asked about, and **names the ones it left out, with where they look**. Asking about a folder no rule
+looks inside gives `verdict: broken` and exit code 1, with every rule named underneath - not exit 0
+and "nothing to remove", because that is the answer a genuinely clean disk gives.
+
+`recommend` reads a saved scan; it never walks the disk itself. With no saved scan it says so and
+prints the `scan` command.
 
 ## The saved scan
 

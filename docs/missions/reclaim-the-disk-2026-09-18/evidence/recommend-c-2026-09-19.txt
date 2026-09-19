@@ -1,0 +1,127 @@
+verdict: ok
+root: C:\
+rules-run: 6
+rules-broken: 0
+items-offered: 208
+reclaimable: 55755888629 bytes (51.9 gigabytes)
+volume: C:\ is 999149268992 bytes (930.5 gigabytes), of which 773122109440 bytes (720.0 gigabytes) are used and 226027159552 bytes (210.5 gigabytes) are free
+seen: 695943581377 bytes (648.1 gigabytes) in 3531656 files and 1168877 folders
+unseen: 77178528063 bytes (71.9 gigabytes) that the volume counts as used and this scan did not see
+refused: 245 folders refused a listing, and every one of them is named below
+unclassified: 640187692748 bytes (596.2 gigabytes) seen by the scan and matched by no rule, which is never offered for removal
+
+rule: orphaned-windows-installer-packages
+name: Orphaned Windows installer packages
+proof: a record the system keeps says nothing needs it
+verdict: ok
+items: 204
+reclaimable: 28550125056 bytes (26.6 gigabytes)
+removes: cached installer package files in C:\WINDOWS\Installer that no installed product and no applied patch points at
+safe-because: Windows records, for every installed product and every applied patch, the cached package it needs to repair or uninstall that thing; a package no record names cannot be asked for
+what-is-lost: nothing that is installed: these packages belong to products and patches that are no longer installed, or to installs that left their cache behind
+how-to-get-it-back: from the holding folder until it is purged; after that only by obtaining the original installer again, and for a package whose product is gone there is nothing left that would ask for it
+age-gate: 30 days
+needs-administrator: yes
+command: run cc-cleanup-storage from a command prompt opened with Run as administrator
+control-records-read: 576
+control-records-found-on-disk: 576
+control-candidates-examined: 787
+control-product-records-read: 362
+control-patch-records-read: 216
+control-orphans-too-young-to-offer: 7
+
+rule: npm-cache
+name: The npm package cache
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 1
+reclaimable: 4832445846 bytes (4.5 gigabytes)
+removes: the contents of C:\Users\soren\AppData\Local\npm-cache, by running the command its own tool ships
+safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else's store, because only that tool knows what its own store still needs
+what-is-lost: nothing but the time to fetch a package again the next time a build asks for one; how long that takes depends on the size of the package and the connection, and is not known here
+how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back
+age-gate: none
+needs-administrator: no
+command: npm cache clean --force
+control-cache-folders-looked-for: 1
+control-cache-folders-found: 1
+control-files-measured: 92262
+
+rule: pip-cache
+name: The pip package cache
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 1
+reclaimable: 4726368455 bytes (4.4 gigabytes)
+removes: the contents of C:\Users\soren\AppData\Local\pip\Cache, by running the command its own tool ships
+safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else's store, because only that tool knows what its own store still needs
+what-is-lost: nothing but the time to download a wheel again the next time one is installed; how long that takes is not known here
+how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back
+age-gate: none
+needs-administrator: no
+command: pip cache purge
+control-cache-folders-looked-for: 1
+control-cache-folders-found: 1
+control-files-measured: 7964
+
+rule: uv-cache
+name: The uv package cache
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 1
+reclaimable: 5926169194 bytes (5.5 gigabytes)
+removes: the contents of C:\Users\soren\AppData\Local\uv\cache, by running the command its own tool ships
+safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else's store, because only that tool knows what its own store still needs
+what-is-lost: nothing but the time to fetch a package again; uv refills its cache as it installs, and how long that takes is not known here
+how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back
+age-gate: none
+needs-administrator: no
+command: uv cache clean
+control-cache-folders-looked-for: 1
+control-cache-folders-found: 1
+control-files-measured: 172699
+
+rule: nuget-cache
+name: The NuGet package caches
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 1
+reclaimable: 11720780078 bytes (10.9 gigabytes)
+removes: the contents of C:\Users\soren\.nuget\packages, by running the command its own tool ships
+safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else's store, because only that tool knows what its own store still needs
+what-is-lost: nothing but the time for the next build to restore its packages again, which for a large solution is minutes rather than seconds; the exact time is not known here
+how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back
+age-gate: none
+needs-administrator: no
+command: dotnet nuget locals all --clear
+control-cache-folders-looked-for: 1
+control-cache-folders-found: 1
+control-files-measured: 41831
+
+rule: devthrottle-test-scratch-folders
+name: DevThrottle test scratch folders in the temporary folder
+proof: we made it, by an exact name, and it is old and closed
+verdict: ok
+items: 0
+reclaimable: 0 bytes
+removes: folders in C:\Users\soren\AppData\Local\Temp\ created by DevThrottle's own test suites, by one of 16 exact names, with nothing in them open
+safe-because: each name is created by DevThrottle's own code and by nothing else, and only from a test project: the folder held one test run's scratch work and that run ended
+what-is-lost: the scratch files of test runs that have already finished. No test reads them again and no product reads them at all
+how-to-get-it-back: from the holding folder until it is purged. After that, by running the suite again, which builds its own scratch tree from nothing every time
+age-gate: 7 days
+needs-administrator: no
+control-names-looked-for: 16
+control-folders-examined: 27297
+control-folders-matching-one-of-our-names: 4472
+control-matches-too-young-to-offer: 4472
+control-matches-with-a-file-still-open: 0
+control-matches-that-would-not-be-listed: 0
+rules-not-run[0]{rule,name,looks-in}:
+
+index: C:\Users\soren\AppData\Local\cc-director\reclaim\index\c-28f709d79730.json
+saved: 2026-09-19T22:05:36Z
+removal: this tool cannot remove anything. It reads, measures and explains
+help[3]:
+  cc-cleanup-storage recommend "C:\" --json
+  cc-cleanup-storage report "C:\"
+  cc-cleanup-storage scan "C:\"

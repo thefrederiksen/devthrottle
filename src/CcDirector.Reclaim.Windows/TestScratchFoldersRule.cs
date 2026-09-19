@@ -162,7 +162,11 @@ public sealed class TestScratchFoldersRule : IReclaimRule
                 continue;
             }
 
-            if (measured.OpenFiles > 0)
+            // Only now, on a folder that has already passed the age gate, is anything asked whether
+            // it is open. Asking means holding each file exclusively for an instant, and a folder
+            // written in the last few days is exactly the one another process is most likely to be
+            // using - so the cheap, harmless check runs first and this one runs on what is left.
+            if (AnythingOpenIn(folder.FullName))
             {
                 stillOpen++;
                 continue;
@@ -199,12 +203,11 @@ public sealed class TestScratchFoldersRule : IReclaimRule
             ? folderName.StartsWith(known, StringComparison.OrdinalIgnoreCase)
             : folderName.Equals(known, StringComparison.OrdinalIgnoreCase));
 
-    // Measures the folder and asks, of every file in it, whether anything has it open. A folder with
-    // a file open belongs to a run that has not finished, whatever its age says.
+    // Measures the folder: how many bytes it holds, when anything in it was last written, and how
+    // many of its folders would not be listed. It opens nothing.
     private static MeasuredFolder Measure(string folder)
     {
         long bytes = 0;
-        long open = 0;
         long unreadable = 0;
         var newest = DateTimeOffset.MinValue;
 
@@ -244,12 +247,55 @@ public sealed class TestScratchFoldersRule : IReclaimRule
                 bytes += ((FileInfo)entry).Length;
                 var written = new DateTimeOffset(entry.LastWriteTimeUtc, TimeSpan.Zero);
                 if (written > newest) newest = written;
-                if (IsOpen(entry.FullName)) open++;
             }
         }
 
         return new MeasuredFolder(
-            bytes, open, unreadable, newest == DateTimeOffset.MinValue ? DateTimeOffset.UnixEpoch : newest);
+            bytes, unreadable, newest == DateTimeOffset.MinValue ? DateTimeOffset.UnixEpoch : newest);
+    }
+
+    // True as soon as one file in the folder is held by something else. It stops at the first one:
+    // the answer is the same whether one file is open or a hundred, and every extra file asked is
+    // another file held exclusively for an instant on a machine that is doing other work.
+    private static bool AnythingOpenIn(string folder)
+    {
+        var pending = new Stack<string>();
+        pending.Push(folder);
+
+        while (pending.Count > 0)
+        {
+            var next = pending.Pop();
+
+            IEnumerable<FileSystemInfo> entries;
+            try
+            {
+                entries = new DirectoryInfo(next).EnumerateFileSystemInfos().ToList();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Measuring already counted this folder and the caller already declined to offer it.
+                return true;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+
+            foreach (var entry in entries)
+            {
+                if (entry.LinkTarget is not null) continue;
+
+                if (entry is DirectoryInfo)
+                {
+                    pending.Push(entry.FullName);
+                    continue;
+                }
+
+                if (IsOpen(entry.FullName)) return true;
+            }
+        }
+
+        return false;
     }
 
     // Asks the file system whether anything else holds the file, by asking for it exclusively for an
@@ -273,6 +319,5 @@ public sealed class TestScratchFoldersRule : IReclaimRule
         }
     }
 
-    private sealed record MeasuredFolder(
-        long Bytes, long OpenFiles, long UnreadableFolders, DateTimeOffset NewestWriteUtc);
+    private sealed record MeasuredFolder(long Bytes, long UnreadableFolders, DateTimeOffset NewestWriteUtc);
 }
