@@ -938,11 +938,19 @@ internal static class GatewayEndpoints
         // the caller surfaces that). The desktop Cockpit button opens Url verbatim - a dumb client never
         // composes a path onto Url (the Gateway owns the URL - CLAUDE.md rule 7). Port is the Gateway port
         // and Up is true whenever answering.
-        app.MapGet("/cockpit", (HttpContext ctx) =>
+        //
+        // With a sessionId, the answer is ONE session's Cockpit screen ({base}/session/{id}) instead of the
+        // front door. The resolution still happens HERE, and Url still arrives whole, so the caller opens it
+        // verbatim exactly as before: the Director's "Cockpit" button on a session asks for that session and
+        // opens what it is handed. It never appends the session path itself - that would be the client
+        // composing a URL, which rule 7 forbids and which a desktop test reddens on.
+        app.MapGet("/cockpit", (HttpContext ctx, string? sessionId) =>
         {
             return Results.Json(new CockpitInfoDto
             {
-                Url = GatewayPublicUrl.ResolveCockpit(),
+                Url = string.IsNullOrWhiteSpace(sessionId)
+                    ? GatewayPublicUrl.ResolveCockpit()
+                    : GatewayPublicUrl.ResolveCockpitSession(sessionId),
                 Port = ctx.Connection.LocalPort,
                 Up = true,
             });

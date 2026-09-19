@@ -189,6 +189,76 @@ public class GatewayPublicUrlTests
         Assert.Equal("/mobile", GatewayPublicUrl.MobilePath);
     }
 
+    // ---- one session's Cockpit screen ------------------------------------------------------------
+
+    [Fact]
+    public void ResolveCockpitSession_Hosted_IsTheBasePlusTheSessionPath()
+    {
+        // The Gateway resolves the WHOLE session address, so the desktop button opens it verbatim and
+        // composes nothing. If this ever became {base}/cockpit/session/{id}, it would point at a route the
+        // Cockpit does not have - the Cockpit is served at the site root, so /session/{id} is a sibling of
+        // /cockpit, not a child.
+        WithEnv("1", PublicBase, () =>
+        {
+            var result = GatewayPublicUrl.ResolveCockpitSession("2d0955fe-ed31-40c1-a519-72676b4499c5");
+
+            Assert.Equal(PublicBase + "/session/2d0955fe-ed31-40c1-a519-72676b4499c5", result);
+        });
+    }
+
+    [Fact]
+    public void ResolveCockpitSession_SelfHostWithFrontDoor_IsTheFrontDoorPlusTheSessionPath()
+    {
+        // Self-host takes the tailnet front door as its base, exactly as the front-door resolver does.
+        WithEnv(null, null, () =>
+        {
+            var result = GatewayPublicUrl.ResolveCockpitSession(
+                "2d0955fe-ed31-40c1-a519-72676b4499c5",
+                () => "https://machine-a.tail0123.ts.net");
+
+            Assert.Equal("https://machine-a.tail0123.ts.net/session/2d0955fe-ed31-40c1-a519-72676b4499c5", result);
+        });
+    }
+
+    [Fact]
+    public void ResolveCockpitSession_SelfHostTailscaleDown_IsNull()
+    {
+        // No front door means no address to hand out. Null, which the caller surfaces - never a localhost
+        // substitute that would work on one machine only.
+        WithEnv(null, null, () =>
+        {
+            var result = GatewayPublicUrl.ResolveCockpitSession(
+                "2d0955fe-ed31-40c1-a519-72676b4499c5",
+                () => null);
+
+            Assert.Null(result);
+        });
+    }
+
+    [Fact]
+    public void ResolveCockpitSession_IdNeedingEncoding_IsEncodedIntoTheSegment()
+    {
+        // An id carrying a character that is not path-safe cannot change the shape of the URL by adding a
+        // segment or a query of its own.
+        WithEnv("1", PublicBase, () =>
+        {
+            var result = GatewayPublicUrl.ResolveCockpitSession("a b/../c?d");
+
+            Assert.Equal(PublicBase + "/session/a%20b%2F..%2Fc%3Fd", result);
+        });
+    }
+
+    [Fact]
+    public void ResolveCockpitSession_BlankId_Throws()
+    {
+        // There is no session screen without a session. Handing back the front door instead would send the
+        // caller somewhere it did not ask for, and it would look like it worked.
+        WithEnv("1", PublicBase, () =>
+        {
+            Assert.Throws<ArgumentException>(() => GatewayPublicUrl.ResolveCockpitSession("  "));
+        });
+    }
+
     // Save/restore the two process-global env vars the resolver reads, then run body under the given values.
     private static void WithEnv(string? hosted, string? publicBase, Action body)
     {
