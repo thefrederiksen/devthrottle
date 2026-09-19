@@ -661,6 +661,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Governance.SessionSpendEmitter _sessionSpendEmitter;
     // Fills the governance event ledger with session state transitions (issue #1771, spine item 2).
     private readonly Governance.SessionStateEventEmitter _sessionStateEmitter;
+    /// <summary>Issue #3124: the one sink every session-state observation passes through, whichever plane it
+    /// arrived on. Bound to THE funnel delegate during endpoint mapping; the DirectorHub folds accepted
+    /// pushes into it, the legacy HTTP legs still call the same delegate directly on self-host.</summary>
+    private readonly Streaming.SessionStateObservationSink SessionStateSink = new();
     // The weekly Outcome Ledger reporter (issue #1771, spine item 4): a read-only assembly over the run
     // tables, event ledger, spend, and audit trail - the first governance report that pays rent.
     private readonly Governance.OutcomeLedgerReporter _outcomeLedger;
@@ -1604,10 +1608,9 @@ public sealed class GatewayHost : IAsyncDisposable
         _morningReport = new Reports.MorningReportBuilder(_gatewayDb, PushedSessions, _streamStaleAfter,
             // The repo-state store (issue #2118) is the hygiene rows' source. Passed here rather than
             // resolved inside the builder so the report reads the SAME store the push endpoint writes.
-            repoState: _repoState,
-            // The same per-tenant log the background monitoring writes, opened per tenant BY PATH so a
-            // report can only ever read the measurements of the account it is about.
-            microphoneQuality: Transcription.MicrophoneQualityLog.ForTenant);
+            // The microphone section is gone from the daily report (owner ruling, 2026-09-19, issue #3124),
+            // so the builder no longer opens the per-tenant quality log.
+            repoState: _repoState);
         // Snooze Length mission: the persisted snooze registry (sessionId -> SnoozeUntilUtc), now in the
         // snoozes table of the EF data layer - a Gateway restart re-arms every pending snooze from the
         // database; an entry already past its time simply fires on the first sweep. The path argument is the
@@ -3398,6 +3401,10 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(SnoozeLandings);
         builder.Services.AddSingleton(FleetRoles);
         builder.Services.AddSingleton(FleetDisplayState);
+        // Issue #3124 (the 8-day empty ledger): the session-state funnel must also be fed from the TUNNEL,
+        // not only from the legacy HTTP legs that are 403 on hosted. THE SAME INSTANCE is bound to the one
+        // delegate below (one funnel, two ingress planes) and handed to the SignalR-constructed DirectorHub.
+        builder.Services.AddSingleton(SessionStateSink);
         // The turn-end watcher, built above in this method: the hub feeds it each accepted delta immediately before the
         // display fold, so a stop the Wingman will read is stamped "reading" before its first colour is pushed.
         builder.Services.AddSingleton(_turnEndWatcher
@@ -3659,6 +3666,49 @@ public sealed class GatewayHost : IAsyncDisposable
         // Gateway Cleanup mission: the cut removed the DirectorEndpointClient argument (_client) - the
         // Gateway no longer dials Directors over HTTP, so Map no longer takes an HTTP client. The
         // network-diagnostics rollup store is threaded in as a named argument on the tunnel-only signature.
+        // Issue #3124 (the 8-day empty ledger): THE session-state funnel, hoisted out of the Map call so
+        // BOTH ingress planes can share it. The legacy HTTP legs (self-host only - they are 403 on hosted)
+        // still receive it below; the tunnel feeds it through SessionStateSink, bound right here. Before
+        // this, the funnel's only callers were the HTTP legs, so on the hosted gateway no session
+        // transition could EVER reach the governance ledger - 8+ consecutive daily reports read
+        // "0 agent sessions ran yesterday" for a tenant whose Directors were connected and working daily.
+        Action<string, string, string> onSessionState = (directorId, sessionId, newState) =>
+        {
+                    // Hosted Multi-Tenancy voice-serving (MTR-10 Gap C): resolve the OWNING tenant ONCE, HERE,
+                    // BEFORE the transition decision, and thread it through both the broad stale-cache clear and the
+                    // watcher. Null = deny (skip everything): a director with no claiming tenant must never fall back
+                    // to Local, which on hosted would clear/refresh another partition. Self-host resolves to Local.
+                    if (ResolveOwningTenant(directorId) is not { } owningTenant)
+                    {
+                        FileLog.Write($"[GatewayHost] session-state: no owning tenant for director {directorId} sid={sessionId} - skipped");
+                        return;
+                    }
+                    // Any observed Working state means a new turn is in progress, so the cached voice/text
+                    // summary is stale - clear it (broad net for turns started outside the voice app, e.g.
+                    // the desktop cockpit). The voice-turn endpoint also clears deterministically on send.
+                    if (string.Equals(newState, "Working", StringComparison.OrdinalIgnoreCase))
+                        _voiceService?.OnSessionWorking(owningTenant, sessionId);
+                    if (_turnEndWatcher is null) return;
+                    // Gateway Cleanup mission, Phase 2: the doorbell/heartbeat already carries the owning
+                    // directorId, so feed THAT to the watcher (the voice-refresh path reaches the Director
+                    // through the tunnel by id) instead of converting it to a dialable control URL. MTR-10 Gap C:
+                    // the owning tenant resolved above scopes the watcher's transition memory.
+                    _turnEndWatcher.Observe(owningTenant, sessionId, newState, directorId);
+
+                    // Governance capture (issue #1771, spine item 2): record this session's state transition on
+                    // the append-only ledger (emits only on a real change; isolated so a ledger hiccup never
+                    // breaks the turn tracking above).
+                    try
+                    {
+                        _sessionStateEmitter.Observe(owningTenant, sessionId, newState);
+                    }
+                    catch (Exception ex)
+                    {
+                        FileLog.Write($"[GatewayHost] session-state event emit FAILED: sid={sessionId}: {ex.Message}");
+                    }
+        };
+        SessionStateSink.Bind(onSessionState);
+
         GatewayEndpoints.Map(_app, Registry, version, Token,
             // The auth-boundary tenant binder - REQUIRED (finding CR-7): request-scoped reads resolve the
             // caller's tenant through it, and on hosted a request with no bound tenant is denied, never Local.
@@ -3761,42 +3811,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 return true;
             },
             // Issue #186: doorbell pings and heartbeat snapshots feed the turn tracker;
-            // the aggregated /sessions view carries the Gateway-owned assessedState.
-            onSessionState: (directorId, sessionId, newState) =>
-            {
-                // Hosted Multi-Tenancy voice-serving (MTR-10 Gap C): resolve the OWNING tenant ONCE, HERE,
-                // BEFORE the transition decision, and thread it through both the broad stale-cache clear and the
-                // watcher. Null = deny (skip everything): a director with no claiming tenant must never fall back
-                // to Local, which on hosted would clear/refresh another partition. Self-host resolves to Local.
-                if (ResolveOwningTenant(directorId) is not { } owningTenant)
-                {
-                    FileLog.Write($"[GatewayHost] session-state: no owning tenant for director {directorId} sid={sessionId} - skipped");
-                    return;
-                }
-                // Any observed Working state means a new turn is in progress, so the cached voice/text
-                // summary is stale - clear it (broad net for turns started outside the voice app, e.g.
-                // the desktop cockpit). The voice-turn endpoint also clears deterministically on send.
-                if (string.Equals(newState, "Working", StringComparison.OrdinalIgnoreCase))
-                    _voiceService?.OnSessionWorking(owningTenant, sessionId);
-                if (_turnEndWatcher is null) return;
-                // Gateway Cleanup mission, Phase 2: the doorbell/heartbeat already carries the owning
-                // directorId, so feed THAT to the watcher (the voice-refresh path reaches the Director
-                // through the tunnel by id) instead of converting it to a dialable control URL. MTR-10 Gap C:
-                // the owning tenant resolved above scopes the watcher's transition memory.
-                _turnEndWatcher.Observe(owningTenant, sessionId, newState, directorId);
-
-                // Governance capture (issue #1771, spine item 2): record this session's state transition on
-                // the append-only ledger (emits only on a real change; isolated so a ledger hiccup never
-                // breaks the turn tracking above).
-                try
-                {
-                    _sessionStateEmitter.Observe(owningTenant, sessionId, newState);
-                }
-                catch (Exception ex)
-                {
-                    FileLog.Write($"[GatewayHost] session-state event emit FAILED: sid={sessionId}: {ex.Message}");
-                }
-            },
+            // the aggregated /sessions view carries the Gateway-owned assessedState. THE SAME funnel
+            // is bound to SessionStateSink above (issue #3124) so the tunnel plane feeds it too.
+            onSessionState: onSessionState,
             // Issue #549: the assessed-state refutation (issue #186) is dropped with the pipeline
             // (Option A) - "needs you" reverts to the Director's raw mechanical signal. The
             // turn-brief stamping (issue #187 briefStampFor) is gone too; the brief agent that

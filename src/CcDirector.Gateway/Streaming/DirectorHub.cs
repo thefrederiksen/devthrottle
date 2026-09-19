@@ -61,6 +61,7 @@ public sealed class DirectorHub : Hub
         DirectorConnectionRegistry? connections = null,
         PushedRepositoryStore? repositoryStore = null, RepoHistoryStore? repoHistory = null,
         History.SessionHistoryRecorder? sessionHistory = null,
+        SessionStateObservationSink? sessionState = null,
         Pairing.SessionKeyRegistry? sessionKeys = null,
         History.SessionTurnStore? sessionTurns = null,
         TurnPushCapabilityRegistry? turnPushCapabilities = null,
@@ -84,6 +85,7 @@ public sealed class DirectorHub : Hub
         _repositoryStore = repositoryStore;
         _repoHistory = repoHistory;
         _sessionHistory = sessionHistory;
+        _sessionState = sessionState;
     }
 
     private readonly PushedRepositoryStore? _repositoryStore;
@@ -104,6 +106,10 @@ public sealed class DirectorHub : Hub
     // Issue #2194: the durable work-history recorder, fed from the same accepted pushes as the other
     // observers. Throttled internally (it is NOT a write per push) and never throws.
     private readonly History.SessionHistoryRecorder? _sessionHistory;
+    /// <summary>Issue #3124: the session-state funnel, fed from ACCEPTED pushes only. This is the seam the
+    /// governance ledger was missing on hosted - without it, no tunnel session transition ever reached the
+    /// ledger and every daily report read "0 agent sessions ran yesterday".</summary>
+    private readonly SessionStateObservationSink? _sessionState;
     /// <summary>The stored conversation (turn-push mission). Null only in tests that do not exercise it.</summary>
     private readonly History.SessionTurnStore? _sessionTurns;
     /// <summary>Which connected Directors send their conversations - learned here, from Hello.</summary>
@@ -563,6 +569,14 @@ public sealed class DirectorHub : Hub
         // down (the Director's per-session remove no-ops when disconnected).
         if (accepted)
             _sessionHistory?.ObserveSnapshot(RequireBoundTenant(), directorId, set);
+        // Issue #3124 (the 8-day empty ledger): THE governance seam. Every ACCEPTED session observation
+        // feeds the same funnel the legacy HTTP legs feed on self-host; the emitter dedups a re-report of
+        // the current state, so a full roster push costs one dictionary lookup per session. Gated on
+        // acceptance for the same reason the snooze and history observers are: a rejected stale push is
+        // NOT authoritative and must not be able to emit a false backward transition.
+        if (accepted && _sessionState is not null)
+            foreach (var s in set)
+                _sessionState.Observe(directorId, s.SessionId ?? "", s.ActivityState);
     }
 
     /// <summary>A single-session delta: upserts one session for the bound Director.</summary>
@@ -642,6 +656,11 @@ public sealed class DirectorHub : Hub
         // rejected push from a superseded connection must not touch the record.
         if (accepted)
             _sessionHistory?.Observe(RequireBoundTenant(), directorId, session);
+        // Issue #3124: THE governance seam, same acceptance gate - see PushSnapshotCore. The delta is the
+        // millisecond-fast path a state change arrives on, so the ledger hears the transition now rather
+        // than at the next full snapshot.
+        if (accepted && _sessionState is not null)
+            _sessionState.Observe(directorId, session.SessionId, session.ActivityState);
     }
 
     /// <summary>A remove/tombstone: drops one session from the bound Director's set.</summary>

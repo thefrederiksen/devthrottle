@@ -15,11 +15,11 @@ namespace CcDirector.Gateway.Tests;
 /// <summary>
 /// The morning report's assembly (issue #2119). The claims under test are the ones an EMAIL depends on:
 ///
-///  - THE HONESTY RULE. A stat whose backing store holds nothing for this tenant is ABSENT, not zero. A
-///    zero-filled stat would put a measurement the Gateway never made into a person's inbox. The pair of
-///    tests <c>*_is_absent_when_the_store_is_empty</c> / <c>*_is_zero_when_the_store_has_rows_outside_the_window</c>
-///    is the whole point: absent and zero are different answers and both must be reachable.
-///  - CEIL ROUNDING on money: a report about real dollars never claims less was spent than was.
+///  - NO YESTERDAY-STATS AT ALL, BY OWNER RULING (2026-09-20, issue #3124): the daily report answers WHAT
+///    NEEDS YOU TODAY, and the scoreboard moved to a future weekly personal-stats surface. The stats tests
+///    went with the stats.
+///  - The waiting-session and hygiene rows are honest: a feed the Gateway has not heard from says nothing
+///    rather than something plausible (the silence bar, the lookback, the repo-state freshness).
 ///  - THE WINDOW BOUNDS: inclusive start, EXCLUSIVE end, so a day's last event is not counted twice.
 ///  - TENANT ISOLATION: one account's report can never contain another account's rows.
 /// </summary>
@@ -59,158 +59,6 @@ public sealed class MorningReportBuilderTests : IDisposable
             RecordedUtc = occurredUtc,
         });
         ctx.SaveChanges();
-    }
-
-    private static void SeedRun(GatewayDatabase db, TenantId tenant, string acceptance, DateTime? completedUtc)
-    {
-        using var ctx = db.CreateContext(tenant);
-        ctx.WorkflowRuns.Add(new WorkflowRunEntity
-        {
-            TenantId = tenant.Value,
-            WorkflowId = "mission",
-            Name = "a run",
-            Status = completedUtc is null ? WorkflowRunStatus.Active : WorkflowRunStatus.Succeeded,
-            AcceptanceStatus = acceptance,
-            CreatedUtc = completedUtc ?? Now,
-            CompletedUtc = completedUtc,
-        });
-        ctx.SaveChanges();
-    }
-
-    private static void SeedSpend(GatewayDatabase db, TenantId tenant, long micros, DateTime txUtc)
-    {
-        using var ctx = db.CreateContext(tenant);
-        ctx.AccountHostedAiSpend.Add(new AccountHostedAiSpendEntity
-        {
-            TenantId = tenant.Value,
-            AmountMicros = micros,
-            Kind = "debit",
-            TransactionCreatedUtc = txUtc,
-            ObservedUtc = txUtc,
-        });
-        ctx.SaveChanges();
-    }
-
-    // ---- the honesty rule: absent is not zero ----------------------------------------------------------
-
-    [Fact]
-    public void Every_stat_is_absent_when_this_tenant_has_no_data_at_all()
-    {
-        var db = DbAs(Alice);
-        var report = NewBuilder(db).Build("alice@example.com", Alice, Window());
-
-        // Not 0 - ABSENT. The Gateway has measured nothing, and an email must be able to say so.
-        Assert.Null(report.Stats.SessionsRan);
-        Assert.Null(report.Stats.WorkDelivered);
-        Assert.Null(report.Stats.HostedAiSpendUsd);
-
-        // The attention list is always present, possibly empty: "nothing is waiting on you" IS knowledge.
-        Assert.NotNull(report.Attention);
-        Assert.Empty(report.Attention);
-
-        // And the coordinates always ride along.
-        Assert.Equal("2026-07-23", report.Window.Date);
-        Assert.Equal("America/Toronto", report.Window.Tz);
-        Assert.Equal(new DateTime(2026, 7, 23, 4, 0, 0, DateTimeKind.Utc), report.Window.StartUtc);
-        Assert.Equal(new DateTime(2026, 7, 24, 4, 0, 0, DateTimeKind.Utc), report.Window.EndUtc);
-        Assert.Equal("alice@example.com", report.Account);
-    }
-
-    [Fact]
-    public void A_stat_is_a_measured_zero_when_the_store_has_rows_but_none_in_the_window()
-    {
-        var db = DbAs(Alice);
-        // Rows exist for this tenant, but all of them fall a week before the reported day.
-        SeedSessionEvent(db, Alice, "s1", GovernanceEventState.Active, new DateTime(2026, 7, 16, 12, 0, 0, DateTimeKind.Utc));
-        SeedRun(db, Alice, WorkflowRunAcceptance.Accepted, new DateTime(2026, 7, 16, 12, 0, 0, DateTimeKind.Utc));
-        SeedSpend(db, Alice, 500_000, new DateTime(2026, 7, 16, 12, 0, 0, DateTimeKind.Utc));
-
-        var report = NewBuilder(db).Build("alice@example.com", Alice, Window());
-
-        // Present AND zero: the Gateway looked, and the answer is nothing happened that day.
-        Assert.Equal(0, report.Stats.SessionsRan);
-        Assert.Equal(0, report.Stats.WorkDelivered);
-        Assert.Equal(0m, report.Stats.HostedAiSpendUsd);
-    }
-
-    // ---- the three headline numbers --------------------------------------------------------------------
-
-    [Fact]
-    public void SessionsRan_counts_DISTINCT_sessions_inside_the_window()
-    {
-        var db = DbAs(Alice);
-        var inWindow = new DateTime(2026, 7, 23, 14, 0, 0, DateTimeKind.Utc);
-
-        SeedSessionEvent(db, Alice, "s1", GovernanceEventState.Active, inWindow);
-        SeedSessionEvent(db, Alice, "s1", GovernanceEventState.Idle, inWindow.AddHours(1));   // same session again
-        SeedSessionEvent(db, Alice, "s2", GovernanceEventState.Active, inWindow.AddHours(2));
-        SeedSessionEvent(db, Alice, "s3", GovernanceEventState.Active, Window().EndUtc);      // the NEXT day
-
-        var report = NewBuilder(db).Build("alice@example.com", Alice, Window());
-
-        // s1 and s2 - s1 counted once despite two transitions, s3 excluded by the exclusive end bound.
-        Assert.Equal(2, report.Stats.SessionsRan);
-    }
-
-    [Fact]
-    public void The_window_start_is_inclusive_and_the_end_is_exclusive()
-    {
-        var db = DbAs(Alice);
-        var w = Window();
-        SeedSessionEvent(db, Alice, "at-the-start", GovernanceEventState.Active, w.StartUtc);
-        SeedSessionEvent(db, Alice, "at-the-end", GovernanceEventState.Active, w.EndUtc);
-
-        var report = NewBuilder(db).Build("alice@example.com", Alice, w);
-
-        // A day is [start, end). The session at exactly the end instant belongs to the NEXT day's report -
-        // counting it in both would double-count every midnight.
-        Assert.Equal(1, report.Stats.SessionsRan);
-    }
-
-    [Fact]
-    public void WorkDelivered_counts_only_ACCEPTED_runs_completed_in_the_window()
-    {
-        var db = DbAs(Alice);
-        var inWindow = new DateTime(2026, 7, 23, 15, 0, 0, DateTimeKind.Utc);
-
-        SeedRun(db, Alice, WorkflowRunAcceptance.Accepted, inWindow);
-        SeedRun(db, Alice, WorkflowRunAcceptance.Accepted, inWindow.AddHours(1));
-        SeedRun(db, Alice, WorkflowRunAcceptance.Pending, inWindow);    // succeeded but unaccepted
-        SeedRun(db, Alice, WorkflowRunAcceptance.Rejected, inWindow);
-        SeedRun(db, Alice, WorkflowRunAcceptance.Accepted, null);       // never completed
-
-        var report = NewBuilder(db).Build("alice@example.com", Alice, Window());
-
-        Assert.Equal(2, report.Stats.WorkDelivered);
-    }
-
-    [Theory]
-    // A fraction of a cent becomes a whole cent - the report never undercounts real money.
-    [InlineData(1L, 0.01)]
-    [InlineData(9_999L, 0.01)]
-    [InlineData(10_000L, 0.01)]
-    [InlineData(10_001L, 0.02)]
-    [InlineData(1_000_000L, 1.00)]
-    [InlineData(1_234_567L, 1.24)]     // 1.234567 -> 1.24, not 1.23
-    [InlineData(0L, 0.00)]
-    public void Hosted_AI_spend_is_ceil_rounded_to_the_cent(long micros, double expectedUsd)
-    {
-        Assert.Equal((decimal)expectedUsd, MorningReportBuilder.CeilMicrosToUsd(micros));
-    }
-
-    [Fact]
-    public void Hosted_AI_spend_sums_the_window_and_rounds_the_TOTAL_up()
-    {
-        var db = DbAs(Alice);
-        var inWindow = new DateTime(2026, 7, 23, 16, 0, 0, DateTimeKind.Utc);
-        SeedSpend(db, Alice, 1_234_567, inWindow);
-        SeedSpend(db, Alice, 2_345, inWindow.AddMinutes(1));
-        SeedSpend(db, Alice, 9_000_000, Window().EndUtc); // next day - excluded
-
-        var report = NewBuilder(db).Build("alice@example.com", Alice, Window());
-
-        // 1,236,912 micros = $1.236912 -> $1.24
-        Assert.Equal(1.24m, report.Stats.HostedAiSpendUsd);
     }
 
     // ---- the waiting-session attention rows -------------------------------------------------------------
@@ -393,15 +241,9 @@ public sealed class MorningReportBuilderTests : IDisposable
 
         SeedSessionEvent(aliceDb, Alice, "alice-1", GovernanceEventState.Active, inWindow);
         SeedSessionEvent(aliceDb, Alice, "alice-2", GovernanceEventState.WaitingOnHuman, Now.AddHours(-4));
-        SeedRun(aliceDb, Alice, WorkflowRunAcceptance.Accepted, inWindow);
-        SeedSpend(aliceDb, Alice, 1_000_000, inWindow);
 
         SeedSessionEvent(bobDb, Bob, "bob-1", GovernanceEventState.Active, inWindow);
-        SeedSessionEvent(bobDb, Bob, "bob-2", GovernanceEventState.Active, inWindow);
         SeedSessionEvent(bobDb, Bob, "bob-3", GovernanceEventState.WaitingOnHuman, Now.AddHours(-40));
-        SeedRun(bobDb, Bob, WorkflowRunAcceptance.Accepted, inWindow);
-        SeedRun(bobDb, Bob, WorkflowRunAcceptance.Accepted, inWindow);
-        SeedSpend(bobDb, Bob, 9_000_000, inWindow);
 
         // Build BOTH reports through the SAME builder instance, to prove the tenant argument - not some
         // remembered ambient state - is what scopes the read.
@@ -409,18 +251,11 @@ public sealed class MorningReportBuilderTests : IDisposable
         var aliceReport = builder.Build("alice@example.com", Alice, Window());
         var bobReport = builder.Build("bob@example.com", Bob, Window());
 
-        // Only alice-1 transitioned INSIDE the reported day; alice-2 has been waiting since after it closed,
-        // so it is an attention row without being a "ran yesterday" session. The two numbers answer different
-        // questions and are deliberately allowed to disagree.
-        Assert.Equal(1, aliceReport.Stats.SessionsRan);
-        Assert.Equal(1, aliceReport.Stats.WorkDelivered);
-        Assert.Equal(1.00m, aliceReport.Stats.HostedAiSpendUsd);
+        // alice-2 has been waiting since after the reported day closed; bob-3 since before it - each
+        // report carries exactly its own tenant's wait and never the other's.
         var aliceWaiting = Assert.IsType<WaitingSessionAttentionDto>(Assert.Single(aliceReport.Attention));
         Assert.Equal("alice-2", aliceWaiting.Session);
 
-        Assert.Equal(2, bobReport.Stats.SessionsRan);     // bob-1 + bob-2; bob-3's wait began before the day
-        Assert.Equal(2, bobReport.Stats.WorkDelivered);
-        Assert.Equal(9.00m, bobReport.Stats.HostedAiSpendUsd);
         var bobWaiting = Assert.IsType<WaitingSessionAttentionDto>(Assert.Single(bobReport.Attention));
         Assert.Equal("bob-3", bobWaiting.Session);
     }
@@ -431,16 +266,12 @@ public sealed class MorningReportBuilderTests : IDisposable
         var aliceDb = DbAs(Alice);
         var inWindow = new DateTime(2026, 7, 23, 15, 0, 0, DateTimeKind.Utc);
         SeedSessionEvent(aliceDb, Alice, "alice-1", GovernanceEventState.Active, inWindow);
-        SeedRun(aliceDb, Alice, WorkflowRunAcceptance.Accepted, inWindow);
-        SeedSpend(aliceDb, Alice, 1_000_000, inWindow);
+        SeedSessionEvent(aliceDb, Alice, "alice-2", GovernanceEventState.WaitingOnHuman, Now.AddHours(-2));
 
         var bobReport = NewBuilder(aliceDb).Build("bob@example.com", Bob, Window());
 
-        // The "does this tenant have any data" probe must itself be tenant-scoped. If it were not, Bob would
-        // get a ZERO for every stat - a measurement made entirely out of Alice's rows.
-        Assert.Null(bobReport.Stats.SessionsRan);
-        Assert.Null(bobReport.Stats.WorkDelivered);
-        Assert.Null(bobReport.Stats.HostedAiSpendUsd);
+        // Every read the report makes must itself be tenant-scoped. If it were not, Bob would get Alice's
+        // waiting rows in his email - a claim made entirely out of Alice's data.
         Assert.Empty(bobReport.Attention);
     }
 

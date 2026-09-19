@@ -33,7 +33,6 @@ public sealed class MorningReportBuilder
     private readonly GatewayDatabase _db;
     private readonly Streaming.PushedSessionStore? _pushedSessions;
     private readonly RepoStateStore? _repoState;
-    private readonly Func<TenantId, Transcription.MicrophoneQualityLog>? _microphoneQuality;
     private readonly TimeSpan _streamStale;
     private readonly Func<DateTime> _utcNow;
 
@@ -69,47 +68,29 @@ public sealed class MorningReportBuilder
     /// </summary>
     public const int MaxLedgerRowsScanned = 20_000;
 
-    /// <summary>Micro-dollars per cent - the ceil-rounding divisor for hosted-AI spend.</summary>
-    private const long MicrosPerCent = 10_000;
-
-    /// <summary>
-    /// How old a Director's repo-state snapshot may be and still inform a hygiene recommendation. The
+    /// <summary>How old a Director's repo-state snapshot may be and still inform a hygiene recommendation. The
     /// Director pushes every six hours, so this is four missed cycles: long enough that one restart or
     /// one offline evening does not blank the section, short enough that the report never recommends
-    /// deleting a worktree from a picture of the machine taken last week.
-    /// </summary>
+    /// deleting a worktree from a picture of the machine taken last week.</summary>
     public static readonly TimeSpan RepoStateMaxAge = TimeSpan.FromHours(24);
 
-    /// <summary>
-    /// How far back the microphone section looks. Deliberately much wider than the report's own day: a
-    /// microphone is a property of the user's desk rather than of yesterday, so judging one on a single
-    /// day's dictation would let a quiet Tuesday erase a verdict that took a fortnight to earn and flip
-    /// the recommendation between reports. Matches the window the measurements are kept for.
-    /// </summary>
-    public static readonly TimeSpan MicrophoneWindow = TimeSpan.FromDays(30);
-
+    /// <summary>Assembles one account's report from the stores this Gateway already holds. Read-only.</summary>
     /// <param name="db">The Gateway EF database.</param>
     /// <param name="pushedSessions">The live pushed-session cache, used ONLY to put a friendly name and a
     /// repository path on a waiting row. Null (or a session it has never seen) costs the row nothing but
     /// those two labels - the waiting fact itself comes from the durable ledger.</param>
     /// <param name="streamStale">How old a Director's pushed roster may be and still be believed.</param>
     /// <param name="utcNow">Clock seam for tests.</param>
-    /// <param name="microphoneQuality">Opens a tenant's microphone-quality log. Null omits the section
-    /// entirely, which is the honest state for a deployment that has never measured a microphone.</param>
     public MorningReportBuilder(
         GatewayDatabase db,
         Streaming.PushedSessionStore? pushedSessions = null,
         TimeSpan? streamStale = null,
         Func<DateTime>? utcNow = null,
-        RepoStateStore? repoState = null,
-        Func<TenantId, Transcription.MicrophoneQualityLog>? microphoneQuality = null)
+        RepoStateStore? repoState = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _pushedSessions = pushedSessions;
         _repoState = repoState;
-        // Injected as a factory rather than an instance: the log is per-tenant BY PATH, so a single
-        // shared instance could only ever read one tenant's measurements into everyone's report.
-        _microphoneQuality = microphoneQuality;
         _streamStale = streamStale ?? TimeSpan.FromMinutes(5);
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
@@ -135,12 +116,6 @@ public sealed class MorningReportBuilder
                 Date = window.Date,
                 Tz = window.Tz,
             },
-            Stats = new MorningReportStatsDto
-            {
-                SessionsRan = SessionsRan(ctx, window),
-                WorkDelivered = WorkDelivered(ctx, window),
-                HostedAiSpendUsd = HostedAiSpendUsd(ctx, window),
-            },
             Attention = WaitingSessions(ctx, tenant, now),
         };
 
@@ -152,101 +127,14 @@ public sealed class MorningReportBuilder
         // has been measured.
         report.Attention.AddRange(HygieneItems(tenant, now));
 
-        // How the account's microphones are doing (background monitoring). Absent - not empty - when
-        // nothing has been measured, for the same reason the hygiene rows are: "we have never measured
-        // your microphones" and "your microphones are fine" are different statements.
-        report.Microphones = Microphones(tenant, now);
-
+        // NO YESTERDAY-STATS, BY OWNER RULING (2026-09-20, issue #3124): "telling me how much shit I did
+        // yesterday is not going to help me today." The daily report answers WHAT NEEDS YOU TODAY; the
+        // scoreboard - sessions run, work accepted, spend - is weekly-report material. There is nothing
+        // here that counts what happened, and the stats plumbing (freshness bars, ceil rounding) went with
+        // it - resurrect it from git history if a weekly personal-stats surface ever needs the pattern.
         FileLog.Write($"[MorningReportBuilder] Build: tenant={tenant.ToLogString()} window={window.StartUtc:o}..{window.EndUtc:o} " +
-                      $"sessionsRan={Describe(report.Stats.SessionsRan)} workDelivered={Describe(report.Stats.WorkDelivered)} " +
-                      $"spendUsd={Describe(report.Stats.HostedAiSpendUsd)} attention={report.Attention.Count}");
+                      $"attention={report.Attention.Count}");
         return report;
-    }
-
-    /// <summary>
-    /// The microphone section: every device with enough measurements to be judged, ranked best first,
-    /// with the comparison already made. Returns null when there is nothing measured to report.
-    ///
-    /// The window is deliberately WIDER than the report's own day. A microphone is a property of the
-    /// user's desk, not of yesterday: judging a headset on one day's dictation would let a quiet
-    /// Tuesday erase a verdict that took a fortnight to earn, and would flip the recommendation back
-    /// and forth between reports. Thirty days is the same window the measurements are kept for.
-    /// </summary>
-    private MorningMicrophonesDto? Microphones(TenantId tenant, DateTime now)
-    {
-        if (_microphoneQuality is null) return null;
-
-        IReadOnlyList<Transcription.MicrophoneQualityRecord> records;
-        try
-        {
-            records = _microphoneQuality(tenant).Load(now - MicrophoneWindow);
-        }
-        catch (Exception ex)
-        {
-            // A report that is missing one section still helps; a report that throws helps nobody.
-            FileLog.Write($"[MorningReportBuilder] microphone section skipped: {ex.Message}");
-            return null;
-        }
-        if (records.Count == 0) return null;
-
-        var summary = Transcription.MicrophoneQualityFold.Summarize(records);
-        var ranked = Transcription.MicrophoneQualityFold.RankBest(summary.Devices);
-        if (ranked.Count == 0) return null;
-
-        var best = ranked[0];
-        var worst = ranked[^1];
-        var anyBad = ranked.Any(d => d.Status == "bad");
-
-        // The email names each device WITH its platform ("Jabra Evolve2 (Windows)"), because the
-        // comparison the owner actually makes is across machines - "my phone beats my Windows
-        // headset" - and a bare name gives that sentence no context. An unknown platform adds
-        // nothing, so the name stands alone.
-        static string Named(Transcription.MicrophoneDeviceSummary d)
-            => d.PlatformLabel.Length == 0 ? d.Device : $"{d.Device} ({d.PlatformLabel})";
-
-        string headline;
-        string? advice = null;
-        if (!anyBad)
-        {
-            headline = ranked.Count == 1
-                ? $"{Named(best)} is doing fine."
-                : $"All {ranked.Count} of your microphones are doing fine - {Named(best)} is the best of them.";
-        }
-        else if (best.Status == "bad")
-        {
-            // Every microphone measured is bad. Naming a "best" here would recommend one of them.
-            headline = ranked.Count == 1
-                ? $"{Named(best)} is holding your transcription back."
-                : "Every microphone you used is holding your transcription back.";
-            advice = worst.Advice;
-        }
-        else
-        {
-            headline = $"{Named(best)} is your best microphone; {Named(worst)} is holding you back.";
-            advice = $"Use {best.Device} when you can. {worst.Advice}";
-        }
-
-        return new MorningMicrophonesDto
-        {
-            Headline = headline,
-            Advice = advice,
-            // The email stays a SUMMARY by design: the trend and the per-measurement history live on
-            // the Cockpit's Transcription Health page, and this sentence is how the reader gets there.
-            DetailHint = "The full per-microphone detail, including quality over time, is on the Cockpit's Transcription Health page.",
-            Devices = ranked.Select(d => new MorningMicrophoneDto
-            {
-                Device = d.Device,
-                Platform = d.Platform,
-                PlatformLabel = d.PlatformLabel,
-                Samples = d.Samples,
-                Status = d.Status,
-                Summary = d.Advice,
-                NarrowbandShare = d.NarrowbandShare,
-                ClippingShare = d.ClippingShare,
-                SpeechLevelDb = d.MedianSpeechLevelDb,
-                SignalToNoiseDb = d.MedianSignalToNoiseDb,
-            }).ToList(),
-        };
     }
 
     /// <summary>
@@ -269,62 +157,6 @@ public sealed class MorningReportBuilder
         }
 
         return RepoHygieneFold.Items(repositories, now);
-    }
-
-    /// <summary>Distinct sessions with at least one recorded transition in the window, or null when this
-    /// tenant has no session history at all.</summary>
-    private static int? SessionsRan(GatewayDbContext ctx, MorningReportWindow window)
-    {
-        var anyHistory = ctx.GovernanceEvents.AsNoTracking()
-            .Any(e => e.SubjectKind == GovernanceEventSubject.Session && e.SessionId != null);
-        if (!anyHistory)
-            return null;
-
-        return ctx.GovernanceEvents.AsNoTracking()
-            .Where(e => e.SubjectKind == GovernanceEventSubject.Session &&
-                        e.SessionId != null &&
-                        e.OccurredUtc >= window.StartUtc && e.OccurredUtc < window.EndUtc)
-            .Select(e => e.SessionId)
-            .Distinct()
-            .Count();
-    }
-
-    /// <summary>Runs ACCEPTED in the window, or null when this tenant has no workflow runs at all.</summary>
-    private static int? WorkDelivered(GatewayDbContext ctx, MorningReportWindow window)
-    {
-        if (!ctx.WorkflowRuns.AsNoTracking().Any())
-            return null;
-
-        return ctx.WorkflowRuns.AsNoTracking()
-            .Count(r => r.AcceptanceStatus == WorkflowRunAcceptance.Accepted &&
-                        r.CompletedUtc != null &&
-                        r.CompletedUtc >= window.StartUtc && r.CompletedUtc < window.EndUtc);
-    }
-
-    /// <summary>
-    /// Hosted-AI dollars in the window, CEIL-rounded to the cent, or null when this tenant has no mirrored
-    /// spend at all. Rounding UP is deliberate (the cost-accuracy rule): a report about real money must
-    /// never claim the owner spent less than they did, so a fraction of a cent becomes a whole cent.
-    /// </summary>
-    private static decimal? HostedAiSpendUsd(GatewayDbContext ctx, MorningReportWindow window)
-    {
-        if (!ctx.AccountHostedAiSpend.AsNoTracking().Any())
-            return null;
-
-        var micros = ctx.AccountHostedAiSpend.AsNoTracking()
-            .Where(e => e.TransactionCreatedUtc >= window.StartUtc && e.TransactionCreatedUtc < window.EndUtc)
-            .Sum(e => (long?)e.AmountMicros) ?? 0L;
-
-        return CeilMicrosToUsd(micros);
-    }
-
-    /// <summary>Micro-dollars to dollars, rounded UP to the next whole cent. Never undercounts.</summary>
-    internal static decimal CeilMicrosToUsd(long micros)
-    {
-        if (micros <= 0)
-            return 0m;
-        var cents = (micros + MicrosPerCent - 1) / MicrosPerCent;
-        return cents / 100m;
     }
 
     /// <summary>
@@ -431,6 +263,4 @@ public sealed class MorningReportBuilder
         }
         return map;
     }
-
-    private static string Describe(object? value) => value is null ? "absent" : value.ToString()!;
 }
