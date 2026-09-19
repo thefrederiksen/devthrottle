@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CcDirector.Reclaim\CcDirector.Reclaim.csproj" />
+    <!-- The command line tool is covered by this suite too, so that phase 1 has ONE suite and it is
+         the one in the default gate. The tool is thin - it reads the command line and prints what the
+         engine decided - and what it is tested for is exactly that: the flags it refuses, the exit
+         codes it ends on, and that its machine-readable answer carries every field. -->
+    <ProjectReference Include="..\..\tools\cc-cleanup-storage\src\CcCleanupStorage\CcCleanupStorage.csproj" />
+  </ItemGroup>
+
+</Project>
