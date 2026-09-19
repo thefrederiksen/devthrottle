@@ -120,7 +120,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// fold input and every handler already tells the truth about it.
     ///
     /// These are exactly the properties whose getters run FoldInput through SessionOrdering: the dot
-    /// (StatusColorBrush), its tooltip (StatusReason), the row text (ActivityLabel), the triage verdict
+    /// (StatusColorBrush), its hover (ColourHover), the row text (ActivityLabel), the triage verdict
     /// behind the "N need you" count (NeedsYou), and the waiting timer, which gates on the folded colour
     /// (HasWaitingDuration/WaitingDurationLabel). Raw flags that are NOT folded - IsOnHold, the number,
     /// the deletion badge - stay with their own handlers, because they are not this question.
@@ -137,7 +137,7 @@ public class SessionViewModel : INotifyPropertyChanged
     private void RaiseFoldProjection()
     {
         OnPropertyChanged(nameof(StatusColorBrush));
-        OnPropertyChanged(nameof(StatusReason));
+        OnPropertyChanged(nameof(ColourHover));
         OnPropertyChanged(nameof(ActivityLabel));
         OnPropertyChanged(nameof(NeedsYou));
         OnPropertyChanged(nameof(HasWaitingDuration));
@@ -459,13 +459,38 @@ public class SessionViewModel : INotifyPropertyChanged
     /// label and the light-gray strip color.</summary>
     public bool IsOnHold => Session.OnHold;
 
-    /// <summary>Tooltip-ready reason for the current strip color. Reflects the on-hold
-    /// override when set, otherwise the wingman's reason for <see cref="Session.StatusColor"/>.</summary>
-    public string StatusReason => Session.OnHold
-        ? "Snoozed (set aside by you)"
-        : Session.IsReceivingDictation
-            ? "Receiving a dictation from your phone"
-            : Session.LastStatusReason ?? "";
+    /// <summary>
+    /// What the colour dot says when you hover it: the legend's name for the colour the Gateway painted,
+    /// then the Gateway's stamped label when it adds anything. Every word is the Gateway's - see
+    /// <see cref="SessionDotHover"/>, which does the choosing and the punctuation and writes nothing.
+    ///
+    /// THIS USED TO BE THE DIRECTOR'S OWN SENTENCE, and that was the defect. It read
+    /// <c>Session.OnHold ? "Snoozed (set aside by you)" : Session.IsReceivingDictation ? "Receiving a
+    /// dictation from your phone" : Session.LastStatusReason</c> - three sentences this machine wrote
+    /// itself, two of them hard-coded here and the third written by the Director before the Wingman had
+    /// judged the stop. So a purple "Carrying on" dot hovered "needs you", and a calm row could hover the
+    /// words the owner scans for. The owner's ruling: <em>"Nobody should give any local reason for
+    /// anything. It should always be the gateway ... if you hover over the color, it should show you what
+    /// that color means."</em>
+    ///
+    /// Nothing is lost by dropping those two hard-coded sentences: the fold already stamps "Snoozed" and
+    /// the dictation state into <see cref="ActivityLabel"/>, which this hover renders - from the Gateway,
+    /// where every surface reads the same words.
+    ///
+    /// Empty when the Gateway has given this desktop neither a legend entry nor a label, which is what the
+    /// unstamped sentinel is: the Gateway said nothing, so the rail says nothing.
+    /// </summary>
+    public string ColourHover => SessionDotHover.For(EffectiveColor, ActivityLabel, ColourLegend);
+
+    /// <summary>
+    /// What this desktop last read from its Gateway about what the colours mean, or null when it has not
+    /// read it yet (no Gateway, not connected, or the read failed). Resolved live off the app's single
+    /// <see cref="SessionColourLegendCache"/> - the same one the "What do the colours mean?" window reads,
+    /// so the window and the hover can never explain a colour differently. Never blocks: the cache is a
+    /// last-known copy and this is read from a binding getter.
+    /// </summary>
+    private static SessionColourLegendDto? ColourLegend =>
+        (global::Avalonia.Application.Current as App)?.ControlApiHost?.ColourLegend.Current;
 
     private void OnHoldChangedVm(bool onHold)
     {

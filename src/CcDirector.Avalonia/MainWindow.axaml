@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:terminal="clr-namespace:CcDirector.Terminal.Avalonia;assembly=CcDirector.Terminal.Avalonia"
         xmlns:controls="clr-namespace:CcDirector.Avalonia.Controls"
@@ -229,6 +229,22 @@
                                         ToolTip.Tip="The session that has needed you longest on top, then the rest that need you, then working, then snoozed" />
                             </StackPanel>
                         </Border>
+                        <!-- "What do the colours mean?" - the same question the Cockpit and the phone
+                             answer, on the surface that is open all day. The words come from the Gateway;
+                             this button only opens the window that renders them. -->
+                        <Button DockPanel.Dock="Right"
+                                x:Name="BtnColourLegend"
+                                Content="?"
+                                Click="ColourLegend_Click"
+                                Focusable="False"
+                                FontSize="11" FontWeight="Bold"
+                                Padding="7,1" MinWidth="0"
+                                Margin="0,0,6,0"
+                                VerticalAlignment="Center"
+                                Background="#3C3C3C" Foreground="#CCCCCC"
+                                BorderThickness="0" CornerRadius="4"
+                                Cursor="Hand"
+                                ToolTip.Tip="What do the colours mean?" />
                         <TextBlock Text="SESSIONS"
                                    Foreground="{DynamicResource TextForeground}"
                                    FontSize="12" FontWeight="Bold"
@@ -527,7 +543,7 @@
                                                 Width="14" Height="14"
                                                 CornerRadius="3"
                                                 Background="{Binding StatusColorBrush}"
-                                                ToolTip.Tip="{Binding StatusReason}"
+                                                ToolTip.Tip="{Binding ColourHover}"
                                                 Margin="0,0,6,0"
                                                 VerticalAlignment="Center"
                                                 Cursor="SizeAll"

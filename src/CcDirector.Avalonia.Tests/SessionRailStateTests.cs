@@ -153,6 +153,71 @@ public sealed class SessionRailStateTests
         Assert.NotEqual(missingStamp, unknownName);
     }
 
+    // ===== The colour hover says what the GATEWAY said, never what this Director wrote =====
+
+    /// <summary>
+    /// THE TWO WRITERS DISAGREE, AND THE GATEWAY WINS. The exact shape the mission names: a calm row whose
+    /// LOCAL reason still says it needs the owner.
+    ///
+    /// The Director writes <c>LastStatusReason</c> itself, from the only thing it knows - running or
+    /// stopped - and it writes it BEFORE the Wingman has judged the turn. So a session the Wingman has
+    /// since judged "carrying on by itself" still carries the local sentence "needs you", and that
+    /// sentence was what the rail hovered. A purple dot said "needs you".
+    ///
+    /// The assertion is deliberately not "the hover is non-empty", which would pass on the bug: it names
+    /// the Gateway's words AND asserts the Director's own are gone.
+    /// </summary>
+    [AvaloniaFact]
+    public void ColourHover_IsTheGatewaysWords_NotTheDirectorsOwnReason()
+    {
+        var session = Bare();
+        var vm = new SessionViewModel(session);
+
+        // What this Director wrote for itself, before any verdict.
+        session.SetStatusColor("red", "needs you");
+        // What the Gateway then folded and stamped down: the session is carrying on by itself.
+        session.ApplyGatewayDisplayState("purple", "Monitor fix round 2 progress", "active", null, null, false);
+
+        Assert.Equal("Monitor fix round 2 progress", vm.ColourHover);
+        Assert.DoesNotContain("needs you", vm.ColourHover, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("needs you", session.LastStatusReason);   // still written; simply no longer rendered
+    }
+
+    /// <summary>
+    /// The two sentences the rail used to hard-code are gone with it: a snoozed session hovered "Snoozed
+    /// (set aside by you)" and a dictating one "Receiving a dictation from your phone", both written here
+    /// rather than by the Gateway. Nothing is lost - the fold stamps its own words for both states, and
+    /// the hover renders those.
+    /// </summary>
+    [AvaloniaFact]
+    public void ColourHover_OnASnoozedSession_IsTheGatewaysWord_NotTheRailsOwnSentence()
+    {
+        var session = Bare();
+        var vm = new SessionViewModel(session);
+
+        session.SetStatusColor("red", "needs you");
+        session.ApplyGatewayDisplayState("grey", "Snoozed", "onHold", null, DateTime.UtcNow.AddHours(4), false);
+
+        Assert.Equal("Snoozed", vm.ColourHover);
+        Assert.DoesNotContain("set aside by you", vm.ColourHover, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A session the Gateway has stamped NOTHING for hovers nothing. This is the one place the rail says
+    /// less than it used to, and it is the ruling working: what it used to say there was its own sentence,
+    /// and the Gateway has not spoken.
+    /// </summary>
+    [AvaloniaFact]
+    public void ColourHover_WithNoGatewayStamp_IsEmpty_NotTheDirectorsOwnReason()
+    {
+        var session = Bare();
+        var vm = new SessionViewModel(session);
+
+        session.SetStatusColor("red", "needs you");
+
+        Assert.Equal("", vm.ColourHover);
+    }
+
     // ===== The waiting timer reads the Gateway's needs-you clock, so it matches every surface =====
 
     [AvaloniaFact]

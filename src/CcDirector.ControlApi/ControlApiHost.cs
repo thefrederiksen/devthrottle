@@ -1,4 +1,4 @@
-using CcDirector.Core.Configuration;
+﻿using CcDirector.Core.Configuration;
 using CcDirector.Core.Instances;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Wingman;
@@ -93,6 +93,22 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// replaced on a settings change rather than pinning the one that existed at construction.
     /// </summary>
     public SnoozeOptionsCache SnoozeOptions { get; }
+
+    /// <summary>
+    /// The seam the desktop reads what every session colour MEANS through (the Gateway's own words, which
+    /// the Cockpit and the phone render verbatim). Backed by the live <see cref="GatewayClient"/>, so it
+    /// reuses the Director's existing Gateway connection. Null while no Gateway is configured.
+    /// </summary>
+    public IGatewayColourLegend? GatewayColourLegend => _gatewayClient;
+
+    /// <summary>
+    /// The desktop's last-known copy of what the session colours mean, read FROM the Gateway. The rail's
+    /// colour hover and the "What do the colours mean?" window both read this, because neither may block
+    /// on the network and because the words are the Gateway's - this build's own compiled copy would
+    /// explain the colours THIS build knows rather than the ones its Gateway is sending, which is the
+    /// version gap the Session Cards mission exists to close.
+    /// </summary>
+    public SessionColourLegendCache ColourLegend { get; }
 
     /// <summary>
     /// End a session through the Gateway's one stop route (mission "Stop a session", Ruling 5). The
@@ -251,6 +267,11 @@ public sealed class ControlApiHost : IAsyncDisposable
         // reads a list that is already there.
         SnoozeOptions = new SnoozeOptionsCache(() => GatewayHold);
         SnoozeOptions.AttachTo(GatewayMonitor);
+
+        // Same shape, same reason: read once when the Gateway goes green so a hover or a legend window
+        // opened later reads words that are already here.
+        ColourLegend = new SessionColourLegendCache(() => GatewayColourLegend);
+        ColourLegend.AttachTo(GatewayMonitor);
 
         // The injected text is Gateway-owned too (Cockpit -> Injected text): download it when the
         // Gateway connection goes green so a session launched later injects the user's current choice
