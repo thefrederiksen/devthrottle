@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from text import ascii_safe
+from .text import ascii_safe
 
 INTENT_LINES = 30
 ATTESTATION_PREFIX = "<!-- ship-attestation:v1 "

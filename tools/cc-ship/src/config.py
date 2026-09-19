@@ -25,8 +25,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import gitops
-from errors import ShipError
+from . import gitops
+from .errors import ShipError
 
 FILE_NAME = ".ship.yaml"
 AGENTS = ("ClaudeCode", "Codex", "Gemini", "OpenCode", "Grok", "Copilot", "Pi")

@@ -11,8 +11,8 @@ import os
 import tempfile
 from pathlib import Path
 
-import gitops
-from errors import ShipError
+from . import gitops
+from .errors import ShipError
 
 BRANCH = "ship-evidence"
 

@@ -13,23 +13,23 @@ import subprocess
 import time
 from pathlib import Path
 
-import briefs
-import config
-import contracts
-import decisions
-import evidence
-import fleet
-import github
-import gitops
-import prbody
-import preview
-import risk as risk_rules
-import runstore
-import trust
-from errors import ShipError
-from runstore import (COMPLETED, FAILED, MERGED, PENDING, SKIPPED, WAITING_ON_AUTHOR,
+from . import briefs
+from . import config
+from . import contracts
+from . import decisions
+from . import evidence
+from . import fleet
+from . import github
+from . import gitops
+from . import prbody
+from . import preview
+from . import risk as risk_rules
+from . import runstore
+from . import trust
+from .errors import ShipError
+from .runstore import (COMPLETED, FAILED, MERGED, PENDING, SKIPPED, WAITING_ON_AUTHOR,
                       WAITING_ON_OWNER, WORKING)
-from text import ascii_safe
+from .text import ascii_safe
 
 POLL_SECONDS = 10
 WAIT_SLICE_SECONDS = 8 * 60

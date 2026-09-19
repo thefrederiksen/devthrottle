@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from errors import ShipError
+from .errors import ShipError
 
 MAIN = "main"
 REMOTE_MAIN = "origin/main"

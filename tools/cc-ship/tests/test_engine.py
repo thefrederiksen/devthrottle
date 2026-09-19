@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import cli  # noqa: E402
-import engine  # noqa: E402
-import fleet  # noqa: E402
-import runstore  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import cli  # noqa: E402
+from src import engine  # noqa: E402
+from src import fleet  # noqa: E402
+from src import runstore  # noqa: E402
 
 AUTHOR = "author-0000"
 
@@ -855,19 +855,19 @@ def test_reviewer_brief_UncertainMatch_ToldToReportNormally(world, capsys):
                                   "src/auth/session.ts", "api/_lib/api-keys.js"])
 def test_sensitive_path_KeyAndAuthCode_High(path):
     # Round 3 finding 4, checked against the pilot repository's own configuration.
-    import risk
+    from src import risk
     assert risk.sensitive_path(path)
 
 
 @pytest.mark.parametrize("path", ["docs/authoring.md", "website/src/pages/Pricing.jsx",
                                   "src/tokenizer.py", "docs/monkeys.md"])
 def test_sensitive_path_OrdinaryNames_NotHigh(path):
-    import risk
+    from src import risk
     assert not risk.sensitive_path(path)
 
 
 def test_validate_review_BadSameAsDecision_Rejected():
-    import contracts
+    from src import contracts
     bad = review(dict(finding("F1", "t"), same_as_decision="the first one"))
     assert any("same_as_decision" in p for p in contracts.validate_review(bad))
 
@@ -1059,7 +1059,7 @@ def test_run_ReplacementReviewer_KeepsTheModel(world, capsys):
     ({"verifier_model": "claude-opus-5"}, "unknown keys"),
 ])
 def test_config_BadModelSettings_Rejected(cfg, error):
-    import config
-    from errors import ShipError
+    from src import config
+    from src.errors import ShipError
     with pytest.raises(ShipError, match=error):
         config.parse(json.dumps(dict(SHIP_YAML, **cfg)))

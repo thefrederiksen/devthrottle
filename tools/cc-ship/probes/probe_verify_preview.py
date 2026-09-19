@@ -12,11 +12,11 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import briefs  # noqa: E402
-import contracts  # noqa: E402
-import fleet  # noqa: E402
-import preview  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import briefs  # noqa: E402
+from src import contracts  # noqa: E402
+from src import fleet  # noqa: E402
+from src import preview  # noqa: E402
 
 INTENT = """# Intent
 

@@ -19,7 +19,12 @@ import time
 import uuid
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Installed, cc-storage is a declared dependency and is already importable. Run from a checkout,
+# it is the sibling folder tools/cc_storage, which is not on the path - add it then, and only then.
+_tools_dir = Path(__file__).resolve().parents[2]
+if (_tools_dir / "cc_storage").is_dir() and str(_tools_dir) not in sys.path:
+    sys.path.insert(0, str(_tools_dir))
+
 from cc_storage.storage import CcStorage  # noqa: E402
 
 # The one honest state a run is in.
@@ -102,7 +107,7 @@ def find_active(repo: Path, branch: str) -> dict | None:
                 and run["state"] not in FINAL_STATES):
             found.append(run)
     if len(found) > 1:
-        from errors import ShipError
+        from .errors import ShipError
         raise ShipError(
             "several-runs",
             f"{len(found)} unfinished runs exist for {branch}: " + ", ".join(r["id"] for r in found),

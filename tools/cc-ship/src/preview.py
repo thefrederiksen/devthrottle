@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
-import fleet
+from . import fleet
 
 SECRET_ENTRY = "vercel-automation-bypass-secret"
 SECRETS_CLI = "cc-secrets"

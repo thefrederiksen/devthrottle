@@ -2,7 +2,6 @@
 name: dev-throttle
 description: DevThrottle - "Mission Control for Claude Code". A desktop app (binary cc-director.exe) that runs and supervises multiple Claude Code sessions and ships cc-* CLI tools on PATH. Agents drive the fleet through the cc-devthrottle command, not by calling the Director over HTTP. Triggers on "/dev-throttle", "/devthrottle", "/cc-director", "what cc tools", "list tools", "available tools", "devthrottle api", "session manager", "mission control".
 ---
-
 # Dev Throttle
 
 DevThrottle is a desktop application positioned as "Mission Control for Claude Code" - one place to run, observe, and orchestrate multiple Claude Code sessions side by side. It also installs a suite of `cc-*` command-line tools onto your PATH.
@@ -64,6 +63,15 @@ cc-devthrottle settings get screenshots.source_directory
 cc-devthrottle schedule list
 cc-devthrottle setup status
 ```
+
+`cc-ship` takes a finished change from THIS session all the way to merged on origin/main: a review by
+a session running a different agent, a check that the change works in the running product, a risk
+reading, then the pull request and the merge. Every answer carries the run's one state and the next
+step. `cc-ship --help` is the whole command list.
+
+`cc-dev-reports` publishes one HTML file as this session's report for the owner - it lands on his
+phone or in the Cockpit, inside the report rather than on a list - and `cc-dev-reports reply` answers
+him in it.
 
 A handful of tools are registered but not yet built (`cc-twitter`, `cc-facebook`, `cc-youtube`, `cc-posthog`). If a tool isn't on PATH, it likely isn't built yet.
 

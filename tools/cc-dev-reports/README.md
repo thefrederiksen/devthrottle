@@ -35,11 +35,12 @@ The report id is printed in full. A shortened identifier is not something an age
 
 ## Install
 
-Not in the installer yet. From a checkout that follows origin/main:
+The DevThrottle installer puts `cc-dev-reports` on your PATH with every other shipped tool.
 
-```
-python tools/cc-dev-reports/install.py
-```
+To run a CHECKOUT instead of the installed copy - developing the tool itself - use
+`python tools/cc-dev-reports/main.py ...`, or put a launcher for one checkout on your own
+PATH with `install.py`. Keep that launcher out of the folder the installer owns: two
+launchers for one name is two sources, and the search path decides which one answers.
 
 ## Tests
 

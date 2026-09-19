@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import preview  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import preview  # noqa: E402
 
 PREVIEW = "https://x-preview.vercel.app"
 CLI = "C:/tools/bin/cc-secrets.exe"

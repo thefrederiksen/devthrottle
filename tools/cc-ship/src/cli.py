@@ -11,11 +11,12 @@ import json
 import sys
 from pathlib import Path
 
-import engine
-import gitops
-import runstore
-from errors import ShipError
-from text import ascii_safe
+from . import __version__
+from . import engine
+from . import gitops
+from . import runstore
+from .errors import ShipError
+from .text import ascii_safe
 
 HELP = """\
 Take a finished change from this session to merged on origin/main.
@@ -52,6 +53,9 @@ class _Parser(argparse.ArgumentParser):
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(prog="cc-ship", description=HELP,
                      formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
+    # Every tool in the shipped toolbelt answers --version; the Director's Tools page runs it as one
+    # of the two health checks every tool gets, so a tool without it reads as broken on that page.
+    parser.add_argument("--version", action="version", version=f"cc-ship {__version__}")
     sub = parser.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
     def add(name: str, help_text: str) -> argparse.ArgumentParser:

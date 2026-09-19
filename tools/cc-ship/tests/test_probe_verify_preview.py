@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "probes"))
-import briefs  # noqa: E402
-import preview  # noqa: E402
+from src import briefs  # noqa: E402
+from src import preview  # noqa: E402
 import probe_verify_preview  # noqa: E402
 
 

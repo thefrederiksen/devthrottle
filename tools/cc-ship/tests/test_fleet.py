@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import fleet  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import fleet  # noqa: E402
 
 
 def _row(activity="Working", pending=False, crashed=False):
@@ -204,7 +204,7 @@ def test_wait_for_output_MarkerFromBeforeCorrection_DoesNotCount(tmp_path, monke
 
 
 def test_briefs_EverySessionWritesItsMarkerAfterSessionDone(tmp_path):
-    import briefs
+    from src import briefs
     out = tmp_path / "review-r1.json"
     text = briefs.reviewer_brief(repo=tmp_path, base="a", head="b", intent=tmp_path / "i.md",
                                  diff=tmp_path / "d.patch", decisions=[], output=out,

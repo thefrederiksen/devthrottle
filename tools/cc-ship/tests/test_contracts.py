@@ -5,8 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import contracts  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import contracts  # noqa: E402
 
 
 def _review():
