@@ -14,14 +14,17 @@ namespace CcDirector.Core.Storage;
 /// pattern used by <c>SessionStatusWingman</c> and <c>TurnSummaryCache</c>:
 /// subscribe to <c>SessionManager.OnSessionCreated</c>, own the per-session helper.
 ///
-/// External consumers (the TurnSummaryCache, the wingman, future agent-view
-/// pipeline) push their records through the writer via this manager:
+/// The forwarding methods below exist so that a consumer could push a record
+/// through this manager rather than hold a writer instance and take a lifecycle
+/// dependency on it:
 ///
 ///   manager.WriteTurnSummary(sessionId, summary);
 ///
-/// We expose those forwarding methods rather than the underlying writer so
-/// SessionManager-only code can never accidentally take a lifecycle dependency
-/// on a writer instance.
+/// NOTHING CALLS THEM TODAY. This comment used to name the TurnSummaryCache, the
+/// wingman and a future agent-view pipeline as consumers that push through here,
+/// and none of them do - the only calls anywhere are tests invoking the writer
+/// directly. So turns.jsonl and agent-view.jsonl are never written by the product
+/// at all, which is part of why the whole capture is off by default.
 /// </summary>
 public sealed class SessionLogManager : IDisposable
 {
