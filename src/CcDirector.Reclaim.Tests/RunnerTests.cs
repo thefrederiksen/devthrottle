@@ -83,6 +83,61 @@ public class RunnerTests
         Assert.Contains("cc-cleanup-storage scan", error.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The review's first finding, end to end. On Windows the file system does not tell folders apart
+    /// by letter case, so one folder spelled two ways is one folder: a report asked for with the
+    /// drive letter in the other case must resolve the scan saved under the first spelling, must
+    /// read the same saved file, and must print the same sentences. Without the case fold in the
+    /// fingerprint this answers that there is no saved scan and sends the caller to walk the disk
+    /// again for nothing. On every other platform the two spellings are two real folders, so the
+    /// report rightly refuses and the refusal is what is asserted there.
+    /// </summary>
+    [Fact]
+    public void Run_ReportAfterAScanWithThePathCaseFlipped_FollowsThePlatformItRunsOn()
+    {
+        using var tree = StandardFixture.Build(nameof(Run_ReportAfterAScanWithThePathCaseFlipped_FollowsThePlatformItRunsOn));
+        using var home = new FixtureTree("index-home");
+        var respelled = SpelledPath.WithFirstLetterCaseFlipped(tree.Root);
+
+        var scan = Runner.Run(Request(CommandName.Scan, tree.Root, home.Root));
+
+        if (OperatingSystem.IsWindows())
+        {
+            var report = Runner.Run(Request(CommandName.Report, respelled, home.Root));
+
+            Assert.Equal(ExitCodes.Ok, report.ExitCode);
+            var fromScan = Assert.IsType<ReportJson>(scan.JsonPayload);
+            var fromReport = Assert.IsType<ReportJson>(report.JsonPayload);
+            Assert.Equal(fromScan.IndexPath, fromReport.IndexPath);
+            Assert.Equal(fromScan.Lines, fromReport.Lines);
+        }
+        else
+        {
+            Assert.Throws<FileNotFoundException>(
+                () => Runner.Run(Request(CommandName.Report, respelled, home.Root)));
+        }
+    }
+
+    /// <summary>
+    /// The review's second finding, through the same steps the entry point takes: read the command
+    /// line, run the request, write the machine-readable payload. The machine-readable flag must
+    /// reach the version in both orders - before it and after it - because a caller that asks for
+    /// the machine-readable version and receives a prose line has been given a wrong answer.
+    /// </summary>
+    [Fact]
+    public void Run_VersionWithTheMachineReadableFlagGivenBeforeIt_AnswersInMachineReadableForm()
+    {
+        var answer = VersionAnswer(["--json", "--version"]);
+        Assert.True(answer);
+    }
+
+    [Fact]
+    public void Run_VersionWithTheMachineReadableFlagGivenAfterIt_AnswersInMachineReadableForm()
+    {
+        var answer = VersionAnswer(["--version", "--json"]);
+        Assert.True(answer);
+    }
+
     [Fact]
     public void Run_SavedScansWithNothingSaved_SaysCountNoughtRatherThanPrintingNothing()
     {
@@ -257,6 +312,30 @@ public class RunnerTests
         var json = Assert.IsType<ErrorJson>(answer.JsonPayload);
         Assert.False(json.Ok);
         Assert.Equal("no-saved-scan", json.Code);
+    }
+
+    // The version command through the whole path the entry point takes it: read the command line,
+    // run the request, write the machine-readable payload the caller asked for. True when every
+    // step held - the flag survived the read, and the payload carries the version as a machine
+    // reads it.
+    private static bool VersionAnswer(string[] arguments)
+    {
+        var outcome = CommandLine.Parse(arguments, "unused-index-directory");
+
+        Assert.Null(outcome.UsageError);
+        var request = outcome.Request
+            ?? throw new InvalidOperationException("The command line was read and produced no request.");
+
+        Assert.Equal(CommandName.Version, request.Command);
+        if (!request.Json) return false;
+
+        var answer = Runner.Run(request);
+        var written = JsonSerializer.Serialize(answer.JsonPayload, JsonShape.Options);
+        using var read = JsonDocument.Parse(written);
+
+        return read.RootElement.GetProperty("command").GetString() == "version" &&
+               read.RootElement.GetProperty("ok").GetBoolean() &&
+               read.RootElement.GetProperty("version").GetString() == Runner.VersionLine();
     }
 
     private static Request Request(CommandName command, string? folder, string indexDirectory) => new()

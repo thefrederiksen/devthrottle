@@ -124,6 +124,36 @@ public class ScanIndexStoreTests
             ScanIndexStore.PathFor(home.Root, second));
     }
 
+    /// <summary>
+    /// One folder spelled two ways is one file or two, according to the platform the test runs on.
+    /// On Windows letter case does not tell folders apart, so the two spellings are one folder and
+    /// must be one file - without the case fold in the fingerprint, a report asked for with a
+    /// lowercase drive letter answers that no scan was ever saved, which is the review's first
+    /// finding. On every other platform the two spellings are two real folders and must remain two
+    /// files, so a later change that folded case everywhere would be caught here rather than quietly
+    /// merging two folders into one saved scan.
+    /// </summary>
+    [Fact]
+    public void PathFor_TwoSpellingsThatDifferOnlyInCase_FollowThePlatformItRunsOn()
+    {
+        using var home = new FixtureTree(nameof(PathFor_TwoSpellingsThatDifferOnlyInCase_FollowThePlatformItRunsOn));
+        var folder = home.Folder("data");
+        var respelled = SpelledPath.WithFirstLetterCaseFlipped(folder);
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal(
+                ScanIndexStore.PathFor(home.Root, folder),
+                ScanIndexStore.PathFor(home.Root, respelled));
+        }
+        else
+        {
+            Assert.NotEqual(
+                ScanIndexStore.PathFor(home.Root, folder),
+                ScanIndexStore.PathFor(home.Root, respelled));
+        }
+    }
+
     [Fact]
     public void List_AFolderThatDoesNotExistYet_SaysNothingIsSavedRatherThanFailing()
     {

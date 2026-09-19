@@ -1,4 +1,5 @@
 using System.Globalization;
+using CcDirector.Core.Utilities;
 using CcDirector.Reclaim.Reporting;
 using CcDirector.Reclaim.Scanning;
 
@@ -78,6 +79,21 @@ public static class CommandLine
         if (string.IsNullOrWhiteSpace(defaultIndexDirectory))
             throw new ArgumentException("A default index directory cannot be blank.", nameof(defaultIndexDirectory));
 
+        FileLog.Write($"[CommandLine] Parse: arguments={arguments.Count}, defaultIndexDirectory={defaultIndexDirectory}");
+
+        var outcome = Read(arguments, defaultIndexDirectory);
+
+        if (outcome.UsageError is not null)
+            FileLog.Write($"[CommandLine] Parse FAILED: {outcome.UsageError}");
+        else
+            FileLog.Write(
+                $"[CommandLine] Parse done: command={outcome.Request?.Command}, json={outcome.Request?.Json}");
+
+        return outcome;
+    }
+
+    private static ParseOutcome Read(IReadOnlyList<string> arguments, string defaultIndexDirectory)
+    {
         var command = CommandName.SavedScans;
         var commandWord = string.Empty;
         var allowed = SavedScansFlags;
@@ -110,6 +126,7 @@ public static class CommandLine
         var indexDirectory = defaultIndexDirectory;
         var largestFolders = ScanReportBuilder.DefaultLargestFolders;
         var folderDepth = ScanOptions.DefaultFolderDepth;
+        CommandName? earlyAnswer = null;
 
         for (var at = first; at < arguments.Count; at++)
         {
@@ -125,11 +142,21 @@ public static class CommandLine
                 continue;
             }
 
+            // Help and version stop the command line, but not from inside the loop: the request is
+            // built only after every flag has been read, so the machine-readable flag survives in
+            // whichever order it is given - before them, or after them. When both are given, the
+            // first to appear wins, which is what the command line answered before this change.
             if (argument is "--help" or "-h")
-                return new ParseOutcome(HelpRequest(defaultIndexDirectory), null);
+            {
+                earlyAnswer ??= CommandName.Help;
+                continue;
+            }
 
             if (argument == "--version" && command == CommandName.SavedScans)
-                return new ParseOutcome(VersionRequest(defaultIndexDirectory), null);
+            {
+                earlyAnswer ??= CommandName.Version;
+                continue;
+            }
 
             if (!allowed.Contains(argument, StringComparer.Ordinal))
             {
@@ -176,6 +203,15 @@ public static class CommandLine
             }
         }
 
+        // Help and version are answered before the missing-folder check, so that asking for the help
+        // page of a command with no folder given still shows the help page, as it always did.
+        if (earlyAnswer is not null)
+        {
+            return new ParseOutcome(earlyAnswer == CommandName.Help
+                ? HelpRequest(indexDirectory, json)
+                : VersionRequest(indexDirectory, json), null);
+        }
+
         if (takesFolder && folder is null)
             return new ParseOutcome(null, $"the command {Named(commandWord)} needs a folder: cc-cleanup-storage {commandWord} \"<folder>\"");
 
@@ -191,22 +227,22 @@ public static class CommandLine
         }, null);
     }
 
-    private static Request HelpRequest(string indexDirectory) => new()
+    private static Request HelpRequest(string indexDirectory, bool json) => new()
     {
         Command = CommandName.Help,
         FolderPath = null,
-        Json = false,
+        Json = json,
         IndexDirectory = indexDirectory,
         LargestFolders = ScanReportBuilder.DefaultLargestFolders,
         FolderDepth = ScanOptions.DefaultFolderDepth,
         CommandWord = "help"
     };
 
-    private static Request VersionRequest(string indexDirectory) => new()
+    private static Request VersionRequest(string indexDirectory, bool json) => new()
     {
         Command = CommandName.Version,
         FolderPath = null,
-        Json = false,
+        Json = json,
         IndexDirectory = indexDirectory,
         LargestFolders = ScanReportBuilder.DefaultLargestFolders,
         FolderDepth = ScanOptions.DefaultFolderDepth,

@@ -135,6 +135,65 @@ public class CommandLineTests
         Assert.Equal(CommandName.Version, Parsed(["--version"]).Command);
     }
 
+    /// <summary>
+    /// The review's second finding: the machine-readable flag was read and then dropped by
+    /// --version - given before it, it was switched back off in the request, and given after it, it
+    /// was never reached at all. Both orders must keep the flag, because the caller that passes it
+    /// is asking for the machine-readable answer and the AXI standard makes a flag that is silently
+    /// ignored a defect.
+    /// </summary>
+    [Theory]
+    [InlineData("--json", "--version")]
+    [InlineData("--version", "--json")]
+    public void Parse_VersionWithTheMachineReadableFlagInEitherOrder_KeepsTheFlag(string first, string second)
+    {
+        var request = Parsed([first, second]);
+
+        Assert.Equal(CommandName.Version, request.Command);
+        Assert.True(request.Json);
+    }
+
+    /// <summary>
+    /// The same rule for the help page, which dropped the machine-readable flag the same way. The
+    /// short form of the flag is covered too, because it reads the same request.
+    /// </summary>
+    [Theory]
+    [InlineData("--json", "--help")]
+    [InlineData("--help", "--json")]
+    [InlineData("--json", "-h")]
+    [InlineData("-h", "--json")]
+    public void Parse_HelpWithTheMachineReadableFlagInEitherOrder_KeepsTheFlag(string first, string second)
+    {
+        var request = Parsed([first, second]);
+
+        Assert.Equal(CommandName.Help, request.Command);
+        Assert.True(request.Json);
+    }
+
+    /// <summary>
+    /// Help and version now answer only after every flag has been read, so a flag that follows them
+    /// is judged rather than quietly dropped. A caller that passes --top after --help is passing a
+    /// flag --help does not take, and the honest answer is the usage error, not the help page with
+    /// the flag ignored.
+    /// </summary>
+    [Fact]
+    public void Parse_AFlagAfterHelpThatHelpDoesNotTake_IsAUsageErrorRatherThanQuietlyDropped()
+    {
+        var error = Refused(["--help", "--top", "5"]);
+
+        Assert.Contains("there is no flag --top", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Help and version are answered before the missing-folder check, so asking for the help page of
+    /// a command whose folder was not given still shows the help page, as it always did.
+    /// </summary>
+    [Fact]
+    public void Parse_HelpForACommandGivenNoFolder_StillShowsTheHelpPage()
+    {
+        Assert.Equal(CommandName.Help, Parsed(["scan", "--help"]).Command);
+    }
+
     [Fact]
     public void Parse_NoIndexDirectoryGiven_UsesTheOneForThisMachine()
     {

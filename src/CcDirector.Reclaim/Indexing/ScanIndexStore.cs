@@ -68,10 +68,14 @@ public static class ScanIndexStore
     /// The file one folder's saved scan is written to.
     ///
     /// The name carries a readable form of the folder so a person can see what is in the directory,
-    /// and a short fingerprint of the exact canonical path so that two different folders can never
-    /// land on one file. The fingerprint is taken from the path exactly as the operating system
-    /// gives it, letter case and all: two spellings of one folder are therefore two files, which is
-    /// loud, rather than two folders sharing one file, which would be wrong.
+    /// and a short fingerprint of the canonical path so that two different folders can never land on
+    /// one file. The fingerprint follows the rule of the platform it runs on. On Windows the file
+    /// system does not distinguish letter case, so one folder spelled two ways is one folder and must
+    /// be one file: the case is folded before the fingerprint is taken, or a report asked for with a
+    /// lowercase drive letter would answer that no scan was ever saved and send the caller to walk
+    /// the disk again for nothing. On every other platform the exact bytes are kept, because there
+    /// two spellings are two real folders and must never share one file. Trailing separators and dot
+    /// segments are folded first by <see cref="DirectoryScanner.Canonical"/>, on every platform.
     /// </summary>
     /// <param name="indexDirectory">The folder saved scans live in.</param>
     /// <param name="rootPath">The folder that was scanned.</param>
@@ -80,8 +84,13 @@ public static class ScanIndexStore
         if (string.IsNullOrWhiteSpace(indexDirectory))
             throw new ArgumentException("An index directory cannot be blank.", nameof(indexDirectory));
 
+        FileLog.Write($"[ScanIndexStore] PathFor: indexDirectory={indexDirectory}, rootPath={rootPath}");
+
         var canonical = DirectoryScanner.Canonical(rootPath);
-        return Path.Combine(indexDirectory, $"{Label(canonical)}-{Fingerprint(canonical)}{IndexFileExtension}");
+        var path = Path.Combine(indexDirectory, $"{Label(canonical)}-{Fingerprint(canonical)}{IndexFileExtension}");
+
+        FileLog.Write($"[ScanIndexStore] PathFor done: rootPath={rootPath}, path={path}");
+        return path;
     }
 
     /// <summary>
@@ -290,9 +299,14 @@ public static class ScanIndexStore
         return label.Length == 0 ? "folder" : label;
     }
 
+    // The fingerprint of one canonical path. On Windows the whole path is folded to one case first,
+    // because that file system does not tell folders apart by letter case and one folder spelled two
+    // ways must be one file. Everywhere else the exact bytes are hashed, because there two spellings
+    // are two real folders and must never share one file.
     private static string Fingerprint(string canonicalPath)
     {
-        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(canonicalPath));
+        var toHash = OperatingSystem.IsWindows() ? canonicalPath.ToUpperInvariant() : canonicalPath;
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(toHash));
         return Convert.ToHexStringLower(digest)[..12];
     }
 }
