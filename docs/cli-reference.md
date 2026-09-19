@@ -1699,6 +1699,10 @@ hostile program running as the same user.
 ```
 USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
 
+OPTIONS:
+  --version  Print the version and exit. A flag on the tool, not on a command:
+             `cc-secrets list --version` is a usage error.
+
 COMMANDS:
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
   import   OWNER: import every KEY=VALUE line of a file (credentials.env) as its own entry
@@ -1709,7 +1713,7 @@ COMMANDS:
   get      Print a SETTING's value (never a secret)
   login    Fill and submit the login form in a Director-owned browser; refuses any other address
   log      Show the audit log (-n, --json)
-  version  Print the version
+  version  Print the version (the same line as `--version`)
 ```
 
 An entry is a **secret** (the default: hidden from every output, never printed) or a **setting** - a value
