@@ -29,6 +29,18 @@ function stubSessionStorage(): void {
   });
 }
 
+// A sessionStorage that refuses every call, the way a browser with Web Storage denied does.
+function stubRefusingSessionStorage(): void {
+  const refuse = (): never => {
+    throw new DOMException("The operation is insecure.", "SecurityError");
+  };
+  vi.stubGlobal("sessionStorage", {
+    getItem: refuse,
+    setItem: refuse,
+    removeItem: refuse,
+  });
+}
+
 describe("enrollment shell profile", () => {
   afterEach(() => configureEnrollment(MOBILE_ENROLLMENT_PROFILE));
 
@@ -148,8 +160,17 @@ describe("next-route preservation across the round trip", () => {
   });
 
   it("returns null (the shell default) when storage is unavailable", () => {
-    vi.unstubAllGlobals();
-    // No sessionStorage in the node environment: the helpers must degrade, never throw.
+    // A browser that refuses Web Storage - a sandboxed frame, cookies disabled, Safari's private
+    // mode - throws on the call rather than handing back an empty store, and the helpers must
+    // degrade to the shell default instead of taking the sign-in flow down with them.
+    //
+    // This used to be written as vi.unstubAllGlobals(), leaning on the node test environment having
+    // no sessionStorage at all. That stopped being true: Node ships its own Web Storage globals
+    // (experimental from 22.4, unflagged from 24), so unstubbing restored a WORKING process-wide
+    // store, the route was remembered, and the test failed on Node 24 and later while still passing
+    // on the Node 22 runner. The refusal is now stated by the test rather than borrowed from the
+    // runtime, so it means the same thing everywhere.
+    stubRefusingSessionStorage();
     rememberEnrollNext("/fleet");
     expect(takeEnrollNext()).toBeNull();
   });
