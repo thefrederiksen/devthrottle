@@ -20,7 +20,12 @@ namespace CcDirector.Core.Tests.Storage;
 /// throwaway root a test rig pins - comes back untouched and keeps its own tools. That separation is
 /// what makes a rig safe to run at all, so it is asserted here rather than assumed.
 /// </summary>
-[Collection("CcStorageRoot")] // serializes all classes that mutate the process-wide CC_DIRECTOR_ROOT
+// ConfigEnvSerial, not CcStorageRoot. This assembly runs its tests IN PARALLEL, so the collection
+// name has to be the one every other root-mutating class in THIS assembly uses; "CcStorageRoot"
+// has no CollectionDefinition and exists only inside the serialized half, where it is decorative.
+// Sharing ConfigEnvSerial (DisableParallelization) is what stops this class racing them for the
+// one process-wide CC_DIRECTOR_ROOT.
+[Collection("ConfigEnvSerial")]
 public sealed class MachineRootTests
 {
     /// <summary>
