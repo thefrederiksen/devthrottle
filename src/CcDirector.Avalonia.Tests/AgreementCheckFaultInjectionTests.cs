@@ -1,4 +1,4 @@
-using CcDirector.Gateway.Contracts;
+﻿using CcDirector.Gateway.Contracts;
 using CcDirector.StateAgreementCheck;
 using Xunit;
 
@@ -186,6 +186,30 @@ public sealed class AgreementCheckFaultInjectionTests
 
         // ...and the proof that the OLD check was blind to it: the fold's answer is identical on both sides.
         Assert.Equal(row.EffectiveColor, SessionOrdering.EffectiveColor(row));
+    }
+
+    /// <summary>
+    /// A NEWER GATEWAY, AN OLDER EVERYTHING ELSE - and the check must call it what it is.
+    ///
+    /// The Session Cards mission made the desktop rail answer an unrecognised colour NAME with a neutral
+    /// while the canonical map and the clients still answer it with the magenta sentinel. Those are two
+    /// different pixels for the same name, on purpose, and a naive pixel comparison reads that as the
+    /// desktop palette having DRIFTED from the canonical map - which would send somebody hunting a
+    /// hand-rolled hex that does not exist, when the real answer is that this build predates the colour.
+    ///
+    /// So: exactly ONE finding, and it is the palette-missing one. No two-different-pixels.
+    /// </summary>
+    [Fact]
+    public void AColourNoBuildKnows_IsReportedAsAMissingPalette_NotAsDriftBetweenTwoPixels()
+    {
+        var row = Waiting("newer-gateway");
+        row.EffectiveColor = "chartreuse";   // a name a later fold learned and this build never did
+
+        var findings = Run(row);
+
+        var missing = Assert.Single(findings, f => f.Kind == "palette-missing");
+        Assert.Contains("chartreuse", missing.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain(findings, f => f.Kind == "two-different-pixels");
     }
 
     private static SessionDto YellowRow() =>
