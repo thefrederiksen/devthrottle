@@ -20,7 +20,12 @@ namespace CcDirector.Core.Tests.Storage;
 /// one, because a fix that took a rig's tools away from it would pass every test above and quietly
 /// make every isolated proof run against the real machine.
 /// </summary>
-[Collection("CcStorageRoot")] // serializes all classes that mutate the process-wide CC_DIRECTOR_ROOT
+// ConfigEnvSerial, not CcStorageRoot. This assembly runs its tests IN PARALLEL, so the collection
+// name has to be the one every other root-mutating class in THIS assembly uses; "CcStorageRoot"
+// has no CollectionDefinition and exists only inside the serialized half, where it is decorative.
+// Sharing ConfigEnvSerial (DisableParallelization) is what stops this class racing them for the
+// one process-wide CC_DIRECTOR_ROOT.
+[Collection("ConfigEnvSerial")]
 public sealed class ToolReadersUseTheMachineRootTests
 {
     private static string ToolFileName(string tool)

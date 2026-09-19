@@ -54,6 +54,9 @@
          serialise this assembly and destroy the only reason it exists. Any file with an
          assembly-level attribute is excluded for the same reason. -->
     <Compile Include="..\CcDirector.Core.Tests\ConfigEnvSerialCollection.cs" Link="ConfigEnvSerialCollection.cs" />
+    <Compile Include="..\CcDirector.Core.Tests\WindowsOnlyFactAttribute.cs" Link="WindowsOnlyFactAttribute.cs" />
+    <Compile Include="..\CcDirector.Core.Tests\TestProjectPath.cs" Link="TestProjectPath.cs" />
+    <Compile Include="..\CcDirector.Core.Tests\Storage\PinnedRoot.cs" Link="Storage/PinnedRoot.cs" />
     <Compile Include="..\CcDirector.Core.Tests\StubGitHubClient.cs" Link="StubGitHubClient.cs" />
     <Compile Include="..\CcDirector.Core.Tests\StubSessionBackend.cs" Link="StubSessionBackend.cs" />
     <Compile Include="..\CcDirector.Core.Tests\TerminalTestHelper.cs" Link="TerminalTestHelper.cs" />

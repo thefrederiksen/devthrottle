@@ -52,6 +52,9 @@ public sealed class ToolPathsNeverComeFromADirectorFolderTests
     {
         ("src/CcDirector.Core/Sessions/SessionManager.cs", "var ownToolBin = Storage.CcStorage.Bin();",
             "the PATH every session is launched with - the one that decides which cc-devthrottle an agent gets"),
+        ("src/CcDirector.Core/Setup/FleetToolPathRepair.cs", "var master = CcStorage.Bin();",
+            "the repair the Director runs at every start, which decides which tools directory is kept on "
+            + "the path and which ones come off it"),
         ("src/CcDirector.Avalonia/MainWindow.axaml.cs",
             "private static string OwnToolBinDir() => CcDirector.Core.Storage.CcStorage.Bin();",
             "the Tools page's check of whether the tool on PATH is the installed one"),

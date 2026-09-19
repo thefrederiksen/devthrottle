@@ -12,6 +12,7 @@ namespace CcDirector.Setup.Engine.Tests;
 /// that GatewaySelfUpdate performs land under the isolated root - leaving the production
 /// installed.json / update-pins.json byte-identical.
 /// </summary>
+[Collection(MachineRootCollection.Name)] // it points the process-wide CC_DIRECTOR_ROOT setting somewhere
 public class SelfUpdateIsolationTests
 {
     [Fact]

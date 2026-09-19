@@ -13,22 +13,29 @@ namespace CcDirector.Setup.Engine;
 public static class InstallFinalizer
 {
     /// <summary>
-    /// Add the tools bin dir to the user PATH if not already present. Returns true if it changed.
+    /// Put the master tool directory on the user's saved path and take off the copies it replaces.
+    /// Returns true if the saved path changed.
     ///
-    /// TWO THINGS THIS HAS TO GET RIGHT, both learned from damage this method did:
+    /// THREE THINGS THIS HAS TO GET RIGHT, all learned from damage this method did:
     ///
     /// 1. It reads and writes the RAW stored value. It used to go through
-    ///    <c>Environment.GetEnvironmentVariable("Path", User)</c>, which returns the PATH with every
+    ///    <c>Environment.GetEnvironmentVariable("Path", User)</c>, which returns the path with every
     ///    %VARIABLE% already expanded, and wrote that back - baking one moment's expansion into the
-    ///    user's PATH permanently and destroying every variable reference in it. The raw accessors on
+    ///    user's path permanently and destroying every variable reference in it. The raw accessors on
     ///    <see cref="FleetToolPathRepair"/> are the single safe way to touch it.
     ///
     /// 2. It refuses to write a throwaway root into permanent machine state. Every Director repairs
     ///    its own tools, and a Director running from a temporary root (a test rig, a wizard harness,
-    ///    an unpacked bundle) would otherwise append ITS temporary bin to the real user PATH, where it
+    ///    an unpacked bundle) would otherwise append ITS temporary bin to the real user path, where it
     ///    outlives the directory by months. That is exactly how
     ///    <c>...\Temp\wizard-harness-home-29ef...\cc-director\bin</c> came to be on a live machine's
-    ///    PATH, pointing at a directory that no longer exists.
+    ///    path, pointing at a directory that no longer exists.
+    ///
+    /// 3. It REMOVES what the master replaces, by the same rule the Director's own start-time repair
+    ///    uses. Adding alone was not enough and read as though it were: this install places the tools at
+    ///    the machine root, and a per-Director copy left in FRONT of that entry goes on answering every
+    ///    command. The install would have put the files in the right place and changed nothing about
+    ///    which copy speaks.
     /// </summary>
     [SupportedOSPlatform("windows")]
     public static bool AddBinToPath(InstallLayout layout)
@@ -44,11 +51,16 @@ public static class InstallFinalizer
         }
 
         var current = FleetToolPathRepair.ReadUserPathRaw();
-        var updated = ComputePathWith(current, layout.BinDir);
-        if (updated == current) return false;
+        var rewrite = FleetToolPathRepair.RewriteForInstall(current, layout.BinDir);
+        if (rewrite.Path == current) return false;
 
-        FleetToolPathRepair.WriteUserPathRaw(updated);
-        EngineLog.Write($"[InstallFinalizer] added to PATH: {layout.BinDir}");
+        FleetToolPathRepair.WriteUserPathRaw(rewrite.Path);
+        EngineLog.Write(
+            $"[InstallFinalizer] PATH now carries the machine's tools: {layout.BinDir}"
+            + (rewrite.Removed.Count == 0
+                ? "; nothing it replaces was on the path."
+                : $"; removed {rewrite.Removed.Count} replaced entr{(rewrite.Removed.Count == 1 ? "y" : "ies")}: "
+                  + string.Join("; ", rewrite.Removed) + ". The files are still on disk."));
         return true;
     }
 
@@ -140,14 +152,5 @@ public static class InstallFinalizer
         var bashProfile = Path.Combine(home, ".bash_profile");
         if (File.Exists(bashProfile)) files.Add(bashProfile);
         return files;
-    }
-
-    /// <summary>Return <paramref name="path"/> with <paramref name="dir"/> appended unless already present. Pure.</summary>
-    public static string ComputePathWith(string path, string dir)
-    {
-        var entries = (path ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries);
-        if (entries.Any(e => string.Equals(e.Trim().TrimEnd('\\'), dir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)))
-            return path ?? "";
-        return string.IsNullOrEmpty(path) ? dir : path.TrimEnd(';') + ";" + dir;
     }
 }
