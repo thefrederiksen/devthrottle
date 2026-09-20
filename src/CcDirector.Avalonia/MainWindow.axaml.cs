@@ -2154,6 +2154,10 @@ public partial class MainWindow : Window
                     PlaceholderText.IsVisible = true;
                     TerminalDock.IsVisible = false;
                     PromptBarBorder.IsVisible = false;
+                    // The selected session was removed underneath us, so there is no session to open in
+                    // the Cockpit. This path nulls _activeSession without going through SelectSession, so
+                    // the button has to be hidden here too or it is left offering a session that is gone.
+                    TabBarCockpitButton.IsVisible = false;
                 }
 
                 _sessions.Remove(vm);
@@ -2358,6 +2362,9 @@ public partial class MainWindow : Window
             PromptBarBorder.IsVisible = false;
             TabBarRefreshButton.IsVisible = false;
             TabBarCaptureButton.IsVisible = false;
+            // No session selected, so there is no session to open in the Cockpit. The fleet-wide Cockpit
+            // button in the toolbar is still there for the front door.
+            TabBarCockpitButton.IsVisible = false;
             SourceControlView.Detach();
             return;
         }
@@ -2392,6 +2399,12 @@ public partial class MainWindow : Window
 
         // Show prompt bar
         PromptBarBorder.IsVisible = true;
+
+        // The Cockpit button belongs to the session, so it appears the moment one is selected. Set here as
+        // well as in SwitchLeftTab because the tab switch below only runs when the incoming session's tab
+        // DIFFERS from the current one - selecting a session already on the same tab would otherwise leave
+        // this button hidden.
+        TabBarCockpitButton.IsVisible = true;
 
         // Restore prompt text for incoming session - and which of its characters were dictated (ruling
         // R20). The box's own hook will hear the new text later (it is posted, not raised inline) and find
@@ -2523,6 +2536,9 @@ public partial class MainWindow : Window
         TerminalHost.Detach();
         SourceControlView.Detach();
         _activeSession = null;
+        // Same reason as the removal path above: _activeSession is nulled here without going through
+        // SelectSession, so the Cockpit button must be hidden explicitly.
+        TabBarCockpitButton.IsVisible = false;
 
         var snapshots = _sessions.ToList();
         _sessions.Clear();
@@ -3178,8 +3194,33 @@ public partial class MainWindow : Window
     private async void BtnCockpit_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control button) return;
-        await BusyAction.RunAsync(button, () => OpenCockpitWithFeedbackAsync(), "Opening...", owner: this,
-            failureTitle: "Cannot Open Cockpit");
+        await BusyAction.RunAsync(button, () => OpenCockpitWithFeedbackAsync(sessionId: null), "Opening...",
+            owner: this, failureTitle: "Cannot Open Cockpit");
+    }
+
+    /// <summary>
+    /// The tab row's Cockpit button: open THIS session's Cockpit screen, where Voice mode and the Wingman
+    /// live. Everything below the session id is the toolbar button's path - the same probe, the same busy
+    /// state, the same dialogs - so there is one way this product opens a Cockpit address and one place a
+    /// failure is worded.
+    /// </summary>
+    private async void TabBarCockpitButton_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] TabBarCockpitButton_Click");
+        if (sender is not Control button) return;
+
+        // The button is shown only with a selected session, so this is the "it went away underneath us"
+        // case (the session was closed between the click and here). Say so in the log and open nothing,
+        // rather than quietly opening the front door - the user asked for a session.
+        var sessionId = _activeSession?.Session.Id.ToString();
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            FileLog.Write("[MainWindow] TabBarCockpitButton_Click: no active session, opening nothing");
+            return;
+        }
+
+        await BusyAction.RunAsync(button, () => OpenCockpitWithFeedbackAsync(sessionId), "Opening...",
+            owner: this, failureTitle: "Cannot Open Cockpit");
     }
 
     /// <summary>
@@ -3188,9 +3229,10 @@ public partial class MainWindow : Window
     /// A LOOP rather than a recursive call: Retry re-runs exactly the same attempt, and someone clicking it
     /// twenty times against a gateway that is still down should not be twenty stack frames deep by the end.
     /// </summary>
-    private async Task OpenCockpitWithFeedbackAsync()
+    /// <param name="sessionId">The session whose Cockpit screen to open, or null for the front door.</param>
+    private async Task OpenCockpitWithFeedbackAsync(string? sessionId)
     {
-        while (await TryOpenCockpitOnceAsync())
+        while (await TryOpenCockpitOnceAsync(sessionId))
         {
             FileLog.Write("[MainWindow] BtnCockpit_Click: user chose Retry");
         }
@@ -3198,10 +3240,11 @@ public partial class MainWindow : Window
 
     /// <summary>One attempt, plus the dialog for each way it can fail. Returns true when the user asked to
     /// retry.</summary>
-    private async Task<bool> TryOpenCockpitOnceAsync()
+    private async Task<bool> TryOpenCockpitOnceAsync(string? sessionId)
     {
         var baseUrl = CockpitUrlResolver.ResolveCockpitBase(GatewayConfig.Load());
-        FileLog.Write($"[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL, baseUrl={baseUrl}");
+        var requestUrl = BuildCockpitInfoRequestUrl(baseUrl, sessionId);
+        FileLog.Write($"[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL, request={requestUrl}");
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
@@ -3211,7 +3254,7 @@ public partial class MainWindow : Window
             // browser-open call of its own, so there is nothing left here for a future edit to quietly
             // re-compose (e.g. appending "/learn"). It only decides which DIALOG to show when nothing opened.
             var url = await OpenCockpitAsync(
-                () => http.GetFromJsonAsync<global::CcDirector.Gateway.Contracts.CockpitInfoDto>(baseUrl + "/cockpit"),
+                () => http.GetFromJsonAsync<global::CcDirector.Gateway.Contracts.CockpitInfoDto>(requestUrl),
                 OpenUrlInBrowser);
             if (url is null)
             {
@@ -3255,6 +3298,19 @@ public partial class MainWindow : Window
     // became {base}/cockpit). Pure, so it is unit-testable without a UI thread.
     internal static string? SelectCockpitOpenUrl(global::CcDirector.Gateway.Contracts.CockpitInfoDto info)
         => info.Url;
+
+    // The GATEWAY REQUEST address this button asks for the Cockpit URL: {gateway base}/cockpit, carrying the
+    // session id as a query parameter when the caller wants ONE session's screen rather than the front door.
+    //
+    // This composes an address to the Gateway's own API, which this button has always done. It does NOT
+    // compose the COCKPIT url: the Gateway reads the session id, resolves {base}/session/{id} itself, and
+    // hands the finished address back in info.Url, which is still opened verbatim (CLAUDE.md rule 7). The
+    // two are different addresses to different places, and only the second one is the client's to leave
+    // alone. Pure, so it is unit-testable without a UI thread or a live Gateway.
+    internal static string BuildCockpitInfoRequestUrl(string baseUrl, string? sessionId)
+        => string.IsNullOrWhiteSpace(sessionId)
+            ? baseUrl + "/cockpit"
+            : baseUrl + "/cockpit?sessionId=" + Uri.EscapeDataString(sessionId.Trim());
 
     // The whole fetch -> select -> OPEN decision for the Cockpit button, lifted OFF the async-void
     // BtnCockpit_Click handler so no cockpit-URL logic AND no browser-open call are left inside it to
@@ -5022,6 +5078,10 @@ public partial class MainWindow : Window
         // Show refresh button only when Terminal tab is active and a session exists
         TabBarRefreshButton.IsVisible = tab == "Terminal" && _activeSession != null;
         TabBarCaptureButton.IsVisible = tab == "Terminal" && _activeSession != null;
+        // The Cockpit button follows the SESSION, not the tab: those two above are terminal actions, this
+        // one is "take me to this session elsewhere", which is true on every tab. Keying it to the tab as
+        // well would make it come and go - the one thing it was placed here to avoid.
+        TabBarCockpitButton.IsVisible = _activeSession != null;
 
         // Swap document panel content
         if (isDocTab)

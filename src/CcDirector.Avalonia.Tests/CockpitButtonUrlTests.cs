@@ -100,6 +100,52 @@ public class CockpitButtonUrlTests
     }
 
     [Fact]
+    public void BuildCockpitInfoRequestUrl_NoSession_AsksForTheFrontDoor()
+    {
+        // The toolbar button asks the same question it always did.
+        var url = MainWindow.BuildCockpitInfoRequestUrl("http://127.0.0.1:7878", sessionId: null);
+
+        Assert.Equal("http://127.0.0.1:7878/cockpit", url);
+    }
+
+    [Fact]
+    public void BuildCockpitInfoRequestUrl_WithSession_AsksForThatSession()
+    {
+        // The tab-row button names the session in the GATEWAY request. What comes back is still opened
+        // verbatim - the client never appends /session/{id} to the Cockpit URL itself.
+        var url = MainWindow.BuildCockpitInfoRequestUrl(
+            "http://127.0.0.1:7878", "2d0955fe-ed31-40c1-a519-72676b4499c5");
+
+        Assert.Equal("http://127.0.0.1:7878/cockpit?sessionId=2d0955fe-ed31-40c1-a519-72676b4499c5", url);
+    }
+
+    [Fact]
+    public void BuildCockpitInfoRequestUrl_SessionIdNeedingEncoding_IsEncoded()
+    {
+        // An id carrying & or = cannot smuggle a second query parameter into the request.
+        var url = MainWindow.BuildCockpitInfoRequestUrl("http://127.0.0.1:7878", "a&b=c");
+
+        Assert.Equal("http://127.0.0.1:7878/cockpit?sessionId=a%26b%3Dc", url);
+    }
+
+    [Fact]
+    public async Task OpenCockpitAsync_SessionUrl_OpensItVerbatim()
+    {
+        // The Gateway resolved the SESSION address. The client opens exactly that - it does not strip it
+        // back to the front door, and it does not append anything to it.
+        var info = new CockpitInfoDto
+        {
+            Url = "https://gateway.devthrottle.com/session/2d0955fe-ed31-40c1-a519-72676b4499c5",
+            Up = true,
+        };
+        string? opened = null;
+
+        await MainWindow.OpenCockpitAsync(() => Task.FromResult<CockpitInfoDto?>(info), u => opened = u);
+
+        Assert.Equal("https://gateway.devthrottle.com/session/2d0955fe-ed31-40c1-a519-72676b4499c5", opened);
+    }
+
+    [Fact]
     public void BuildGatewayUnreachableMessage_LoopbackDefault_UsesLocalGatewayTrayHint()
     {
         // Arrange: no gateway configured -> the resolver returns the loopback default.

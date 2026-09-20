@@ -41,6 +41,13 @@ public static class GatewayPublicUrl
     public const string MobilePath = "/mobile";
 
     /// <summary>
+    /// The prefix of the Cockpit's per-session screen, under the base: the full surface path is
+    /// <c>/session/{session id}</c>. The Cockpit is served at the site root, so the session screen is a
+    /// sibling of <see cref="CockpitPath"/> rather than a child of it.
+    /// </summary>
+    public const string SessionPathPrefix = "/session";
+
+    /// <summary>
     /// Resolve the full public URL for the Cockpit surface (<c>{base}/cockpit</c>) against the live
     /// environment: the configured public base in hosted mode, the tailnet front door otherwise.
     /// </summary>
@@ -57,6 +64,39 @@ public static class GatewayPublicUrl
     /// </summary>
     internal static string? ResolveCockpit(Func<string?> frontDoorProvider)
         => Resolve(CockpitPath, frontDoorProvider);
+
+    /// <summary>
+    /// Resolve the full public URL for ONE session's Cockpit screen (<c>{base}/session/{session id}</c>)
+    /// against the live environment. Same base rule as <see cref="ResolveCockpit()"/>; only the surface
+    /// path differs.
+    ///
+    /// This exists so that a client wanting "this session in the Cockpit" still receives ONE finished URL
+    /// and opens it verbatim. The alternative - handing out the front door and letting the caller append
+    /// the session path - is the client composing a URL, which rule 7 forbids and which a desktop test
+    /// already reddens on.
+    /// </summary>
+    /// <param name="sessionId">The session id. Percent-encoded into the path segment, so an id carrying a
+    /// character that is not path-safe cannot change the shape of the URL.</param>
+    /// <returns>The full session URL, or null in self-host mode when Tailscale is down.</returns>
+    /// <exception cref="ArgumentException">The session id is missing or blank. There is no session screen
+    /// without a session, and silently handing back the front door instead would send the caller somewhere
+    /// it did not ask for.</exception>
+    public static string? ResolveCockpitSession(string sessionId)
+        => ResolveCockpitSession(sessionId, TailscaleIdentity.TryGetFrontDoorBaseUrl);
+
+    /// <summary>
+    /// Session-screen resolver with the self-host front-door source injected, so the self-host branch can
+    /// be driven against a KNOWN front door - the same seam, and for the same reason, as
+    /// <see cref="ResolveCockpit(Func{string?})"/>.
+    /// </summary>
+    internal static string? ResolveCockpitSession(string sessionId, Func<string?> frontDoorProvider)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException(
+                "A session id is required to resolve the Cockpit's session screen.", nameof(sessionId));
+
+        return Resolve($"{SessionPathPrefix}/{Uri.EscapeDataString(sessionId.Trim())}", frontDoorProvider);
+    }
 
     /// <summary>
     /// Resolve the full public URL for the mobile-app surface (<c>{base}/mobile</c>) against the live
