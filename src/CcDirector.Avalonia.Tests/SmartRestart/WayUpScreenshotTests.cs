@@ -4,6 +4,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
+using Avalonia.VisualTree;
 using Avalonia.Threading;
 using CcDirector.Avalonia.SmartRestart;
 using CcDirector.ControlApi.SmartRestart;
@@ -51,6 +52,27 @@ public class WayUpScreenshotTests
         Capture(await HistoryWithThreeRecordsAsync(), folder, "way-up-5-history-three-records.png");
         Capture(await HistoryWithNothingInItAsync(), folder, "way-up-6-history-empty.png");
         Capture(await HistoryRefusedAsync(), folder, "way-up-7-history-gateway-did-not-answer.png");
+        var historyWithAReopenButton = await HistoryWithAReopenButtonAsync();
+        AssertTheReopenButtonIsReallyDrawn(historyWithAReopenButton);
+        Capture(historyWithAReopenButton, folder,
+            "way-up-8-history-a-seat-that-ended-without-a-handover.png");
+    }
+
+    /// <summary>
+    /// The eighth picture is only worth anything if the BUTTON is really in it, and "more than a hundred
+    /// colours" cannot say that. A visible button whose data context is a history seat is exactly what
+    /// the window draws beside a seat that ended without a handover, so this asserts the thing the
+    /// picture is for - and that the second seat, the one with no conversation, has no button.
+    /// </summary>
+    private static void AssertTheReopenButtonIsReallyDrawn(Window window)
+    {
+        var buttons = window.GetVisualDescendants().OfType<Button>()
+            .Where(b => b.IsEffectivelyVisible && b.DataContext is RestartHistorySeatViewModel)
+            .ToList();
+
+        var button = Assert.Single(buttons);
+        Assert.Equal("Reopen its saved conversation", button.Content);
+        Assert.Equal("s-voice", ((RestartHistorySeatViewModel)button.DataContext!).Seat.SessionId);
     }
 
     // ===== The offer =====
@@ -177,7 +199,51 @@ public class WayUpScreenshotTests
                 "Reason: the machine had to be rebooted.",
                 "No session was ever marked to come back.",
                 null,
-                WayUp.HistorySeat("s-billing-totals", "Billing - Developer - the totals", "Ended when time was up, without a handover. Its saved conversation can be reopened.")),
+                WayUp.EndedHistorySeat("s-billing-totals", "Billing - Developer - the totals",
+                    "Ended when time was up, without a handover.",
+                    canReopen: true,
+                    offer: "Reopen its saved conversation",
+                    what: "Claude Code is started again on this session's saved conversation, in the same repository, and told that it was stopped and must check the state of its work before acting.")),
+        ]));
+
+    /// <summary>
+    /// THE HISTORY WITH A REOPEN BUTTON. A record that owes nothing back - it was shut down ignoring
+    /// every session - holding two seats that ended without a handover: one whose saved conversation can
+    /// be reopened, drawn with the engine's own button, and one the engine says has no conversation,
+    /// drawn with the engine's sentence saying so and NO button.
+    ///
+    /// This is the picture of finding 3 answered: before it, the history said such a conversation could
+    /// be reopened and offered no way to do it.
+    /// </summary>
+    private static Task<Window> HistoryWithAReopenButtonAsync() => OpenHistoryAsync(new WayUpHistory(
+        false,
+        "This Director has 2 restart records, newest first.",
+        [
+            WayUp.HistoryEntry(
+                "ws-1",
+                "Shut down on 19 September 2026 at 17:50.",
+                "Shut down ignoring all sessions - nothing from it is offered back.",
+                "Reason: the machine had to be rebooted.",
+                "No session was ever marked to come back.",
+                null,
+                WayUp.EndedHistorySeat("s-voice", "Voice - Developer - the wake word",
+                    "Ended when time was up, without a handover.",
+                    canReopen: true,
+                    offer: "Reopen its saved conversation",
+                    what: "Claude Code is started again on this session's saved conversation, in the same repository, and told that it was stopped and must check the state of its work before acting."),
+                WayUp.EndedHistorySeat("s-lost", "Docs - Reviewer - the install page",
+                    "Never answered, so nothing was written for it.",
+                    canReopen: false,
+                    offer: null,
+                    what: "No conversation was recorded for this session, so there is nothing to reopen. Start it again yourself when you are ready.")),
+            WayUp.HistoryEntry(
+                "ws-2",
+                "Shut down on 18 September 2026 at 09:12.",
+                "Smart shutdown - every session was asked to hand over.",
+                "No reason was given.",
+                "Cancelled on 18 September 2026 at 09:20 - the sessions kept working, so nothing from it is offered back.",
+                null,
+                WayUp.HistorySeat("s-docs", "Docs - Developer - the install page", "Nothing was decided about bringing it back.")),
         ]));
 
     private static Task<Window> HistoryWithNothingInItAsync() => OpenHistoryAsync(new WayUpHistory(

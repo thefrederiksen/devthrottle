@@ -473,16 +473,22 @@ public class WayUpOfferWindowTests
         Assert.Single(engine.BringBackRequests);
     }
 
-    /// <summary>The real button is wired to the real call: pressing it reaches the engine with this
-    /// record's own workspace, and the window remembers that a bring back was asked for.</summary>
+    /// <summary>
+    /// The real button is wired to the real call: pressing it reaches the engine with this record's own
+    /// workspace, and the window remembers that a bring back was asked for.
+    ///
+    /// IT WAITS FOR THE WORK THE PRESS STARTED, and that is the whole difference between this test and a
+    /// flaky one. A press hands its work to a thread pool thread; draining the interface thread's queue
+    /// runs what is already queued there and never waits for the pool.
+    /// </summary>
     [AvaloniaFact]
-    public void BtnBringBack_Clicked_ReachesTheEngineWithThisRecord()
+    public async Task BtnBringBack_Clicked_ReachesTheEngineWithThisRecord()
     {
         var engine = new FakeWayUp();
         var window = Open(ThreeMissions(), engine);
 
         Click(window.BtnBringBack);
-        Dispatcher.UIThread.RunJobs();
+        await window.WorkTheLastPressStarted;
 
         Assert.True(window.BringBackAsked);
         var request = Assert.Single(engine.BringBackRequests);
@@ -517,17 +523,23 @@ public class WayUpOfferWindowTests
         Assert.Empty(engine.BringBackRequests);
     }
 
-    /// <summary>The real button is wired to the real call, and it carries its own row with it - nothing
-    /// is looked up by index, so the second ended row could never be reopened by pressing the first's
-    /// button.</summary>
+    /// <summary>
+    /// The real button is wired to the real call, and it carries its own row with it - nothing is looked
+    /// up by index, so the second ended row could never be reopened by pressing the first's button.
+    ///
+    /// IT WAITS FOR THE WORK THE PRESS STARTED. This test used to assert straight after the press, which
+    /// raced the thread pool the press had just handed its work to: it won by a few microseconds on an
+    /// idle machine and lost about one whole-project run in ten. Under a starved thread pool the engine
+    /// had been asked ZERO times at the instant the press returned, which is that race stopped still.
+    /// </summary>
     [AvaloniaFact]
-    public void BtnReopen_Clicked_ReachesTheEngineWithItsOwnRowsSeat()
+    public async Task BtnReopen_Clicked_ReachesTheEngineWithItsOwnRowsSeat()
     {
         var engine = new FakeWayUp();
         var window = Open(WithAnEndedSeat(), engine);
 
         Click(Assert.Single(RowButtons(window)));
-        Dispatcher.UIThread.RunJobs();
+        await window.WorkTheLastPressStarted;
 
         var request = Assert.Single(engine.ReopenRequests);
         Assert.Equal("s-voice", request.SeatSessionId);

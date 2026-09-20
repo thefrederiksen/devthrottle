@@ -58,6 +58,25 @@ public partial class WayUpOfferWindow : Window
     /// </summary>
     public bool BringBackAsked { get; private set; }
 
+    /// <summary>
+    /// THE WORK THE LAST BUTTON PRESS STARTED, so that a caller can wait for it.
+    ///
+    /// A press hands its work to a thread pool thread - the engine reads the Gateway and starts real
+    /// sessions, and neither may happen on the interface thread (CLAUDE.md rule 1) - so THE PRESS
+    /// RETURNS BEFORE THE WORK HAS RUN, and nothing on the window said when it was finished. Draining
+    /// the interface thread's queue does not answer that: it runs what is already queued there and never
+    /// waits for a thread pool thread.
+    ///
+    /// That is not a theory. With the thread pool starved, the engine had been asked ZERO times at the
+    /// instant the press returned; on an idle machine the pool wins by a few microseconds. It is why
+    /// BtnReopen_Clicked_ReachesTheEngineWithItsOwnRowsSeat passed every filtered run and failed about
+    /// one whole-project run in ten - the assertion was racing the pool.
+    ///
+    /// It is the SAME task the handler itself awaits, so a failure is still raised exactly once and is
+    /// never left unobserved.
+    /// </summary>
+    internal Task WorkTheLastPressStarted { get; private set; } = Task.CompletedTask;
+
     /// <summary>Shows the offer over <paramref name="owner"/> and returns when it is closed.</summary>
     /// <param name="owner">The window it opens over.</param>
     public async Task ShowForAnswerAsync(Window owner)
@@ -69,6 +88,13 @@ public partial class WayUpOfferWindow : Window
     }
 
     private async void BtnBringBack_Click(object? sender, RoutedEventArgs e)
+    {
+        var work = BringBackFromThePressAsync();
+        WorkTheLastPressStarted = work;
+        await work;
+    }
+
+    private async Task BringBackFromThePressAsync()
     {
         try
         {
@@ -101,6 +127,13 @@ public partial class WayUpOfferWindow : Window
     }
 
     private async void BtnReopen_Click(object? sender, RoutedEventArgs e)
+    {
+        var work = ReopenFromThePressAsync(sender);
+        WorkTheLastPressStarted = work;
+        await work;
+    }
+
+    private async Task ReopenFromThePressAsync(object? sender)
     {
         try
         {

@@ -48,7 +48,7 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(engine);
         Record = record;
         _engine = engine;
-        Rows = record.Rows.Select(row => new WayUpRowViewModel(row)).ToList();
+        Rows = record.Rows.Select(row => new WayUpRowViewModel(row, record.WorkspaceId, engine)).ToList();
         FileLog.Write($"[WayUpOfferViewModel] Created: workspace={record.WorkspaceId}, owed={record.SeatsOwed}, " +
                       $"rows={Rows.Count}");
     }
@@ -173,8 +173,10 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// REOPEN one seat that ended without a handover. Off the interface thread for the same reason: it
-    /// starts a real session through the Gateway.
+    /// REOPEN one seat that ended without a handover. The call itself is the row's own
+    /// <see cref="WayUpReopenViewModel"/> - the SAME code the restart history's seats use - so there is
+    /// one way of asking and one set of words however the offer was reached. This window then shows the
+    /// engine's answer where it shows every other answer, beside the two replies.
     /// </summary>
     /// <param name="row">The row whose seat is to be reopened.</param>
     /// <param name="ct">Cancellation.</param>
@@ -188,11 +190,9 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
         IsBusy = true;
         try
         {
-            var request = new WayUpReopenRequest(Record.WorkspaceId, row.RowId);
-            var result = await Task.Run(() => _engine.ReopenAsync(request, ct), ct).ConfigureAwait(true);
+            await row.Reopen.ReopenAsync(ct).ConfigureAwait(true);
             SeatResults = Array.Empty<string>();
-            ResultText = result.Message;
-            FileLog.Write($"[WayUpOfferViewModel] ReopenAsync: started={result.Started}, newSession={result.NewSessionId ?? "none"}");
+            ResultText = row.Reopen.ResultText;
         }
         finally
         {

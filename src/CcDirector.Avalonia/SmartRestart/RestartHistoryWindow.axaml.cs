@@ -50,6 +50,12 @@ public partial class RestartHistoryWindow : Window
     public RestartHistoryViewModel ViewModel { get; }
 
     /// <summary>
+    /// THE WORK THE LAST BUTTON PRESS STARTED, so that a caller can wait for it. See the same property
+    /// on <see cref="WayUpOfferWindow"/> for why it is here.
+    /// </summary>
+    internal Task WorkTheLastPressStarted { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
     /// Opens the restart history over <paramref name="owner"/> and returns when it is closed.
     ///
     /// A Director whose host has not started yet has no engine to ask, so the window says so in the
@@ -89,6 +95,51 @@ public partial class RestartHistoryWindow : Window
     }
 
     private async void BtnBringBack_Click(object? sender, RoutedEventArgs e)
+    {
+        var work = BringBackFromThePressAsync(sender);
+        WorkTheLastPressStarted = work;
+        await work;
+    }
+
+    private async void BtnReopen_Click(object? sender, RoutedEventArgs e)
+    {
+        var work = ReopenFromThePressAsync(sender);
+        WorkTheLastPressStarted = work;
+        await work;
+    }
+
+    /// <summary>
+    /// REOPEN the saved conversation of one seat that ended without a handover.
+    ///
+    /// The engine's offer travels on the seat, so a seat that has one is the only seat with a button,
+    /// and the words are the engine's throughout - what the button says, what it warns will really
+    /// arrive, and whatever comes back of it. This window adds no rule about which records may show it:
+    /// the engine decides, and a cancelled or ignore-all record holding such a seat offers it too.
+    /// </summary>
+    private async Task ReopenFromThePressAsync(object? sender)
+    {
+        try
+        {
+            // The button lives inside the seat's own template, so the seat it belongs to is its data
+            // context. Nothing is looked up by index or by name, so the second seat's button can never
+            // reopen the first seat.
+            if (sender is not Button { DataContext: RestartHistorySeatViewModel seat })
+            {
+                FileLog.Write("[RestartHistoryWindow] BtnReopen_Click: the button has no seat, so nothing was reopened");
+                return;
+            }
+
+            FileLog.Write($"[RestartHistoryWindow] BtnReopen_Click: seat={seat.Seat.SessionId}");
+            await seat.Reopen.ReopenAsync();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[RestartHistoryWindow] BtnReopen_Click FAILED: {ex}");
+            throw;
+        }
+    }
+
+    private async Task BringBackFromThePressAsync(object? sender)
     {
         try
         {

@@ -122,7 +122,9 @@ public sealed class RestartHistoryEntryViewModel
         ArgumentNullException.ThrowIfNull(engine);
         Entry = entry;
         _engine = engine;
-        Seats = entry.Seats.Select(seat => new RestartHistorySeatViewModel(seat)).ToList();
+        Seats = entry.Seats
+            .Select(seat => new RestartHistorySeatViewModel(seat, entry.WorkspaceId, engine))
+            .ToList();
     }
 
     /// <summary>The engine's own record, kept whole.</summary>
@@ -166,15 +168,38 @@ public sealed class RestartHistoryEntryViewModel
     }
 }
 
-/// <summary>What became of one seat, for the history. The engine's sentence, and the seat's name.</summary>
+/// <summary>
+/// What became of one seat, for the history: the engine's sentence, the seat's name, and - for a seat
+/// that ended without a handover - the offer to reopen its saved conversation.
+///
+/// THE BUTTON IS WHY THIS CARRIES AN OFFER AT ALL. The history told the owner such a conversation could
+/// be reopened and gave him no way to do it; the engine now puts the offer on the seat, and drawing it
+/// is what makes that true. It is the SAME <see cref="WayUpReopenViewModel"/> the start-up window's rows
+/// use, so what the button says, when there is no button, and how the engine is asked are settled in one
+/// place for both.
+///
+/// It works on ANY record that holds such a seat - one that still owes seats, a cancelled one, an
+/// ignore-all one. The engine decides which seats carry an offer; nothing here adds a rule of its own
+/// about which records may show one.
+/// </summary>
 public sealed class RestartHistorySeatViewModel
 {
     /// <param name="seat">The seat the engine built.</param>
-    public RestartHistorySeatViewModel(WayUpHistorySeat seat)
+    /// <param name="workspaceId">The record the seat is in, which the reopen names to the engine.</param>
+    /// <param name="engine">The engine, for the reopen this seat may offer.</param>
+    public RestartHistorySeatViewModel(WayUpHistorySeat seat, string workspaceId, IDirectorWayUp engine)
     {
         ArgumentNullException.ThrowIfNull(seat);
         Seat = seat;
+        Reopen = new WayUpReopenViewModel(seat.Reopen, workspaceId, seat.SessionId, engine);
     }
+
+    /// <summary>
+    /// This seat's reopen offer. A seat that handed over or has already come back carries none, and
+    /// nothing is drawn for it; a seat the engine says has no conversation shows the engine's sentence
+    /// saying so and NO button.
+    /// </summary>
+    public WayUpReopenViewModel Reopen { get; }
 
     /// <summary>The engine's own seat.</summary>
     public WayUpHistorySeat Seat { get; }

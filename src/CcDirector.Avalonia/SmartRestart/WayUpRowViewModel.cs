@@ -28,12 +28,18 @@ public sealed class WayUpRowViewModel : INotifyPropertyChanged
     private bool _isBusy;
 
     /// <param name="row">The row the engine built.</param>
-    public WayUpRowViewModel(WayUpRow row)
+    /// <param name="workspaceId">The record this row came from, which the reopen names to the engine.</param>
+    /// <param name="engine">The engine, for the reopen this row may offer.</param>
+    public WayUpRowViewModel(WayUpRow row, string workspaceId, IDirectorWayUp engine)
     {
         ArgumentNullException.ThrowIfNull(row);
         Row = row;
         _ticked = row.Ticked;
         Seats = row.Seats.Select(seat => new WayUpSeatLineViewModel(seat)).ToList();
+
+        // The SAME reopen the restart history draws beside a seat. One class decides whether there is a
+        // button, what it says, and what asking the engine looks like, so the two places cannot drift.
+        Reopen = new WayUpReopenViewModel(row.Reopen, workspaceId, row.RowId, engine);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -86,19 +92,12 @@ public sealed class WayUpRowViewModel : INotifyPropertyChanged
     public IBrush TitleBrush =>
         Kind == WayUpRowKind.EndedWithoutHandover ? EndedWithoutHandoverBrush : BringBackBrush;
 
-    /// <summary>Whether there is a reopen button to draw. False when the engine said there is nothing to
-    /// reopen, in which case only <see cref="ReopenWhat"/> is shown.</summary>
-    public bool HasReopenButton => Row.Reopen is { CanReopen: true } && !_isBusy;
-
-    /// <summary>The reopen button's own words, from the engine.</summary>
-    public string ReopenOffer => Row.Reopen?.Offer ?? "";
-
-    /// <summary>What reopening would really do, from the engine. Always said when this row has an offer,
-    /// including when nothing can be offered.</summary>
-    public string ReopenWhat => Row.Reopen?.What ?? "";
-
-    /// <summary>Whether there is a reopen sentence at all - a bring back row has none.</summary>
-    public bool HasReopenWhat => Row.Reopen is not null;
+    /// <summary>
+    /// This row's reopen offer - whether there is a button, what it says, the engine's sentence beside
+    /// it, and the call that takes it. It is the SAME class the restart history draws beside a seat, so
+    /// there is one answer to all of that and not two.
+    /// </summary>
+    public WayUpReopenViewModel Reopen { get; }
 
     /// <summary>Stops the tick box and the reopen button while a call to the engine is in flight.</summary>
     /// <param name="busy">Whether a call is in flight.</param>
@@ -106,8 +105,8 @@ public sealed class WayUpRowViewModel : INotifyPropertyChanged
     {
         if (_isBusy == busy) return;
         _isBusy = busy;
+        Reopen.SetScreenBusy(busy);
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanTick)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasReopenButton)));
     }
 }
 

@@ -109,14 +109,14 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <TextBlock Text="{Binding ReopenWhat}"
-                                           IsVisible="{Binding HasReopenWhat}"
+                                <TextBlock Text="{Binding Reopen.WhatText}"
+                                           IsVisible="{Binding Reopen.HasWhat}"
                                            Foreground="#888888"
                                            FontSize="11"
                                            TextWrapping="Wrap"
                                            Margin="26,4,0,0" />
-                                <Button Content="{Binding ReopenOffer}"
-                                        IsVisible="{Binding HasReopenButton}"
+                                <Button Content="{Binding Reopen.OfferText}"
+                                        IsVisible="{Binding Reopen.HasButton}"
                                         Classes="secondary"
                                         Click="BtnReopen_Click"
                                         Background="#3C3C3C" Foreground="#CCCCCC"

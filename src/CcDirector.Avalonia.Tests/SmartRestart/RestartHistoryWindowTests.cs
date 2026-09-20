@@ -92,8 +92,29 @@ public class RestartHistoryWindowTests
     /// and so is a Button, so toggles are left out by type, and the window's own Close by its name.</summary>
     private static List<Button> RecordButtons(Window window) =>
         window.GetVisualDescendants().OfType<Button>()
-            .Where(b => b is not ToggleButton && b.IsEffectivelyVisible && b.Name is null)
+            .Where(b => b is not ToggleButton && b.IsEffectivelyVisible && b.Name is null
+                        && b.DataContext is RestartHistoryEntryViewModel)
             .ToList();
+
+    /// <summary>
+    /// The buttons drawn beside a SEAT - the reopen offers. Each is found by the seat it belongs to,
+    /// never by its position in the window, which is what lets a test press one seat's button and prove
+    /// the engine was told about THAT seat.
+    /// </summary>
+    private static List<Button> SeatReopenButtons(Window window) =>
+        window.GetVisualDescendants().OfType<Button>()
+            .Where(b => b.IsEffectivelyVisible && b.DataContext is RestartHistorySeatViewModel)
+            .ToList();
+
+    private static void Click(Button button)
+    {
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static Button ReopenButtonFor(Window window, string seatSessionId) =>
+        SeatReopenButtons(window)
+            .Single(b => ((RestartHistorySeatViewModel)b.DataContext!).Seat.SessionId == seatSessionId);
 
     // ===== The window opens =====
 
@@ -333,5 +354,178 @@ public class RestartHistoryWindowTests
         Assert.False(reopen.Started);
         Assert.Null(reopen.NewSessionId);
         Assert.Equal(expected, reopen.Message);
+    }
+
+    // ===== The reopen a seat carries, wherever it is shown =====
+
+    /// <summary>What the engine's button says for a seat whose conversation can be reopened.</summary>
+    private const string ReopenOfferWords = "Reopen its saved conversation";
+
+    /// <summary>The engine's sentence for what reopening would really do.</summary>
+    private const string ReopenWhatWords =
+        "Claude Code is started again on this session's saved conversation, in the same repository, and " +
+        "told that it was stopped and must check the state of its work before acting.";
+
+    /// <summary>The engine's sentence for a seat with no conversation to reopen.</summary>
+    private const string NothingToReopenWords =
+        "No conversation was recorded for this session, so there is nothing to reopen. Start it again " +
+        "yourself when you are ready.";
+
+    /// <summary>
+    /// Two records that owe NOTHING back - one cancelled, one shut down ignoring every session - each
+    /// holding a seat that ended without a handover. Neither carries a bring back offer, and that is the
+    /// point: this is exactly where the history told the owner a saved conversation could be reopened and
+    /// gave him no way to take it.
+    /// </summary>
+    private static WayUpHistory RecordsThatOweNothingButHoldSavedConversations() => new(
+        Refused: false,
+        Message: "This Director has 2 restart records, newest first.",
+        Entries:
+        [
+            WayUp.HistoryEntry(
+                "ws-cancelled",
+                "Shut down on 18 September 2026 at 09:12.",
+                "Smart shutdown - every session was asked to hand over.",
+                "No reason was given.",
+                "Cancelled on 18 September 2026 at 09:20 - the sessions kept working, so nothing from it is offered back.",
+                null,
+                WayUp.HistorySeat("s-handed", "Billing - Delivery Lead - invoices", "Handed over and is waiting to be brought back."),
+                WayUp.EndedHistorySeat("s-voice", "Voice - Developer - the wake word",
+                    "Ended when time was up, without a handover.", true, ReopenOfferWords, ReopenWhatWords)),
+            WayUp.HistoryEntry(
+                "ws-ignore-all",
+                "Shut down on 17 September 2026 at 22:04.",
+                "Shut down ignoring all sessions - nothing from it is offered back.",
+                "Reason: the machine had to be rebooted.",
+                "No session was ever marked to come back.",
+                null,
+                WayUp.EndedHistorySeat("s-lost", "Docs - Reviewer - the install page",
+                    "Never answered, so nothing was written for it.", false, null, NothingToReopenWords)),
+        ]);
+
+    /// <summary>
+    /// A seat that ended without a handover gets a REAL BUTTON, worded by the engine, and the engine's
+    /// sentence saying what pressing it would really do. A seat that handed over gets neither - a button
+    /// beside it would start a second copy of a session the bring back is going to restore.
+    ///
+    /// This is finding 3 made visible. Until this window drew it, the engine's fix was invisible and the
+    /// history still made a promise it did not keep.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Load_ASeatThatEndedWithoutAHandover_DrawsAButtonWordedByTheEngine()
+    {
+        var engine = new FakeWayUp { History = RecordsThatOweNothingButHoldSavedConversations() };
+
+        var window = await OpenAndLoad(engine);
+
+        var button = Assert.Single(SeatReopenButtons(window));
+        Assert.Equal(ReopenOfferWords, button.Content);
+        Assert.Equal("s-voice", ((RestartHistorySeatViewModel)button.DataContext!).Seat.SessionId);
+        Assert.Contains(ReopenWhatWords, WayUpOfferWindowTests.DrawnTexts(window));
+
+        // The seat that handed over says what became of it and nothing about reopening.
+        var handedOver = window.ViewModel.Entries[0].Seats.Single(s => s.Seat.SessionId == "s-handed");
+        Assert.False(handedOver.Reopen.HasWhat);
+        Assert.False(handedOver.Reopen.HasButton);
+    }
+
+    /// <summary>
+    /// A seat the engine says has NO conversation shows the engine's sentence saying so and NO BUTTON. A
+    /// button that could never work is the defect this rule exists to stop.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Load_ASeatWithNoConversation_ShowsTheEnginesSentenceAndNoButton()
+    {
+        var engine = new FakeWayUp { History = RecordsThatOweNothingButHoldSavedConversations() };
+
+        var window = await OpenAndLoad(engine);
+
+        Assert.Contains(NothingToReopenWords, WayUpOfferWindowTests.DrawnTexts(window));
+        Assert.DoesNotContain(SeatReopenButtons(window),
+            b => ((RestartHistorySeatViewModel)b.DataContext!).Seat.SessionId == "s-lost");
+    }
+
+    /// <summary>
+    /// A record that owes nothing back - cancelled, or shut down ignoring every session - still offers the
+    /// saved conversations it holds. The ENGINE decides which seats carry an offer; this window adds no
+    /// rule of its own about which records may show one.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Load_RecordsThatOweNothing_StillOfferTheirSavedConversations()
+    {
+        var engine = new FakeWayUp { History = RecordsThatOweNothingButHoldSavedConversations() };
+
+        var window = await OpenAndLoad(engine);
+
+        Assert.All(window.ViewModel.Entries, entry => Assert.False(entry.HasOffer));
+        Assert.Empty(RecordButtons(window));
+        Assert.Single(SeatReopenButtons(window));
+    }
+
+    /// <summary>
+    /// The real button is wired to the real call: pressing it reaches the engine naming THAT seat and
+    /// that record, OFF the interface thread, and what comes back is the engine's own sentence, drawn
+    /// beside the seat.
+    ///
+    /// It waits for the work the press started, because a press hands its work to a thread pool thread
+    /// and draining the interface thread's queue never waits for one.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task BtnReopen_Clicked_ReachesTheEngineNamingThatSeatAndShowsItsAnswer()
+    {
+        var engine = new FakeWayUp
+        {
+            History = RecordsThatOweNothingButHoldSavedConversations(),
+            Reopen = new WayUpReopenResult(true, "new-9",
+                "Claude Code was started again on its saved conversation as new-9."),
+        };
+        var window = await OpenAndLoad(engine);
+
+        Click(ReopenButtonFor(window, "s-voice"));
+        await window.WorkTheLastPressStarted;
+        Dispatcher.UIThread.RunJobs();
+
+        var request = Assert.Single(engine.ReopenRequests);
+        Assert.Equal("ws-cancelled", request.WorkspaceId);
+        Assert.Equal("s-voice", request.SeatSessionId);
+        Assert.False(engine.WasEverCalledOnTheInterfaceThread);
+        Assert.Contains("Claude Code was started again on its saved conversation as new-9.",
+            WayUpOfferWindowTests.DrawnTexts(window));
+        Assert.Empty(engine.BringBackRequests);
+    }
+
+    /// <summary>
+    /// EACH BUTTON CARRIES ITS OWN SEAT. Two seats in one record both offer a reopen; pressing the SECOND
+    /// names the second seat. A button that found its seat by position would reopen the wrong session, and
+    /// nothing on the screen would tell the owner that it had.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task BtnReopen_OnTheSecondSeat_NamesTheSecondSeatAndNeverTheFirst()
+    {
+        var engine = new FakeWayUp
+        {
+            History = new WayUpHistory(false, "This Director has one restart record.",
+            [
+                WayUp.HistoryEntry(
+                    "ws-both",
+                    "Shut down on 19 September 2026 at 17:50.",
+                    "Shut down ignoring all sessions - nothing from it is offered back.",
+                    "No reason was given.",
+                    "No session was ever marked to come back.",
+                    null,
+                    WayUp.EndedHistorySeat("s-first", "Voice - Developer - the wake word",
+                        "Ended when time was up, without a handover.", true, ReopenOfferWords, ReopenWhatWords),
+                    WayUp.EndedHistorySeat("s-second", "Docs - Developer - the install page",
+                        "Ended when time was up, without a handover.", true, ReopenOfferWords, ReopenWhatWords)),
+            ]),
+        };
+        var window = await OpenAndLoad(engine);
+        Assert.Equal(2, SeatReopenButtons(window).Count);
+
+        Click(ReopenButtonFor(window, "s-second"));
+        await window.WorkTheLastPressStarted;
+
+        var request = Assert.Single(engine.ReopenRequests);
+        Assert.Equal("s-second", request.SeatSessionId);
     }
 }
