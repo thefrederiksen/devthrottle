@@ -67,8 +67,10 @@ public sealed class DirectorHub : Hub
         TurnPushCapabilityRegistry? turnPushCapabilities = null,
         Briefing.TurnEndWatcher? turnEnds = null,
         FleetManagerHomeCapabilityRegistry? fleetManagerHomeCapabilities = null,
-        History.DiscoveredRepositoryObserver? discoveredRepositories = null)
+        History.DiscoveredRepositoryObserver? discoveredRepositories = null,
+        Fleet.RaisedSessionStore? raisedSessions = null)
     {
+        _raisedSessions = raisedSessions;
         _discoveredRepositories = discoveredRepositories;
         _fleetManagerHomeCapabilities = fleetManagerHomeCapabilities;
         _turnEnds = turnEnds;
@@ -103,6 +105,11 @@ public sealed class DirectorHub : Hub
     /// holding a key the Gateway will never accept, which reads as an agent whose tools are broken.
     /// </summary>
     private readonly Pairing.SessionKeyRegistry? _sessionKeys;
+
+    /// <summary>The account's list of raised sessions (the Fleet Manager Improvement mission, phase 1). A raised entry
+    /// ends with its session, and the reap below is where the Gateway learns a session has ended. Null in tests and
+    /// older callers, where no session is ever raised.</summary>
+    private readonly Fleet.RaisedSessionStore? _raisedSessions;
 
     private readonly RepoHistoryStore? _repoHistory;
     /// <summary>The one-repository-list mission, phase 2: the THIRD observer on the accepted repository
@@ -550,7 +557,10 @@ public sealed class DirectorHub : Hub
         }
 
         var revoked = _sessionKeys.Revoke(tenant, sessionId, Pairing.SessionKeyRegistry.ReasonSessionReaped);
-        FileLog.Write($"[DirectorHub] RevokeSessionKey: director={directorId}, session={sessionId}, revoked={revoked}");
+        // A RAISED ENTRY ENDS WITH ITS SESSION. The key above is what made the entry usable, so it is already inert;
+        // removing it keeps the list to sessions that exist.
+        var lowered = _raisedSessions?.EndWithSession(tenant, sessionId) ?? false;
+        FileLog.Write($"[DirectorHub] RevokeSessionKey: director={directorId}, session={sessionId}, revoked={revoked}, raisedEntryRemoved={lowered}");
     }
 
     /// <summary>A full snapshot: replaces the bound Director's session set (pruning anything absent).</summary>

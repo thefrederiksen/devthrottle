@@ -25,8 +25,11 @@ namespace CcDirector.Gateway.Api;
 /// request), 409 (the state does not allow it) or 502 (the computer did not start it).
 ///
 /// THE OWNER'S ROUTES. The four writes change what runs on a computer, so <see cref="SessionKeyGuard"/> refuses a
-/// session key on all of them - the Fleet Manager cannot move or restart itself - and the read is refused too. A
-/// person's device reaches them through the host-wide middleware like every other /gateway route.
+/// session key on all of them, and the read is refused too. A person's device reaches them through the host-wide
+/// middleware like every other /gateway route. THE ONE SESSION KEY THAT REACHES THEM is a session the owner has
+/// RAISED to act with his permissions (the Fleet Manager Improvement mission, phase 1): the guard lets it in on that
+/// grant and records the request with the session that made it. A Fleet Manager that is not raised still cannot move
+/// or restart itself.
 /// </summary>
 internal static class FleetManagerPlacementEndpoints
 {
@@ -95,7 +98,7 @@ internal static class FleetManagerPlacementEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant) return NoTenant();
             if (SessionCaller(ctx) is { } refused) return refused;
-            return Answer("POST start", await service.StartAsync(tenant, StampOrigin(ctx, StartRoute), ctx.RequestAborted));
+            return Answer("POST start", await service.StartAsync(tenant, StampOrigin(ctx, StartRoute), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -112,7 +115,7 @@ internal static class FleetManagerPlacementEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant) return NoTenant();
             if (SessionCaller(ctx) is { } refused) return refused;
-            return Answer("POST restart", await service.RestartAsync(tenant, StampOrigin(ctx, RestartRoute), ctx.RequestAborted));
+            return Answer("POST restart", await service.RestartAsync(tenant, StampOrigin(ctx, RestartRoute), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -131,7 +134,7 @@ internal static class FleetManagerPlacementEndpoints
             if (SessionCaller(ctx) is { } refused) return refused;
             var (body, error) = await ReadBodyAsync(ctx);
             if (error is not null) return error;
-            return Answer("POST move", await service.MoveAsync(tenant, body, StampOrigin(ctx, MoveRoute), ctx.RequestAborted));
+            return Answer("POST move", await service.MoveAsync(tenant, body, StampOrigin(ctx, MoveRoute), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -142,20 +145,26 @@ internal static class FleetManagerPlacementEndpoints
 
     /// <summary>
     /// The origin stamp both spawn doors apply, applied here too: a person's verified device overwrites what the
-    /// request says. The session-key arm of <see cref="SpawnOrigin"/> is never reached - these routes refuse a
-    /// session key before this runs, and the guard refuses it before that.
+    /// request says. The session-key arm of <see cref="SpawnOrigin"/> is reached only by a RAISED session (every other
+    /// session key is refused before this runs, and by the guard before that). That arm requires an agent's spawn to
+    /// say who owns the result, and for a Fleet Manager there is one answer: the owner. It answers to nobody else, and
+    /// <see cref="FleetManagerSessions.IsFleetManager"/> does not treat a session another session owns as one.
     /// </summary>
     private static Action<NewSessionRequest> StampOrigin(HttpContext ctx, string route)
         => req =>
         {
+            if (AuthMiddleware.CallingSession(ctx) is not null)
+                req.ControllerSessionId = SpawnOrigin.UserOwned;
             if (!SpawnOrigin.TryEstablish(req, ctx, route, out _))
-                throw new InvalidOperationException($"{route}: the spawn origin was refused for a request that is not a session's");
+                throw new InvalidOperationException($"{route}: the spawn origin was refused for a Fleet Manager start");
         };
 
-    /// <summary>A second line behind <see cref="SessionKeyGuard"/>: a session key never reaches a start.</summary>
+    /// <summary>A second line behind <see cref="SessionKeyGuard"/>: a session key never reaches a start - unless the
+    /// owner has RAISED that session, in which case the guard let it in on the owner's grant and recorded it.</summary>
     private static IResult? SessionCaller(HttpContext ctx)
     {
         if (AuthMiddleware.CallingSession(ctx) is null) return null;
+        if (AuthMiddleware.RaisedGrantOf(ctx) == RaisedGrant.FleetManagerOwnerRoute) return null;
         FileLog.Write("[FleetManagerPlacementEndpoints] REFUSED: a session key asked to start, restart or move the Fleet Manager");
         return Results.Json(new { error = "Only the owner can start, restart or move the Fleet Manager." },
             statusCode: StatusCodes.Status403Forbidden);

@@ -290,6 +290,14 @@ public sealed class GatewayHost : IAsyncDisposable
     /// step 3). Written when the mark is set; read by the Fleet Manager digest.</summary>
     internal Fleet.FleetManagerMarkHistory FleetManagerMarks { get; }
 
+    /// <summary>The sessions each account has RAISED to act with the owner's permissions (the Fleet Manager
+    /// Improvement mission, phase 1) - the one list the guard, the message routes and the roster fold ask.</summary>
+    internal Fleet.RaisedSessionStore RaisedSessions { get; }
+
+    /// <summary>The record of every raise, every lower, and every action a raised session took that no other session
+    /// key may, in the governance audit trail.</summary>
+    internal Fleet.RaisedSessionRecord RaisedSessionRecord { get; }
+
     /// <summary>The Gateway's record of what each utterance upload transcribed (inspection finding I2-03), spent
     /// by the prompt route when a prompt claims to be that utterance. One per process, shared by the utterance
     /// completion route that writes it and the prompt route that spends it. In memory by design.</summary>
@@ -1772,6 +1780,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // until the owner explicitly overrides one.
         _tenantSettings = new Settings.TenantSettingsStore(_gatewayDb);
         _tenantSettingsResolver = new Settings.TenantSettingsResolver(_tenantSettings);
+        // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
+        // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
+        RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
+        RaisedSessionRecord = new Fleet.RaisedSessionRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -3456,6 +3468,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // Remove-the-network-port phase 1b: the DirectorHub (constructed per-invocation by SignalR) registers
         // and revokes session keys through the SAME registry the auth gate verifies against.
         builder.Services.AddSingleton(SessionKeys);
+        // The hub ends a raised entry when it reaps the session (the Fleet Manager Improvement mission, phase 1).
+        builder.Services.AddSingleton(RaisedSessions);
         // launcher-persistent-join: the LauncherHub (constructed per-invocation by SignalR) and
         // SendLauncherCommandAsync share this one connection registry.
         builder.Services.AddSingleton(LauncherConnections);
@@ -3577,7 +3591,15 @@ public sealed class GatewayHost : IAsyncDisposable
             // own unique key. The shared token still authenticates the host's own browser/cookie
             // surface, but it is no longer the path a NEW device uses to get in (that is account
             // sign-in - see SignedInEnrollmentEndpoint).
-            var requireToken = new AuthMiddleware.RequireToken { Token = Token, Devices = Devices, Leases = _accessLeases, Boundary = _tenantBoundary, Sessions = SessionKeys };
+            var requireToken = new AuthMiddleware.RequireToken
+            {
+                Token = Token, Devices = Devices, Leases = _accessLeases, Boundary = _tenantBoundary, Sessions = SessionKeys,
+                // The Fleet Manager Improvement mission, phase 1: a raised session passes two refusals no other session
+                // key does, and each time it does is recorded first. The tenant asked about is the session key's own.
+                IsRaised = identity => RaisedSessions.IsRaised(identity.Tenant, identity.SessionId.ToString()),
+                RecordRaisedAction = (identity, grant, method, path) => RaisedSessionRecord.Action(identity.Tenant,
+                    identity.SessionId.ToString(), Fleet.RaisedSessionRecord.DescribeGuardGrant(grant, method, path)),
+            };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
 
@@ -3770,6 +3792,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // The Wingman's debug view asks this for ONE thing: the calling account's own email, which is what its
             // staff gate is decided on. Without it the route is open to nobody.
             tenantRegistry: TenantRegistry,
+            raisedSessions: RaisedSessions,
+            raisedRecord: RaisedSessionRecord,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -4354,7 +4378,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 // Read when the mark moves: the events service is created earlier in this method.
                 Events = () => _fleetManagerEvents,
             },
-            _fleetManagerDeliveryGate);
+            _fleetManagerDeliveryGate,
+            // Raised follows the mark: this service is where the mark is set by hand, set by a start, and handed on.
+            raised: RaisedSessions, raisedRecord: RaisedSessionRecord);
         // A restart or a move left under way by an earlier process carries on (the mark moves only after the old Fleet
         // Manager has closed, and that can outlast a Gateway restart).
         var replacementSweep = new Fleet.FleetManagerReplacementSweep(_tenantBoundary, TenantRegistry, _tenantContext,
@@ -4365,6 +4391,15 @@ public sealed class GatewayHost : IAsyncDisposable
         FleetManagerPlacementEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             service: _fleetManagerPlacement);
+
+        // Raise and lower a session (the Fleet Manager Improvement mission, phase 1). The owner's own device only:
+        // SessionKeyGuard lists neither route, so every session key - a raised one included - is refused first.
+        RaisedSessionEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            raised: RaisedSessions,
+            record: RaisedSessionRecord,
+            findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            nowUtc: () => DateTime.UtcNow);
 
         // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:
         // SessionKeyGuard refuses a session key, and the handler allows only the owner's own phone or browser.

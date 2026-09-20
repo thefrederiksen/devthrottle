@@ -51,6 +51,10 @@ public sealed class GovernanceAuditLog
         GovernanceAuditEventType.Stopped,
         // Who moved a session between owners is the fact the row exists to hold.
         GovernanceAuditEventType.HandedOver,
+        // Who raised or lowered a session, and which raised session acted, are the facts these rows exist to hold.
+        GovernanceAuditEventType.SessionRaised,
+        GovernanceAuditEventType.SessionLowered,
+        GovernanceAuditEventType.RaisedAction,
     };
 
     public GovernanceAuditLog(GatewayDatabase db)

@@ -857,6 +857,17 @@ public sealed class SessionDto
     public SessionOwnerChangeDto? OwnerChange { get; set; }
 
     /// <summary>
+    /// GATEWAY-OWNED: whether the owner has RAISED this session to act with his own permissions, and the one change
+    /// to that he may make now - raise it, or lower it - with every word (the Fleet Manager Improvement mission,
+    /// phase 1). Stamped by the roster fold from the account's list of raised sessions
+    /// (<c>Fleet.RaisedSessions.IsRaised</c>); null only where no list was read (a fold with no account). A client
+    /// draws the mark and offers exactly this action; the routes (<c>POST /sessions/{id}/raise</c> and
+    /// <c>/lower</c>) serve the owner's own device only. Assigned on every fold and only ever replaced wholesale, like
+    /// <see cref="Pin"/>.
+    /// </summary>
+    public SessionRaiseDto? Raise { get; set; }
+
+    /// <summary>
     /// A supervised session has its hand up: it is still WORKING and has hit something it cannot decide
     /// inside its mandate (issue #2662). Gateway-owned and Gateway-stamped, from the hand-raise registry.
     ///

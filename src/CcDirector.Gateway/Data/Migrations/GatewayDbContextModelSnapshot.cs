@@ -1348,6 +1348,44 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("push_subscriptions", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.RaisedSessionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("RaisedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RaisedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "SessionId")
+                        .IsUnique();
+
+                    b.ToTable("raised_sessions", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.RepoStateEntity", b =>
                 {
                     b.Property<string>("TenantId")
