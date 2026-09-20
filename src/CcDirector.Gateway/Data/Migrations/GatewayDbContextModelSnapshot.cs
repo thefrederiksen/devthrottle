@@ -1246,7 +1246,13 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("LastUsedUtc")
+                    b.Property<string>("DiscoveredByDirectorId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastSeenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastUsedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("MachineKey")

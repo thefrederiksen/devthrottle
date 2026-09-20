@@ -66,6 +66,11 @@ public sealed class GatewayHostBootSmokeTests
     // given the judge's.
     private const string WingmanNarrationCallTracePostgresMigration = "20260918181205_AddWingmanNarrationCallTrace";
     private const string WingmanNarrationCallTraceSqliteMigration = "20260918171353_AddWingmanNarrationCallTrace";
+    // The one-repository-list mission, phase 2: the known-repositories catalog holds the found-but-never-
+    // opened half, so its last-used time becomes nullable and it gains the reporting Director and a
+    // last-seen stamp.
+    private const string DiscoveredRepositoriesPostgresMigration = "20260920021806_AddDiscoveredRepositories";
+    private const string DiscoveredRepositoriesSqliteMigration = "20260920021757_AddDiscoveredRepositories";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -112,7 +117,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(TurnVerdictAnswerChoicePostgresMigration, migrations);
         Assert.Contains(FleetOutcomeStopIdentityPostgresMigration, migrations);
         Assert.Contains(WingmanNarrationCallTracePostgresMigration, migrations);
-        Assert.Equal(WingmanNarrationCallTracePostgresMigration, migrations[^1]);
+        Assert.Contains(DiscoveredRepositoriesPostgresMigration, migrations);
+        Assert.Equal(DiscoveredRepositoriesPostgresMigration, migrations[^1]);
     }
 
     /// <summary>
@@ -157,7 +163,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(TurnVerdictAnswerChoiceSqliteMigration, sqliteAll);
         Assert.Contains(FleetOutcomeStopIdentitySqliteMigration, sqliteAll);
         Assert.Contains(WingmanNarrationCallTraceSqliteMigration, sqliteAll);
-        Assert.Equal(WingmanNarrationCallTraceSqliteMigration, sqliteAll[^1]);
+        Assert.Contains(DiscoveredRepositoriesSqliteMigration, sqliteAll);
+        Assert.Equal(DiscoveredRepositoriesSqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
@@ -246,8 +253,9 @@ public sealed class GatewayHostBootSmokeTests
             FleetManagerEventOutcomeAnswerSqliteMigration,
             TurnVerdictAnswerChoiceSqliteMigration,
             FleetOutcomeStopIdentitySqliteMigration,
-            WingmanNarrationCallTraceSqliteMigration);
-        Assert.Equal(WingmanNarrationCallTraceSqliteMigration, applied[^1]);
+            WingmanNarrationCallTraceSqliteMigration,
+            DiscoveredRepositoriesSqliteMigration);
+        Assert.Equal(DiscoveredRepositoriesSqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -289,8 +297,9 @@ public sealed class GatewayHostBootSmokeTests
             FleetManagerEventOutcomeAnswerPostgresMigration,
             TurnVerdictAnswerChoicePostgresMigration,
             FleetOutcomeStopIdentityPostgresMigration,
-            WingmanNarrationCallTracePostgresMigration);
-        Assert.Equal(WingmanNarrationCallTracePostgresMigration, migrations[^1]);
+            WingmanNarrationCallTracePostgresMigration,
+            DiscoveredRepositoriesPostgresMigration);
+        Assert.Equal(DiscoveredRepositoriesPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }

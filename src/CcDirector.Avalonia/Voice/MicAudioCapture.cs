@@ -459,13 +459,34 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
         return edges;
     }
 
+    /// <summary>
+    /// Release the capture device. THIS NEVER THROWS, and that is a contract rather than a convenience.
+    ///
+    /// Disposal runs from <c>using</c> blocks and <c>finally</c> blocks, so an exception raised here does
+    /// not report a new problem - it REPLACES whatever problem was already being reported, and the caller
+    /// is handed a message about the wrong thing. The failure that made this concrete is a machine where
+    /// the capture library is not present at all: <c>_waveIn.Dispose()</c> reaches winmm, which exists only
+    /// on Windows, and a caller on macOS or Linux got a <c>DllNotFoundException</c> naming <c>winmm.dll</c>
+    /// out of a cleanup path.
+    ///
+    /// Nothing is hidden by this. A device that cannot be opened still fails loudly when capture is STARTED,
+    /// which is where the caller can do something about it; what a teardown has to do is finish and say what
+    /// went wrong, and both of those happen here.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        try { Stop(); } catch { }
+        Stop();                 // already logs its own failure rather than raising it
         _waveIn.DataAvailable -= OnDataAvailable;
         _waveIn.RecordingStopped -= OnRecordingStopped;
-        _waveIn.Dispose();
+        try
+        {
+            _waveIn.Dispose();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MicAudioCapture] Dispose: releasing the capture device FAILED: {ex.Message}");
+        }
     }
 }

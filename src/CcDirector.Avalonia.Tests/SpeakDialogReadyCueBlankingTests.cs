@@ -59,6 +59,13 @@ public sealed class SpeakDialogReadyCueBlankingTests : IDisposable
 
         var dialog = new SpeakDialog(new AgentOptions())
         {
+            // PIN THE DEVICE, because this test is not about device discovery. Without these the dialog
+            // runs the real winmm enumeration on its way to the recorder factory, so the test depended on
+            // whatever microphones the machine running it happens to have - and on macOS and Linux, where
+            // there is no winmm at all, startup threw before the factory was ever reached and the test
+            // reported a failure of the ready cue it had not got anywhere near.
+            ResolveMicForTests = () => new MicDevice(1, "Fake Test Microphone"),
+            EnumerateMicsForTests = () => new List<MicDevice> { new(1, "Fake Test Microphone") },
             RecorderFactoryForTests = _ =>
             {
                 recorder = new BatchDictationRecorder(new AgentOptions(), _ => mic, (pcm, _, _) =>

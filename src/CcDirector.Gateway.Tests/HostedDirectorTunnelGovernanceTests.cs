@@ -146,7 +146,9 @@ public sealed class HostedDirectorTunnelGovernanceTests : IAsyncLifetime
         // read it back, and the row the daily email exists to surface exists at all on hosted.
         Assert.Single(attention, a => TypeOf(a) == "waiting-session");
         var waiting = attention.Single(a => TypeOf(a) == "waiting-session");
-        Assert.Equal("s-gov-1", waiting.GetProperty("session").GetString());
+        // The contract (WaitingSessionAttentionDto.Session) carries the friendly NAME while the Gateway can see
+        // the session live, and the id only when it cannot - the email prints this value into a sentence.
+        Assert.Equal("gov - the waiting session", waiting.GetProperty("session").GetString());
 
         // And the LAST WORD wins, through the tunnel too: the session came back, so the waiting row must go.
         await conn.InvokeAsync("PushSnapshot", 2L, new[]

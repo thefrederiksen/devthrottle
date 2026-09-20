@@ -1276,7 +1276,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("LastUsedUtc")
+                    b.Property<string>("DiscoveredByDirectorId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastSeenUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastUsedUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("MachineKey")

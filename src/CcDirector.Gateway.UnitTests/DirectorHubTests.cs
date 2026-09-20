@@ -641,4 +641,94 @@ public sealed class DirectorHubTests : IDisposable
         public bool Aborted { get; private set; }
         public override void Abort() => Aborted = true;
     }
+
+    // ---------- Issue #3124 (the 8-day empty ledger): the tunnel feeds the session-state funnel ----------
+
+    /// <summary>An observation recorder: a plain sink bound to a list, so the tests assert exactly what the
+    /// funnel received.</summary>
+    private static List<(string Director, string Session, string State)> Record(out CcDirector.Gateway.Streaming.SessionStateObservationSink sink)
+    {
+        var seen = new List<(string, string, string)>();
+        var plain = new CcDirector.Gateway.Streaming.SessionStateObservationSink();
+        plain.Bind((d, s, st) => seen.Add((d, s, st)));
+        sink = plain;
+        return seen;
+    }
+
+    private DirectorHub HubWithSink(CcDirector.Gateway.Streaming.SessionStateObservationSink sink, string connectionId = "conn-gov")
+        => new(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(),
+               sessionState: sink)
+           { Context = new FakeHubCallerContext(connectionId) };
+
+    [Fact]
+    public void AnAcceptedSnapshotFeedsTheSessionStateFunnelForEverySession()
+    {
+        // The defect this pins (issue #3124): the funnel's only callers were the legacy HTTP legs, which are
+        // 403 on hosted - so on the hosted gateway the governance ledger recorded nothing, ever, and every
+        // daily report read "0 agent sessions ran yesterday" for a working fleet. The tunnel snapshot is
+        // now the second ingress plane.
+        var seen = Record(out var sink);
+        var hub = HubWithSink(sink);
+        hub.Hello(Hello("dir-gov"));
+
+        hub.PushSnapshot(1, new[]
+        {
+            new SessionDto { SessionId = "s1", ActivityState = "Working" },
+            new SessionDto { SessionId = "s2", ActivityState = "WaitingForInput" },
+        });
+
+        Assert.Equal(new[]
+        {
+            ("dir-gov", "s1", "Working"),
+            ("dir-gov", "s2", "WaitingForInput"),
+        }, seen);
+    }
+
+    [Fact]
+    public void AnAcceptedDeltaFeedsTheFunnelForThatSession()
+    {
+        var seen = Record(out var sink);
+        var hub = HubWithSink(sink);
+        hub.Hello(Hello("dir-gov"));
+
+        hub.PushDelta(1, new SessionDto { SessionId = "s1", ActivityState = "Idle" });
+
+        Assert.Equal(new[] { ("dir-gov", "s1", "Idle") }, seen);
+    }
+
+    [Fact]
+    public void ARejectedStaleSnapshotFeedsTheFunnelNothing()
+    {
+        // The acceptance gate matters as much as the wiring: a rejected stale push is NOT authoritative, so
+        // it must not be able to emit a false backward transition into an append-only ledger.
+        var seen = Record(out var sink);
+        var hub = HubWithSink(sink);
+        hub.Hello(Hello("dir-gov"));
+
+        hub.PushSnapshot(2, new[] { new SessionDto { SessionId = "s1", ActivityState = "Working" } });
+        var countAfterAccepted = seen.Count;
+
+        hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "s1", ActivityState = "WaitingForInput" } });  // stale sequence
+
+        Assert.Equal(1, countAfterAccepted);
+        Assert.Equal(new[] { ("dir-gov", "s1", "Working") }, seen);
+    }
+
+    [Fact]
+    public void ASessionStateObservationThatThrowsNeverTakesTheTunnelDown()
+    {
+        // The sink contains the funnel's failure: a hub method that throws tears the Director's connection
+        // down, and no session observation is worth that.
+        var plain = new CcDirector.Gateway.Streaming.SessionStateObservationSink();
+        plain.Bind((_, _, _) => throw new InvalidOperationException("observer exploded"));
+        var hub = HubWithSink(plain);
+        hub.Hello(Hello("dir-gov"));
+
+        hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "s1", ActivityState = "Working" } });
+        hub.PushDelta(2, new SessionDto { SessionId = "s1", ActivityState = "Idle" });
+
+        // Still standing, and the store still took the pushes.
+        var roster = _store.SnapshotFresh(CcDirector.Core.Tenancy.TenantId.Local, TimeSpan.FromMinutes(5));
+        Assert.Contains(roster, r => r.Session.SessionId == "s1");
+    }
 }

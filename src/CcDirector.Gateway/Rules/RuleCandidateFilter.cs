@@ -194,17 +194,51 @@ public static class RuleCandidateFilter
                $"'{Show(actual)}'.";
     }
 
-    /// <summary>Two written paths naming the same place, compared the way the operating system does.</summary>
+    /// <summary>
+    /// Two written paths naming the same place, compared the way THE MACHINE THE PATH CAME FROM does -
+    /// never the way the machine running this code does.
+    ///
+    /// THE GATEWAY IS NOT THE MACHINE THE PATH DESCRIBES, and that is the whole reason this is not one
+    /// line. The Gateway runs in a Linux container and is handed repository paths pushed up from every
+    /// Director in the fleet, Windows and macOS alike. Deciding case sensitivity from
+    /// <c>OperatingSystem.IsWindows()</c> therefore asked the wrong machine: a rule scoped to
+    /// <c>D:\ReposFred\scratch</c> matched a session reported as <c>d:\reposfred\scratch</c> while the code
+    /// ran on a Windows desktop and stopped matching it the moment the same code ran on the hosted Gateway.
+    /// A scope that does not match is a rule that silently never fires, which is the worst shape a defect
+    /// can take: nothing fails, something merely stops happening.
+    ///
+    /// So the path's own shape decides. A Windows path - a drive letter, or a share - is compared without
+    /// regard to case and with its separators unified, because that is what Windows does with it. Anything
+    /// else is a POSIX path and is compared exactly, because that is what Linux does with it, and two names
+    /// there that differ in case really are two different directories.
+    /// </summary>
     private static bool PathsAreTheSamePlace(string left, string right)
     {
         if (string.IsNullOrWhiteSpace(right)) return false;
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        return string.Equals(Normalize(left), Normalize(right), comparison);
+
+        var writtenLeft = left.Trim();
+        var writtenRight = right.Trim();
+
+        if (IsAWindowsPath(writtenLeft) || IsAWindowsPath(writtenRight))
+            return string.Equals(AsWindows(writtenLeft), AsWindows(writtenRight), StringComparison.OrdinalIgnoreCase);
+
+        return string.Equals(AsPosix(writtenLeft), AsPosix(writtenRight), StringComparison.Ordinal);
     }
 
-    private static string Normalize(string path) =>
-        path.Trim().Replace('/', Path.DirectorySeparatorChar)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    /// <summary>A drive-letter path (<c>D:\repos</c>) or a share (<c>\\server\share</c>). These are the two
+    /// shapes only Windows writes, and they are matched the way Windows matches them wherever this code
+    /// happens to be running.</summary>
+    private static bool IsAWindowsPath(string written) =>
+        (written.Length >= 2 && written[1] == ':' && char.IsAsciiLetter(written[0]))
+        || written.StartsWith(@"\\", StringComparison.Ordinal);
+
+    /// <summary>Separators unified to a backslash and a trailing one dropped, so one Windows place written
+    /// <c>D:/repos/x</c>, <c>D:\repos\x</c> and <c>D:\repos\x\</c> is one string.</summary>
+    private static string AsWindows(string written) => written.Replace('/', '\\').TrimEnd('\\');
+
+    /// <summary>A trailing separator dropped, and nothing else. A backslash is a legal character in a POSIX
+    /// file name, so it is left exactly as written rather than treated as a separator.</summary>
+    private static string AsPosix(string written) => written.Length > 1 ? written.TrimEnd('/') : written;
 
     /// <summary>An empty fact reads as nothing at all rather than as an empty pair of quotes.</summary>
     private static string Show(string value) => string.IsNullOrWhiteSpace(value) ? "not set" : value;

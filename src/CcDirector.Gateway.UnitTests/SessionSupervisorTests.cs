@@ -46,7 +46,8 @@ public sealed class SessionSupervisorTests
 
     private static string[] OutOfAllowanceScreen() => new[]
     {
-        "Claude usage limit reached. Your limit will reset at 5pm.",
+        // Verbatim Claude Code block notice, captured from a turn-end screen (issue #3117's corpus).
+        "⎿   You've hit your weekly limit · resets Sep 21, 6pm (America/Toronto)",
     }.Concat(Composer).ToArray();
 
     private static string[] UnknownFaultScreen() => new[]
