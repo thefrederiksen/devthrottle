@@ -75,9 +75,12 @@ public sealed class MorningReportWindowDto
 [JsonDerivedType(typeof(WaitingSessionAttentionDto))]
 [JsonDerivedType(typeof(StaleWorktreesAttentionDto))]
 [JsonDerivedType(typeof(UnmergedBranchesAttentionDto))]
+[JsonDerivedType(typeof(UsageLimitStopsAttentionDto))]
+[JsonDerivedType(typeof(OutdatedDirectorsAttentionDto))]
 public abstract class MorningAttentionItemDto
 {
-    /// <summary>The item's discriminator: "waiting-session", "stale-worktrees", "unmerged-branches".</summary>
+    /// <summary>The item's discriminator: "waiting-session", "stale-worktrees", "unmerged-branches",
+    /// "outdated-directors".</summary>
     public abstract string Type { get; }
 }
 
@@ -87,6 +90,53 @@ public static class MorningAttentionTypes
     public const string WaitingSession = "waiting-session";
     public const string StaleWorktrees = "stale-worktrees";
     public const string UnmergedBranches = "unmerged-branches";
+    public const string UsageLimitStops = "usage-limit-stops";
+    public const string OutdatedDirectors = "outdated-directors";
+}
+
+/// <summary>
+/// Directors this account is running that are behind the newest published release (#3124). ONE item per
+/// account, listing every such Director - three machines behind is one thing to do, not three rows.
+/// Present only when the newest release is KNOWN and at least one Director heard from in the last day is
+/// provably older than it; a version that cannot be read is never called behind.
+/// </summary>
+public sealed class OutdatedDirectorsAttentionDto : MorningAttentionItemDto
+{
+    public override string Type => MorningAttentionTypes.OutdatedDirectors;
+
+    /// <summary>The newest published release the Directors were compared against, e.g. "2.8.1".</summary>
+    public string Newest { get; set; } = "";
+
+    public List<OutdatedDirectorDto> Directors { get; set; } = new();
+}
+
+/// <summary>One Director that is behind: the machine it runs on and the version it reported.</summary>
+public sealed class OutdatedDirectorDto
+{
+    public string Machine { get; set; } = "";
+    public string Version { get; set; } = "";
+}
+
+/// <summary>
+/// Sessions that stopped because the agent's plan ran out of usage, and have not worked since (#3124).
+/// ONE item per account. Read from the supervisor's recovery log, which records the fault the moment the
+/// turn ends on it - so this is a fact that was observed, never an inference from a session going quiet.
+/// A session that died overnight for any OTHER reason is deliberately not here (owner ruling, 19 September
+/// 2026: a crash cannot be told from a clean finish, and an email that cries wolf stops being read).
+/// </summary>
+public sealed class UsageLimitStopsAttentionDto : MorningAttentionItemDto
+{
+    public override string Type => MorningAttentionTypes.UsageLimitStops;
+
+    public List<UsageLimitStopDto> Sessions { get; set; } = new();
+}
+
+/// <summary>One stopped session: its friendly name when the Gateway can see it live, otherwise its id -
+/// never blank - and when the limit was hit.</summary>
+public sealed class UsageLimitStopDto
+{
+    public string Session { get; set; } = "";
+    public DateTime StoppedUtc { get; set; }
 }
 
 /// <summary>A session whose last recorded state is waiting on the human, and how long it has been there.</summary>
@@ -135,6 +185,15 @@ public sealed class UnmergedBranchesAttentionDto : MorningAttentionItemDto
 
     public string Repo { get; set; } = "";
     public List<UnmergedBranchDto> Branches { get; set; } = new();
+
+    /// <summary>How many of this repository's branches could NOT be placed either way: whether they are
+    /// merged was not determined, or they are unmerged with no tip date to age them by. They are counted
+    /// here rather than named in <see cref="Branches"/> - the report does not know they are unfinished
+    /// work, only that it could not rule it out - and rather than dropped, which made the email's count
+    /// read as the whole truth when it was the part that could be worked out (#3124). Absent when zero.
+    /// An item may carry this with an EMPTY <see cref="Branches"/>: nothing proven, some unknown.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int Undetermined { get; set; }
 }
 
 /// <summary>One unmerged branch: its name, how old its tip is, and how many commits it carries.</summary>

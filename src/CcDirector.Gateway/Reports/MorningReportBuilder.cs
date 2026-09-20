@@ -33,6 +33,8 @@ public sealed class MorningReportBuilder
     private readonly GatewayDatabase _db;
     private readonly Streaming.PushedSessionStore? _pushedSessions;
     private readonly RepoStateStore? _repoState;
+    private readonly Func<TenantId, IReadOnlyCollection<DirectorDto>>? _directors;
+    private readonly Func<string?>? _newestRelease;
     private readonly TimeSpan _streamStale;
     private readonly Func<DateTime> _utcNow;
 
@@ -81,13 +83,20 @@ public sealed class MorningReportBuilder
     /// those two labels - the waiting fact itself comes from the durable ledger.</param>
     /// <param name="streamStale">How old a Director's pushed roster may be and still be believed.</param>
     /// <param name="utcNow">Clock seam for tests.</param>
+    /// <param name="directors">One tenant's Directors, for the out-of-date row. Null means no such row.</param>
+    /// <param name="newestRelease">The newest published release as this Gateway last read it, or null while
+    /// it has not been read. Null - the function or its answer - means nobody is called behind.</param>
     public MorningReportBuilder(
         GatewayDatabase db,
         Streaming.PushedSessionStore? pushedSessions = null,
         TimeSpan? streamStale = null,
         Func<DateTime>? utcNow = null,
-        RepoStateStore? repoState = null)
+        RepoStateStore? repoState = null,
+        Func<TenantId, IReadOnlyCollection<DirectorDto>>? directors = null,
+        Func<string?>? newestRelease = null)
     {
+        _directors = directors;
+        _newestRelease = newestRelease;
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _pushedSessions = pushedSessions;
         _repoState = repoState;
@@ -127,6 +136,12 @@ public sealed class MorningReportBuilder
         // has been measured.
         report.Attention.AddRange(HygieneItems(tenant, now));
 
+        if (UsageLimitStops(ctx, tenant, now) is { } limited)
+            report.Attention.Add(limited);
+
+        if (OutdatedDirectors(tenant, now) is { } outdated)
+            report.Attention.Add(outdated);
+
         // NO YESTERDAY-STATS, BY OWNER RULING (2026-09-20, issue #3124): "telling me how much shit I did
         // yesterday is not going to help me today." The daily report answers WHAT NEEDS YOU TODAY; the
         // scoreboard - sessions run, work accepted, spend - is weekly-report material. There is nothing
@@ -135,6 +150,148 @@ public sealed class MorningReportBuilder
         FileLog.Write($"[MorningReportBuilder] Build: tenant={tenant.ToLogString()} window={window.StartUtc:o}..{window.EndUtc:o} " +
                       $"attention={report.Attention.Count}");
         return report;
+    }
+
+    /// <summary>How recently a Director must have been heard from to be named in the out-of-date row. The
+    /// email goes out at seven in the morning, when a laptop is often still shut, so "connected right now"
+    /// would hide exactly the machines it is for; a day covers last night's work and nothing older.</summary>
+    public static readonly TimeSpan DirectorSeenWithin = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// The out-of-date Directors row (#3124), or NULL. The comparison is the Cockpit fleet view's own
+    /// (<see cref="Api.FleetMachinesFold.CompareToNewest"/>), so the email and the Machines page can never
+    /// disagree about what "behind" means.
+    ///
+    /// THE HONESTY RULE: no registry, no release watch, or a newest release that has not been read yet
+    /// means NO row - "we do not know the newest release" is not "you are up to date", and it is certainly
+    /// not "you are behind". A Director whose version cannot be parsed is likewise never called behind.
+    /// A Director that was stopped, or not heard from in a day, is not nagged about.
+    /// </summary>
+    private OutdatedDirectorsAttentionDto? OutdatedDirectors(TenantId tenant, DateTime now)
+    {
+        if (_directors is null || _newestRelease is null)
+            return null;
+
+        var newest = _newestRelease();
+        if (string.IsNullOrWhiteSpace(newest))
+        {
+            FileLog.Write("[MorningReportBuilder] OutdatedDirectors: the newest release has not been read yet - " +
+                          "the row is OMITTED, nothing is called behind or current");
+            return null;
+        }
+
+        var behind = _directors(tenant)
+            .Where(d => d.StoppedAtUtc is null)
+            .Where(d => d.LastSeen is { } seen && now - seen <= DirectorSeenWithin)
+            .Where(d => Api.FleetMachinesFold.CompareToNewest(d.Version, newest).Behind)
+            .Select(d => new OutdatedDirectorDto
+            {
+                Machine = string.IsNullOrWhiteSpace(d.MachineName) ? d.DirectorId : d.MachineName,
+                Version = d.Version,
+            })
+            .OrderBy(d => d.Machine, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(d => d.Version, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (behind.Count == 0)
+            return null;
+
+        return new OutdatedDirectorsAttentionDto { Newest = newest, Directors = behind };
+    }
+
+    /// <summary>How far back a usage-limit stop is still worth a line. The limits that matter reset within a
+    /// week at most, and the row drops a session the moment it works again, so this only bounds the scan and
+    /// retires a stop nobody ever came back to.</summary>
+    public static readonly TimeSpan UsageLimitLookback = TimeSpan.FromHours(48);
+
+    /// <summary>
+    /// The usage-limit row (#3124), or NULL: sessions whose turn ended on a usage-limit block and that have
+    /// not been active since.
+    ///
+    /// WHERE THE FACT COMES FROM. The session supervisor classifies the live screen when a turn ends and
+    /// writes a <c>supervisor-fault-detected</c> line to the recovery log carrying the matched SIGNATURE
+    /// (never screen content). This reads those lines for exactly
+    /// <see cref="Supervision.TerminatingFaultClassifier.UsageLimitSignatures"/>. An account with the
+    /// supervisor switched off has no such lines and gets no row - absent, never "none stopped".
+    ///
+    /// STILL STOPPED means: no <c>active</c> transition in the governance ledger after the stop, and, where
+    /// the Gateway can see the session live, it has not exited. A session that picked its work back up after
+    /// the reset is not news.
+    /// </summary>
+    private UsageLimitStopsAttentionDto? UsageLimitStops(GatewayDbContext ctx, TenantId tenant, DateTime now)
+    {
+        var since = now - UsageLimitLookback;
+        var faults = ctx.ActivityEvents.AsNoTracking()
+            .Where(e => e.EventType == ActivityEventTypes.SupervisorFaultDetected &&
+                        e.Cause == ActivityCauses.NonRecoverable &&
+                        e.OccurredUtc >= since &&
+                        e.Detail != null)
+            .OrderByDescending(e => e.OccurredUtc)
+            .Select(e => new { e.SessionId, e.OccurredUtc, e.Detail })
+            .Take(MaxLedgerRowsScanned)
+            .ToList();
+
+        // Newest first, so the first line kept per session is its latest stop.
+        var latestStop = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        foreach (var f in faults)
+        {
+            if (string.IsNullOrWhiteSpace(f.SessionId) || latestStop.ContainsKey(f.SessionId))
+                continue;
+            if (!IsUsageLimitDetail(f.Detail!))
+                continue;
+            latestStop[f.SessionId] = DateTime.SpecifyKind(f.OccurredUtc, DateTimeKind.Utc);
+        }
+        if (latestStop.Count == 0)
+            return null;
+
+        var ids = latestStop.Keys.ToList();
+        var lastActive = ctx.GovernanceEvents.AsNoTracking()
+            .Where(e => e.SubjectKind == GovernanceEventSubject.Session &&
+                        e.SessionId != null && ids.Contains(e.SessionId) &&
+                        e.State == GovernanceEventState.Active &&
+                        e.OccurredUtc >= since)
+            .GroupBy(e => e.SessionId!)
+            .Select(g => new { SessionId = g.Key, At = g.Max(e => e.OccurredUtc) })
+            .ToList()
+            .ToDictionary(x => x.SessionId, x => DateTime.SpecifyKind(x.At, DateTimeKind.Utc), StringComparer.Ordinal);
+
+        var live = LiveSessionsById(tenant);
+        var sessions = new List<UsageLimitStopDto>();
+        foreach (var (sessionId, stoppedUtc) in latestStop)
+        {
+            if (lastActive.TryGetValue(sessionId, out var activeAt) && activeAt > stoppedUtc)
+                continue; // it worked again after the stop
+            live.TryGetValue(sessionId, out var liveSession);
+            if (liveSession is not null &&
+                string.Equals(liveSession.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
+                continue; // closed - there is nothing left to resume
+            sessions.Add(new UsageLimitStopDto
+            {
+                Session = string.IsNullOrWhiteSpace(liveSession?.Name) ? sessionId : liveSession!.Name!,
+                StoppedUtc = stoppedUtc,
+            });
+        }
+        if (sessions.Count == 0)
+            return null;
+
+        return new UsageLimitStopsAttentionDto
+        {
+            Sessions = sessions.OrderBy(s => s.StoppedUtc).ThenBy(s => s.Session, StringComparer.Ordinal).ToList(),
+        };
+    }
+
+    /// <summary>True when a recovery-log detail ("signature=... [ (model verdict)]") names a usage-limit block.</summary>
+    internal static bool IsUsageLimitDetail(string detail)
+    {
+        const string prefix = "signature=";
+        if (!detail.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+        var signature = detail[prefix.Length..];
+        const string modelSuffix = " (model verdict)";
+        if (signature.EndsWith(modelSuffix, StringComparison.Ordinal))
+            signature = signature[..^modelSuffix.Length];
+        return Supervision.TerminatingFaultClassifier.UsageLimitSignatures
+            .Contains(signature, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

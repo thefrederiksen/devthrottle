@@ -20,6 +20,21 @@ public enum CommandName
     /// <summary>Read a saved scan, run the rules, and say what is safe to remove.</summary>
     Recommend,
 
+    /// <summary>
+    /// Run the rules, put every candidate through the refusal gate, and either report what would
+    /// move or - only with the apply flag - move exactly what the gate passed into holding.
+    /// </summary>
+    Reclaim,
+
+    /// <summary>Every entry in one volume's holding folder.</summary>
+    HoldingList,
+
+    /// <summary>Move one held entry's item back to the path its record names. Never a dry run.</summary>
+    HoldingRestore,
+
+    /// <summary>Remove the holding entries whose period has passed. A dry run by default.</summary>
+    HoldingPurge,
+
     /// <summary>Show how to use the tool.</summary>
     Help,
 
@@ -47,6 +62,30 @@ public sealed record Request
 
     /// <summary>How deep a scan records folder totals.</summary>
     public required int FolderDepth { get; init; }
+
+    /// <summary>
+    /// The one rule the reclaim was narrowed to, or null to run every rule that looks inside the
+    /// folder asked about.
+    /// </summary>
+    public string? RuleId { get; init; }
+
+    /// <summary>
+    /// True only when the caller passed the apply flag. Nothing moves and no owner command runs
+    /// without it, and there is no second way to say it.
+    /// </summary>
+    public bool Apply { get; init; }
+
+    /// <summary>
+    /// The holding root, when the command takes one as a flag; null when the command computes its
+    /// own per-volume default.
+    /// </summary>
+    public string? HoldingRootPath { get; init; }
+
+    /// <summary>The holding entry to restore, when the command is a restore.</summary>
+    public string? EntryId { get; init; }
+
+    /// <summary>A holding period for this purge call only, in days, or null for each record's own.</summary>
+    public int? Days { get; init; }
 
     /// <summary>The command word as it was typed, for the help offered after an answer.</summary>
     public required string CommandWord { get; init; }
@@ -89,6 +128,22 @@ public static class CommandLine
     /// <summary>Every flag the recommend command takes.</summary>
     public static IReadOnlyList<string> RecommendFlags { get; } =
         ["--json", "--index-directory", "--top", "--help", "-h"];
+
+    /// <summary>Every flag the reclaim command takes.</summary>
+    public static IReadOnlyList<string> ReclaimFlags { get; } =
+        ["--json", "--rule", "--apply", "--help", "-h"];
+
+    /// <summary>Every flag the holding list command takes.</summary>
+    public static IReadOnlyList<string> HoldingListFlags { get; } =
+        ["--json", "--help", "-h"];
+
+    /// <summary>Every flag the holding restore command takes.</summary>
+    public static IReadOnlyList<string> HoldingRestoreFlags { get; } =
+        ["--json", "--holding-root", "--help", "-h"];
+
+    /// <summary>Every flag the holding purge command takes.</summary>
+    public static IReadOnlyList<string> HoldingPurgeFlags { get; } =
+        ["--json", "--holding-root", "--days", "--apply", "--help", "-h"];
 
     /// <summary>
     /// Read one command line.
@@ -143,17 +198,65 @@ public static class CommandLine
                     allowed = RecommendFlags;
                     takesFolder = true;
                     break;
+                case "reclaim":
+                    command = CommandName.Reclaim;
+                    allowed = ReclaimFlags;
+                    takesFolder = true;
+                    break;
+                case "holding":
+                {
+                    // "holding" is a word of its own with a command after it. The command is read
+                    // by the same rules as every other: an unknown word is an error naming the ones
+                    // that exist, never a quiet empty answer.
+                    if (arguments.Count < 2 || arguments[1].StartsWith('-'))
+                    {
+                        return new ParseOutcome(null,
+                            "the holding command needs a word after it - list, restore or purge - and none was given");
+                    }
+
+                    switch (arguments[1])
+                    {
+                        case "list":
+                            command = CommandName.HoldingList;
+                            allowed = HoldingListFlags;
+                            takesFolder = true;
+                            break;
+                        case "restore":
+                            command = CommandName.HoldingRestore;
+                            allowed = HoldingRestoreFlags;
+                            takesFolder = false;
+                            break;
+                        case "purge":
+                            command = CommandName.HoldingPurge;
+                            allowed = HoldingPurgeFlags;
+                            takesFolder = false;
+                            break;
+                        default:
+                            return new ParseOutcome(null,
+                                $"there is no holding command {arguments[1]}; the holding commands are list, restore and purge");
+                    }
+
+                    first = 2;
+                    commandWord = "holding " + arguments[1];
+                    break;
+                }
                 default:
                     return new ParseOutcome(null,
-                        $"there is no command {commandWord}; the commands are scan, report and recommend");
+                        "there is no command " + commandWord +
+                        "; the commands are scan, report, recommend, reclaim and holding");
             }
         }
 
         string? folder = null;
+        string? entryId = null;
         var json = false;
         var indexDirectory = defaultIndexDirectory;
         var largestFolders = ScanReportBuilder.DefaultLargestFolders;
         var folderDepth = ScanOptions.DefaultFolderDepth;
+        string? ruleId = null;
+        string? holdingRoot = null;
+        int? days = null;
+        var apply = false;
         CommandName? earlyAnswer = null;
 
         for (var at = first; at < arguments.Count; at++)
@@ -169,6 +272,14 @@ public static class CommandLine
                 // The page answers for every command, so the word needs nothing done on it.
                 if (earlyAnswer is not null)
                     continue;
+
+                if (command == CommandName.HoldingRestore)
+                {
+                    if (entryId is not null)
+                        return new ParseOutcome(null, $"the command {Named(commandWord)} takes one entry id, and two were given: {entryId} and {argument}");
+                    entryId = argument;
+                    continue;
+                }
 
                 if (!takesFolder)
                     return new ParseOutcome(null, $"the command {Named(commandWord)} takes no folder, and one was given: {argument}");
@@ -239,6 +350,34 @@ public static class CommandLine
                     break;
                 }
 
+                case "--rule":
+                {
+                    var outcome = ReadValue(arguments, ref at, argument);
+                    if (outcome.Error is not null) return new ParseOutcome(null, outcome.Error);
+                    ruleId = outcome.Value;
+                    break;
+                }
+
+                case "--holding-root":
+                {
+                    var outcome = ReadValue(arguments, ref at, argument);
+                    if (outcome.Error is not null) return new ParseOutcome(null, outcome.Error);
+                    holdingRoot = outcome.Value;
+                    break;
+                }
+
+                case "--days":
+                {
+                    var outcome = ReadWholeNumber(arguments, ref at, argument, 0, 36500);
+                    if (outcome.Error is not null) return new ParseOutcome(null, outcome.Error);
+                    days = outcome.Number;
+                    break;
+                }
+
+                case "--apply":
+                    apply = true;
+                    break;
+
                 default:
                     throw new InvalidOperationException($"The flag {argument} is allowed and is not read.");
             }
@@ -256,6 +395,14 @@ public static class CommandLine
         if (takesFolder && folder is null)
             return new ParseOutcome(null, $"the command {Named(commandWord)} needs a folder: cc-cleanup-storage {commandWord} \"<folder>\"");
 
+        if (command == CommandName.HoldingRestore && entryId is null)
+            return new ParseOutcome(null,
+                "the command holding restore needs an entry id: cc-cleanup-storage holding restore <entry-id> --holding-root \"<folder>\"");
+
+        if (command is CommandName.HoldingRestore or CommandName.HoldingPurge && holdingRoot is null)
+            return new ParseOutcome(null,
+                $"the command {Named(commandWord)} needs the holding folder: cc-cleanup-storage {commandWord} --holding-root \"<folder>\"");
+
         return new ParseOutcome(new Request
         {
             Command = command,
@@ -264,6 +411,11 @@ public static class CommandLine
             IndexDirectory = indexDirectory,
             LargestFolders = largestFolders,
             FolderDepth = folderDepth,
+            RuleId = ruleId,
+            Apply = apply,
+            HoldingRootPath = holdingRoot,
+            EntryId = entryId,
+            Days = days,
             CommandWord = commandWord
         }, null);
     }

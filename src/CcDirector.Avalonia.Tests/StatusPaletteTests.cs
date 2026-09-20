@@ -48,6 +48,9 @@ public sealed class StatusPaletteTests
     {
         // Every hex that a private palette once used for a name the canonical table also names.
         // If one of these ever comes back it means somebody re-hand-rolled a palette.
+        // #9CA3AF (gray-400) is on this list twice over now: it was a hand-rolled snoozed grey, and it is
+        // also the grey somebody reaching for "a lighter grey" would pick for the neutral - at 1.90:1 from
+        // the palette grey it would be the very lie the neutral exists to avoid.
         var strays = new[] { "#E5484D", "#F44747", "#F14C4C", "#9CA3AF", "#6A6A6A", "#888888", "#5FD08A", "#2B6CB0", "#DCDCAA", "#F59E0B" };
         var live = new[] { "red", "blue", "green", "cyan", "yellow", "orange", "purple", "supporting", "error", "grey", "unknown" }
             .Select(StatusPalette.HexFor)
@@ -81,17 +84,93 @@ public sealed class StatusPaletteTests
     }
 
     [AvaloniaFact]
-    public void BrushFor_ANameTheFoldNeverEmits_IsTheBrokenSentinel_NeverGrey()
+    public void BrushFor_ANameTheFoldNeverEmits_IsTheNeutral_NeverGreyAndNeverTheMagentaAlarm()
     {
-        // Grey MEANS snoozed-or-exited. So a colour we do not know must never render grey - that
-        // would be an affirmative claim that the session is parked, which is the exact lie this
-        // mission exists to end. Magenta is not a state and cannot be misread as one.
+        // A name this build does not know means one thing: this Director is OLDER than its Gateway. The
+        // fold gained cyan in v2.4.0 and every Director below it painted magenta for a session the Wingman
+        // had judged finished - an old build borrowing an alarm that belongs to a broken push seam.
+        //
+        // So: NEVER grey (grey MEANS snoozed or exited - an affirmative lie that the session is parked),
+        // and NEVER the magenta sentinel (which now means only "the Gateway stamped nothing"). The neutral,
+        // which is not a state and does not claim to be one.
         foreach (var nonsense in new[] { "something-nobody-folds", "chartreuse", "", null })
         {
             Assert.False(StatusPalette.Knows(nonsense));
-            Assert.Equal(Color.Parse("#FF00FF"), ((ISolidColorBrush)StatusPalette.BrushFor(nonsense)).Color);
-            Assert.NotEqual(Color.Parse(StatusPalette.Grey), ((ISolidColorBrush)StatusPalette.BrushFor(nonsense)).Color);
+
+            var painted = ((ISolidColorBrush)StatusPalette.BrushFor(nonsense)).Color;
+            Assert.Equal(Color.Parse("#E5E7EB"), painted);
+            Assert.NotEqual(Color.Parse(StatusPalette.Grey), painted);
+            Assert.NotEqual(Color.Parse(StatusPalette.Broken), painted);
+            Assert.Equal("#E5E7EB", StatusPalette.HexFor(nonsense));
         }
+    }
+
+    /// <summary>
+    /// THE TWO FAULTS MUST STAY TELLABLE APART - the standing constraint on the Session Cards mission's
+    /// first item. Before it, both painted magenta, so the rail could not distinguish "this Director is
+    /// older than its Gateway" (ordinary, fix by updating) from "the display-state push is not delivering"
+    /// (a real alarm). A test that only asserted each arm on its own would pass if some later edit pointed
+    /// them back at one pixel, so this one asserts the DIFFERENCE.
+    /// </summary>
+    [AvaloniaFact]
+    public void AnUnknownName_AndAMissingStamp_AreTwoDifferentPixels()
+    {
+        var unknownName = ((ISolidColorBrush)StatusPalette.BrushFor("a-colour-this-build-never-heard-of")).Color;
+        var missingStamp = ((ISolidColorBrush)StatusPalette.BrushFor(SessionViewModel.UnstampedSentinel)).Color;
+
+        Assert.NotEqual(unknownName, missingStamp);
+        Assert.Equal(Color.Parse(StatusPalette.Neutral), unknownName);
+        Assert.Equal(Color.Parse(StatusPalette.Broken), missingStamp);
+        Assert.NotEqual(StatusPalette.HexFor("a-colour-this-build-never-heard-of"),
+                        StatusPalette.HexFor(SessionViewModel.UnstampedSentinel));
+    }
+
+    /// <summary>
+    /// The neutral is a MEASURED choice, not a taste: it has to be obviously a different grey from the
+    /// palette grey, which on this rail MEANS snoozed or exited. "Obviously" is 3:1, the bar for telling
+    /// one user-interface element from another, and gray-400 #9CA3AF - the grey a reader reaching for
+    /// "lighter" would pick first - fails it at 1.90:1. Pinned here so a later tidy-up cannot quietly
+    /// darken the neutral back into the state it must not be mistaken for.
+    /// </summary>
+    [AvaloniaFact]
+    public void Neutral_IsObviouslyADifferentGreyFromTheOneThatMeansSnoozedOrExited()
+    {
+        Assert.True(ContrastRatio(StatusPalette.Neutral, StatusPalette.Grey) >= 3.0,
+            $"the neutral {StatusPalette.Neutral} is only " +
+            $"{ContrastRatio(StatusPalette.Neutral, StatusPalette.Grey):F2}:1 from the palette grey " +
+            $"{StatusPalette.Grey}, which MEANS snoozed or exited. A neutral that close is an affirmative " +
+            "claim that the session is parked.");
+
+        // And it must be plainly visible on the two surfaces the rail is drawn on (docs/VisualStyle.md:
+        // PanelBackground and SidebarBackground). The owner's words were "so you can still see the dot".
+        Assert.True(ContrastRatio(StatusPalette.Neutral, "#1E1E1E") >= 3.0);
+        Assert.True(ContrastRatio(StatusPalette.Neutral, "#252526") >= 3.0);
+
+        // The grey that does NOT clear the bar, so the assertion above is known to be capable of failing.
+        Assert.True(ContrastRatio("#9CA3AF", StatusPalette.Grey) < 3.0);
+    }
+
+    /// <summary>The WCAG relative-contrast ratio between two hexes. Written out rather than referenced so
+    /// the test does not measure with the same arithmetic the value was chosen by.</summary>
+    private static double ContrastRatio(string a, string b)
+    {
+        static double Channel(int v)
+        {
+            var c = v / 255.0;
+            return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+        }
+
+        static double Luminance(string hex)
+        {
+            var h = hex.TrimStart('#');
+            var r = Convert.ToInt32(h.Substring(0, 2), 16);
+            var g = Convert.ToInt32(h.Substring(2, 2), 16);
+            var b = Convert.ToInt32(h.Substring(4, 2), 16);
+            return 0.2126 * Channel(r) + 0.7152 * Channel(g) + 0.0722 * Channel(b);
+        }
+
+        var (la, lb) = (Luminance(a), Luminance(b));
+        return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
     }
 
     /// <summary>

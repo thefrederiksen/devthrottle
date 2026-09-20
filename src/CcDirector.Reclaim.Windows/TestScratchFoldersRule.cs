@@ -1,6 +1,7 @@
 using System.Globalization;
 using CcDirector.Core.Utilities;
 using CcDirector.Reclaim.Rules;
+using CcDirector.Reclaim.Scanning;
 
 namespace CcDirector.Reclaim.Windows;
 
@@ -143,7 +144,7 @@ public sealed class TestScratchFoldersRule : IReclaimRule
 
             matched++;
 
-            var measured = Measure(folder.FullName);
+            var measured = FolderMeasures.Measure(folder.FullName);
             if (measured.UnreadableFolders > 0)
             {
                 unreadable++;
@@ -166,7 +167,7 @@ public sealed class TestScratchFoldersRule : IReclaimRule
             // it is open. Asking means holding each file exclusively for an instant, and a folder
             // written in the last few days is exactly the one another process is most likely to be
             // using - so the cheap, harmless check runs first and this one runs on what is left.
-            if (AnythingOpenIn(folder.FullName))
+            if (FolderMeasures.AnythingOpenIn(folder.FullName))
             {
                 stillOpen++;
                 continue;
@@ -203,121 +204,4 @@ public sealed class TestScratchFoldersRule : IReclaimRule
             ? folderName.StartsWith(known, StringComparison.OrdinalIgnoreCase)
             : folderName.Equals(known, StringComparison.OrdinalIgnoreCase));
 
-    // Measures the folder: how many bytes it holds, when anything in it was last written, and how
-    // many of its folders would not be listed. It opens nothing.
-    private static MeasuredFolder Measure(string folder)
-    {
-        long bytes = 0;
-        long unreadable = 0;
-        var newest = DateTimeOffset.MinValue;
-
-        var pending = new Stack<string>();
-        pending.Push(folder);
-
-        while (pending.Count > 0)
-        {
-            var next = pending.Pop();
-
-            IEnumerable<FileSystemInfo> entries;
-            try
-            {
-                entries = new DirectoryInfo(next).EnumerateFileSystemInfos().ToList();
-            }
-            catch (UnauthorizedAccessException)
-            {
-                unreadable++;
-                continue;
-            }
-            catch (IOException)
-            {
-                unreadable++;
-                continue;
-            }
-
-            foreach (var entry in entries)
-            {
-                if (entry.LinkTarget is not null) continue;
-
-                if (entry is DirectoryInfo)
-                {
-                    pending.Push(entry.FullName);
-                    continue;
-                }
-
-                bytes += ((FileInfo)entry).Length;
-                var written = new DateTimeOffset(entry.LastWriteTimeUtc, TimeSpan.Zero);
-                if (written > newest) newest = written;
-            }
-        }
-
-        return new MeasuredFolder(
-            bytes, unreadable, newest == DateTimeOffset.MinValue ? DateTimeOffset.UnixEpoch : newest);
-    }
-
-    // True as soon as one file in the folder is held by something else. It stops at the first one:
-    // the answer is the same whether one file is open or a hundred, and every extra file asked is
-    // another file held exclusively for an instant on a machine that is doing other work.
-    private static bool AnythingOpenIn(string folder)
-    {
-        var pending = new Stack<string>();
-        pending.Push(folder);
-
-        while (pending.Count > 0)
-        {
-            var next = pending.Pop();
-
-            IEnumerable<FileSystemInfo> entries;
-            try
-            {
-                entries = new DirectoryInfo(next).EnumerateFileSystemInfos().ToList();
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Measuring already counted this folder and the caller already declined to offer it.
-                return true;
-            }
-            catch (IOException)
-            {
-                return true;
-            }
-
-            foreach (var entry in entries)
-            {
-                if (entry.LinkTarget is not null) continue;
-
-                if (entry is DirectoryInfo)
-                {
-                    pending.Push(entry.FullName);
-                    continue;
-                }
-
-                if (IsOpen(entry.FullName)) return true;
-            }
-        }
-
-        return false;
-    }
-
-    // Asks the file system whether anything else holds the file, by asking for it exclusively for an
-    // instant and giving it straight back. Nothing is read from it and nothing is written to it.
-    private static bool IsOpen(string path)
-    {
-        try
-        {
-            using var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
-            return false;
-        }
-        catch (IOException)
-        {
-            return true;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Something about this file cannot be answered, and a rule that cannot answer treats the
-            // file as in use. Leaning towards keeping is the whole posture of this tool.
-            return true;
-        }
-    }
-
-    private sealed record MeasuredFolder(long Bytes, long UnreadableFolders, DateTimeOffset NewestWriteUtc);
 }

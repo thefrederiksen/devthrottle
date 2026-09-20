@@ -198,6 +198,28 @@ public sealed class TenantSettingsResolver
         return TimeZoneConfig.Get();
     }
 
+    /// <summary>
+    /// The time zone this tenant CHOSE, as an IANA id - or null when it never chose one, or the stored value
+    /// is not a zone this host can read. Unlike <see cref="TimeZone"/> this never answers with the operator
+    /// default: the daily report's sender must be able to tell "this account asked for its own morning" from
+    /// "this account said nothing", because the second keeps the send time everybody had before (#3124).
+    ///
+    /// Always IANA on the way out. <see cref="TimeZoneConfig.IsValid"/> also accepts a Windows id on a
+    /// Windows host, and the website sender runs on a JavaScript clock that knows only IANA ids - a Windows
+    /// id handed over as-is would be a zone the sender cannot place. One with no IANA mapping is null.
+    /// </summary>
+    public string? ChosenTimeZoneIana(TenantId tenant)
+    {
+        var raw = _store.Get(tenant, TenantSettingKeys.TimeZone)?.Trim();
+        if (raw is null || !TimeZoneInfo.TryFindSystemTimeZoneById(raw, out var zone))
+            return null;
+        if (zone.HasIanaId)
+            return zone.Id;
+        return TimeZoneInfo.TryConvertWindowsIdToIanaId(zone.Id, out var iana) && !string.IsNullOrWhiteSpace(iana)
+            ? iana
+            : null;
+    }
+
     /// <summary>The tenant's injected agent-launch text choice (use-yours flag + the user's own text), or the
     /// operator global default when unset or when the stored override cannot be parsed. The null-vs-empty
     /// distinction on the text is preserved: a corrupt override degrades to the global default (the

@@ -669,6 +669,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // tables, event ledger, spend, and audit trail - the first governance report that pays rent.
     private readonly Governance.OutcomeLedgerReporter _outcomeLedger;
     private readonly Reports.MorningReportBuilder _morningReport;
+    /// <summary>The newest published release, read ONCE for the whole Gateway: the Machines view and the
+    /// daily report's out-of-date row share this one watch and so share one answer.</summary>
+    private readonly Api.NewestReleaseWatch _newestRelease = Api.NewestReleaseWatch.FromGitHub();
     private readonly CronJobStore _cronJobs;
     private readonly CronRunHistoryStore _cronRuns;
     private readonly Running.CronEngine _cronEngine;
@@ -1614,7 +1617,12 @@ public sealed class GatewayHost : IAsyncDisposable
             // resolved inside the builder so the report reads the SAME store the push endpoint writes.
             // The microphone section is gone from the daily report (owner ruling, 2026-09-19, issue #3124),
             // so the builder no longer opens the per-tenant quality log.
-            repoState: _repoState);
+            repoState: _repoState,
+            // The out-of-date Directors row (#3124) reads the SAME registry and the SAME newest-release watch
+            // the Cockpit's Machines view reads, so the email and that page cannot disagree about "behind".
+            // Lambdas, because the registry is reached at report time and not at construction.
+            directors: tenant => Registry.ListDirectors(tenant),
+            newestRelease: () => _newestRelease.Current().Version);
         // Snooze Length mission: the persisted snooze registry (sessionId -> SnoozeUntilUtc), now in the
         // snoozes table of the EF data layer - a Gateway restart re-arms every pending snooze from the
         // database; an entry already past its time simply fires on the first sweep. The path argument is the
@@ -4559,7 +4567,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // and pushed-session store the roster serves from, and the newest release this Gateway has read.
             directors: Registry,
             pushedSessions: PushedSessions,
-            newestRelease: Api.NewestReleaseWatch.FromGitHub());
+            newestRelease: _newestRelease);
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,

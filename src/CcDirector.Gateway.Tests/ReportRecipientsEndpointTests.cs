@@ -230,6 +230,73 @@ public sealed class ReportRecipientsEndpointTests : IDisposable
             Assert.Single(body.GetProperty("recipients").EnumerateArray()).GetProperty("email").GetString());
     }
 
+    // ---- whose seven o'clock (#3124) ----
+
+    [Fact]
+    public async Task AnAccountThatChoseATimeZone_IsHandedOverWithIt()
+    {
+        var registry = Registry();
+        var settings = Settings();
+        var tokyo = registry.MintOrLookupBySubject("subject-tokyo", "tokyo@example.com");
+        settings.SetTimeZone(tokyo, "Asia/Tokyo", DateTime.UtcNow);
+
+        var ctx = Ctx();
+        var (_, body) = await ExecuteAsync(ReportRecipientsEndpoint.Handle(ctx, registry, settings), ctx);
+        var row = body.GetProperty("recipients").EnumerateArray().Single();
+
+        Assert.Equal("Asia/Tokyo", row.GetProperty("timeZone").GetString());
+    }
+
+    [Fact]
+    public async Task AnAccountThatNeverChoseATimeZone_CarriesNoTimeZoneKeyAtAll()
+    {
+        // Not null, not the operator default: ABSENT. The sender keeps an account with no key on the send
+        // time everybody had before, and a default filled in here would silently move them off it.
+        var registry = Registry();
+        registry.MintOrLookupBySubject("subject-plain", "plain@example.com");
+
+        var ctx = Ctx();
+        var (_, body) = await ExecuteAsync(ReportRecipientsEndpoint.Handle(ctx, registry, Settings()), ctx);
+        var row = body.GetProperty("recipients").EnumerateArray().Single();
+
+        Assert.False(row.TryGetProperty("timeZone", out _));
+        Assert.Equal("plain@example.com", row.GetProperty("email").GetString());
+        Assert.Equal("plain@example.com", row.GetProperty("account").GetString());
+    }
+
+    [Fact]
+    public async Task OneAddressOnTwoAccounts_TheChosenTimeZoneWins_WhicheverAccountCameFirst()
+    {
+        var registry = Registry();
+        var settings = Settings();
+        registry.MintOrLookupBySubject("subject-first-silent", "shared@example.com");
+        var chose = registry.MintOrLookupBySubject("subject-second-chose", "shared@example.com");
+        settings.SetTimeZone(chose, "Europe/London", DateTime.UtcNow);
+        var choseFirst = registry.MintOrLookupBySubject("subject-third-chose", "other@example.com");
+        settings.SetTimeZone(choseFirst, "Asia/Tokyo", DateTime.UtcNow);
+        registry.MintOrLookupBySubject("subject-fourth-silent", "other@example.com");
+
+        var ctx = Ctx();
+        var (_, body) = await ExecuteAsync(ReportRecipientsEndpoint.Handle(ctx, registry, settings), ctx);
+        var zones = body.GetProperty("recipients").EnumerateArray()
+            .ToDictionary(r => r.GetProperty("email").GetString()!, r => r.GetProperty("timeZone").GetString());
+
+        Assert.Equal(2, zones.Count);
+        Assert.Equal("Europe/London", zones["shared@example.com"]);
+        Assert.Equal("Asia/Tokyo", zones["other@example.com"]);
+    }
+
+    [Fact]
+    public void AStoredZoneThisHostCannotRead_IsNoChoice_NotACrashAndNotTheDefault()
+    {
+        var h = _h.Open();
+        var store = new TenantSettingsStore(h);
+        var tenant = Registry().MintOrLookupBySubject("subject-odd", "odd@example.com");
+        store.Set(tenant, TenantSettingKeys.TimeZone, "Not/AZone", DateTime.UtcNow);
+
+        Assert.Null(new TenantSettingsResolver(store).ChosenTimeZoneIana(tenant));
+    }
+
     [Fact]
     public async Task EveryAccountTurningItOff_LeavesAnEmptyList_NotEveryAccount()
     {

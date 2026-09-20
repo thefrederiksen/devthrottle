@@ -241,10 +241,10 @@ public sealed class RepoHygieneFoldTests
     }
 
     [Fact]
-    public void A_MERGED_branch_and_an_UNKNOWN_one_are_both_left_out()
+    public void A_MERGED_branch_and_an_UNKNOWN_one_are_both_left_out_of_the_NAMED_branches()
     {
-        // Only a definite false is an unmerged branch. A null is "not determined", and reporting it would
-        // tell the owner they have unfinished work on a branch nobody inspected.
+        // Only a definite false is an unmerged branch. A null is "not determined", and NAMING it would
+        // tell the owner they have unfinished work on a branch nobody inspected. It is counted instead.
         var items = RepoHygieneFold.Items(new[]
         {
             Repo(branches: new[]
@@ -254,7 +254,49 @@ public sealed class RepoHygieneFoldTests
             }),
         }, Now);
 
-        Assert.Empty(Of<UnmergedBranchesAttentionDto>(items));
+        var item = Assert.Single(Of<UnmergedBranchesAttentionDto>(items));
+        Assert.Empty(item.Branches);
+        Assert.Equal(1, item.Undetermined);
+    }
+
+    [Fact]
+    public void What_could_not_be_worked_out_is_COUNTED_beside_what_could()
+    {
+        // The defect: a repository with far more branches than the email showed, and nothing on the page
+        // admitting the rest existed.
+        var items = RepoHygieneFold.Items(new[]
+        {
+            Repo(defaultBranch: "origin/main", currentBranch: "working-on-this", branches: new[]
+            {
+                Branch("proven-a", ageDays: 30),
+                Branch("proven-b", ageDays: 10),
+                Branch("unknown-a", ageDays: 30, merged: null),
+                Branch("unknown-b", ageDays: 0.1, merged: null),
+                new RepoStateBranchDto { Name = "timeless", MergedIntoDefault = false, CommitsAheadOfDefault = 2 },
+                // Known quantities - none of these is an unknown:
+                Branch("done", ageDays: 30, merged: true),
+                Branch("today", ageDays: 0.5),
+                Branch("main", ageDays: 30, merged: null),
+                Branch("working-on-this", ageDays: 30, merged: null),
+            }),
+        }, Now);
+
+        var item = Assert.Single(Of<UnmergedBranchesAttentionDto>(items));
+        Assert.Equal(new[] { "proven-a", "proven-b" }, item.Branches.Select(b => b.Name));
+        Assert.Equal(3, item.Undetermined);
+    }
+
+    [Fact]
+    public void A_repository_where_everything_was_worked_out_carries_no_undetermined_key_on_the_wire()
+    {
+        var items = RepoHygieneFold.Items(new[] { Repo(branches: new[] { Branch("proven", ageDays: 30) }) }, Now);
+
+        var item = Assert.Single(Of<UnmergedBranchesAttentionDto>(items));
+        Assert.Equal(0, item.Undetermined);
+        var json = System.Text.Json.JsonSerializer.Serialize<MorningAttentionItemDto>(item,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.DoesNotContain("undetermined", json);
+        Assert.Contains("\"branches\"", json);
     }
 
     [Fact]
@@ -296,7 +338,10 @@ public sealed class RepoHygieneFoldTests
             }),
         }, Now);
 
-        Assert.Empty(Of<UnmergedBranchesAttentionDto>(items));
+        // Never aged and never named - but counted, not dropped.
+        var item = Assert.Single(Of<UnmergedBranchesAttentionDto>(items));
+        Assert.Empty(item.Branches);
+        Assert.Equal(1, item.Undetermined);
     }
 
     // ---- several repositories --------------------------------------------------------------------------

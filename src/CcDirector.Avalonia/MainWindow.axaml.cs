@@ -751,6 +751,22 @@ public partial class MainWindow : Window
         if (host is null) return;
 
         _gatewayMonitor = host.GatewayMonitor;
+
+        // The rail's colour hover is built from the legend the Gateway serves, and that read finishes
+        // seconds AFTER these rows are on screen. Without this, every hover would show the Gateway's
+        // stamped label alone until some unrelated event repainted the row. Same shape as the connection
+        // change below: this window owns the subscription and repaints every row from here.
+        host.ColourLegend.Changed += () => Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                foreach (var vm in _sessions) vm.RefreshGatewayFloor();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] Colour legend refresh handling FAILED: {ex}");
+            }
+        });
         _gatewayMonitor.Changed += () => Dispatcher.UIThread.Post(() =>
         {
             try
@@ -4148,6 +4164,25 @@ public partial class MainWindow : Window
         FileLog.Write($"[MainWindow] CrewChevron_Click: {vm.DisplayName} is now " +
                       (_expandedCrews.Contains(vm.Session.Id.ToString()) ? "open" : "closed"));
         RememberExpandedCrews(_expandedCrews);
+    }
+
+    /// <summary>
+    /// Open "What the colours mean" - the Gateway's own words for every session colour, which the Cockpit
+    /// and the phone have shown for some time and the rail could not. The window is shown at once and
+    /// fills itself; it writes none of the words.
+    /// </summary>
+    private void ColourLegend_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            FileLog.Write("[MainWindow] ColourLegend_Click: opening the colour legend");
+            new ColourLegendDialog().ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ColourLegend_Click FAILED: {ex}");
+            ShowNotification("What the colours mean could not be opened. See the log for details.");
+        }
     }
 
     private void RailOrderMine_Click(object? sender, RoutedEventArgs e) => SetRailOrder(SessionRailOrder.MyOrder);

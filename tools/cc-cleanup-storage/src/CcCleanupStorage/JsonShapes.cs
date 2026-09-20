@@ -396,3 +396,219 @@ public sealed record RecommendJson
     /// <summary>The whole answer in finished sentences, exactly as the text answer prints them.</summary>
     public required IReadOnlyList<string> Lines { get; init; }
 }
+
+/// <summary>One refusal check's outcome about one item, as a machine reads it.</summary>
+/// <param name="Check">The check's number, one to ten.</param>
+/// <param name="Name">The check's plain name.</param>
+/// <param name="Outcome">"passed", "refused" or "not-reached".</param>
+/// <param name="Reason">Why it refused, when it did, or null.</param>
+public sealed record CheckResultJson(int Check, string Name, string Outcome, string? Reason);
+
+/// <summary>One item's whole answer: the gate's ten outcomes and what the run did about it.</summary>
+public sealed record ReclaimItemJson
+{
+    /// <summary>The item's path, as the recommendation spelled it.</summary>
+    public required string Path { get; init; }
+
+    /// <summary>The rule that proved it disposable.</summary>
+    public required string RuleId { get; init; }
+
+    /// <summary>Which of the three proofs the rule holds.</summary>
+    public required string Proof { get; init; }
+
+    /// <summary>The bytes the recommendation measured.</summary>
+    public required long RecommendedBytes { get; init; }
+
+    /// <summary>True when every item-level check passed, whatever the run's apply state.</summary>
+    public required bool Eligible { get; init; }
+
+    /// <summary>Which refusal fired, by its number, or null when none did.</summary>
+    public required int? FiredCheck { get; init; }
+
+    /// <summary>The fired refusal's reason, or null.</summary>
+    public required string? Reason { get; init; }
+
+    /// <summary>A refusal that is none of the ten checks - a broken holding configuration - or null.</summary>
+    public required string? ConfigurationReason { get; init; }
+
+    /// <summary>All ten checks, in the mandate's numbered order, so a refusal that was never reached is never read as one that passed.</summary>
+    public required IReadOnlyList<CheckResultJson> Checks { get; init; }
+
+    /// <summary>True when the item moved into holding. Never true in a dry run.</summary>
+    public required bool Moved { get; init; }
+
+    /// <summary>The holding entry the item moved into, when it moved.</summary>
+    public required string? HoldingEntryId { get; init; }
+
+    /// <summary>True when the owner's own cleanup command ran for this item.</summary>
+    public required bool OwnersCommandRan { get; init; }
+
+    /// <summary>The owner's command's exit code, when it ran.</summary>
+    public required int? OwnersCommandExitCode { get; init; }
+
+    /// <summary>Why the item did not move even though the gate passed it, or the incomplete-entry warning, or null.</summary>
+    public required string? OutcomeReason { get; init; }
+}
+
+/// <summary>A whole reclaim answer, as a machine reads it.</summary>
+public sealed record ReclaimJson
+{
+    /// <summary>The command that produced this answer.</summary>
+    public required string Command { get; init; }
+
+    /// <summary>True when the command succeeded.</summary>
+    public required bool Ok { get; init; }
+
+    /// <summary>True only for an apply run. A dry run is the default.</summary>
+    public required bool Apply { get; init; }
+
+    /// <summary>The folder the run was asked about.</summary>
+    public required string RootPath { get; init; }
+
+    /// <summary>The holding root the run moves into.</summary>
+    public required string HoldingRootPath { get; init; }
+
+    /// <summary>The one rule the run was narrowed to, or null.</summary>
+    public required string? RuleId { get; init; }
+
+    /// <summary>Why the whole answer means nothing, or null.</summary>
+    public required string? BrokenReason { get; init; }
+
+    /// <summary>What every rule found at recommendation time.</summary>
+    public required IReadOnlyList<RuleFindingJson> Rules { get; init; }
+
+    /// <summary>The rules that were not run, each with the folder it looks in.</summary>
+    public required IReadOnlyList<RuleNotRunJson> RulesNotRun { get; init; }
+
+    /// <summary>Every item the rules offered, with the gate's answer for each.</summary>
+    public required IReadOnlyList<ReclaimItemJson> Items { get; init; }
+
+    /// <summary>The candidate bytes measured before anything happened.</summary>
+    public required long CandidateBytesBefore { get; init; }
+
+    /// <summary>The candidate bytes measured after everything happened.</summary>
+    public required long CandidateBytesAfter { get; init; }
+
+    /// <summary>The bytes of the items that actually moved into holding.</summary>
+    public required long BytesMoved { get; init; }
+
+    /// <summary>What the volume said before anything happened.</summary>
+    public required VolumeUsage VolumeBefore { get; init; }
+
+    /// <summary>What the volume said after everything happened.</summary>
+    public required VolumeUsage VolumeAfter { get; init; }
+
+    /// <summary>The whole answer in finished sentences, exactly as the text answer prints them.</summary>
+    public required IReadOnlyList<string> Lines { get; init; }
+}
+
+/// <summary>One holding entry, as a machine reads it.</summary>
+/// <param name="EntryId">The entry folder's name.</param>
+/// <param name="OriginalPath">Where the item came from.</param>
+/// <param name="Name">The item's own name.</param>
+/// <param name="Bytes">The bytes measured at the move.</param>
+/// <param name="Rule">The rule that proved it disposable.</param>
+/// <param name="MovedAtUtc">When it moved.</param>
+/// <param name="PurgeNotBeforeUtc">When it becomes purgeable.</param>
+/// <param name="State">"held" or "moving".</param>
+public sealed record HoldingEntryJson(
+    string EntryId,
+    string OriginalPath,
+    string Name,
+    long Bytes,
+    string Rule,
+    DateTimeOffset MovedAtUtc,
+    DateTimeOffset PurgeNotBeforeUtc,
+    string State);
+
+/// <summary>An entry a purge kept, and why.</summary>
+/// <param name="EntryId">The entry that was kept.</param>
+/// <param name="Reason">Why it was kept and named rather than assumed.</param>
+public sealed record KeptEntryJson(string EntryId, string Reason);
+
+/// <summary>A whole holding listing, as a machine reads it.</summary>
+public sealed record HoldingListJson
+{
+    /// <summary>The command that produced this answer.</summary>
+    public required string Command { get; init; }
+
+    /// <summary>True when the holding root could be read, or did not need to be.</summary>
+    public required bool Ok { get; init; }
+
+    /// <summary>True when the holding root exists on the disk. An empty holding is an honest answer.</summary>
+    public required bool RootExists { get; init; }
+
+    /// <summary>The holding root this listing is of.</summary>
+    public required string HoldingRootPath { get; init; }
+
+    /// <summary>Why the root could not be read, when it could not.</summary>
+    public required string? UnreadableReason { get; init; }
+
+    /// <summary>How many complete entries there are.</summary>
+    public required int Count { get; init; }
+
+    /// <summary>The entries whose records say the move completed.</summary>
+    public required IReadOnlyList<HoldingEntryJson> Entries { get; init; }
+
+    /// <summary>
+    /// The entries whose records say the move never completed, listed separately and named, never
+    /// silently counted among the held and never silently dropped.
+    /// </summary>
+    public required IReadOnlyList<HoldingEntryJson> Incomplete { get; init; }
+}
+
+/// <summary>A restore answer, as a machine reads it.</summary>
+public sealed record HoldingRestoreJson
+{
+    /// <summary>The command that produced this answer.</summary>
+    public required string Command { get; init; }
+
+    /// <summary>True when the item was put back or was already home.</summary>
+    public required bool Ok { get; init; }
+
+    /// <summary>The entry that was asked for.</summary>
+    public required string EntryId { get; init; }
+
+    /// <summary>Where the record says the item came from, when the record could be read.</summary>
+    public required string? OriginalPath { get; init; }
+
+    /// <summary>True when the item was moved back.</summary>
+    public required bool Restored { get; init; }
+
+    /// <summary>True when the move never happened and the item was already home; the entry is cleared.</summary>
+    public required bool AlreadyHome { get; init; }
+
+    /// <summary>Why nothing was restored, or null. Restore never overwrites.</summary>
+    public required string? RefusalReason { get; init; }
+}
+
+/// <summary>A purge answer, as a machine reads it.</summary>
+public sealed record HoldingPurgeJson
+{
+    /// <summary>The command that produced this answer.</summary>
+    public required string Command { get; init; }
+
+    /// <summary>True when the purge call succeeded at what it was asked for.</summary>
+    public required bool Ok { get; init; }
+
+    /// <summary>True when entries were removed; false when this was the dry run.</summary>
+    public required bool Applied { get; init; }
+
+    /// <summary>The holding root.</summary>
+    public required string HoldingRootPath { get; init; }
+
+    /// <summary>Entries past their holding period, which an apply removes.</summary>
+    public required IReadOnlyList<HoldingEntryJson> Purgeable { get; init; }
+
+    /// <summary>Entries not yet past their holding period, which no apply touches.</summary>
+    public required IReadOnlyList<HoldingEntryJson> NotYetPurgeable { get; init; }
+
+    /// <summary>Entries whose records say the move never completed. Purge always refuses them.</summary>
+    public required IReadOnlyList<HoldingEntryJson> Incomplete { get; init; }
+
+    /// <summary>Entries that could not be answered and were kept, each with why.</summary>
+    public required IReadOnlyList<KeptEntryJson> Kept { get; init; }
+
+    /// <summary>How many entries this call removed, when it applied.</summary>
+    public required int PurgedCount { get; init; }
+}

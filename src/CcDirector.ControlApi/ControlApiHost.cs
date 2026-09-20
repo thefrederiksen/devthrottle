@@ -1,4 +1,4 @@
-using CcDirector.Core.Configuration;
+﻿using CcDirector.Core.Configuration;
 using CcDirector.Core.Instances;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Wingman;
@@ -97,6 +97,22 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// replaced on a settings change rather than pinning the one that existed at construction.
     /// </summary>
     public SnoozeOptionsCache SnoozeOptions { get; }
+
+    /// <summary>
+    /// The seam the desktop reads what every session colour MEANS through (the Gateway's own words, which
+    /// the Cockpit and the phone render verbatim). Backed by the live <see cref="GatewayClient"/>, so it
+    /// reuses the Director's existing Gateway connection. Null while no Gateway is configured.
+    /// </summary>
+    public IGatewayColourLegend? GatewayColourLegend => _gatewayClient;
+
+    /// <summary>
+    /// The desktop's last-known copy of what the session colours mean, read FROM the Gateway. The rail's
+    /// colour hover and the "What do the colours mean?" window both read this, because neither may block
+    /// on the network and because the words are the Gateway's - this build's own compiled copy would
+    /// explain the colours THIS build knows rather than the ones its Gateway is sending, which is the
+    /// version gap the Session Cards mission exists to close.
+    /// </summary>
+    public SessionColourLegendCache ColourLegend { get; }
 
     /// <summary>
     /// End a session through the Gateway's one stop route (mission "Stop a session", Ruling 5). The
@@ -255,6 +271,11 @@ public sealed class ControlApiHost : IAsyncDisposable
         // reads a list that is already there.
         SnoozeOptions = new SnoozeOptionsCache(() => GatewayHold);
         SnoozeOptions.AttachTo(GatewayMonitor);
+
+        // Same shape, same reason: read once when the Gateway goes green so a hover or a legend window
+        // opened later reads words that are already here.
+        ColourLegend = new SessionColourLegendCache(() => GatewayColourLegend);
+        ColourLegend.AttachTo(GatewayMonitor);
 
         // The injected text is Gateway-owned too (Cockpit -> Injected text): download it when the
         // Gateway connection goes green so a session launched later injects the user's current choice
@@ -1051,15 +1072,19 @@ public sealed class ControlApiHost : IAsyncDisposable
             .PathFor(CcDirector.Setup.Engine.ComponentRegistry.Director);
 
     /// <summary>
-    /// THE DRAIN SEAM. On a tree carrying the drain inside the Director (issue #2723) this is the real step
-    /// over CreateDrain; on this tree it is the step that says the drain is not here - and says so BEFORE
-    /// the owner is asked, through the eligibility answer, not only when the cycle runs.
+    /// THE DRAIN SEAM (issue #3169). The real step, over CreateDrain - the same drain the desktop runs. A
+    /// Director with no Gateway client has nowhere to keep the record, so its step says the drain is not
+    /// available - and says so BEFORE the owner is asked, through the eligibility answer, not only when
+    /// the cycle runs. Internal, not private, so a test can watch THIS wiring and not only the step.
     /// </summary>
-    private static Restart.IRestartCycleDrain RestartDrainStep() => new Restart.NoDrainOnThisBuild();
+    internal Restart.IRestartCycleDrain RestartDrainStep()
+        => new Restart.DirectorDrainRestartStep(
+            onProgress => CreateDrain(onProgress),
+            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
 
     /// <summary>This Director's own answer to "am I the Director my launcher would restart, and can I drain?",
     /// read fresh.</summary>
-    private static DirectorRestartEligibilityDto JudgeRestartEligibility()
+    internal DirectorRestartEligibilityDto JudgeRestartEligibility()
     {
         var answer = Restart.RestartEligibility.Judge(InstanceContext.Slug, InstanceContext.IsDefault,
             Environment.ProcessPath, SupervisedDirectorPath());

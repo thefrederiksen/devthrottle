@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet Manager Improvement - design</title>
+<style>
+  :root { --ink:#1c2430; --soft:#5a6675; --line:#d9dee5; --paper:#ffffff; --wash:#f4f6f9; --blue:#1f5fbf; --red:#b3261e; --green:#1d7a46; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e6eaf0; --soft:#9aa6b5; --line:#2c3644; --paper:#12171f; --wash:#1a212c; --blue:#7fb0ff; --red:#ff8a80; --green:#6fd39b; }
+  }
+  body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.55 system-ui, "Segoe UI", sans-serif; }
+  main { max-width:820px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:1.55rem; margin:0 0 4px; }
+  h2 { font-size:1.2rem; margin:34px 0 8px; padding-top:14px; border-top:1px solid var(--line); }
+  h3 { font-size:1.02rem; margin:0 0 6px; }
+  p { margin:8px 0; }
+  .meta { color:var(--soft); font-size:.9rem; }
+  .status { display:inline-block; margin-top:8px; padding:3px 10px; border-radius:12px; background:var(--wash); color:var(--red); font-weight:600; font-size:.85rem; }
+  .box { background:var(--wash); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:12px 0; }
+  .q { background:var(--wash); border:1px solid var(--line); border-left:4px solid var(--blue); border-radius:8px; padding:12px 14px; margin:14px 0; }
+  .q label { display:block; margin:7px 0; }
+  .q textarea { width:100%; box-sizing:border-box; min-height:54px; margin-top:8px; font:inherit; color:inherit; background:var(--paper); border:1px solid var(--line); border-radius:6px; padding:6px; }
+  .rec { color:var(--green); font-size:.92rem; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:.93rem; }
+  th, td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:var(--wash); }
+  .tablewrap { overflow-x:auto; }
+  blockquote { margin:10px 0; padding:8px 12px; border-left:3px solid var(--line); color:var(--soft); }
+  code { background:var(--wash); padding:1px 4px; border-radius:4px; font-size:.9em; }
+</style>
+</head>
+<body>
+<main>
+
+<header data-dev-report="header" data-dev-report-status="done">
+  <h1>Fleet Manager Improvement - the design</h1>
+  <div class="meta">Final, 20 September 2026. You said go. The design is settled and the building has been handed to a Delivery Lead, a session that answers to you. From the Architect of the Fleet Manager Improvement mission. Read against the main branch as of today.</div>
+  <div class="status" style="color:var(--green)">Settled - nothing needed from you</div>
+</header>
+
+<section data-dev-report="summary">
+  <h2>Summary</h2>
+  <p><strong>All four things you asked for can be built, and none needs new machinery - each one extends a piece that already exists.</strong> I recommend four phases, smallest first, each merged on its own.</p>
+  <ol>
+    <li><strong>Raise a session to your permissions.</strong> You choose a session and the Gateway treats its key as acting for you: it may message any session with no limits, type into sessions, press menu keys and answer stops - everything you can do to your fleet from your own screens. The Fleet Manager is raised when you set it up. Every other session keeps every limit. Each thing a raised session does is recorded as that session acting for you.</li>
+    <li><strong>A Fleet Manager screen on the phone.</strong> Today the phone has none - only the pinned first row, which opens the ordinary session chat. The Cockpit page moves into the shared code both apps use, so the phone shows the same conversation, the same cards, the same waiting list and the same walkthrough.</li>
+    <li><strong>Talk to it on the phone.</strong> Dictation and spoken narration are already shared pieces that work against any session. The phone screen mounts them against the Fleet Manager. The one new piece: a card has no spoken version today, so the Gateway writes one.</li>
+    <li><strong>One front door.</strong> The Gateway marks the Fleet Manager's session as "talk to it through the Fleet Manager screen". The Cockpit, the phone and the Director all show that session read-only with a link to the screen, and you keep a deliberate unlock for the day it is stuck.</li>
+  </ol>
+  <p><strong>What you saw, now on record:</strong> you talked to the Fleet Manager's session directly in the Director, and the Cockpit's Fleet Manager page did not reflect it. So phase 4 is a fix and not tidying: that session stays visible in the Director but takes no input, and everything goes through the Fleet Manager screen. It needs a new Director release, so it lands last. I did not reproduce the page falling behind and found no cause in the code; the first task of phase 4 is to reproduce it, so the cause is known and not guessed.</p>
+</section>
+
+<section data-dev-report="questions">
+  <h2>Questions for you</h2>
+  <p data-dev-report-no-questions>No questions - nothing needed from you. You answered the last one on 20 September and said to start.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>What I decided, so you do not have to</h2>
+  <p>Each line is a decision, not a question. Say the word and any of them changes.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Decision</th><th>Why</th></tr>
+    <tr><td><strong>A raised session is you, inside your account, and nothing more.</strong> It can never touch another account, and it can never do what only the developer of DevThrottle can do, such as shutting down the Gateway.</td><td>Your words: it cannot have more permissions than a normal user, and a user only deals with things in their own account. The session key is already tied to one account, so this holds by construction.</td></tr>
+    <tr><td><strong>For now it does not get the few things that let someone new in:</strong> adding or removing a device, sign-in and sign-out, billing and subscription.</td><td>A session that can add a device can make itself a key that outlives the session, and ending the session would no longer take the power back. Nothing the Fleet Manager does needs it. It is one line to add the day something does.</td></tr>
+    <tr><td><strong>Only you raise a session, from your own phone or Cockpit.</strong> A raised session cannot raise another.</td><td>Otherwise one raised session can lift the limits for the whole fleet without you choosing it. The factory gets its grant from you when the factory is designed, on the same list.</td></tr>
+    <tr><td><strong>Raised lasts until the session ends or you lower it.</strong> For the Fleet Manager it follows the mark through a restart or a move.</td><td>The Fleet Manager works while you are not looking; a grant that lapses would stop it at the worst moment.</td></tr>
+    <tr><td><strong>The Fleet Manager's own session is read-only everywhere, with an unlock only you can press,</strong> recorded each time.</td><td>A lock with no way in turns a stuck sign-in question into a lost conversation.</td></tr>
+    <tr><td><strong>Talking to it on the phone works exactly as with a session today:</strong> press to dictate, the answer is read aloud.</td><td>Built from pieces that already work. Hands-free is its own later piece of work.</td></tr>
+    <tr><td><strong>The pinned Fleet Manager row on the phone opens the Fleet Manager screen, always.</strong> The raw session is reachable only from that screen's menu.</td><td>You said it should not be a session. If the old tabs are one tap away, the old habit stays.</td></tr>
+  </table></div>
+</section>
+
+<section data-dev-report="detail">
+  <h2>What you said</h2>
+  <blockquote>We need to be able to raise some sessions, so they're allowed to maintain other sessions with no limits. We put limits on message sending because we didn't want this incessant chatter between agents - they started just blabbering and also interrupting other agents. But the fleet manager needs the ability to do that.</blockquote>
+  <blockquote>We need to add Fleet Manager to the phone, and it needs to be not a session, because right now I'm talking directly to the session and then the fleet manager is not updated on the screen.</blockquote>
+  <blockquote>We probably also need to update the director, so you cannot interact directly with this session, but it has to go through the fleet manager UI.</blockquote>
+  <blockquote>On the phone, I'd want to talk to it. So I'd want the wingman to be able to chat with it just like I do with a regular session.</blockquote>
+</section>
+
+<section data-dev-report="detail">
+  <h2>What you decided on 20 September</h2>
+  <blockquote>I talked to the session directly instead of through the UI. That was the problem. If I talk to the session in the director directly, the UI on the cockpit doesn't reflect it. [...] On the director, it should be visible, but the user should not be able to interact with it, because it needs to be directed through the fleet manager. [...] I want you just to start the implementation.</blockquote>
+  <blockquote>If the user chooses to escalate a session, it should then be able to have the same permissions as the user does. And so a fleet manager basically has the same permissions as the user. It's got delegated permissions. [...] we should also allow this actually when we do the factory agents, they should have user level permissions.</blockquote>
+  <blockquote>User can't shut down a gateway. Only I can, who's the developer. So it can't have more permissions than a normal user would. They can only deal with things in their own tenant.</blockquote>
+  <p>So: any session you choose can be raised, it goes as far as a user goes, and never further than a user or outside the account.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>Phase 1 - raise a session to your permissions</h2>
+  <p><strong>What happened on 19 September.</strong> You asked the Fleet Manager to tell a session on the Mac mini "merge 3151". Four minutes later you gave a follow-up for the same session and the Gateway refused it: one message per recipient every ten minutes. Your own words, passed on by the Fleet Manager, were stopped by a rule meant for sessions chattering at each other.</p>
+  <p><strong>How the Gateway tells you from a session today.</strong> Your phone and Cockpit carry a device key. Every session carries a session key. One Gateway rule (<code>SessionKeyGuard</code>) lists what a session key may call, and refuses the rest - in particular typing into a session, interrupting it, pressing its menu keys, and answering a stop, which are yours alone since 16 September. A second rule (<code>FleetMessagePolicy</code>) holds the message limits.</p>
+  <p><strong>The change.</strong> The Gateway keeps a list of raised sessions for your account. When a request arrives with a raised session's key, both rules treat it as you:</p>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>Ordinary session</th><th>Raised session</th></tr>
+    <tr><td>Messages</td><td>Six an hour, one per session every ten minutes, only to sessions it started or that started it</td><td>No limit, to any session on your account</td></tr>
+    <tr><td>Typing into a session, interrupting it, pressing menu keys, answering a stop</td><td>Refused</td><td>Allowed</td></tr>
+    <tr><td>The Fleet Manager page, walkthrough and placement</td><td>Refused</td><td>Allowed</td></tr>
+    <tr><td>Devices, sign-in, billing</td><td>Refused</td><td>Refused for now (decided above)</td></tr>
+    <tr><td>Anything outside your account, or that only the developer of DevThrottle can do, such as shutting down the Gateway</td><td>Refused</td><td>Refused, always</td></tr>
+    <tr><td>Raising another session</td><td>Refused</td><td>Refused</td></tr>
+  </table></div>
+  <p><strong>Raising and lowering.</strong> From your own device only: "Raise to my permissions" in a session's menu, in the Cockpit and on the phone, with one plain sentence saying what it means, and "Lower it" in the same place. Setting up the Fleet Manager raises it as part of that same action, and the grant follows the mark through a restart or a move. A raised session shows a mark on its row everywhere, so you can always see which ones act for you.</p>
+  <p><strong>The record.</strong> Everything a raised session does with the raised power is written down as "this session, acting for you": what it did, to which session, when. One place to read it, so "who typed that into my session?" always has an answer.</p>
+  <p><strong>A side effect worth having.</strong> Today, when a session the Fleet Manager owns stops on a menu, the Fleet Manager has to bring it to you because only you can press keys. Raised, it can press the key the Wingman read - for questions with no risk. Anything irreversible, anything that spends money, anything that grants a standing permission still comes to you; that is its conduct, and it does not change.</p>
+  <p><strong>What this reverses, said plainly.</strong> The 16 September ruling that no session ever types into another. It stays true for every ordinary session; a raised session is the exception you make by hand. The Fleet Manager's conduct still tells it to queue by default and to type into a working session only when your words call for it - the power is yours delegated, and so is the restraint.</p>
+  <p><strong>Also in this phase:</strong> the Fleet Manager's conduct and skill tell it today that it is held to six an hour and cannot press keys. Those words change with the rule, in the one shipped source.</p>
+  <p><strong>Proof.</strong> Tests on both rules: a raised session sends twenty messages in a minute to a session it does not own and all queue; it types into a session and presses a menu key; an ordinary session is refused each of those with today's sentences; a session that says it is raised but is not on the list is refused; a raised session is refused device enrollment, refused raising another, refused anything in another account and refused shutting down the Gateway; lowering takes effect on the next request; every raised action appears in the record.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>Phase 2 - the Fleet Manager screen on the phone</h2>
+  <p><strong>Today.</strong> The phone pins the Fleet Manager as the first row of the session list with its sessions folded under it. Tapping it opens the ordinary session chat. There is no Fleet Manager screen. The phone's route file says so in words: "the Fleet Manager is on the Cockpit only" - a ruling from the first Fleet Manager mission, which this mission reverses.</p>
+  <p><strong>What exists to build on.</strong> Everything the Cockpit page shows is already decided on the Gateway: every card, heading, button and the exact words a button sends. The code that fetches it is already in the shared package. Only the page itself - the layout - sits inside the Cockpit.</p>
+  <p><strong>The change.</strong> Follow the rule Settings already follows: one page on two surfaces. The conversation, the cards, the waiting list and the walkthrough move into the shared package. The Cockpit keeps its frame (wide, panel on the right). The phone gets its own frame: the conversation full height, the composer at the bottom, "Waiting on you" as a count in the top bar that opens the list, "Take me through them" one item per screen.</p>
+  <div class="tablewrap"><table>
+    <tr><th>On the phone screen</th><th>Comes from</th></tr>
+    <tr><td>The conversation with the Fleet Manager</td><td>The same history reader the Cockpit page uses</td></tr>
+    <tr><td>Ready, Finding and Decision cards with their buttons</td><td>The same Gateway page answer; a button sends the Gateway's exact words</td></tr>
+    <tr><td>What is waiting on you, the sessions it owns</td><td>The same Gateway page answer</td></tr>
+    <tr><td>Take me through them</td><td>The same walkthrough answer and actions</td></tr>
+    <tr><td>Hand a session to the Fleet Manager, or back to you</td><td>The same hand-over client</td></tr>
+  </table></div>
+  <p><strong>Getting there.</strong> The pinned first row opens this screen. The phone's menu gets a Fleet Manager entry with the waiting count on it. A notification about a Fleet Manager card opens the screen at that card.</p>
+  <p><strong>Proof.</strong> The shared components keep the Cockpit's existing tests. A QA report with phone screenshots: the screen with cards, answering a card, the walkthrough, no Fleet Manager set up yet, the Gateway unreachable, and a refused answer showing the Gateway's own sentence.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>Phase 3 - talk to it on the phone</h2>
+  <p><strong>What exists.</strong> The dictation dialog, the recorder, the status strip and the narration player are shared pieces, and each works against a session by its id. The phone's session voice screen is a thin view over them.</p>
+  <p><strong>The change.</strong> The phone's Fleet Manager composer gets the same microphone button a session has. Your words reach the Fleet Manager unchanged, under the same transcription rules as everywhere - no new path, so no new place for a word to be altered. When it answers, the Wingman reads the stop as it does for any session that answers to you, and the spoken version plays.</p>
+  <p><strong>The one new piece.</strong> A card has no spoken version today. When the Fleet Manager files a Ready, a Finding or a Decision, the Gateway writes one spoken line for it alongside the rest of the card - what it is, and the choices - so the phone can read a card aloud and you can answer by voice. The phone never composes that sentence itself.</p>
+  <p><strong>Answering a card by voice.</strong> What you say goes to the Fleet Manager as your words, with the card's prefix the Gateway already supplies so it knows which card you mean. Pressing the button stays available. Nothing irreversible is ever triggered by a voice match alone: merge and close keep their buttons.</p>
+  <p><strong>Proof.</strong> The isolated Gateway rig with the fake microphone: dictate to the Fleet Manager, see the words arrive unchanged, hear narration for its answer and for a card. Failure cases: microphone refused, transcription down, narration not ready.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>Phase 4 - one front door</h2>
+  <p><strong>Today.</strong> Nothing anywhere treats the Fleet Manager's session differently for typing. The Director, the Cockpit's session view and the phone's chat, terminal and voice all accept your input to it like any session.</p>
+  <p><strong>The change.</strong> The Gateway decides, once, that the marked Fleet Manager's session is "reached through the Fleet Manager screen", and puts that on the session every client already reads - the sentence to show and the link to offer. No client works it out for itself.</p>
+  <ul>
+    <li><strong>Cockpit and phone:</strong> the session's chat, terminal and voice views show it read-only, with the Gateway's sentence and a button to the Fleet Manager screen.</li>
+    <li><strong>Director:</strong> the terminal for that session shows the same sentence and does not take keystrokes. The Director learns which session it is from the Gateway's push, the same way it learns a session's color.</li>
+    <li><strong>Gateway:</strong> the typing routes refuse direct input to that session from anything but the Fleet Manager screen and the Gateway's own event delivery, so a client that has not updated yet cannot slip past.</li>
+    <li><strong>The unlock:</strong> from your own device only, for that one session, until it next goes idle or you lock it again. Each use is recorded.</li>
+  </ul>
+  <p><strong>Why last.</strong> It needs a Gateway deploy and a Director release, and it must not land before the phone screen exists - otherwise the phone would lock you out of the only way you have to reach the Fleet Manager from the couch.</p>
+  <p><strong>Proof.</strong> Tests on the Gateway ruling and the refused routes. A QA report: typing blocked in the Director, the Cockpit and the phone; the screen still works; unlock works and is recorded; a restarted Fleet Manager carries the lock to the new session and releases the old one.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>Order, size and what is left out</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Phase</th><th>Touches</th><th>Reaches you by</th><th>Size</th></tr>
+    <tr><td>1. Raise a session</td><td>Gateway, the raise and lower control in the shared package, the shipped conduct and skill</td><td>Gateway deploy</td><td>Medium</td></tr>
+    <tr><td>2. Phone screen</td><td>Shared package, Cockpit, phone</td><td>Gateway deploy (the apps ship in it)</td><td>Large</td></tr>
+    <tr><td>3. Voice</td><td>Gateway (spoken card line), shared package, phone</td><td>Gateway deploy</td><td>Medium</td></tr>
+    <tr><td>4. One front door</td><td>Gateway, shared package, Director</td><td>Gateway deploy and a Director release</td><td>Medium</td></tr>
+  </table></div>
+  <p>Each phase merges to main on its own and is useful on its own. Phase 1 is larger than in the first draft, because it is now a permission and not one exemption; it is still the first thing to land and still led by the Gateway.</p>
+  <p><strong>Left out on purpose:</strong> the grant for factory sessions, which is designed with the factory and built on this same list; hands-free conversation; being told when a pull request opens or merges, which the Fleet Manager skill already lists as not built; any change to what the Wingman reads or how.</p>
+</section>
+
+<section data-dev-report="evidence">
+  <h2>What this rests on, and what is not proven</h2>
+  <ul>
+    <li><strong>Read on the main branch today:</strong> the rule for what a session key may call, and where the Gateway applies it; the message rule and its existing exemptions; the Cockpit Fleet Manager page and how it loads the conversation and sends your words; the shared Fleet Manager, dictation and voice code; the phone's routes and pinned row; the Director's input handling.</li>
+    <li><strong>Found absent:</strong> any Fleet Manager screen on the phone; any special handling of the Fleet Manager's session for typing, in any client; a spoken line on a card.</li>
+    <li><strong>Not proven:</strong> why the Cockpit page did not reflect what you said in the Director. I did not reproduce it and found no cause in the code. Reproducing it is the first task of phase 4.</li>
+    <li><strong>Not checked yet:</strong> how the Wingman's narration is switched on for the Fleet Manager's own session, and whether push notifications for cards exist on the phone. Both get settled before the phase that needs them is planned in detail.</li>
+    <li>Nothing was built, run or changed. This is a design from reading.</li>
+  </ul>
+</section>
+
+</main>
+</body>
+</html>

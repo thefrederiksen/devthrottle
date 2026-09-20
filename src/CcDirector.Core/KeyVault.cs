@@ -20,11 +20,12 @@ public sealed class KeyVault
     private readonly object _gate = new();
 
     /// <param name="path">Override the store path (tests). Production omits it for the
-    /// shared default at <c>%LOCALAPPDATA%\cc-director\keyvault.json</c>.</param>
+    /// shared default resolved by <see cref="Storage.CcStorage.KeyVaultFile"/>, which is the one
+    /// place the path is named.</param>
     public KeyVault(string? path = null)
     {
         _path = string.IsNullOrWhiteSpace(path)
-            ? Path.Combine(CcStorage.Root(), "keyvault.json")
+            ? CcStorage.KeyVaultFile()
             : path;
     }
 

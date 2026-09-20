@@ -19,4 +19,10 @@
     <ProjectReference Include="..\..\..\..\src\CcDirector.Reclaim.Windows\CcDirector.Reclaim.Windows.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The test suite reaches the tool's answer mapper directly, so the machine-readable shape is
+         tested against a real engine result on a fixture tree rather than only against the broken
+         answers a fixture folder can produce. -->
+    <InternalsVisibleTo Include="CcDirector.Reclaim.Tests" />
+  </ItemGroup>
 </Project>
