@@ -2,8 +2,11 @@
 
 The smart shutdown run: the time allowed, two stages, the limit, Shut down now, progress per session.
 
-Branch `smart-restart/p1-engine`, code commit `c8b85a059`, cut from `origin/main` at `9f79e92dc` (zero
-commits behind when the work started; checked with `scripts\check-tree-freshness.ps1`).
+Branch `smart-restart/p1-engine`, code commit `344bffd77`. The work was done and both revert proofs were
+run on `c8b85a059`, cut from `origin/main` at `9f79e92dc`. `origin/main` then moved four commits and one
+of them touched `ControlApiHost.cs`, so before the first push the branch was rebased onto `origin/main`
+at `912340ed8` (no conflict) and the code commit became `344bffd77`. The check was REBUILT and run again
+on the rebased branch: the last row of the table. The revert proofs were not repeated after the rebase.
 
 ## The check
 
@@ -15,6 +18,7 @@ commits behind when the work started; checked with `scripts\check-tree-freshness
 | After the engine change, BEFORE any new test existed (the older tests, untouched) | 487 | 0 | 487 |
 | After, on `c8b85a059`, built from source in the same command | 517 | 0 | 517 |
 | After both revert proofs, restored and REBUILT in the same command | 517 | 0 | 517 |
+| After the rebase onto `origin/main` at `912340ed8`, on `344bffd77`, REBUILT in the same command | 517 | 0 | 517 |
 
 517 - 487 = 30, and 30 is the number of new test cases counted by hand below. The baseline is 487 and
 not the 477 of `proof-phase-1-task-1.md` because the restart cycle work (issue 3169) merged in between.
@@ -25,7 +29,8 @@ was changed, and the second row of the table is the older tests passing on the n
 of my tests existed.
 
 The whole `CcDirector.Gateway.UnitTests` project, run once because the session control seam and the
-host changed: **6,519 passed, 0 failed, 8 skipped, 6,527 in all**, 4 minutes 50 seconds. The harness
+host changed: **6,519 passed, 0 failed, 8 skipped, 6,527 in all**, 4 minutes 50 seconds. That run was
+on `c8b85a059`, BEFORE the rebase, and was not repeated after it. The harness
 `tools/harnesses/drain-index-diff`, which implements the seam, builds with no warnings.
 
 Everything ran in the foreground. My first baseline run was piped through a tail, which hides output
