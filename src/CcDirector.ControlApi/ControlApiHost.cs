@@ -215,6 +215,28 @@ public sealed class ControlApiHost : IAsyncDisposable
                 DirectorId,
                 onProgress);
 
+    /// <summary>
+    /// THE SMART SHUTDOWN (mission "Smart Director Restart"): the engine the way down screens call.
+    ///
+    /// NEVER NULL, unlike <see cref="CreateDrain"/>. A Director that cannot do a smart shutdown - it has
+    /// no Gateway client, or the Gateway does not answer - says why through the engine's own check, so a
+    /// dialog always has something to ask and a sentence to show.
+    /// </summary>
+    public SmartRestart.ISmartShutdown CreateSmartShutdown()
+    {
+        FileLog.Write($"[ControlApiHost] CreateSmartShutdown: gatewayClient={(_gatewayClient is null ? "none" : "present")}");
+        var client = _gatewayClient;
+        return new SmartRestart.DirectorSmartShutdown(
+            () => CreateDrain(),
+            // The harmless question: list the workspaces, which is the very store the record goes into.
+            // It throws when the Gateway cannot be reached, and that is the answer wanted.
+            ct => client is null
+                ? throw new InvalidOperationException("this Director is not connected to a Gateway.")
+                : client.ListWorkspacesAsync(ct),
+            JudgeRestartEligibility,
+            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
+    }
+
     /// <summary>Create a workspace, refusing if the id is taken. See <see cref="ListWorkspacesAsync"/>
     /// for the null case.</summary>
     /// <param name="doc">The workspace to create.</param>

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Reflection;
 using System.Text.Json;
 using System.Text;
+using CcDirector.ControlApi.SmartRestart;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -53,6 +54,39 @@ public sealed class DrainOptions
 
     /// <summary>Anything that needs saying about who drove it.</summary>
     public string? DrivenByNote { get; set; }
+
+    /// <summary>
+    /// Set ONLY by a smart shutdown. Null is the older drain, exactly as it has always run: ninety
+    /// minutes, never forces, nothing below is read.
+    /// </summary>
+    public SmartShutdownDrainOptions? SmartShutdown { get; set; }
+}
+
+/// <summary>
+/// What turns a drain into a smart shutdown (mission document "Smart Director Restart", section 5.3
+/// item 5): a time the owner allowed, a stage at two thirds of it where sessions still working are
+/// interrupted and asked again, and a limit where every session still present is ended.
+///
+/// THIS REPLACES THE NEVER-FORCE RULE, FOR THIS CALLER ONLY, by the owner's ruling. A drain run without
+/// these options still never forces.
+/// </summary>
+public sealed class SmartShutdownDrainOptions
+{
+    /// <summary>How long the sessions get in all. It replaces <see cref="DrainOptions.HandoverDeadline"/>.</summary>
+    public TimeSpan TimeAllowed { get; set; } = SmartShutdownTimes.Default;
+
+    /// <summary>Cancelled when the owner presses "Shut down now": the run jumps to the limit from
+    /// wherever it is. It is a token and not a flag so that the wait between two polls ends at once.</summary>
+    public CancellationToken ShutDownNow { get; set; }
+
+    /// <summary>How long to wait, after every session still present has been ended, for each to be
+    /// verifiably absent. An end is immediate, so this is short; a session still here after it is one
+    /// that would not die, and the record says so.</summary>
+    public TimeSpan EndWait { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>Handed a complete snapshot on every change and at least once per poll. Never throws
+    /// into the drain.</summary>
+    public Action<SmartShutdownSnapshot>? OnSnapshot { get; set; }
 }
 
 /// <summary>What the drain is doing right now, for a screen to render.</summary>
@@ -69,7 +103,16 @@ public sealed record DrainProgress(string Phase, int Seats, int Accounted, int C
 /// <param name="ReadyToRestart">Whether the restart is allowed to proceed.</param>
 /// <param name="NotReadyReason">Why not, when not.</param>
 public sealed record DirectorDrainResult(
-    WorkspaceDocument Document, string Directory, bool ReadyToRestart, string? NotReadyReason);
+    WorkspaceDocument Document, string Directory, bool ReadyToRestart, string? NotReadyReason)
+{
+    /// <summary>SMART SHUTDOWN ONLY: nothing at all is left on this Director - asked of the live session
+    /// list at the very end, not summed from rows. Always false on the older path, which never asks,
+    /// because it never ends anything: there <see cref="ReadyToRestart"/> is the answer.</summary>
+    public bool Emptied { get; init; }
+
+    /// <summary>SMART SHUTDOWN ONLY: why the Director is not empty, when it is not.</summary>
+    public string? NotEmptiedReason { get; init; }
+}
 
 /// <summary>
 /// THE DRAIN, INSIDE THE DIRECTOR (issue #2723, Phase 4 of #2719).
@@ -100,12 +143,20 @@ public sealed record DirectorDrainResult(
 ///  5. RE-READ AT CLOSE TIME. A handover is not immutable once it has been read - in the first run one was
 ///     amended after being marked drained. What was read is stamped, and a document that changed says so.
 ///
-/// And two rules the class enforces rather than advises. It NEVER FORCES: the strongest verb it holds is
+/// And two rules the class enforces rather than advises. ON THE OLDER PATH - a run with no
+/// <see cref="DrainOptions.SmartShutdown"/> options - it NEVER FORCES: the strongest verb it uses is
 /// "flag for deletion", which the Director's own reaper acts on only after a grace window and only while
 /// the session is not mid-turn - so a session that keeps working is never cut off, and a seat that cannot
 /// reach a clean stop is never flagged at all, keeps running, and stops the restart. (It is NOT true that
 /// nothing ever gets killed: a flagged seat is removed by the reaper once it has stopped. The line is
 /// out-of-turn versus after-the-turn.) And only ONE drain runs at a time.
+///
+/// THE SMART SHUTDOWN REPLACES NEVER-FORCE, by the owner's ruling (mission document "Smart Director
+/// Restart", section 5.3 item 5). Run with <see cref="DrainOptions.SmartShutdown"/> set, this same class
+/// has a time the owner allowed: at two thirds of it a session still working is interrupted and asked
+/// again, and at the limit every session still present is ended and recorded "ended-at-limit". Every
+/// sentence below that says "nothing was forced" or "it keeps running" is a statement about the older
+/// path, and a test holds that the older path calls neither the interrupt nor the end.
 /// </summary>
 public sealed class DirectorDrain
 {
@@ -178,6 +229,15 @@ public sealed class DirectorDrain
     // Seats whose session id this drain cannot drive at all. They are never messaged, never closed, and
     // never called absent - "I could not look it up" must not arrive as "it is gone".
     private readonly HashSet<string> _undrivable = new(StringComparer.OrdinalIgnoreCase);
+
+    // ---- What only a smart shutdown tracks: the facts a progress row is worded from. None of these is
+    // written by the older path, and none of them decides anything about the record - the record is
+    // decided by the same rules as ever, plus the limit.
+    private readonly HashSet<string> _asked = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _notDelivered = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _writing = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _interrupted = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _rowDetail = new(StringComparer.OrdinalIgnoreCase);
     private bool _used;
 
     private sealed record ReadStamp(long Length, DateTime LastWriteUtc, string Sha256);
@@ -269,6 +329,12 @@ public sealed class DirectorDrain
         FileLog.Write($"[DirectorDrain] RunAsync: director={_directorId}, workspace={options.WorkspaceId}");
         Report("capturing", 0, 0, 0, "folding this Director's live sessions into a workspace");
 
+        // NULL IS THE OLDER DRAIN. Every branch below that reads this is a smart shutdown's; with it null
+        // the run is the one that has always been here, line for line.
+        var smart = options.SmartShutdown;
+        _smart = smart;
+        Emit(SmartShutdownPhase.Starting, "writing the record of what is running before anything is asked");
+
         // THE CAPTURE IS A DOOR TOO. The boundary guard was put on the save and the capture was left
         // open, so the workspace name, the reason the operator typed and the note about who drove it all
         // reached the Gateway unswept - and a later save overwriting them does not un-send them. One
@@ -277,13 +343,20 @@ public sealed class DirectorDrain
         {
             Id = options.WorkspaceId,
             Name = options.WorkspaceName,
-            Description = "Captured by the Director's own drain before a restart.",
+            Description = smart is null
+                ? "Captured by the Director's own drain before a restart."
+                : "Captured by a smart shutdown of this Director.",
             DirectorId = _directorId,
             Reason = options.Reason,
             DrivenBySessionId = options.DrivenBySessionId,
             DrivenByDirectorId = string.IsNullOrWhiteSpace(options.DrivenBySessionId) ? null : _directorId,
             DrivenByNote = options.DrivenByNote,
         }), ct).ConfigureAwait(false);
+
+        // THE RECORD SAYS WHERE IT CAME FROM, from its first save onwards. The way up looks for records
+        // that a smart shutdown wrote, and a refusal below is saved too, so the mark goes on here.
+        if (smart is not null) doc.ShutdownKind = WorkspaceShutdownKinds.SmartShutdown;
+        _recordExists = true;
 
         var dir = directory ?? DrainPaths.DirectoryFor(StartedUtc.ToLocalTime(), doc.DirectorName);
         Directory.CreateDirectory(dir);
@@ -333,11 +406,26 @@ public sealed class DirectorDrain
             throw;
         }
 
+        if (smart is not null)
+        {
+            // SAVED BEFORE ANYTHING IS ASKED, with the mark on it. The capture is stored without the mark,
+            // and a Director that dies in the next minute must leave a record the way up can find.
+            _smartSeats = seats;
+            _smartChain = chain;
+            await SaveAsync(doc, ct).ConfigureAwait(false);
+            Emit(SmartShutdownPhase.Asking, $"asking {chain.Heads.Count} lead and standalone sessions to hand over");
+        }
+
         // ---- Message the chain, not the roster.
         Report("messaging", seats.Count, 0, 0, $"messaging {chain.Heads.Count} senior and standalone seats");
         foreach (var headId in chain.Heads)
         {
             ct.ThrowIfCancellationRequested();
+
+            // "Shut down now" is honoured from any phase, this one included: the sessions not yet asked
+            // are not asked, and the run goes to the limit.
+            if (smart is not null && smart.ShutDownNow.IsCancellationRequested) break;
+
             var seat = byId[headId];
             var node = chain.Node(headId)!;
             var path = DrainPaths.HandoverFor(dir, headId, seat.Name);
@@ -360,11 +448,36 @@ public sealed class DirectorDrain
                 .Select(subId => (byId[subId].Name, Path: DrainPaths.HandoverFor(dir, subId, byId[subId].Name)))
                 .ToList();
 
-            var text = DrainMessages.Drain(doc.DirectorName, path, dir, subordinatePaths, options.Reason);
+            var text = smart is null
+                ? DrainMessages.Drain(doc.DirectorName, path, dir, subordinatePaths, options.Reason)
+                : DrainMessages.SmartShutdown(doc.DirectorName, path, subordinatePaths, options.Reason, smart.TimeAllowed);
             var sent = await _sessions.SendAsync(headId, text).ConfigureAwait(false);
             FileLog.Write(
                 $"[DirectorDrain] drain message to {headId} ({seat.Name}): delivered={sent.Delivered}" +
                 (sent.Reason is null ? "" : $", {sent.Reason}"));
+
+            if (smart is not null)
+            {
+                // A SMART SHUTDOWN DOES NOT WRITE A SESSION OFF AT THE FIRST REFUSAL. The older path makes
+                // such a seat terminal at once, because it will never force and so has nothing left to try.
+                // Here there are two more things to try - the second request at two thirds, and the limit -
+                // so the seat stays unaccounted for, its row says NOW that the request did not land and
+                // why, and the record keeps the same sentence the older path writes.
+                if (sent.SessionGone)
+                    MarkGone(seat, "the session was already absent when the smart shutdown request was sent");
+                else if (sent.Delivered)
+                    _asked.Add(headId);
+                else
+                {
+                    _notDelivered[headId] = sent.Reason ?? "(no reason given)";
+                    _problems.Add(
+                        $"the smart shutdown request could not be DELIVERED to {DrainPaths.ShortId(headId)} " +
+                        $"({seat.Name}) - the ask did not land, so it was never asked rather than asked and " +
+                        $"silent. The delivery path said: {sent.Reason ?? "(no reason given)"}.");
+                }
+                Emit(SmartShutdownPhase.Asking, null);
+                continue;
+            }
 
             if (!sent.Delivered)
             {
@@ -399,11 +512,17 @@ public sealed class DirectorDrain
         // ---- Collect, and close leaf-first as documents land. Rolling, not a mass close at the end: a
         // session that is finished is one less thing that can start something new, so the drain converges
         // from both ends.
-        var deadline = StartedUtc + options.HandoverDeadline;
+        // THE TIME ALLOWED REPLACES THE NINETY MINUTES for a smart shutdown, and only for one.
+        var deadline = StartedUtc + (smart?.TimeAllowed ?? options.HandoverDeadline);
+        var interruptAt = StartedUtc + TwoThirdsOf(smart?.TimeAllowed ?? options.HandoverDeadline);
+        var interruptStageDone = false;
         var dirty = false;
         while (true)
         {
             ct.ThrowIfCancellationRequested();
+
+            // "Shut down now": leave the loop, and what follows it is the limit.
+            if (smart is not null && smart.ShutDownNow.IsCancellationRequested) break;
 
             // COLLECT, SAVE, THEN CLOSE. The save is between them on purpose: what a seat handed over is
             // durable BEFORE anything is asked to stop on the strength of it. Flagging first and saving
@@ -417,14 +536,35 @@ public sealed class DirectorDrain
 
             dirty |= await FlagEligibleAsync(doc, seats, chain, byId, dir, options, ct).ConfigureAwait(false);
             dirty |= PollForAbsence(seats, options);
+            if (smart is not null) dirty |= NoteSessionsThatWentByThemselves(seats);
 
             var accounted = seats.Count(s => s.DrainState is not null);
             Report("collecting", seats.Count, accounted, _closed.Count, null);
+            Emit(SmartShutdownPhase.Collecting, null);
 
             if (dirty)
             {
                 await SaveAsync(doc, ct).ConfigureAwait(false);
                 dirty = false;
+            }
+
+            if (smart is not null)
+            {
+                // A SMART SHUTDOWN IS OVER WHEN EVERY SESSION IS GONE, and not before. A seat that said it
+                // is blocked, or whose request never landed, is final on the older path because nothing
+                // more will be done to it; here it is still present and the limit will end it.
+                if (seats.All(s => s.ClosedAtUtc is not null)) break;
+                if (_utcNow() >= deadline) break;
+
+                if (!interruptStageDone && _utcNow() >= interruptAt)
+                {
+                    interruptStageDone = true;
+                    await InterruptAndAskAgainAsync(seats, dir, deadline, smart).ConfigureAwait(false);
+                    await SaveAsync(doc, ct).ConfigureAwait(false);
+                }
+
+                await WaitOnePollAsync(options.PollInterval, smart, ct).ConfigureAwait(false);
+                continue;
             }
 
             if (seats.All(s => IsTerminal(s))) break;
@@ -469,9 +609,19 @@ public sealed class DirectorDrain
         // whether it was flagged just now or long ago. The main loop can exit on the handover deadline
         // while a seat is still working through its last turn, and a seat that was asked to close and
         // never went is exactly the thing the record must not be silent about.
-        await FlagEligibleAsync(doc, seats, chain, byId, dir, options, ct).ConfigureAwait(false);
-        if (_flagged.Count > 0)
-            await WaitForFlaggedAsync(seats, options, ct).ConfigureAwait(false);
+        if (smart is null)
+        {
+            await FlagEligibleAsync(doc, seats, chain, byId, dir, options, ct).ConfigureAwait(false);
+            if (_flagged.Count > 0)
+                await WaitForFlaggedAsync(seats, options, ct).ConfigureAwait(false);
+        }
+        else if (seats.Any(s => s.ClosedAtUtc is null))
+        {
+            // THE LIMIT - reached by the clock, or by "Shut down now". Every session still present is
+            // ended. Nothing is flagged and waited for here: the wait is what the time allowed was for.
+            await EndEverySessionStillPresentAsync(doc, seats, chain, byId, dir, options, smart, ct)
+                .ConfigureAwait(false);
+        }
         await SaveAsync(doc, ct).ConfigureAwait(false);
 
         // ---- The checks, and the proof the sweep can fail.
@@ -483,7 +633,8 @@ public sealed class DirectorDrain
         // would leave them in a list nothing ever reads, and the record would say ready while a question
         // waiting on the owner had been dropped.
         doc.OwnerQuestions = CollectQuestions(seats);
-        CheckForSessionsThatAreNotSeats(seats);
+        if (smart is null) CheckForSessionsThatAreNotSeats(seats);
+        else await EndSessionsThatAreNotSeatsAndCheckEmptyAsync(seats).ConfigureAwait(false);
         var integrity = BuildIntegrity(doc, seats, dir, options);
         doc.Integrity = integrity;
         doc.RestoreAfterRestart = seats
@@ -519,7 +670,11 @@ public sealed class DirectorDrain
         // outbound door - anything that serialized it would send what the boundary had just been built to
         // stop. It also makes the type's "exactly as it was last stored" contract true, which it was not.
         return new DirectorDrainResult(
-            RedactedForTransmission(doc), dir, integrity.ReadyToRestart, integrity.NotReadyReason);
+            RedactedForTransmission(doc), dir, integrity.ReadyToRestart, integrity.NotReadyReason)
+        {
+            Emptied = _emptied,
+            NotEmptiedReason = _notEmptiedReason,
+        };
     }
 
 
@@ -678,6 +833,14 @@ public sealed class DirectorDrain
             // could not read one that had since been read fine.
             if (read.Status is ReadStatus.NotThere or ReadStatus.TooShort)
                 _seatNotes.Remove(seat.SessionId!);
+
+            // For a smart shutdown's progress row only: a file that is there and is not yet a finished,
+            // declared handover is a session WRITING. It decides nothing about the record.
+            if (_smart is not null)
+            {
+                if (read.Status == ReadStatus.NotThere) _writing.Remove(seat.SessionId!);
+                else _writing.Add(seat.SessionId!);
+            }
 
             if (read.Status == ReadStatus.Failed)
             {
@@ -1223,7 +1386,11 @@ public sealed class DirectorDrain
                 continue;
             }
 
-            if (_flaggedAt.TryGetValue(id, out var at) && _utcNow() - at > options.ReapTimeout)
+            // The older path only. A smart shutdown has its own answer to a flagged session that will not
+            // go - the limit ends it - so it never gives up on one here and never writes "it was NOT
+            // forced" about a session it is about to end.
+            if (options.SmartShutdown is null
+                && _flaggedAt.TryGetValue(id, out var at) && _utcNow() - at > options.ReapTimeout)
             {
                 _flagged.Remove(id);
                 _problems.Add(
@@ -1272,6 +1439,379 @@ public sealed class DirectorDrain
                               or WorkspaceDrainStates.Declined
                               or WorkspaceDrainStates.Unreachable;
 
+    // ================= the smart shutdown: two stages, a limit, and the rows =================
+
+    private SmartShutdownDrainOptions? _smart;
+    private List<WorkspaceSeat>? _smartSeats;
+    private DrainChain? _smartChain;
+    private bool _recordExists;
+    private string? _lastNote;
+    private bool _emptied;
+    private string? _notEmptiedReason;
+
+    /// <summary>Two thirds of a time. Every allowed time is a whole number of minutes, so this is exact.</summary>
+    private static TimeSpan TwoThirdsOf(TimeSpan time) => TimeSpan.FromTicks(time.Ticks / 3 * 2);
+
+    /// <summary>
+    /// One poll's wait, which "Shut down now" ends at once. The owner pressing that button must not sit
+    /// through the rest of a ten second wait before anything visibly happens.
+    /// </summary>
+    private async Task WaitOnePollAsync(TimeSpan interval, SmartShutdownDrainOptions smart, CancellationToken ct)
+    {
+        using var wake = CancellationTokenSource.CreateLinkedTokenSource(ct, smart.ShutDownNow);
+        var pressed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = smart.ShutDownNow.Register(() => pressed.TrySetResult());
+
+        await Task.WhenAny(_delay(interval, wake.Token), pressed.Task).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+    }
+
+    /// <summary>
+    /// A session that went away by itself - the owner closed it, or it crashed - is recorded as gone NOW
+    /// rather than shown as "asked" until the limit. The older path never does this; it has no rows.
+    /// </summary>
+    private bool NoteSessionsThatWentByThemselves(List<WorkspaceSeat> seats)
+    {
+        var changed = false;
+        foreach (var seat in seats)
+        {
+            var id = seat.SessionId!;
+            if (seat.ClosedAtUtc is not null || _flagged.Contains(id)) continue;
+            if (_sessions.IsPresent(id)) continue;
+
+            if (seat.DrainState is null)
+            {
+                MarkGone(seat, "the session went away by itself during the smart shutdown");
+                _rowDetail[id] = "it went away by itself and wrote no handover";
+            }
+            else
+            {
+                RecordClosed(seat);
+            }
+            changed = true;
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// STAGE ONE, at two thirds of the time allowed. Every session still present that has not handed over
+    /// is asked again with the short message; one that is in the middle of a turn is interrupted first,
+    /// because a session that is working does not read a message until its turn ends, and its turn may
+    /// outlast the limit.
+    ///
+    /// AN INTERRUPT THAT DOES NOT LAND IS A FACT FOR THE ROW, NOT A REASON TO STOP. An agent with no safe
+    /// interrupt (Pi) refuses by design. It is still sent the short message, its row is not called
+    /// interrupted because it was not, and the limit ends it like any other session still present.
+    /// </summary>
+    private async Task InterruptAndAskAgainAsync(
+        List<WorkspaceSeat> seats, string dir, DateTime deadline, SmartShutdownDrainOptions smart)
+    {
+        Emit(SmartShutdownPhase.Interrupting,
+            "two thirds of the time allowed has passed: sessions that have not handed over are asked again, " +
+            "and the ones still working are interrupted first");
+
+        foreach (var seat in seats)
+        {
+            if (smart.ShutDownNow.IsCancellationRequested) return;
+
+            var id = seat.SessionId!;
+            if (seat.DrainState is not null || seat.ClosedAtUtc is not null) continue;
+            if (!_sessions.IsPresent(id)) continue;
+
+            var detail = new List<string>();
+            var interrupted = false;
+            if (_sessions.IsMidTurn(id))
+            {
+                var stop = await _sessions.InterruptAsync(id).ConfigureAwait(false);
+                interrupted = stop.Delivered;
+                FileLog.Write(
+                    $"[DirectorDrain] interrupt at two thirds: {id} ({seat.Name}): landed={stop.Delivered}" +
+                    (stop.Reason is null ? "" : $", {stop.Reason}"));
+                if (!stop.Delivered)
+                    detail.Add("It was still working at two thirds of the time allowed and could not be " +
+                               $"interrupted: {stop.Reason ?? "(no reason given)"}.");
+            }
+
+            var path = DrainPaths.HandoverFor(dir, id, seat.Name);
+            var sent = await _sessions.SendAsync(id, DrainMessages.HandOverNow(path, deadline - _utcNow()))
+                .ConfigureAwait(false);
+            FileLog.Write(
+                $"[DirectorDrain] hand over now to {id} ({seat.Name}): delivered={sent.Delivered}" +
+                (sent.Reason is null ? "" : $", {sent.Reason}"));
+
+            if (sent.Delivered)
+            {
+                _asked.Add(id);
+                _notDelivered.Remove(id);
+                if (interrupted) _interrupted.Add(id);
+                detail.Add(interrupted
+                    ? "It was still working at two thirds of the time allowed."
+                    : "Asked again at two thirds of the time allowed.");
+            }
+            else
+            {
+                _notDelivered[id] = sent.Reason ?? "(no reason given)";
+                if (interrupted) detail.Add("It was interrupted at two thirds of the time allowed.");
+                detail.Add($"The request to hand over now did not reach it: {sent.Reason ?? "(no reason given)"}.");
+            }
+
+            _rowDetail[id] = string.Join(" ", detail);
+            Emit(SmartShutdownPhase.Interrupting, null);
+        }
+    }
+
+    /// <summary>
+    /// THE LIMIT. Every session still present is ended, and the run waits until each is verifiably absent.
+    ///
+    /// THE RECORD IS SAVED BEFORE THE FIRST SESSION IS ENDED, and again after. Ending is the one step that
+    /// cannot be taken back, so what each session was, what it had on disk and which conversation it was
+    /// holding is on the Gateway first: a Director that dies halfway through the ending leaves a record
+    /// that already names every session it was about to end.
+    ///
+    /// A session that HAD handed over keeps its state - it is "drained", and its restore answer stands. It
+    /// was only waiting for the reaper, or for a session under it. Recording it "ended-at-limit" would
+    /// throw away a clean handover and offer the session back as one that never wrote one. Every other
+    /// session still present is recorded "ended-at-limit", with whatever handover is on disk at this
+    /// moment kept and named: a half-written one is the point of "write the exact next action first".
+    /// </summary>
+    private async Task EndEverySessionStillPresentAsync(
+        WorkspaceDocument doc,
+        List<WorkspaceSeat> seats,
+        DrainChain chain,
+        Dictionary<string, WorkspaceSeat> byId,
+        string dir,
+        DrainOptions options,
+        SmartShutdownDrainOptions smart,
+        CancellationToken ct)
+    {
+        var why = smart.ShutDownNow.IsCancellationRequested ? "\"Shut down now\" was chosen" : "the time allowed is up";
+        FileLog.Write($"[DirectorDrain] the limit: {why}");
+        Emit(SmartShutdownPhase.EndingAtLimit, $"{why}: every session still running is shut down");
+
+        // A handover finished in the last seconds is a handover.
+        CollectDocuments(dir, seats, chain, byId, options);
+
+        // Deepest first, as everything else here closes: a lead is not ended while a session under it is.
+        var present = new List<WorkspaceSeat>();
+        foreach (var id in chain.CloseOrder)
+        {
+            var seat = byId[id];
+            if (seat.ClosedAtUtc is not null) continue;
+            if (_sessions.IsPresent(id))
+            {
+                present.Add(seat);
+                continue;
+            }
+            if (seat.DrainState is null) MarkGone(seat, "the session was already absent when the limit was reached");
+            else RecordClosed(seat);
+        }
+
+        foreach (var seat in present)
+        {
+            if (seat.DrainState is WorkspaceDrainStates.Drained or WorkspaceDrainStates.Covered) continue;
+
+            var id = seat.SessionId!;
+            var declared = seat.DrainState;
+            var path = DrainPaths.HandoverFor(dir, id, seat.Name);
+            var onDisk = TryReadFile(path, 0).Status != ReadStatus.NotThere;
+
+            seat.DrainState = WorkspaceDrainStates.EndedAtLimit;
+            seat.HandoverPath = onDisk ? path : null;
+            seat.Restore ??= new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided };
+
+            _problems.Add(
+                $"seat {DrainPaths.ShortId(id)} ({seat.Name}) had not handed over when {why} and was ended " +
+                "by the smart shutdown. " +
+                (declared is null ? "" : $"It had declared itself {declared}. ") +
+                (onDisk
+                    ? $"What it had written is kept, finished or not: {path}. "
+                    : "It had written nothing. ") +
+                (string.IsNullOrWhiteSpace(seat.ClaudeSessionId)
+                    ? "The capture recorded NO conversation id for it, so its saved conversation cannot be offered back."
+                    : $"Its saved conversation is {seat.ClaudeSessionId}."));
+        }
+
+        await SaveAsync(doc, ct).ConfigureAwait(false);
+
+        foreach (var seat in present)
+        {
+            var id = seat.SessionId!;
+            var end = await _sessions.EndAsync(id, $"Smart shutdown: {why}.").ConfigureAwait(false);
+            FileLog.Write(
+                $"[DirectorDrain] ended at the limit: {id} ({seat.Name}): ended={end.Ended}, gone={end.SessionGone}" +
+                (end.Reason is null ? "" : $", {end.Reason}"));
+
+            if (!end.Ended && !end.SessionGone)
+            {
+                _rowDetail[id] = $"It could not be shut down: {end.Reason ?? "(no reason given)"}.";
+                _problems.Add(
+                    $"seat {DrainPaths.ShortId(id)} ({seat.Name}) could not be ended: " +
+                    $"{end.Reason ?? "(no reason given)"}. It is still running.");
+            }
+            else if (!_sessions.IsPresent(id))
+            {
+                RecordClosed(seat);
+            }
+            Emit(SmartShutdownPhase.EndingAtLimit, null);
+        }
+
+        await SaveAsync(doc, ct).ConfigureAwait(false);
+
+        // VERIFIABLY ABSENT, as every other close here. An end is immediate, so this is normally no wait
+        // at all; it is here for the session whose process takes a moment to go.
+        var until = _utcNow() + smart.EndWait;
+        while (seats.Any(s => s.ClosedAtUtc is null) && _utcNow() < until)
+        {
+            ct.ThrowIfCancellationRequested();
+            await _delay(options.PollInterval, ct).ConfigureAwait(false);
+            foreach (var seat in seats.Where(s => s.ClosedAtUtc is null))
+                if (!_sessions.IsPresent(seat.SessionId!)) RecordClosed(seat);
+            Emit(SmartShutdownPhase.EndingAtLimit, null);
+        }
+    }
+
+    /// <summary>
+    /// The sessions on this Director that are in no record - they appeared after the capture - are ended
+    /// too, and the record says so. The owner asked for the Director to be emptied and the application is
+    /// about to close, which would end them anyway and say nothing.
+    ///
+    /// And then THE ONE QUESTION THAT DECIDES "EMPTIED": is anything at all still on this Director. It is
+    /// a presence check on the live list, not a sum of rows that each looked closed.
+    /// </summary>
+    private async Task EndSessionsThatAreNotSeatsAndCheckEmptyAsync(List<WorkspaceSeat> seats)
+    {
+        if (!TryListLiveSessions(out var live, out var listError))
+        {
+            _problems.Add(listError!);
+            _notEmptiedReason = listError;
+            return;
+        }
+
+        var known = new HashSet<string>(seats.Select(s => s.SessionId!), StringComparer.OrdinalIgnoreCase);
+        foreach (var id in live.Where(id => !known.Contains(id)))
+        {
+            var end = await _sessions.EndAsync(id, "Smart shutdown: not in the record, ended with the rest.")
+                .ConfigureAwait(false);
+            _problems.Add(
+                $"session {DrainPaths.ShortId(id)} was running on this Director and is NOT in this record - it " +
+                "appeared after the capture. It wrote no handover and nothing here describes it. " +
+                (end.Ended || end.SessionGone
+                    ? "It was ended with the rest."
+                    : $"It could not be ended: {end.Reason ?? "(no reason given)"}."));
+        }
+
+        if (!TryListLiveSessions(out var left, out listError))
+        {
+            _problems.Add(listError!);
+            _notEmptiedReason = listError;
+            return;
+        }
+
+        _emptied = left.Count == 0;
+        _notEmptiedReason = _emptied
+            ? null
+            : $"{left.Count} session(s) are still on this Director after the smart shutdown ended them: " +
+              string.Join(", ", left.Select(DrainPaths.ShortId)) + ". Nothing here could make them go.";
+        FileLog.Write($"[DirectorDrain] emptied={_emptied}, left={left.Count}");
+    }
+
+    /// <summary>The words and the rows of one moment, handed to whoever is watching. Never throws into the
+    /// drain: a screen that fails must not stop sessions being shut down.</summary>
+    private void Emit(SmartShutdownPhase phase, string? note)
+    {
+        var smart = _smart;
+        if (smart is null) return;
+        if (note is not null) _lastNote = note;
+
+        var rows = BuildRows();
+        var gone = rows.Count(r => r.State is SmartShutdownSessionState.ShutDown or SmartShutdownSessionState.EndedAtLimit);
+        var snapshot = new SmartShutdownSnapshot(
+            phase,
+            SmartShutdownWords.PhaseLabel(phase),
+            rows,
+            rows.Count,
+            gone,
+            SmartShutdownWords.CountLabel(gone, rows.Count),
+            StartedUtc,
+            StartedUtc + TwoThirdsOf(smart.TimeAllowed),
+            StartedUtc + smart.TimeAllowed,
+            CanShutDownNow: phase < SmartShutdownPhase.EndingAtLimit && !smart.ShutDownNow.IsCancellationRequested,
+            CanCancel: false,
+            _recordExists ? WorkspaceId : null,
+            _lastNote);
+
+        if (smart.OnSnapshot is null) return;
+        try { smart.OnSnapshot(snapshot); }
+        catch (Exception ex) { FileLog.Write($"[DirectorDrain] snapshot handler threw: {ex.Message}"); }
+    }
+
+    /// <summary>Leads first, each lead followed by the sessions under it, at every depth.</summary>
+    private List<SmartShutdownSessionProgress> BuildRows()
+    {
+        var rows = new List<SmartShutdownSessionProgress>();
+        var seats = _smartSeats;
+        var chain = _smartChain;
+        if (seats is null || chain is null) return rows;
+
+        var byId = seats.ToDictionary(s => s.SessionId!, StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<string>(chain.Heads.Reverse());
+        while (pending.Count > 0)
+        {
+            var id = pending.Pop();
+            rows.Add(RowFor(byId[id], chain.Node(id)!));
+            foreach (var under in chain.Node(id)!.Subordinates.Reverse()) pending.Push(under);
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// ONE PLACE decides what a session's row says, from the facts this drain holds. The furthest thing
+    /// that is true wins: gone, then handed over, then interrupted, then writing, then whether the request
+    /// reached it at all.
+    /// </summary>
+    private SmartShutdownSessionProgress RowFor(WorkspaceSeat seat, DrainChainNode node)
+    {
+        var id = seat.SessionId!;
+        _rowDetail.TryGetValue(id, out var detail);
+
+        SmartShutdownSessionState state;
+        if (seat.ClosedAtUtc is not null)
+        {
+            state = seat.DrainState == WorkspaceDrainStates.EndedAtLimit
+                ? SmartShutdownSessionState.EndedAtLimit
+                : SmartShutdownSessionState.ShutDown;
+        }
+        else if (seat.DrainState is WorkspaceDrainStates.Drained or WorkspaceDrainStates.Covered
+                                 or WorkspaceDrainStates.Blocked or WorkspaceDrainStates.Declined)
+        {
+            state = SmartShutdownSessionState.HandedOver;
+            if (seat.DrainState == WorkspaceDrainStates.Blocked) detail = $"It says it is blocked: {seat.BlockedReason}";
+            if (seat.DrainState == WorkspaceDrainStates.Declined) detail = "It wrote a handover and says it did not finish.";
+            if (seat.DrainState == WorkspaceDrainStates.Covered) detail = $"Its lead's handover covers it: {seat.CoveredNote}";
+        }
+        else if (_interrupted.Contains(id))
+        {
+            state = SmartShutdownSessionState.Interrupted;
+        }
+        else if (_writing.Contains(id))
+        {
+            state = SmartShutdownSessionState.Writing;
+        }
+        else if (_notDelivered.TryGetValue(id, out var refusal))
+        {
+            state = SmartShutdownSessionState.NotDelivered;
+            detail ??= $"The request did not reach it: {refusal}";
+        }
+        else
+        {
+            state = _asked.Contains(id) ? SmartShutdownSessionState.Asked : SmartShutdownSessionState.Pending;
+        }
+
+        return new SmartShutdownSessionProgress(
+            id, seat.Name, seat.Mission?.Name, seat.Role, node.ReportsTo,
+            state, SmartShutdownWords.StateLabel(state), detail);
+    }
+
     // ================= checks =================
 
     /// <summary>
@@ -1284,20 +1824,9 @@ public sealed class DirectorDrain
     {
         var known = new HashSet<string>(seats.Select(s => s.SessionId!), StringComparer.OrdinalIgnoreCase);
 
-        IReadOnlyList<string> live;
-        try
+        if (!TryListLiveSessions(out var live, out var listError))
         {
-            live = _sessions.LiveSessionIds();
-        }
-        catch (Exception ex)
-        {
-            // AN ENUMERATION THAT FAILED IS NOT AN EMPTY FLEET. Letting the exception become "no extra
-            // sessions" is the same fail-open as everything else here, and it is the last check before a
-            // restart is allowed.
-            _problems.Add(
-                "this Director's live sessions could not be listed at the end of the drain " +
-                $"({ex.GetType().Name}: {ex.Message}), so NOTHING here says a session did not appear after " +
-                "the capture.");
+            _problems.Add(listError!);
             return;
         }
 
@@ -1308,6 +1837,31 @@ public sealed class DirectorDrain
                 $"session {DrainPaths.ShortId(id)} is running on this Director and is NOT in this drain's " +
                 "roster - it appeared after the capture. It has written no handover and is in no part of " +
                 "this record, so a restart would destroy it without a trace. Drain again.");
+        }
+    }
+
+    /// <summary>
+    /// Every session on this Director right now - or, when that cannot be listed, the sentence that says
+    /// so. AN ENUMERATION THAT FAILED IS NOT AN EMPTY FLEET. Letting the exception become "no extra
+    /// sessions" is the same fail-open as everything else here, and it is the last check before a restart
+    /// is allowed.
+    /// </summary>
+    private bool TryListLiveSessions(out IReadOnlyList<string> live, out string? error)
+    {
+        try
+        {
+            live = _sessions.LiveSessionIds();
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            live = Array.Empty<string>();
+            error =
+                "this Director's live sessions could not be listed at the end of the drain " +
+                $"({ex.GetType().Name}: {ex.Message}), so NOTHING here says a session did not appear after " +
+                "the capture.";
+            return false;
         }
     }
 
@@ -1500,6 +2054,18 @@ public sealed class DirectorDrain
         if (notDrained.Count > 0)
         {
             var s = notDrained[0];
+
+            // Only a smart shutdown writes this state, and of such a seat "nothing was forced" is false.
+            var endedAtLimit = notDrained.Count(x => x.DrainState == WorkspaceDrainStates.EndedAtLimit);
+            if (endedAtLimit > 0)
+            {
+                var first = notDrained.First(x => x.DrainState == WorkspaceDrainStates.EndedAtLimit);
+                return $"{notDrained.Count} seat(s) did not hand over cleanly, {endedAtLimit} of them ended by " +
+                       "the smart shutdown when the time allowed was up, starting with " +
+                       $"{DrainPaths.ShortId(first.SessionId)} ({first.Name}). Each is recorded with its " +
+                       "conversation id and whatever handover was on disk.";
+            }
+
             // "They are still running" was asserted unconditionally, and it is not always true: a seat
             // recorded unreachable because it had already gone has a close time on the same row. What is
             // always true is that nothing was forced.
