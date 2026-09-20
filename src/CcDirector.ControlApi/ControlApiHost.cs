@@ -1008,8 +1008,12 @@ public sealed class ControlApiHost : IAsyncDisposable
             // connected = green (a live stream IS the proven two-way link), reconnecting = yellow.
             monitor: GatewayMonitor,
             // Repositories mission (#510 phase C): the repository/worktree snapshot rides the same
-            // tunnel; null when this host was built without a monitor (tests, older callers).
-            repoSnapshot: _repositoryMonitor is null ? null : SnapshotRepositories,
+            // tunnel; null when this host knows nothing about repositories at all (tests, older
+            // callers). The registry counts as knowing something (the one-repository-list mission,
+            // "the registry reaches the Gateway"): a Director with a hand-built repository list and no
+            // watched folders has a real list to send, and gating the push on the monitor alone would
+            // have left exactly that machine silent.
+            repoSnapshot: _repositoryMonitor is null && _repositoryRegistry is null ? null : SnapshotRepositories,
             // devthrottle_internal#1176: read the display name from the named-instance registry on EVERY
             // reseed (not InstanceContext.DisplayName, a start-once static) so a rename lands fleet-wide
             // on the next ~10s Hello without a Director restart.
@@ -1297,11 +1301,32 @@ public sealed class ControlApiHost : IAsyncDisposable
     private readonly Core.Git.RepositoryMonitor? _repositoryMonitor;
     private Timer? _repoPushDebounce;
 
-    /// <summary>The repository snapshot for the stream and the local relay (#510 phase C).</summary>
-    private List<RepoStatusDto> SnapshotRepositories()
-        => (_repositoryMonitor?.Snapshot() ?? (IReadOnlyList<Core.Git.RepositoryStatus>)Array.Empty<Core.Git.RepositoryStatus>())
-            .Select(s => RepositoryDtoMapper.Map(s, DirectorId, Environment.MachineName))
-            .ToList();
+    /// <summary>
+    /// The repository snapshot for the stream and the local relay (#510 phase C): EVERYTHING this
+    /// Director knows about the repositories on its machine.
+    ///
+    /// That used to mean the root-folder scan alone, which left a repository added to this Director by
+    /// hand - and not under any watched folder - existing nowhere but this machine's own
+    /// <c>repositories.json</c>. The Gateway had never heard of it, so it was missing from the Cockpit
+    /// and the phone (the one-repository-list mission, "the registry reaches the Gateway"). The rules
+    /// of the union, and why it is done HERE rather than as a second observation at the Gateway, are on
+    /// <see cref="DirectorRepositorySnapshot.Union"/>.
+    /// </summary>
+    /// <remarks>
+    /// INTERNAL rather than private so the wiring itself can be pinned by a test. The rules of the union
+    /// are a pure function and are tested as one, but a pure function nobody calls proves nothing: this
+    /// fix could be lifted out of the Director entirely and every test of <c>Union</c> would still pass.
+    /// <c>TheDirectorPushesItsRegisteredListTests</c> is the test that would fail.
+    /// </remarks>
+    internal List<RepoStatusDto> SnapshotRepositories()
+        => DirectorRepositorySnapshot.Union(
+            _repositoryMonitor?.Snapshot(),
+            _repositoryRegistry?.Repositories,
+            // No monitor at all means there is no scan to wait for: the registered list IS everything
+            // this Director knows, and it is a complete statement of that from the first push.
+            _repositoryMonitor?.HasCompletedAScan ?? true,
+            DirectorId,
+            Environment.MachineName);
 
     /// <summary>
     /// Push the repository snapshot on model changes, debounced: a scan streaming thirty upserts

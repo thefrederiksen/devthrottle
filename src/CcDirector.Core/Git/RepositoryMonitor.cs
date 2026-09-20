@@ -69,6 +69,31 @@ public sealed class RepositoryMonitor
     /// <summary>True while a scan is in progress.</summary>
     public bool IsScanning { get; private set; }
 
+    /// <summary>
+    /// True once a scan has RUN TO COMPLETION in this process - the same moment
+    /// <see cref="ScanCompleted"/> is raised, and never set by a superseded, cancelled or faulted scan.
+    ///
+    /// It answers one question and it is asked by one caller: has this Director's view of its own disk
+    /// settled? <see cref="IsScanning"/> cannot answer it, because it is false both after a scan and
+    /// BEFORE the first one has started, and those two states are opposites. <see cref="Snapshot"/>
+    /// cannot answer it either: an empty model means "nothing found" after a scan and "nothing looked
+    /// at yet" before one.
+    ///
+    /// The caller is <c>ControlApiHost.SnapshotRepositories</c>, which folds the machine's registered
+    /// repository list into the snapshot it pushes to the Gateway, and must not do so until this is
+    /// true. The Gateway treats a push with no unverified entry in it as a COMPLETE view of what that
+    /// Director knows, and reconciles against it - so a push made before the first scan had run, and
+    /// carrying nothing but the registry, would read as "every repository under every root folder has
+    /// gone away" and delete rows that were simply not looked at yet. A warm-start cache normally
+    /// masks that, because its entries are provisional and a provisional entry suspends
+    /// reconciliation; on a machine with no cache yet there is nothing to mask it.
+    ///
+    /// It is deliberately NOT reset when a later scan starts. A machine whose view has settled once
+    /// does not become unknown again while it is being re-checked, and the model keeps its previous
+    /// entries throughout a rescan rather than emptying first.
+    /// </summary>
+    public bool HasCompletedAScan { get; private set; }
+
     /// <summary>How many repositories have been computed in the current/last scan.</summary>
     public int ScanDone { get; private set; }
 
@@ -369,6 +394,10 @@ public sealed class RepositoryMonitor
                 if (owner)
                     IsScanning = false;
                 raiseCompleted = owner && completed;
+                // Set in the SAME gated decision that decides whether ScanCompleted is raised, so the
+                // flag and the event can never disagree about whether a scan finished.
+                if (raiseCompleted)
+                    HasCompletedAScan = true;
             }
             if (owner)
             {
