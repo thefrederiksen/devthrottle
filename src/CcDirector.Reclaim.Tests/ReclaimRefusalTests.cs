@@ -568,9 +568,6 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
             NowUtc = DateTimeOffset.UtcNow.AddDays(400)
         });
 
-        // The premise, pinned: the write happened, and it happened once.
-        Assert.Equal(3, secondRule.Examinations);
-
         var firstOutcome = Assert.Single(apply.Items, itemResult => itemResult.Path == firstItem);
         Assert.False(firstOutcome.Moved, "an item that changed after the report pass must not move on the report pass's answer");
         Assert.False(firstOutcome.Gate.Eligible);
@@ -587,6 +584,11 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
         var held = Assert.Single(new HoldingStore(holdingRoot).List().Complete);
         Assert.Equal(Path.GetFullPath(secondItem), held.Record.OriginalPath);
         Assert.Equal(300, apply.BytesMoved);
+
+        // The premise, pinned last so that a missing second check says what it cost - an item that
+        // moved - before it says how it happened: the second rule examined three times, once for the
+        // recommendation, once in the report pass, and once immediately before its own move.
+        Assert.Equal(3, secondRule.Examinations);
     }
 
     [Fact]
