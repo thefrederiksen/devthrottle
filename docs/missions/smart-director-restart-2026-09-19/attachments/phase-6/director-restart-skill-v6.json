@@ -1,0 +1,24 @@
+{
+  "id": "director-restart",
+  "name": "Restart a Director",
+  "summary": "The Director restarts itself: File, Smart Restart, and offers the sessions back at start-up and in File, Restart history. Left by hand: another machine, a restore from elsewhere, judgment.",
+  "triggers": [
+    "restart the director",
+    "restart a director",
+    "update the director",
+    "restart history",
+    "drain the director",
+    "director restart",
+    "smart restart",
+    "smart shutdown",
+    "bring the sessions back",
+    "restore the sessions",
+    "restore the fleet",
+    "shut the fleet down"
+  ],
+  "license": null,
+  "compatibility": null,
+  "allowedTools": null,
+  "metadata": {},
+  "executable": []
+}

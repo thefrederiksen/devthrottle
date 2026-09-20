@@ -1,8 +1,15 @@
 # Smart Restart
 
+> **Not in a released version yet.** Smart Restart is finished and merged, and it arrives in the next
+> release of DevThrottle. The newest release as this page was written is 2.8.1, and it does not have it.
+> If there is no **Smart Restart** on your File menu, that is why: your build predates the feature, and
+> updating to the next release is what gets it. Everything below describes the feature as it is built.
+> This note comes off the day the release ships.
+
 Restarting DevThrottle used to mean losing whatever your sessions were doing. Smart Restart shuts
 them down nicely instead: every session is asked to write a short handover of what it was doing and
-what is left, and the Director keeps a record of what was running so the work can be picked up again.
+what is left, and the Director keeps a record of what was running - so when it comes back up it can
+offer you those sessions again.
 
 It is worth doing for its own sake. A handover compresses a session down to what is left to do, which
 is why restarting once in a while - in the morning, say - leaves your sessions sharper than leaving
@@ -32,10 +39,12 @@ one the Enter key takes. Your sessions are shut down nicely. Each one writes a s
 it was doing and what is left. They get the time you allow; whatever is still running after that is
 shut down for them.
 
-**Shut down and ignore all sessions** ends everything at once and writes no handovers. What was
-running is still written down first, so you can see afterwards what was closed. Chosen from the File
-menu, this one does not restart the Director - it ends the sessions and leaves DevThrottle open and
-empty, and says so.
+**Shut down and ignore all sessions** ends everything at once and writes no handovers. If DevThrottle
+can reach the Gateway, what was running is written down first, so you can see afterwards what was
+closed. If it cannot reach the Gateway, the sessions are ended anyway - you asked for them to be
+discarded - but nothing is written down, so there is nothing to look at afterwards, and the message
+you get says only how many sessions were ended. Chosen from the File menu, this one does not restart
+the Director - it ends the sessions and leaves DevThrottle open and empty, and says so.
 
 **Cancel** closes the dialog and nothing happens.
 
@@ -76,21 +85,49 @@ Two things survive the restart.
 **The handovers**, one file per session, on this computer under the DevThrottle data folder:
 
 ```
-<data folder>/vault/handovers/director-restart/<when>-<director name>/<session>.md
+<data folder>/vault/handovers/director-restart/<when>-<tag>-<director name>/<short id> - <session name>.md
 ```
 
 The data folder is `%LOCALAPPDATA%\cc-director` on Windows and `~/.local/share/cc-director` on Linux.
+`<tag>` is a short unique mark for that one restart, so two restarts can never land in the same
+folder, and `<short id>` is the first few characters of the session's own identifier. A real folder
+looks like `2026-09-20T101030-a1b2c3-DevThrottle 1`.
 You can read these yourself - each one says what the session was doing and what it would do next.
 
 **The record**, kept on the Gateway rather than on this computer, so it is still there if the machine
 is not. It names every session that was running, its repository, its agent, the mission it was on and
 where its handover was written.
 
-In this version the sessions **do not come back by themselves** when the Director restarts, and there
-is no screen that offers them. Bringing them back is a separate step, and the record is what it works
-from - so nothing is lost by leaving it until later in the day, or until tomorrow. A session that was
-still running when the time ran out is written down as exactly that, with its conversation, so it is
-clear which sessions never got to finish.
+A session that was still running when the time ran out is written down as exactly that, with its
+conversation, so it is clear which sessions never got to finish.
+
+## Coming back up
+
+Nothing comes back on its own. Sessions are brought back because you say so, and you are asked.
+
+When DevThrottle starts again and reaches the Gateway, if any sessions are still waiting from a smart
+shutdown, a window appears: **A restart is available**. It says when the shutdown was, the reason you
+gave for it, and how many sessions are waiting. Under that is a list, with a tick box on each line:
+
+- **A mission's lead, with its sessions underneath it.** Bringing that line back starts the lead first
+  and then its sessions, each one reading its own handover.
+- **A line of its own for each session that ended without a handover** - it was still running when the
+  time ran out, or it never answered. These are not brought back with the rest, because there is no
+  handover for them to read. Each one offers instead to **reopen its saved conversation**, or, when its
+  agent cannot be started on a saved conversation, to **open a fresh session in its repository** with
+  none of the conversation in it. The line tells you which of the two you would get before you press it.
+
+Two answers: **Bring back** starts the lines you ticked, and tells you what happened to each one.
+**Not now** writes nothing.
+
+**Not now is not final.** **File, Restart history** lists every record this Director has written, newest
+first - when, why, and what became of each session - and any record that is still owed sessions carries
+the same offer, so you can bring them back later in the day, or tomorrow. If the Gateway cannot be
+reached, nothing is offered when DevThrottle starts, and the history says plainly that the records could
+not be read, rather than showing you an empty list and letting you think there is nothing there.
+
+However a session comes back, it is told that it was stopped and that it must check the state of its
+work before acting on anything.
 
 ## What it does not do
 
