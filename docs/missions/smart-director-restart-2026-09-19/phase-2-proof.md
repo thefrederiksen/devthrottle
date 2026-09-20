@@ -129,6 +129,7 @@ had hit its usage limit until 22 September; both Codex seats were ended before t
 | `review-phase-2-2.md` | the progress screen at `e3e66e110` | two: it never let go of the run; its invented interface could not carry the engine's words, permissions, three of its states or the end of a run. Both accepted; the screen was rebuilt on the real `ISmartShutdownRun` | `review-phase-2-2-answers.md` |
 | `review-phase-2-3.md` | the rebuilt screen, as a trial merge into main | none | - |
 | `review-phase-2-4.md` | the swap at `52c5c2b54` | two: with no engine the window closed with live sessions and no question (accepted; the same dialog now opens with the smart choice dead and the reason, and ignore-all carries the close on); and the engine on main is not finished (accepted as the hold above) | `review-phase-2-4-answers.md` on the swap branch |
+| `review-phase-2-5.md` | the fix for that finding, `abb232669` to `43ac8c3e8` | none; the Reviewer's own mutation turned six tests red | - |
 
 One correction to `review-phase-2-2.md`: it says the phase 1 types had not landed. They had (pull
 request 3182); the engine behind them had not.
