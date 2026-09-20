@@ -205,9 +205,11 @@ public sealed class KnownRepositoryStore
     ///     on an all-provisional one, and never from a Director that has gone quiet - a Director that
     ///     says nothing removes nothing;</item>
     ///   <item>its folder's PARENT is one of the roots in <paramref name="rootFolders"/> - a root this
-    ///     Director could positively read just now. A root it could not list is not in there at all, so an
-    ///     unmounted drive, an unreadable share and a root the user stopped watching each forget
-    ///     nothing;</item>
+    ///     Director could positively read just now. <b>A root the Director CANNOT list is omitted from
+    ///     that set entirely, so nothing beneath it is ever forgotten</b>: an unmounted disk, an
+    ///     unreadable folder and a root that has stopped being watched each mean "I know nothing here"
+    ///     and never "nothing is here". This is a destructive operation, so it acts only on what it can
+    ///     positively prove is disposable;</item>
     ///   <item>its path is in neither the snapshot nor that root's child listing, so the Director has
     ///     positively said the folder is not there; and</item>
     ///   <item>nothing about which Director owns it, because a used row has no owner - which is why the
@@ -219,10 +221,12 @@ public sealed class KnownRepositoryStore
     /// git worktree has never been in it. On the machine measured above, ELEVEN of the fourteen surviving
     /// repositories were worktrees, and forgetting rows that were merely absent from the snapshot would
     /// have deleted all eleven live folders.</para>
-    /// <para><b>What is lost is the last-access time, and it does not come back.</b> A forgotten row is
-    /// deleted, not hidden. If the folder returns - a worktree re-made under the same name - it returns as
-    /// never-opened and sits at the bottom of the list until it is next used. That is the accepted cost of
-    /// a list that describes the disk.</para>
+    /// <para><b>What is lost is the LAST-ACCESS TIME, and it does not come back.</b> A forgotten row is
+    /// DELETED, not hidden, and the last-access time is this mission's whole signal. If the folder
+    /// returns - a worktree re-made under the same name - its history does NOT return with it: it comes
+    /// back as never-opened and sits at the bottom of the list until it is next used. Nothing else is
+    /// lost, because the row holds no other fact a screen reads. That is the accepted cost of a list that
+    /// describes the disk.</para>
     ///
     /// Every path here goes through <see cref="NormalizePathKey"/>, which decides Windows-ness from the
     /// PATH'S OWN SHAPE. The Gateway is a Linux container holding paths written by Windows and macOS

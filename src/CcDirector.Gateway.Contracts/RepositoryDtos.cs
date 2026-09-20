@@ -95,11 +95,12 @@ public class RepoStatusDto
 /// One registered root folder, and the direct child folders that existed under it when the pushing
 /// Director listed it (the one-repository-list mission, "the catalogue forgets").
 ///
-/// THE PRESENCE OF THIS ENTRY IS THE PERMISSION TO FORGET. A Director includes a root here only when
-/// it could read that folder, so a root that is registered but unmounted, unreadable, or gone is
-/// absent rather than present-and-empty. The difference matters: present-and-empty authorises the
-/// Gateway to forget every repository it holds under that root, and "I could not look" must never
-/// read as "there is nothing there".
+/// THE PRESENCE OF THIS ENTRY IS THE PERMISSION TO FORGET, and the property that makes it safe is that
+/// <b>a root the Director CANNOT list is omitted entirely, so nothing beneath it is ever forgotten.</b>
+/// A Director includes a root here only when it could read that folder, so a root that is registered but
+/// unmounted, unreadable, or no longer watched is absent rather than present-and-empty. The difference
+/// is the whole thing: present-and-empty authorises the Gateway to forget every repository it holds
+/// under that root, and an unmounted disk means "I know nothing here", never "nothing is here".
 /// </summary>
 public class RootFolderListingDto
 {

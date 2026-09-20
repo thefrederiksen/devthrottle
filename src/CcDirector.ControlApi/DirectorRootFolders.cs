@@ -24,13 +24,18 @@ namespace CcDirector.ControlApi;
 /// direct child folders that exist - every one of them, git or not. It asks nothing about what is inside
 /// them, which is what makes it both cheap and true.</para>
 ///
-/// <para><b>A root that could not be listed is LEFT OUT, never reported empty.</b> That is the whole
-/// safety property. An entry present with no children authorises the Gateway to forget every repository
-/// it holds under that root; an unmounted drive, a disconnected network share and a folder the user
-/// deleted all produce exactly that shape from a naive listing, and none of them means "there is nothing
-/// there". "I could not look" must never read as "there is nothing to see" - see the
-/// <c>checks-that-fail-open</c> rule. The lister therefore answers null for a root it could not read,
-/// and a null root is dropped.</para>
+/// <para><b>THE PROPERTY THAT MAKES THIS SAFE: a root the Director CANNOT list is omitted entirely, so
+/// nothing beneath it is ever forgotten.</b> That is the Delivery Lead's ruling in his own words, and it
+/// is the direction a destructive operation must fail in - it acts only on what it can positively prove
+/// is disposable, and enumerates what to DELETE rather than what to skip. An entry present with no
+/// children authorises the Gateway to forget every repository it holds under that root; an unmounted
+/// disk, an unreadable folder and a root that has stopped being watched all produce exactly that shape
+/// from a naive listing, and each of them means <b>"I know nothing here"</b> and never <b>"nothing is
+/// here"</b>. The lister therefore answers null for a root it could not read, and a null root is
+/// dropped. It is the case the first version of this rule got wrong, and
+/// <c>DirectorRootFoldersTests.Build_ARootThatCouldNotBeListed_IsNotReportedAtAll</c> and
+/// <c>TheCatalogueForgetsTunnelProofTests.ARootFolderTheDirectorCannotRead_ForgetsNothingUnderIt</c> are
+/// what hold it shut.</para>
 ///
 /// <para>It is a pure function over its arguments, with the directory listing injected, for the same
 /// reason <see cref="DirectorRepositorySnapshot"/> is: the rules have to be testable without a machine
