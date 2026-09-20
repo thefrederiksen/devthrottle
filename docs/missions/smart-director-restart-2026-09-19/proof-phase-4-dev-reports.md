@@ -4,6 +4,9 @@ Branch `smart-restart/p4-dev-reports`, cut from `origin/main` at `0346b3992` (ch
 any file was read). Mission document section 5.3 item 13. No pull request is open; the Delivery Lead sends this
 branch to a Reviewer first.
 
+**Corrected on 2026-09-20, when review 1 was answered.** Two sentences below over-claimed where a failed pass is
+reported. They are marked in place, and `review-phase-4-1-answers.md` beside this file answers both findings.
+
 ## The decision
 
 It was buildable as the mandate asked: one Gateway change plus one call from the restore. **No schema change.**
@@ -37,8 +40,12 @@ to the one it made. Asking twice is safe: the second time the old session has no
 written, because the Gateway reads the join from that record. Three more things it does:
 
 - A seat that failed to come back is never asked for. Its reports stay frozen, as today.
-- A refused or failed ask does not fail the seat. The seat HAS come back; its outcome carries a plain sentence
-  saying the reports did not pass and why. `SeatRestoreOutcome` gained one optional field, `DevReports`.
+- A refused or failed ask does not fail the seat. The seat HAS come back; it is logged, and when the seat is one
+  this run brings back its outcome carries a plain sentence saying the reports did not pass and why.
+  `SeatRestoreOutcome` gained one optional field, `DevReports`. (Corrected when review 1 was answered: a seat that
+  was ALREADY back when the run read the workspace is asked for again but has no outcome row in this run, so for it
+  the Director log is the whole record. Finding 1, and the wider limit that no product surface reads the restore
+  result at all, are answered in `review-phase-4-1-answers.md`.)
 - At the start of every run it asks again for each seat already back, because a Director that died between
   the create and its own ask would otherwise never be retried for that seat.
 
@@ -137,8 +144,9 @@ The two refusals are independent.
 ## What I could not reach, and what is not covered
 
 - **Nothing is deployed, and until the owner deploys the Gateway a restore cannot pass reports.** A newer
-  Director against the current hosted Gateway gets "not found" on the new route. That is reported on each
-  seat's outcome and in the Director log as "did NOT pass", and the seat still comes back. No harm, no benefit.
+  Director against the current hosted Gateway gets "not found" on the new route. That is written to the Director log
+  as "did NOT pass" for every seat, and onto the outcome of each seat this run brings back, and the seat still comes
+  back. No harm, no benefit. (Corrected when review 1 was answered; see `review-phase-4-1-answers.md`.)
 - **A pass lost on the LAST seat of a workspace is not retried.** A run with no seat left to bring back is
   refused before it starts, so the ask-again loop never runs for it. Narrow (the Director must die in the
   moment between the mark and the ask), and those links freeze exactly as they do today. Fixing it would mean

@@ -326,6 +326,9 @@ public sealed class DirectorRestore
         // A SEAT THAT CAME BACK IN AN EARLIER RUN IS ASKED FOR AGAIN. That run may have died between the create and
         // its own ask, and nothing else would ever ask for that seat: it is no longer owed, so no run selects it.
         // Asking twice is safe - the second time the old session has nothing left to pass.
+        // THE ANSWER IS KEPT ONLY IN THE DIRECTOR LOG, deliberately. This seat is not one this run brings back, so it
+        // has no outcome row, and giving it one would say this run restored a seat it never touched. Review 1 finding 1,
+        // answered in docs/missions/smart-director-restart-2026-09-19/review-phase-4-1-answers.md.
         foreach (var back in doc.Seats.Where(s => !string.IsNullOrWhiteSpace(s.SessionId) && !string.IsNullOrWhiteSpace(s.RestoredSessionId)))
             await PassDevReportsAsync(order.WorkspaceId, back.SessionId!, ct).ConfigureAwait(false);
 
@@ -457,8 +460,10 @@ public sealed class DirectorRestore
 
     /// <summary>
     /// Ask the Gateway to pass a restored seat's dev reports to the session it came back as, and say what happened in
-    /// plain words (the Smart Director Restart mission, section 5.3 item 13). A refusal or a failed call is reported
-    /// on the seat's outcome and logged, never thrown: the seat HAS come back, and calling the seat failed because
+    /// plain words (the Smart Director Restart mission, section 5.3 item 13). A refusal or a failed call is always
+    /// logged, and is reported on the seat's outcome when the seat is one this run brings back - a seat already back
+    /// when the run read the workspace has no outcome row, so for it the log is the whole record. It is never thrown:
+    /// the seat HAS come back, and calling the seat failed because
     /// its reports did not pass would be a lie about the seat. Asking again is safe, and the next restore run of this
     /// workspace that has a seat left to bring back asks again for every seat it finds already back. A workspace
     /// with NO seat left is refused before it runs, so a pass lost on the last seat of a workspace is not retried.
