@@ -65,10 +65,7 @@ public sealed class LauncherTrayController : IDisposable
         _ = Task.Run(ResolveAboutInfo);
 
         if (LauncherAppOptions.Managed)
-        {
             _ = LauncherCore.RunUpdateLoopAsync(_lifetime.Token);
-            _ = LauncherCore.RunBackgroundDiskScanAsync(_lifetime.Token);
-        }
     }
 
     /// <summary>

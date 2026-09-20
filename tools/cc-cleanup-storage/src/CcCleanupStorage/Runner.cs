@@ -177,11 +177,23 @@ public static class Runner
         // one, rather than falling back to scanning.
         var indexPath = ScanIndexStore.PathFor(request.IndexDirectory, folder);
         var index = ScanIndexStore.Load(indexPath);
+        var scanReport = ScanReportBuilder.Build(index.Scan, request.LargestFolders);
 
-        // Made by the engine, in the one place the background scan makes them too, so a person asking
-        // and the Launcher not being asked can never run different rules or judge an answer differently.
-        var report = RecommendationRun.Against(
-            index.Scan, MachineRules.ForThisMachine(), DateTimeOffset.UtcNow, request.LargestFolders);
+        var context = new RuleContext
+        {
+            ScanRootPath = index.Scan.RootPath,
+            NowUtc = DateTimeOffset.UtcNow
+        };
+
+        // Only the rules that look inside the folder that was asked about. The rest are named in the
+        // answer, never merely left out.
+        var selection = RuleSelection.For(MachineRules.ForThisMachine(), index.Scan.RootPath);
+
+        var findings = selection.ToRun
+            .Select(rule => RuleFold.Fold(rule, rule.Examine(context)))
+            .ToList();
+
+        var report = RecommendationBuilder.Build(scanReport, findings, selection.NotRun);
 
         var lines = new List<string>(report.Lines)
         {
