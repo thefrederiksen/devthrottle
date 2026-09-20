@@ -39,6 +39,20 @@ public sealed class MorningReportDto
     public List<MorningAttentionItemDto> Attention { get; set; } = new();
 
     /// <summary>
+    /// Whether this account DID ANYTHING in the reported window - a turn submitted, or a session that
+    /// became active (#3124). The owner's rule, 20 September 2026: "If you didn't work in DevThrottle
+    /// yesterday, I don't think we should send a daily email. It's just annoying."
+    ///
+    /// THIS IS A GATE, NOT A STAT, AND THE DIFFERENCE IS THE WHOLE REASON IT IS A BOOLEAN. The owner
+    /// ruled on the same day that the daily report is a briefing and not a scoreboard - "telling me how
+    /// much shit I did yesterday is not going to help me today" - and the stats key was taken off this
+    /// wire because of it. A count would be that key coming back under a new name. A yes/no cannot be
+    /// rendered as an achievement; it can only answer "is there any reason to write to this person at
+    /// all". The sender reads it to decide whether to send, and never prints it.
+    /// </summary>
+    public bool WorkedInWindow { get; set; }
+
+    /// <summary>
     /// An optional single-sentence observation about the day. The Gateway EMITS NOTHING HERE TODAY - it
     /// reports measurements and invents no prose. The member exists because the contract reserves the key;
     /// it is absent from the JSON while null.
