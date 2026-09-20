@@ -32,9 +32,38 @@ public sealed class TurnVerdictJudgeTimeoutTests
         Assert.Equal(TimeSpan.FromSeconds(45), brain.CallTimeout);
     }
 
+    /// <summary>
+    /// THE JUDGE RUNS ON THE THINKING ROLE WITH THE REASONING TURNED OFF (2026-09-20). It ran on the fast role
+    /// until then, because the thinking tier left half its calls unanswered - which was true of the REASONING
+    /// rather than of the model. Measured both ways on 85 known picker screens and 381 labelled stops, the same
+    /// model with reasoning off is faster AND more accurate than the fast tier: 85/85 pickers against 72/85, and
+    /// 79.6% agreement against 75.1%. The two halves are pinned separately so that neither can drift back alone -
+    /// the role without the argument is exactly the slow, half-answering judge slice 0 fled.
+    /// </summary>
     [Fact]
-    public void TheJudgeRunsOnTheFastRole()
-        => Assert.Equal(WingmanModelRole.Fast, TurnVerdictJudge.Role);
+    public void TheJudgeRunsOnTheThinkingRole_WithItsReasoningTurnedOff()
+    {
+        Assert.Equal(WingmanModelRole.Thinking, TurnVerdictJudge.Role);
+
+        var brain = TurnVerdictJudge.BuildBrain(
+            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.Wingman, TurnVerdictSettings.Defaults);
+        Assert.True(brain.ThinkingOff, "the judge's brain must ask its model not to reason out loud");
+    }
+
+    /// <summary>
+    /// THE DEFAULT IS REASONING ON, so that the judge's builder is the only thing this change moved. Every other
+    /// brain in the product - the translator's explain-and-ask path above all - was measured with reasoning on
+    /// and keeps it. Without this test a later edit could turn the argument on by default, changing models that
+    /// nobody measured, and every test above would still pass.
+    /// </summary>
+    [Fact]
+    public void AnOrdinaryBrain_LeavesTheModelsReasoningAlone()
+    {
+        var brain = new HostedInferenceBrain(
+            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.Wingman);
+
+        Assert.False(brain.ThinkingOff);
+    }
 
     private static TurnVerdictPackage Package() => new()
     {

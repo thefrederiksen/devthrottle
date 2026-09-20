@@ -59,6 +59,7 @@ public sealed class HostedInferenceBrain : IAgentBrain
     private readonly string _apiKey;
     private readonly string _model;
     private readonly TimeSpan _callTimeout;
+    private readonly bool _thinkingOff;
     private readonly Action<string> _log;
 
     /// <param name="baseUrl">The provider-compatible <c>/v1</c> base URL.</param>
@@ -75,7 +76,10 @@ public sealed class HostedInferenceBrain : IAgentBrain
     /// <param name="log">Log sink; <see cref="FileLog.Write"/> when null.</param>
     /// <param name="callTimeout">Per-call deadline (tests pass a tiny value to prove the fast-fail without
     /// a real wait); <see cref="DefaultCallTimeout"/> when null.</param>
-    public HostedInferenceBrain(string baseUrl, string apiKey, Core.Configuration.IncludedModelId model, HttpClient? http = null, Action<string>? log = null, TimeSpan? callTimeout = null)
+    /// <param name="thinkingOff">Ask the model NOT to reason out loud before it answers - see
+    /// <see cref="ThinkingOffTemplateArgument"/>. OFF by default, so a brain built anywhere else keeps the
+    /// behaviour it has today; only a caller that has MEASURED its model both ways turns it on.</param>
+    public HostedInferenceBrain(string baseUrl, string apiKey, Core.Configuration.IncludedModelId model, HttpClient? http = null, Action<string>? log = null, TimeSpan? callTimeout = null, bool thinkingOff = false)
     {
         if (string.IsNullOrWhiteSpace(baseUrl)) throw new ArgumentException("baseUrl is required", nameof(baseUrl));
         ArgumentNullException.ThrowIfNull(model);
@@ -84,8 +88,30 @@ public sealed class HostedInferenceBrain : IAgentBrain
         _apiKey = apiKey ?? "";
         _model = model.Value;
         _callTimeout = callTimeout ?? DefaultCallTimeout;
+        _thinkingOff = thinkingOff;
         _log = log ?? FileLog.Write;
     }
+
+    /// <summary>
+    /// THE ONE ARGUMENT THAT TURNS THE REASONING OFF, and why it is a request field rather than a prompt line.
+    ///
+    /// A reasoning model writes its working out before its answer, and that working is billed and waited for
+    /// like any other output. Measured on this account on 2026-09-20: <c>devthrottle/wingman</c> produced 4,290
+    /// output tokens a call with reasoning on, cost about $0.0102 and answered in roughly 144 seconds at the
+    /// median - which is why the judge was put on the fast tier in the first place. The SAME model with this
+    /// argument set answers the same question in 1.3 seconds for about $0.0008, and is right on 85 of 85 of the
+    /// picker screens rather than 72.
+    ///
+    /// It rides the request as <c>chat_template_kwargs</c>, which the hosted proxy passes upstream untouched
+    /// (<c>buildUpstreamRequest</c> spreads the client body), so nothing on the website has to know about it.
+    /// A model that does not understand the argument ignores it: it is a chat-template variable, not an API
+    /// parameter, so this cannot fail a call for a model that has no reasoning to turn off.
+    /// </summary>
+    private const string ThinkingOffTemplateArgument = "chat_template_kwargs";
+
+    /// <summary>Whether this brain asks its model not to reason out loud. Read by the tests that pin WHICH
+    /// callers turn it on - the judge does, and nothing else may without its own measurement.</summary>
+    internal bool ThinkingOff => _thinkingOff;
 
     /// <summary>The deadline one round trip on this brain is held to. Read by the test that pins the turn
     /// verdict judge to its measured thirty seconds rather than to <see cref="DefaultCallTimeout"/>.</summary>
@@ -106,12 +132,18 @@ public sealed class HostedInferenceBrain : IAgentBrain
                 "[HostedInferenceBrain] No DevThrottle account key is configured. Sign in to DevThrottle " +
                 "so the wingman can reach the model.");
 
-        var payload = JsonSerializer.Serialize(new
+        // The body is built as a dictionary rather than an anonymous type because the thinking argument is
+        // present or ABSENT - never present-and-false-shaped. A model that reasons by default must see no
+        // such key at all when this brain is not the judge's.
+        var request = new Dictionary<string, object>
         {
-            model = _model,
-            messages = new[] { new { role = "user", content = prompt } },
-            stream = false,
-        });
+            ["model"] = _model,
+            ["messages"] = new[] { new { role = "user", content = prompt } },
+            ["stream"] = false,
+        };
+        if (_thinkingOff)
+            request[ThinkingOffTemplateArgument] = new Dictionary<string, object> { ["thinking"] = false };
+        var payload = JsonSerializer.Serialize(request);
 
         var sw = Stopwatch.StartNew();
         using var req = new HttpRequestMessage(HttpMethod.Post, _chatUrl);
