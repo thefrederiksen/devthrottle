@@ -22,6 +22,21 @@
        the architecture guards - belongs with the suite that runs on every change, because it costs
        nothing there and proves something on every pull request.
 
+       THIS ASSEMBLY DOES NOT TAKE THE MACHINE-WIDE GatewayTestSuiteLock, AND THAT IS A DECISION, NOT AN
+       OVERSIGHT. CcDirector.Gateway.Tests arms that lock on assembly load, and its own project file says
+       the safe home for anything unclassified is there - so a class that boots a GatewayHost arriving
+       here has to be argued for rather than assumed. The argument, for the one class that does
+       (HostedStatsServeTests): it binds an OPERATING-SYSTEM-ASSIGNED port, writes only under its own
+       per-process temporary root, pins the instance directory through the linked TestEnvironment, and
+       reads a statistics database whose name is derived from the rig instance the run built - so two
+       runs on one machine build two rigs and never share one. Nothing it touches is machine-global.
+
+       The cost of taking the lock instead is not neutral: the local release gate runs this project
+       alongside CcDirector.Gateway.Tests, the lock gives up after 45 minutes, and that suite has been
+       measured at longer than that. Linking the lock in would therefore have introduced a new way for
+       the release gate to fail - on a timer, having run nothing - which is the very failure the lock's
+       own comment records from 2026-08-02.
+
        THE NAME ENDS IN .Tests ON PURPOSE. Directory.Build.props links the mutation-proof pin guard into
        every project whose name ends in '.Tests'. A project named anything else would silently miss it,
        which is the exact failure that file's own comment warns about. -->
