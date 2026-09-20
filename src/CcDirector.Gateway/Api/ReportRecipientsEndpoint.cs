@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Settings;
@@ -11,7 +12,7 @@ namespace CcDirector.Gateway.Api;
 /// <summary>
 /// Who the daily report should go to.
 ///
-///   GET /gateway/reports/recipients  ->  { recipients: [ { account, email } ] }
+///   GET /gateway/reports/recipients  ->  { recipients: [ { account, email, timeZone? } ] }
 ///
 /// The report endpoint answers "what does THIS account's day look like" and has always required the
 /// caller to already know the account. The sender therefore could only ever mail a hard-coded
@@ -37,9 +38,21 @@ namespace CcDirector.Gateway.Api;
 /// It was once asked by the first-run wizard, which runs once per director per machine - so it was asked
 /// N times for one email address and the answers never reconciled. That step was removed (issue #996);
 /// this is where the question ended up.
+///
+/// WHOSE SEVEN O'CLOCK (#3124). The owner ruled that 7am means 7am where the reader is. The sender wakes
+/// hourly and needs each account's zone to know whose morning it is, so <c>timeZone</c> rides beside the
+/// address - an IANA id, and ONLY when the account chose one. An account that never chose is sent without
+/// the key, never with the operator default filled in: the sender keeps those on the send time everybody
+/// had before, and a default dressed up as a choice would silently move them.
 /// </summary>
 internal static class ReportRecipientsEndpoint
 {
+    /// <summary>One row of the list. <c>TimeZone</c> is absent from the wire when the account chose none.</summary>
+    internal sealed record Recipient(
+        string Account,
+        string Email,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TimeZone);
+
     /// <summary>The route. Exact-match public in <c>AuthMiddleware</c>; this endpoint carries its own gate.</summary>
     public const string Path = "/gateway/reports/recipients";
 
@@ -70,20 +83,25 @@ internal static class ReportRecipientsEndpoint
             .ToList();
 
         var recipients = wanted
-            .Select(t => new { account = t.Email!.Trim(), email = t.Email!.Trim() })
+            .Select(t => new Recipient(t.Email!.Trim(), t.Email!.Trim(), settings.ChosenTimeZoneIana(new TenantId(t.TenantId))))
+            // One address on two accounts is mailed once (below), so it can only have one morning. The
+            // account that CHOSE a zone wins over the one that said nothing - a stated preference beats
+            // a default. Stable sort: among equals the registry's own order is kept.
+            .OrderBy(r => r.TimeZone is null)
             // Two accounts may legitimately carry one address, and they may disagree about wanting the
             // mail. Dropping the duplicate AFTER the filter is what makes "one account still wants it"
             // win over "the other turned it off" - the address is mailed once, which is the only answer
             // that serves both, and silence would be an opt-out one account never asked for.
-            .DistinctBy(r => r.email, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(r => r.email, StringComparer.OrdinalIgnoreCase)
+            .DistinctBy(r => r.Email, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(r => r.Email, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         // Counts only - the addresses themselves are personally identifying and this log is not the
         // place for them (the tenants table says the email is never logged). The opted-out count is
         // logged beside the served count so a shrinking list has a stated reason and is never mistaken
         // for accounts going missing.
-        FileLog.Write($"[ReportRecipientsEndpoint] served {recipients.Count} recipient(s); " +
+        FileLog.Write($"[ReportRecipientsEndpoint] served {recipients.Count} recipient(s), " +
+                      $"{recipients.Count(r => r.TimeZone is not null)} on a time zone of their own; " +
                       $"{addressed.Count - wanted.Count} account(s) have the report turned off");
         return Results.Json(new { recipients });
     }
