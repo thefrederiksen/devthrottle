@@ -3,8 +3,11 @@
 Mission: One repository list, held on the Gateway. The completeness gap: **the registry reaches the
 Gateway.**
 
-The predictions in `predicted-symptoms.md` were committed first, in `e09b24df2`, before any of these
-ran. Each revert was applied alone, the tests were run, and the code was restored before the next one.
+The predictions in `predicted-symptoms.md` were written and committed before any of these ran. They
+ride in this branch's first commit, alongside the code; the commit object they were originally made in
+was rewritten when the branch was rebased onto `origin/main`, so no short hash is quoted here - a hash
+that no longer resolves is worse than none. Each revert was applied alone, the tests were run, and the
+code was restored before the next one.
 
 **Where a prediction was wrong, it says so below rather than being quietly corrected.** Two were, and
 both were wrong in the same direction: I over-predicted how many tests a revert would take down. Each
