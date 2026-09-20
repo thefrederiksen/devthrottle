@@ -1,19 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using CcDirector.Avalonia.SmartRestart;
+using System.Threading.Tasks;
+using CcDirector.ControlApi.SmartRestart;
 
 namespace CcDirector.Avalonia.Tests.SmartRestart;
 
-/// <summary>A clock a test moves by hand, so no test sleeps.</summary>
-internal sealed class FakeShutdownClock
+/// <summary>A clock a test sets by hand, so no test sleeps.</summary>
+internal sealed class FakeShutdownClock : TimeProvider
 {
     private readonly object _gate = new();
     private DateTimeOffset _now;
 
     public FakeShutdownClock(DateTimeOffset start) => _now = start;
 
-    public DateTimeOffset Now()
+    public override DateTimeOffset GetUtcNow()
     {
         lock (_gate)
             return _now;
@@ -27,85 +28,137 @@ internal sealed class FakeShutdownClock
 }
 
 /// <summary>
-/// A shutdown a test steps by hand: move a session to a state, add one, and count what the screen asked
-/// for. Safe to step from any thread, because the real engine reports from its own.
+/// The real run interface, stepped by hand (phase 1 interface, section 4): a list of rows, a way to push
+/// a snapshot, a way to complete the run, and the two buttons flipping CanShutDownNow and CanCancel to
+/// false once used. Every word in a snapshot is written by the TEST, the way the engine writes it in
+/// life, so a test can tell the engine's words from anything the screen made up.
+///
+/// Safe to push from any thread, because the real engine raises from its own.
 /// </summary>
-internal sealed class FakeShutdownProgressSource : IShutdownProgressSource
+internal sealed class FakeSmartShutdownRun : ISmartShutdownRun
 {
     private readonly object _gate = new();
-    private readonly List<ShutdownProgressSession> _sessions = new();
+    private readonly TaskCompletionSource<SmartShutdownResult> _completion = new();
+    private Action<SmartShutdownSnapshot>? _changed;
+    private SmartShutdownSnapshot _current;
 
-    public FakeShutdownProgressSource(
-        ShutdownProgressKind kind,
-        TimeSpan timeAllowed,
-        DateTimeOffset startedAt,
-        params string[] sessionNames)
-    {
-        Kind = kind;
-        TimeAllowed = timeAllowed;
-        StartedAt = startedAt;
-        foreach (var name in sessionNames)
-            _sessions.Add(new ShutdownProgressSession(IdFor(name), name, ShutdownProgressState.Asked));
-    }
+    public FakeSmartShutdownRun(SmartShutdownSnapshot first) => _current = first;
 
-    public ShutdownProgressKind Kind { get; }
-
-    public TimeSpan TimeAllowed { get; }
-
-    public DateTimeOffset StartedAt { get; }
-
-    public event EventHandler? Changed;
-
-    public int ShutDownNowRequests { get; private set; }
-
-    public int CancelRequests { get; private set; }
-
-    /// <summary>When set, either request throws this instead of being counted.</summary>
-    public Exception? RequestFailure { get; set; }
-
-    public IReadOnlyList<ShutdownProgressSession> Sessions
+    public SmartShutdownSnapshot Current
     {
         get
         {
             lock (_gate)
-                return _sessions.ToList();
+                return _current;
         }
     }
 
-    public static string IdFor(string name) => "id-" + name;
-
-    public void MoveTo(string name, ShutdownProgressState state, string? reason = null)
+    public event Action<SmartShutdownSnapshot>? Changed
     {
+        add
+        {
+            lock (_gate)
+                _changed += value;
+        }
+        remove
+        {
+            lock (_gate)
+                _changed -= value;
+        }
+    }
+
+    public Task<SmartShutdownResult> Completion => _completion.Task;
+
+    /// <summary>How many handlers hold the change event right now.</summary>
+    public int Subscribers
+    {
+        get
+        {
+            lock (_gate)
+                return _changed?.GetInvocationList().Length ?? 0;
+        }
+    }
+
+    public int ShutDownNowCalls { get; private set; }
+
+    public int CancelCalls { get; private set; }
+
+    /// <summary>When true, a used button flips nothing and pushes nothing: the engine has not answered yet.</summary>
+    public bool StaysSilentWhenPressed { get; set; }
+
+    public void ShutDownNow()
+    {
+        ShutDownNowCalls++;
+        AnswerAPress();
+    }
+
+    public void CancelAndKeepWorking()
+    {
+        CancelCalls++;
+        AnswerAPress();
+    }
+
+    /// <summary>Replaces the whole run, as the engine does, and raises the change on the calling thread.</summary>
+    public void Push(SmartShutdownSnapshot snapshot)
+    {
+        Action<SmartShutdownSnapshot>? handlers;
         lock (_gate)
         {
-            var at = _sessions.FindIndex(s => s.Name == name);
-            if (at < 0)
-                throw new InvalidOperationException($"The fake has no session named {name}");
-            _sessions[at] = _sessions[at] with { State = state, Reason = reason };
+            _current = snapshot;
+            handlers = _changed;
         }
 
-        Changed?.Invoke(this, EventArgs.Empty);
+        handlers?.Invoke(snapshot);
     }
 
-    public void Add(string name, ShutdownProgressState state)
+    /// <summary>Ends the run. The last snapshot is the one it stands at, unless another is given.</summary>
+    public SmartShutdownResult Complete(SmartShutdownOutcome outcome, string detail, SmartShutdownSnapshot? final = null)
     {
-        lock (_gate)
-            _sessions.Add(new ShutdownProgressSession(IdFor(name), name, state));
-
-        Changed?.Invoke(this, EventArgs.Empty);
+        var result = new SmartShutdownResult(outcome, Current.WorkspaceId, detail, final ?? Current);
+        _completion.SetResult(result);
+        return result;
     }
 
-    public void RequestShutDownNow()
+    private void AnswerAPress()
     {
-        if (RequestFailure is not null)
-            throw RequestFailure;
-        ShutDownNowRequests++;
+        if (StaysSilentWhenPressed)
+            return;
+        Push(Current with { CanShutDownNow = false, CanCancel = false });
     }
+}
 
-    public void RequestCancelAndKeepWorking()
+/// <summary>Snapshots and rows in the engine's shape, with the words a test chooses.</summary>
+internal static class Shutdown
+{
+    public static readonly DateTime StartedUtc = new(2026, 9, 19, 22, 0, 0, DateTimeKind.Utc);
+
+    public static readonly DateTime LimitUtc = StartedUtc.AddMinutes(10);
+
+    public static SmartShutdownSessionProgress Row(
+        string name,
+        SmartShutdownSessionState state,
+        string stateLabel,
+        string? detail = null,
+        string? under = null) =>
+        new("id-" + name, name, Mission: null, Role: null,
+            OwnerSessionId: under is null ? null : "id-" + under,
+            state, stateLabel, detail);
+
+    public static SmartShutdownSnapshot Snapshot(
+        SmartShutdownPhase phase,
+        string phaseLabel,
+        string countLabel,
+        IEnumerable<SmartShutdownSessionProgress> rows,
+        bool canShutDownNow = true,
+        bool canCancel = true,
+        string? note = null)
     {
-        if (RequestFailure is not null)
-            throw RequestFailure;
-        CancelRequests++;
+        var sessions = rows.ToList();
+        var gone = sessions.Count(r =>
+            r.State is SmartShutdownSessionState.ShutDown or SmartShutdownSessionState.EndedAtLimit);
+        return new SmartShutdownSnapshot(
+            phase, phaseLabel, sessions, sessions.Count, gone, countLabel,
+            StartedUtc, StartedUtc.AddSeconds(400), LimitUtc,
+            canShutDownNow, canCancel, WorkspaceId: "workspace-1", note);
     }
 }

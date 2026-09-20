@@ -2,86 +2,144 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
 using Avalonia.Threading;
+using CcDirector.ControlApi.SmartRestart;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia.SmartRestart;
 
 /// <summary>
-/// Everything the shutdown progress screen shows, so the words and the counts can be checked without a
-/// window. The view only binds to this.
+/// Everything the shutdown progress screen shows. It reads one smart shutdown run and nothing else from
+/// the engine.
+///
+/// The engine words, the screen lays out. Every sentence about a state, a phase or a count is the
+/// engine's label shown as it arrived; nothing is counted here. The screen's own work is a colour per
+/// state, the indent of a session under its lead, the time left against the engine's limit, and whether
+/// a button may still be pressed.
+///
+/// Each snapshot REPLACES what is shown. A snapshot arrives on an engine thread and is applied on the
+/// interface thread, in the order it was raised.
+///
+/// The view model holds the run's event and a one-second clock, so it must be let go of: Dispose, which
+/// the view calls when it leaves its window. It also lets go by itself when the run completes.
 /// </summary>
-public sealed class ShutdownProgressViewModel : INotifyPropertyChanged
+public sealed class ShutdownProgressViewModel : INotifyPropertyChanged, IDisposable
 {
-    private enum OwnerRequest
-    {
-        None,
-        ShutDownNow,
-        CancelAndKeepWorking,
-    }
-
-    private readonly IShutdownProgressSource _source;
-    private readonly Func<DateTimeOffset> _clock;
-    private OwnerRequest _request = OwnerRequest.None;
+    private readonly ISmartShutdownRun _run;
+    private readonly TimeProvider _clock;
+    private readonly DispatcherTimer _clockTimer;
+    private readonly CancellationTokenSource _letGo = new();
+    private SmartShutdownSnapshot _snapshot;
     private string _countText = "";
+    private string _phaseText = "";
+    private string _noteText = "";
+    private string _resultText = "";
     private string _timeLeftText = "";
-    private string _statusText = "";
-    private string _failureText = "";
-    private bool _isFinished;
     private bool _isTimeLeftVisible;
-    private bool _areButtonsVisible;
-    private bool _isCancelVisible;
-    private bool _areButtonsEnabled;
+    private bool _areButtonsVisible = true;
+    private bool _canShutDownNow;
+    private bool _canCancel;
+    private bool _shutDownNowPressed;
+    private bool _cancelPressed;
+    private bool _isCompleted;
+    private bool _disposed;
+    private int _snapshotsReceived;
 
-    /// <param name="source">The shutdown that is under way.</param>
-    /// <param name="clock">What time it is now. Injected so a test moves it instead of sleeping.</param>
-    public ShutdownProgressViewModel(IShutdownProgressSource source, Func<DateTimeOffset> clock)
+    /// <summary>Must be built on the interface thread.</summary>
+    /// <param name="run">The smart shutdown that is under way.</param>
+    /// <param name="clock">What time it is now. Injected so a test sets the time instead of sleeping.</param>
+    public ShutdownProgressViewModel(ISmartShutdownRun run, TimeProvider clock)
     {
-        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(run);
         ArgumentNullException.ThrowIfNull(clock);
-        _source = source;
+        Dispatcher.UIThread.VerifyAccess();
+        _run = run;
         _clock = clock;
 
-        FileLog.Write($"[ShutdownProgressViewModel] Created: kind={source.Kind}, timeAllowed={source.TimeAllowed}, startedAt={source.StartedAt:O}");
-        _source.Changed += OnSourceChanged;
-        Refresh();
+        // Subscribe BEFORE the first read: a change raised in between is posted behind this
+        // constructor and lands after the first read, so the newest snapshot is the one left showing.
+        _run.Changed += OnRunChanged;
+        _snapshot = _run.Current;
+        FileLog.Write($"[ShutdownProgressViewModel] Created: phase={_snapshot.Phase}, sessions={_snapshot.Sessions.Count}, limitUtc={_snapshot.LimitUtc:O}");
+        Apply(_snapshot);
+
+        _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _clockTimer.Tick += ClockTimer_Tick;
+        _clockTimer.Start();
+
+        // Inline and tiny: all it does is post. The token takes the continuation off the run's task
+        // when this screen is let go of, so a run that outlives the screen does not hold it.
+        _run.Completion.ContinueWith(
+            OnRunCompleted,
+            _letGo.Token,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>One row per session, in the order the shutdown reports them.</summary>
+    /// <summary>
+    /// Raised once, on the interface thread, when the run completes while this screen is still shown.
+    /// The screen closes nothing: the caller closes the application on Emptied, or puts the session view
+    /// back on Cancelled, Refused, RestartRefused and Failed. A caller that subscribes in the same
+    /// interface-thread turn that built the screen never misses it, even for a run that was already over.
+    /// </summary>
+    public event Action<SmartShutdownResult>? Finished;
+
+    /// <summary>One row per session, in the order the snapshot gives them: leads first.</summary>
     public ObservableCollection<ShutdownProgressRowViewModel> Rows { get; } = new();
 
-    /// <summary>"4 of 9 shut down".</summary>
+    /// <summary>The engine's count label, as given.</summary>
     public string CountText
     {
         get => _countText;
         private set => SetField(ref _countText, value);
     }
 
-    /// <summary>"Time left: 6:40". Minutes and seconds, never below zero.</summary>
+    /// <summary>The engine's phase label, as given.</summary>
+    public string PhaseText
+    {
+        get => _phaseText;
+        private set => SetField(ref _phaseText, value);
+    }
+
+    /// <summary>The engine's note, as given. Empty when there is none.</summary>
+    public string NoteText
+    {
+        get => _noteText;
+        private set
+        {
+            if (SetField(ref _noteText, value))
+                Raise(nameof(HasNote));
+        }
+    }
+
+    public bool HasNote => _noteText.Length > 0;
+
+    /// <summary>The detail of the run's result, as given. Empty until the run completes.</summary>
+    public string ResultText
+    {
+        get => _resultText;
+        private set
+        {
+            if (SetField(ref _resultText, value))
+                Raise(nameof(HasResult));
+        }
+    }
+
+    public bool HasResult => _resultText.Length > 0;
+
+    /// <summary>"Time left: 6:40". Minutes and seconds against the engine's limit, never below zero.</summary>
     public string TimeLeftText
     {
         get => _timeLeftText;
         private set => SetField(ref _timeLeftText, value);
-    }
-
-    /// <summary>What is happening, in a sentence. Says what a pressed button started.</summary>
-    public string StatusText
-    {
-        get => _statusText;
-        private set => SetField(ref _statusText, value);
-    }
-
-    /// <summary>Every session is gone and the shutdown was not called off.</summary>
-    public bool IsFinished
-    {
-        get => _isFinished;
-        private set => SetField(ref _isFinished, value);
     }
 
     public bool IsTimeLeftVisible
@@ -90,84 +148,75 @@ public sealed class ShutdownProgressViewModel : INotifyPropertyChanged
         private set => SetField(ref _isTimeLeftVisible, value);
     }
 
+    /// <summary>Both buttons are drawn until the run completes; whether one is LIVE is the engine's.</summary>
     public bool AreButtonsVisible
     {
         get => _areButtonsVisible;
         private set => SetField(ref _areButtonsVisible, value);
     }
 
-    public bool IsCancelVisible
+    /// <summary>The engine says it may be used, and it has not been pressed.</summary>
+    public bool CanShutDownNow
     {
-        get => _isCancelVisible;
-        private set => SetField(ref _isCancelVisible, value);
+        get => _canShutDownNow;
+        private set => SetField(ref _canShutDownNow, value);
     }
 
-    public bool AreButtonsEnabled
+    /// <summary>The engine says it may be used, and it has not been pressed.</summary>
+    public bool CanCancel
     {
-        get => _areButtonsEnabled;
-        private set => SetField(ref _areButtonsEnabled, value);
+        get => _canCancel;
+        private set => SetField(ref _canCancel, value);
     }
+
+    /// <summary>The run has completed and its result is shown.</summary>
+    public bool IsCompleted => _isCompleted;
+
+    /// <summary>Whether the one-second clock is running.</summary>
+    public bool IsClockRunning => _clockTimer.IsEnabled;
+
+    /// <summary>How many times the run's change event reached this screen. What the letting-go test reads.</summary>
+    public int SnapshotsReceived => Volatile.Read(ref _snapshotsReceived);
 
     /// <summary>
-    /// A session counts as shut down once it is gone: closed, or ended when the time ran out. A session
-    /// that has handed over is still open, so it does not count yet.
+    /// Sends "shut down now" to the run, once. The button goes dead before the call, so nothing the run
+    /// does in answer can let a second press through.
     /// </summary>
-    public static bool IsGone(ShutdownProgressState state) =>
-        state is ShutdownProgressState.ShutDown or ShutdownProgressState.EndedAtLimit;
-
-    /// <summary>Asks the shutdown, once, to stop waiting and end everything now.</summary>
-    public void RequestShutDownNow()
+    public void PressShutDownNow()
     {
-        if (_request != OwnerRequest.None)
+        if (!CanShutDownNow)
         {
-            FileLog.Write($"[ShutdownProgressViewModel] RequestShutDownNow: ignored, already asked for {_request}");
+            FileLog.Write("[ShutdownProgressViewModel] PressShutDownNow: ignored, the button is dead");
             return;
         }
 
-        FileLog.Write("[ShutdownProgressViewModel] RequestShutDownNow: asking the shutdown");
-        _source.RequestShutDownNow();
-        _request = OwnerRequest.ShutDownNow;
-        _failureText = "";
-        Refresh();
-        FileLog.Write("[ShutdownProgressViewModel] RequestShutDownNow: asked");
+        FileLog.Write("[ShutdownProgressViewModel] PressShutDownNow: sending");
+        _shutDownNowPressed = true;
+        CanShutDownNow = false;
+        _run.ShutDownNow();
+        FileLog.Write("[ShutdownProgressViewModel] PressShutDownNow: sent");
     }
 
-    /// <summary>Asks the shutdown, once, to call it off and bring the sessions back.</summary>
-    public void RequestCancelAndKeepWorking()
+    /// <summary>Sends "cancel and keep working" to the run, once. The button goes dead before the call.</summary>
+    public void PressCancelAndKeepWorking()
     {
-        if (_request != OwnerRequest.None)
+        if (!CanCancel)
         {
-            FileLog.Write($"[ShutdownProgressViewModel] RequestCancelAndKeepWorking: ignored, already asked for {_request}");
+            FileLog.Write("[ShutdownProgressViewModel] PressCancelAndKeepWorking: ignored, the button is dead");
             return;
         }
 
-        if (_source.Kind == ShutdownProgressKind.IgnoreAll)
-            throw new InvalidOperationException("A shutdown that ignores all sessions cannot be cancelled: nothing was handed over to bring back.");
-
-        FileLog.Write("[ShutdownProgressViewModel] RequestCancelAndKeepWorking: asking the shutdown");
-        _source.RequestCancelAndKeepWorking();
-        _request = OwnerRequest.CancelAndKeepWorking;
-        _failureText = "";
-        Refresh();
-        FileLog.Write("[ShutdownProgressViewModel] RequestCancelAndKeepWorking: asked");
+        FileLog.Write("[ShutdownProgressViewModel] PressCancelAndKeepWorking: sending");
+        _cancelPressed = true;
+        CanCancel = false;
+        _run.CancelAndKeepWorking();
+        FileLog.Write("[ShutdownProgressViewModel] PressCancelAndKeepWorking: sent");
     }
 
-    /// <summary>
-    /// A request could not be started. The buttons stay live so the owner can try again, and the screen
-    /// says so rather than looking as though the click was lost.
-    /// </summary>
-    public void ReportFailure(string text)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
-        FileLog.Write($"[ShutdownProgressViewModel] ReportFailure: {text}");
-        _failureText = text;
-        Refresh();
-    }
-
-    /// <summary>Reads the clock again. The view calls this once a second; a test calls it after moving the clock.</summary>
+    /// <summary>Reads the clock again. The one-second clock calls this; a test calls it after setting the time.</summary>
     public void RefreshTimeLeft()
     {
-        var left = _source.StartedAt + _source.TimeAllowed - _clock();
+        var left = _snapshot.LimitUtc - _clock.GetUtcNow().UtcDateTime;
         if (left < TimeSpan.Zero)
             left = TimeSpan.Zero;
 
@@ -176,93 +225,156 @@ public sealed class ShutdownProgressViewModel : INotifyPropertyChanged
         TimeLeftText = $"Time left: {seconds / 60}:{seconds % 60:00}";
     }
 
-    private void OnSourceChanged(object? sender, EventArgs e)
+    /// <summary>Lets go of the run and stops the clock. Safe to call more than once.</summary>
+    public void Dispose()
     {
-        // The shutdown reports from its own threads; the rows are bound, so they change on the
-        // interface thread only.
-        if (Dispatcher.UIThread.CheckAccess())
-            Refresh();
-        else
-            Dispatcher.UIThread.Post(Refresh);
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        LetGo();
+        _letGo.Dispose();
+        FileLog.Write("[ShutdownProgressViewModel] Dispose: let go of the run and stopped the clock");
     }
 
-    private void Refresh()
+    private void LetGo()
     {
-        var sessions = _source.Sessions;
-        ReconcileRows(sessions);
-
-        var gone = sessions.Count(s => IsGone(s.State));
-        CountText = $"{gone} of {sessions.Count} shut down";
-
-        var wasFinished = IsFinished;
-        IsFinished = gone == sessions.Count && _request != OwnerRequest.CancelAndKeepWorking;
-        if (IsFinished && !wasFinished)
-            FileLog.Write($"[ShutdownProgressViewModel] Refresh: finished, {CountText}");
-
-        var isSmart = _source.Kind == ShutdownProgressKind.Smart;
-        AreButtonsVisible = !IsFinished;
-        IsCancelVisible = !IsFinished && isSmart;
-        AreButtonsEnabled = !IsFinished && _request == OwnerRequest.None;
-        IsTimeLeftVisible = !IsFinished && isSmart && _request == OwnerRequest.None;
-        RefreshTimeLeft();
-        StatusText = DescribeStatus(isSmart);
+        _run.Changed -= OnRunChanged;
+        _clockTimer.Stop();
+        _clockTimer.Tick -= ClockTimer_Tick;
+        _letGo.Cancel();
     }
 
-    private string DescribeStatus(bool isSmart)
+    // Raised on an ENGINE thread. Always posted, never applied in place, so snapshots reach the screen
+    // in the order they were raised whichever thread raised them.
+    private void OnRunChanged(SmartShutdownSnapshot snapshot)
     {
-        if (IsFinished)
-            return "Every session is shut down.";
+        Interlocked.Increment(ref _snapshotsReceived);
+        Dispatcher.UIThread.Post(() => ApplyPosted(snapshot));
+    }
 
-        return _request switch
+    private void ApplyPosted(SmartShutdownSnapshot snapshot)
+    {
+        try
         {
-            OwnerRequest.ShutDownNow => "Shutting down now...",
-            OwnerRequest.CancelAndKeepWorking => "Cancelling - bringing your sessions back...",
-            _ when _failureText.Length > 0 => _failureText,
-            _ => isSmart
-                ? "Each session writes a short handover of what it was doing, then it is shut down."
-                : "Every session is being shut down at once. No handovers are written.",
-        };
-    }
-
-    private void ReconcileRows(IReadOnlyList<ShutdownProgressSession> sessions)
-    {
-        var reported = sessions.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
-        for (var i = Rows.Count - 1; i >= 0; i--)
-        {
-            if (!reported.Contains(Rows[i].Id))
-                Rows.RemoveAt(i);
+            if (_disposed || _isCompleted)
+                return;
+            Apply(snapshot);
         }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ShutdownProgressViewModel] ApplyPosted FAILED: {ex}");
+            throw;
+        }
+    }
 
+    private void OnRunCompleted(Task<SmartShutdownResult> completion) =>
+        Dispatcher.UIThread.Post(() => CompletePosted(completion));
+
+    private void CompletePosted(Task<SmartShutdownResult> completion)
+    {
+        try
+        {
+            if (_disposed || _isCompleted)
+                return;
+
+            // The run promises never to fault for an expected end. A fault is a defect in the engine and
+            // is not drawn as an outcome: it is logged here and thrown on the interface thread.
+            var result = completion.GetAwaiter().GetResult();
+            FileLog.Write($"[ShutdownProgressViewModel] CompletePosted: outcome={result.Outcome}, detail={result.Detail}");
+
+            Apply(result.Final);
+            _isCompleted = true;
+            LetGo();
+            ResultText = result.Detail;
+            AreButtonsVisible = false;
+            CanShutDownNow = false;
+            CanCancel = false;
+            IsTimeLeftVisible = false;
+            Raise(nameof(IsCompleted));
+            Finished?.Invoke(result);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ShutdownProgressViewModel] CompletePosted FAILED: {ex}");
+            throw;
+        }
+    }
+
+    private void ClockTimer_Tick(object? sender, EventArgs e)
+    {
+        try
+        {
+            RefreshTimeLeft();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ShutdownProgressViewModel] ClockTimer_Tick FAILED: {ex}");
+        }
+    }
+
+    private void Apply(SmartShutdownSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        _snapshot = snapshot;
+        ReplaceRows(snapshot.Sessions);
+        CountText = snapshot.CountLabel;
+        PhaseText = snapshot.PhaseLabel;
+        NoteText = snapshot.Note ?? "";
+        CanShutDownNow = snapshot.CanShutDownNow && !_shutDownNowPressed;
+        CanCancel = snapshot.CanCancel && !_cancelPressed;
+        IsTimeLeftVisible = IsCountingDown(snapshot.Phase);
+        RefreshTimeLeft();
+    }
+
+    // The time left means something only while sessions are still being given time.
+    private static bool IsCountingDown(SmartShutdownPhase phase) => phase switch
+    {
+        SmartShutdownPhase.Asking => true,
+        SmartShutdownPhase.Collecting => true,
+        SmartShutdownPhase.Interrupting => true,
+        SmartShutdownPhase.Starting => false,
+        SmartShutdownPhase.EndingAtLimit => false,
+        SmartShutdownPhase.Cancelling => false,
+        SmartShutdownPhase.Restarting => false,
+        SmartShutdownPhase.Finished => false,
+        _ => throw new InvalidOperationException($"The progress screen does not know shutdown phase {phase}"),
+    };
+
+    // A row is one immutable record drawn as is. A row whose record changed in any way is replaced
+    // whole, so nothing from an older snapshot can survive in it.
+    private void ReplaceRows(IReadOnlyList<SmartShutdownSessionProgress> sessions)
+    {
         for (var i = 0; i < sessions.Count; i++)
         {
-            var session = sessions[i];
-            var row = Rows.FirstOrDefault(r => r.Id == session.Id);
-            if (row is null)
-            {
-                Rows.Insert(i, new ShutdownProgressRowViewModel(session));
-                continue;
-            }
-
-            row.Update(session);
-            var at = Rows.IndexOf(row);
-            if (at != i)
-                Rows.Move(at, i);
+            if (i >= Rows.Count)
+                Rows.Add(new ShutdownProgressRowViewModel(sessions[i]));
+            else if (!Rows[i].Progress.Equals(sessions[i]))
+                Rows[i] = new ShutdownProgressRowViewModel(sessions[i]);
         }
+
+        while (Rows.Count > sessions.Count)
+            Rows.RemoveAt(Rows.Count - 1);
     }
 
-    private void SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
-            return;
+            return false;
         field = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        Raise(name);
+        return true;
     }
+
+    private void Raise(string? name) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
-/// <summary>One session's row on the shutdown progress screen.</summary>
-public sealed class ShutdownProgressRowViewModel : INotifyPropertyChanged
+/// <summary>One session's row on the shutdown progress screen: one engine record, drawn as given.</summary>
+public sealed class ShutdownProgressRowViewModel
 {
-    // Immutable brushes: safe to share between rows and to build before the interface thread exists.
+    // Immutable brushes: safe to share between rows.
+    private static readonly IBrush NotYetBrush = new ImmutableSolidColorBrush(Color.Parse("#888888"));
     private static readonly IBrush WaitingBrush = new ImmutableSolidColorBrush(Color.Parse("#AAAAAA"));
     private static readonly IBrush WorkingBrush = new ImmutableSolidColorBrush(Color.Parse("#3B82F6"));
     private static readonly IBrush DoneBrush = new ImmutableSolidColorBrush(Color.Parse("#22C55E"));
@@ -270,88 +382,72 @@ public sealed class ShutdownProgressRowViewModel : INotifyPropertyChanged
     private static readonly IBrush OpenNameBrush = new ImmutableSolidColorBrush(Color.Parse("#CCCCCC"));
     private static readonly IBrush GoneNameBrush = new ImmutableSolidColorBrush(Color.Parse("#888888"));
 
-    private string _name;
-    private ShutdownProgressState _state;
-    private string _reasonText = "";
+    private static readonly Thickness LeadMargin = new(12, 5);
+    private static readonly Thickness UnderLeadMargin = new(36, 5, 12, 5);
 
-    public ShutdownProgressRowViewModel(ShutdownProgressSession session)
+    public ShutdownProgressRowViewModel(SmartShutdownSessionProgress progress)
     {
-        ArgumentNullException.ThrowIfNull(session);
-        Id = session.Id;
-        _name = session.Name;
-        _state = session.State;
-        _reasonText = DescribeReason(session);
+        ArgumentNullException.ThrowIfNull(progress);
+        Progress = progress;
+        StateBrush = BrushFor(progress.State);
+        NameBrush = progress.State is SmartShutdownSessionState.ShutDown or SmartShutdownSessionState.EndedAtLimit
+            ? GoneNameBrush
+            : OpenNameBrush;
+        DetailText = DescribeDetail(progress);
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
+    /// <summary>The engine's record this row draws.</summary>
+    public SmartShutdownSessionProgress Progress { get; }
 
-    public string Id { get; }
+    public string SessionId => Progress.SessionId;
 
-    public string Name => _name;
+    public string Name => Progress.Name;
 
-    /// <summary>The state in the mission's exact words.</summary>
-    public string StateText => Describe(_state);
+    /// <summary>The engine's words for the state, as given.</summary>
+    public string StateText => Progress.StateLabel;
 
-    public IBrush StateBrush => _state switch
-    {
-        ShutdownProgressState.Asked => WaitingBrush,
-        ShutdownProgressState.Writing => WorkingBrush,
-        ShutdownProgressState.HandedOver => DoneBrush,
-        ShutdownProgressState.ShutDown => DoneBrush,
-        ShutdownProgressState.Interrupted => ForcedBrush,
-        ShutdownProgressState.EndedAtLimit => ForcedBrush,
-        ShutdownProgressState.CouldNotBeAsked => ForcedBrush,
-        _ => throw new InvalidOperationException($"No colour is defined for shutdown state {_state}"),
-    };
+    /// <summary>The colour is the screen's; the words never are.</summary>
+    public IBrush StateBrush { get; }
 
     /// <summary>A session that is gone is drawn dimmed, so the ones still open stand out.</summary>
-    public IBrush NameBrush => ShutdownProgressViewModel.IsGone(_state) ? GoneNameBrush : OpenNameBrush;
+    public IBrush NameBrush { get; }
 
-    /// <summary>Why the session could not be asked. Empty for every other state.</summary>
-    public string ReasonText => _reasonText;
+    /// <summary>The engine's why, as given. Empty when there is none.</summary>
+    public string DetailText { get; }
 
-    public bool HasReason => _reasonText.Length > 0;
+    public bool HasDetail => DetailText.Length > 0;
 
-    /// <summary>The words the screen uses for a state. Mission document, section 5.3 item 4.</summary>
-    public static string Describe(ShutdownProgressState state) => state switch
+    /// <summary>A session under a lead is indented beneath it.</summary>
+    public bool IsUnderLead => Progress.OwnerSessionId is not null;
+
+    public Thickness RowMargin => IsUnderLead ? UnderLeadMargin : LeadMargin;
+
+    private static IBrush BrushFor(SmartShutdownSessionState state) => state switch
     {
-        ShutdownProgressState.Asked => "asked",
-        ShutdownProgressState.Writing => "writing",
-        ShutdownProgressState.HandedOver => "handed over",
-        ShutdownProgressState.ShutDown => "shut down",
-        ShutdownProgressState.Interrupted => "interrupted",
-        ShutdownProgressState.EndedAtLimit => "ended at the limit",
-        ShutdownProgressState.CouldNotBeAsked => "could not be asked",
-        _ => throw new InvalidOperationException($"No words are defined for shutdown state {state}"),
+        SmartShutdownSessionState.Pending => NotYetBrush,
+        SmartShutdownSessionState.Asked => WaitingBrush,
+        SmartShutdownSessionState.NotDelivered => ForcedBrush,
+        SmartShutdownSessionState.Writing => WorkingBrush,
+        SmartShutdownSessionState.HandedOver => DoneBrush,
+        SmartShutdownSessionState.Interrupted => ForcedBrush,
+        SmartShutdownSessionState.ShutDown => DoneBrush,
+        SmartShutdownSessionState.EndedAtLimit => ForcedBrush,
+        SmartShutdownSessionState.KeptRunning => WorkingBrush,
+        SmartShutdownSessionState.BroughtBack => DoneBrush,
+        _ => throw new InvalidOperationException($"The progress screen has no colour for shutdown state {state}"),
     };
 
-    internal void Update(ShutdownProgressSession session)
+    private static string DescribeDetail(SmartShutdownSessionProgress progress)
     {
-        if (session.Id != Id)
-            throw new InvalidOperationException($"Row {Id} was given the report for session {session.Id}");
+        if (!string.IsNullOrWhiteSpace(progress.Detail))
+            return progress.Detail;
 
-        var reason = DescribeReason(session);
-        if (_name == session.Name && _state == session.State && _reasonText == reason)
-            return;
-
-        _name = session.Name;
-        _state = session.State;
-        _reasonText = reason;
-        // An empty name raises every property: a row changes rarely and all of it is cheap to re-read.
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
-    }
-
-    private static string DescribeReason(ShutdownProgressSession session)
-    {
-        if (session.State != ShutdownProgressState.CouldNotBeAsked)
+        if (progress.State != SmartShutdownSessionState.NotDelivered)
             return "";
 
-        if (string.IsNullOrWhiteSpace(session.Reason))
-        {
-            FileLog.Write($"[ShutdownProgressRowViewModel] DescribeReason: session {session.Id} could not be asked and no reason came with it");
-            return "No reason was given.";
-        }
-
-        return session.Reason;
+        // The engine owes a reason with this state. Its absence is drawn in words that are true, and
+        // logged, rather than left as a row that looks merely asked.
+        FileLog.Write($"[ShutdownProgressRowViewModel] DescribeDetail: session {progress.SessionId} was not delivered and no reason came with it");
+        return "No reason was given.";
     }
 }

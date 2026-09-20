@@ -9,8 +9,9 @@ namespace CcDirector.Avalonia.Tests;
 
 /// <summary>
 /// Minimal Avalonia headless app so [AvaloniaFact] tests can construct real controls (the onboarding
-/// wizard's Skip seam, issue #1809). Drawing goes through real Skia (headless drawing off), so
-/// CaptureRenderedFrame() returns a picture a test can save or check, not a blank.
+/// wizard's Skip seam, issue #1809). Real drawing is ON (Skia, headless drawing off) so a test can call
+/// CaptureRenderedFrame() and get a picture of the window rather than a blank frame; tests that assert
+/// only side effects are unaffected.
 /// </summary>
 internal sealed class HeadlessTestApp : Application
 {

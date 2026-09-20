@@ -17,9 +17,6 @@
          OnboardingWizardDialog Skip seam. -->
     <PackageReference Include="Avalonia.Headless.XUnit" Version="11.*" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.*" />
-    <!-- Real drawing, so a test can capture a frame that is a picture and not a blank (Smart Director
-         Restart, phase 2: an interface proves itself with screenshots). -->
-    <PackageReference Include="Avalonia.Skia" Version="11.*" />
   </ItemGroup>
 
   <ItemGroup>

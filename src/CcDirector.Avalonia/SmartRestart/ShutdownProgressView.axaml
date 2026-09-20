@@ -28,10 +28,13 @@
         </Style>
     </UserControl.Styles>
 
-    <!-- Shown in place of the session view while a shutdown is under way. Everything drawn here is
-         read from ShutdownProgressViewModel; this file only lays it out. -->
+    <!-- Shown in place of the session view while a smart shutdown is under way. Every word about a
+         state, a phase or a count is the engine's, read from ShutdownProgressViewModel as given; this
+         file only lays it out. -->
     <Grid Margin="20" MaxWidth="760" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -56,17 +59,37 @@
         </Grid>
 
         <TextBlock Grid.Row="1"
-                   x:Name="StatusText"
-                   Text="{Binding StatusText}"
+                   x:Name="PhaseText"
+                   Text="{Binding PhaseText}"
                    Foreground="#AAAAAA"
                    FontSize="13"
                    TextWrapping="Wrap"
-                   Margin="0,0,0,12" />
+                   Margin="0,0,0,4" />
 
-        <Border Grid.Row="2"
+        <TextBlock Grid.Row="2"
+                   x:Name="NoteText"
+                   Text="{Binding NoteText}"
+                   IsVisible="{Binding HasNote}"
+                   Foreground="#888888"
+                   FontSize="12"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,4" />
+
+        <TextBlock Grid.Row="3"
+                   x:Name="ResultText"
+                   Text="{Binding ResultText}"
+                   IsVisible="{Binding HasResult}"
+                   Foreground="#CCCCCC"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   TextWrapping="Wrap"
+                   Margin="0,4,0,4" />
+
+        <Border Grid.Row="4"
                 Background="#252526"
                 BorderBrush="#3C3C3C"
-                BorderThickness="1">
+                BorderThickness="1"
+                Margin="0,8,0,0">
             <ScrollViewer VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
                 <ItemsControl x:Name="RowList"
@@ -74,7 +97,7 @@
                               Margin="0,4">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="12,5">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="{Binding RowMargin}">
                                 <TextBlock Grid.Row="0" Grid.Column="0"
                                            Text="{Binding Name}"
                                            Foreground="{Binding NameBrush}"
@@ -88,8 +111,8 @@
                                            FontWeight="SemiBold"
                                            Margin="12,0,0,0" />
                                 <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                           Text="{Binding ReasonText}"
-                                           IsVisible="{Binding HasReason}"
+                                           Text="{Binding DetailText}"
+                                           IsVisible="{Binding HasDetail}"
                                            Foreground="#888888"
                                            FontSize="11"
                                            TextWrapping="Wrap"
@@ -101,7 +124,7 @@
             </ScrollViewer>
         </Border>
 
-        <StackPanel Grid.Row="3"
+        <StackPanel Grid.Row="5"
                     x:Name="ButtonPanel"
                     IsVisible="{Binding AreButtonsVisible}"
                     Orientation="Horizontal"
@@ -111,7 +134,7 @@
                     Classes="primary"
                     Content="Shut down now"
                     Click="BtnShutDownNow_Click"
-                    IsEnabled="{Binding AreButtonsEnabled}"
+                    IsEnabled="{Binding CanShutDownNow}"
                     Width="140" Height="30"
                     HorizontalContentAlignment="Center"
                     Background="#007ACC" Foreground="White"
@@ -120,8 +143,7 @@
                     Classes="secondary"
                     Content="Cancel and keep working"
                     Click="BtnCancelAndKeepWorking_Click"
-                    IsVisible="{Binding IsCancelVisible}"
-                    IsEnabled="{Binding AreButtonsEnabled}"
+                    IsEnabled="{Binding CanCancel}"
                     Width="200" Height="30"
                     HorizontalContentAlignment="Center"
                     Background="#3C3C3C" Foreground="#CCCCCC"
