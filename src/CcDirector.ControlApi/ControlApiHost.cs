@@ -334,6 +334,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private Core.Storage.TurnReviewLogger? _turnReviewLogger;
     private Core.Sessions.SessionRecordsWatcher? _recordsWatcher;
     private Core.Pi.PiSessionRebinder? _piSessionRebinder;
+    private Core.Sessions.PendingInteractionWatcher? _pendingInteractionWatcher;
     // Remove-the-network-port mission, phase 3: the two halves of the session-hook channel that
     // replaced the three Control API routes. Both started by StartSessionStateServices, because
     // neither touches the bound port and both must run even when it fails to bind - a Director whose
@@ -994,6 +995,15 @@ public sealed class ControlApiHost : IAsyncDisposable
         // relink the session to it, so the turn push, the gauge and the model report follow (#2670).
         _piSessionRebinder = new Core.Pi.PiSessionRebinder(_sessionManager);
         _piSessionRebinder.Start();
+
+        // Whether a session is holding a question box or a plan awaiting approval (issue #3167). On the
+        // same turn-end trigger, read the agent's own transcript for an interaction tool call that has
+        // no result yet and stamp Session.PendingInteraction. The Smart shutdown dialog reads that
+        // property to show the owner which sessions have a question open before it asks him anything;
+        // until this watcher existed nothing in the product ever set it, so that section of the dialog
+        // could never appear.
+        _pendingInteractionWatcher = new Core.Sessions.PendingInteractionWatcher(_sessionManager);
+        _pendingInteractionWatcher.Start();
 
         // The prompt record (issue #1551): on the same turn-end trigger, read each session's
         // conversation out of the agent's own transcript, join on where each prompt came from, and PUSH
@@ -1710,6 +1720,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         _recordsWatcher = null;
         _piSessionRebinder?.Dispose();
         _piSessionRebinder = null;
+        _pendingInteractionWatcher?.Dispose();
+        _pendingInteractionWatcher = null;
         _conversationIngestor?.Dispose();
         _conversationIngestor = null;
         _sessionRecorder?.Dispose();
