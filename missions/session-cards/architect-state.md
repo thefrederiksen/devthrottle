@@ -155,6 +155,29 @@ Two pre-existing findings for the owner's report, NOT mission work and not to be
 macOS suite is red, and `CcDirector.Gateway.UnitTests` is parked (issue #2824), so a proof that lives
 only there is a proof nobody sees at commit time.
 
+## Architect ruling: a stale legend on an OPEN window - folded into A2
+
+The Phase A fix seat raised one question rather than deciding it, correctly. When the legend window
+is already open and a REFRESH fails, the window goes on showing the last-known words and says
+nothing. That is the deliberate last-known-answer behaviour, so it is not a defect - but a surface
+showing words that may no longer be true, without saying so, is a quiet version of the very thing
+this mission is about.
+
+**Ruling: it goes into Phase A2, not into Phase A.** A2 is already "the legend gets words for what
+it cannot explain", and "these words may be stale" is the same kind of sentence. It is not a
+regression and it does not hold up the landing.
+
+## Inspecting when an agent family runs out of credit
+
+The second inspection was seated on Codex and wedged on a usage-limit prompt before it cut a
+worktree: it produced nothing, and it could NOT be rescued, because a fleet message is queued and
+never typed into a live session - there is no way to answer a prompt inside another seat's terminal.
+
+Do not wait out the reset if another family is installed. Check what is actually on the machine
+before choosing (`command -v codex gemini grok copilot opencode pi`) - on this machine Gemini is NOT
+installed and the spawn fails with a clear message, while Codex and Pi are. The requirement is a
+family different from the builder's, not one particular vendor.
+
 ## A SEAT THAT FINISHES MAY NOT REACH YOU - GO AND LOOK
 
 Both Phase A seats finished their work, pushed it, and **failed to get a report back to the
