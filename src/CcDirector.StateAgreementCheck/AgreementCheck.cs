@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using CcDirector.Avalonia;
 using CcDirector.Gateway.Contracts;
 
@@ -384,6 +384,24 @@ public static class AgreementCheck
             // the web session dot paints), and the desktop StatusPalette now REFERENCES it compile-time. So
             // this check resolves the name through canonical and asserts each client table matches it - the
             // guard that keeps the web's over-the-wire values from ever drifting from the canonical source.
+            // A NAME NO PALETTE KNOWS IS NOT DRIFT, AND MUST NOT BE REPORTED AS DRIFT. Every comparison
+            // below reads HexFor, and HexFor answers an unknown name with a SENTINEL rather than a colour -
+            // and since the Session Cards mission the two sides deliberately answer with DIFFERENT
+            // sentinels: this check's build paints the desktop's neutral, the canonical map and the
+            // clients paint the magenta. Comparing those would report "the desktop palette has drifted
+            // from SessionColorPalette", which is a lie about a build that is simply older than the
+            // Gateway that emitted the name. So this case is answered once, here, and the drift
+            // comparisons below never see it.
+            if (!SessionColorPalette.Knows(row.EffectiveColor))
+            {
+                yield return new Finding(row.SessionId, name, "palette-missing",
+                    $"the Gateway emitted colour '{row.EffectiveColor}' and no palette knows it - the desktop " +
+                    $"rail paints its neutral {StatusPalette.Neutral} (honest: this build is older than that " +
+                    $"Gateway), and the clients paint the magenta {SessionColorPalette.Broken}. Teach the " +
+                    "palettes the name, or update the build.");
+                continue;
+            }
+
             var canonicalHex = SessionColorPalette.HexFor(row.EffectiveColor).ToUpperInvariant();
             var desktopHex = StatusPalette.HexFor(row.EffectiveColor).ToUpperInvariant();
 
@@ -410,12 +428,6 @@ public static class AgreementCheck
                     $"both surfaces fold to '{row.EffectiveColor}' and AGREE - and then paint different colours: " +
                     $"the canonical map {canonicalHex}, the web client table {clientHex.ToUpperInvariant()}. Law 7 is " +
                     "'every device shows the same thing, always'.");
-            }
-            else if (!SessionColorPalette.Knows(row.EffectiveColor))
-            {
-                yield return new Finding(row.SessionId, name, "palette-missing",
-                    $"the palette does not know '{row.EffectiveColor}' - every surface renders the magenta " +
-                    "BROKEN sentinel for this session.");
             }
         }
     }

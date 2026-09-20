@@ -21,4 +21,5 @@ How a mission is RUN is not described here - that is one document, held centrall
 
 | Document | Issue |
 |---|---|
+| [session-cards.html](session-cards.html) | the three session cards had drifted apart, and an older Director could not render a colour the fold had gained |
 | [stop-a-session.html](stop-a-session.html) | [#2633](https://github.com/thefrederiksen/devthrottle/issues/2633) - no way to kill a session |

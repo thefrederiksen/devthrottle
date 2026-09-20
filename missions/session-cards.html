@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Mission - Session Cards</title>
+<style>
+  body { max-width: 62rem; margin: 0 auto; padding: 2rem 1rem 5rem;
+         font: 16px/1.65 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color: #1c2430; background: #fff; }
+  h1 { font-size: 1.9rem; margin: 0 0 .3rem; }
+  .status { color: #5a6676; font-size: .85rem; margin-bottom: 2rem; }
+  h2 { font-size: 1.25rem; margin: 2.4rem 0 .6rem; padding-bottom: .3rem; border-bottom: 1px solid #dde3ea; }
+  h3 { font-size: 1.02rem; margin: 1.6rem 0 .4rem; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .86em;
+         background: #f2f5f8; border: 1px solid #e0e6ed; border-radius: 3px; padding: 0 .3em; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92rem; }
+  th, td { border: 1px solid #dde3ea; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  .ruling { border-left: 3px solid #3B82F6; padding: .1rem 0 .1rem .9rem; margin: 1.1rem 0; }
+  .ruling.inferred { border-left-color: #EAB308; }
+  .ruling h4 { margin: 0 0 .25rem; font-size: 1rem; }
+  .ruling p { margin: .35rem 0; font-size: .94rem; }
+  .cost { color: #8a5a00; font-size: .9rem; }
+  .tag { display: inline-block; font-size: .68rem; text-transform: uppercase; letter-spacing: .5px;
+         font-weight: 700; padding: .05rem .4rem; border-radius: 3px; vertical-align: .12em; }
+  .tag.said { background: #e7f6ec; color: #1d6b38; border: 1px solid #b7e0c4; }
+  .tag.inf  { background: #fdf6e3; color: #8a5a00; border: 1px solid #ecd9a4; }
+  .phase { background: #f8fafc; border: 1px solid #dde3ea; border-radius: 7px; padding: .9rem 1.1rem; margin: 1rem 0; }
+  .phase h3 { margin-top: 0; }
+  blockquote { margin: 1rem 0; padding: .5rem 0 .5rem 1rem; border-left: 3px solid #c8d2de;
+               color: #3d4855; font-style: italic; }
+  ul { padding-left: 1.3rem; }
+  li { margin: .3rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Mission - Session Cards</h1>
+<p class="status">
+  <strong>Status: ACTIVE.</strong> Branch <code>mission/session-cards</code>, cut from
+  <code>origin/main</code> at v2.8.0. Opened 19 September 2026.
+  How a mission is run is not described here - that is held centrally:
+  <code>cc-devthrottle workflow instructions mission</code>.
+</p>
+
+<h2>Why this exists</h2>
+
+<p>
+  The owner watches the session rail on a Director all day, and the Cockpit and phone rosters beside it.
+  He noticed the colours on the rail did not match the Cockpit and asked for a comparison of what all
+  three session cards hold and how each decides its colour.
+</p>
+
+<p>Two things came out of that review, and the second is the larger one.</p>
+
+<p>
+  <strong>The colour disagreement is a version gap with a specific cause.</strong> The Gateway folds the
+  colour once and pushes down a colour <em>name</em>; the Director resolves that name to a pixel using a
+  table its own build shipped with. When the fold gained the colour cyan in v2.4.0, every Director older
+  than that lost the ability to render it - the unknown name falls to the magenta broken sentinel. A
+  session the Wingman judged finished therefore paints magenta on an older rail and cyan everywhere
+  else. The sentinel is meant to mean "the push seam is broken", so an old build silently borrows an
+  alarm that belongs to a different fault.
+</p>
+
+<p>
+  <strong>Underneath it, nothing owns what a session card holds.</strong> Colour, words and triage bucket
+  are folded once on the Gateway and rendered verbatim, and that has held up - the three screens cannot
+  disagree about what a state <em>means</em>. The field list has no such owner: three files decide it by
+  hand. The review found nine fields living on exactly one of the three screens, and no screen a superset
+  of another. The rail - the surface that is open all day - was the poorest of the three.
+</p>
+
+<h3>What is true when this is finished</h3>
+
+<ul>
+  <li>A Director too old to know a colour says so honestly, in a neutral that cannot be mistaken for a
+    state, and the magenta sentinel means only the one thing it was built to mean.</li>
+  <li>The desktop can answer "what does this colour mean?" without leaving the app, in the Gateway's own
+    words, like the other two surfaces.</li>
+  <li>No screen writes its own sentence about a session's state. Every user-visible word about what a
+    session is doing comes from the Gateway.</li>
+  <li>The three cards carry the same facts, each card is shorter than it is today, and a field added to
+    one surface fails a test on the other two until somebody decides.</li>
+</ul>
+
+<h2>The rulings</h2>
+
+<p>
+  Settled with the owner across two rounds of a dev report before any code was written. Rulings marked
+  <span class="tag inf">inferred</span> were NOT stated by him - they are the Architect's calls, recorded
+  as such so nobody later reads them as his.
+</p>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> An unknown colour paints a neutral. Never a guessed pixel.</h4>
+  <blockquote>"I don't like painting the hex. That's just stupid. If we don't know the color, we could
+    leave the color blank ... just make it very, very light gray so you can still see the dot, with the
+    square, but don't print text."</blockquote>
+  <p>
+    The Architect's first proposal was to push the Gateway's resolved hex down the seam so an old build
+    could paint the right pixel. The owner rejected it and he was right: a build painting a colour it has
+    never heard of has no legend entry for it, no words, and nothing to hover - it would look correct and
+    mean nothing. The neutral keeps the rule the rest of the product already follows, which is never to
+    guess.
+  </p>
+  <p class="cost">
+    Cost of getting it wrong: the neutral must be visibly a DIFFERENT grey from the palette grey
+    <code>#6B7280</code>, which already means snoozed or exited. A neutral close to it is an affirmative
+    lie that a session is parked - which is precisely why this was magenta in the first place.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> No surface gives its own reason for anything.</h4>
+  <blockquote>"Nobody should give any local reason for anything. It should always be the gateway ... if
+    you hover over the color, it should show you what that color means."</blockquote>
+  <p>
+    Wider than the item it was asked about. The rail currently hovers a sentence the Director writes
+    itself, before the Wingman has judged the stop - which is how a calm row can hover the words "needs
+    you". Under this ruling the hover reads the Gateway's stamped label plus the legend, and the local
+    sentence stops being rendered at all.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> The Wingman's narration line comes off the Cockpit.</h4>
+  <blockquote>"We don't want the rail line on there, that's too much on the card. I never use it - also
+    on the cockpit. I think we should remove that on the cockpit."</blockquote>
+  <p>
+    Reverses the review's own recommendation, which had been to add it to the other two surfaces. It is
+    the longest thing a card can carry. It is removed from the roster card only - the sentence is still
+    the Wingman's and still read in full where the verdict is.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> The supervision facts narrow to one cumulative number.</h4>
+  <p>
+    Four numbers - started, open, idle, turns - live on the Cockpit and phone cards. The owner did not
+    know what they were and did not want them on the rail. Asked to make the case, the Architect's honest
+    answer was that three of the four add little, because colour already answers "is this waiting now"
+    and the card already shows how long the current wait has been. The one fact covered nowhere else is
+    <em>cumulative</em> idle: a session that has quietly taken six hours of the owner's waiting across a
+    day looks identical to one that stopped a minute ago. He chose to keep that one and drop the rest.
+    None of the four goes on the rail.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> Drop the role badge.</h4>
+  <blockquote>"Drop the role glyph, because it doesn't really matter anymore. We don't really use the
+    roles for anything ... it's ownership and parent-child that matters."</blockquote>
+  <p class="cost">
+    Scope warning for whoever builds it: the fold still uses roles internally - whether a stopped session
+    may ask for the owner turns on having a live supervisor, and an Architect is deliberately excluded
+    from that rule. This ruling removes a BADGE from a card. It does not touch the fold.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> One ranked state slot, on the rail and the Cockpit.</h4>
+  <p>
+    Several state badges can render at once - "not delivered", "winding down", "snooze ended" on the
+    rail, and a row of up to nine chips on the Cockpit. One shows, the most serious, and the hover
+    carries the rest. Asked as two separate items and accepted as both; they are one piece of work
+    applied to two surfaces.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> Names wrap. Truncating is not acceptable.</h4>
+  <blockquote>"I think it's a good idea to let it wrap as well. Truncating is not a good idea."</blockquote>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> The cards carry the same identity facts.</h4>
+  <p>
+    The repository on the Cockpit card, which never says which one a session is in. The agent tool and the
+    model as one pill on all three, rather than each surface showing one half. The uncommitted-changes
+    badge on the phone. The machine chip dropped from a phone card that already sits under a machine
+    heading.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> The Fleet Manager is pinned on the rail.</h4>
+  <p>
+    Accepted with the qualifier that it only matters when a Fleet Manager is in use - which is already how
+    the field behaves. The Gateway decides which row is pinned and writes every word on it; the rail
+    renders that and rules nothing. This is the only field in the mission that must be added to the
+    display-state push.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> The prompt queue should be visible beyond the Director.</h4>
+  <p>
+    The owner identified this himself. The review had framed it as a missing badge; he pointed out the
+    queue lives on the Director and is not on the Gateway. Checked: the Cockpit already reaches one
+    session's queue correctly, through the Gateway to the owning Director, on its own panel - but the
+    session row the rosters are built from carries no queue count at all, so no card outside the rail can
+    know a session is holding anything. It is one number on the feed, not a synchronisation.
+  </p>
+</div>
+
+<div class="ruling">
+  <h4><span class="tag said">His words</span> There should be a test over the card field list.</h4>
+  <blockquote>"We could do a test. That makes sense to have a test in there."</blockquote>
+  <p>
+    Without it the mission fixes the drift once and nothing stops it recurring. With it, a field added to
+    one surface fails on the other two until somebody decides.
+  </p>
+</div>
+
+<div class="ruling inferred">
+  <h4><span class="tag inf">Inferred</span> The agreement test lands after the cards agree, not before.</h4>
+  <p>
+    He said yes to the test without choosing when. The Architect's call: locking the list before the cards
+    change would mean writing down a list that is known to be wrong and then amending it four times.
+  </p>
+</div>
+
+<div class="ruling inferred">
+  <h4><span class="tag inf">Inferred</span> Removals land before additions.</h4>
+  <p>
+    Every change that takes something OFF a card runs as one pass before anything goes on, so the
+    additions land on cards that already have room. Within that pass, letting names wrap comes last -
+    done first it would only make a crowded card taller. The owner ruled on the items, not the order.
+  </p>
+</div>
+
+<div class="ruling inferred">
+  <h4><span class="tag inf">Inferred</span> Two wordings the Architect is deciding, not asking.</h4>
+  <p>
+    <strong>The neutral value.</strong> Settled against <code>docs/VisualStyle.md</code> in both themes,
+    not by the Architect's guess. The binding constraint is the ruling above - obviously distinct from
+    <code>#6B7280</code>.
+  </p>
+  <p>
+    <strong>The word on the surviving number.</strong> Standing alone, "idle" reads as "idle right now",
+    which is what the colour already says; the fact being kept is that it is cumulative. It reads
+    "waited", with the existing hover unchanged. Flagged to the owner in the dev report and not objected
+    to, but recorded here as the Architect's call.
+  </p>
+</div>
+
+<h2>The work, in the order it lands</h2>
+
+<p>
+  Five phases. Each is a coherent slice and lands as its own pull request. Numbers in brackets are the
+  items from the dev report, kept so the owner's answers stay traceable.
+</p>
+
+<div class="phase">
+  <h3>Phase A - the rail tells the truth about colour</h3>
+  <p>Items 1, 3, 6. Touches the desktop only. Needs nothing from the push seam, so it blocks on nothing.</p>
+  <ul>
+    <li>An unrecognised colour name paints the neutral instead of the broken sentinel. The sentinel keeps
+      its real job: the Gateway stamped nothing at all while the tunnel is up and settled.</li>
+    <li>A colour legend on the desktop, reading the Gateway's existing legend route and rendering it
+      verbatim. No new wording anywhere.</li>
+    <li>The colour hover reads the legend title plus the Gateway's stamped label. The Director's own
+      locally written reason stops being rendered.</li>
+  </ul>
+  <p><strong>Proved by:</strong> a case fed a colour name no build knows, asserting the neutral, and
+    separately that a missing stamp still gives magenta - the two failures must stay distinguishable. For
+    the hover, a session the two writers disagree about (a calm row whose local reason still says it needs
+    the owner), asserting the Gateway's answer wins. A test that only checked the hover was non-empty
+    would pass on the bug.</p>
+  <p><strong>Also:</strong> sweep the rail for any other place it writes its own sentence about a session,
+    and report what is found rather than changing it silently.</p>
+</div>
+
+<div class="phase">
+  <h3>Phase B - everything that comes off the cards</h3>
+  <p>Items 9, 7, 13, 2, 5, 15, then 8. One removal pass across all three surfaces.</p>
+  <ul>
+    <li>The role badge off the rail.</li>
+    <li>One ranked state slot on the rail and on the Cockpit, the rest in the hover. "Not delivered"
+      reports a loss and already leads on every card, so it outranks the others - the ranking is read from
+      existing behaviour, not invented.</li>
+    <li>The supervision numbers narrow to cumulative idle alone, on the Cockpit and phone. Both read one
+      shared formatter, so this is one edit. The runtime thresholds go with the dropped numbers.</li>
+    <li>The narration line off the Cockpit card.</li>
+    <li>The machine chip off a phone card inside a machine group; it stays in the view where sections mix
+      machines, which is the rule the Cockpit already follows.</li>
+    <li><strong>Last:</strong> names wrap instead of truncating, spending the width the rest of the phase
+      frees.</li>
+  </ul>
+  <p><strong>Proved by:</strong> a rendering test per surface with every state condition true at once,
+    asserting one badge and that the hover names the others - neither card has such a case today, which is
+    why nobody noticed they could stack. For the wrap, the rail's existing render tests lay a row out at
+    the rail's real opening width; the longest name we can produce must not clip.</p>
+</div>
+
+<div class="phase">
+  <h3>Phase C - every card says what the session is</h3>
+  <p>Items 10, 11, 14, 4. The additions, landing on cards Phase B has made room on.</p>
+  <ul>
+    <li>The agent tool and the model as one pill on the Cockpit and phone. Both halves come from Gateway
+      folds that already choose their own words, including which of the two absences applies, so no client
+      invents a placeholder.</li>
+    <li>The repository on the Cockpit card.</li>
+    <li>The uncommitted-changes badge on the phone.</li>
+    <li>The pin carried on the display-state push, and the rail reading it.</li>
+  </ul>
+  <p><strong>Proved by:</strong> the pin is the one item here that crosses the wire. It must be proved that
+    a Director which does NOT receive the field behaves exactly as it does today - the whole mission exists
+    because a new value reached an old build and became an alarm.</p>
+</div>
+
+<div class="phase">
+  <h3>Phase D - the agreement test</h3>
+  <p>Item 11 of the owner's answers. Lands after C, when the three field lists agree.</p>
+  <ul>
+    <li>Name the fields a session card carries, and fail when a surface drops one without a stated reason -
+      in the shape of the checks already stopping the three colour tables from drifting.</li>
+  </ul>
+  <p><strong>Proved by:</strong> removing a field from one surface and watching the test go red with that
+    field named. A test that has never been watched failing is decoration.</p>
+</div>
+
+<div class="phase">
+  <h3>Phase E - the prompt queue</h3>
+  <p>Item 12. The only phase that changes the roster feed rather than a card.</p>
+  <ul>
+    <li>A queue count on the session row, stamped like every other card field, then the pill on the
+      Cockpit and phone cards.</li>
+  </ul>
+  <p><strong>Proved by:</strong> the same old-build question as the pin - a client that does not receive the
+    count shows what it shows today. And, because this lands after Phase D, the agreement test has to be
+    updated to name the new field, which is the mechanism demonstrating itself.</p>
+</div>
+
+<h2>Out of scope</h2>
+
+<ul>
+  <li><strong>The colour fold itself.</strong> No arm, colour name or label changes. The mission changes how
+    an unrecognised name is RENDERED and nothing about how colours are DECIDED.</li>
+  <li><strong>Roles in the fold.</strong> A badge is removed from a card. Supervision, the live-supervisor
+    rule and the Architect exception are untouched.</li>
+  <li><strong>Pushing the colour hex down the seam.</strong> Explicitly rejected by the owner. Do not
+    reintroduce it as a convenience.</li>
+  <li><strong>The narration line anywhere but the Cockpit card.</strong> It is removed there and added
+    nowhere.</li>
+  <li><strong>Started, open and turns.</strong> Dropped, not relocated.</li>
+  <li><strong>Other surfaces.</strong> The Fleet Map cards, the missions board, the session detail screen
+    and the Voice screen are not in this mission. Only the three roster and rail cards.</li>
+  <li><strong>Upgrading any machine.</strong> An older Director shows magenta today; upgrading it is the
+    owner's to do and is not mission work.</li>
+  <li><strong>Colour-blind readability of the ten-colour palette.</strong> Raised in the review as worth its
+    own look. Not this mission.</li>
+</ul>
+
+<h2>What the review did not cover</h2>
+
+<p>
+  Recorded so the next reader does not mistake the review's reach for the product's. The comparison behind
+  this mission read the three cards, the fold, the palette, the legend and the push seam at
+  <code>origin/main</code>. It did not observe a running older Director - the version finding is read off
+  the shipped code at that tag, not off a screen. No performance question was examined.
+</p>
+
+</body>
+</html>

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -37,6 +37,10 @@
     <InternalsVisibleTo Include="CcDirector.Gateway.Tests" />
     <!-- The unlocked half of the same suite (pure tests split out of the machine-wide test lock). -->
     <InternalsVisibleTo Include="CcDirector.Gateway.UnitTests" />
+    <!-- The desktop's Gateway reads are proved in the Avalonia suite, which the default local gate RUNS.
+         Gateway.UnitTests is parked (issue #2824), so a proof that lives only there is a proof nobody
+         sees at commit time. -->
+    <InternalsVisibleTo Include="CcDirector.Avalonia.Tests" />
     <!-- The desktop rail renders the SAME presentation fold (SessionOrdering) the Gateway serves to the
          Cockpit and the phone, so all three screens cannot disagree about a session's colour and label.
          The fold takes a SessionDto, and ControlEndpoints.Map is the ONE mapper that builds one from a live

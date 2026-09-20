@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -28,7 +28,7 @@ namespace CcDirector.ControlApi;
 /// When the config is disabled (no gateway.url) the client is inert - every method
 /// is a no-op so the Director boots normally in local-only mode.
 /// </summary>
-public sealed class GatewayClient : IGatewayHold, IDisposable
+public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IDisposable
 {
     /// <summary>How often the heartbeat fires.</summary>
     public static TimeSpan HeartbeatInterval { get; } = TimeSpan.FromSeconds(15);
@@ -820,6 +820,40 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
             $"[GatewayClient] GetSnoozeOptionsAsync: presets=[{string.Join(", ", options.Presets)}], "
             + $"default={options.DefaultMinutes}");
         return options;
+    }
+
+    /// <summary>
+    /// Read what every session colour MEANS from the Gateway (<c>GET /gateway/session-colours</c>) - the
+    /// same words the Cockpit and the phone render verbatim, written beside the fold that decides the
+    /// colours.
+    ///
+    /// THE DESKTOP MUST ASK RATHER THAN COMPILE. The words are in this same C# solution
+    /// (<see cref="SessionColourLegend"/>), so a compile-time read would be one line and it would be
+    /// wrong: a Director's build is frequently OLDER than its Gateway's, and a legend compiled into an old
+    /// build explains the colours that build knows rather than the ones its Gateway is sending. That gap
+    /// is the whole reason this mission exists. Asking over the wire means the legend and the dots always
+    /// come from the same place.
+    ///
+    /// Returns null when the Gateway is not configured. Throws when it is configured and the call fails,
+    /// so the caller can say what went wrong - the desktop's cache turns that into "keep the last-known
+    /// words", never into invented ones.
+    /// </summary>
+    public async Task<SessionColourLegendDto?> GetSessionColourLegendAsync(CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled) return null;
+
+        FileLog.Write($"[GatewayClient] GetSessionColourLegendAsync: GET {SessionColourLegend.Route}");
+        using var resp = await _http.GetAsync(SessionColourLegend.Route.TrimStart('/'), ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, "what the session colours mean", ct);
+
+        var legend = await resp.Content.ReadFromJsonAsync<SessionColourLegendDto>(ct);
+        if (legend is null || legend.Entries.Count == 0)
+            throw new InvalidOperationException(
+                "The Gateway returned no colour legend, so this desktop cannot say what a colour means.");
+
+        FileLog.Write($"[GatewayClient] GetSessionColourLegendAsync: {legend.Entries.Count} colour(s)");
+        return legend;
     }
 
     // ===== Fleet session numbers (issue #1292) =====
