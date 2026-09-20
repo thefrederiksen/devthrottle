@@ -148,7 +148,9 @@ public sealed class RestartHistoryEntryViewModel
     /// <summary>Whether there are seats to draw.</summary>
     public bool HasSeats => Seats.Count > 0;
 
-    /// <summary>Whether this record still owes seats and so carries the offer.</summary>
+    /// <summary>Whether this record still holds a seat that can be acted on and so carries the offer -
+    /// a seat waiting to come back, or one that ended without a handover whose conversation can be
+    /// reopened. The engine decides it; nothing here adds a rule of its own.</summary>
     public bool HasOffer => Entry.Offer is not null;
 
     /// <summary>What the button says. A constant.</summary>
@@ -162,8 +164,8 @@ public sealed class RestartHistoryEntryViewModel
     {
         var record = Entry.Offer
             ?? throw new InvalidOperationException(
-                $"The record '{Entry.WorkspaceId}' owes no seats, so it carries no offer. HasOffer says so " +
-                "before this is called.");
+                $"The record '{Entry.WorkspaceId}' holds no seat that can be acted on, so it carries no " +
+                "offer. HasOffer says so before this is called.");
         return new WayUpOfferViewModel(record, _engine);
     }
 }

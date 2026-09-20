@@ -66,6 +66,36 @@ public static class WayUpWords
             ? "One session is waiting to be brought back."
             : $"{owed} sessions are waiting to be brought back.";
 
+    /// <summary>
+    /// WHAT AN OFFERED RECORD HOLDS, IN ONE LINE - both counts, because a record can be offered for either
+    /// of them.
+    ///
+    /// A record whose every session ended at the limit is offered for those seats alone (ruling 10.5), and
+    /// under a line that said only how many are waiting to come back it would read "0 sessions are waiting
+    /// to be brought back" over a window full of rows. That is a true number and a false sentence, so the
+    /// line names both things and the window shows it as it is.
+    ///
+    /// IT PROMISES NOTHING ABOUT WHAT CAN BE REOPENED, because the count includes a seat whose conversation
+    /// was never recorded - such a seat is listed, and its own offer says it has nothing to reopen. The
+    /// line says what the rows ARE; each row says what can be done with it.
+    /// </summary>
+    /// <param name="owed">How many seats handed over and are waiting to be brought back.</param>
+    /// <param name="endedWithoutHandover">How many seats ended without a handover and are listed unticked.</param>
+    public static string SeatsLabel(int owed, int endedWithoutHandover)
+    {
+        if (endedWithoutHandover <= 0) return SeatsOwedLabel(owed);
+
+        var ended = endedWithoutHandover == 1
+            ? "One session ended without a handover. It is listed below, unticked, and nothing comes back " +
+              "unless you ask for it."
+            : $"{endedWithoutHandover} sessions ended without a handover. They are listed below, unticked, " +
+              "and nothing comes back unless you ask for it.";
+
+        return owed == 0
+            ? "No session is waiting to be brought back. " + ended
+            : SeatsOwedLabel(owed) + " " + ended;
+    }
+
     /// <summary>The name of a bring back row: the mission head, and its mission when it has one.</summary>
     /// <param name="seat">The mission head.</param>
     public static string RowTitle(WorkspaceSeat seat)

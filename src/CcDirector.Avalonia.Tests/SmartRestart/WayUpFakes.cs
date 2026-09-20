@@ -28,17 +28,23 @@ internal static class WayUp
         new(WayUpRowKind.EndedWithoutHandover, rowId, title, detail, false,
             Array.Empty<WayUpRowSeat>(), new WayUpReopenOffer(canReopen, offer, what));
 
+    /// <summary>
+    /// A record as the engine would hand one over. How many seats ended without a handover is COUNTED OFF
+    /// THE ROWS rather than taken as an argument, so every caller that already names its rows keeps saying
+    /// what it said - and a test that wants the two to disagree says so through the rows it passes.
+    /// </summary>
     internal static WayUpRecord Record(
         string workspaceId,
         string headline,
         string whenLabel,
         string reasonLabel,
         int seatsOwed,
-        string seatsOwedLabel,
+        string seatsLabel,
         params WayUpRow[] rows) =>
         new(workspaceId, new DateTime(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc),
             new DateTime(2026, 9, 19, 17, 50, 0, DateTimeKind.Local),
-            headline, whenLabel, null, reasonLabel, seatsOwed, seatsOwedLabel, rows);
+            headline, whenLabel, null, reasonLabel, seatsOwed,
+            rows.Count(r => r.Kind == WayUpRowKind.EndedWithoutHandover), seatsLabel, rows);
 
     /// <summary>A seat in the history that carries NO reopen offer: it handed over, or it came back.</summary>
     internal static WayUpHistorySeat HistorySeat(string sessionId, string name, string outcome) =>

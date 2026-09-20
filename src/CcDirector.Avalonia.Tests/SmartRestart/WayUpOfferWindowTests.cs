@@ -82,6 +82,31 @@ public class WayUpOfferWindowTests
             offer: null,
             what: "No conversation was recorded for this session, so there is nothing to reopen. Start it again yourself when you are ready."));
 
+    /// <summary>
+    /// THE RECORD THE OPERATING SYSTEM SHUTDOWN WRITES, as the engine now words it (ruling 10.5 and the
+    /// mission's <c>ruling-way-up-presence-check.md</c>): nothing handed over, so no bring back row at all -
+    /// only seats that ended without a handover, each with its own button.
+    /// </summary>
+    private static WayUpRecord AllEndedWithoutAHandover() => WayUp.Record(
+        "ws-3",
+        "A restart is available",
+        "Shut down on 19 September 2026 at 17:50.",
+        "Reason: the machine was shutting down.",
+        0,
+        "No session is waiting to be brought back. 2 sessions ended without a handover. They are listed below, unticked, and nothing comes back unless you ask for it.",
+        WayUp.EndedRow(
+            "s-voice", "Voice - Developer - the wake word - ended without a handover",
+            "It was still running when time ran out and was shut down for it. It is not brought back with the rest, because there is no handover for it to read.",
+            canReopen: true,
+            offer: "Reopen its saved conversation",
+            what: "Claude Code is started again on this session's saved conversation, in the same repository, and told that it was stopped and must check the state of its work before acting."),
+        WayUp.EndedRow(
+            "s-fleet", "Fleet - Tech Lead - the restart - ended without a handover",
+            "It never answered, so nothing was written for it. It is not brought back with the rest, because there is no handover for it to read.",
+            canReopen: true,
+            offer: "Reopen its saved conversation",
+            what: "Claude Code is started again on this session's saved conversation, in the same repository, and told that it was stopped and must check the state of its work before acting."));
+
     internal static WayUpOfferWindow Open(WayUpRecord record, FakeWayUp engine)
     {
         var window = new WayUpOfferWindow(new WayUpOfferViewModel(record, engine))
@@ -135,7 +160,7 @@ public class WayUpOfferWindowTests
         Assert.NotNull(window.TxtHeadline);
         Assert.NotNull(window.TxtWhen);
         Assert.NotNull(window.TxtReason);
-        Assert.NotNull(window.TxtSeatsOwed);
+        Assert.NotNull(window.TxtSeats);
         Assert.NotNull(window.RowList);
         Assert.NotNull(window.ResultPanel);
         Assert.NotNull(window.TxtResult);
@@ -178,7 +203,7 @@ public class WayUpOfferWindowTests
         var drawn = DrawnTexts(window);
 
         // The count is the engine's sentence, though three rows and three seats are on screen.
-        Assert.Equal("One session is waiting to be brought back.", window.TxtSeatsOwed.Text);
+        Assert.Equal("One session is waiting to be brought back.", window.TxtSeats.Text);
         Assert.Equal("Nothing at all is available", window.TxtHeadline.Text);
         Assert.Equal("Nothing at all is available", window.Title);
         Assert.Equal("Shut down at no time whatever.", window.TxtWhen.Text);
@@ -205,7 +230,54 @@ public class WayUpOfferWindowTests
         Assert.Equal("A restart is available", window.TxtHeadline.Text);
         Assert.Equal("Shut down on 19 September 2026 at 17:50.", window.TxtWhen.Text);
         Assert.Equal("Reason: updating the Director.", window.TxtReason.Text);
-        Assert.Equal("6 sessions are waiting to be brought back.", window.TxtSeatsOwed.Text);
+        Assert.Equal("6 sessions are waiting to be brought back.", window.TxtSeats.Text);
+    }
+
+    /// <summary>
+    /// A RECORD WITH NOTHING TO BRING BACK STILL READS AS AN OFFER. The machine shut the Director down, so
+    /// every session ended without a handover; the window shows the engine's line naming both counts, one
+    /// row per seat, EVERY ONE UNTICKED, and a reopen button beside each. This is ruling 10.3 on the record
+    /// ruling 10.5 describes.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_EverySeatEndedWithoutAHandover_RowsAreUntickedAndEachCarriesItsButton()
+    {
+        var window = Open(AllEndedWithoutAHandover(), new FakeWayUp());
+
+        Assert.Equal(
+            "No session is waiting to be brought back. 2 sessions ended without a handover. They are " +
+            "listed below, unticked, and nothing comes back unless you ask for it.",
+            window.TxtSeats.Text);
+
+        var tickBoxes = TickBoxes(window);
+        Assert.Equal(2, tickBoxes.Count);
+        Assert.All(tickBoxes, box => Assert.False(box.IsChecked));
+        Assert.Equal(
+            new[]
+            {
+                "Voice - Developer - the wake word - ended without a handover",
+                "Fleet - Tech Lead - the restart - ended without a handover",
+            },
+            tickBoxes.Select(b => (string?)b.Content));
+
+        var buttons = RowButtons(window);
+        Assert.Equal(2, buttons.Count);
+        Assert.All(buttons, b => Assert.Equal("Reopen its saved conversation", b.Content));
+    }
+
+    /// <summary>
+    /// NOTHING COMES BACK BY ITSELF FROM SUCH A RECORD. The window is shown, and until somebody presses
+    /// something the engine is asked for nothing at all - no bring back, no reopen.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_EverySeatEndedWithoutAHandover_NothingIsAskedOfTheEngine()
+    {
+        var engine = new FakeWayUp();
+
+        Open(AllEndedWithoutAHandover(), engine);
+
+        Assert.Empty(engine.BringBackRequests);
+        Assert.Empty(engine.ReopenRequests);
     }
 
     [AvaloniaFact]

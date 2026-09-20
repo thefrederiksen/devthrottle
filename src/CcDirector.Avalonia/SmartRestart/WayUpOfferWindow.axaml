@@ -66,8 +66,8 @@
         </StackPanel>
 
         <TextBlock Grid.Row="2"
-                   x:Name="TxtSeatsOwed"
-                   Text="{Binding SeatsOwedLabel}"
+                   x:Name="TxtSeats"
+                   Text="{Binding SeatsLabel}"
                    Foreground="#CCCCCC"
                    FontSize="13" FontWeight="SemiBold"
                    TextWrapping="Wrap"

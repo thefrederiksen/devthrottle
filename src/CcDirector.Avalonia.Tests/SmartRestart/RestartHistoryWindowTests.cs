@@ -267,23 +267,23 @@ public class RestartHistoryWindowTests
         Assert.IsType<WayUpOfferViewModel>(offer);
         Assert.Equal("ws-1", offer.Record.WorkspaceId);
         Assert.Equal("A restart is available", offer.Headline);
-        Assert.Equal("2 sessions are waiting to be brought back.", offer.SeatsOwedLabel);
+        Assert.Equal("2 sessions are waiting to be brought back.", offer.SeatsLabel);
         var row = Assert.Single(offer.Rows);
         Assert.Equal("s-billing-lead", row.RowId);
         Assert.True(row.Ticked);
         Assert.Equal(2, row.Seats.Count);
     }
 
-    /// <summary>A record that owes nothing has no offer to build, and says so rather than handing back
-    /// an empty one that would look like an offer with nothing in it.</summary>
+    /// <summary>A record with nothing left to act on has no offer to build, and says so rather than handing
+    /// back an empty one that would look like an offer with nothing in it.</summary>
     [AvaloniaFact]
-    public async Task ARecordThatOwesNothing_RefusesToBuildAnOffer()
+    public async Task ARecordWithNothingToActOn_RefusesToBuildAnOffer()
     {
         var window = await OpenAndLoad(new FakeWayUp { History = ThreeRecords() });
 
         var ex = Assert.Throws<InvalidOperationException>(() => window.ViewModel.Entries[1].BuildOffer());
 
-        Assert.Contains("owes no seats", ex.Message);
+        Assert.Contains("holds no seat that can be acted on", ex.Message);
     }
 
     // ===== Closing =====
