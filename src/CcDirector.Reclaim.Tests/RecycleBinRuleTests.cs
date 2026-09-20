@@ -172,10 +172,6 @@ public class RecycleBinRuleTests
 
     /// <summary>
     /// A volume with no bin folder is a volume that has never held a deleted item or has recycling
-    /// switched off: a real answer, offered nothing, not called broken.
-    /// </summary>
-    /// <summary>
-    /// A volume with no bin folder is a volume that has never held a deleted item or has recycling
     /// switched off: a real answer, offered nothing, not called broken. The absence is established
     /// by the listing refusing with not-found, never by an existence question - see the test below.
     /// </summary>

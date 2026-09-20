@@ -118,11 +118,30 @@ public sealed class RecycleBinRule : IReclaimRule
         ArgumentNullException.ThrowIfNull(context);
         FileLog.Write($"[RecycleBinRule] Examine: folder={_recycleBinFolderPath}");
 
-        // A volume with no recycle bin folder is a volume that has never held a deleted item or has
-        // recycling switched off. That is a real answer, not a failure, and it looks like the cache
-        // rule's missing folder: counted, offered nothing, not called broken.
-        if (!Directory.Exists(_recycleBinFolderPath))
+        // The bin folder is probed by ATTEMPTING ITS LISTING, never by an existence question.
+        //
+        // Directory.Exists answers false for a folder that is not there AND for one that cannot be
+        // told - access denied, an input-output error, a path it cannot evaluate - and it swallows
+        // the reason, so the two arrive indistinguishable. That matters here more than almost
+        // anywhere: the absent answer below carries no control capable of alarming, because there is
+        // genuinely nothing to count, so if "could not tell" reached it the fold could not catch it
+        // and the rule would report "nothing to remove" about a bin it never managed to look at.
+        //
+        // Attempting the listing separates them. Not-found is the honest absent answer; every other
+        // failure names itself and reports the rule broken.
+        List<DirectoryInfo> accountBins;
+        try
         {
+            accountBins = new DirectoryInfo(_recycleBinFolderPath)
+                .EnumerateDirectories("*", SearchOption.TopDirectoryOnly)
+                .ToList();
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // A volume with no recycle bin folder is a volume that has never held a deleted item or
+            // has recycling switched off. That is a real answer, not a failure: counted, offered
+            // nothing, not called broken. This catch must stay ABOVE the IOException one, because
+            // DirectoryNotFoundException derives from it and would otherwise be reported as broken.
             FileLog.Write($"[RecycleBinRule] Examine done: the bin folder is not there");
             return new RuleAnswer(
                 [
@@ -131,14 +150,6 @@ public sealed class RecycleBinRule : IReclaimRule
                     new RuleControl("records-read", 0, MustNotBeEmpty: false)
                 ],
                 []);
-        }
-
-        List<DirectoryInfo> accountBins;
-        try
-        {
-            accountBins = new DirectoryInfo(_recycleBinFolderPath)
-                .EnumerateDirectories("*", SearchOption.TopDirectoryOnly)
-                .ToList();
         }
         catch (UnauthorizedAccessException)
         {
