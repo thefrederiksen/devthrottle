@@ -75,6 +75,13 @@ public sealed class DiscoveredRepositoryObserver
     /// warming up. So reconciliation runs only when at least one entry was verified AND no entry anywhere
     /// in the push was provisional. The accepted cost is that a genuinely emptied root folder is not
     /// cleared until the next complete observation; keeping a stale row beats erasing a true one.
+    ///
+    /// <para><b>AND THE PUSH NOW ALSO CARRIES WHAT EXISTS UNDER THE ROOT FOLDERS</b> (the
+    /// one-repository-list mission, "the catalogue forgets"), which is what lets the catalog forget a
+    /// repository whose folder has gone rather than growing for ever. It rides on one row of the same
+    /// push - one feed, not a second one - and everything that makes acting on it safe is on
+    /// <see cref="KnownRepositoryStore.ObserveDiscovered"/> and
+    /// <see cref="RootFolderListingDto"/>.</para>
     /// </summary>
     public void ObserveSnapshot(TenantId tenant, string directorId, IReadOnlyList<RepoStatusDto> repositories,
         DateTime? seenUtc = null)
@@ -98,8 +105,22 @@ public sealed class DiscoveredRepositoryObserver
 
         var found = new List<DiscoveredRepository>(repositories.Count);
         var sawProvisional = false;
+        List<RootFolderListingDto>? listings = null;
         foreach (var repository in repositories)
         {
+            // WHAT EXISTS UNDER THIS DIRECTOR'S ROOT FOLDERS, taken from the FIRST row that carries it -
+            // it is a push-level fact and the Director stamps it on one row, because the hub method's
+            // signature cannot gain a parameter without breaking every Director in the field. Taking the
+            // first non-null found ANYWHERE in the set rather than reading row zero means no re-ordering
+            // or filtering of the push can lose it. A Director that predates this carries none, and a
+            // push with none forgets nothing.
+            //
+            // It is read BEFORE the provisional filter on purpose: a directory listing is not a status,
+            // so it is not made unverified by sitting beside warm-start rows. It still cannot cause a
+            // removal in that push, because reconciliation is refused outright when anything was
+            // provisional.
+            listings ??= repository.RootFolders;
+
             if (repository.Provisional)
             {
                 sawProvisional = true;
@@ -109,6 +130,13 @@ public sealed class DiscoveredRepositoryObserver
                 continue; // the path IS the identity - a pathless row cannot be keyed
             found.Add(new DiscoveredRepository(repository.Path, repository.Name ?? ""));
         }
+
+        var rootFolders = (listings ?? new List<RootFolderListingDto>())
+            .Where(listing => !string.IsNullOrWhiteSpace(listing.Path))
+            .Select(listing => new WatchedRootFolder(
+                listing.Path,
+                (IReadOnlyList<string>)(listing.ChildPaths ?? new List<string>())))
+            .ToList();
 
         var reconcile = found.Count > 0 && !sawProvisional;
         var seen = seenUtc ?? DateTime.UtcNow;
@@ -127,25 +155,37 @@ public sealed class DiscoveredRepositoryObserver
         // this fold writes - the machine, every path, and every name - so a push that would change a row
         // can never match it.
         var key = $"{tenant.Value}|{directorId}";
-        var signature = Signature(machine, found);
+        var signature = Signature(machine, found, rootFolders);
         if (_folded.TryGetValue(key, out var last)
             && string.Equals(last.Signature, signature, StringComparison.Ordinal)
             && seen - last.AtUtc < KnownRepositoryStore.LastSeenFreshnessInterval)
             return;
 
-        _catalog.ObserveDiscovered(tenant, machine, directorId, found, seen, reconcile);
+        _catalog.ObserveDiscovered(tenant, machine, directorId, found, rootFolders, seen, reconcile);
         _folded[key] = new FoldedSnapshot(signature, seen);
     }
 
     /// <summary>
-    /// Everything one fold writes, in one string: the machine it writes under, and each repository's
-    /// normalized path key with the name that rides beside it. Ordered by the key, because a scan
-    /// publishes in whatever order it finished and the same set in a different order is the same set.
+    /// Everything one fold writes, in one string: the machine it writes under, each repository's
+    /// normalized path key with the name that rides beside it, and each covered root folder with
+    /// everything the Director saw beside it. Ordered by the key, because a scan publishes in whatever
+    /// order it finished and the same set in a different order is the same set.
+    ///
+    /// The root folders are in here because they now decide REMOVALS: a folder deleted under a watched
+    /// root changes nothing about the pushed repositories - the scan never reported it - so a signature
+    /// that covered only the repositories would skip the very push that was supposed to forget it.
     /// </summary>
-    private static string Signature(string machine, IReadOnlyList<DiscoveredRepository> found)
+    private static string Signature(string machine, IReadOnlyList<DiscoveredRepository> found,
+        IReadOnlyList<WatchedRootFolder> rootFolders)
         => string.Join('\n', found
             .Select(repository => (Key: KnownRepositoryStore.NormalizePathKey(repository.Path), repository.Name))
             .OrderBy(entry => entry.Key, StringComparer.Ordinal)
             .Select(entry => $"{entry.Key}\t{entry.Name}")
+            .Concat(rootFolders
+                .Select(root => string.Join('\t', (root.ChildPaths ?? Array.Empty<string>())
+                    .Select(KnownRepositoryStore.NormalizePathKey)
+                    .OrderBy(child => child, StringComparer.Ordinal)
+                    .Prepend(KnownRepositoryStore.NormalizePathKey(root.Path))))
+                .OrderBy(line => line, StringComparer.Ordinal))
             .Prepend(machine));
 }

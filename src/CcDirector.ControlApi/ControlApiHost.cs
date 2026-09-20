@@ -144,6 +144,24 @@ public sealed class ControlApiHost : IAsyncDisposable
         => _gatewayClient?.GetLatestTurnBriefAsync(sessionId, ct) ?? Task.FromResult<Gateway.Contracts.TurnBriefDto?>(null);
 
     /// <summary>
+    /// THE ONE REPOSITORY LIST for this Director's machine, read from the Gateway (the
+    /// one-repository-list mission, phase 6). The desktop New Session dialog's source.
+    ///
+    /// It never returns null, because "there is no Gateway" is one of the answers the caller has to be able
+    /// to tell apart from the others: the dialog may show its own local scan instead for a Gateway that
+    /// could not answer, and may NOT show it for a Gateway that answered. The four outcomes are on
+    /// <see cref="KnownRepositoryListOutcome"/>.
+    ///
+    /// The list arrives already ordered and is passed on untouched - the order is the Gateway's ruling
+    /// (Critical Rule 7), and this Director is one of three screens rendering it.
+    /// </summary>
+    /// <param name="ct">Cancellation.</param>
+    public Task<KnownRepositoryListResult> GetKnownRepositoriesAsync(CancellationToken ct = default)
+        => _gatewayClient?.GetKnownRepositoriesAsync(ct)
+           ?? Task.FromResult(KnownRepositoryListResult.NotConfigured(
+               "no Gateway is configured on this Director"));
+
+    /// <summary>
     /// Issue #1627: the FLEET-WIDE session roster - every session on every machine - as the desktop fleet
     /// map's source. Backed by the live <see cref="GatewayClient"/>, which already holds the resolved
     /// Gateway address and fleet token, so it reuses the Director's existing outbound Gateway connection.
@@ -239,7 +257,19 @@ public sealed class ControlApiHost : IAsyncDisposable
             ct => ListWorkspacesAsync(ct)
                 ?? throw new InvalidOperationException("this Director is not connected to a Gateway."),
             JudgeRestartEligibility,
-            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
+            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName,
+            // "Cancel and keep working" brings closed sessions back through the Gateway's restore door,
+            // onto THIS Director. Like the two questions above, it reads the host's client when it is
+            // used, never when the engine was made.
+            bringBack: new SmartRestart.GatewaySmartShutdownBringBack(
+                () => _gatewayClient is { } client ? new SmartRestart.GatewayClientBringBackGateway(client) : null,
+                DirectorId).BringBackAsync,
+            // "Shut down and ignore all sessions" ends sessions with or without a Gateway.
+            sessions: new Drain.SessionManagerDrainControl(_sessionManager),
+            // The restart purpose asks the launcher through the same seam the restart cycle uses.
+            launcherGateway: () => _gatewayClient is { } client ? new Restart.GatewayClientRestartCycleGateway(client) : null,
+            machine: Environment.MachineName,
+            exePath: Environment.ProcessPath);
     }
 
     /// <summary>
@@ -315,6 +345,9 @@ public sealed class ControlApiHost : IAsyncDisposable
     private Core.Storage.ConversationIngestor? _conversationIngestor;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private readonly string? _instancesDirectory;
+    /// <summary>This Director's registered root folders, read fresh on every push. Null in a host that
+    /// was given none, which is every headless and test host.</summary>
+    private readonly Func<IReadOnlyList<string>>? _rootFolders;
     private bool _stopped;
     private bool _stateServicesStarted;
 
@@ -322,9 +355,12 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// Construct a Director host. There is nothing to configure about a listener because there is
     /// no listener; see the class comment.
     /// </summary>
-    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, string? instancesDirectory = null, Core.Git.RepositoryMonitor? repositoryMonitor = null)
+    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, string? instancesDirectory = null, Core.Git.RepositoryMonitor? repositoryMonitor = null, Func<IReadOnlyList<string>>? rootFolders = null)
     {
         _repositoryMonitor = repositoryMonitor;
+        // Read per push, never captured once: a root folder the user adds or removes in Settings has to
+        // reach the Gateway on the next push rather than on the next Director restart.
+        _rootFolders = rootFolders;
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _version = version ?? "0.0.0";
         _requestShutdownAsync = requestShutdownAsync ?? throw new ArgumentNullException(nameof(requestShutdownAsync));
@@ -1369,8 +1405,29 @@ public sealed class ControlApiHost : IAsyncDisposable
             // No monitor at all means there is no scan to wait for: the registered list IS everything
             // this Director knows, and it is a complete statement of that from the first push.
             _repositoryMonitor?.HasCompletedAScan ?? true,
+            RootFolderListing(),
             DirectorId,
             Environment.MachineName);
+
+    /// <summary>
+    /// What currently exists under this Director's registered root folders, for the push to carry (the
+    /// one-repository-list mission, "the catalogue forgets"). It is what lets the Gateway catalogue
+    /// forget a repository whose folder has gone, and <see cref="DirectorRootFolders"/> says why the
+    /// root-folder scan cannot answer that question by itself.
+    ///
+    /// NOTHING IS REPORTED UNTIL THIS DIRECTOR HAS COMPLETED A SCAN, and the default when there is no
+    /// monitor at all is FALSE - the opposite of the registry's default above, deliberately. The
+    /// registry's default says "the registered list is everything I know, and I know it now"; this one
+    /// authorises DELETION on the Gateway, and a Director that has not settled, or that has no
+    /// root-folder scan at all, has no business authorising any. A push that carries no listing forgets
+    /// nothing, which is the safe answer in both cases.
+    /// </summary>
+    private List<RootFolderListingDto>? RootFolderListing()
+    {
+        if (_rootFolders is null || _repositoryMonitor?.HasCompletedAScan != true)
+            return null;
+        return DirectorRootFolders.Build(_rootFolders(), DirectorRootFolders.ListChildFolders);
+    }
 
     /// <summary>
     /// Push the repository snapshot on model changes, debounced: a scan streaming thirty upserts

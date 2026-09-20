@@ -1061,8 +1061,12 @@
         <!-- ==================== MAIN CONTENT + RIGHT PANEL ==================== -->
         <Grid Grid.Row="1" Grid.Column="2" ColumnDefinitions="*,Auto">
 
+            <!-- Smart shutdown: what SmartShutdownCoordinator puts in place of the session view. -->
+            <ContentControl x:Name="SmartShutdownHost" Grid.Column="0" IsVisible="False"
+                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+
             <!-- Left: Terminal + Prompt -->
-            <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto">
+            <Grid x:Name="SessionViewGrid" Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto">
 
                 <!-- Left tab bar -->
                 <Border Grid.Row="0"
