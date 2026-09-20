@@ -1566,13 +1566,20 @@ public sealed class DirectorDrain
 
     /// <summary>
     /// STAGE ONE, at two thirds of the time allowed. Every session still present that has not handed over
-    /// is asked again with the short message; one that is in the middle of a turn is interrupted first,
-    /// because a session that is working does not read a message until its turn ends, and its turn may
-    /// outlast the limit.
+    /// is asked again with the short message; one that is in the middle of a turn has its turn STOPPED
+    /// first, because a session that is working does not read a message until its turn ends, and its turn
+    /// may outlast the limit.
     ///
-    /// AN INTERRUPT THAT DOES NOT LAND IS A FACT FOR THE ROW, NOT A REASON TO STOP. An agent with no safe
-    /// interrupt (Pi) refuses by design. It is still sent the short message, its row is not called
-    /// interrupted because it was not, and the limit ends it like any other session still present.
+    /// THE VERB COMES FROM THE SESSION'S OWN DRIVER (<see cref="IDrainSessionControl.StopTurnAsync"/>):
+    /// the hard interrupt where the driver declares it, the soft cancel where it does not. This step used
+    /// to send the interrupt to everything, and a pi session - which declares no safe hard interrupt -
+    /// refused it every time, was therefore never told to hand over, worked to the limit and was ended
+    /// with no document. Nothing said so (issue #3207).
+    ///
+    /// A STOP THAT DOES NOT LAND IS A FACT FOR THE ROW, NOT A REASON TO STOP THE RUN. The session is still
+    /// sent the short message, its row is not called interrupted because it was not, and the limit ends it
+    /// like any other session still present. An agent that declares NEITHER verb is named in the record
+    /// and on its row, so a session this Director cannot stop is visible rather than silently skipped.
     /// </summary>
     private async Task InterruptAndAskAgainAsync(
         List<WorkspaceSeat> seats, string dir, DateTime deadline, SmartShutdownDrainOptions smart)
@@ -1593,16 +1600,36 @@ public sealed class DirectorDrain
 
             var detail = new List<string>();
             var interrupted = false;
+            var verb = DrainStopVerb.None;
             if (_sessions.IsMidTurn(id))
             {
-                var stop = await _sessions.InterruptAsync(id).ConfigureAwait(false);
-                interrupted = stop.Delivered;
+                var stop = await _sessions.StopTurnAsync(id).ConfigureAwait(false);
+                verb = stop.Verb;
+                interrupted = stop.Delivery.Delivered;
                 FileLog.Write(
-                    $"[DirectorDrain] interrupt at two thirds: {id} ({seat.Name}): landed={stop.Delivered}" +
-                    (stop.Reason is null ? "" : $", {stop.Reason}"));
-                if (!stop.Delivered)
+                    $"[DirectorDrain] stop the turn at two thirds: {id} ({seat.Name}): verb={stop.Verb}, " +
+                    $"landed={stop.Delivery.Delivered}" +
+                    (stop.Delivery.Reason is null ? "" : $", {stop.Delivery.Reason}"));
+
+                var why = stop.Delivery.Reason ?? "(no reason given)";
+                if (stop.Verb == DrainStopVerb.None && !stop.Delivery.SessionGone)
+                {
+                    // NAMED, NOT SKIPPED. This Director has no verb that stops this agent's turn, so the
+                    // session goes to the limit still working - and the owner is told which session and
+                    // which agent, on the row and in the record, rather than watching it end with no
+                    // document and no sentence.
+                    detail.Add("It was still working at two thirds of the time allowed and its turn could " +
+                               $"not be stopped: {why}.");
+                    _problems.Add(
+                        $"seat {DrainPaths.ShortId(id)} ({seat.Name}) was still working at two thirds of " +
+                        $"the time allowed and this Director has no verb that stops its turn: {why}. It was " +
+                        "asked to hand over anyway, and ended at the limit if it did not.");
+                }
+                else if (!stop.Delivery.Delivered)
+                {
                     detail.Add("It was still working at two thirds of the time allowed and could not be " +
-                               $"interrupted: {stop.Reason ?? "(no reason given)"}.");
+                               $"{StopWords(stop.Verb)}: {why}.");
+                }
             }
 
             var path = DrainPaths.HandoverFor(dir, id, seat.Name);
@@ -1624,7 +1651,7 @@ public sealed class DirectorDrain
             else
             {
                 _notDelivered[id] = sent.Reason ?? "(no reason given)";
-                if (interrupted) detail.Add("It was interrupted at two thirds of the time allowed.");
+                if (interrupted) detail.Add($"It was {StopWords(verb)} at two thirds of the time allowed.");
                 detail.Add($"The request to hand over now did not reach it: {sent.Reason ?? "(no reason given)"}.");
             }
 
@@ -1632,6 +1659,16 @@ public sealed class DirectorDrain
             Emit(SmartShutdownPhase.Interrupting, null);
         }
     }
+
+    /// <summary>What was done to a session's turn, in plain words, for its row. A screen shows this as it
+    /// is, so a new verb is one line here and no new branch in any window.</summary>
+    /// <param name="verb">The verb the session's driver declared.</param>
+    private static string StopWords(DrainStopVerb verb) => verb switch
+    {
+        DrainStopVerb.Interrupt => "interrupted",
+        DrainStopVerb.Escape => "stopped with Escape",
+        _ => "stopped",
+    };
 
     /// <summary>
     /// THE LIMIT. Every session still present is ended, and the run waits until each is verifiably absent.

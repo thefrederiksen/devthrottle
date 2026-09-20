@@ -193,29 +193,50 @@ internal class FakeSessionControl : IDrainSessionControl
 
     // ---- the two smart shutdown verbs. The older drain never calls either, and a test asserts it. ----
 
-    /// <summary>Every interrupt ASKED FOR, in order, whatever came of it. The "older drain never
+    /// <summary>Every turn stop ASKED FOR, in order, whatever came of it. The "older drain never
     /// interrupts" assertion reads this, so it counts the call and not the outcome.</summary>
     public List<string> Interrupted { get; } = new();
+
+    /// <summary>The verb each session's agent declares. A session not named here declares the hard
+    /// interrupt, which is what most agents declare and what this Director has always sent.</summary>
+    public Dictionary<string, DrainStopVerb> StopVerb { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Sessions whose agent declares NEITHER verb. The value is the reason the seam gives, which
+    /// names the agent.</summary>
+    public Dictionary<string, string> NoStopVerbWithReason { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every verb actually SENT, in order: (sessionId, verb). A session whose agent declares
+    /// neither appears in <see cref="Interrupted"/> and not here, because nothing was sent.</summary>
+    public List<(string SessionId, DrainStopVerb Verb)> StopsSent { get; } = new();
 
     /// <summary>Every end ASKED FOR, in order: (sessionId, reason), whatever came of it.</summary>
     public List<(string SessionId, string Reason)> Ended { get; } = new();
 
-    /// <summary>Sessions whose agent has no safe hard interrupt. The value is the reason the driver
-    /// gives.</summary>
+    /// <summary>Sessions whose stop verb is sent and refused. The value is the reason the Director's verb
+    /// handler gives.</summary>
     public Dictionary<string, string> RefuseInterruptWithReason { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Sessions that will not die. The value is the reason the stop path gives.</summary>
     public Dictionary<string, string> RefuseEndWithReason { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public virtual Task<DrainDelivery> InterruptAsync(string sessionId)
+    public virtual Task<DrainTurnStop> StopTurnAsync(string sessionId)
     {
         Interrupted.Add(sessionId);
         Journal?.Add($"interrupt:{sessionId}");
-        if (!Live.Contains(sessionId)) return Task.FromResult(DrainDelivery.Gone);
+        if (!Live.Contains(sessionId)) return Task.FromResult(DrainTurnStop.Gone);
+
+        // The real seam reads the verb off the session's driver and sends nothing when there is none.
+        if (NoStopVerbWithReason.TryGetValue(sessionId, out var noVerb))
+            return Task.FromResult(DrainTurnStop.NotDeclared(noVerb));
+
+        var verb = StopVerb.TryGetValue(sessionId, out var declared) ? declared : DrainStopVerb.Interrupt;
+        StopsSent.Add((sessionId, verb));
+        Journal?.Add($"stop:{verb}:{sessionId}");
+
         if (RefuseInterruptWithReason.TryGetValue(sessionId, out var why))
-            return Task.FromResult(DrainDelivery.Refused(why));
+            return Task.FromResult(new DrainTurnStop(verb, DrainDelivery.Refused(why)));
         MidTurn.Remove(sessionId);
-        return Task.FromResult(DrainDelivery.Ok);
+        return Task.FromResult(new DrainTurnStop(verb, DrainDelivery.Ok));
     }
 
     /// <summary>Unlike a flag, an end is immediate: the session is absent on the very next presence
