@@ -1,0 +1,209 @@
+verdict: ok
+root: C:\
+rules-run: 10
+rules-broken: 1
+items-offered: 208
+reclaimable: 55787122304 bytes (52.0 gigabytes)
+volume: C:\ is 999149268992 bytes (930.5 gigabytes), of which 783089917952 bytes (729.3 gigabytes) are used and 216059351040 bytes (201.2 gigabytes) are free
+seen: 702715010069 bytes (654.5 gigabytes) in 3517993 files and 1135254 folders
+unseen: 80374907883 bytes (74.9 gigabytes) that the volume counts as used and this scan did not see
+refused: 251 folders refused a listing, and every one of them is named below
+unclassified: 646927887765 bytes (602.5 gigabytes) seen by the scan and matched by no rule, which is never offered for removal
+rules-not-run: 2 of this machine's rules look outside the folder that was asked about and were not run; each is named below
+warning: 1 of 10 rules could not do their work; each says why below, and none of them offers anything
+
+rule: orphaned-windows-installer-packages
+name: Orphaned Windows installer packages
+proof: a record the system keeps says nothing needs it
+verdict: ok
+items: 204
+reclaimable: 28550125056 bytes (26.6 gigabytes)
+removes: cached installer package files in C:\WINDOWS\Installer that no installed product and no applied patch points at
+safe-because: Windows records, for every installed product and every applied patch, the cached package it needs to repair or uninstall that thing; a package no record names cannot be asked for
+what-is-lost: nothing that is installed: these packages belong to products and patches that are no longer installed, or to installs that left their cache behind
+how-to-get-it-back: from the holding folder until it is purged; after that only by obtaining the original installer again, and for a package whose product is gone there is nothing left that would ask for it
+age-gate: 30 days
+needs-administrator: yes
+command: run cc-cleanup-storage from a command prompt opened with Run as administrator
+control-records-read: 576
+control-records-found-on-disk: 576
+control-candidates-examined: 787
+control-product-records-read: 362
+control-patch-records-read: 216
+control-orphans-too-young-to-offer: 7
+
+rule: npm-cache
+name: The npm package cache
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 1
+reclaimable: 4863679521 bytes (4.5 gigabytes)
+removes: the contents of C:\Users\soren\AppData\Local\npm-cache, by running the command its own tool ships
+safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else's store, because only that tool knows what its own store still needs
+what-is-lost: nothing but the time to fetch a package again the next time a build asks for one; how long that takes depends on the size of the package and the connection, and is not known here
+how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back
+age-gate: none
+needs-administrator: no
+command: npm cache clean --force
+control-cache-folders-looked-for: 1
+control-cache-folders-found: 1
+control-files-measured: 92272
+
+rule: pip-cache
+name: The pip package cache
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 1
+reclaimable: 4726368455 bytes (4.4 gigabytes)
+removes: the contents of C:\Users\soren\AppData\Local\pip\Cache, by running the command its own tool ships
+safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else's store, because only that tool knows what its own store still needs
+what-is-lost: nothing but the time to download a wheel again the next time one is installed; how long that takes is not known here
+how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back
+age-gate: none
+needs-administrator: no
+command: pip cache purge
+control-cache-folders-looked-for: 1
+control-cache-folders-found: 1
+control-files-measured: 7964
+
+rule: uv-cache
+name: The uv package cache
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 1
+reclaimable: 5926169194 bytes (5.5 gigabytes)
+removes: the contents of C:\Users\soren\AppData\Local\uv\cache, by running the command its own tool ships
+safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else's store, because only that tool knows what its own store still needs
+what-is-lost: nothing but the time to fetch a package again; uv refills its cache as it installs, and how long that takes is not known here
+how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back
+age-gate: none
+needs-administrator: no
+command: uv cache clean
+control-cache-folders-looked-for: 1
+control-cache-folders-found: 1
+control-files-measured: 172699
+
+rule: nuget-cache
+name: The NuGet package caches
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 1
+reclaimable: 11720780078 bytes (10.9 gigabytes)
+removes: the contents of C:\Users\soren\.nuget\packages, by running the command its own tool ships
+safe-because: the tool that wrote this cache ships a command to clear it, and that command is what runs: nothing here deletes inside somebody else's store, because only that tool knows what its own store still needs
+what-is-lost: nothing but the time for the next build to restore its packages again, which for a large solution is minutes rather than seconds; the exact time is not known here
+how-to-get-it-back: it comes back on its own: the next build or install that needs an entry downloads it again. Nothing is held for this rule, because the command that clears the cache does not offer to put it back
+age-gate: none
+needs-administrator: no
+command: dotnet nuget locals all --clear
+control-cache-folders-looked-for: 1
+control-cache-folders-found: 1
+control-files-measured: 41831
+
+rule: devthrottle-test-scratch-folders
+name: DevThrottle test scratch folders in the temporary folder
+proof: we made it, by an exact name, and it is old and closed
+verdict: ok
+items: 0
+reclaimable: 0 bytes
+removes: folders in C:\Users\soren\AppData\Local\Temp\ created by DevThrottle's own test suites, by one of 16 exact names, with nothing in them open
+safe-because: each name is created by DevThrottle's own code and by nothing else, and only from a test project: the folder held one test run's scratch work and that run ended
+what-is-lost: the scratch files of test runs that have already finished. No test reads them again and no product reads them at all
+how-to-get-it-back: from the holding folder until it is purged. After that, by running the suite again, which builds its own scratch tree from nothing every time
+age-gate: 7 days
+needs-administrator: no
+control-names-looked-for: 16
+control-folders-examined: 30148
+control-folders-matching-one-of-our-names: 4663
+control-matches-too-young-to-offer: 4662
+control-matches-with-a-file-still-open: 0
+control-matches-that-would-not-be-listed: 1
+
+rule: windows-component-store
+name: The Windows component store
+proof: the tool that made the data has its own command to clear it
+verdict: broken
+broken-reason: asking Windows how big the component store is needs an administrator, and this tool never raises itself to one: run cc-cleanup-storage from a command prompt opened with Run as administrator, or run Dism.exe /Online /Cleanup-Image /AnalyzeComponentStore yourself
+removes: superseded versions of components, and Windows' backups of older versions, in the component store at C:\WINDOWS\WinSxS, cleared by Windows' own command
+safe-because: Windows ships the command that cleans its own component store, and that command is what runs: nothing here deletes inside the store, because most of its files are hard links and only Windows knows which bytes belong to the store alone
+what-is-lost: superseded component versions and the backups of older ones, and with them the ability to uninstall the Windows updates already installed. Nothing is held for this rule: Dism.exe does not offer to put back what it clears, so once the command has run these items are gone for good
+how-to-get-it-back: there is no way back: the command clears for good and nothing is held. A removed component version returns only if Windows Update delivers it again, which it does not
+age-gate: none
+needs-administrator: yes
+command: Dism.exe /Online /Cleanup-Image /StartComponentCleanup
+control-component-store-size-known: 0
+
+rule: windows-crash-dumps-and-error-reports
+name: Crash dumps and Windows error reports
+proof: a record the system keeps says nothing needs it
+verdict: ok
+items: 0
+reclaimable: 0 bytes
+removes: crash dumps Windows Error Reporting wrote when programs stopped working, in C:\Users\soren\AppData\Local\CrashDumps and C:\WINDOWS\Minidump, and the local copies of error reports it has already sent, in the ReportArchive folders of its machine and account report stores
+safe-because: each is the system's own record of a crash that has already finished: a dump was written at the moment the program stopped working and Windows replaces older ones as new crashes arrive, and a report in Windows Error Reporting's archive is one it has already sent and keeps only its own local copy of. A report still waiting to be sent is counted and never offered
+what-is-lost: the ability to look back at a crash that already happened. Nothing else reads a finished dump, a sent report is already delivered, and Windows writes a new one the next time a program stops working
+how-to-get-it-back: there is no way back for any of them: nothing is held, the crashes they record are over, and only the machine-wide dumps in the Windows folder could ever be looked at again, by somebody debugging a crash nobody came back for
+age-gate: 30 days
+needs-administrator: yes
+control-places-looked-for: 7
+control-places-found: 4
+control-places-outside-the-folder-asked-about: 0
+control-places-that-would-not-be-listed: 1
+control-crash-dumps-found: 10
+control-crash-dumps-too-young-to-offer: 10
+control-wer-reports-already-sent-and-archived: 0
+control-wer-reports-still-waiting-to-be-sent: 0
+control-wer-stores-too-young-to-offer: 0
+control-wer-stores-that-would-not-be-read: 1
+
+rule: windows-disk-cleanup-on-c
+name: What Windows' own Disk Cleanup offers on the C: volume
+proof: the tool that made the data has its own command to clear it
+verdict: ok
+items: 0
+reclaimable: 0 bytes
+removes: whatever Windows' own Disk Cleanup offers to clear on the C: volume: its categories are read from the machine's own registry list, and this tool never decides for Windows which of them apply
+safe-because: Windows itself ships the tool that names, sizes and clears each category, and it shows the size of each one before the owner tells it to go: nothing here sizes or clears them in its place, because only Windows' own handlers know what they would take
+what-is-lost: what each of Windows' own categories holds, which this tool does not know and does not guess: Windows says the size of each one when it runs. What Windows' own tool clears is not offered for holding, because Windows' own command does not offer to put it back
+how-to-get-it-back: there is no way back that this tool offers: Windows' own tool clears for good, and a category such as the recycle bin or a package cache comes back only by the same means as the rule that covers it
+age-gate: none
+needs-administrator: yes
+command: cleanmgr.exe /d C:
+control-categories-read: 32
+control-categories-that-need-an-administrator: 12
+control-categories-that-look-only-in-the-accounts-own-folders: 1
+control-categories-whose-folders-windows-decides-when-it-runs: 19
+
+rule: windows-recycle-bin-on-c
+name: The recycle bin on the C: volume
+proof: a record the system keeps says nothing needs it
+verdict: ok
+items: 0
+reclaimable: 0 bytes
+removes: items in C:\$RECYCLE.BIN that carry the bin's own deletion record: the record and its data are offered together as one thing, and an entry the system gives no record for is left alone
+safe-because: the recycle bin keeps its own record for every item it holds, and the record says where the file came from and when the owner deleted it: the owner's own deletion is the system's own record that nothing needs the item, and an entry without one is a thing nobody has proven was deleted, so it stays
+what-is-lost: the deleted files themselves, and emptying the bin is the end of the line: the recycle bin is already the holding folder, so once it is emptied there is no further holding and no way back. Until then the files can be restored exactly as they were
+how-to-get-it-back: from the bin's own restore, until it is emptied. After that there is no way back: nothing else holds these files, and the deletion the record describes becomes final
+age-gate: 30 days
+needs-administrator: no
+control-bins-looked-for: 1
+control-bins-found: 2
+control-bins-listed: 1
+control-bins-that-would-not-be-listed: 1
+control-records-read: 4
+control-records-too-young-to-offer: 0
+control-records-without-their-data: 4
+control-records-that-would-not-be-read: 0
+control-pairs-that-would-not-be-read: 0
+control-entries-without-a-record: 573
+rules-not-run[2]{rule,name,looks-in}:
+  windows-disk-cleanup-on-d,What Windows' own Disk Cleanup offers on the D: volume,D:\
+  windows-recycle-bin-on-d,The recycle bin on the D: volume,D:\$RECYCLE.BIN
+
+index: C:\Users\soren\AppData\Local\cc-director\reclaim\index\c-28f709d79730.json
+saved: 2026-09-20T00:26:35Z
+removal: this tool cannot remove anything. It reads, measures and explains
+help[3]:
+  cc-cleanup-storage recommend "C:\" --json
+  cc-cleanup-storage report "C:\"
+  cc-cleanup-storage scan "C:\"
