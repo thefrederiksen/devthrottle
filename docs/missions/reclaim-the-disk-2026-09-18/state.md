@@ -1,5 +1,60 @@
 # Reclaim the Disk: where the mission stands
 
+**FINISHED, 20 September 2026.** Everything below is history; the QA report beside this file is the
+result. The deliverable is `cc-cleanup-storage`, a client-side command line tool.
+
+## What shipped
+
+Merged to main: phase 1 (scan and report, 3122 and 3129), phase 2 (rules and recommend, 3135 with
+review record 3146), phase 4 (four more Windows rules, 3171), phase 3 (removal as a move into
+holding, ten refusals, 3184), and the three review follow-ups (3211).
+
+Ten rules. `scan`, `report`, `recommend`, `reclaim` (dry run unless `--apply`), and
+`holding list / restore / purge`. Removal is a move; no space is freed until `holding purge`.
+
+## What was dropped, and why
+
+**The owner ruled on 20 September that this is a client-side agent tool**: no Gateway integration,
+no page, no database, nothing reported up, and scheduling to come later as a workflow, a skill or an
+emailed report rather than built into the product.
+
+- **Never merged, branches deleted:** the Cockpit page and its read-only Gateway route, the Director
+  Disk Report window, and rules served by the Gateway. Both had been built, gated and approved by a
+  Reviewer; none reached main, so nothing had to be undone.
+- **Reverted off main:** the Launcher-hosted background scan (3187, reverted by 3234). Its record -
+  proof, decisions and review - is kept in this folder deliberately, because the record says what
+  was built and why it was dropped. The guard test that proved the scan could never remove was kept,
+  moved into the engine tests and narrowed to the invariant that outlived it: a rule can never reach
+  removal code, whoever calls it.
+
+**How the scope crept:** the owner said "We can build it into the director" and "there has to be an
+online component". The Architect wrote a Cockpit page and a Gateway route into the mission document
+from those words, and nobody checked that with him. He found it by asking why there was a Gateway
+page at all.
+
+## Still open, both the owner's
+
+- The tool is **not on PATH**. It has never been shipped to the tools folder, so it cannot be run yet.
+- Nothing is released and no Gateway is deployed.
+- `--apply` has never been run on a real machine by anyone. The first real removal is his.
+
+## Carried forward for any platform that later gains rules
+
+Refusal 4 (links) stands alone where path resolution does not follow links, and nothing proved it
+there. This mission ships Windows rules only; on any other platform the tool loads no rules and
+reports broken rather than clean.
+
+## Litter left on this machine, for the owner to decide about
+
+Worktree directories deregistered from git but not deleted, because build output remained:
+`devthrottle-reclaim-review2`, `-gate`, `-phase5b`, `-phase6`, `-review5b`, `-review6`.
+**Nothing was deleted** - this mission removes nothing from this machine, including its own.
+
+---
+
+## History
+
+
 Kept current by the Delivery Lead. **This file is the one place to look first.** The handover
 documents are history; this is the state.
 
