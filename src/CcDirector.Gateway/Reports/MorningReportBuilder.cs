@@ -136,6 +136,9 @@ public sealed class MorningReportBuilder
         // has been measured.
         report.Attention.AddRange(HygieneItems(tenant, now));
 
+        if (UsageLimitStops(ctx, tenant, now) is { } limited)
+            report.Attention.Add(limited);
+
         if (OutdatedDirectors(tenant, now) is { } outdated)
             report.Attention.Add(outdated);
 
@@ -194,6 +197,101 @@ public sealed class MorningReportBuilder
             return null;
 
         return new OutdatedDirectorsAttentionDto { Newest = newest, Directors = behind };
+    }
+
+    /// <summary>How far back a usage-limit stop is still worth a line. The limits that matter reset within a
+    /// week at most, and the row drops a session the moment it works again, so this only bounds the scan and
+    /// retires a stop nobody ever came back to.</summary>
+    public static readonly TimeSpan UsageLimitLookback = TimeSpan.FromHours(48);
+
+    /// <summary>
+    /// The usage-limit row (#3124), or NULL: sessions whose turn ended on a usage-limit block and that have
+    /// not been active since.
+    ///
+    /// WHERE THE FACT COMES FROM. The session supervisor classifies the live screen when a turn ends and
+    /// writes a <c>supervisor-fault-detected</c> line to the recovery log carrying the matched SIGNATURE
+    /// (never screen content). This reads those lines for exactly
+    /// <see cref="Supervision.TerminatingFaultClassifier.UsageLimitSignatures"/>. An account with the
+    /// supervisor switched off has no such lines and gets no row - absent, never "none stopped".
+    ///
+    /// STILL STOPPED means: no <c>active</c> transition in the governance ledger after the stop, and, where
+    /// the Gateway can see the session live, it has not exited. A session that picked its work back up after
+    /// the reset is not news.
+    /// </summary>
+    private UsageLimitStopsAttentionDto? UsageLimitStops(GatewayDbContext ctx, TenantId tenant, DateTime now)
+    {
+        var since = now - UsageLimitLookback;
+        var faults = ctx.ActivityEvents.AsNoTracking()
+            .Where(e => e.EventType == ActivityEventTypes.SupervisorFaultDetected &&
+                        e.Cause == ActivityCauses.NonRecoverable &&
+                        e.OccurredUtc >= since &&
+                        e.Detail != null)
+            .OrderByDescending(e => e.OccurredUtc)
+            .Select(e => new { e.SessionId, e.OccurredUtc, e.Detail })
+            .Take(MaxLedgerRowsScanned)
+            .ToList();
+
+        // Newest first, so the first line kept per session is its latest stop.
+        var latestStop = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        foreach (var f in faults)
+        {
+            if (string.IsNullOrWhiteSpace(f.SessionId) || latestStop.ContainsKey(f.SessionId))
+                continue;
+            if (!IsUsageLimitDetail(f.Detail!))
+                continue;
+            latestStop[f.SessionId] = DateTime.SpecifyKind(f.OccurredUtc, DateTimeKind.Utc);
+        }
+        if (latestStop.Count == 0)
+            return null;
+
+        var ids = latestStop.Keys.ToList();
+        var lastActive = ctx.GovernanceEvents.AsNoTracking()
+            .Where(e => e.SubjectKind == GovernanceEventSubject.Session &&
+                        e.SessionId != null && ids.Contains(e.SessionId) &&
+                        e.State == GovernanceEventState.Active &&
+                        e.OccurredUtc >= since)
+            .GroupBy(e => e.SessionId!)
+            .Select(g => new { SessionId = g.Key, At = g.Max(e => e.OccurredUtc) })
+            .ToList()
+            .ToDictionary(x => x.SessionId, x => DateTime.SpecifyKind(x.At, DateTimeKind.Utc), StringComparer.Ordinal);
+
+        var live = LiveSessionsById(tenant);
+        var sessions = new List<UsageLimitStopDto>();
+        foreach (var (sessionId, stoppedUtc) in latestStop)
+        {
+            if (lastActive.TryGetValue(sessionId, out var activeAt) && activeAt > stoppedUtc)
+                continue; // it worked again after the stop
+            live.TryGetValue(sessionId, out var liveSession);
+            if (liveSession is not null &&
+                string.Equals(liveSession.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
+                continue; // closed - there is nothing left to resume
+            sessions.Add(new UsageLimitStopDto
+            {
+                Session = string.IsNullOrWhiteSpace(liveSession?.Name) ? sessionId : liveSession!.Name!,
+                StoppedUtc = stoppedUtc,
+            });
+        }
+        if (sessions.Count == 0)
+            return null;
+
+        return new UsageLimitStopsAttentionDto
+        {
+            Sessions = sessions.OrderBy(s => s.StoppedUtc).ThenBy(s => s.Session, StringComparer.Ordinal).ToList(),
+        };
+    }
+
+    /// <summary>True when a recovery-log detail ("signature=... [ (model verdict)]") names a usage-limit block.</summary>
+    internal static bool IsUsageLimitDetail(string detail)
+    {
+        const string prefix = "signature=";
+        if (!detail.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+        var signature = detail[prefix.Length..];
+        const string modelSuffix = " (model verdict)";
+        if (signature.EndsWith(modelSuffix, StringComparison.Ordinal))
+            signature = signature[..^modelSuffix.Length];
+        return Supervision.TerminatingFaultClassifier.UsageLimitSignatures
+            .Contains(signature, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
