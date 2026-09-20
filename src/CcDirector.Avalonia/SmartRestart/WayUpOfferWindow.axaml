@@ -1,0 +1,205 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:CcDirector.Avalonia.SmartRestart"
+        x:Class="CcDirector.Avalonia.SmartRestart.WayUpOfferWindow"
+        x:DataType="local:WayUpOfferViewModel"
+        x:CompileBindings="True"
+        Title="{Binding Headline}"
+        Width="620" Height="560"
+        WindowStartupLocation="CenterOwner"
+        Background="#252526">
+
+    <!-- "A restart is available" (mission 5.3 item 10, ruling 10.2). Every word drawn here is the
+         engine's, bound straight from WayUpOfferViewModel; this file lays them out and colours them
+         and does nothing else. docs/VisualStyle.md: #252526 window, #1E1E1E panels, #CCCCCC primary
+         text, #AAAAAA secondary, #888888 tertiary, #007ACC the primary action. -->
+    <Window.Styles>
+        <!-- VisualStyle section 13: a disabled button stays readable and keeps its colour identity.
+             Both answers are disabled while the engine is working, with the owner looking at them. -->
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#1A8AD4" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button.primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#004E82" />
+            <Setter Property="Foreground" Value="#6699BB" />
+        </Style>
+        <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#505050" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+        </Style>
+        <Style Selector="Button.secondary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#2D2D2D" />
+            <Setter Property="Foreground" Value="#666666" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />  <!-- the headline -->
+            <RowDefinition Height="Auto" />  <!-- when, and why -->
+            <RowDefinition Height="Auto" />  <!-- how many seats are owed -->
+            <RowDefinition Height="*" />     <!-- the rows -->
+            <RowDefinition Height="Auto" />  <!-- what came of a bring back -->
+            <RowDefinition Height="Auto" />  <!-- the two answers -->
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   x:Name="TxtHeadline"
+                   Text="{Binding Headline}"
+                   Foreground="#CCCCCC"
+                   FontSize="18" FontWeight="SemiBold"
+                   TextWrapping="Wrap" />
+
+        <StackPanel Grid.Row="1" Margin="0,6,0,0">
+            <TextBlock x:Name="TxtWhen"
+                       Text="{Binding WhenLabel}"
+                       Foreground="#AAAAAA"
+                       FontSize="13"
+                       TextWrapping="Wrap" />
+            <TextBlock x:Name="TxtReason"
+                       Text="{Binding ReasonLabel}"
+                       Foreground="#888888"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Margin="0,2,0,0" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="2"
+                   x:Name="TxtSeatsOwed"
+                   Text="{Binding SeatsOwedLabel}"
+                   Foreground="#CCCCCC"
+                   FontSize="13" FontWeight="SemiBold"
+                   TextWrapping="Wrap"
+                   Margin="0,12,0,0" />
+
+        <Border Grid.Row="3"
+                Background="#1E1E1E"
+                BorderBrush="#3C3C3C" BorderThickness="1"
+                CornerRadius="4"
+                Margin="0,8,0,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl x:Name="RowList"
+                              ItemsSource="{Binding Rows}"
+                              Margin="8">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:WayUpRowViewModel">
+                            <StackPanel Margin="0,4,0,10">
+                                <CheckBox IsChecked="{Binding Ticked, Mode=TwoWay}"
+                                          IsEnabled="{Binding CanTick}"
+                                          Content="{Binding Title}"
+                                          Foreground="{Binding TitleBrush}"
+                                          FontSize="13" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Detail}"
+                                           Foreground="#AAAAAA"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Margin="26,0,0,0" />
+                                <ItemsControl ItemsSource="{Binding Seats}"
+                                              IsVisible="{Binding HasSeats}"
+                                              Margin="26,4,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="local:WayUpSeatLineViewModel">
+                                            <TextBlock Text="{Binding Detail}"
+                                                       Foreground="#888888"
+                                                       FontSize="11"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,1,0,1" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding Reopen.WhatText}"
+                                           IsVisible="{Binding Reopen.HasWhat}"
+                                           Foreground="#888888"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Margin="26,4,0,0" />
+                                <Button Content="{Binding Reopen.OfferText}"
+                                        IsVisible="{Binding Reopen.HasButton}"
+                                        Classes="secondary"
+                                        Click="BtnReopen_Click"
+                                        Background="#3C3C3C" Foreground="#CCCCCC"
+                                        BorderThickness="0"
+                                        FontSize="12" Height="26"
+                                        Cursor="Hand"
+                                        HorizontalAlignment="Left"
+                                        Margin="26,6,0,0" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="4"
+                x:Name="ResultPanel"
+                IsVisible="{Binding HasResult}"
+                Background="#1E1E1E"
+                BorderBrush="#3C3C3C" BorderThickness="1"
+                CornerRadius="4"
+                Padding="12,8"
+                Margin="0,12,0,0">
+            <StackPanel>
+                <TextBlock x:Name="TxtResult"
+                           Text="{Binding ResultText}"
+                           Foreground="#CCCCCC"
+                           FontSize="13" FontWeight="SemiBold"
+                           TextWrapping="Wrap" />
+                <ItemsControl x:Name="SeatResultList"
+                              ItemsSource="{Binding SeatResults}"
+                              IsVisible="{Binding HasSeatResults}"
+                              Margin="0,4,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <TextBlock Text="{Binding}"
+                                       Foreground="#888888"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,1,0,1" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="5" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+            <Button Grid.Column="1"
+                    x:Name="BtnBringBack"
+                    Classes="primary"
+                    Content="{Binding BringBackText}"
+                    IsVisible="{Binding ShowAnswers}"
+                    IsEnabled="{Binding CanAnswer}"
+                    Click="BtnBringBack_Click"
+                    MinWidth="120" Height="30"
+                    HorizontalContentAlignment="Center"
+                    Background="#007ACC" Foreground="White"
+                    BorderThickness="0" Cursor="Hand"
+                    IsDefault="True" />
+            <Button Grid.Column="2"
+                    x:Name="BtnNotNow"
+                    Classes="secondary"
+                    Content="{Binding NotNowText}"
+                    IsVisible="{Binding ShowAnswers}"
+                    IsEnabled="{Binding CanAnswer}"
+                    Click="BtnNotNow_Click"
+                    MinWidth="100" Height="30"
+                    HorizontalContentAlignment="Center"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand"
+                    IsCancel="True"
+                    Margin="8,0,0,0" />
+            <Button Grid.Column="2"
+                    x:Name="BtnClose"
+                    Classes="primary"
+                    Content="{Binding CloseText}"
+                    IsVisible="{Binding HasResult}"
+                    Click="BtnNotNow_Click"
+                    MinWidth="100" Height="30"
+                    HorizontalContentAlignment="Center"
+                    Background="#007ACC" Foreground="White"
+                    BorderThickness="0" Cursor="Hand"
+                    Margin="8,0,0,0" />
+        </Grid>
+    </Grid>
+</Window>
