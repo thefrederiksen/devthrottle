@@ -91,3 +91,31 @@ never more than one Developer on the rig at a time.
 
 Then a Reviewer on a different agent (Pi) reads the report against the attachments, looking for a
 case the report claims but does not show.
+
+### The ruling landed while I was writing the plan - answered, and the split stands
+
+`c37d95abd` merged the ruling and its code to `main` at about 12:10 local time, so
+`ruling-way-up-presence-check.md` and the widened presence check ARE on `origin/main` now. My
+question above is answered by events and needs nothing from the Delivery Lead.
+
+I did NOT pull the way-down Developer (81977424) back to the new head, and this is the reason, which
+is checkable rather than a judgement: `git show --stat c37d95abd` touches fifteen files and **not one
+of them is on the way down**. It changes `DirectorWayUp.cs`, `IDirectorWayUp.cs`, `WayUpWords.cs`,
+`WayUpOfferViewModel`, `WayUpOfferWindow`, `RestartHistoryViewModel` and their tests, plus three
+record documents. `DirectorSmartShutdown.cs`, `SmartShutdownDialog`, `ShutdownProgressView`,
+`SmartShutdownSurface` and `MainWindow.axaml.cs` are untouched. So the way-down build at `d8fdaafed`
+and a way-down build at the new head are the same software, and the report will say so with the
+command that shows it:
+
+    git diff --stat d8fdaafed <way-up commit> -- src/CcDirector.Avalonia/SmartRestart src/CcDirector.ControlApi/SmartRestart src/CcDirector.Avalonia/MainWindow.axaml.cs
+
+The way-up seat builds its rig from the newer head. That also gives the run something real it would
+otherwise have had to fake: the records on the rig are written by one Director build and read by a
+NEWER one, which is exactly the case the mission exists for - a Director is updated and restarted.
+
+### Where things stand
+
+- Developer 81977424 ("the harness and the way down"), Claude Code, opened 11:54, worktree
+  `D:/ReposFred/devthrottle-smart-restart-p5-rig`, branch `smart-restart/p5-way-down`, mandate
+  `mandate-phase-5-developer-way-down.md`. Confirmed started by reading its own terminal, not by the
+  spawn's exit code. Working.
