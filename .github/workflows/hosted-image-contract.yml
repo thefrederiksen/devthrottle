@@ -26,12 +26,6 @@ name: Hosted image contract
 #                       without a real release.
 
 on:
-  # TEMPORARY, removed before this branch is merged: it is how this gate is rehearsed on GitHub's machines
-  # without deploying anything, since workflow_dispatch cannot start a workflow that is not yet on the
-  # default branch.
-  push:
-    branches: [ci/package-1-hosted-image-test-to-deploy]
-
   workflow_call:
     inputs:
       require_main:
