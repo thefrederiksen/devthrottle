@@ -207,9 +207,9 @@ which does complete, on both trees:
 | Run | Tree | Result |
 |---|---|---|
 | Before | Untouched, `217b79f63` | Failed 0, Passed 4504, Skipped 8, Total 4512, 14m, exit code 0 |
-| After, run 1 | Commit `382577612`, sixteen new tests | FILL_CORE_RUN1 |
-| After, run 2 | Final source, seventeen new tests | FILL_CORE_RUN2 |
-| After, run 3 | Final source, seventeen new tests | FILL_CORE_RUN3 |
+| After, run 1 | Commit `382577612`, sixteen new tests | Failed 0, Passed 4520, Skipped 8, Total 4528, 26m17s, exit code 0 |
+| After, run 2 | Final source, seventeen new tests | Failed 0, Passed 4521, Skipped 8, Total 4529, 16m38s, exit code 0 |
+| After, run 3 | Final source, seventeen new tests | Failed 0, Passed 4521, Skipped 8, Total 4529, 15m37s, exit code 0 |
 
 Baseline total: 4512. Run 1 was started against commit `382577612`, which carried sixteen of the
 seventeen new tests, so its expected total is 4512 + 16 = 4528. Runs 2 and 3 ran against the final
@@ -420,7 +420,20 @@ can get a complete unfiltered run of that project until it is fixed. It deserves
 
 ---
 
-## 7. Every command, in order
+## 7. The headline, in one paragraph
+
+Seventeen new tests in `CcDirector.Core.Tests` and one in `CcDirector.Avalonia.Tests`, all green, on
+two full runs of the Core project that agree exactly - 4521 passed, 8 skipped, 4529 total, both
+times, against a baseline of 4504 / 8 / 4512. The `SmartRestart` filter is unmoved at 47, so the
+dialog was not touched. The solution builds with 0 warnings and 0 errors. Two one-line breaks of the
+detection each turned specific named tests red, and both were restored to a full green build. The
+fixtures were checked against six real transcripts, and the rule was replayed over 2,075, where it
+correctly reports no question box on 70 of the 71 that hold one of these tools. Nothing was run
+against a live Claude Code session; section 6 says exactly what that leaves open.
+
+---
+
+## 8. Every command, in order
 
 ```
 # baseline, untouched tree at 217b79f63
@@ -436,8 +449,9 @@ dotnet test src/CcDirector.Core.Tests --no-build --filter "FullyQualifiedName~Pe
 dotnet test src/CcDirector.Avalonia.Tests --no-build --filter "FullyQualifiedName~QuestionBox"
 dotnet test src/CcDirector.Avalonia.Tests --no-build --filter "FullyQualifiedName~SmartRestart"
 dotnet test src/CcDirector.Avalonia.Tests --no-build
+dotnet test src/CcDirector.Avalonia.Tests --no-build --filter "FullyQualifiedName!~QuestionBoxReachesTheShutdownDialog"
 dotnet test src/CcDirector.Core.Tests --no-build                       # aborted again
-dotnet test src/CcDirector.Core.Tests --no-build --filter "FullyQualifiedName!~RepositoryRegistryConcurrency"   # twice
+dotnet test src/CcDirector.Core.Tests --no-build --filter "FullyQualifiedName!~RepositoryRegistryConcurrency"   # run 1
 
 # revert proof (after committing 382577612)
 #   break one, full build, run; restore
@@ -446,4 +460,18 @@ git checkout -- src/CcDirector.Core/Sessions/PendingInteractionDetector.cs
 dotnet build cc-director.sln
 dotnet test src/CcDirector.Core.Tests --filter "FullyQualifiedName~PendingInteraction"
 dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~QuestionBox"
+
+# the seventeenth test and the final source (commit 8bb6be7e0)
+dotnet build cc-director.sln
+dotnet test src/CcDirector.Core.Tests --no-build --filter "FullyQualifiedName~PendingInteraction"
+dotnet test src/CcDirector.Core.Tests --no-build --filter "FullyQualifiedName!~RepositoryRegistryConcurrency"   # run 2
+dotnet test src/CcDirector.Core.Tests --no-build --filter "FullyQualifiedName!~RepositoryRegistryConcurrency"   # run 3
 ```
+
+One note on how the long runs were executed, because it matters to anyone reproducing this. The
+filtered Core run takes fifteen to twenty-six minutes, which is longer than a single foreground shell
+call is allowed here. Each one was started in the foreground writing to a file, the harness moved it
+to the background at its own timeout, and this session then BLOCKED on an until-loop watching that
+file until the result line appeared. Nothing was left unwatched and no result was read from a
+buffered pipe. Run 1 took 26m17s rather than the baseline's 14m because an Avalonia run was
+deliberately overlapped with it; runs 2 and 3 were alone on the machine and took 16m38s and 15m37s.
