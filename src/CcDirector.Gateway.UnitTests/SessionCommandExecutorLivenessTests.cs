@@ -123,12 +123,17 @@ public sealed class SessionCommandExecutorLivenessTests
     /// </summary>
     private static Process StartAChildProcess()
     {
-        // The redirect is inside the command, so no pipe is created that nobody reads.
-        var psi = new ProcessStartInfo("cmd.exe", "/c ping -n 600 127.0.0.1 > nul")
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        // WHATEVER THIS MACHINE'S OWN WAY OF WAITING TEN MINUTES IS. The production liveness check reads a
+        // process identifier and nothing else, so it is the same code on every system; only the command that
+        // produces a long-lived child differs. It used to be 'cmd.exe' unconditionally, which meant these two
+        // tests could not start their fixture at all on macOS or on Linux and reported the PRODUCT as broken
+        // there - a false report about a check that is entirely platform-neutral.
+        var psi = OperatingSystem.IsWindows()
+            // The redirect is inside the command, so no pipe is created that nobody reads.
+            ? new ProcessStartInfo("cmd.exe", "/c ping -n 600 127.0.0.1 > nul")
+            : new ProcessStartInfo("/bin/sleep", "600");
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
         var child = Process.Start(psi);
         Assert.NotNull(child);
         RequireStillRunning(child!, "it had only just been started");
@@ -283,6 +288,73 @@ public sealed class SessionCommandExecutorLivenessTests
         return (child, suppressed);
     }
 
+    // ------------------------------------- why macOS and Linux have only TWO of the three answers ----
+
+    [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
+    private static extern int PosixKill(int pid, int signal);
+
+    [DllImport("libc", EntryPoint = "geteuid")]
+    private static extern uint PosixEffectiveUserId();
+
+    /// <summary>The initial process - <c>launchd</c> on macOS, <c>init</c> or its stand-in on Linux. It is
+    /// always present and always the superuser's, which makes it the process this test has least right to
+    /// on the whole machine.</summary>
+    private const int TheInitialProcessId = 1;
+
+    private const int NoSignalJustAskPermission = 0;
+    private const int ErrorOperationNotPermitted = 1;   // EPERM, the same number on macOS and on Linux
+
+    /// <summary>
+    /// PROVE, RATHER THAN ASSUME, THAT THE UNREADABLE STATE DOES NOT EXIST ON THIS SYSTEM.
+    ///
+    /// The production check has three answers, and the third - <c>Unreadable</c> - is reached when reading a
+    /// process throws something other than <c>ArgumentException</c>. On Windows that happens whenever this
+    /// machine may not OPEN the process, which is why the test above can build the state and must.
+    ///
+    /// On macOS and on Linux the kernel answers "does this process identifier exist" to everyone: permission
+    /// governs what you may DO to a process, not whether you may see that it is there. So the read either
+    /// succeeds or reports a genuine absence, and there is no third answer to cover. That claim is the whole
+    /// justification for this system not running the test above, so it is CHECKED HERE, out loud, against the
+    /// hardest case the machine offers - and it is stated as a presence (the operating system refused us
+    /// permission on that process, and we could still read it) rather than as the absence of a failure.
+    /// </summary>
+    private static void ThisSystemCannotMakeAProcessLiveAndUnreadable()
+    {
+        // The premise: we must be an ordinary user, or "a process we have no rights over" is not what was
+        // built. Fail loudly rather than quietly proving something weaker, the same way the Windows fixture
+        // does when it cannot close a process off from itself.
+        var effectiveUser = PosixEffectiveUserId();
+        Assert.True(effectiveUser != 0,
+            "These tests are running as the superuser, which has rights over every process on the machine, "
+            + "so a process this test may not touch could not be found and the claim that this system has no "
+            + "live-but-unreadable state was not actually checked. Run the suite as an ordinary user.");
+
+        // The strongest denial this machine offers: the operating system positively refuses us permission on
+        // the initial process. Asked with signal 0, which performs the permission check and sends nothing.
+        var refused = PosixKill(TheInitialProcessId, NoSignalJustAskPermission);
+        var error = Marshal.GetLastPInvokeError();
+        Assert.True(refused == -1 && error == ErrorOperationNotPermitted,
+            $"Asking permission on process {TheInitialProcessId} answered {refused} with error {error}, not a "
+            + $"refusal ({ErrorOperationNotPermitted}, operation not permitted). This test needs a process it "
+            + "is denied in order to show that a denied process is still READABLE, and it did not get one.");
+
+        // And yet it reads, with no exception at all - so a denied live process is Alive here, never
+        // Unreadable. This is the assertion the whole branch exists for.
+        using (var denied = Process.GetProcessById(TheInitialProcessId))
+        {
+            Assert.False(denied.HasExited,
+                $"Process {TheInitialProcessId} read as exited. It is the initial process and cannot have "
+                + "exited while this test is running, so the reading itself is not to be trusted.");
+        }
+
+        // The other answer, for completeness: a process that really has gone is an ArgumentException, which
+        // the production check reads as Gone. Two answers, both demonstrated, and no third.
+        var child = StartAChildProcess();
+        var endedProcessId = child.Id;
+        EndTheChild(child);
+        Assert.Throws<ArgumentException>(() => Process.GetProcessById(endedProcessId));
+    }
+
     // ------------------------------------------------------------------------ the three answers ----
 
     /// <summary>
@@ -369,9 +441,12 @@ public sealed class SessionCommandExecutorLivenessTests
     {
         if (!OperatingSystem.IsWindows())
         {
-            Assert.Fail("This test produces a live-but-unreadable process using Windows process security, "
-                + "and this host is not Windows. The production liveness check's Unreadable answer is "
-                + "therefore UNPROVEN here. It must not be skipped into a green run.");
+            // NOT A SKIP, AND NOT A PASS BY DEFAULT. A live-but-unreadable process is a thing Windows
+            // process security can build and this system CANNOT, so instead of asserting a state that has
+            // no meaning here, this asserts the property that makes its absence correct - and that property
+            // is checked, not assumed. If it ever stops holding, this goes red and says the Unreadable
+            // answer has become reachable here and now needs its own coverage.
+            ThisSystemCannotMakeAProcessLiveAndUnreadable();
             return;
         }
 

@@ -190,14 +190,16 @@ public sealed class WorkListStorePersistenceTests : IDisposable
     [Fact]
     public void Import_RenameAsideFails_NextConstructionRenamesAside_WithoutReimporting()
     {
-        var legacy = LegacyPath();
+        // Its own directory, because BlockedRename closes the whole directory to writing on macOS and Linux
+        // and the harness's database lives in the directory above.
+        var legacy = _h.LegacyPath(Path.Combine("import-" + Guid.NewGuid().ToString("N"), "worklists.json"));
         WriteLegacyFile(legacy, new WorkListDto { Name = "backlog", Items = { Ref("github", "1") } });
 
         // First construction: the import reads the file and COMMITS to the database, but the rename-aside
-        // fails because the file is held open (FileShare.Read lets the read succeed while File.Move cannot
-        // delete the source). The failed rename is best-effort, so construction still completes and the file
-        // lingers.
-        using (new FileStream(legacy, FileMode.Open, FileAccess.Read, FileShare.Read))
+        // fails because the file cannot be renamed - each system's own way of refusing, proved by the fixture
+        // before the test proceeds. The failed rename is best-effort, so construction still completes and the
+        // file lingers.
+        using (new BlockedRename(legacy))
         {
             var store1 = NewStore(legacy);
             Assert.Single(store1.ListAll());        // imported into the database
