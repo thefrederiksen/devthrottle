@@ -89,44 +89,93 @@ public class NewSessionDialogGatewayListTests
         }
     }
 
-    private static NewSessionDialog Open(
-        RepositoryRegistry? registry, Func<CancellationToken, Task<KnownRepositoryListResult>> gateway)
+    /// <summary>
+    /// How many dialogs this suite has open. Every test closes its own, and <see cref="Photograph"/>
+    /// refuses to shoot unless exactly one is open, so a picture can always be said to be of the window
+    /// under test.
+    ///
+    /// Said plainly: this assertion is belt and braces and I could NOT watch it fail. Leaving the windows
+    /// open did not reproduce the stale-picture defect described on <see cref="Photograph"/> - the
+    /// repeated composition there is what fixes that, and the check that catches it is the liveness one.
+    /// Closing a window a test has finished with is right anyway.
+    /// </summary>
+    private static int _openDialogs;
+
+    /// <summary>One dialog, open for the length of a test and closed after it.</summary>
+    private sealed class OpenDialog : IDisposable
     {
-        var dialog = new NewSessionDialog(registry, historyStore: null, gatewayRepositories: gateway);
-        dialog.Show();
-        // Loaded fires on Show; the ask and its continuation both land on this dispatcher.
-        for (var pump = 0; pump < 10; pump++)
+        public NewSessionDialog Dialog { get; }
+
+        public OpenDialog(RepositoryRegistry? registry, Func<CancellationToken, Task<KnownRepositoryListResult>> gateway)
+        {
+            Dialog = new NewSessionDialog(registry, historyStore: null, gatewayRepositories: gateway);
+            Dialog.Show();
+            Interlocked.Increment(ref _openDialogs);
+            // Loaded fires on Show; the ask and its continuation both land on this dispatcher.
+            for (var pump = 0; pump < 10; pump++)
+                Dispatcher.UIThread.RunJobs();
+        }
+
+        public void Dispose()
+        {
+            Dialog.Close();
             Dispatcher.UIThread.RunJobs();
-        return dialog;
+            Interlocked.Decrement(ref _openDialogs);
+        }
     }
 
-    private static List<RepositoryConfig> RowsOnScreen(NewSessionDialog dialog)
+    private static OpenDialog Open(
+        RepositoryRegistry? registry, Func<CancellationToken, Task<KnownRepositoryListResult>> gateway)
+        => new(registry, gateway);
+
+    private static List<RepositoryConfig> RowsOnScreen(OpenDialog open)
     {
-        var list = dialog.GetControl<ListBox>("RepoList");
+        var list = open.Dialog.GetControl<ListBox>("RepoList");
         return (list.ItemsSource as IEnumerable<RepositoryConfig>)?.ToList() ?? new List<RepositoryConfig>();
     }
 
-    private static (bool Visible, string Text) NoticeOnScreen(NewSessionDialog dialog) =>
-        (dialog.GetControl<Border>("RepoSourceNotice").IsVisible,
-         dialog.GetControl<TextBlock>("RepoSourceNoticeText").Text ?? "");
+    private static (bool Visible, string Text) NoticeOnScreen(OpenDialog open) =>
+        (open.Dialog.GetControl<Border>("RepoSourceNotice").IsVisible,
+         open.Dialog.GetControl<TextBlock>("RepoSourceNoticeText").Text ?? "");
 
     /// <summary>
-    /// Photograph the window, prove the picture is a real one, and copy it where a proof run asks for
-    /// it. The assertion is what stops a run that captured nothing from reading as a run that captured
-    /// a screen.
+    /// Photograph the window, PROVE THE CAMERA IS LIVE, and copy the picture where a proof run asks for
+    /// it.
+    ///
+    /// THE LIVENESS CHECK IS NOT CEREMONY - IT IS THE DEFECT THIS METHOD ALREADY SHIPPED ONCE. A single
+    /// capture after the dispatcher's jobs have run hands back a frame composed BEFORE the Gateway's
+    /// answer reached the screen: the committed picture of "the Gateway could not be reached" showed the
+    /// waiting sentence instead, while the test it sat in passed, because the test read the control and
+    /// the camera read the past. A picture of the wrong moment is the proof covering the wrong thing,
+    /// and it is invisible to every assertion about the screen.
+    ///
+    /// So the window is composed repeatedly, and then the method proves the shot tracks the window: it
+    /// makes one known visible change, photographs again, and requires the two pictures to differ. A
+    /// camera returning a frozen frame gives two identical pictures and fails here - watched failing,
+    /// with the capture swapped for one that never re-renders.
     /// </summary>
-    private static void Photograph(Window window, string fileName)
+    private static void Photograph(OpenDialog open, string fileName)
     {
-        var frame = window.CaptureRenderedFrame();
-        Assert.NotNull(frame);
-        Assert.True(frame!.PixelSize.Width > 400 && frame.PixelSize.Height > 300,
-            $"the captured frame is {frame.PixelSize}, which is not a picture of a dialog");
+        Assert.Equal(1, Volatile.Read(ref _openDialogs));
+
+        var picture = Compose(open.Dialog);
+
+        // One known visible change, and the same camera again. Restored immediately.
+        var notice = open.Dialog.GetControl<Border>("RepoSourceNotice");
+        var wasVisible = notice.IsVisible;
+        notice.IsVisible = !wasVisible;
+        var second = Compose(open.Dialog);
+        notice.IsVisible = wasVisible;
+        Compose(open.Dialog);
+
+        Assert.False(picture.SequenceEqual(second),
+            "the camera returned the same picture after the screen changed, so it is photographing a "
+            + "frame from the past rather than this window");
 
         var taken = Path.Combine(Path.GetTempPath(), "cc-director-phase6-shots");
         Directory.CreateDirectory(taken);
         var file = Path.Combine(taken, fileName);
-        frame.Save(file);
-        Assert.True(new FileInfo(file).Length > 5000, "the saved picture is too small to be a screen");
+        File.WriteAllBytes(file, picture);
 
         var proofDirectory = Environment.GetEnvironmentVariable(ProofDirectoryVariable);
         if (!string.IsNullOrWhiteSpace(proofDirectory))
@@ -134,6 +183,25 @@ public class NewSessionDialogGatewayListTests
             Directory.CreateDirectory(proofDirectory);
             File.Copy(file, Path.Combine(proofDirectory, fileName), overwrite: true);
         }
+    }
+
+    /// <summary>Compose the window as it stands NOW, and hand back the picture as bytes.</summary>
+    private static byte[] Compose(Window window)
+    {
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+
+        var frame = window.CaptureRenderedFrame();
+        Assert.NotNull(frame);
+        Assert.True(frame!.PixelSize.Width > 400 && frame.PixelSize.Height > 300,
+            $"the captured frame is {frame.PixelSize}, which is not a picture of a dialog");
+
+        using var memory = new MemoryStream();
+        frame.Save(memory);
+        var bytes = memory.ToArray();
+        Assert.True(bytes.Length > 5000, "the picture is too small to be a screen");
+        return bytes;
     }
 
     /// <summary>
@@ -145,7 +213,7 @@ public class NewSessionDialogGatewayListTests
     {
         using var machine = new MachineOfItsOwn();
         var asked = 0;
-        var dialog = Open(machine.Registry, _ =>
+        using var dialog = Open(machine.Registry, _ =>
         {
             asked++;
             return Task.FromResult(KnownRepositoryListResult.Served(TheGatewaysList()));
@@ -175,7 +243,7 @@ public class NewSessionDialogGatewayListTests
     public void WhenTheGatewayCannotBeReached_ItStillListsRepositories_AndSaysItIsOnTheFallback()
     {
         using var machine = new MachineOfItsOwn();
-        var dialog = Open(machine.Registry, _ => Task.FromResult(
+        using var dialog = Open(machine.Registry, _ => Task.FromResult(
             KnownRepositoryListResult.Unreachable("No such host is known. (gateway.devthrottle.com:443)")));
 
         var rows = RowsOnScreen(dialog);
@@ -204,7 +272,7 @@ public class NewSessionDialogGatewayListTests
     public void WithNoGatewayConnected_ItListsTheMachinesOwnRepositories_AndSaysSo()
     {
         using var machine = new MachineOfItsOwn();
-        var dialog = Open(machine.Registry, _ => Task.FromResult(
+        using var dialog = Open(machine.Registry, _ => Task.FromResult(
             KnownRepositoryListResult.NotConfigured("no Gateway is configured on this Director")));
 
         Assert.Equal(2, RowsOnScreen(dialog).Count);
@@ -223,7 +291,7 @@ public class NewSessionDialogGatewayListTests
     public void WhenTheGatewayRefuses_TheScreenShowsTheGatewaysOwnWords()
     {
         using var machine = new MachineOfItsOwn();
-        var dialog = Open(machine.Registry, _ => Task.FromResult(
+        using var dialog = Open(machine.Registry, _ => Task.FromResult(
             KnownRepositoryListResult.Refused("The Director has not reported a machine name.")));
 
         Assert.Equal(2, RowsOnScreen(dialog).Count);
@@ -244,12 +312,12 @@ public class NewSessionDialogGatewayListTests
     public void WhenTheGatewayServesAnEmptyList_TheScreenShowsIt_AndDoesNotFallBack()
     {
         using var machine = new MachineOfItsOwn();
-        var dialog = Open(machine.Registry, _ => Task.FromResult(
+        using var dialog = Open(machine.Registry, _ => Task.FromResult(
             KnownRepositoryListResult.Served(Array.Empty<KnownRepositoryDto>())));
 
         Assert.Empty(RowsOnScreen(dialog));
         Assert.False(NoticeOnScreen(dialog).Visible);
-        Assert.True(dialog.GetControl<Border>("RepoEmptyState").IsVisible);
+        Assert.True(dialog.Dialog.GetControl<Border>("RepoEmptyState").IsVisible);
     }
 
     /// <summary>
@@ -260,17 +328,17 @@ public class NewSessionDialogGatewayListTests
     public void SortingByNameAndBack_ReturnsTheGatewaysOrder()
     {
         using var machine = new MachineOfItsOwn();
-        var dialog = Open(machine.Registry, _ => Task.FromResult(
+        using var dialog = Open(machine.Registry, _ => Task.FromResult(
             KnownRepositoryListResult.Served(TheGatewaysList())));
 
-        dialog.GetControl<Button>("RepoHeaderName").RaiseEvent(
+        dialog.Dialog.GetControl<Button>("RepoHeaderName").RaiseEvent(
             new global::Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(
             new[] { "atlas-reporting", "beacon", "cinder", "zephyr-tools" },
             RowsOnScreen(dialog).Select(r => r.Name).ToArray());
 
-        dialog.GetControl<Button>("RepoHeaderLastUsed").RaiseEvent(
+        dialog.Dialog.GetControl<Button>("RepoHeaderLastUsed").RaiseEvent(
             new global::Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(
@@ -286,10 +354,10 @@ public class NewSessionDialogGatewayListTests
     public void SearchingReachesANeverOpenedRepository_WithoutReOrderingTheRest()
     {
         using var machine = new MachineOfItsOwn();
-        var dialog = Open(machine.Registry, _ => Task.FromResult(
+        using var dialog = Open(machine.Registry, _ => Task.FromResult(
             KnownRepositoryListResult.Served(TheGatewaysList())));
 
-        dialog.GetControl<TextBox>("RepoSearchBox").Text = "cinder";
+        dialog.Dialog.GetControl<TextBox>("RepoSearchBox").Text = "cinder";
         Dispatcher.UIThread.RunJobs();
 
         var found = RowsOnScreen(dialog);
