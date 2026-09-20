@@ -946,9 +946,21 @@ internal static class GatewayEndpoints
         // composing a URL, which rule 7 forbids and which a desktop test reddens on.
         app.MapGet("/cockpit", (HttpContext ctx, string? sessionId) =>
         {
+            // NO sessionId at all (null) is the front door, exactly as before. A sessionId that is PRESENT
+            // but blank is a caller error, and it is refused rather than folded into the front door: a
+            // caller that asked for a session and was silently handed the fleet's landing page would look
+            // like it worked and land somewhere it did not ask for (CLAUDE.md rule 3).
+            if (sessionId is not null && string.IsNullOrWhiteSpace(sessionId))
+            {
+                FileLog.Write("[GatewayEndpoints] GET /cockpit: sessionId was present but blank - refused");
+                return Results.Json(
+                    new { error = "sessionId was present but blank. Send a session id, or omit sessionId for the Cockpit front door." },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
             return Results.Json(new CockpitInfoDto
             {
-                Url = string.IsNullOrWhiteSpace(sessionId)
+                Url = sessionId is null
                     ? GatewayPublicUrl.ResolveCockpit()
                     : GatewayPublicUrl.ResolveCockpitSession(sessionId),
                 Port = ctx.Connection.LocalPort,

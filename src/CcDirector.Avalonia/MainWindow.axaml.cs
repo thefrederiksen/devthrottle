@@ -2154,6 +2154,10 @@ public partial class MainWindow : Window
                     PlaceholderText.IsVisible = true;
                     TerminalDock.IsVisible = false;
                     PromptBarBorder.IsVisible = false;
+                    // The selected session was removed underneath us, so there is no session to open in
+                    // the Cockpit. This path nulls _activeSession without going through SelectSession, so
+                    // the button has to be hidden here too or it is left offering a session that is gone.
+                    TabBarCockpitButton.IsVisible = false;
                 }
 
                 _sessions.Remove(vm);
@@ -2532,6 +2536,9 @@ public partial class MainWindow : Window
         TerminalHost.Detach();
         SourceControlView.Detach();
         _activeSession = null;
+        // Same reason as the removal path above: _activeSession is nulled here without going through
+        // SelectSession, so the Cockpit button must be hidden explicitly.
+        TabBarCockpitButton.IsVisible = false;
 
         var snapshots = _sessions.ToList();
         _sessions.Clear();

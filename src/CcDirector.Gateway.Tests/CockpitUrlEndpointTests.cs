@@ -58,6 +58,35 @@ public sealed class CockpitUrlEndpointTests
     }
 
     [Fact]
+    public async Task Hosted_cockpit_with_sessionId_returns_that_sessions_screen()
+    {
+        await WithHostedGateway(PublicBase, async (http, _) =>
+        {
+            var info = await GetJson<CockpitInfoDto>(
+                http, "cockpit?sessionId=2d0955fe-ed31-40c1-a519-72676b4499c5", auth: false);
+
+            // The whole session address is resolved HERE, so the Director opens it verbatim. The Cockpit is
+            // served at the site root, so the session screen is /session/{id} - a sibling of /cockpit, not
+            // a child of it.
+            Assert.Equal(PublicBase + "/session/2d0955fe-ed31-40c1-a519-72676b4499c5", info.Url);
+            Assert.True(info.Up);
+        });
+    }
+
+    [Fact]
+    public async Task Hosted_cockpit_with_blank_sessionId_is_refused()
+    {
+        await WithHostedGateway(PublicBase, async (http, _) =>
+        {
+            using var resp = await http.GetAsync("cockpit?sessionId=");
+
+            // A caller that asked for a session is never quietly handed the front door instead: it would
+            // look like it worked and land somewhere it did not ask for (CLAUDE.md rule 3).
+            Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        });
+    }
+
+    [Fact]
     public async Task Hosted_about_CockpitUrl_returns_configured_public_cockpit_url()
     {
         await WithHostedGateway(PublicBase, async (http, gateway) =>
