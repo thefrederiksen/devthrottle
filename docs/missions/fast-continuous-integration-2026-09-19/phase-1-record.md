@@ -205,9 +205,80 @@ package of their own, taken before package 2, because package 2's six-way split 
 far more violently than removing one class did, and going into it on a suite that already fails
 differently depending on what ran before would make its own presence check unreadable.
 
-## Open
+## Package 3 - open as pull request 3175
 
-- Package 3 still building.
+Branch `ci/package-3-postgres-proofs-own-project`, opened 20 September 2026, not merged.
+`src/CcDirector.Gateway.Postgres.Tests` holds every test in the repository that needs a real
+PostgreSQL server - thirteen classes out of `CcDirector.Gateway.Tests`,
+`HostedSchemaRefusesAnUnownedRowTests` out of `CcDirector.Gateway.UnitTests`, and the one live
+database test inside `GatewayHostBootSmokeTests`. No assertion was changed. One reusable workflow
+`postgres-proofs.yml`, started by paths from `ci.yml` and required by the hosted deploy, where it
+runs on the exact commit about to ship.
+
+**The count, which the brief left unproven.** The brief said "about 56", from test attributes
+cross-checked against one log's skips. The Developer counted it three ways and got **61 cases**: 56
+cases (54 methods) needing the rig, plus 5 more needing a server reached through
+`CC_GATEWAY_DB_CONNECTION` that the brief's figure did not include. Checked against the built
+assembly rather than the source, and confirmed by the run itself.
+
+**Checked by the Delivery Lead at job level, not run level**, because each of these runs is red
+overall from main's own failures and a run-level conclusion would have said nothing:
+
+| Run | The `PostgreSQL proofs` job | What it establishes |
+|---|---|---|
+| 35483698850 | success | `The assembly declares 64 test(s)`, then `PASSED: all 64 declared test(s) ran, producing 66 result(s), every one of them a pass and not one of them skipped`. |
+| 35483772377, one migration file | success - it ran | The filter starts the job on a database-facing change. |
+| 35483773656, one unrelated file | **skipped** - it did not run | The other half of the same controlled pair, differing by exactly one file. |
+| 35483933499, connection variables removed | **failure** | `dotnet test` printed a green - `Passed: 5, Skipped: 54` - and the verdict step turned it into a job failure naming all fifty-four. |
+
+The last is the proof that matters: the job cannot pass by skipping. The restricted role's measured
+grants are printed on every run, so the role is shown rather than assumed.
+
+The Developer's first attempt at the controlled pair was wrong and is recorded rather than dropped -
+a pull request against main from a branch carrying the whole package has the package in its diff, so
+the job correctly starts on both halves and neither run discriminates. The second attempt used two
+pull requests against one scratch base differing by exactly one file.
+
+**Two decisions taken here**, both written into the pull request body:
+
+1. **The widened path list is accepted.** The brief named the `Data`, `Stats` and `Tenancy` folders
+   and recorded that the list was unchecked. Checked, the proofs also reach `Pairing`, `History`,
+   `Snooze`, `Streaming`, `Wingman` and `GatewayHost`, so the rule is the whole
+   `src/CcDirector.Gateway/` project plus `src/CcDirector.Gateway.Tests/`. A list of eight folders is
+   wrong the day a ninth appears.
+2. **`Directory.Packages.props`, which the brief names, does not exist in this repository.**
+   Confirmed against `origin/main`: the root holds `Directory.Build.props` and `global.json`, and
+   those are used instead. The brief is wrong on this point and pull request 3175 is the correction.
+
+**Not proven, and said plainly in the body:** no PostgreSQL proof ran locally at all, so the edits
+to `scripts/test-local.ps1` are unexercised; the hosted deploy was not rehearsed; Linux only, with
+nothing said about these proofs on Windows or macOS; and the path list deliberately omits
+`CcDirector.Core` and `CcDirector.Gateway.Contracts`, which are build inputs whose behaviour could
+change what the proofs prove without starting the job - a mitigation, not a cure, and named as one.
+
+**A ninth Windows failure was chased, not waved past.**
+`DeviceKeyAtRestTests.IssuedKey_StillAuthenticates_AndSurvivesARestart` is in the assembly whose
+composition this package changes. Six runs of that one assembly on Windows, three on this tree and
+three on main's, were all green; the Developer recorded that as evidence and refused to call it
+proof. The mechanism it found is that the class builds a `GatewayDatabase` whose provider selection
+reads the process-global `CC_GATEWAY_DB_CONNECTION` and, unlike its neighbours, does not take
+`GatewayDbEnvironmentGate` - whose own comment describes this exact shape. It is the same defect
+family as the moving failure set above, and the best-named instance of it so far.
+
+## Open
 - All three branches are based on `736d9afe2`; main has since moved on. Each is merged by the
   Architect, which rebases or lets the merge carry it.
 - The unexplained twenty-five minutes of the measured saving.
+- Two questions raised to the owner and not yet answered: what "tested" means for a commit whose run
+  was cancelled, and whether the order-dependent tests become a package of their own ahead of
+  package 2.
+
+## Phase 1, as opened
+
+| Package | Pull request | Proof it carries |
+|---|---|---|
+| 1 - the sixteen-minute test moves to the deploy | 3161 | A skipped test turns the deploy job red; the .NET job measured from 100 minutes 30 seconds to 58 minutes 46 seconds at the same base commit. |
+| 3 - the PostgreSQL proofs get their own project | 3175 | One file starts the job, one file does not; a green `dotnet test` with 54 skips is turned into a job failure. |
+| 4 - the continuous integration keeper | 3163 | The real week raises the red test by name and the 76 minute median; a condition it could not measure is never a pass. |
+
+None merged by the Delivery Lead, as the handoff note requires.
