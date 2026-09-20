@@ -196,10 +196,22 @@ public class TerminalThroughputTests
     /// 2. THE COST OF A CHUNK, taken from the FASTEST whole chunk of the run rather than the median or the
     ///    worst. Scheduler contention is one-sided: being descheduled can only ADD elapsed time to a chunk,
     ///    never remove it. So the fastest of 160 samples is the closest this suite can get to the parser's
-    ///    own cost, and a figure that is only ever inflated by load cannot produce a false RED. It can
-    ///    produce a false green on a machine so contended that every one of the 160 chunks was interrupted,
-    ///    which is why the strong assertion is the first one and this is the catastrophe guard it was always
-    ///    really serving as.
+    ///    own cost, and it can never read BELOW that cost. Read the guarantee in the direction it actually
+    ///    runs: a PASS is never false, because a fastest sample under the budget proves the parser's own
+    ///    cost is under the budget too. A RED is not the mirror of that. It means the parser is over
+    ///    budget, OR was within this machine's interference of it - a parser whose own cost sat close to
+    ///    100 milliseconds could be pushed past it by the smallest interference present in every one of the
+    ///    160 chunks. That the red is not happening today is an empirical fact about today's margin, not a
+    ///    property of the measurement: the parser costs about 10 milliseconds a chunk, so a false red would
+    ///    need 90 milliseconds of interference on all 160 samples, and the fastest chunk measured 11.07
+    ///    milliseconds at a load average above 40. If a later legitimate change puts the parser at 70 to 90
+    ///    milliseconds a chunk, still inside budget, a loaded machine could turn this red - so check the
+    ///    margin before hunting a regression.
+    ///
+    ///    What a fully contended machine gets is still a green, and it is a true one ABOUT THE PARSER: the
+    ///    delivered latency on such a machine may be far over budget while the parser itself is not. This
+    ///    test deliberately declines to judge the machine, which is why the strong assertion is the first
+    ///    one and this is the catastrophe guard it was always really serving as.
     ///
     /// WHAT IT NO LONGER ASSERTS, DELIBERATELY: the median, the worst chunk, and the share of chunks over
     /// budget. All three are printed, because a human reading a run wants to see them, and none is a verdict,
@@ -272,12 +284,18 @@ public class TerminalThroughputTests
             + "load, so a busy box is not the explanation.");
 
         // 2. The cost of a chunk, from the sample least interfered with. Contention only ever inflates this,
-        //    so exceeding the budget here means the parser really is over it.
+        //    so a pass here is never false; a red means the parser is over budget, or was within this
+        //    machine's interference of it.
         Assert.True(
             fastest <= MaxChunkMs,
             $"the fastest of {Chunks} chunks took {fastest:F1} ms, over the {MaxChunkMs} ms user-interface "
-            + $"budget (median {median:F1} ms, slowest {slowest:F1} ms). Scheduler contention can only add to "
-            + "an elapsed time, so even on a loaded machine this says the parser itself is too slow.");
+            + $"budget (median {median:F1} ms, slowest {slowest:F1} ms). Scheduler contention can only add "
+            + "to an elapsed time, so a PASS here is never false - but a red is not the mirror of that: it "
+            + "means the parser is over budget, OR was within this machine's interference of it. Check the "
+            + "margin before hunting a regression. The parser cost about 10 ms a chunk when this budget was "
+            + "set, so at that cost a red needs 90 ms of interference on every one of the samples and is a "
+            + "parser problem; a parser already close to the budget can be pushed over it by a loaded "
+            + "machine, and then the machine is part of the answer.");
     }
 
     // -------------------------------------------------------------------------

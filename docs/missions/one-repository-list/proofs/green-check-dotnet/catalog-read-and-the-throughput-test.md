@@ -220,9 +220,24 @@ down. A performance check that cries wolf is worse than none, because it is mist
    what stops the user interface thread. Measured at **34.47 bytes per byte parsed**; the budget is 40.
 2. **The cost of a chunk**, taken from the **fastest** whole chunk of the run rather than the median or the
    worst. Scheduler contention is one-sided - being descheduled can only ADD elapsed time, never remove it -
-   so the fastest of 160 samples is the closest this suite can get to the parser's own cost, and a figure
-   that is only ever inflated by load cannot produce a false red. Asserted against the same 100 millisecond
-   user interface budget.
+   so the fastest of 160 samples is the closest this suite can get to the parser's own cost, and it can
+   never read below that cost. The guarantee that buys runs in one direction only: **a pass is never false;
+   a red means the parser is over budget, or was within this machine's interference of it.** A fastest
+   sample under the budget proves the parser's own cost is under the budget too. A fastest sample over it
+   does not prove the converse with the same force - a parser whose own cost sat close to 100 milliseconds
+   could be pushed past it by the smallest interference present in every one of the 160 chunks. That this
+   does not happen today is an empirical fact about today's margin and not a property of the measurement:
+   the parser costs about 10 milliseconds a chunk, so a false red would need 90 milliseconds of
+   interference on all 160 samples, and the fastest chunk measured 11.07 milliseconds at a load average
+   above 40 (the third row of the table below). If a later legitimate change puts the parser at 70 to 90
+   milliseconds a chunk - still inside budget - a loaded machine could turn this red, which is why the
+   failure message says to check the margin rather than claiming machine load is excluded. Asserted against
+   the same 100 millisecond user interface budget.
+
+   What a fully contended machine produces is still a green, and it is a true one **about the parser**: the
+   latency a user would have seen on such a machine can be far over budget while the parser itself is not.
+   The test declines to judge the machine, deliberately - that is the defect it was rewritten to stop
+   committing - which is why the strong assertion is the first one.
 
 The median, the worst chunk and the share of chunks over budget are still **printed** on every run, because
 a person reading a run wants to see them. None of them is a verdict any more.
@@ -262,10 +277,15 @@ regression that was. The parser edit was reverted; `git diff` on `AnsiParser.cs`
 
 ### What this does NOT cover, and what a stronger claim would need
 
-- **The timing half is still a wall-clock measurement.** Taking the fastest sample makes a false RED
-  essentially impossible, because contention only inflates. It does not make a false GREEN impossible: on a
-  machine so contended that every one of the 160 chunks was interrupted, the fastest chunk is inflated too
-  and the bar could be cleared by a parser that is genuinely slow. That is why the load-independent
+- **The timing half is still a wall-clock measurement.** Taking the fastest sample makes a false GREEN
+  impossible, because contention only ever inflates a sample: a fastest chunk under the bar proves the
+  parser's own cost is under the bar. It does NOT make a false RED impossible, and the sentence has to be
+  read that way round. Contention inflates the fastest sample too, so once the parser's own cost approaches
+  100 milliseconds a loaded machine can push even the least-interfered sample past the bar and fail a parser
+  that was inside budget. Today that needs 90 milliseconds of interference on all 160 chunks and does not
+  happen, but that is the margin, not the measurement. The other thing it does not cover is the machine: on
+  a contended box the latency a user actually saw can be far over budget while this assertion stays green,
+  because the test judges the parser and refuses to judge the machine. That is why the load-independent
   allocation assertion is the primary one and this is the catastrophe guard it was really always serving as.
 - **A genuinely load-independent TIMING claim needs processor time for this thread, and .NET exposes no
   portable way to read it.** `Process.TotalProcessorTime` is process-wide and this suite runs its tests in
