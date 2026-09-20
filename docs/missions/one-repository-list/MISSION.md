@@ -103,8 +103,45 @@ The Gateway has been recording the right thing all along and nothing reads it.
 - The Director's dialog builds its list in `NewSessionDialog.BuildRepositoryList()` as a union of the
   registry and the root-folder scan held by `RepositoryMonitor`. `GET /directors/{id}/repos` returns the
   registry half alone, so the Cockpit is handed half a list.
-- The root-folder scan has no route to the Gateway at all. Searching the Gateway and the Director's
-  control surface for the root-folder concept returns nothing.
+- ~~The root-folder scan has no route to the Gateway at all. Searching the Gateway and the Director's
+  control surface for the root-folder concept returns nothing.~~ **This was false, and it is corrected
+  below.** It was written from a search for the words "root folder" on the Gateway, which returns nothing
+  because the scan travels under a different name - as a repository snapshot. The road exists and it ships.
+
+### The root-folder scan already reaches the Gateway - what is actually there
+
+Corrected on 19 September 2026 during phase 2, after the Tech Lead and the Delivery Lead each verified it
+against `origin/main` independently, and the Developer checked every line below before writing anything.
+Phases 3, 5 and 6 all build on this same road and must not have to rediscover it.
+
+**The inferred decision in section 4 - that the Director PUSHES its root-folder scan rather than the
+Gateway pulling it - turned out to be RIGHT, and it was already built.** Nothing in this mission needs a
+new Director-to-Gateway feed, and a second pusher on a second cadence would be two feeds describing one
+machine. Two feeds describing one machine disagree, which is the defect this mission exists to end.
+
+The road, end to end:
+
+- `ControlApiHost.SnapshotRepositories()` (`src/CcDirector.ControlApi/ControlApiHost.cs`) maps
+  `RepositoryMonitor.Snapshot()` - the root-folder scan itself - into `RepoStatusDto`, carrying the path,
+  the name, the machine name and the Director id.
+- `ControlApiHost.WireRepositoryPush()` pushes it up the tunnel, debounced three seconds, on every
+  `Upserted`, `Removed` and `ScanCompleted`, plus the ten-second reseed in
+  `GatewayStreamClient.ReseedAsync`.
+- `DirectorHub.PushRepoSnapshot` (`src/CcDirector.Gateway/Streaming/DirectorHub.cs`) receives it, and
+  hands each ACCEPTED push to its observers.
+
+There are now THREE observers on that one accepted push, and each keeps the snapshot for a different
+length of time:
+
+1. `PushedRepositoryStore` - IN MEMORY, per Director, time-gated. It returns nothing once that Director
+   has been offline longer than the staleness window. This is what `GET /repositories` serves.
+2. `RepoHistoryStore` - durable, file-backed daily rows, for the morning report's drift numbers.
+3. `DiscoveredRepositoryObserver` - **added by phase 2** - which folds the same push into
+   `KnownRepositoryStore` as the DISCOVERED half of the one catalogue: durable, machine-keyed, and
+   surviving the Director going away, which is exactly when the other two screens still need the list.
+
+What was missing was therefore never the road. It was a durable, machine-keyed catalogue at the end of
+it.
 
 ### The shape of the fix
 

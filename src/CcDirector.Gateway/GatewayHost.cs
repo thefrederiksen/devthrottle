@@ -748,6 +748,10 @@ public sealed class GatewayHost : IAsyncDisposable
     // against overlap like the cron sweep. Created in StartAsync, disposed in StopAsync.
     private readonly History.SessionHistoryStore _sessionHistory;
     private readonly History.KnownRepositoryStore _knownRepositories;
+    /// <summary>The one-repository-list mission, phase 2: the third observer on the repository snapshot a
+    /// Director already pushes, which folds the root-folder scan into <see cref="_knownRepositories"/> as
+    /// found-but-never-opened. Shared with the SignalR-constructed DirectorHub through the container.</summary>
+    private readonly History.DiscoveredRepositoryObserver _discoveredRepositories;
     /// <summary>The stored conversation (turn-push mission): what Directors push and every reader reads.</summary>
     private readonly History.SessionTurnStore _sessionTurns;
     /// <summary>The judged stops (the Wingman-on-every-turn mission): what the Wingman said each turn end
@@ -2000,6 +2004,14 @@ public sealed class GatewayHost : IAsyncDisposable
                                  : new History.DirectorFacts(d.MachineName, d.Version);
             },
             _knownRepositories);
+        // The one-repository-list mission, phase 2. The machine name comes from the Director REGISTRATION -
+        // the same Registry.Get the read side's GET /directors/{id}/known-repositories resolves its machine
+        // from - so the end that writes the rows and the end that reads them agree on one string. Writing
+        // them under the pushed payload's machine name instead would leave rows that exist and no screen
+        // ever shows. Registry.Get is tenant-scoped, so one account can never write under another's machine.
+        _discoveredRepositories = new History.DiscoveredRepositoryObserver(
+            _knownRepositories,
+            (tenant, directorId) => Registry.Get(tenant, directorId)?.MachineName);
         var historySummarizer = new History.SessionHistorySummarizer(_sessionHistory, _promptLog,
             (tenant, ct) =>
             {
@@ -3378,6 +3390,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // Issue #2194: the work-history recorder, so the SignalR-constructed DirectorHub folds every
         // accepted push into the durable session record (throttled inside the recorder).
         builder.Services.AddSingleton(_sessionHistoryRecorder);
+        // The one-repository-list mission, phase 2: the third observer on the repository snapshot, so the
+        // SignalR-constructed DirectorHub folds every accepted push into the durable machine catalog.
+        builder.Services.AddSingleton(_discoveredRepositories);
         // The stored conversation (turn-push mission): DirectorHub.PushTurns writes it, Hello reads its watermarks.
         builder.Services.AddSingleton(_sessionTurns);
         // Which Directors say they send conversations - recorded at Hello, read when Chat finds nothing stored.

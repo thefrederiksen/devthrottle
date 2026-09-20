@@ -66,8 +66,10 @@ public sealed class DirectorHub : Hub
         History.SessionTurnStore? sessionTurns = null,
         TurnPushCapabilityRegistry? turnPushCapabilities = null,
         Briefing.TurnEndWatcher? turnEnds = null,
-        FleetManagerHomeCapabilityRegistry? fleetManagerHomeCapabilities = null)
+        FleetManagerHomeCapabilityRegistry? fleetManagerHomeCapabilities = null,
+        History.DiscoveredRepositoryObserver? discoveredRepositories = null)
     {
+        _discoveredRepositories = discoveredRepositories;
         _fleetManagerHomeCapabilities = fleetManagerHomeCapabilities;
         _turnEnds = turnEnds;
         _turnPushCapabilities = turnPushCapabilities;
@@ -103,6 +105,10 @@ public sealed class DirectorHub : Hub
     private readonly Pairing.SessionKeyRegistry? _sessionKeys;
 
     private readonly RepoHistoryStore? _repoHistory;
+    /// <summary>The one-repository-list mission, phase 2: the THIRD observer on the accepted repository
+    /// snapshot, which folds the root-folder scan into the durable machine catalog as found-but-never-opened.
+    /// Null in tests and older callers that do not exercise it.</summary>
+    private readonly History.DiscoveredRepositoryObserver? _discoveredRepositories;
     // Issue #2194: the durable work-history recorder, fed from the same accepted pushes as the other
     // observers. Throttled internally (it is NOT a write per push) and never throws.
     private readonly History.SessionHistoryRecorder? _sessionHistory;
@@ -128,7 +134,26 @@ public sealed class DirectorHub : Hub
         var accepted = _repositoryStore?.ApplySnapshot(RequireBoundTenant(), directorId, Context.ConnectionId,
             sequence, set) ?? false;
         if (accepted)
+        {
             _repoHistory?.ObserveSnapshot(RequireBoundTenant(), directorId, set);
+            // The one-repository-list mission, phase 2: the same accepted push, folded into the durable
+            // machine catalog as the found-but-never-opened half. Gated on acceptance for the reason the
+            // observer above is - a push from a superseded connection or a stale sequence is not
+            // authoritative, and reconciling from it would let it delete rows the current connection owns.
+            //
+            // CONTAINED. The catalog is additive support for the repository list; a database that is slow,
+            // not open yet, or unhappy must not fail the invocation after PushedRepositoryStore has already
+            // taken the snapshot - the Director would be told its push failed when its repositories had in
+            // fact landed, and would keep retrying a push that already worked.
+            try
+            {
+                _discoveredRepositories?.ObserveSnapshot(RequireBoundTenant(), directorId, set);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[DirectorHub] PushRepoSnapshot: the discovered-repository fold FAILED (contained): {ex.Message}");
+            }
+        }
         FileLog.Write($"[DirectorHub] PushRepoSnapshot: director={directorId} seq={sequence} repos={set.Length} accepted={accepted}");
     }
 
