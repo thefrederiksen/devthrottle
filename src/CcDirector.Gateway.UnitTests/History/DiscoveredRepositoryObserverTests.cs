@@ -376,12 +376,19 @@ public sealed class DiscoveredRepositoryObserverTests : IDisposable
         Assert.Equal(_now, row.LastUsedUtc);
     }
 
+    /// <summary>
+    /// FAILURE CASE: a warm-start push collapses nothing. A cached worktree list is not a statement about
+    /// now, and this is a destructive operation.
+    ///
+    /// <para><b>WHAT HOLDS THIS SHUT, measured rather than assumed.</b> It is the reconciliation guard,
+    /// not the provisional filter beside the worktree loop: moving that loop above the filter, so cached
+    /// lists are believed, leaves this test green. One provisional row anywhere in the push makes the
+    /// whole push something other than a real observation, and the collapse does not run on one of
+    /// those.</para>
+    /// </summary>
     [Fact]
     public void ObserveSnapshot_AProvisionalPush_CollapsesNothing()
     {
-        // FAILURE CASE. A warm-start row's worktree list is whatever was last cached rather than what
-        // git says now, and this is a destructive operation. The provisional filter drops the row before
-        // its worktrees are read, and the push is refused reconciliation outright.
         _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/one", "one", _now.AddHours(-2));
         _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/one-wt", "", _now);
         var warm = PushedWithWorktrees("/roots/alpha/one", "one", "/roots/alpha/one-wt");

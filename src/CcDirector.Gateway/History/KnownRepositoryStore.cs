@@ -434,11 +434,17 @@ public sealed class KnownRepositoryStore
             // repository is touched, and that the repository must be in THIS push's snapshot - silence
             // is never permission.
             //
-            // IT RUNS BEFORE THE FORGETTING BELOW, on purpose. A worktree folder that has gone could be
-            // reached by both rules, and they do different things with it: this one MOVES its last-used
-            // time onto the repository, the other DELETES it and the time with it. Doing this first means
-            // a row that can be accounted for is accounted for, and only what nobody claims is forgotten.
-            // That is the keep-leaning order.
+            // IT RUNS BEFORE THE FORGETTING BELOW, and what that is and is NOT worth was measured rather
+            // than assumed. A worktree folder that has gone can be reached by both rules, and they do
+            // different things with it: this one MOVES its last-used time onto the repository, the other
+            // DELETES it and the time with it. Running first means such a row is accounted for and is
+            // never also counted as forgotten, so the log and the counts say what happened.
+            //
+            // It is NOT what saves the time. Swapping the two blocks was tried, and every test stayed
+            // green: both rules read the same materialized `rows`, and the time is taken off the entity
+            // whether or not the other rule has already marked it for removal. So the outcome does not
+            // depend on this order. It is written this way because it is the clearer statement of intent
+            // - but nobody should believe a test is holding it, because none is.
             if (reconcile && worktrees is { Count: > 0 })
             {
                 foreach (var worktree in worktrees)

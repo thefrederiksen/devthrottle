@@ -376,16 +376,20 @@ public sealed class TheCatalogueCollapsesAWorktreeTests : IDisposable
     // ---------- WHERE IT MEETS THE RULE NEXT TO IT ----------
 
     /// <summary>
-    /// THE TWO DESTRUCTIVE RULES MEET, and the order is what decides whether a time survives. A worktree
-    /// whose folder has gone is reachable by BOTH: the forgetting rule would delete it and its
-    /// last-access time with it, and this rule moves that time onto the repository. The collapse runs
-    /// first, so what can be accounted for is accounted for, and only what nobody claims is forgotten.
+    /// THE TWO DESTRUCTIVE RULES MEET on one row. A worktree whose folder has gone is reachable by BOTH:
+    /// the forgetting rule would delete it and its last-access time with it, and this rule moves that
+    /// time onto the repository. The time must survive - the repository was used, whatever has since
+    /// happened to the folder the work was done in.
     ///
-    /// This is a WRONG RULE NOTHING REMOVED: nobody deleted the ordering, and this test fails if anyone
-    /// ever swaps the two blocks.
+    /// <para><b>WHAT THIS TEST DOES NOT PROVE, said here because an earlier version of this comment
+    /// claimed it.</b> It does not hold the ORDER of the two blocks. Swapping them was tried and this
+    /// test stayed green, along with everything else: both rules read the same materialized rows, and
+    /// the time is taken off the entity whether or not the other has already marked it for removal. The
+    /// order is written for clarity and for an honest count in the log, and nothing tests it because
+    /// there is no behaviour to test.</para>
     /// </summary>
     [Fact]
-    public void AWorktreeThatIsBothGoneAndNamed_IsCollapsedRatherThanForgotten()
+    public void AWorktreeThatIsBothGoneAndNamed_KeepsItsTimeOnTheRepository()
     {
         var store = NewStore();
         store.Observe(TenantId.Local, Machine, "/roots/work/devthrottle", "devthrottle", _now.AddHours(-9));

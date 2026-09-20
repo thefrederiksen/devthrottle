@@ -141,6 +141,13 @@ public sealed class DiscoveredRepositoryObserver
             // Taken only from a row that is NOT provisional - the filter above has already dropped those
             // - because a warm-start row's worktree list is whatever was last cached rather than what git
             // says now, and this is a destructive operation.
+            //
+            // BUT THAT IS BELT AND BRACES, NOT THE GUARD, and it was measured rather than assumed: moving
+            // this loop ABOVE the provisional filter, so that cached worktree lists are believed, changes
+            // nothing at all. What actually holds it shut is the reconciliation guard below - one
+            // provisional row anywhere in the push makes `reconcile` false, and the collapse does not run
+            // on a push that is not a real observation. Nobody should read this line as the thing
+            // standing between a cached list and a deleted row.
             foreach (var worktree in repository.Worktrees ?? new List<WorktreeDto>())
             {
                 if (!string.IsNullOrWhiteSpace(worktree.Path))
