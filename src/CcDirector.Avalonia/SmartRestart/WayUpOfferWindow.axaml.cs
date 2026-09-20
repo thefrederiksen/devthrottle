@@ -28,7 +28,7 @@ public partial class WayUpOfferWindow : Window
             new WayUpRecord(
                 "sample", DateTime.UtcNow, DateTime.Now,
                 WayUpWords.Headline, WayUpWords.WhenLabel(DateTime.Now), null, WayUpWords.ReasonLabel(null),
-                0, WayUpWords.SeatsOwedLabel(0), Array.Empty<WayUpRow>()),
+                0, 0, WayUpWords.SeatsLabel(0, 0), Array.Empty<WayUpRow>()),
             new DesignerWayUp()))
     {
     }

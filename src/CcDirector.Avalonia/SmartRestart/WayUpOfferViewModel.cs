@@ -10,12 +10,12 @@ namespace CcDirector.Avalonia.SmartRestart;
 /// testable without a window.
 ///
 /// The same offer is made from two places and this is the one that makes it: at start-up, when the
-/// engine finds a record worth offering, and from File, Restart history, for a record that still owes
-/// seats. One offer, one wording, one set of rules - the reason the history exists at all is that the
+/// engine finds a record worth offering, and from File, Restart history, for a record that still holds a
+/// seat to act on. One offer, one wording, one set of rules - the reason the history exists at all is that the
 /// owner may not restart right away and may want to restart later, and a second copy of this offer
 /// would be free to drift away from the first.
 ///
-/// EVERY WORD IS THE ENGINE'S. The headline, when the shutdown was, the reason, the count, each row's
+/// EVERY WORD IS THE ENGINE'S. The headline, when the shutdown was, the reason, the counts, each row's
 /// title and detail, each seat's sentence, each reopen offer, the result of a bring back and each
 /// seat's outcome inside it - all of them arrive already worded on <see cref="WayUpRecord"/>,
 /// <see cref="WayUpBringBackResult"/> and <see cref="WayUpReopenResult"/>, and are shown as they are.
@@ -50,7 +50,7 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
         _engine = engine;
         Rows = record.Rows.Select(row => new WayUpRowViewModel(row, record.WorkspaceId, engine)).ToList();
         FileLog.Write($"[WayUpOfferViewModel] Created: workspace={record.WorkspaceId}, owed={record.SeatsOwed}, " +
-                      $"rows={Rows.Count}");
+                      $"endedWithoutHandover={record.SeatsEndedWithoutHandover}, rows={Rows.Count}");
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -67,10 +67,11 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
     /// <summary>The owner's reason, in the engine's words, including when there was none.</summary>
     public string ReasonLabel => Record.ReasonLabel;
 
-    /// <summary>How many seats are owed, in the engine's words. It is SHOWN AS GIVEN and is never
-    /// rebuilt from the rows: a label that disagreed with the rows would still be shown, because the
-    /// engine is what rules and the window renders.</summary>
-    public string SeatsOwedLabel => Record.SeatsOwedLabel;
+    /// <summary>What the record holds - seats waiting to come back, seats that ended without a handover,
+    /// or both - in the engine's words. It is SHOWN AS GIVEN and is never rebuilt from the rows: a label
+    /// that disagreed with the rows would still be shown, because the engine is what rules and the window
+    /// renders.</summary>
+    public string SeatsLabel => Record.SeatsLabel;
 
     /// <summary>The rows, in the engine's order: mission heads first, then the seats that ended without
     /// a handover.</summary>

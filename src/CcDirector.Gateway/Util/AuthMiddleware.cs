@@ -109,6 +109,14 @@ internal static class AuthMiddleware
     public const string AuthenticatedSessionItemKey = "cc.auth.SessionIdentity";
 
     /// <summary>
+    /// Request item holding the <see cref="RaisedGrant"/> that let this request through, present ONLY when the caller
+    /// is a RAISED session and the request is one an unraised session key is refused (the Fleet Manager Improvement
+    /// mission, phase 1). Stamped at the one place the guard was applied, for the reason every identity here is: a
+    /// route that must know "did the owner's grant let this caller in" reads this, and never works it out again.
+    /// </summary>
+    public const string RaisedGrantItemKey = "cc.auth.RaisedGrant";
+
+    /// <summary>
     /// The desktop Cockpit's sign-in route (issue #1088): the shared client-core enrollment screen a
     /// signed-out browser navigation is redirected to. Must match the route in apps/cockpit/src/main.tsx.
     /// </summary>
@@ -280,7 +288,7 @@ internal static class AuthMiddleware
             return;
         }
 
-        var authentication = AuthenticateRequest(ctx, cfg.Token, cfg.Devices, GatewayHostedMode.IsHosted, cfg.Sessions);
+        var authentication = AuthenticateRequest(ctx, cfg.Token, cfg.Devices, GatewayHostedMode.IsHosted, cfg.Sessions, cfg.IsRaised);
         if (authentication == AuthenticationResultKind.Authenticated)
         {
             // MTR-15 cancellation cutoff: on hosted, an authenticated device-key request must still belong to
@@ -322,6 +330,20 @@ internal static class AuthMiddleware
                     }
                 }
             }
+
+            // THE RECORD COMES BEFORE THE ACTION. A raised session is about to do something no other session key may,
+            // and the owner allowed that on the ground that it is recorded with the session that did it. So the row is
+            // written first, and a row that cannot be written stops the request: the exception leaves through here and
+            // the route never runs. An action with no record is the one outcome this must not have.
+            if (RaisedGrantOf(ctx) is { } grant && CallingSession(ctx) is { } raisedCaller)
+            {
+                if (cfg.RecordRaisedAction is null)
+                    throw new InvalidOperationException(
+                        "A raised session was let through the guard on a Gateway with nowhere to record it. " +
+                        "RequireToken.RecordRaisedAction must be set wherever RequireToken.IsRaised is.");
+                cfg.RecordRaisedAction(raisedCaller, grant, ctx.Request.Method, path);
+            }
+
             await next();
             return;
         }
@@ -340,6 +362,8 @@ internal static class AuthMiddleware
         // is returned, because the agent that hit it is the one who has to understand it.
         if (authentication == AuthenticationResultKind.OutOfScopeSessionKey)
         {
+            // Asked as an UNRAISED key, which is what this caller is for this request: a raised key on a route its
+            // grant covers was accepted above and never reaches here, and on any other route the two answers are the same.
             var refusal = SessionKeyGuard.Check(ctx.Request.Method, path);
             FileLog.Write($"[AuthMiddleware] session key REFUSED: {ctx.Request.Method} {path} - {refusal.Reason}");
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -415,7 +439,8 @@ internal static class AuthMiddleware
         string token,
         DeviceRegistry? devices,
         bool rejectSharedToken,
-        SessionKeyRegistry? sessions = null)
+        SessionKeyRegistry? sessions = null,
+        Func<SessionCredentialIdentity, bool>? isRaised = null)
     {
         var strongestFailure = AuthenticationResultKind.UnknownCredential;
 
@@ -441,7 +466,7 @@ internal static class AuthMiddleware
                 // key is an agent's credential, carried by a command line, and it is never a browser's. The
                 // cookie path below exists for browser WebSockets, which cannot set a header; extending a
                 // session key to it would put an agent's credential on a surface a page can be made to send.
-                var session = AuthenticateSession(ctx, sessions, provided);
+                var session = AuthenticateSession(ctx, sessions, provided, isRaised);
                 if (session == AuthenticationResultKind.Authenticated)
                     return session;
                 // A scope refusal is TERMINAL - it returns here rather than falling through to the cookie.
@@ -509,11 +534,18 @@ internal static class AuthMiddleware
     /// quietly grants an agent a route nobody meant it to have. Fold it in once and "this credential is
     /// valid" and "valid FOR THIS REQUEST" become the same question, which is the only version of it that
     /// cannot be half-answered.
+    ///
+    /// A RAISED SESSION (the Fleet Manager Improvement mission, phase 1) is decided in the same step, for the same
+    /// reason. The list of raised sessions is consulted ONLY when the guard has refused and being raised would change
+    /// that answer, so an ordinary request costs no extra read and no route is opened by the lookup itself. The
+    /// identity asked about is the one this registry just resolved - its session and ITS tenant - so a raised session
+    /// is raised inside its own account and nowhere else.
     /// </summary>
     private static AuthenticationResultKind AuthenticateSession(
         HttpContext ctx,
         SessionKeyRegistry? sessions,
-        string credential)
+        string credential,
+        Func<SessionCredentialIdentity, bool>? isRaised)
     {
         if (sessions is null)
             return AuthenticationResultKind.UnknownCredential;
@@ -523,9 +555,15 @@ internal static class AuthMiddleware
         {
             case SessionCredentialResolutionKind.Active when resolution.Identity is not null:
                 var verdict = SessionKeyGuard.Check(ctx.Request.Method, ctx.Request.Path.Value);
+                if (!verdict.Allowed && isRaised is not null)
+                {
+                    var asRaised = SessionKeyGuard.Check(ctx.Request.Method, ctx.Request.Path.Value, raised: true);
+                    if (asRaised.Allowed && isRaised(resolution.Identity))
+                        verdict = asRaised;
+                }
                 if (!verdict.Allowed)
                     return AuthenticationResultKind.OutOfScopeSessionKey;
-                return AcceptSession(ctx, credential, resolution.Identity);
+                return AcceptSession(ctx, credential, resolution.Identity, verdict.RaisedGrant);
 
             case SessionCredentialResolutionKind.Revoked:
                 return AuthenticationResultKind.RevokedCredential;
@@ -597,12 +635,26 @@ internal static class AuthMiddleware
     private static AuthenticationResultKind AcceptSession(
         HttpContext ctx,
         string credential,
-        SessionCredentialIdentity identity)
+        SessionCredentialIdentity identity,
+        RaisedGrant raisedGrant)
     {
         ctx.Items[AuthenticatedCredentialItemKey] = credential;
         ctx.Items[AuthenticatedSessionItemKey] = identity;
+        if (raisedGrant != RaisedGrant.None)
+            ctx.Items[RaisedGrantItemKey] = raisedGrant;
         return AuthenticationResultKind.Authenticated;
     }
+
+    /// <summary>
+    /// The grant that let a RAISED session make this request, or null - for every other caller, and for a raised
+    /// session on a route any session key may call. A Fleet Manager route that is otherwise the owner's alone asks
+    /// here before it refuses a session key: a caller with <see cref="RaisedGrant.FleetManagerOwnerRoute"/> was let in
+    /// by the owner's own grant, and that has already been recorded.
+    /// </summary>
+    public static RaisedGrant? RaisedGrantOf(HttpContext? ctx)
+        => ctx?.Items.TryGetValue(RaisedGrantItemKey, out var value) == true && value is RaisedGrant grant
+            ? grant
+            : null;
 
     /// <summary>
     /// The session identity that authenticated this request, or null when the caller was not a session. The
@@ -722,6 +774,20 @@ internal static class AuthMiddleware
         /// "unknown"), which is the correct behaviour for any host that has not wired one.
         /// </summary>
         public SessionKeyRegistry? Sessions { get; init; }
+
+        /// <summary>
+        /// The Fleet Manager Improvement mission, phase 1: whether the session behind a verified session key is RAISED
+        /// - the one question, answered by <c>Fleet.RaisedSessionStore.IsRaised</c>. Null means no session is ever
+        /// raised on this host, and every session key is held to the guard exactly as before.
+        /// </summary>
+        public Func<SessionCredentialIdentity, bool>? IsRaised { get; init; }
+
+        /// <summary>
+        /// Writes the record of one action a raised session took that an unraised key could not: the session, which
+        /// grant let it through, and the method and path. Called BEFORE the route runs; if it throws, the route does
+        /// not run. Required wherever <see cref="IsRaised"/> is set.
+        /// </summary>
+        public Action<SessionCredentialIdentity, RaisedGrant, string, string>? RecordRaisedAction { get; init; }
     }
 
     internal enum AuthenticationResultKind

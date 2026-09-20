@@ -70,7 +70,11 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // The Wingman narration call trace (pull request 3105) landed after this proof was written, so the
             // migration under test is second from the end rather than last.
             Assert.Equal("20260918181205_AddWingmanNarrationCallTrace", all[index + 1]);
-            Assert.Equal(all.Count - 2, index);
+            // The repository catalog's discovered columns and the raised sessions table landed after that, and the
+            // pins below moved with them.
+            Assert.Equal("20260920021806_AddDiscoveredRepositories", all[index + 2]);
+            Assert.Equal("20260920053001_AddRaisedSessions", all[index + 3]);
+            Assert.Equal(all.Count - 4, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -84,9 +88,9 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
         using (var ctx = NewContext())
         {
             ctx.GetService<IMigrator>().Migrate();
-            // The Wingman narration call trace (pull request 3105) is now the last migration in the set, so
-            // migrating fully applies it after the migration under test.
-            Assert.Equal("20260918181205_AddWingmanNarrationCallTrace", ctx.Database.GetAppliedMigrations().Last());
+            // Later migrations follow the one under test, so migrating fully applies them too; the raised sessions
+            // table is the last of them.
+            Assert.Equal("20260920053001_AddRaisedSessions", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

@@ -29,6 +29,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260917110600_AddFleetOutcomeStopIdentity",
         "20260918171353_AddWingmanNarrationCallTrace",
         "20260920021757_AddDiscoveredRepositories",
+        "20260920052924_AddRaisedSessions",
     })]
     [InlineData("postgres", new[]
     {
@@ -40,6 +41,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260917110609_AddFleetOutcomeStopIdentity",
         "20260918181205_AddWingmanNarrationCallTrace",
         "20260920021806_AddDiscoveredRepositories",
+        "20260920053001_AddRaisedSessions",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -66,8 +68,9 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         }
         // Five advice columns, then three answer columns and their index, then the verdict's answer column, then the
         // record's two stop columns, then the narration call's six trace columns, then the repository catalog's
-        // nullable last-used time and its two discovered columns: an empty comparison proves nothing.
-        Assert.Equal(21, changes);
+        // nullable last-used time and its two discovered columns, then the raised sessions table and its two indexes:
+        // an empty comparison proves nothing.
+        Assert.Equal(24, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>

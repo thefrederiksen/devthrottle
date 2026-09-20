@@ -63,11 +63,34 @@ public static class GovernanceAuditEventType
     /// <summary>An elevated run ended - the close of the elevated-run bracket.</summary>
     public const string ElevatedRunEnded = "elevated-run-ended";
 
+    /// <summary>
+    /// A session was RAISED to act with the owner's permissions inside his own account (the Fleet Manager
+    /// Improvement mission, phase 1). The SessionId is the session raised; the Actor is the owner's device, or the
+    /// Gateway when the Fleet Manager mark carried it to a new Fleet Manager; the Detail says which.
+    /// </summary>
+    public const string SessionRaised = "session-raised";
+
+    /// <summary>A raised session was LOWERED: by the owner, or because the Fleet Manager mark left it. The SessionId
+    /// is the session lowered; the Actor is who did it.</summary>
+    public const string SessionLowered = "session-lowered";
+
+    /// <summary>
+    /// A raised session did something NO OTHER SESSION KEY MAY: typed into a session, called a Fleet Manager route
+    /// that is otherwise the owner's alone, or sent a message the relationship rule or a rate would have refused. The
+    /// SessionId and the Actor are the session that did it; the Detail is what it did. The owner allowed a raised
+    /// session on the ground that every such action is recorded, so this row is load-bearing, like
+    /// <see cref="Stopped"/>.
+    /// </summary>
+    public const string RaisedAction = "raised-action";
+
     private static readonly string[] Intervention =
         { Needed, HumanRescued, HumanRedirected, HumanCancelled, Resolved, Stopped, HandedOver };
 
     private static readonly string[] Permission =
-        { PermissionRequested, PermissionGranted, PermissionDenied, ModeObserved, ElevatedRunStarted, ElevatedRunEnded };
+    {
+        PermissionRequested, PermissionGranted, PermissionDenied, ModeObserved, ElevatedRunStarted, ElevatedRunEnded,
+        SessionRaised, SessionLowered, RaisedAction,
+    };
 
     /// <summary>The legal event types for a category, or empty for an unknown category.</summary>
     public static IReadOnlyList<string> ForCategory(string category) => category switch
