@@ -778,9 +778,15 @@ public partial class NewSessionDialog : Window
                 NewSessionRepositoryList.FallbackNotice(answer.Outcome, answer.Reason);
             RepoSourceNotice.IsVisible = true;
         }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            FileLog.Write("[NewSessionDialog] LoadGatewayRepositoriesAsync: the ask was cancelled by the dialog closing");
+        }
         catch (Exception ex)
         {
             FileLog.Write($"[NewSessionDialog] LoadGatewayRepositoriesAsync FAILED: {ex.Message}");
+            if (_closing.IsCancellationRequested) return;
+
             RepoSourceNoticeText.Text = NewSessionRepositoryList.FallbackNotice(
                 KnownRepositoryListOutcome.Refused, "the repository list could not be read");
             RepoSourceNotice.IsVisible = true;
