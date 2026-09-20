@@ -174,6 +174,12 @@ public static class DrainMessages
     ///
     /// It names the path and the closing block again, briefly, because the session it reaches may never
     /// have had either from the Director: a session under a lead is asked by its lead, not by us.
+    ///
+    /// For that session this is the ONLY description of the block it will ever get, so it names every
+    /// line the parser reads (<see cref="DrainReportBlock.Keys"/>), and a test holds it to that list. A
+    /// shorter description once left out the question and blocked-reason lines: a question such a session
+    /// would have left on the owner was never asked for, and a session out of time was told to write
+    /// 'state: drained', which the record reads as a clean handover.
     /// </summary>
     /// <param name="handoverPath">The exact file this session writes - the same path that is watched.</param>
     /// <param name="timeLeft">How long is left before whatever is still running is shut down.</param>
@@ -187,10 +193,13 @@ public static class DrainMessages
         sb.Append("HAND OVER NOW: THE EXACT NEXT ACTION FIRST. Do not go back to the work you were ");
         sb.Append("interrupted in. Write the exact next action to \"").Append(handoverPath);
         sb.Append("\" and save the file before anything else; then add what is proven, what is only ");
-        sb.Append("believed, and what is uncommitted. End the document with the drain-report block: an ");
-        sb.Append("HTML comment opening with 'drain-report', then 'state: drained', then 'restore: yes' ");
-        sb.Append("or 'restore: no', then 'why: <one line>'. Close the comment. NO SECRETS in the ");
-        sb.Append("document. You do not need to reply to this message - the document IS the reply.");
+        sb.Append("believed, and what is uncommitted. End the document with an HTML comment opening with ");
+        sb.Append("'drain-report', then 'state: drained' (or 'state: blocked' with 'blocked-reason: ");
+        sb.Append("<on what>' if you cannot stop cleanly), then 'restore: yes' or 'restore: no', then ");
+        sb.Append("'why: <one line>'. Add one 'question: <the question, word for word>' line per ");
+        sb.Append("question you leave on the owner, and one 'covered: <session id> | <why>' line per ");
+        sb.Append("seat your document covers. Close the comment. NO SECRETS in the document. You do not ");
+        sb.Append("need to reply to this message - the document IS the reply.");
         return sb.ToString();
     }
 

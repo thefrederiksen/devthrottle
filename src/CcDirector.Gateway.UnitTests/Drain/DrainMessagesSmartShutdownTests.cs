@@ -117,6 +117,46 @@ public class DrainMessagesSmartShutdownTests
     }
 
     [Fact]
+    public void HandOverNow_Message_NamesEveryLineTheParserReads()
+    {
+        var text = DrainMessages.HandOverNow(Path, TimeSpan.FromMinutes(3));
+
+        // A session under a lead may get its only description of the block from this message. Whatever it
+        // leaves out is a fact that session is never asked for: a question for the owner, or that it is
+        // blocked. Held to the parser's own list, so a key added there goes red here too.
+        foreach (var key in DrainReportBlock.Keys)
+            Assert.Contains($"'{key} ", text);
+
+        // A session out of time must be offered something other than "drained", which reads as clean.
+        Assert.Contains("'state: blocked'", text);
+    }
+
+    [Fact]
+    public void HandOverNow_Message_ABlockWrittenAsItDescribes_ParsesWithNothingLeftOver()
+    {
+        var text = DrainMessages.HandOverNow(Path, TimeSpan.FromMinutes(3));
+
+        // The other direction: every line the message quotes, written out as quoted, is one the parser
+        // accepts. The quoted lines are taken FROM the message, not retyped here.
+        var quoted = System.Text.RegularExpressions.Regex.Matches(text, @"'([a-z-]+: [^']*)'")
+            .Select(m => m.Groups[1].Value)
+            .Where(line => line != "restore: no" && line != "state: drained")
+            .ToList();
+        Assert.Equal(6, quoted.Count);
+
+        var block = DrainReportBlock.Parse("<!-- drain-report\n" + string.Join("\n", quoted) + "\n-->");
+
+        Assert.NotNull(block);
+        Assert.Empty(block!.UnparsedLines);
+        Assert.Equal("blocked", block.State);
+        Assert.NotNull(block.BlockedReason);
+        Assert.True(block.Restore);
+        Assert.NotNull(block.Why);
+        Assert.Single(block.Questions);
+        Assert.Single(block.Covered);
+    }
+
+    [Fact]
     public void HandOverNow_Message_IsTellableApartFromTheFirstRequest()
     {
         var text = DrainMessages.HandOverNow(Path, TimeSpan.FromMinutes(3));
