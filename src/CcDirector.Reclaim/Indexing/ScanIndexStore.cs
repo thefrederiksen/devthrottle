@@ -100,19 +100,27 @@ public static class ScanIndexStore
     /// <param name="indexPath">The file to write.</param>
     /// <param name="scan">The scan to save.</param>
     /// <param name="writtenUtc">When the file is being written.</param>
-    public static void Save(string indexPath, ScanResult scan, DateTimeOffset writtenUtc)
+    public static void Save(string indexPath, ScanResult scan, DateTimeOffset writtenUtc) =>
+        Save(indexPath, scan, writtenUtc, whenHalfWritten: null);
+
+    /// <summary>
+    /// Write one scan to one file, whole or not at all.
+    ///
+    /// The file is written under another name and moved into place only when it is complete, so a
+    /// write that is cut short leaves the scan that was saved before exactly as it was, and never
+    /// leaves half a file under the name a reader opens. See <see cref="WholeFileWriter"/>.
+    /// </summary>
+    /// <param name="indexPath">The file to write.</param>
+    /// <param name="scan">The scan to save.</param>
+    /// <param name="writtenUtc">When the file is being written.</param>
+    /// <param name="whenHalfWritten">Called when half the file is on the disk. Tests only.</param>
+    internal static void Save(string indexPath, ScanResult scan, DateTimeOffset writtenUtc, Action? whenHalfWritten)
     {
         ArgumentNullException.ThrowIfNull(scan);
         if (string.IsNullOrWhiteSpace(indexPath))
             throw new ArgumentException("An index path cannot be blank.", nameof(indexPath));
 
         FileLog.Write($"[ScanIndexStore] Save: path={indexPath}, root={scan.RootPath}");
-
-        var folder = Path.GetDirectoryName(Path.GetFullPath(indexPath));
-        if (string.IsNullOrEmpty(folder))
-            throw new InvalidOperationException($"The index path {indexPath} names no folder to write into.");
-
-        Directory.CreateDirectory(folder);
 
         var index = new ScanIndex
         {
@@ -122,7 +130,7 @@ public static class ScanIndexStore
             Scan = scan
         };
 
-        File.WriteAllText(indexPath, JsonSerializer.Serialize(index, JsonFormat), new UTF8Encoding(false));
+        WholeFileWriter.Write(indexPath, JsonSerializer.Serialize(index, JsonFormat), whenHalfWritten);
         FileLog.Write($"[ScanIndexStore] Save done: path={indexPath}, bytes={scan.BytesSeen}");
     }
 
