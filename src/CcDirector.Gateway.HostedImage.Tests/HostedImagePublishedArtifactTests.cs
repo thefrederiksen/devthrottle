@@ -45,7 +45,7 @@ public sealed class HostedImagePublishedArtifactTests
         "CC_GATEWAY_PUBLIC_URL", "CC_GATEWAY_DB_CONNECTION",
     };
 
-    [Fact(Skip = "TEMPORARY, reverted in the next commit: proving the deploy gate refuses a skipped test.")]
+    [Fact]
     public void Every_published_entry_executable_fails_closed_without_the_hosted_contract()
     {
         var publishDir = Path.Combine(
