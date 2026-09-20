@@ -18,7 +18,7 @@ Kept current by the Architect. If this file and a session's memory disagree, thi
 
 | Phase | What it is | State |
 |---|---|---|
-| A | The rail tells the truth about colour (items 1, 3, 6) | BUILT and INSPECTED. **Three defects to fix before it lands** - see below. |
+| A | The rail tells the truth about colour (items 1, 3, 6) | BUILT, INSPECTED, DEFECTS FIXED at af4671a0e. Second inspection and the Windows gate are running. Then it lands. |
 | A2 | The legend gets words for the two rendering sentinels | NOT STARTED - added after Phase A, see ruling below |
 | B | Everything that comes off the cards (9, 7, 13, 2, 5, 15, then 8) | NOT STARTED |
 | C | Every card says what the session is (10, 11, 14, 4) | NOT STARTED |
@@ -154,6 +154,18 @@ inspection is cleared so the gate runs once, on final code.
 Two pre-existing findings for the owner's report, NOT mission work and not to be fixed here: the
 macOS suite is red, and `CcDirector.Gateway.UnitTests` is parked (issue #2824), so a proof that lives
 only there is a proof nobody sees at commit time.
+
+## A SEAT THAT FINISHES MAY NOT REACH YOU - GO AND LOOK
+
+Both Phase A seats finished their work, pushed it, and **failed to get a report back to the
+Architect**. `session report` is being refused while any machine in the fleet is off the tunnel,
+because the roster cannot be read in full. The first seat worked around it with a message; the
+second did not, and its finished work sat unnoticed.
+
+So do not treat silence as "still working". A seat that has stopped shows as **snoozed** in the
+session list - that is the supervised-and-stopped fold, not a snooze anybody set. Check the branch
+for new commits and the session list for a snoozed seat, on your own initiative, rather than waiting
+for a doorbell that may never ring.
 
 ## If the fleet tools disappear mid-run
 
