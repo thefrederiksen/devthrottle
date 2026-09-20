@@ -263,26 +263,45 @@ public sealed class MorningReportBuilder
 
         var live = LiveSessionsById(tenant);
         var sessions = new List<UsageLimitStopDto>();
+        var lostContact = 0;
         foreach (var (sessionId, stoppedUtc) in latestStop)
         {
             if (lastActive.TryGetValue(sessionId, out var activeAt) && activeAt > stoppedUtc)
                 continue; // it worked again after the stop
-            live.TryGetValue(sessionId, out var liveSession);
-            if (liveSession is not null &&
-                string.Equals(liveSession.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
+
+            // NO IDENTIFIER EVER STANDS IN FOR A NAME (#3124, the owner 20 September 2026, on finding six
+            // of these in his own report). This row tells the reader to go and resume each session once the
+            // limit resets. A session the Gateway can no longer see cannot be named, cannot be linked, and
+            // so cannot be acted on - printing its id asks him to search for a string nothing will match.
+            // It is counted instead, exactly as the waiting rows are.
+            if (!live.TryGetValue(sessionId, out var liveSession))
+            {
+                lostContact++;
+                continue;
+            }
+            if (string.Equals(liveSession.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
                 continue; // closed - there is nothing left to resume
+            if (HoldStates.IsHeld(liveSession.HoldState))
+                continue; // snoozed on purpose; it is not waiting for him to come and restart it
+
             sessions.Add(new UsageLimitStopDto
             {
-                Session = string.IsNullOrWhiteSpace(liveSession?.Name) ? sessionId : liveSession!.Name!,
+                // Only reached when the session is live, and a live session has a name. The id remains the
+                // last resort over an empty row, and a test asserts the live path always supplies a name.
+                Session = string.IsNullOrWhiteSpace(liveSession.Name) ? sessionId : liveSession.Name!,
+                SessionId = sessionId,
+                Repo = string.IsNullOrWhiteSpace(liveSession.RepoName) ? null : liveSession.RepoName,
+                Number = liveSession.Number,
                 StoppedUtc = stoppedUtc,
             });
         }
-        if (sessions.Count == 0)
+        if (sessions.Count == 0 && lostContact == 0)
             return null;
 
         return new UsageLimitStopsAttentionDto
         {
             Sessions = sessions.OrderBy(s => s.StoppedUtc).ThenBy(s => s.Session, StringComparer.Ordinal).ToList(),
+            LostContactCount = lostContact > 0 ? lostContact : null,
         };
     }
 
