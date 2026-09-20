@@ -1034,6 +1034,7 @@ public sealed class TurnVerdictService : IDisposable
         {
             record.JudgedAtUtc = _env.NowUtc();
             record.Model = _env.JudgeModel(tenant);
+            record.FailureKind = WingmanFailureKinds.Unavailable;
             StampRetrySchedule(record, _env.Latest(tenant, sid), trigger, providerWait: null);
             if (!StoreIfCurrent(key, epoch, record))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked before the failed record could be stored", flight);
@@ -1314,9 +1315,19 @@ public sealed class TurnVerdictService : IDisposable
                 record.Spoken = words;
             }
 
+            // A NARRATION THAT WAS OWED AND DID NOT COME IS A FAILED READING TO THE PERSON LOOKING AT IT. The judge's
+            // answer stands - the row keeps its colour and its label - and the record says the words are missing, so it
+            // shows the same tag and goes on the same schedule as any other failure. A narration that was never owed
+            // (a session another live session owns) carries no failure detail and is not one.
+            if (!record.Failed && narration.Spoken is not { Length: > 0 } && narration.FailureDetail is { Length: > 0 } noWords)
+                record.NarrationFailureReason = noWords;
+            record.FailureKind = record.Failed ? FailureKindWord(failure)
+                : record.NarrationFailureReason is not null ? WingmanFailureKinds.NarrationFailed
+                : null;
+
             // WHERE THIS STOP IS ON ITS RETRY SCHEDULE is written on the failed record itself, before it is stored, so
             // the record a card is rendered from and the record the sweep retries from are one record.
-            if (record.Failed) StampRetrySchedule(record, latest, trigger, retryAfter);
+            if (WingmanRetrySchedule.NeedsRetry(record)) StampRetrySchedule(record, latest, trigger, retryAfter);
 
             if (!StoreIfCurrent(key, epoch, record))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked between the read and the store; the answer describes a screen that is gone", flight);
@@ -1747,6 +1758,14 @@ public sealed class TurnVerdictService : IDisposable
             }
             var updated = Copy(latest);
             updated.Narration = narration;
+            // THE WORDS ARRIVED, so this reading is no longer one with no words: the tag clears and nothing stays booked.
+            if (updated.NarrationFailureReason is not null)
+            {
+                updated.NarrationFailureReason = null;
+                updated.FailureKind = null;
+                updated.RetriesMade = 0;
+                updated.NextRetryAtUtc = null;
+            }
             _env.Store(tenant, sid, updated);
             FileLog.Write($"[TurnVerdictService] SaveNarration: sid={sid} verdict={verdictId} saved, length={narration.Length}");
             return true;
@@ -1857,7 +1876,12 @@ public sealed class TurnVerdictService : IDisposable
             return true;
         if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
         if (hash.Length == 0 && trigger != TurnVerdictTrigger.Sweep) return false;
-        if (!latest.Failed) return true;
+        // A READING WITH NO WORDS is asked again by its booked retry exactly as a failed one is. Every other trigger
+        // reuses it: the judge's answer on it is good, and a person asking buys the narration call alone.
+        if (!latest.Failed)
+            return !(trigger == TurnVerdictTrigger.Retry
+                     && latest.NarrationFailureReason is not null
+                     && WingmanRetrySchedule.IsDue(latest.NextRetryAtUtc, _env.NowUtc()));
         return trigger switch
         {
             // The sweep and a voice session's refresh reuse EVERY failed record, with or without words: a refused
@@ -1890,7 +1914,7 @@ public sealed class TurnVerdictService : IDisposable
     private void StampRetrySchedule(TurnVerdictDto failed, TurnVerdictDto? previous, TurnVerdictTrigger trigger, TimeSpan? providerWait)
     {
         var now = _env.NowUtc();
-        var sameStop = previous is { Failed: true } && trigger != TurnVerdictTrigger.TurnEnd;
+        var sameStop = previous is not null && WingmanRetrySchedule.NeedsRetry(previous) && trigger != TurnVerdictTrigger.TurnEnd;
         if (sameStop && trigger == TurnVerdictTrigger.OnDemand)
         {
             failed.RetriesMade = previous!.RetriesMade;
@@ -1930,7 +1954,7 @@ public sealed class TurnVerdictService : IDisposable
         var started = 0;
         foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
         {
-            if (!snapshot.Failed || !WingmanRetrySchedule.IsDue(snapshot.NextRetryAtUtc, now)) continue;
+            if (!WingmanRetrySchedule.NeedsRetry(snapshot) || !WingmanRetrySchedule.IsDue(snapshot.NextRetryAtUtc, now)) continue;
 
             if (!settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
             {
@@ -2530,6 +2554,15 @@ public sealed class TurnVerdictService : IDisposable
 
     private static bool IsWorking(SessionDto s)
         => string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The closed word stored on a failed record for the card's plain reason.</summary>
+    private static string FailureKindWord(TurnVerdictFailureKind failure) => failure switch
+    {
+        TurnVerdictFailureKind.DidNotAnswer => WingmanFailureKinds.DidNotAnswer,
+        TurnVerdictFailureKind.RateLimited => WingmanFailureKinds.RateLimited,
+        TurnVerdictFailureKind.Refused => WingmanFailureKinds.Refused,
+        _ => WingmanFailureKinds.Unavailable,
+    };
 
     private static string FailureCause(TurnVerdictFailureKind failure) => failure switch
     {

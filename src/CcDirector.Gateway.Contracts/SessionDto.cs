@@ -626,6 +626,15 @@ public sealed class SessionDto
     public TurnVerdictDto? TurnVerdict { get; set; }
 
     /// <summary>
+    /// THE WINGMAN COULD NOT READ THIS SESSION'S LAST STOP (mission "Wingman error and retry", 2026-09-19): the tag,
+    /// the short reason, which retry is next and when, and whether the schedule is used up - finished words, folded
+    /// on the Gateway and rendered verbatim. Null when there is no error. It does NOT depend on voice mode. Stamped
+    /// beside <see cref="TurnVerdict"/>, from the same stored record, on every fold and in both directions.
+    /// Replaced wholesale, never mutated. Null in Director-local responses.
+    /// </summary>
+    public WingmanErrorDisplay? WingmanError { get; set; }
+
+    /// <summary>
     /// Where the Wingman is with this row (<see cref="VerdictStates"/>): "none", "reading", "judged" or
     /// "failed". Assigned by the Gateway on EVERY fold, in both directions, so a re-served row never keeps a
     /// state it no longer has. Read by <see cref="SessionOrdering.IsCalmVerdict"/> and
@@ -1103,7 +1112,7 @@ public sealed class SessionDto
     /// voice/transcription overlays, etc.) on the object it serves, so callers must never receive the
     /// cached instance itself or one request would contaminate the cache for later ones. Reference-type
     /// members the aggregator could mutate in place are re-created here; <see cref="VoiceUnavailable"/>,
-    /// <see cref="VoiceDisplay"/>, <see cref="ModelDisplay"/> and <see cref="TurnVerdict"/> are only ever replaced
+    /// <see cref="VoiceDisplay"/>, <see cref="ModelDisplay"/>, <see cref="WingmanError"/> and <see cref="TurnVerdict"/> are only ever replaced
     /// wholesale by the aggregator (never mutated), so sharing their references is safe.
     /// </summary>
     public SessionDto Clone()

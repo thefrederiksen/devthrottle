@@ -30,7 +30,7 @@ internal static class VoiceRowStamp
     /// <param name="Unavailable">Why voice cannot run for this account at all (no credit, a cap, no key).</param>
     /// <param name="NothingToNarrate">The turn ended on a prompt, so there is no text answer to read.</param>
     /// <param name="DirectorCannotSendConversation">Its Director cannot send the conversation to narrate.</param>
-    /// <param name="NarrationAbandoned">The narration was given up on and nothing further is scheduled.</param>
+    /// <param name="SpeechError">The reading succeeded and its audio failed: where that is on the retry schedule.</param>
     /// <param name="ServedViaFallback">This turn's ready clip came from the backup voice provider.</param>
     /// <param name="WaitingStamp">The waiting clock, which is TOLD whether this session is waiting and
     /// answers with the moment the wait began.</param>
@@ -40,7 +40,7 @@ internal static class VoiceRowStamp
         Func<string, Core.HostedAi.HostedAiState?>? Unavailable = null,
         Func<string, bool>? NothingToNarrate = null,
         Func<string, bool>? DirectorCannotSendConversation = null,
-        Func<string, bool>? NarrationAbandoned = null,
+        Func<string, WingmanErrorDisplay?>? SpeechError = null,
         Func<string, bool>? ServedViaFallback = null,
         Func<string, bool, DateTime?>? WaitingStamp = null);
 
@@ -82,7 +82,7 @@ internal static class VoiceRowStamp
             unavailable: unavailable,
             nothingToNarrate: facts.NothingToNarrate?.Invoke(s.SessionId) ?? false,
             directorCannotSendConversation: facts.DirectorCannotSendConversation?.Invoke(s.SessionId) ?? false,
-            narrationAbandoned: facts.NarrationAbandoned?.Invoke(s.SessionId) ?? false,
+            speechError: facts.SpeechError?.Invoke(s.SessionId),
             servedViaFallback: facts.ServedViaFallback?.Invoke(s.SessionId) ?? false,
             waitingSince: s.VoiceWaitingSince);
     }

@@ -101,6 +101,9 @@ public static class TurnVerdictRowStamp
             }
 
             s.TurnVerdict = verdict;
+            // THE WINGMAN ERROR, from this same record and nothing else. Not while the session works: its last
+            // reading then describes a screen that is gone, and a Working edge is about to invalidate it.
+            s.WingmanError = WingmanErrorFold.For(verdict, IsWorking(s));
             if (verdict.Failed)
             {
                 s.VerdictState = VerdictStates.Failed;
@@ -128,12 +131,19 @@ public static class TurnVerdictRowStamp
         s.VerdictState = VerdictStates.Reading;
         s.TurnVerdict = null;
         s.VerdictLabel = null;
+        // Being read NOW - the first reading or a retry - so there is no error to report until it ends.
+        s.WingmanError = null;
     }
+
+    private static bool IsWorking(SessionDto s)
+        => string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(s.ActivityState, "Starting", StringComparison.OrdinalIgnoreCase);
 
     private static void None(SessionDto s)
     {
         s.VerdictState = VerdictStates.None;
         s.TurnVerdict = null;
         s.VerdictLabel = null;
+        s.WingmanError = null;
     }
 }

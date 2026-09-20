@@ -230,7 +230,7 @@ public static class SessionOrdering
     /// Director-local response, so this must answer "no voice verdict" there rather than assume a shape.
     /// </summary>
     public static bool IsVoiceGaveUp(SessionDto s) =>
-        s.VoiceDisplay is { Kind: VoiceDisplayKinds.GaveUp or VoiceDisplayKinds.NotNarrated };
+        s.VoiceDisplay is { Kind: VoiceDisplayKinds.GaveUp or VoiceDisplayKinds.WingmanError };
 
     // GAP 5: THE GATEWAY'S VOICE WINDOW NEEDS NO RULE HERE - IsVoicePreparing BELOW ALREADY IS IT.
     //

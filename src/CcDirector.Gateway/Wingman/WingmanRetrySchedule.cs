@@ -43,6 +43,14 @@ public static class WingmanRetrySchedule
         return failedAtUtc + wait;
     }
 
+    /// <summary>
+    /// Is this a reading the schedule applies to? A refused or unanswered reading, or an accepted one whose
+    /// narration call produced no words - to the person looking at the card both are a stop the Wingman could not
+    /// read to them.
+    /// </summary>
+    public static bool NeedsRetry(CcDirector.Gateway.Contracts.TurnVerdictDto reading)
+        => reading.Failed || reading.NarrationFailureReason is not null;
+
     /// <summary>Is the booked retry due? False when nothing is booked.</summary>
     public static bool IsDue(DateTime? nextRetryAtUtc, DateTime nowUtc)
         => nextRetryAtUtc is { } due && due <= nowUtc;

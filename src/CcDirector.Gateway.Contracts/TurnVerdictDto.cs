@@ -169,6 +169,23 @@ public sealed class TurnVerdictDto
     public string? Narration { get; set; }
 
     /// <summary>
+    /// WHICH KIND OF FAILURE THIS IS, as one of <see cref="WingmanFailureKinds"/>, or null on a reading that did not
+    /// fail (mission "Wingman error and retry", 2026-09-19). It exists so the card's short plain reason is chosen
+    /// from a closed word rather than by matching text inside <see cref="FailureReason"/>, which quotes exception
+    /// messages and was never meant to be read by a person on a session card.
+    /// </summary>
+    public string? FailureKind { get; set; }
+
+    /// <summary>
+    /// Why this reading has NO WORDS although the judge's answer was accepted, or null (mission "Wingman error and
+    /// retry", 2026-09-19). A reading is both calls, and this is the second one failing: the row keeps the judge's
+    /// colour and label, <see cref="Failed"/> stays false, and there is nothing to read or hear. That is a failed
+    /// reading to the person looking at it, so it shows the same tag and goes on the same retry schedule. Null when
+    /// no narration was owed at all - a session another live session owns.
+    /// </summary>
+    public string? NarrationFailureReason { get; set; }
+
+    /// <summary>
     /// How many SCHEDULED retries this stop has already spent, on a <see cref="Failed"/> record (mission "Wingman
     /// error and retry", 2026-09-19). Zero after the first failure. A person pressing "Ask again" does not move
     /// it. Carried on the stored record, so a Gateway restart does not forget where a stop is on its schedule.
@@ -234,4 +251,23 @@ public sealed class TurnVerdictOptionDto
 
     /// <summary>The consequence and the risk of choosing this one.</summary>
     public string Note { get; set; } = "";
+}
+
+/// <summary>The closed words of <see cref="TurnVerdictDto.FailureKind"/>.</summary>
+public static class WingmanFailureKinds
+{
+    /// <summary>The model gave no answer inside its deadline, or the call never reached it.</summary>
+    public const string DidNotAnswer = "did-not-answer";
+
+    /// <summary>The model's provider refused the call and asked for a wait.</summary>
+    public const string RateLimited = "rate-limited";
+
+    /// <summary>The model could not be asked at all, or the reading broke before it could be stored.</summary>
+    public const string Unavailable = "unavailable";
+
+    /// <summary>The model answered, and the answer could not be used.</summary>
+    public const string Refused = "refused";
+
+    /// <summary>The judge's answer was accepted and the narration call that follows it produced no words.</summary>
+    public const string NarrationFailed = "narration-failed";
 }
