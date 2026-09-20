@@ -566,9 +566,21 @@ Left standing, with the Director running and every record intact. Nothing was de
 - Gateway: `http://127.0.0.1:7911`
 - token file: `C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\config\director\gateway-token.txt`
 - machine: `SOREN_NORTH`
-- Director id: `3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe`, now process 67748, started by the launcher after
-  run D's restart
+- Director id: `3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe`, now process **56400**
 - binaries from `8d0ba4a4f010506879c7497ec6f34e7168a2f3f8`
+
+**Why the process id is 56400 and not run D's 67748.** Run D's restart produced process 67748, and at
+16:55:34 that Director's WINDOW WAS CLOSED - the log says `OnClosing: reason=WindowClosing,
+programmatic=False`, so a person closed it, and it was not me: nothing in this run touched a window.
+The line before it is `[WayUpOfferWindow] ShowForAnswerAsync: closed, bringBackAsked=False`, so the
+restart offer had come up on screen and was dismissed without anything being brought back. By the
+owner's ruling of 20 September that is "Not now", which keeps the record offered at the next start,
+and the record still shows one seat owed.
+
+The Director was brought back with `start-director.ps1`, which is the product's own
+`POST /machines/<machine>/director/start` - the launcher route, not a window action
+(`21-director-restarted-for-handover.txt`). The rig then stood with the Director running, as this
+phase was told to leave it.
 
 **The workspace id of every record this run produced:**
 
