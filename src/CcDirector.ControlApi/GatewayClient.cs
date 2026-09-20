@@ -434,6 +434,34 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IDisposa
     }
 
     /// <summary>
+    /// Ask the Gateway to restore seats of a workspace onto a Director, through
+    /// <c>POST /gateway/workspaces/{id}/restore</c> - the ONE door a restore starts at. The Gateway grants
+    /// the restore lease and relays the order to the named Director, which runs its existing restore. A
+    /// Director asks for its OWN restore here when a smart shutdown is cancelled: starting the restore
+    /// directly would run it with no lease, and the Gateway refuses every mark of a restore with none.
+    /// Throws with the Gateway's reason when the restore is not taken.
+    /// </summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="request">The Director to restore onto, and the seats.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<WorkspaceRestoreAccepted> RequestWorkspaceRestoreAsync(
+        string workspaceId, WorkspaceRestoreRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot ask for a restore.");
+
+        var route = $"POST /gateway/workspaces/{workspaceId}/restore";
+        FileLog.Write($"[GatewayClient] RequestWorkspaceRestoreAsync: {route}, director={request.DirectorId}, seats={request.Seats?.Count ?? 0}");
+        using var resp = await _http.PostAsJsonAsync($"gateway/workspaces/{Uri.EscapeDataString(workspaceId)}/restore", request, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, route, ct);
+
+        return await resp.Content.ReadFromJsonAsync<WorkspaceRestoreAccepted>(ct)
+               ?? throw new InvalidOperationException($"Gateway {route} returned an unparsable body.");
+    }
+
+    /// <summary>
     /// Ask the Gateway to pass one restored seat's dev reports to the session it came back as (the Smart Director
     /// Restart mission, section 5.3 item 13) through <c>POST /gateway/workspaces/{id}/restore/dev-reports</c>, on this
     /// Director's own credential. Throws with the Gateway's reason when it refuses - notably when this Director does

@@ -239,7 +239,19 @@ public sealed class ControlApiHost : IAsyncDisposable
             ct => ListWorkspacesAsync(ct)
                 ?? throw new InvalidOperationException("this Director is not connected to a Gateway."),
             JudgeRestartEligibility,
-            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
+            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName,
+            // "Cancel and keep working" brings closed sessions back through the Gateway's restore door,
+            // onto THIS Director. Like the two questions above, it reads the host's client when it is
+            // used, never when the engine was made.
+            bringBack: new SmartRestart.GatewaySmartShutdownBringBack(
+                () => _gatewayClient is { } client ? new SmartRestart.GatewayClientBringBackGateway(client) : null,
+                DirectorId).BringBackAsync,
+            // "Shut down and ignore all sessions" ends sessions with or without a Gateway.
+            sessions: new Drain.SessionManagerDrainControl(_sessionManager),
+            // The restart purpose asks the launcher through the same seam the restart cycle uses.
+            launcherGateway: () => _gatewayClient is { } client ? new Restart.GatewayClientRestartCycleGateway(client) : null,
+            machine: Environment.MachineName,
+            exePath: Environment.ProcessPath);
     }
 
     /// <summary>
