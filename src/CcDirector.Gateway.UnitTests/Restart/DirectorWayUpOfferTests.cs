@@ -121,7 +121,8 @@ public class DirectorWayUpOfferTests
         var record = Assert.IsType<WayUpRecord>(offer.Record);
         Assert.Equal("restart-owed", record.WorkspaceId);
         Assert.Equal(1, record.SeatsOwed);
-        Assert.Equal("One session is waiting to be brought back.", record.SeatsOwedLabel);
+        Assert.Equal(0, record.SeatsEndedWithoutHandover);
+        Assert.Equal("One session is waiting to be brought back.", record.SeatsLabel);
         Assert.Equal("Reason: update to 2.9.0", record.ReasonLabel);
         Assert.Equal(Shutdown, record.ShutdownAtUtc);
         Assert.Empty(rig.Gateway.Started);
@@ -446,6 +447,244 @@ public class DirectorWayUpOfferTests
 
         Assert.Equal(WayUpOfferState.Refused, offer.State);
         Assert.Contains("no display name", offer.Message);
+    }
+
+    // ===== A record whose sessions all ended without a handover (ruling 10.5, and the mission's
+    // ===== ruling-way-up-presence-check.md) =====
+
+    /// <summary>
+    /// THE OPERATING SYSTEM SHUTDOWN RECORD IS OFFERED, AND THIS IS THE WHOLE POINT OF THE WIDER CHECK.
+    ///
+    /// When the machine shuts down there is no ten minutes, so the drain writes EVERY seat as ended at the
+    /// limit with nothing decided about bringing it back. Such a record owes no seat at all, and a check
+    /// that counted only owed seats could never offer it - while ruling 10.5 says in the owner's accepted
+    /// words that on the way up those saved conversations ARE offered, as in 10.3. Before the check was
+    /// widened this record answered "nothing waiting" and its conversations were reachable only through
+    /// Restart history.
+    ///
+    /// What is offered is exactly what 10.3 describes and no more: the seats listed, UNTICKED, each with
+    /// its own reopen button, nothing started.
+    /// </summary>
+    [Fact]
+    public async Task A_record_whose_seats_all_ended_without_a_handover_is_offered_with_those_seats_unticked()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-os-shutdown", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended-1", "A busy worker", conversationId: "conversation-one"),
+            WayUpTestRig.Ended("ended-2", "A busy lead", conversationId: "conversation-two"),
+        }));
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+
+        Assert.Equal(WayUpOfferState.Offered, offer.State);
+        var record = Assert.IsType<WayUpRecord>(offer.Record);
+        Assert.Equal("restart-os-shutdown", record.WorkspaceId);
+
+        // THE COUNTS ARE STILL TRUE: nothing handed over, and both rows on screen are counted.
+        Assert.Equal(0, record.SeatsOwed);
+        Assert.Equal(2, record.SeatsEndedWithoutHandover);
+        Assert.Equal(
+            "No session is waiting to be brought back. 2 sessions ended without a handover. They are " +
+            "listed below, unticked, and nothing comes back unless you ask for it.",
+            record.SeatsLabel);
+
+        // Every row is one ended seat, unticked, carrying its own button - and there is no bring back row.
+        Assert.Equal(2, record.Rows.Count);
+        Assert.All(record.Rows, r => Assert.Equal(WayUpRowKind.EndedWithoutHandover, r.Kind));
+        Assert.All(record.Rows, r => Assert.False(r.Ticked));
+        Assert.All(record.Rows, r => Assert.Empty(r.Seats));
+        Assert.All(record.Rows, r => Assert.True(Assert.IsType<WayUpReopenOffer>(r.Reopen).CanReopen));
+        // In the rows' own order: same sort order, so by name - "A busy lead" before "A busy worker".
+        Assert.Equal(new[] { "ended-2", "ended-1" }, record.Rows.Select(r => r.RowId).ToArray());
+
+        // NOTHING WAS BROUGHT BACK BY ITSELF, and the start-up check still never asks what is running.
+        Assert.Empty(rig.Gateway.Started);
+        Assert.Empty(rig.Restore.Orders);
+        Assert.Equal(0, rig.Gateway.RosterAsked);
+    }
+
+    /// <summary>
+    /// THE LABEL NAMES BOTH KINDS WHEN A RECORD HOLDS BOTH. A line saying only how many are waiting to come
+    /// back would leave the unticked rows under it unexplained; a line saying only how many ended would
+    /// hide what pressing bring back is about to do.
+    /// </summary>
+    [Fact]
+    public async Task The_label_names_both_what_is_waiting_and_what_ended_without_a_handover()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-both", Shutdown, new[]
+        {
+            WayUpTestRig.Owed("lead", "A lead"),
+            WayUpTestRig.Ended("stuck", "A busy worker"),
+        }));
+
+        var record = Assert.IsType<WayUpRecord>((await rig.WayUp().FindOfferAsync(CancellationToken.None)).Record);
+
+        Assert.Equal(1, record.SeatsOwed);
+        Assert.Equal(1, record.SeatsEndedWithoutHandover);
+        Assert.Equal(
+            "One session is waiting to be brought back. One session ended without a handover. It is listed " +
+            "below, unticked, and nothing comes back unless you ask for it.",
+            record.SeatsLabel);
+    }
+
+    /// <summary>
+    /// A RECORD WITH NOTHING LEFT TO ACT ON IS NOT OFFERED, AND STAYS IN THE HISTORY. Every seat here ended
+    /// without a handover and NONE of them has a saved conversation, so every button such a window could
+    /// draw would be one that could never work. The wider check asks whether the offer CAN BE TAKEN, not
+    /// merely whether a seat ended - and it asks the one place that decides that, so it cannot drift from
+    /// what the button itself would do.
+    /// </summary>
+    [Fact]
+    public async Task A_record_whose_ended_seats_have_no_saved_conversation_is_not_offered_and_stays_in_the_history()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-nothing-to-do", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended-1", "A busy worker", conversationId: null),
+            WayUpTestRig.Ended("ended-2", "A silent worker", conversationId: null,
+                drainState: WorkspaceDrainStates.Unreachable),
+        }));
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
+        Assert.Null(offer.Record);
+
+        // It is not lost: it is in the history, with both seats and the engine's sentence saying there is
+        // nothing to reopen.
+        var entry = Assert.Single(history.Entries);
+        Assert.Null(entry.Offer);
+        Assert.Equal(2, entry.Seats.Count);
+        Assert.All(entry.Seats, seat =>
+        {
+            var reopen = Assert.IsType<WayUpReopenOffer>(seat.Reopen);
+            Assert.False(reopen.CanReopen);
+            Assert.Null(reopen.Offer);
+        });
+    }
+
+    /// <summary>
+    /// "SHUT DOWN AND IGNORE ALL SESSIONS" IS STILL NEVER OFFERED (5.3 item 8), and the wider check must not
+    /// have opened a back door into it: this record's seats all ended without a handover with their
+    /// conversations recorded, which is exactly the shape the widening now offers.
+    /// </summary>
+    [Fact]
+    public async Task An_ignore_all_record_whose_seats_all_ended_without_a_handover_is_still_not_offered()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-ignored-ended", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended-1", "A busy worker", conversationId: "conversation-one"),
+            WayUpTestRig.Ended("ended-2", "A busy lead", conversationId: "conversation-two"),
+        }, shutdownKind: WorkspaceShutdownKinds.IgnoreAll));
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
+        Assert.Null(offer.Record);
+        Assert.Null(Assert.Single(history.Entries).Offer);
+    }
+
+    /// <summary>
+    /// A CANCELLED RECORD IS STILL NEVER OFFERED (5.3 item 7) - the owner kept working, so those sessions
+    /// never stopped, and reopening one would put a second agent into a conversation the first is still in.
+    /// Same shape as the widening now offers, so this is the second door that had to stay shut.
+    /// </summary>
+    [Fact]
+    public async Task A_cancelled_record_whose_seats_all_ended_without_a_handover_is_still_not_offered()
+    {
+        var rig = new WayUpTestRig();
+        var doc = WayUpTestRig.Record("restart-cancelled-ended", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended-1", "A busy worker", conversationId: "conversation-one"),
+        });
+        doc.CancelledAtUtc = Shutdown.AddMinutes(3);
+        rig.Gateway.With(doc);
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
+        Assert.Null(offer.Record);
+        Assert.Null(Assert.Single(history.Entries).Offer);
+    }
+
+    /// <summary>
+    /// A SEAT THAT HAS ALREADY COME BACK IS NOT ACTED ON AGAIN. The record is offered for the seat that has
+    /// not, and the returned seat is not listed at all - a second agent in that saved conversation would
+    /// interleave its turns with the session that is already running.
+    /// </summary>
+    [Fact]
+    public async Task An_ended_seat_that_has_already_come_back_does_not_make_a_record_offerable()
+    {
+        var rig = new WayUpTestRig();
+        var cameBack = WayUpTestRig.Ended("ended-back", "A worker already reopened");
+        cameBack.RestoredSessionId = "88887777-6666";
+        rig.Gateway.With(WayUpTestRig.Record("restart-half-back", Shutdown, new[] { cameBack }));
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+
+        Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
+        Assert.Null(offer.Record);
+    }
+
+    /// <summary>
+    /// NOTHING IS BROUGHT BACK BY ITSELF, and a record offered for ended seats alone cannot be made to bring
+    /// anything back: pressing bring back with nothing ticked is refused in the engine's own words, and
+    /// ticking the ended row itself is refused with what to do instead. The restore is never called either
+    /// way.
+    /// </summary>
+    [Fact]
+    public async Task A_record_offered_for_ended_seats_alone_brings_nothing_back()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-os-shutdown", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended-1", "A busy worker", conversationId: "conversation-one"),
+        }));
+
+        var nothingTicked = await rig.WayUp().BringBackAsync(
+            new WayUpBringBackRequest("restart-os-shutdown", Array.Empty<string>()), CancellationToken.None);
+        var endedTicked = await rig.WayUp().BringBackAsync(
+            new WayUpBringBackRequest("restart-os-shutdown", new[] { "ended-1" }), CancellationToken.None);
+
+        Assert.False(nothingTicked.Started);
+        Assert.Contains("no row was ticked", nothingTicked.Message);
+        Assert.False(endedTicked.Started);
+        Assert.Contains("Reopen its saved conversation instead", endedTicked.Message);
+        Assert.Empty(rig.Restore.Orders);
+        Assert.Empty(rig.Gateway.Started);
+    }
+
+    /// <summary>
+    /// CODEX STAYS NOTED ONLY (5.4). A record of Codex seats alone IS offered - the mission says such a seat
+    /// "is noted and offered as a fresh blank session in its repository" - and the offer says plainly that
+    /// the conversation does not come with it. The widening changed which records are offered; it changed
+    /// nothing about what any agent is promised.
+    /// </summary>
+    [Fact]
+    public async Task A_record_of_codex_seats_alone_is_offered_and_still_promises_no_conversation()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-codex", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended-codex", "A Codex worker", "Codex", "conversation-one"),
+        }));
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+        var record = Assert.IsType<WayUpRecord>(offer.Record);
+        var row = Assert.Single(record.Rows);
+        var reopen = Assert.IsType<WayUpReopenOffer>(row.Reopen);
+
+        Assert.False(row.Ticked);
+        Assert.Equal("Open a fresh session in its repository", reopen.Offer);
+        Assert.Contains("Codex cannot be started on a saved conversation", reopen.What);
+        Assert.Contains("NEW, blank session", reopen.What);
+        Assert.DoesNotContain("is started again on this session's saved conversation", reopen.What);
     }
 
     /// <summary>The reopen offer on the row for one ended seat, through the whole engine.</summary>

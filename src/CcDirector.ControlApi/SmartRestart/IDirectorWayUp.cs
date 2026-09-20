@@ -102,8 +102,8 @@ public enum WayUpOfferState
 public sealed record WayUpOffer(WayUpOfferState State, string Message, WayUpRecord? Record);
 
 /// <summary>
-/// One record of a smart shutdown, as a person reads it: when it was, why, how many seats are owed, and one
-/// row per mission head with the seats under it.
+/// One record of a smart shutdown, as a person reads it: when it was, why, what it holds, and one row per
+/// mission head with the seats under it, then a row for each seat that ended without a handover.
 /// </summary>
 /// <param name="WorkspaceId">The record on the Gateway. Passed back on a bring back or a reopen.</param>
 /// <param name="ShutdownAtUtc">When the shutdown was, in universal time.</param>
@@ -113,9 +113,15 @@ public sealed record WayUpOffer(WayUpOfferState State, string Message, WayUpReco
 /// <param name="Reason">The owner's own reason from the record, or null when none was given.</param>
 /// <param name="ReasonLabel">The reason in plain words, including when there was none.</param>
 /// <param name="SeatsOwed">How many seats are waiting to be brought back.</param>
-/// <param name="SeatsOwedLabel">The same count in plain words.</param>
+/// <param name="SeatsEndedWithoutHandover">How many seats ended without a handover and are listed here,
+/// unticked, each with its own offer. A record may be offered for these alone, with nothing to bring back
+/// at all - the operating system shutting down writes exactly such a record (ruling 10.5).</param>
+/// <param name="SeatsLabel">BOTH counts in plain words, which is why it is not named after either of them.
+/// A label saying only how many are waiting to come back would read "0 sessions are waiting to be brought
+/// back" over a window full of rows.</param>
 /// <param name="Rows">One row per mission head, leads first, then one row for each seat that ended without
-/// a handover.</param>
+/// a handover. Either group may be empty; both are never empty at once, because such a record is not
+/// offered.</param>
 public sealed record WayUpRecord(
     string WorkspaceId,
     DateTime ShutdownAtUtc,
@@ -125,7 +131,8 @@ public sealed record WayUpRecord(
     string? Reason,
     string ReasonLabel,
     int SeatsOwed,
-    string SeatsOwedLabel,
+    int SeatsEndedWithoutHandover,
+    string SeatsLabel,
     IReadOnlyList<WayUpRow> Rows);
 
 /// <summary>What a row offers.</summary>
