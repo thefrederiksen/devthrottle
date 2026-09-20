@@ -786,7 +786,7 @@ public static class SessionOrdering
             // and did not". A row with no accepted verdict - never judged, refused, or an account whose colour
             // switch is off - still reads "Needs you".
             // A red row whose VOICE gave up keeps the fold's own words - "Voice did not arrive after 48m",
-            // "Turn not narrated" - rather than a bare "Needs you". Going red is what makes the owner look;
+            // "Wingman error" - rather than a bare "Needs you". Going red is what makes the owner look;
             // these words are what tell him WHY he is being asked by a session he was promised he would hear
             // instead. Below JudgedLabel on purpose: when the Wingman managed to say what the session needs,
             // that is the more useful sentence, and a failed narration is the reason he is reading it at all.

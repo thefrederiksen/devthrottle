@@ -165,9 +165,9 @@ public enum TurnVerdictTrigger
     /// the judge switch applies (except for a voice session), and the ceiling applies.</summary>
     TurnEnd,
 
-    /// <summary>A voice session's own narration, including its booked re-attempts. Held and exited sessions
-    /// are skipped; the judge switch and the ceiling do not apply, because somebody is listening. A booked
-    /// re-attempt only ever reuses a stored verdict and never asks the judge.</summary>
+    /// <summary>A voice session's own narration. Held and exited sessions are skipped; the judge switch and the
+    /// ceiling do not apply, because somebody is listening. It reuses a stored reading of an unchanged screen,
+    /// failed or not: a failed reading is asked again only by <see cref="Retry"/>, on its booked time.</summary>
     Voice,
 
     /// <summary>The idle voice sweep. Like <see cref="Voice"/>, but capped, and it never re-asks the judge
@@ -215,8 +215,7 @@ public enum TurnVerdictOutcomeKind
     /// <summary>The screen was unchanged, so the stored verdict was returned and nobody was asked.</summary>
     Reused,
     /// <summary>A check stood the request down before the judge was asked. NOT necessarily before anything was
-    /// read: the re-attempt refusal comes after the screen read, and the provider deadline and the account ceiling
-    /// come after the screen AND the conversation. Which check costs what is the boundary block above JudgeAsync.
+    /// read: the account ceiling comes after the screen AND the conversation. Which check costs what is the boundary block above JudgeAsync.
     /// (This summary used to say "before anything was read or asked", which was true of only some of them.)</summary>
     Skipped,
     /// <summary>No usable verdict came back - the judge failed, or the request met an exception it did not
@@ -1571,9 +1570,8 @@ public sealed class TurnVerdictService : IDisposable
     /// already-published record, and that second call is the seam this ruling removes. It now finds the words
     /// already on the record and speaks them.
     ///
-    /// IT GETS ONE IMMEDIATE SECOND ATTEMPT, and the reason is that this call changed meaning under it. The judge
-    /// leg has had a ladder for months - three re-attempts at ten, thirty and ninety seconds - and this leg had
-    /// none, deliberately: the idle sweep comes past every forty-five seconds, and spending a model call to
+    /// IT GETS ONE IMMEDIATE SECOND ATTEMPT, and the reason is that this call changed meaning under it. This leg
+    /// had no second attempt at all, deliberately: the idle sweep comes past every forty-five seconds, and spending a model call to
     /// improve on words the reader ALREADY HAD was not worth it. Contract v3 cut the judge's own prose, so these
     /// are now the only words a reading has, and "no automatic re-attempt" silently stopped meaning "you keep the
     /// short version" and started meaning silence.
@@ -1682,8 +1680,9 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
-    /// One narration call has finished, however it ended. The claim STAYS - an automatic path never re-attempts a
-    /// stop, which is what keeps a stop that fails from spending a paid model call on every sweep pass - but it stops
+    /// One narration call has finished, however it ended. The claim STAYS - no automatic path narrates this same
+    /// record again, which is what keeps a stop that fails from spending a paid model call on every sweep pass (the
+    /// booked retry makes a NEW reading, with its own record, at most eight times) - but it stops
     /// being a RUNNING call, which is what lets a PERSON ask again. See <see cref="ReleaseNarrationClaimForRequest"/>.
     /// </summary>
     internal void NarrationCallFinished(TenantId tenant, string sid, string verdictId)
@@ -1718,9 +1717,10 @@ public sealed class TurnVerdictService : IDisposable
     ///
     /// ONLY A PERSON RELEASES IT, deliberately. The automatic paths - the turn end and the idle sweep - keep the older
     /// restraint that <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins: a stop whose
-    /// narration failed is not retried by itself, because the sweep comes past every forty-five seconds and a stop
-    /// that keeps failing would keep costing a call. A person asking is bounded by the person, and is the one action
-    /// left on that screen that can still produce this turn's audio.
+    /// narration failed is not narrated again on every pass, because the sweep comes past every forty-five seconds
+    /// and a stop that keeps failing would keep costing a call. What asks again by itself is the booked retry
+    /// (<see cref="StartDueRetries"/>), eight times at most and as a new reading; a person asking is bounded by the
+    /// person.
     /// </summary>
     internal bool ReleaseNarrationClaimForRequest(TenantId tenant, string sid, string verdictId)
     {

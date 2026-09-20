@@ -302,6 +302,34 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
     }
 
     [Fact]
+    public async Task AReadingWhoseWriteUpFailed_ShowsTheSameError_AndIsReadAgainOnTheSameSchedule()
+    {
+        // The judge answered; the second call, which writes the words, did not. The owner is owed words and has
+        // none, so it is the same tag and the same schedule - not a second kind of failure with its own rules.
+        var rig = new Rig { JudgeFails = false };
+        rig.Env.VoiceSession = _ => true;
+        var narratorFails = true;
+        rig.Env.Narrator = (_, _) => narratorFails
+            ? throw new TimeoutException("The narration call did not answer.")
+            : Task.FromResult(NarratedAnswer(Spoken));
+
+        await rig.TurnEnds();
+
+        var first = rig.Latest();
+        Assert.False(first.Failed);
+        Assert.NotNull(first.NarrationFailureReason);
+        Assert.Equal(Start.AddMinutes(1), first.NextRetryAtUtc);
+        Assert.Equal("Wingman error", WingmanErrorFold.For(first, agentWorking: false)!.Tag);
+
+        narratorFails = false;
+        rig.Now = Start.AddSeconds(61);
+        Assert.Equal(1, await rig.SweepAsync());
+        Assert.Null(rig.Latest().NarrationFailureReason);
+        Assert.Null(rig.Latest().NextRetryAtUtc);
+        Assert.Null(WingmanErrorFold.For(rig.Latest(), agentWorking: false));
+    }
+
+    [Fact]
     public async Task ABookedRetryThatCanNeverRun_IsWithdrawn_SoTheCardStopsPromisingIt()
     {
         var rig = new Rig();

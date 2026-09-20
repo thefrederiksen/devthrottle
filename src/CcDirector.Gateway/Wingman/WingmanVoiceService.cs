@@ -1588,7 +1588,7 @@ public sealed class WingmanVoiceService
             }
             finally
             {
-                // THE CALL IS OVER, however it ended. The claim stays, so no automatic path re-attempts this stop; it
+                // THE CALL IS OVER, however it ended. The claim stays, so no automatic path narrates this record again; it
                 // only stops being a RUNNING call, which is what lets a PERSON pressing "Generate narration now" ask
                 // for it again. Without this the claim looked live for ever and that button made no call at all.
                 if (outcome.Verdict?.VerdictId is { } finishedId)
