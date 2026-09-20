@@ -13,7 +13,7 @@ namespace CcDirector.ControlApi.Drain;
 /// the parts that carry the risk, and they are exactly the parts a seam makes testable.
 ///
 /// TWO CALLERS, AND THEY DO NOT HOLD THE SAME VERBS. The older drain (<see cref="DirectorDrain"/>) never
-/// forces: it never calls <see cref="IDrainSessionControl.InterruptAsync"/> or
+/// forces: it never calls <see cref="IDrainSessionControl.StopTurnAsync"/> or
 /// <see cref="IDrainSessionControl.EndAsync"/>, and a test runs it on the rig and asserts exactly that.
 /// Those two verbs are here for the smart shutdown only, which has a time limit the owner chose and ends
 /// what is still present when it is reached.
@@ -65,6 +65,51 @@ public sealed record DrainEnd(bool Ended, bool SessionGone, string? Reason)
     /// <summary>It is still here, and here is what the stop path said.</summary>
     /// <param name="reason">The stop path's own words.</param>
     public static DrainEnd Refused(string reason) => new(false, false, reason);
+}
+
+/// <summary>
+/// The verb this Director can use to stop a session's turn, CHOSEN FROM WHAT THE DRIVER DECLARES.
+///
+/// It is read from <see cref="DriverCapabilities"/> BEFORE anything is sent, never discovered by sending
+/// one verb and catching the refusal. The drivers genuinely disagree: Claude Code and Codex declare both
+/// verbs, pi declares only the soft cancel (its Ctrl+C clears the editor and twice QUITS it), Cursor and
+/// Copilot declare only the hard interrupt. Sending the same verb to all of them is what left a pi session
+/// never told to hand over, working to the limit, and ended with no document (issue #3207).
+/// </summary>
+public enum DrainStopVerb
+{
+    /// <summary>The agent declares neither verb, so this Director has no way to stop its turn. Nothing is
+    /// sent. It is a fact for the record and for the progress screen, named there, never a silent skip.</summary>
+    None = 0,
+
+    /// <summary>The hard interrupt (Ctrl+C for every terminal command line verified so far), declared as
+    /// <see cref="DriverCapabilities.Interrupt"/>.</summary>
+    Interrupt = 1,
+
+    /// <summary>The soft cancel (Escape), declared as <see cref="DriverCapabilities.Cancel"/>.</summary>
+    Escape = 2,
+}
+
+/// <summary>
+/// What happened when the smart shutdown tried to stop a session's turn: WHICH VERB WAS CHOSEN, and what
+/// came of sending it.
+///
+/// Two facts and not one, for the same reason <see cref="DrainDelivery"/> is not a bool: the row and the
+/// record have to say which verb this Director had for that agent, and
+/// <see cref="DrainStopVerb.None"/> - the agent declares neither - means nothing was sent at all, which is
+/// a different sentence from "it was sent and refused".
+/// </summary>
+/// <param name="Verb">The verb this session's driver declares, or <see cref="DrainStopVerb.None"/>.</param>
+/// <param name="Delivery">What came of sending it; the refusal carries the reason when nothing was sent.</param>
+public sealed record DrainTurnStop(DrainStopVerb Verb, DrainDelivery Delivery)
+{
+    /// <summary>There is no such session here, so there was no turn to stop and no driver to ask.</summary>
+    public static readonly DrainTurnStop Gone = new(DrainStopVerb.None, DrainDelivery.Gone);
+
+    /// <summary>The agent declares neither verb. Nothing was sent, and here is why.</summary>
+    /// <param name="reason">Which agent it is and what it declares, in plain words.</param>
+    public static DrainTurnStop NotDeclared(string reason)
+        => new(DrainStopVerb.None, DrainDelivery.Refused(reason));
 }
 
 public interface IDrainSessionControl
@@ -145,15 +190,20 @@ public interface IDrainSessionControl
     bool IsMidTurn(string sessionId);
 
     /// <summary>
-    /// Interrupt the session's turn, through the Director's existing interrupt path. SMART SHUTDOWN ONLY:
-    /// the older drain never calls this.
+    /// Stop the session's turn, with the verb ITS OWN DRIVER DECLARES: the hard interrupt where the driver
+    /// declares <see cref="DriverCapabilities.Interrupt"/>, the soft cancel (Escape) where it declares only
+    /// <see cref="DriverCapabilities.Cancel"/>, and nothing at all where it declares neither. Both go
+    /// through paths the Director already had. SMART SHUTDOWN ONLY: the older drain never calls this.
     ///
-    /// It answers like <see cref="SendAsync"/>, so "gone" and "could not" stay two facts. "Could not" is a
-    /// real answer here and not an error to work around: an agent whose command line has no safe hard
-    /// interrupt refuses, and the reason it gives comes back verbatim.
+    /// THE VERB IS CHOSEN BEFORE IT IS SENT, never found by sending one and catching what comes back. A
+    /// driver with no safe hard interrupt THROWS from its interrupt method, so "try the interrupt and fall
+    /// back to Escape" would be an exception used as a decision.
+    ///
+    /// It answers like <see cref="SendAsync"/>, so "gone" and "could not" stay two facts, and it names the
+    /// verb so the row and the record can say which one this Director had.
     /// </summary>
     /// <param name="sessionId">The session id.</param>
-    Task<DrainDelivery> InterruptAsync(string sessionId);
+    Task<DrainTurnStop> StopTurnAsync(string sessionId);
 
     /// <summary>
     /// End the session NOW, turn or no turn, through the Director's existing way of stopping a session.
@@ -191,10 +241,11 @@ public interface IDrainSessionControl
 ///
 /// The smart shutdown does force, because the owner gave it a time limit (mission document "Smart
 /// Director Restart", section 5.3 item 5, which replaces the never-force rule FOR THE SMART SHUTDOWN
-/// ONLY). For it this seam carries <see cref="InterruptAsync"/>, which cuts a turn short, and
-/// <see cref="EndAsync"/>, which ends a session turn or no turn. Both go through paths the Director
-/// already had - the interrupt verb and the stop verb of <see cref="SessionCommandExecutor"/> - so there
-/// is still exactly one way to interrupt a session and one way to stop one.
+/// ONLY). For it this seam carries <see cref="StopTurnAsync"/>, which cuts a turn short with whichever
+/// verb that session's driver declares, and <see cref="EndAsync"/>, which ends a session turn or no turn.
+/// Both go through paths the Director already had - the interrupt verb, the escape verb and the stop verb
+/// of <see cref="SessionCommandExecutor"/> - so there is still exactly one way to interrupt a session, one
+/// way to escape one, and one way to stop one.
 ///
 /// This comment used to say the seam held no way to kill a session directly or to cancel its turn, and
 /// that never-force was enforced by the drain having no stronger verb. That stopped being true when the
@@ -253,6 +304,21 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
             FileLog.Write($"[DrainSessionControl] SendAsync: session={sessionId} wedged: {ex.Message}");
             return DrainDelivery.Refused(ex.Message);
         }
+        catch (PromptNotSubmittedException ex)
+        {
+            // THE SAME FACT, REPORTED A FEW LINES FURTHER ALONG THE SAME SUBMIT PATH. This one means the
+            // text reached the composer and nothing ever ran: the Enter was swallowed, or the session is
+            // a shell that prints too little for the submit verifier to see a turn start. To a drain that
+            // is the same answer as a wedged composer - THIS SESSION CANNOT BE ASKED - and it belongs on
+            // that session's row, not at the top of the run.
+            //
+            // Only its sibling was caught until issue #3235, and the gap was not theoretical: one raw
+            // command line session took the words, never started a turn, and the exception came out of
+            // the whole smart shutdown. The run stopped at the sixth of seven sessions, the seventh was
+            // never asked, every other session was left running, and nothing was handed over.
+            FileLog.Write($"[DrainSessionControl] SendAsync: session={sessionId} never started a turn: {ex.Message}");
+            return DrainDelivery.Refused(ex.Message);
+        }
     }
 
     /// <inheritdoc />
@@ -302,35 +368,85 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
     }
 
     /// <inheritdoc />
-    public async Task<DrainDelivery> InterruptAsync(string sessionId)
+    public async Task<DrainTurnStop> StopTurnAsync(string sessionId)
     {
-        FileLog.Write($"[DrainSessionControl] InterruptAsync: session={sessionId}");
+        if (!Guid.TryParse(sessionId, out var id) || _sessions.GetSession(id) is not { } session)
+        {
+            FileLog.Write($"[DrainSessionControl] StopTurnAsync: session={sessionId} is not here");
+            return DrainTurnStop.Gone;
+        }
 
-        var result = await SessionCommandExecutor.InterruptAsync(
-            _sessions,
-            new Gateway.Contracts.DirectorCommand
-            {
-                CommandId = "smart-shutdown-interrupt",
-                Verb = "interrupt",
-                SessionId = sessionId,
-            }).ConfigureAwait(false);
+        // THE VERB IS READ FROM THE DRIVER BEFORE ANYTHING IS SENT. The hard interrupt first where the
+        // driver declares it - it is what this Director has always sent, and it stops a turn outright -
+        // and the soft cancel where it declares only that. Never "send the interrupt and see what comes
+        // back": pi's driver THROWS from its interrupt method by design, so a catch around that throw
+        // would be an exception used as a decision, and it is how a pi session was never told to hand
+        // over at all (issue #3207).
+        var capabilities = session.Driver.Capabilities;
+        FileLog.Write(
+            $"[DrainSessionControl] StopTurnAsync: session={sessionId}, agent={session.Driver.Kind}, " +
+            $"declares={capabilities}");
 
+        if (capabilities.HasFlag(DriverCapabilities.Interrupt))
+        {
+            var interrupted = await SessionCommandExecutor.InterruptAsync(
+                _sessions,
+                new Gateway.Contracts.DirectorCommand
+                {
+                    CommandId = "smart-shutdown-interrupt",
+                    Verb = "interrupt",
+                    SessionId = sessionId,
+                }).ConfigureAwait(false);
+            return new DrainTurnStop(
+                DrainStopVerb.Interrupt, ReadStopAnswer(sessionId, "interrupt", interrupted));
+        }
+
+        if (capabilities.HasFlag(DriverCapabilities.Cancel))
+        {
+            var escaped = await SessionCommandExecutor.EscapeAsync(
+                _sessions,
+                new Gateway.Contracts.DirectorCommand
+                {
+                    CommandId = "smart-shutdown-escape",
+                    Verb = "escape",
+                    SessionId = sessionId,
+                }).ConfigureAwait(false);
+            return new DrainTurnStop(DrainStopVerb.Escape, ReadStopAnswer(sessionId, "escape", escaped));
+        }
+
+        // NEITHER VERB. Nothing is sent, and the agent is NAMED: a caller handed a bare "could not" has
+        // nothing to put on the row or in the record, and a skip with no sentence is the defect itself.
+        var reason =
+            $"its agent ({session.Driver.Kind}) declares neither a hard interrupt nor a soft cancel, so " +
+            "this Director has no verb that stops its turn";
+        FileLog.Write($"[DrainSessionControl] StopTurnAsync: session={sessionId} has no stop verb: {reason}");
+        return DrainTurnStop.NotDeclared(reason);
+    }
+
+    /// <summary>One reading of what a stop verb answered, shared by both verbs so the two cannot drift
+    /// apart.</summary>
+    /// <param name="sessionId">The session id, for the log.</param>
+    /// <param name="verb">Which verb was sent, for the log.</param>
+    /// <param name="result">What the Director's own verb handler answered.</param>
+    private static DrainDelivery ReadStopAnswer(
+        string sessionId, string verb, Gateway.Contracts.DirectorCommandResult result)
+    {
         switch (result.Status)
         {
             case Gateway.Contracts.DirectorCommandStatus.Ok:
-                FileLog.Write($"[DrainSessionControl] InterruptAsync: session={sessionId} interrupted");
+                FileLog.Write($"[DrainSessionControl] StopTurnAsync: session={sessionId} stopped with {verb}");
                 return DrainDelivery.Ok;
 
             // An id that cannot be parsed and an id that names nothing are the same fact to a caller of
             // this seam, exactly as they are in SendAsync: there is no such session here.
             case Gateway.Contracts.DirectorCommandStatus.BadRequest:
             case Gateway.Contracts.DirectorCommandStatus.NotFound:
-                FileLog.Write($"[DrainSessionControl] InterruptAsync: session={sessionId} is not here: {result.Error}");
+                FileLog.Write($"[DrainSessionControl] StopTurnAsync: session={sessionId} is not here: {result.Error}");
                 return DrainDelivery.Gone;
 
             default:
-                FileLog.Write($"[DrainSessionControl] InterruptAsync: session={sessionId} refused: {result.Error}");
-                return DrainDelivery.Refused(result.Error ?? "the Director refused the interrupt");
+                FileLog.Write($"[DrainSessionControl] StopTurnAsync: session={sessionId} refused the {verb}: {result.Error}");
+                return DrainDelivery.Refused(result.Error ?? $"the Director refused the {verb}");
         }
     }
 

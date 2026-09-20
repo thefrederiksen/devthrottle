@@ -194,28 +194,93 @@ public sealed class SmartShutdownRunTests
         Assert.True(_now < Start.AddMinutes(10), "it handed over after the interrupt, so the limit was never reached");
     }
 
-    // Shows: a session whose agent has no safe interrupt (Pi) hands the refusal back; it is still sent the
-    // short message, its row is never called interrupted because it was not, the refusal is on the row in
-    // the agent's own words, and it is ended at the limit like any other session still present.
+    // Shows: a session whose agent declares the hard interrupt and refuses it anyway hands the refusal
+    // back; it is still sent the short message, its row is never called interrupted because it was not,
+    // the refusal is on the row in the agent's own words, and it is ended at the limit like any other
+    // session still present.
     [Fact]
     public async Task Start_ASessionThatCannotBeInterrupted_IsStillAskedAgain_IsNeverShownInterrupted_AndIsEndedAtTheLimit()
     {
         using var dir = new TempDir();
-        var (sessions, sink) = Rig(Seat("pi", "A Pi session"));
-        sessions.MidTurn.Add("pi");
-        sessions.RefuseInterruptWithReason["pi"] = "Pi has no safe hard interrupt";
+        var (sessions, sink) = Rig(Seat("stuck", "A session whose interrupt is refused"));
+        sessions.MidTurn.Add("stuck");
+        sessions.RefuseInterruptWithReason["stuck"] = "the terminal would not take the interrupt";
 
         var watched = await RunWatchedAsync(sessions, sink, dir.Path);
 
-        Assert.Equal(new[] { "pi" }, sessions.Interrupted);
-        Assert.Contains(sessions.Sent, m => m.SessionId == "pi" && m.Text.Contains("HAND OVER NOW"));
-        Assert.DoesNotContain(watched.RowsOf("pi"), r => r.State == SmartShutdownSessionState.Interrupted);
-        Assert.Contains(watched.RowsOf("pi"), r => r.Detail is not null && r.Detail.Contains("Pi has no safe hard interrupt"));
-        Assert.Contains(watched.RowsOf("pi"),
+        Assert.Equal(new[] { "stuck" }, sessions.Interrupted);
+        Assert.Contains(sessions.Sent, m => m.SessionId == "stuck" && m.Text.Contains("HAND OVER NOW"));
+        Assert.DoesNotContain(watched.RowsOf("stuck"), r => r.State == SmartShutdownSessionState.Interrupted);
+        Assert.Contains(watched.RowsOf("stuck"),
+            r => r.Detail is not null && r.Detail.Contains("the terminal would not take the interrupt"));
+        Assert.Contains(watched.RowsOf("stuck"),
             r => r.State == SmartShutdownSessionState.Asked && r.Detail is not null && r.Detail.Contains("could not be interrupted"));
 
-        Assert.Equal(new[] { "pi" }, sessions.Ended.Select(e => e.SessionId));
-        Assert.Equal(WorkspaceDrainStates.EndedAtLimit, SavedSeat(sink, "pi").DrainState);
+        Assert.Equal(new[] { "stuck" }, sessions.Ended.Select(e => e.SessionId));
+        Assert.Equal(WorkspaceDrainStates.EndedAtLimit, SavedSeat(sink, "stuck").DrainState);
+        Assert.Equal(SmartShutdownOutcome.Emptied, watched.Result.Outcome);
+    }
+
+    // Shows: ISSUE #3207, END TO END. A session mid-turn whose agent declares only the soft cancel - pi's
+    // shape, and pi is the agent every review seat in this fleet runs - is stopped with ESCAPE and not
+    // with the interrupt it would refuse. It is then told to hand over now, it writes its handover, and it
+    // is closed the ordinary way. Before this, the interrupt was sent, refused, and that session was never
+    // told to hand over at all: it worked to the limit and was ended with no document.
+    [Fact]
+    public async Task Start_ASessionMidTurnWhoseAgentDeclaresOnlyTheSoftCancel_IsStoppedWithEscapeAndHandsOver()
+    {
+        using var dir = new TempDir();
+        var (sessions, sink) = Rig(Seat("pi", "A Pi session"));
+        sessions.MidTurn.Add("pi");
+        sessions.StopVerb["pi"] = DrainStopVerb.Escape;
+        sessions.HandoverWhenToldToHandOverNow(dir.Path, "pi", "A Pi session", DrainTestRig.Block(restore: true));
+
+        var watched = await RunWatchedAsync(sessions, sink, dir.Path);
+
+        Assert.Equal(new[] { ("pi", DrainStopVerb.Escape) }, sessions.StopsSent);
+        Assert.Contains(sessions.Sent, m => m.SessionId == "pi" && m.Text.Contains("HAND OVER NOW"));
+        Assert.Contains(watched.RowsOf("pi"), r => r.State == SmartShutdownSessionState.Interrupted);
+
+        // It handed over, so it was never ended and the limit was never reached.
+        Assert.Empty(sessions.Ended);
+        Assert.Equal(WorkspaceDrainStates.Drained, SavedSeat(sink, "pi").DrainState);
+        Assert.Equal(SmartShutdownOutcome.Emptied, watched.Result.Outcome);
+        Assert.True(_now < Start.AddMinutes(10), "it handed over after the escape, so the limit was never reached");
+    }
+
+    // Shows: a session mid-turn whose agent declares NEITHER verb has nothing sent to it - there is no
+    // verb to send - and is NAMED for it, on its row and in the record, with the agent named too. It is
+    // still asked to hand over, and ended at the limit like any other session still present. A silent skip
+    // is the defect the two-thirds step had; a named one is the cure.
+    [Fact]
+    public async Task Start_ASessionMidTurnWhoseAgentDeclaresNoStopVerb_IsNamedOnItsRowAndInTheRecord()
+    {
+        using var dir = new TempDir();
+        var (sessions, sink) = Rig(Seat("odd", "An agent with no stop verb"));
+        sessions.MidTurn.Add("odd");
+        sessions.NoStopVerbWithReason["odd"] =
+            "its agent (RawCli) declares neither a hard interrupt nor a soft cancel, so this Director has " +
+            "no verb that stops its turn";
+
+        var watched = await RunWatchedAsync(sessions, sink, dir.Path);
+
+        // Asked for, and nothing sent: the verb is chosen before anything goes out, so there was nothing
+        // to send.
+        Assert.Equal(new[] { "odd" }, sessions.Interrupted);
+        Assert.Empty(sessions.StopsSent);
+
+        Assert.Contains(watched.RowsOf("odd"),
+            r => r.Detail is not null
+                 && r.Detail.Contains("its turn could not be stopped")
+                 && r.Detail.Contains("declares neither"));
+        Assert.Contains(sink.Last.Integrity!.Problems,
+            p => p.Contains("An agent with no stop verb")
+                 && p.Contains("no verb that stops its turn"));
+
+        // It was still asked to hand over, and the limit ended it like any other session still present.
+        Assert.Contains(sessions.Sent, m => m.SessionId == "odd" && m.Text.Contains("HAND OVER NOW"));
+        Assert.Equal(new[] { "odd" }, sessions.Ended.Select(e => e.SessionId));
+        Assert.Equal(WorkspaceDrainStates.EndedAtLimit, SavedSeat(sink, "odd").DrainState);
         Assert.Equal(SmartShutdownOutcome.Emptied, watched.Result.Outcome);
     }
 
@@ -603,10 +668,10 @@ public sealed class SmartShutdownRunTests
         public List<DateTime> InterruptedAt { get; } = new();
         public List<DateTime> EndedAt { get; } = new();
 
-        public override Task<DrainDelivery> InterruptAsync(string sessionId)
+        public override Task<DrainTurnStop> StopTurnAsync(string sessionId)
         {
             InterruptedAt.Add(_clock());
-            return base.InterruptAsync(sessionId);
+            return base.StopTurnAsync(sessionId);
         }
 
         public override Task<DrainEnd> EndAsync(string sessionId, string reason)
