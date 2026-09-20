@@ -605,10 +605,11 @@ _ACTIONS = [
     {
         "id": "director-restart-history",
         "description": (
-            "Every restart record one Director wrote, newest first, with what came back and what did "
-            "not. Nothing is deleted, so a record stays readable whatever became of it, and one that "
-            "still owes sessions says how many are waiting. A history that could not be read is an "
-            "error naming why, never an empty list."
+            "The restart records one Director wrote, newest first - the newest twenty-five - with what "
+            "came back and what did not. Nothing is deleted, so a record stays readable whatever became "
+            "of it, and one that still owes sessions says how many are waiting. Where older records exist "
+            "the Director's own sentence says how many are not being read. A history that could not be "
+            "read is an error naming why, never an empty list."
         ),
         "command": "cc-devthrottle director restart-history [--director <id-or-name>] [--count <n>]",
         "mutatesState": False,
@@ -1785,9 +1786,15 @@ def director_smart_restart(
     THE OWNER'S, not an agent's: a session's key is refused, and told to ask with
     'cc-devthrottle machine restart-request' instead.
 
-    Exit 0 means the launcher accepted the restart. Exit 1: it did not, and the reason says why - the
-    record stands and is offered on the next start. Exit 3: accepted and not watched to the end, so
-    nothing here knows how it ended.
+    A RESTART THAT WORKS USUALLY EXITS 3, NOT 0. Accepting the restart is the launcher stopping this
+    very Director, so the normal end of a successful run is the door going shut while this command is
+    polling it - and from outside that cannot be told apart from a Director that died. Exit 0 needs a
+    poll to land between the acceptance being recorded and the process ending, and that window may be
+    zero length. Read 'cc-devthrottle director restart-history' afterwards to learn which it was.
+
+    Exit 0: the launcher's acceptance was read before the Director stopped. Exit 1: the restart did
+    not happen, and the reason says why - the record stands and is offered on the next start. Exit 3:
+    accepted and not watched to an end this command saw.
     """
     from . import smart_restart_ops
 
@@ -1825,11 +1832,13 @@ def director_restart_history(
     count: int = typer.Option(20, "--count", "-n", help="Largest number of records to show, newest first."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON: every record, every seat."),
 ) -> None:
-    """Every restart record this Director wrote, newest first.
+    """The restart records this Director wrote, newest first - the newest twenty-five.
 
     What came back and what did not.
     Nothing is deleted, so a record stays readable whatever became of it, and one that still owes
-    sessions says how many are waiting. A history that could not be read is an error naming why -
+    sessions says how many are waiting. The way up reads the newest twenty-five records, and where
+    there are older ones the Director's own sentence says how many are not being read - a capped
+    read is never stated as a total. A history that could not be read is an error naming why -
     never an empty list, which would read as "this Director has never been restarted".
     """
     from . import smart_restart_ops

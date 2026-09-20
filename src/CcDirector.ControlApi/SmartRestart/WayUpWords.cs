@@ -30,10 +30,27 @@ public static class WayUpWords
 
     /// <summary>What the history is, when it has entries.</summary>
     /// <param name="count">How many records were read.</param>
-    public static string HistoryRead(int count) =>
-        count == 1
+    /// <param name="olderNotRead">
+    /// How many older records this Director has that were NOT read, because the way up reads only the newest
+    /// <see cref="DirectorWayUp.MostRecentRecordsRead"/>. Zero when the whole history was read.
+    /// </param>
+    /// <remarks>
+    /// THE SENTENCE NEVER STATES A CAPPED READ AS A TOTAL. A Director restarted most mornings passes
+    /// twenty-five records inside a month, and "This Director has 25 restart records" would then be an
+    /// absence presented as a complete answer - on the one surface whose whole promise is that nothing is
+    /// deleted. So when older records exist the sentence says how many are being shown AND that the rest are
+    /// still on the Gateway. When none are cut off the words are exactly what they always were.
+    /// </remarks>
+    public static string HistoryRead(int count, int olderNotRead = 0)
+    {
+        if (olderNotRead > 0)
+            return $"The newest {count} of this Director's {count + olderNotRead} restart records, newest " +
+                   $"first. The other {olderNotRead} are older and are not read here; they are kept on the " +
+                   "Gateway and nothing has been deleted.";
+        return count == 1
             ? "This Director has one restart record."
             : $"This Director has {count} restart records, newest first.";
+    }
 
     /// <summary>
     /// Why nothing could be read from the Gateway. NEVER an empty list: an empty list reads as "you have no

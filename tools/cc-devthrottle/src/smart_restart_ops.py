@@ -23,7 +23,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -73,9 +73,21 @@ def resolve_director(director: Optional[str], machine: Optional[str]) -> str:
     Resolved by the tool's ONE resolver - the same one `session spawn --director` uses - so an id, an
     exact name and an id prefix mean here exactly what they mean there, and an ambiguous name is
     refused rather than guessed. A second resolver would be a second set of rules for one idea.
+
+    `--machine` NARROWS A NAME; IT NEVER CHOOSES A DIRECTOR. Given on its own it used to be accepted
+    and dropped, so `director smart-restart --machine OTHER_BOX` read as "empty the Director on
+    OTHER_BOX" and emptied the one this session belongs to. On the one command here that closes every
+    session on a machine, a locator that is read and ignored is the harm the mission named first, so
+    it is a usage error rather than a silence.
     """
     from .session_ops import _my_director, _resolve_director_id
 
+    if machine and machine.strip() and not (director and director.strip()):
+        axi_cli.usage_error(
+            "--machine narrows an ambiguous Director NAME to one computer; it does not choose a "
+            "Director on its own. Name the Director with --director, or leave both off to act on the "
+            "one this session belongs to."
+        )
     if director and director.strip():
         try:
             return _resolve_director_id(director, machine or "")
@@ -174,8 +186,26 @@ def _read_progress(director_id: str) -> Dict[str, Any]:
 
 
 def _rows(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The session rows of one reading - REFUSED, never quietly emptied, when they are not rows.
+
+    The same rule the whole-answer check above applies, one level down. A `sessions` that is not a
+    list of objects used to become no rows at all, so a Gateway that renamed or reshaped the field
+    would print a phase and a count with every session missing underneath it, and exit as if that
+    were the run. An absence presented as an answer is the one thing this command was built never to
+    do, and a shape check that stops at the top level only moves the lie one level down.
+    """
     rows = payload.get("sessions")
-    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        _not_a_shape_i_can_read(
+            "the Gateway's answer listed the sessions of the smart restart in a shape this command "
+            "cannot read, so what is happening to them is unknown."
+        )
+    return rows
+
+
+def _not_a_shape_i_can_read(what: str) -> NoReturn:
+    """One exit for every answer that arrived in a shape this command cannot read."""
+    axi_cli.fail(what, ["cc-devthrottle director list", axi_cli.CHECK_GATEWAY])
 
 
 def _row_states(payload: Dict[str, Any]) -> Dict[str, Tuple[str, str, str]]:
@@ -332,8 +362,15 @@ def restart_history(director: Optional[str], machine: Optional[str], count: int,
             ["cc-devthrottle director list", axi_cli.CHECK_GATEWAY],
         )
 
+    entries = _entries(payload)
+
     if json_output:
-        print(json.dumps(payload, indent=2))
+        # --count NARROWS --json TOO. The command line standard in this repository is that a filter
+        # applies whatever the output shape is, and that it never changes that shape: the answer is
+        # the Gateway's own object with its `entries` narrowed to the newest `count`, and nothing
+        # else touched. A filter that silently did not apply is what an agent composing flags meets
+        # as a wrong answer rather than an error.
+        print(json.dumps({**payload, "entries": entries[:count]}, indent=2))
         return
 
     # A history that could not be read is a FAILURE, never an empty list. The two look identical on a
@@ -344,8 +381,6 @@ def restart_history(director: Optional[str], machine: Optional[str], count: int,
             ["cc-devthrottle director list", axi_cli.CHECK_GATEWAY],
         )
 
-    entries = payload.get("entries")
-    entries = [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
     shown = entries[:count]
     axi_cli.write_lines(axi_output.format_count(len(shown), total=len(entries)))
     console.print(axi_cli.shown(gateway.field(payload, "message", "Message")))
@@ -358,19 +393,40 @@ def restart_history(director: Optional[str], machine: Optional[str], count: int,
     ])
 
 
+def _entries(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The records of the history - REFUSED, never quietly emptied, when they are not records.
+
+    The same rule as `_rows`, and it matters most here: an `entries` that is not a list of objects
+    used to become an empty history, so this command would print `count: 0` and exit as though the
+    Director had never been restarted - the exact lie it exists not to tell, reached by a Gateway
+    that reshaped a field rather than by a Director that had no records.
+    """
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        _not_a_shape_i_can_read(
+            "the Gateway's answer listed the restart records in a shape this command cannot read, so "
+            "this Director's restart history is unknown. An empty history is never reported as one "
+            "that could not be read."
+        )
+    return entries
+
+
 def _print_entry(entry: Dict[str, Any]) -> None:
     workspace = gateway.field(entry, "workspaceId", "WorkspaceId")
     console.print(
         f"{axi_cli.shown(gateway.field(entry, 'whenLabel', 'WhenLabel'))} - workspace {axi_cli.shown(workspace)}"
     )
-    for key in ("kindLabel", "reasonLabel", "outcomeLabel", "seatsOwedLabel"):
+    for key in ("kindLabel", "reasonLabel", "outcomeLabel", "seatsLabel"):
         value = gateway.field(entry, key)
         if value:
             console.print(f"  {axi_cli.shown(value)}")
     seats = entry.get("seats")
-    for seat in seats if isinstance(seats, list) else []:
-        if not isinstance(seat, dict):
-            continue
+    if not isinstance(seats, list) or not all(isinstance(s, dict) for s in seats):
+        _not_a_shape_i_can_read(
+            "the Gateway's answer listed the seats of a restart record in a shape this command "
+            "cannot read, so what became of them is unknown."
+        )
+    for seat in seats:
         console.print(
             f"    {axi_cli.shown(gateway.field(seat, 'name', 'Name'))}: "
             f"{axi_cli.shown(gateway.field(seat, 'outcome', 'Outcome'))}"

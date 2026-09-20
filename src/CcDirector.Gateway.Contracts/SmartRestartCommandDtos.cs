@@ -24,7 +24,10 @@ public static class SmartRestartVerbs
     /// <summary>Where the run started on this Director stands, as one complete snapshot. A read.</summary>
     public const string Progress = "smart-restart/progress";
 
-    /// <summary>Every restart record this Director wrote, newest first. A read.</summary>
+    /// <summary>The restart records this Director wrote, newest first - the newest twenty-five of them. A
+    /// read. The cap is the way up's (<c>DirectorWayUp.MostRecentRecordsRead</c>), and where it bites the
+    /// history's own sentence says how many older records are not being read, so a capped answer is never
+    /// stated as a total.</summary>
     public const string History = "smart-restart/history";
 }
 
@@ -142,7 +145,8 @@ public sealed class SmartRestartSessionDto
     public string? Detail { get; set; }
 }
 
-/// <summary>Every restart record this Director wrote, newest first.</summary>
+/// <summary>The restart records this Director wrote, newest first - the newest twenty-five of them, which
+/// is as far back as the way up reads. <see cref="Message"/> says so when there are older ones.</summary>
 public sealed class SmartRestartHistoryDto
 {
     /// <summary>True when nothing could be read. Then <see cref="Entries"/> is empty and
@@ -177,10 +181,12 @@ public sealed class SmartRestartHistoryEntryDto
     /// <summary>What became of it, in plain words.</summary>
     public string OutcomeLabel { get; set; } = "";
 
-    /// <summary>How many seats are still waiting to be brought back, in plain words, or null when this
-    /// record owes none. Reading it is not bringing them back: the command line does not restore, and
-    /// this sentence is what tells the owner a record is still worth opening.</summary>
-    public string? SeatsOwedLabel { get; set; }
+    /// <summary>What this record still holds, in plain words - how many seats are waiting to be brought
+    /// back AND how many ended without a handover - or null when there is nothing left to act on. It is
+    /// the offer's own sentence and is not named after either count, because it says both. Reading it is
+    /// not bringing anything back: the command line does not restore, and this sentence is what tells the
+    /// owner a record is still worth opening.</summary>
+    public string? SeatsLabel { get; set; }
 
     /// <summary>What became of each seat.</summary>
     public List<SmartRestartHistorySeatDto> Seats { get; set; } = new();

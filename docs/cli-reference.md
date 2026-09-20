@@ -982,13 +982,25 @@ session may do instead: `cc-devthrottle machine restart-request <machine> --reas
 creates a request the owner accepts once. Reading is open to a session - the two commands below.
 
 While it watches it prints each session's state as it changes, and the phase and count as they move.
-Every sentence it prints is the Director's own. Exit 0 means the launcher accepted the restart; exit
-1 means the restart did not happen and the reason says why - the record stands and is offered when
-the Director is next started; exit 3 means accepted and not watched to the end, so nothing here knows
-how it ended. **A Director that goes silent mid-run is reported as exactly that and exits 3**: the
-launcher stops this very Director, so the door being shut is also what a restart that WORKED looks
-like from here, and the two cannot be told apart from outside. `cc-devthrottle director list` answers
-the rest. A time that is not one of the five allowed is refused by the Director, by name.
+Every sentence it prints is the Director's own.
+
+**A restart that WORKS usually exits 3, not 0, and a script must be written for that.** Accepting the
+restart is the launcher stopping this very Director, so the normal end of a run that succeeded is the
+door going shut while the watcher is polling it. Exit 3 is what that is reported as: accepted, and
+not watched to an end this command saw. From outside it cannot be told apart from a Director that
+died, and this command claims neither - it prints what it saw, the last phase it saw, and the
+commands that answer the rest. Exit 0 needs a poll to land in the window between the engine recording
+the acceptance and the process ending, and that window may be zero length, so it is the lucky
+outcome of a successful run rather than its usual one. **The restart history is what tells a
+successful run from a dead Director**: `cc-devthrottle director restart-history` carries the record
+and its outcome after the fact, and `cc-devthrottle director list` says whether the Director came
+back.
+
+So: exit 0 means the launcher's acceptance was read before the Director stopped; exit 1 means the
+restart did not happen and the reason says why - the record stands and is offered when the Director
+is next started; exit 3 means accepted and not watched to an end this command saw, which covers both
+--no-watch and a Director that went silent mid-run. A time that is not one of the five allowed is
+refused by the Director, by name.
 
 ```
 USAGE: cc-devthrottle director smart-restart-status [OPTIONS]
@@ -999,7 +1011,8 @@ OPTIONS (both):
   --machine TEXT   Narrow an ambiguous Director name to one computer.
   --json -j        Output raw JSON.
 OPTIONS (restart-history):
-  --count -n INTEGER  Largest number of records to show, newest first [default: 20].
+  --count -n INTEGER  Largest number of records to show, newest first [default: 20]. It applies to
+                      --json too, narrowing the records in the answer without changing its shape.
 ```
 
 `smart-restart-status` asks once where the smart restart on one Director stands: the phase, the
@@ -1007,10 +1020,14 @@ count, and one row per session with what is happening to it - or, once it is ove
 Director on which none has been started since it came up says exactly that; it never answers an
 empty run, which would read as a run that found nothing to do. It changes nothing.
 
-`restart-history` lists every restart record that Director wrote, newest first, with what came back
+`restart-history` lists the restart records that Director wrote, newest first, with what came back
 and what did not. Nothing is deleted, so a record stays readable whatever became of it, and one that
-still owes sessions says how many are waiting. A history that could not be READ is an error naming
-why, never an empty list - the two look identical on a screen and call for opposite next steps.
+still owes sessions says how many are waiting. **It reads the newest 25 records**, which is how far
+back the Director's own way up reads; where there are older ones the Director's own sentence says how
+many are not being read, so a capped answer is never stated as this Director's total. `--count`
+narrows what is shown to the newest N of those, and it narrows `--json` in the same way, leaving the
+answer's shape alone. A history that could not be READ is an error naming why, never an empty list -
+the two look identical on a screen and call for opposite next steps.
 Added 20 September 2026 (the Smart Director Restart mission).
 
 ### Fleet Manager

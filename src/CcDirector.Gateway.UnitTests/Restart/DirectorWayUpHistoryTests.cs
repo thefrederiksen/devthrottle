@@ -49,6 +49,48 @@ public class DirectorWayUpHistoryTests
         Assert.Equal(0, rig.Gateway.RosterAsked);
     }
 
+    /// <summary>
+    /// A CAPPED READ IS NEVER STATED AS THIS DIRECTOR'S TOTAL (review of phase 4, finding 6).
+    ///
+    /// The way up reads the newest twenty-five records, because reading every one of them at start-up would
+    /// be hundreds of calls before the first window appears. The history reads the same capped list - so a
+    /// Director restarted most mornings passes the cap inside a month, and the sentence used to say "This
+    /// Director has 25 restart records" to a Director that had thirty. That is an absence presented as a
+    /// complete answer, on the one surface whose whole promise is that nothing is deleted. The sentence now
+    /// says how many are being shown, how many exist, and that the rest are still on the Gateway.
+    /// </summary>
+    [Fact]
+    public async Task The_history_says_when_older_records_exist_that_it_is_not_reading()
+    {
+        var rig = new WayUpTestRig();
+        for (var i = 0; i < DirectorWayUp.MostRecentRecordsRead + 5; i++)
+            rig.Gateway.With(WayUpTestRig.Record($"restart-{i:D2}", Shutdown.AddMinutes(-i),
+                new[] { WayUpTestRig.Owed($"seat-{i}", "A seat") }));
+
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal(DirectorWayUp.MostRecentRecordsRead, history.Entries.Count);
+        Assert.Equal(
+            "The newest 25 of this Director's 30 restart records, newest first. The other 5 are older and " +
+            "are not read here; they are kept on the Gateway and nothing has been deleted.",
+            history.Message);
+    }
+
+    /// <summary>The whole history read is worded as it always was: the cap sentence appears only when the
+    /// cap actually cut something off.</summary>
+    [Fact]
+    public async Task The_history_says_nothing_about_a_cap_that_cut_nothing_off()
+    {
+        var rig = new WayUpTestRig();
+        for (var i = 0; i < DirectorWayUp.MostRecentRecordsRead; i++)
+            rig.Gateway.With(WayUpTestRig.Record($"restart-{i:D2}", Shutdown.AddMinutes(-i),
+                new[] { WayUpTestRig.Owed($"seat-{i}", "A seat") }));
+
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal("This Director has 25 restart records, newest first.", history.Message);
+    }
+
     /// <summary>Another Director's records on this machine are not this Director's history.</summary>
     [Fact]
     public async Task The_history_leaves_out_another_directors_records()

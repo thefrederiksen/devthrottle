@@ -298,7 +298,7 @@ public sealed class SmartRestartCommandLineTests
             Assert.Equal(entry.KindLabel, answer.Entries[i].KindLabel);
             Assert.Equal(entry.ReasonLabel, answer.Entries[i].ReasonLabel);
             Assert.Equal(entry.OutcomeLabel, answer.Entries[i].OutcomeLabel);
-            Assert.Equal(entry.Offer?.SeatsOwedLabel, answer.Entries[i].SeatsOwedLabel);
+            Assert.Equal(entry.Offer?.SeatsLabel, answer.Entries[i].SeatsLabel);
             Assert.Equal(entry.Seats.Select(s => s.Outcome), answer.Entries[i].Seats.Select(s => s.Outcome));
             Assert.Equal(entry.Seats.Select(s => s.Name), answer.Entries[i].Seats.Select(s => s.Name));
         }
@@ -306,7 +306,7 @@ public sealed class SmartRestartCommandLineTests
         // The newest record is first, it still owes a seat and says so; the older one owes none and says
         // nothing at all rather than "0 sessions", which would read as a thing to act on.
         Assert.Equal("restart-newest", answer.Entries[0].WorkspaceId);
-        Assert.NotNull(answer.Entries[0].SeatsOwedLabel);
-        Assert.Null(answer.Entries[1].SeatsOwedLabel);
+        Assert.NotNull(answer.Entries[0].SeatsLabel);
+        Assert.Null(answer.Entries[1].SeatsLabel);
     }
 }

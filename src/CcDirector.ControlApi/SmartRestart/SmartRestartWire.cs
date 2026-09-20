@@ -114,9 +114,9 @@ public static class SmartRestartWire
         KindLabel = entry.KindLabel,
         ReasonLabel = entry.ReasonLabel,
         OutcomeLabel = entry.OutcomeLabel,
-        // The offer's own sentence, or nothing at all. A record that owes no seat says nothing rather
-        // than saying "0 sessions", which reads as a thing to act on.
-        SeatsOwedLabel = entry.Offer?.SeatsOwedLabel,
+        // The offer's own sentence, or nothing at all. A record with nothing left to act on says
+        // nothing rather than saying "0 sessions", which reads as a thing to act on.
+        SeatsLabel = entry.Offer?.SeatsLabel,
         Seats = entry.Seats.Select(seat => new SmartRestartHistorySeatDto
         {
             SessionId = seat.SessionId,
