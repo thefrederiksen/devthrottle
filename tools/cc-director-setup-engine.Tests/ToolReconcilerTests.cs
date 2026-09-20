@@ -35,9 +35,24 @@ public sealed class ToolReconcilerTests : IDisposable
     /// <summary>Place a fake venv console-script exe for each given tool name (so it looks "built").</summary>
     private void PlaceVenvScripts(params string[] names)
     {
-        Directory.CreateDirectory(_layout.PyenvScriptsDir);
         foreach (var n in names)
-            File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, n), "fake-exe");
+            PlaceVenvScript(_layout, n);
+    }
+
+    /// <summary>
+    /// Write one fake console script where the venv ACTUALLY keeps it on this platform.
+    ///
+    /// These helpers used to create <c>PyenvScriptsDir</c> - the Windows <c>Scripts\</c> folder - and then
+    /// write to whatever <see cref="PythonToolsInstaller.ConsoleScriptPath"/> returns, which on macOS and
+    /// Linux is <c>bin/</c>. So off Windows they created one directory and wrote into another that did not
+    /// exist, and the write threw. In the foreign-thread helper that throw happened on a background thread
+    /// with nothing to catch it, which aborted the whole test run rather than failing one test.
+    /// </summary>
+    private static void PlaceVenvScript(InstallLayout layout, string name)
+    {
+        var path = PythonToolsInstaller.ConsoleScriptPath(layout, name);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "fake-exe");
     }
 
     /// <summary>Record the bundle's expected console-script names so the venv-health probe has an expectation.</summary>
@@ -82,8 +97,7 @@ public sealed class ToolReconcilerTests : IDisposable
             Calls++;
             if (_success)
             {
-                Directory.CreateDirectory(_layout.PyenvScriptsDir);
-                File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-pdf"), "fake-exe");
+                PlaceVenvScript(_layout, "cc-pdf");
                 new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
                 var manifest = InstalledManifest.Load(_layout);
                 manifest.Set(PythonToolsInstaller.ComponentId, "1.0.0");
@@ -499,14 +513,23 @@ public sealed class ToolReconcilerTests : IDisposable
             var worker = new Thread(() =>
             {
                 CompletedOnThreadId = Environment.CurrentManagedThreadId;
-                Directory.CreateDirectory(_layout.PyenvScriptsDir);
-                File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-pdf"), "fake-exe");
-                new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
-                var manifest = InstalledManifest.Load(_layout);
-                manifest.Set(PythonToolsInstaller.ComponentId, "1.0.0");
-                manifest.Save(_layout);
-                PythonToolsState.SaveScripts(_layout, new[] { "cc-pdf" });
-                tcs.SetResult(new PythonToolsResult(true, "provisioned", Array.Empty<string>(), 1, "1.0.0"));
+                // Anything that throws here must reach the awaiting test through the task. An escaping
+                // exception on a background thread takes the whole test process down with it, which reports
+                // as "Test Run Aborted" and hides which test - and which assertion - actually broke.
+                try
+                {
+                    PlaceVenvScript(_layout, "cc-pdf");
+                    new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
+                    var manifest = InstalledManifest.Load(_layout);
+                    manifest.Set(PythonToolsInstaller.ComponentId, "1.0.0");
+                    manifest.Save(_layout);
+                    PythonToolsState.SaveScripts(_layout, new[] { "cc-pdf" });
+                    tcs.SetResult(new PythonToolsResult(true, "provisioned", Array.Empty<string>(), 1, "1.0.0"));
+                }
+                catch (Exception ex)
+                {
+                    tcs.SetException(ex);
+                }
             })
             { IsBackground = true, Name = "foreign-heavy-repair" };
             worker.Start();
