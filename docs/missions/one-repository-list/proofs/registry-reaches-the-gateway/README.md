@@ -253,23 +253,29 @@ record says so. The two findings worth carrying:
 ## 5. The mission check, as I ran it
 
 Machine: Sorens Mac mini, macOS 25.5 (Darwin 25.5.0), Apple silicon, Node v26.9.0, `dotnet` at
-`~/.dotnet/dotnet`. Run from the worktree root, exactly as section 7 writes them.
+`~/.dotnet/dotnet`. Run from the worktree root, exactly as the MISSION document's section 7 writes them
+(not this file's section 7, which is what the proof does not cover).
 
-**These are the counts for the branch AFTER it was rebased onto `origin/main` at `5749c7e12`** - the tip
-that carries phases 1 to 5, the shared repository reader, and the two preparatory fixes - so they are the
-counts for the branch as it stands rather than for an earlier base. Every command was re-run on that
-rebased tip; nothing below is carried over from a run against an older base.
+**These are the counts for the branch as it stands, rebased onto `origin/main` at `ab2770c4a`** - the
+tip that carries phases 1 to 5, the shared repository reader, the preparatory fixes and the Smart
+Director Restart work. Every command was re-run on that tip; nothing below is carried over from a run
+against an older base.
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` | **Green.** All four workspaces (client-core, cc-assistant, cockpit, mobile), zero errors |
 | `npm test --workspaces --if-present` | **Green. 2,126 passed, 0 failed** - client-core 1,456, cc-assistant 106, cockpit 457, mobile 107 |
-| `dotnet test src/CcDirector.Gateway.UnitTests` | **Green. 0 failed, 6,575 passed, 8 skipped**, total 6,583 |
+| `dotnet test src/CcDirector.Gateway.UnitTests` | **Green. 0 failed, 6,591 passed, 8 skipped**, total 6,599 |
 | `dotnet test src/CcDirector.Core.Tests` | **Green. 0 failed, 4,491 passed, 18 skipped**, total 4,509 |
 | `dotnet test src/CcDirector.Avalonia.Tests` | **Green. 0 failed, 646 passed, 0 skipped**, total 646 |
 
+The same five commands were also run once on the earlier base `5749c7e12`, with the same shape and the
+same zero failures (Gateway.UnitTests 6,575 passed then, 16 fewer because `origin/main` moved beneath the
+branch mid-check rather than because anything here changed). **The table above is the run that counts**,
+and it is the one against the branch's current tip.
+
 The skipped counts are stated beside the passed counts on purpose: a skipped test reads exactly like a
-passing one in every report we produce, and **26 of those 11,738 dotnet tests did not run.** They were
+passing one in every report we produce, and **26 of those 11,754 dotnet tests did not run.** They were
 read rather than waved past, and none of them is this change's:
 
 - **Gateway.UnitTests, 8 skipped, and 7 of them are the Docker gap.** Six
@@ -284,8 +290,12 @@ read rather than waved past, and none of them is this change's:
   test that needs an enforced file lock (`FileShare` is not enforced on this platform).
 - **Avalonia.Tests, 0 skipped**, and the web workspaces report no skipped tests either.
 
-**The new tests this work adds all ran**: 12 + 5 + 11 in Gateway.UnitTests and 6 in Core.Tests, none of
-them skipped, which was checked by name rather than inferred from the suite totals.
+**The new tests this work adds all ran**, which was measured by name rather than inferred from a suite
+total: on this tip, a filtered run of `DirectorRepositorySnapshotTests`,
+`TheDirectorPushesItsRegisteredListTests` and `TheRegistryReachesTheCatalogTests` reports **28 passed, 0
+skipped**, and a filtered run of `RepositoryMonitorHasCompletedAScanTests` reports **6 passed, 0
+skipped**. The parked suite's seven are in section 6. A suite total cannot tell you this: 34 passing
+tests and 34 skipped tests produce the same green banner.
 
 **Zero failures. No baseline is quoted.** Two reds were met on the way there and neither is carried:
 
@@ -334,16 +344,43 @@ not run it by default. This work's end-to-end proof lives in it, so it was run e
 left to ride a gate that never looks at it.
 
 **This work's seven tests pass**, and so do phase 2's four, phase 3's four and the two endpoint fold
-tests: **17 of 17**, with **0 skipped**, run together after the rebase.
+tests: **17 of 17, with 0 skipped**, re-run together on the branch's current tip
+(`RegistryReachesTheGatewayTunnelProofTests`, `DiscoveredRepositoryTunnelProofTests`,
+`OneRepositoryListTunnelProofTests`, `RepositoriesEndpointServeFoldTests`).
 
-The suite as a whole is recorded below with its SKIPPED count stated as loudly as its passed count,
+The suite as a whole is recorded here with its SKIPPED count stated as loudly as its passed count,
 because a skipped proof reads identically to a passing one:
 
-<!-- PARKED-SUITE-RESULT -->
+| Run | Result |
+|---|---|
+| `dotnet test src/CcDirector.Gateway.Tests`, full suite, this branch on `5749c7e12` | **Failed: 24**, Passed: 2,624, **Skipped: 56**, Total: 2,704, 37m 22s |
 
-**The suite is red on macOS on `origin/main` too, for reasons unrelated to this work**, recorded at
-`../the-parked-suite-nobody-runs.md`. Those were not chased, as instructed. Nothing in this work's area
-appears in that list.
+**That full-suite run was measured on `5749c7e12`, one base behind the tip section 5 reports**, because
+`origin/main` moved while the 37-minute run was going. It was not repeated on the newer tip: the branch's
+own code is byte-for-byte identical across that rebase, the seventeen tests this mission owns were re-run
+on the newer tip and are 17 of 17 there, and the two commits in between are a session-restore change and a
+mission document. **That is a reasoned claim about which failures could have moved, not a measurement of
+them** - a reader who needs the failure list against the exact tip has to run the 37 minutes again.
+
+**Fifty-six tests did not run, and about forty-four of them are the Docker gap.** The skipped classes
+are almost entirely PostgreSQL-named - `GatewayStatsWritePathPostgresTests` (15),
+`GatewaySessionConcurrencyPostgresTests` (8), `PostgresProviderProofTests` (6),
+`GatewayDatabaseLivePostgresProofTests` (4) and nine smaller `...PostgresTests` classes - plus
+`HostedStatsServeTests` (8) and `DoorbellEndToEndProof` (4). **None of them is a proof of this work**,
+which is the only reason that is tolerable here; it is not a reason to read the run as complete.
+
+**The twenty-four failures are not this work's, and they are not new.** They fall entirely inside the
+families phase 3 measured on `origin/main` itself and recorded in `../phase-3/README.md` section 8
+(23 failed / 2,614 passed / 56 skipped on main at `8134a680b`): fleet spawn origin and mission attach,
+workflow seats, the tunnel explicit-route and roster-push proofs, the hosted process-control denials,
+the voice sweep and serving-loop isolation, the session websocket proxy, the context-less route census,
+and the suite's own machine-wide lock test. **Nothing in a repository catalogue, a repository snapshot,
+a registry or a discovered-repository path appears anywhere in that list**, which was checked name by
+name rather than inferred.
+
+Those were not chased, as instructed. This is **not a baseline quoted to excuse a red run** - the mission
+check in section 5 is green with zero failures. It is the separate, worse fact phase 3 already reported:
+a parked suite of 2,704 tests is two dozen red on this platform and nobody runs it.
 
 ## 7. What this proof does NOT cover
 
