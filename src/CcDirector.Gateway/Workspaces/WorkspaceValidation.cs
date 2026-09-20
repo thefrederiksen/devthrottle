@@ -121,6 +121,8 @@ public static class WorkspaceValidation
             if (doc.SeatOutcome is not null) claimed.Add("seatOutcome");
             if (doc.DirectorVersionAfter is not null) claimed.Add("directorVersionAfter");
             if (doc.CompletedAtUtc is not null) claimed.Add("completedAtUtc");
+            if (doc.ShutdownKind is not null) claimed.Add("shutdownKind");
+            if (doc.CancelledAtUtc is not null) claimed.Add("cancelledAtUtc");
             if (doc.RestartCommand is not null) claimed.Add("restartCommand");
             if (doc.LauncherUpdate is not null) claimed.Add("launcherUpdate");
             if (doc.RestartBlocked is not null) claimed.Add("restartBlocked");
@@ -150,6 +152,22 @@ public static class WorkspaceValidation
                     $"{string.Join(", ", claimed)}. Those are written onto a workspace captured from a " +
                     "Director (POST /gateway/workspaces).");
         }
+
+        // How the record came about is a closed list like the others. It is what the way up searches by,
+        // so a value nobody knows is a record nothing will ever find - refused here, not stored and lost.
+        if (doc.ShutdownKind is not null && !WorkspaceShutdownKinds.All.Contains(doc.ShutdownKind))
+            throw new WorkspaceValidationException(
+                $"shutdownKind must be one of: {string.Join(", ", WorkspaceShutdownKinds.All)} " +
+                "(or absent on a record that did not come from the Director shutting its sessions down).");
+
+        // Only a smart shutdown can be cancelled: it is the only one that takes long enough to change
+        // your mind about. A shut down that ignored all sessions has ended them by the time anybody could
+        // ask, so "cancelled" on such a record, or on one that names no shutdown at all, describes
+        // something that cannot have happened.
+        if (doc.CancelledAtUtc is not null && doc.ShutdownKind != WorkspaceShutdownKinds.SmartShutdown)
+            throw new WorkspaceValidationException(
+                "cancelledAtUtc says a smart shutdown was cancelled, so shutdownKind must be " +
+                $"\"{WorkspaceShutdownKinds.SmartShutdown}\" (got \"{doc.ShutdownKind ?? "none"}\").");
 
         if (doc.DirectorOutcome is not null && !WorkspaceDirectorOutcomes.All.Contains(doc.DirectorOutcome))
             throw new WorkspaceValidationException(

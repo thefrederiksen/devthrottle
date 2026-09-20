@@ -11,6 +11,12 @@ namespace CcDirector.ControlApi.Drain;
 /// session on a Director, so a test that drove the real thing would have to start eighteen agent
 /// processes to prove the leaf-first order. The order, the poll-until-absent and the never-force rule are
 /// the parts that carry the risk, and they are exactly the parts a seam makes testable.
+///
+/// TWO CALLERS, AND THEY DO NOT HOLD THE SAME VERBS. The older drain (<see cref="DirectorDrain"/>) never
+/// forces: it never calls <see cref="IDrainSessionControl.InterruptAsync"/> or
+/// <see cref="IDrainSessionControl.EndAsync"/>, and a test runs it on the rig and asserts exactly that.
+/// Those two verbs are here for the smart shutdown only, which has a time limit the owner chose and ends
+/// what is still present when it is reached.
 /// </summary>
 /// <summary>
 /// What happened when the drain tried to say something to a session.
@@ -36,6 +42,29 @@ public sealed record DrainDelivery(bool Delivered, bool SessionGone, string? Rea
     /// <summary>It did not land, and here is what the delivery path said.</summary>
     /// <param name="reason">The delivery path's own words.</param>
     public static DrainDelivery Refused(string reason) => new(false, false, reason);
+}
+
+/// <summary>
+/// What happened when the smart shutdown ended a session.
+///
+/// Three facts and not a bool, for the same reason as <see cref="DrainDelivery"/>: "it is gone because
+/// I ended it", "it was already gone" and "it would not go" lead to three different rows in the record,
+/// and the last one is a session still running that the record must not call closed.
+/// </summary>
+/// <param name="Ended">This call ended the session and it is no longer on this Director.</param>
+/// <param name="SessionGone">There was no such session here when the call was made. Not a fault.</param>
+/// <param name="Reason">Why it is still here, in the words the stop path used. Null when it was ended.</param>
+public sealed record DrainEnd(bool Ended, bool SessionGone, string? Reason)
+{
+    /// <summary>It was ended and is gone.</summary>
+    public static readonly DrainEnd Ok = new(true, false, null);
+
+    /// <summary>The session was not here.</summary>
+    public static readonly DrainEnd Gone = new(false, true, "the session is no longer on this Director");
+
+    /// <summary>It is still here, and here is what the stop path said.</summary>
+    /// <param name="reason">The stop path's own words.</param>
+    public static DrainEnd Refused(string reason) => new(false, false, reason);
 }
 
 public interface IDrainSessionControl
@@ -103,21 +132,52 @@ public interface IDrainSessionControl
     /// <param name="sessionId">The session id.</param>
     /// <param name="reason">Why, recorded on the session.</param>
     bool MarkForDeletion(string sessionId, string reason);
+
+    /// <summary>
+    /// Interrupt the session's turn, through the Director's existing interrupt path. SMART SHUTDOWN ONLY:
+    /// the older drain never calls this.
+    ///
+    /// It answers like <see cref="SendAsync"/>, so "gone" and "could not" stay two facts. "Could not" is a
+    /// real answer here and not an error to work around: an agent whose command line has no safe hard
+    /// interrupt refuses, and the reason it gives comes back verbatim.
+    /// </summary>
+    /// <param name="sessionId">The session id.</param>
+    Task<DrainDelivery> InterruptAsync(string sessionId);
+
+    /// <summary>
+    /// End the session NOW, turn or no turn, through the Director's existing way of stopping a session.
+    /// SMART SHUTDOWN ONLY: the older drain never calls this, and <see cref="MarkForDeletion"/> remains
+    /// the strongest thing it does.
+    /// </summary>
+    /// <param name="sessionId">The session id.</param>
+    /// <param name="reason">Why, for the log.</param>
+    Task<DrainEnd> EndAsync(string sessionId, string reason);
 }
 
 /// <summary>
 /// The real seam, over this Director's own <see cref="SessionManager"/>.
 ///
-/// Note what is NOT here: any way to kill a session DIRECTLY, or to cancel its turn. The strongest thing
-/// the drain can do is <see cref="MarkForDeletion"/>, which asks; the Director's own reaper then removes
-/// the session after a grace window and only while it is not mid-turn, so a session that keeps working is
-/// left alone indefinitely. That is what "never force" means here, and it is enforced by the drain having
-/// no stronger verb rather than by a rule saying it must not use one. A seat that cannot reach a clean
-/// stop is never flagged at all, keeps running, and the restart does not happen.
+/// IT HOLDS TWO KINDS OF VERB, FOR TWO CALLERS.
 ///
-/// This paragraph used to say the seam held "no way to kill a session". That was wrong: a flagged session
-/// IS killed, by the reaper, once it stops working. The distinction that matters is out-of-turn versus
-/// after-the-turn, and the earlier wording collapsed the two.
+/// The older drain (<see cref="DirectorDrain"/>) never forces. The strongest thing it does is
+/// <see cref="MarkForDeletion"/>, which asks; the Director's own reaper then removes the session after a
+/// grace window and only while it is not mid-turn, so a session that keeps working is left alone
+/// indefinitely. A seat that cannot reach a clean stop is never flagged at all, keeps running, and the
+/// restart does not happen. A flagged session IS killed in the end, by the reaper, once it stops working:
+/// the distinction that matters is during-the-turn against after-the-turn.
+///
+/// The smart shutdown does force, because the owner gave it a time limit (mission document "Smart
+/// Director Restart", section 5.3 item 5, which replaces the never-force rule FOR THE SMART SHUTDOWN
+/// ONLY). For it this seam carries <see cref="InterruptAsync"/>, which cuts a turn short, and
+/// <see cref="EndAsync"/>, which ends a session turn or no turn. Both go through paths the Director
+/// already had - the interrupt verb and the stop verb of <see cref="SessionCommandExecutor"/> - so there
+/// is still exactly one way to interrupt a session and one way to stop one.
+///
+/// This comment used to say the seam held no way to kill a session directly or to cancel its turn, and
+/// that never-force was enforced by the drain having no stronger verb. That stopped being true when the
+/// two verbs were added. What is true now: the older drain never CALLS them, and that is held by a test
+/// (DirectorDrainTests, Drain_OnTheOlderPath_NeverInterruptsAndNeverEndsASession), which runs the older
+/// drain on the rig and asserts neither verb was called - not by this sentence.
 /// </summary>
 public sealed class SessionManagerDrainControl : IDrainSessionControl
 {
@@ -192,5 +252,83 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
         if (session is null) return false;
         session.MarkForDeletion(reason);
         return true;
+    }
+
+    /// <inheritdoc />
+    public async Task<DrainDelivery> InterruptAsync(string sessionId)
+    {
+        FileLog.Write($"[DrainSessionControl] InterruptAsync: session={sessionId}");
+
+        var result = await SessionCommandExecutor.InterruptAsync(
+            _sessions,
+            new Gateway.Contracts.DirectorCommand
+            {
+                CommandId = "smart-shutdown-interrupt",
+                Verb = "interrupt",
+                SessionId = sessionId,
+            }).ConfigureAwait(false);
+
+        switch (result.Status)
+        {
+            case Gateway.Contracts.DirectorCommandStatus.Ok:
+                FileLog.Write($"[DrainSessionControl] InterruptAsync: session={sessionId} interrupted");
+                return DrainDelivery.Ok;
+
+            // An id that cannot be parsed and an id that names nothing are the same fact to a caller of
+            // this seam, exactly as they are in SendAsync: there is no such session here.
+            case Gateway.Contracts.DirectorCommandStatus.BadRequest:
+            case Gateway.Contracts.DirectorCommandStatus.NotFound:
+                FileLog.Write($"[DrainSessionControl] InterruptAsync: session={sessionId} is not here: {result.Error}");
+                return DrainDelivery.Gone;
+
+            default:
+                FileLog.Write($"[DrainSessionControl] InterruptAsync: session={sessionId} refused: {result.Error}");
+                return DrainDelivery.Refused(result.Error ?? "the Director refused the interrupt");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<DrainEnd> EndAsync(string sessionId, string reason)
+    {
+        FileLog.Write($"[DrainSessionControl] EndAsync: session={sessionId}, reason={reason}");
+
+        // Asked BEFORE the stop, because the stop verb answers "already stopped" as a success for a
+        // session with no row (it has to: a stop must never fail because there is nothing left to stop),
+        // and this seam promises to keep "I ended it" and "it was not here" apart.
+        if (!Guid.TryParse(sessionId, out var id) || _sessions.GetSession(id) is null)
+        {
+            FileLog.Write($"[DrainSessionControl] EndAsync: session={sessionId} is not here");
+            return DrainEnd.Gone;
+        }
+
+        var result = await SessionCommandExecutor.KillAsync(
+            _sessions,
+            new Gateway.Contracts.DirectorCommand
+            {
+                CommandId = "smart-shutdown-end",
+                Verb = "kill",
+                SessionId = sessionId,
+            }).ConfigureAwait(false);
+
+        if (result.Status != Gateway.Contracts.DirectorCommandStatus.Ok)
+        {
+            FileLog.Write($"[DrainSessionControl] EndAsync: session={sessionId} FAILED: {result.Error}");
+            return DrainEnd.Refused(result.Error ?? "the Director could not stop the session");
+        }
+
+        // The stop verb succeeds while KEEPING the row in one case: the session ran in a pooled worktree
+        // that would not be taken back. That session is still on this Director, so it was not ended, and
+        // the reason the stop gave is the reason handed back.
+        if (_sessions.GetSession(id) is { } kept)
+        {
+            var why = kept.PooledWorktreeHeldReason is { Length: > 0 } held
+                ? $"its pooled worktree is held: {held}"
+                : "the stop succeeded and the session is still on this Director";
+            FileLog.Write($"[DrainSessionControl] EndAsync: session={sessionId} still present: {why}");
+            return DrainEnd.Refused(why);
+        }
+
+        FileLog.Write($"[DrainSessionControl] EndAsync: session={sessionId} ended");
+        return DrainEnd.Ok;
     }
 }

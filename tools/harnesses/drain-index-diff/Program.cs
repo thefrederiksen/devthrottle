@@ -721,6 +721,17 @@ internal sealed class HarnessSessions : IDrainSessionControl
         _countdown[sessionId] = PollsBeforeReap;
         return true;
     }
+
+    // This harness runs the OLDER drain, which never interrupts and never ends a session. Those two verbs
+    // belong to the smart shutdown. A call to either from here means the older drain has started forcing,
+    // and the harness stops rather than reporting a diff over a run that did.
+    public Task<DrainDelivery> InterruptAsync(string sessionId)
+        => throw new InvalidOperationException(
+            $"The older drain interrupted session {sessionId}. It never forces; only the smart shutdown may.");
+
+    public Task<DrainEnd> EndAsync(string sessionId, string reason)
+        => throw new InvalidOperationException(
+            $"The older drain ended session {sessionId} ({reason}). It never forces; only the smart shutdown may.");
 }
 
 /// <summary>The seeded Gateway: hands back the capture, keeps every save.</summary>
