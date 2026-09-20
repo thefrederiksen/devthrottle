@@ -52,6 +52,14 @@ public sealed class MorningReportDto
     /// </summary>
     public bool WorkedInWindow { get; set; }
 
+    /// <summary>How many sessions the ledger still has open as waiting, but the Gateway can no longer
+    /// see (#3124). They are NOT listed: a row that cannot be named, opened, or vouched for is not
+    /// something to put in front of somebody at 7am, and listing them is what produced 93 rows about
+    /// sessions that no longer existed. The owner's ruling, 20 September 2026: "Do not list it. Count
+    /// it in one line at most." Absent when none, like every other section here.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? LostContactCount { get; set; }
+
     /// <summary>
     /// An optional single-sentence observation about the day. The Gateway EMITS NOTHING HERE TODAY - it
     /// reports measurements and invents no prose. The member exists because the contract reserves the key;
@@ -185,13 +193,34 @@ public sealed class WaitingSessionAttentionDto : MorningAttentionItemDto
 {
     public override string Type => MorningAttentionTypes.WaitingSession;
 
-    /// <summary>The session's friendly name when the Gateway can see it live, otherwise its session id -
-    /// never blank, so the email always has something to name the row with.</summary>
+    /// <summary>The session's friendly name. ALWAYS A NAME NOW, never an id (#3124): a row is only
+    /// produced for a session the Gateway can see live, and a live session has a name. It was
+    /// previously allowed to fall back to the session id, and it did so for every row - 93 of 93 on
+    /// 20 September 2026 - which put identifiers nobody can search for in front of a reader.</summary>
     public string Session { get; set; } = "";
 
-    /// <summary>The session's repository path, when a live record supplies one. Absent otherwise.</summary>
+    /// <summary>The session's own id, so the reader can be sent straight to it. The email builds the
+    /// Cockpit address from this; it is NOT for display.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>The repository this session is working in, as a short name rather than a full path.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Repo { get; set; }
+
+    /// <summary>The machine it is running on, so two seats with similar names can be told apart.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Machine { get; set; }
+
+    /// <summary>The session number the owner sees everywhere else in the product.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Number { get; set; }
+
+    /// <summary>The session DRIVING this one, when something is. Absent means nothing is driving it,
+    /// which is the owner's definition of a session that is his own problem (#3124, 20 September
+    /// 2026: "only sessions nothing else is driving"). It is also what lets the reader's side work
+    /// out how much is stuck BEHIND one answer.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ControllerSessionId { get; set; }
 
     /// <summary>When the session entered its current waiting state, from the durable event ledger.</summary>
     public DateTime WaitingSinceUtc { get; set; }

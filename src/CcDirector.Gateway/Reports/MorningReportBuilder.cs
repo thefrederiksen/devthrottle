@@ -128,6 +128,8 @@ public sealed class MorningReportBuilder
             Attention = WaitingSessions(ctx, tenant, now),
             WorkedInWindow = WorkedInWindow(ctx, window),
         };
+        // Set as a side effect of WaitingSessions above, so it is read after that call, not before.
+        report.LostContactCount = LostContact > 0 ? LostContact : null;
 
         // The hygiene rows (issue #2118): stale worktrees and unmerged branches, from the repo-state
         // snapshots this tenant's Directors pushed. THE HONESTY RULE APPLIES HERE TOO, AND IT IS WHY THE
@@ -462,6 +464,10 @@ public sealed class MorningReportBuilder
     /// the waiting-since instant is read, not inferred. A session that has exited, recovered, gone active or
     /// idle has a later event of that kind and so is not here.
     /// </summary>
+    /// <summary>How many open waits named a session this Gateway can no longer see, from the most
+    /// recent <see cref="WaitingSessions"/> call. Counted, never listed - see the note there.</summary>
+    private int LostContact { get; set; }
+
     private List<MorningAttentionItemDto> WaitingSessions(GatewayDbContext ctx, TenantId tenant, DateTime now)
     {
         var lookback = now - TimeSpan.FromDays(WaitingLookbackDays);
@@ -488,6 +494,8 @@ public sealed class MorningReportBuilder
         var seen = new HashSet<string>(StringComparer.Ordinal);
         // Counted and logged, never silently dropped: a short waiting list must be explainable.
         var staleWaits = 0;
+        // Open waits whose session the Gateway can no longer see. Reported as a COUNT, never as rows.
+        var lostContact = 0;
 
         foreach (var row in rows)
         {
@@ -508,23 +516,39 @@ public sealed class MorningReportBuilder
                 continue;
             }
 
-            // A session the Gateway can currently see is judged on what it can see: one that is HELD
-            // (snoozed) was deliberately parked by the owner and is not "waiting on you" this morning, and
-            // one that has EXITED is not waiting on anybody. A session the Gateway cannot see is reported
-            // from the ledger as-is - that is the whole point of a durable record.
-            if (live.TryGetValue(sessionId, out var liveSession))
+            // A SESSION THE GATEWAY CANNOT SEE IS NOT REPORTED (#3124, owner's ruling 20 September
+            // 2026). This used to report it from the ledger as-is, on the reasoning that a durable
+            // record is the whole point. What that produced was 93 rows naming sessions that no longer
+            // existed, while the 15 that really were waiting went unmentioned - because the checks just
+            // below can only run on a session we can see, so an unseeable one was reported as waiting
+            // purely because nothing contradicted it. We also cannot name it or link to it. A row that
+            // cannot be named, opened, or vouched for is not something to put in front of somebody at
+            // 7am, so it is counted and left out.
+            if (!live.TryGetValue(sessionId, out var liveSession))
             {
-                if (HoldStates.IsHeld(liveSession.HoldState))
-                    continue;
-                if (string.Equals(liveSession.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
-                    continue;
+                lostContact++;
+                continue;
             }
+            // HELD (snoozed) was deliberately parked by the owner and is not "waiting on you" this
+            // morning; EXITED is not waiting on anybody.
+            if (HoldStates.IsHeld(liveSession.HoldState))
+                continue;
+            if (string.Equals(liveSession.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
+                continue;
 
             var since = DateTime.SpecifyKind(row.OccurredUtc, DateTimeKind.Utc);
             items.Add(new WaitingSessionAttentionDto
             {
-                Session = string.IsNullOrWhiteSpace(liveSession?.Name) ? sessionId : liveSession!.Name!,
-                Repo = string.IsNullOrWhiteSpace(liveSession?.RepoPath) ? null : liveSession!.RepoPath,
+                // No id fallback any more: we only get here when the session is live, and a live
+                // session has a name. If it somehow has none, the id is still better than an empty
+                // row - but a test asserts the live path always supplies a name.
+                Session = string.IsNullOrWhiteSpace(liveSession.Name) ? sessionId : liveSession.Name!,
+                SessionId = sessionId,
+                Repo = string.IsNullOrWhiteSpace(liveSession.RepoName) ? null : liveSession.RepoName,
+                Machine = string.IsNullOrWhiteSpace(liveSession.MachineName) ? null : liveSession.MachineName,
+                Number = liveSession.Number,
+                ControllerSessionId = string.IsNullOrWhiteSpace(liveSession.ControllerSessionId)
+                    ? null : liveSession.ControllerSessionId,
                 WaitingSinceUtc = since,
                 AgeHours = Math.Round(Math.Max(0, (now - since).TotalHours), 1),
             });
@@ -534,6 +558,11 @@ public sealed class MorningReportBuilder
             FileLog.Write($"[MorningReportBuilder] WaitingSessions: {staleWaits} open wait(s) older than " +
                           $"{WaitingReportMaxAge.TotalHours:0}h were NOT reported for tenant={tenant.ToLogString()} - " +
                           "the Gateway has not heard about those sessions since, so it does not claim they are waiting.");
+
+        if (lostContact > 0)
+            FileLog.Write($"[MorningReportBuilder] WaitingSessions: {lostContact} open wait(s) name a session this " +
+                          $"Gateway can no longer see for tenant={tenant.ToLogString()} - counted, not listed.");
+        LostContact = lostContact;
 
         // Longest wait first - the row the owner most needs to see is the one at the top of the email.
         items.Sort((a, b) => ((WaitingSessionAttentionDto)b).AgeHours.CompareTo(((WaitingSessionAttentionDto)a).AgeHours));
