@@ -46,6 +46,59 @@ in each case, because a check whose pass condition is an absence certifies a run
 - No test's assertions are changed. Moving a test is in scope; rewriting what it asserts is not.
 - Each says plainly, in its pull request body, what is not proven.
 
+## Package 1 - open as pull request 3161
+
+Branch `ci/package-1-hosted-image-test-to-deploy`, opened 20 September 2026, not merged.
+`HostedImagePublishedArtifactTests` moved into its own project that is deliberately absent from
+`cc-director.sln`, so the continuous integration test step loses it structurally rather than by a
+filter argument anyone could drop, and a new reusable workflow runs it as a job the deploy declares
+`needs:` on.
+
+**Checked by the Delivery Lead, not taken on the Developer's word.** All three cited runs were read
+from the run records:
+
+| Run | What it shows | Conclusion |
+|---|---|---|
+| 35483939371 | The test runs and passes in the new workflow | success |
+| 35483844691 | The test deliberately marked skipped; `dotnet test` still exited zero, and the verdict step refused it | failure |
+| 35483737565 | The exact call the deploy makes, from a branch, refused at the first step | failure |
+
+The second of those is the one that matters: it shows the pass condition is a presence. A counted
+number of tests actually executed, read from what the built assembly declares, rather than the
+absence of a failure.
+
+**Not proven, and said plainly in the pull request body:** the sixteen-minute saving is predicted,
+not measured - it is quoted from the log of continuous integration run 35461379953, where the test
+took 16 minutes 32 seconds of a 103 minute 9 second job. Opening the pull request produces the
+measurement, and it goes here when the run finishes. No real deploy was run; the Developer had no
+grant and took none. The merged workflow file has not itself been run, because a dispatch cannot
+start a workflow that is not yet on the default branch; one dispatch after merging confirms it.
+
+## The live fail-open on the production deploy path
+
+Package 1's second half was to establish how the deploy workflow treats a commit whose run was
+cancelled. The answer is that a cancelled run IS refused once it exists - but the gate is a
+fail-open anyway, and it is operating today.
+
+Its pass condition is an absence: nothing has failed. A commit whose checks have not finished yet
+satisfies it. **Deploy run 35406585169 on 18 September started eleven seconds after the push,
+printed that the commit had no check runs of its own yet, passed its own gate, and shipped. That
+commit's `Build & Test (.NET)` later concluded cancelled and its `CI result` concluded failure.**
+Fifteen of the last fifteen hosted deploys passed the gate with no finished check.
+
+The Delivery Lead verified this directly from the deploy run's log and the commit's check runs,
+rather than relaying the Developer's report, because it is the finding going in front of the owner.
+
+It was deliberately not fixed. Requiring a named successful check is a few lines, but today it
+would refuse nearly every deploy, because the .NET job takes about a hundred minutes and most runs
+on main are cancelled by the next push. The owner has ruled twice against waiting on continuous
+integration, and his ruling 7 already sets the right order: make the run fast, hold the budget for
+a week, then require a green result. The question inside it that only he can answer - what "tested"
+should mean for a commit that will never get a verdict of its own - was raised to him on
+20 September with that recommendation. The full write-up is in
+`how-the-deploy-gate-treats-a-cancelled-run.md` beside this record.
+
 ## Open
 
-- Pull requests not yet opened; the Developers are building.
+- Packages 3 and 4 still building.
+- The measured .NET job time from pull request 3161's first run, to replace the predicted saving.
