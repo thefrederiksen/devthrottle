@@ -23,7 +23,7 @@ const BUBBLES: RenderedBubble[] = [
   bubble("tool", "Tool result", "exit code 0"),
 ];
 
-let filter: HistoryBubbleFilter = { showToolCalls: false, showToolResults: false, showThinking: false };
+let filter: HistoryBubbleFilter = { showToolCalls: false, showToolResults: false, showThinking: false, myPromptsOnly: false };
 const setFilter = vi.fn((next: HistoryBubbleFilter) => {
   filter = next;
 });
@@ -54,7 +54,7 @@ function turnFor(text: string): HTMLElement {
 }
 
 beforeEach(() => {
-  filter = { showToolCalls: false, showToolResults: false, showThinking: false };
+  filter = { showToolCalls: false, showToolResults: false, showThinking: false, myPromptsOnly: false };
   setFilter.mockClear();
 });
 afterEach(cleanup);
@@ -123,6 +123,6 @@ describe("the Chat tab's turn layout", () => {
     expect(thinking.closest(".chat-filter-pill")).not.toBeNull();
 
     fireEvent.click(thinking);
-    expect(setFilter).toHaveBeenCalledWith({ showToolCalls: false, showToolResults: false, showThinking: true });
+    expect(setFilter).toHaveBeenCalledWith({ showToolCalls: false, showToolResults: false, showThinking: true, myPromptsOnly: false });
   });
 });

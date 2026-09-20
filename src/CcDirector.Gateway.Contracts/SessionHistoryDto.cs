@@ -73,6 +73,21 @@ public sealed class HistoryMessageDto
 
     /// <summary>When the message was recorded, if the source carries it.</summary>
     public DateTimeOffset? Timestamp { get; set; }
+
+    /// <summary>
+    /// WHO AUTHORED a user message: <see cref="WorkingOrigins.Owner"/>, <see cref="WorkingOrigins.Agent"/>,
+    /// or <c>"unknown"</c>. Null on an assistant message, where the question does not arise.
+    ///
+    /// The agent's transcript cannot answer this - in it, a line the owner typed and a line the fleet
+    /// doorbell typed are the same shape with no mark on either - so the Director stamps it from what it
+    /// saw at its own submit choke point (<c>PromptAuthorBuffer</c>). A Director that has restarted, or a
+    /// turn older than what it remembers, is honestly <c>"unknown"</c>.
+    ///
+    /// UNKNOWN IS NOT "AGENT". Anything that hides turns on this field must treat unknown as the owner's
+    /// and show it: an unanswered question must never read as a confident "the product said this", and
+    /// hiding a prompt the owner really did type is the one failure a reader cannot detect.
+    /// </summary>
+    public string? Origin { get; set; }
 }
 
 /// <summary>One content part of a normalized message.</summary>

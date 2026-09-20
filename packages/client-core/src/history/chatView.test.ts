@@ -6,7 +6,7 @@ import { buildChatSignature, chatLinkLabel, renderChatHistory } from "./chatView
 // Covers the Chat logic hoisted out of the mobile Chat page into client-core (issue #1213), so both the
 // mobile page and the Cockpit tab render from one tested source.
 
-const ALL_HIDDEN: HistoryBubbleFilter = { showToolCalls: false, showToolResults: false, showThinking: false };
+const ALL_HIDDEN: HistoryBubbleFilter = { showToolCalls: false, showToolResults: false, showThinking: false, myPromptsOnly: false };
 
 function history(messages: SessionHistoryDto["messages"], over: Partial<SessionHistoryDto> = {}): SessionHistoryDto {
   return {

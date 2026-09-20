@@ -28,16 +28,26 @@ export interface RenderedHistory {
 // Read the persisted "Show:" filter; defaults to all hidden (the desktop HistoryFilterConfig default -
 // just the conversation). Format matches the desktop's comma-joined booleans.
 export function loadChatFilter(): HistoryBubbleFilter {
-  const fallback: HistoryBubbleFilter = { showToolCalls: false, showToolResults: false, showThinking: false };
+  const fallback: HistoryBubbleFilter = {
+    showToolCalls: false,
+    showToolResults: false,
+    showThinking: false,
+    myPromptsOnly: false,
+  };
   try {
     const raw = window.localStorage.getItem(CHAT_FILTER_STORAGE_KEY);
     if (!raw) return fallback;
     const parts = raw.split(",");
-    if (parts.length === 3) {
+    // THREE OR FOUR, and a missing fourth is off. Every browser that used this screen before "my prompts
+    // only" existed has three values saved; an exact length check would fail all of them and silently
+    // reset the three choices the reader had made. A fourth value is read when it is there.
+    if (parts.length === 3 || parts.length === 4) {
       return {
         showToolCalls: parts[0] === "true",
         showToolResults: parts[1] === "true",
         showThinking: parts[2] === "true",
+        // Deliberately NOT persisted-on by default even when it was on last time - see persistChatFilter.
+        myPromptsOnly: false,
       };
     }
   } catch {
@@ -46,11 +56,20 @@ export function loadChatFilter(): HistoryBubbleFilter {
   return fallback;
 }
 
+/**
+ * Persist the reader's "Show:" choices. Written with a trailing fourth value so the format is honest
+ * about its own length, but "my prompts only" is ALWAYS written off.
+ *
+ * It is a way of finding something, not a way of reading a conversation. A reader who left it on,
+ * closed the tab and came back a day later would be shown a conversation with every answer missing and
+ * no memory of having asked for that - and the most likely reading of that screen is "the Cockpit has
+ * lost my history". The three machinery toggles are settings and persist; this is an action and does not.
+ */
 export function persistChatFilter(filter: HistoryBubbleFilter): void {
   try {
     window.localStorage.setItem(
       CHAT_FILTER_STORAGE_KEY,
-      `${filter.showToolCalls},${filter.showToolResults},${filter.showThinking}`,
+      `${filter.showToolCalls},${filter.showToolResults},${filter.showThinking},false`,
     );
   } catch {
     /* localStorage unavailable - the choice simply will not persist this session */
@@ -64,7 +83,7 @@ export function buildChatSignature(
   state: string | null | undefined,
   filter: HistoryBubbleFilter,
 ): string {
-  const f = `${filter.showToolCalls}${filter.showToolResults}${filter.showThinking}`;
+  const f = `${filter.showToolCalls}${filter.showToolResults}${filter.showThinking}${filter.myPromptsOnly}`;
   if (bubbles.length === 0) return `0|${state ?? ""}|${f}`;
   let total = 0;
   for (const b of bubbles) total += b.body.length;

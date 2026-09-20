@@ -22,6 +22,16 @@ export interface HistoryMessageDto {
   role: string;
   parts: HistoryPartDto[];
   timestamp?: string | null;
+  /**
+   * WHO AUTHORED a user message: "owner", "agent", or "unknown". Null/absent on an assistant message,
+   * and absent entirely from a Director too old to stamp it.
+   *
+   * The agent's transcript cannot answer this - in it, a line the owner typed and a line the fleet
+   * doorbell typed are the same shape - so the Director stamps it from what it saw at its own submit
+   * choke point. UNKNOWN IS NOT "AGENT": anything that hides turns on this field treats unknown as the
+   * owner's and shows it, because hiding a prompt he really did type is a failure he cannot detect.
+   */
+  origin?: string | null;
 }
 
 /** The parsed conversation history for one session. */

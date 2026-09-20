@@ -58,7 +58,7 @@ vi.mock("@devthrottle/client-core/history/useSessionChat", () => ({
     emptyText: "No conversation yet.",
     staleNotice: null,
     loadFailed: false,
-    filter: { showToolCalls: false, showToolResults: false, showThinking: false },
+    filter: { showToolCalls: false, showToolResults: false, showThinking: false, myPromptsOnly: false },
     setFilter: () => {},
   }),
 }));

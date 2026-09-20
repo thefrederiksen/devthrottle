@@ -36,7 +36,7 @@ vi.mock("@devthrottle/client-core/history/useSessionChat", () => ({
     staleNotice: null,
     loadFailed: false,
     loadError: null,
-    filter: { showToolCalls: false, showToolResults: false, showThinking: false },
+    filter: { showToolCalls: false, showToolResults: false, showThinking: false, myPromptsOnly: false },
     setFilter: () => undefined,
   }),
 }));
