@@ -1,0 +1,19 @@
+Disk Report window, page 'running', as mounted and laid out headless at 900 by 640
+    Disk Report
+  [summary:working]
+  [badge:working]
+    SCANNING
+    A background scan is running now. Anything shown below is from the scan before it.
+    made: this page was put together at 2026-09-20T07:00:32Z from what the background scan saved on this machine; nothing was scanned to make it
+    removal: nothing can be removed from this page, and nothing here starts a removal. Removal is the command line tool, run by a person: cc-cleanup-storage reclaim, which changes nothing unless it is given --apply
+  [disk:working]
+  [badge:working]
+    SCANNING
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-running-94e075472f8143e788c7a0d9f4bc32ec
+    A background scan of this disk started at 2026-09-20T07:00:32Z and is still running. There is no earlier report to show.
+    root: C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-running-94e075472f8143e788c7a0d9f4bc32ec
+    background-scan: running
+    detail: a scan started at 2026-09-20T07:00:32Z and is still running
+    last-result: none, because no scan of this folder has ever finished
+  [button] Close
+    Close

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disk Report Walkthrough</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d212a;
+    --line: #2a2f3a;
+    --text: #e6e9ef;
+    --dim: #9aa3b2;
+    --accent: #4da3ff;
+    --ok: #35c07a;
+    --warn: #e0a33e;
+    --bad: #e2564a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 20px 96px; }
+  h1 { font-size: 34px; margin: 0 0 6px; letter-spacing: -0.5px; }
+  h2 {
+    font-size: 24px;
+    margin: 56px 0 4px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+  }
+  h3 { font-size: 18px; margin: 32px 0 6px; }
+  p { margin: 10px 0; }
+  .sub { color: var(--dim); margin: 0 0 28px; }
+  .lead { font-size: 17px; }
+  code, .mono { font-family: "Cascadia Mono", Consolas, "Courier New", monospace; font-size: 14px; }
+  code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; color: #cfe4ff; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 22px;
+    margin: 18px 0;
+  }
+  .card.ok { border-left: 4px solid var(--ok); }
+  .card.warn { border-left: 4px solid var(--warn); }
+  .card.bad { border-left: 4px solid var(--bad); }
+  .card h3 { margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; }
+  figure { margin: 22px 0 34px; }
+  figure img {
+    width: 100%;
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #000;
+  }
+  figcaption { color: var(--dim); font-size: 14px; margin-top: 10px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin: 20px 0; }
+  .shots figure { margin: 0; }
+  .shots img { max-height: 340px; object-fit: cover; object-position: top; }
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    vertical-align: middle;
+  }
+  .tag.yes { color: var(--ok); }
+  .tag.no { color: var(--warn); }
+  ul { margin: 10px 0; padding-left: 22px; }
+  li { margin: 6px 0; }
+  .note { color: var(--dim); font-size: 15px; }
+  .big { font-size: 19px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Disk Report: where it shows up</h1>
+<p class="sub">Reclaim the Disk, issue 3120 &middot; 20 September 2026 &middot; nothing here is a proposal, it is all built</p>
+
+<div class="card">
+  <p class="lead" style="margin-top:0">These are not mockups. Every picture below is a real screen, rendered by the code
+  that is built and pushed, from reports the engine actually wrote. They came out of the phase 6 build,
+  not out of a drawing tool.</p>
+  <p class="note">Nothing on any of these screens can delete anything. There is no remove button on either
+  surface. Removal is still a command you type, and it still does nothing without <code>--apply</code>.</p>
+</div>
+
+<h2>The short version</h2>
+
+<table>
+  <tr><th>Thing</th><th>Where it lives</th><th>Did you ask for it</th><th>Works without a deploy</th></tr>
+  <tr>
+    <td><strong>The Disk Report window</strong><br><span class="note">in the Director, on your machine</span></td>
+    <td>Beside Repositories in the Director you already run</td>
+    <td><span class="tag yes">Yes</span><br><span class="note">"We can build it into the director"</span></td>
+    <td>Yes, after a Launcher release</td>
+  </tr>
+  <tr>
+    <td><strong>The Disk Report page</strong><br><span class="note">in the web Cockpit</span></td>
+    <td>A page at <code>/disk-report</code> in the Cockpit</td>
+    <td><span class="tag no">No</span><br><span class="note">the Architect added it; nobody checked with you</span></td>
+    <td>No &mdash; dead until you authorise a Gateway deploy</td>
+  </tr>
+  <tr>
+    <td><strong>The rules</strong><br><span class="note">the knowledge of what is junk</span></td>
+    <td>A file inside the product; the Gateway can hand out newer ones</td>
+    <td><span class="tag yes">Yes</span><br><span class="note">"There has to be an online component"</span></td>
+    <td>Yes &mdash; the shipped file works offline</td>
+  </tr>
+</table>
+
+<h2>1. The Director window &mdash; the one you asked for</h2>
+
+<p>This opens from the Director on your own machine. No web, no Gateway, no account. It reads the report
+the background scan already saved to disk and prints it.</p>
+
+<figure>
+  <img src="screens/director/flow-whole-page.png" alt="The Disk Report window in the Director, whole page">
+  <figcaption>The whole window, scrolled out flat. Top to bottom: a summary, then one block per disk, then
+  how old the report is, what is recommended (one card per rule), how far the scan reached, what fills the
+  disk, and what was seen but never offered. The only button on it is Close.</figcaption>
+</figure>
+
+<h3>What each part is telling you</h3>
+
+<div class="card ok">
+  <h3>What is recommended &mdash; one card per rule</h3>
+  <p>Each rule gets its own card, and the card carries the rule's whole argument: what it removes, why it
+  is safe, what is lost, how to get it back, how old something must be before it qualifies, and whether it
+  needs administrator rights.</p>
+  <p class="note">A rule that looked and found nothing still gets a card, marked <strong>NOTHING TO OFFER</strong>,
+  showing how many places it examined. That is deliberate: a rule that found nothing and a rule that could
+  not look must never read the same.</p>
+</div>
+
+<div class="card ok">
+  <h3>How far the scan reached &mdash; the honesty section</h3>
+  <p>This is the part that stops the report from overclaiming. It says how big the volume is, how much the
+  scan actually saw, and <strong>how much it did not see</strong>. It names every folder that refused to be
+  listed, counts links it did not follow, and counts cloud placeholder files that take no real space.</p>
+  <p class="note">In the picture above the scan saw 1.3 kilobytes of a 930 gigabyte volume, and it says so
+  in those words rather than implying the drive is nearly empty.</p>
+</div>
+
+<div class="card ok">
+  <h3>Reported, never offered</h3>
+  <p>Everything the scan saw that no rule matched. It is shown to you and is never offered for removal,
+  however large it grows. The rules name what may go, never what to skip.</p>
+</div>
+
+<h2>2. When something goes wrong</h2>
+
+<p>This is the whole reason the mission exists. A rule that could not do its job must never look like a
+clean disk. So the broken state is loud, red, and first.</p>
+
+<figure>
+  <img src="screens/director/broken-rule-as-it-opens.png" alt="The Director window when a rule is broken">
+  <figcaption>The same window when one rule could not do its work. The sentence the engine writes is
+  <em>"What could not be checked is not the same as nothing to remove."</em> The count of broken rules is
+  on the summary, on the disk, and on the recommendations heading &mdash; you cannot scroll past it.</figcaption>
+</figure>
+
+<h3>Every failure case, as it actually renders</h3>
+
+<div class="shots">
+  <figure>
+    <img src="screens/director/never-run-as-it-opens.png" alt="Never scanned">
+    <figcaption><strong>Never scanned.</strong> No scan has ever been started, so there is no report and none was lost.</figcaption>
+  </figure>
+  <figure>
+    <img src="screens/director/running-as-it-opens.png" alt="Scan running">
+    <figcaption><strong>Running.</strong> A scan is under way right now.</figcaption>
+  </figure>
+  <figure>
+    <img src="screens/director/failed-as-it-opens.png" alt="Scan failed">
+    <figcaption><strong>Failed.</strong> The scan started and did not finish, with the reason.</figcaption>
+  </figure>
+  <figure>
+    <img src="screens/director/failed-with-older-report-as-it-opens.png" alt="Failed with an older report">
+    <figcaption><strong>Failed, older report kept.</strong> The last scan failed, so you are reading an older report, and it says so.</figcaption>
+  </figure>
+  <figure>
+    <img src="screens/director/stale-as-it-opens.png" alt="Stale running record">
+    <figcaption><strong>Stale.</strong> A record still says running after more than a day, so it is treated as failed rather than left spinning.</figcaption>
+  </figure>
+  <figure>
+    <img src="screens/director/unreadable-record-as-it-opens.png" alt="Unreadable record">
+    <figcaption><strong>Unreadable.</strong> The saved record itself could not be read, which is reported, not skipped.</figcaption>
+  </figure>
+</div>
+
+<p class="note">Six different ways of having no good answer, and six different things said to you. Not one of
+them renders as "nothing to remove".</p>
+
+<h2>3. The Cockpit page &mdash; the one you did not ask for</h2>
+
+<p>This is the part you queried, and you were right to. It is the same report, rendered in the web Cockpit
+instead of the Director, with a machine picker at the top so you could read one machine's report from
+somewhere else.</p>
+
+<figure>
+  <img src="screens/cockpit/flow.png" alt="The Disk Report page in the web Cockpit">
+  <figcaption>The Cockpit page. Same content, same sentences, same absence of a remove button &mdash; the
+  engine writes the words once and both surfaces print them. The only things that are its own are the page
+  heading, the machine picker, and a "Read again" button that re-fetches the saved report.</figcaption>
+</figure>
+
+<div class="card warn">
+  <h3>What it cost, honestly</h3>
+  <p>About a fifth of phase 6: a read-only Gateway route of roughly fifty lines, a shared view component,
+  and the tests over both. The other four fifths &mdash; the engine fold that writes the sentences, and the
+  Director window &mdash; is work you did ask for and would exist anyway.</p>
+  <p><strong>It does nothing until you deploy the Gateway.</strong> I have not asked for that deploy and will
+  not. Left alone, this page is dormant code.</p>
+</div>
+
+<h2>4. The rules, seen as data</h2>
+
+<p>The second thing you asked about. A rule is one piece of knowledge about one kind of junk. Here is a real
+one, copied out of the shipped file:</p>
+
+<div class="card">
+<pre class="mono" style="margin:0; white-space:pre-wrap; color:#cfe4ff">{
+  "id": "npm-cache",
+  "name": "The npm package cache",
+  "proof": "owners-own-command",
+  "cacheFolder": { "base": "local-application-data", "segments": ["npm-cache"] },
+  "ownerCommand": "npm-cache-clean",
+  "whatIsLost": "nothing but the time to fetch a package again the next time a
+                 build asks for one; how long that takes depends on the size of
+                 the package and the connection, and is not known here"
+}</pre>
+</div>
+
+<p>Ten of these exist now: the npm, pip, uv and NuGet caches, DevThrottle's own test scratch folders, the
+Windows component store, Disk Cleanup's own categories, crash dumps, the recycle bin, and the orphaned
+Windows installer packages &mdash; the last being the 27.9 gigabytes measured on your machine during the
+design.</p>
+
+<p><strong>What changed is only where they live.</strong> They used to be compiled into the program, so a new
+rule meant shipping a whole new version of DevThrottle. Now they are a file with a version number, and the
+Gateway can hand out a newer one. The rules themselves behave exactly as before, and a rule arriving from
+the Gateway is put through the same checks as a built-in one &mdash; it cannot invent a new way to delete,
+and it cannot switch off any of the ten refusals.</p>
+
+<p class="note">The shipped file works with no network at all. The Gateway is only how a newer file would
+reach you without a release.</p>
+
+<h2>5. What this cannot do</h2>
+
+<ul>
+  <li><strong>No screen can remove anything.</strong> No button, no link, no verb, on either surface.</li>
+  <li><strong>Nothing has ever been removed from this machine</strong> by any part of this mission. Every
+  removal proof was run on throwaway folders the tests built and destroyed.</li>
+  <li><strong>These pages have not run in a real Director or a real Cockpit.</strong> They were rendered by
+  the real code from real reports, headless. Seeing them in the live app needs a Launcher release, and the
+  Cockpit needs a Gateway deploy. Both are your decisions.</li>
+  <li><strong>No page here came from a real scan of your drive.</strong> The numbers you see are from test
+  folders; the 930 gigabyte volume line is real because it read the real volume, but what it scanned was a
+  fixture.</li>
+</ul>
+
+<h2>6. If you want the Cockpit part gone</h2>
+
+<p>Say so and it comes out in one change: the Gateway route, the Cockpit page, and their tests. The engine
+fold and the Director window stay exactly as they are, because they do not depend on it.</p>
+
+<p>My recommendation is to leave it. It is built, it is tested, it is dormant without a deploy, and taking
+it out now costs more time than leaving it in.</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,18 @@
+Disk Report window, page 'never-run', as mounted and laid out headless at 900 by 640
+    Disk Report
+  [summary:quiet]
+  [badge:quiet]
+    NO REPORT YET
+    No background scan has ever been started on this machine, so there is no report to show and none was lost. That is different from a scan that failed, which would say so here.
+    made: this page was put together at 2026-09-20T07:00:31Z from what the background scan saved on this machine; nothing was scanned to make it
+    removal: nothing can be removed from this page, and nothing here starts a removal. Removal is the command line tool, run by a person: cc-cleanup-storage reclaim, which changes nothing unless it is given --apply
+  [disk:quiet]
+  [badge:quiet]
+    NEVER SCANNED
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-never-1cee19782eed4c258605cd7436f20efc
+    No background scan of this disk has ever been started on this machine, so there is no report to show and none was lost.
+    root: C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-never-1cee19782eed4c258605cd7436f20efc
+    background-scan: never-run
+    detail: no background scan of this folder has ever been started on this machine, so there is no result to show and none was lost
+  [button] Close
+    Close

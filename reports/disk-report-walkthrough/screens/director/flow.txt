@@ -1,0 +1,124 @@
+Disk Report window, page 'flow', as mounted and laid out headless at 900 by 640
+    Disk Report
+  [summary:ok]
+  [badge:ok]
+    REPORT SAVED
+    Every saved report below could do its work. 1 disk has never been scanned and says so.
+    made: this page was put together at 2026-09-20T07:00:32Z from what the background scan saved on this machine; nothing was scanned to make it
+    removal: nothing can be removed from this page, and nothing here starts a removal. Removal is the command line tool, run by a person: cc-cleanup-storage reclaim, which changes nothing unless it is given --apply
+  [disk:ok]
+  [badge:ok]
+    REPORT SAVED
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c
+    The scan finished at 2026-09-20T07:00:32Z and every rule that ran could do its work.
+    root: C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c
+    background-scan: completed
+    detail: the scan that started at 2026-09-20T07:00:31Z finished at 2026-09-20T07:00:32Z
+  [section:age:ok]
+    How old this report is
+    age: the scan behind this report finished at 2026-09-20T07:00:31Z, less than one minute before this page was made
+    rules: the rules were last refreshed at 2026-09-17T07:00:31Z, before this report was made, so it was made with the rules this machine has now
+  [section:recommendations:ok]
+    What is recommended
+    verdict: ok
+    root: C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c
+    rules-run: 2
+    rules-broken: 0
+    items-offered: 1
+    reclaimable: 1000 bytes
+  [card:ok]
+  [badge:ok]
+    OFFERS SOMETHING
+    A rule that offers one folder
+    This rule did its work and proved something disposable. Nothing is removed from here.
+    rule: page-offers-one
+    name: A rule that offers one folder
+    proof: we made it, by an exact name, and it is old and closed
+    verdict: ok
+    items: 1
+    reclaimable: 1000 bytes
+    removes: folders the tests made, by an exact name
+    safe-because: the tests made them and nothing else uses them
+    what-is-lost: nothing that is not made again by the next test run
+    how-to-get-it-back: run the tests again
+    age-gate: 7 days
+    needs-administrator: no
+    control-folders-examined: 3
+  [card:quiet]
+  [badge:quiet]
+    NOTHING TO OFFER
+    A rule that looks and finds nothing
+    This rule did its work, and its controls below show it looked; it found nothing it can prove disposable.
+    rule: page-finds-nothing
+    name: A rule that looks and finds nothing
+    proof: we made it, by an exact name, and it is old and closed
+    verdict: ok
+    items: 0
+    reclaimable: 0 bytes
+    removes: folders the tests made, by an exact name
+    safe-because: the tests made them and nothing else uses them
+    what-is-lost: nothing that is not made again by the next test run
+    how-to-get-it-back: run the tests again
+    age-gate: 7 days
+    needs-administrator: no
+    control-folders-examined: 3
+  [section:reach:ok]
+    How far the scan reached
+    volume: C:\ is 999149268992 bytes (930.5 gigabytes), of which 823141498880 bytes (766.6 gigabytes) are used and 176007770112 bytes (163.9 gigabytes) are free
+    seen: 1360 bytes (1.3 kilobytes) in 5 files and 4 folders
+    unseen: 823141497520 bytes (766.6 gigabytes) that the volume counts as used and this scan did not see
+    scope: the scan covered C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c, which is one folder on volume C:\, so the unseen number also counts everything on that volume outside this folder
+    refused: 1 folder refused a listing, and every one of them is named below
+    links: 1 link or junction was found, and none were followed
+    placeholders: 1 cloud placeholder file holds 4096 bytes (4.0 kilobytes) in a cloud store and no bytes on this disk
+    walked: started 2026-09-20T07:00:31Z, finished 2026-09-20T07:00:31Z, 0.006 seconds
+  [table]
+    1 folder refused a listing, so nothing inside was seen:
+    Folder
+    Why
+    Code
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c\refused
+    access denied
+    -2147024891
+  [section:fills:ok]
+    What fills the disk
+  [table]
+    The 4 largest folders the scan recorded, largest first. A folder's size includes the folders inside it, so these overlap and do not add up.
+    Folder
+    Size
+    Exact size
+    Files
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c\beta
+    1000 bytes
+    1000 bytes
+    1 file
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c\alpha
+    350 bytes
+    350 bytes
+    3 files
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c\alpha\nested
+    50 bytes
+    50 bytes
+    1 file
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-first-522c2171ef914e5b8926894b3ee6b77c\refused
+    0 bytes
+    0 bytes
+    0 files
+  [section:never-offered:ok]
+    Reported, never offered
+    unclassified: 360 bytes seen by the scan and matched by no rule, which is never offered for removal
+    never-offered: anything no rule matched is reported and is never offered for removal, whatever it is and however large it grows; the rules name what may go, never what to skip
+  [disk:quiet]
+  [badge:quiet]
+    NEVER SCANNED
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-second-d7e02ed6faaa447681a8c6cdba3ee70b
+    No background scan of this disk has ever been started on this machine, so there is no report to show and none was lost.
+    root: C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-flow-second-d7e02ed6faaa447681a8c6cdba3ee70b
+    background-scan: never-run
+    detail: no background scan of this folder has ever been started on this machine, so there is no result to show and none was lost
+  [button] Avalonia.Controls.PathIcon
+  [button] 
+  [button] 
+  [button] Avalonia.Controls.PathIcon
+  [button] Close
+    Close

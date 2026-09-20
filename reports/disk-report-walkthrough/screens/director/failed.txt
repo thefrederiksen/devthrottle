@@ -1,0 +1,20 @@
+Disk Report window, page 'failed', as mounted and laid out headless at 900 by 640
+    Disk Report
+  [summary:broken]
+  [badge:broken]
+    SOMETHING COULD NOT DO ITS WORK
+    Something on this page could not do its work - a scan, a rule, or the reading of a saved record. Each one says why below, and none of them means there is nothing to remove.
+    made: this page was put together at 2026-09-20T07:00:32Z from what the background scan saved on this machine; nothing was scanned to make it
+    removal: nothing can be removed from this page, and nothing here starts a removal. Removal is the command line tool, run by a person: cc-cleanup-storage reclaim, which changes nothing unless it is given --apply
+  [disk:broken]
+  [badge:broken]
+    SCAN FAILED
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-9e6e09ded92341e089d995a06835f4bd
+    The last background scan of this disk did not produce a result: the scan threw InvalidOperationException: the registry would not open. There is no earlier report to show.
+    root: C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-9e6e09ded92341e089d995a06835f4bd
+    background-scan: failed
+    detail: the scan that started at 2026-09-20T07:00:32Z did not produce a result
+    reason: the scan threw InvalidOperationException: the registry would not open
+    last-result: none, because no scan of this folder has ever finished
+  [button] Close
+    Close

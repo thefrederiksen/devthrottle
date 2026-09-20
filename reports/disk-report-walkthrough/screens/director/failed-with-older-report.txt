@@ -1,0 +1,100 @@
+Disk Report window, page 'failed-with-older-report', as mounted and laid out headless at 900 by 640
+    Disk Report
+  [summary:broken]
+  [badge:broken]
+    SOMETHING COULD NOT DO ITS WORK
+    Something on this page could not do its work - a scan, a rule, or the reading of a saved record. Each one says why below, and none of them means there is nothing to remove.
+    made: this page was put together at 2026-09-20T07:00:32Z from what the background scan saved on this machine; nothing was scanned to make it
+    removal: nothing can be removed from this page, and nothing here starts a removal. Removal is the command line tool, run by a person: cc-cleanup-storage reclaim, which changes nothing unless it is given --apply
+  [disk:broken]
+  [badge:broken]
+    SCAN FAILED
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5
+    The last background scan of this disk did not produce a result: the scan threw InvalidOperationException: the registry would not open. The report below is older: it is from the scan that finished at 2026-09-20T07:00:32Z.
+    root: C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5
+    background-scan: failed
+    detail: the scan that started at 2026-09-20T07:00:32Z did not produce a result
+    reason: the scan threw InvalidOperationException: the registry would not open
+    last-result: the scan that finished at 2026-09-20T07:00:32Z is still saved and is the newest whole one
+  [section:age:ok]
+    How old this report is
+    age: the scan behind this report finished at 2026-09-20T07:00:32Z, less than one minute before this page was made
+    rules: when this machine's rules were last refreshed is not recorded, so this page cannot say whether this report is older than the rules
+  [section:recommendations:ok]
+    What is recommended
+    verdict: ok
+    root: C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5
+    rules-run: 1
+    rules-broken: 0
+    items-offered: 0
+    reclaimable: 0 bytes
+  [card:quiet]
+  [badge:quiet]
+    NOTHING TO OFFER
+    A rule that looks and finds nothing
+    This rule did its work, and its controls below show it looked; it found nothing it can prove disposable.
+    rule: page-finds-nothing
+    name: A rule that looks and finds nothing
+    proof: we made it, by an exact name, and it is old and closed
+    verdict: ok
+    items: 0
+    reclaimable: 0 bytes
+    removes: folders the tests made, by an exact name
+    safe-because: the tests made them and nothing else uses them
+    what-is-lost: nothing that is not made again by the next test run
+    how-to-get-it-back: run the tests again
+    age-gate: 7 days
+    needs-administrator: no
+    control-folders-examined: 3
+  [section:reach:ok]
+    How far the scan reached
+    volume: C:\ is 999149268992 bytes (930.5 gigabytes), of which 823142723584 bytes (766.6 gigabytes) are used and 176006545408 bytes (163.9 gigabytes) are free
+    seen: 1360 bytes (1.3 kilobytes) in 5 files and 4 folders
+    unseen: 823142722224 bytes (766.6 gigabytes) that the volume counts as used and this scan did not see
+    scope: the scan covered C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5, which is one folder on volume C:\, so the unseen number also counts everything on that volume outside this folder
+    refused: 1 folder refused a listing, and every one of them is named below
+    links: 1 link or junction was found, and none were followed
+    placeholders: 1 cloud placeholder file holds 4096 bytes (4.0 kilobytes) in a cloud store and no bytes on this disk
+    walked: started 2026-09-20T07:00:32Z, finished 2026-09-20T07:00:32Z, 0.001 seconds
+  [table]
+    1 folder refused a listing, so nothing inside was seen:
+    Folder
+    Why
+    Code
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5\refused
+    access denied
+    -2147024891
+  [section:fills:ok]
+    What fills the disk
+  [table]
+    The 4 largest folders the scan recorded, largest first. A folder's size includes the folders inside it, so these overlap and do not add up.
+    Folder
+    Size
+    Exact size
+    Files
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5\beta
+    1000 bytes
+    1000 bytes
+    1 file
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5\alpha
+    350 bytes
+    350 bytes
+    3 files
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5\alpha\nested
+    50 bytes
+    50 bytes
+    1 file
+    C:\Users\soren\AppData\Local\Temp\cc-reclaim-tests\fixture-failed-later-5cc752b2fafe48e3b38bd52908d1b1c5\refused
+    0 bytes
+    0 bytes
+    0 files
+  [section:never-offered:ok]
+    Reported, never offered
+    unclassified: 1360 bytes (1.3 kilobytes) seen by the scan and matched by no rule, which is never offered for removal
+    never-offered: anything no rule matched is reported and is never offered for removal, whatever it is and however large it grows; the rules name what may go, never what to skip
+  [button] Avalonia.Controls.PathIcon
+  [button] 
+  [button] 
+  [button] Avalonia.Controls.PathIcon
+  [button] Close
+    Close
