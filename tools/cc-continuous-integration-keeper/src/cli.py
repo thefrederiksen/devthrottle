@@ -398,6 +398,11 @@ def main(argv: list[str] | None = None, out=None, err=None) -> int:
     except KeeperError as ex:
         print(f"error: {ex}", file=err)
         return ex.exit_code
+    except SystemExit as ex:
+        # The shared output helper ends a bad --fields value this way. main() always ANSWERS with
+        # an exit code rather than throwing one, so that a caller inside the same process - a test,
+        # or another tool - sees the same outcome the shell does.
+        return EXIT_USAGE if ex.code is None else int(ex.code)
     raise AssertionError(f"no such command: {arguments.command}")
 
 

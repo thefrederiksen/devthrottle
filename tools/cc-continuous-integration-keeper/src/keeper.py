@@ -325,7 +325,14 @@ def check_repeated_red_test(records: RunRecords, budget: Budget) -> ConditionRes
 
     findings = []
     for name in named:
-        runs_with = [run for run in sequence if name in run.failing_tests()]
+        # The streak above is in the order the runs FINISHED, because that is the order in which a
+        # person watching the checks sees a result arrive. The span below is in the order the runs
+        # STARTED, because "this test was red from here to here" is about when the code was tested,
+        # and a long run that started early can finish after a short one that started later.
+        runs_with = sorted(
+            (run for run in sequence if name in run.failing_tests()),
+            key=lambda run: run.started_at,
+        )
         first, last = runs_with[0], runs_with[-1]
         hours = (last.started_at - first.started_at).total_seconds() / 3600
         green_between = sum(
