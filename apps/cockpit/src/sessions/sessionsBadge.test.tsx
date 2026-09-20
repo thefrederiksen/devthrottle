@@ -30,6 +30,9 @@ vi.mock("@devthrottle/client-core/push/register", () => ({
 vi.mock("@devthrottle/client-core/api/client", () => ({
   getDirectors: () => Promise.resolve([]),
   getRepos: () => Promise.resolve([]),
+  // The New Session dialog reads the one ordered repository list from here (the one-repository-list
+  // mission, phase 4). getRepos stays mocked beside it because the Director detail page still reads that.
+  getKnownRepositories: () => Promise.resolve([]),
   getAgents: () => Promise.resolve([]),
   createSession: () => Promise.resolve({ sessionId: "new" }),
   setVoiceModeAllSessions: () => Promise.resolve({ changed: 0, skipped: 0 }),

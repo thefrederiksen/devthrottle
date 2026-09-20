@@ -3,10 +3,11 @@ import {
   createSession,
   getAgents,
   getDirectors,
-  getRepos,
+  getKnownRepositories,
   gatewayErrorMessage,
   type AgentChoice,
   type DirectorInfo,
+  type KnownRepoInfo,
   type RepoInfo,
 } from "@devthrottle/client-core/api/client";
 import { directorPort } from "@devthrottle/client-core/fleet/directorEndpoint";
@@ -22,7 +23,17 @@ import { useDismissOnBackdrop } from "../components";
 // The flow mirrors the desktop New Session dialog:
 //   1. Pick a MACHINE from GET /directors (default-select the most-recently-seen so repos+agents load
 //      with one fewer click).
-//   2. Pick a REPOSITORY from GET /directors/{id}/repos (newest-used first) OR type a path.
+//   2. Pick a REPOSITORY from GET /directors/{id}/known-repositories OR type a path. That route is the
+//      ONE repository list, already in the ONE order the Gateway decided (the one-repository-list
+//      mission, phase 4): most recently used first, with the repositories a Director found under a
+//      registered root folder and nobody has ever opened beneath them. This screen used to read
+//      GET /directors/{id}/repos, which is the Director's own registry - HALF of that list, and the
+//      half that empties out on a machine where nobody uses the desktop dialog's Start button. The one
+//      list is also durable and machine-keyed, so it survives that machine's Director being
+//      disconnected, which is exactly when this screen still needs something to show.
+//      THE ORDER IS NOT THIS SCREEN'S TO DECIDE. It renders the rows in the order they arrived and
+//      never compares lastUsed to work out where one belongs - Critical Rule 7 in CLAUDE.md, applied
+//      to a list instead of a verdict.
 //   3. LAUNCH OPTIONS: pick the AGENT from GET /directors/{id}/agents (that machine's configured,
 //      enabled agents), and choose the permission mode. There is deliberately NO model picker - the
 //      model comes from the chosen agent's own configured default, exactly like the desktop dialog
@@ -120,7 +131,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
   const [directorsError, setDirectorsError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const [repos, setRepos] = useState<RepoInfo[] | null>(null);
+  const [repos, setRepos] = useState<KnownRepoInfo[] | null>(null);
   const [reposStatus, setReposStatus] = useState("Pick a machine first.");
 
   // The selected machine's configured agents (issue #1497), loaded like the repos when the machine
@@ -175,27 +186,32 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
     return () => controller.abort();
   }, [initialDirectorId]);
 
-  // Step 2: whenever the selected machine changes, load THAT machine's recent repos.
+  // Step 2: whenever the selected machine changes, load THAT machine's one repository list.
   useEffect(() => {
     if (!selectedId) return;
     const controller = new AbortController();
     const reqId = ++reposReqRef.current;
     setRepos(null);
-    setReposStatus("Loading repos...");
-    getRepos(selectedId, controller.signal)
+    setReposStatus("Loading repositories...");
+    getKnownRepositories(selectedId, controller.signal)
       .then((list) => {
         if (reqId !== reposReqRef.current) return; // a newer selection superseded this one
+        // Stored exactly as it arrived. No sort, no filter, no re-ordering: the Gateway decided this
+        // order and this screen renders it.
         setRepos(list);
+        // The status line describes THE LIST, which is what this read changed. It deliberately says
+        // nothing about what clicking a row does - that is not this change's to promise.
         setReposStatus(
           list.length === 0
-            ? "No recent repos here. Enter a path below."
-            : `${list.length} recent repo(s). Click one to start.`,
+            ? "No repositories known on this machine. Enter a path below."
+            : `${list.length === 1 ? "1 repository" : `${list.length} repositories`} on this machine, ` +
+              "most recently used first.",
         );
       })
       .catch((err) => {
         if (controller.signal.aborted || reqId !== reposReqRef.current) return;
         setRepos([]);
-        setReposStatus(`Could not load repos: ${gatewayErrorMessage(err)}`);
+        setReposStatus(`Could not load repositories: ${gatewayErrorMessage(err)}`);
       });
     return () => controller.abort();
   }, [selectedId]);
