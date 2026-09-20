@@ -1,5 +1,6 @@
 using System.Globalization;
 using CcDirector.ControlApi.Drain;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.ControlApi.SmartRestart;
@@ -123,10 +124,12 @@ public static class WayUpWords
     /// decides it, and every agent falls into it.
     ///
     /// Only some agents can be started on a saved conversation, and the difference is in the drivers, not
-    /// here: Claude Code is launched with <c>--resume &lt;id&gt;</c> and Pi with <c>--session-id &lt;id&gt;</c>,
-    /// while Codex logs "ignoring resume" and starts fresh. So the words differ, and an agent this build
-    /// has never heard of is worded like CODEX and not like Claude Code - a promise of a conversation that
-    /// does not arrive is worse than a plain "this will be a blank session".
+    /// here: Claude Code, Copilot and Cursor are launched with <c>--resume &lt;id&gt;</c> and Pi with
+    /// <c>--session-id &lt;id&gt;</c>, while Codex, Gemini, Grok and opencode each log "ignoring resume" and
+    /// start fresh. Which is which is declared by each agent's own plugin and read through
+    /// <see cref="Resumes"/> - never restated here. So the words differ, and an agent this build has never
+    /// heard of is worded like CODEX and not like Claude Code - a promise of a conversation that does not
+    /// arrive is worse than a plain "this will be a blank session".
     ///
     /// THE SAME CALL IS MADE EITHER WAY: the seat's conversation id is always handed over, and the agent
     /// that cannot use it ignores it. There is no second way round it and there must not be one.
@@ -161,23 +164,53 @@ public static class WayUpWords
     }
 
     /// <summary>
-    /// Whether this agent can be STARTED on a saved conversation. Anything this build does not know
-    /// answers false, which is the safe way round: see <see cref="ReopenOffer"/>.
+    /// Whether this agent can be STARTED on a saved conversation, READ FROM THE AGENT ITSELF: the plugin
+    /// that owns the driver declares it on
+    /// <see cref="AgentPluginLaunchMetadata.CanResumeSavedConversation"/>, and this asks the registry.
+    ///
+    /// IT IS NOT A LIST OF NAMES HERE, and it must never become one again. A hand-kept list was exactly the
+    /// defect: it named Claude Code and Pi, while Copilot and Cursor - both of which pass the id to their
+    /// own command line - were told their conversation was lost. A second list in a second place drifts
+    /// from the drivers the day an agent changes, and nobody finds out.
+    ///
+    /// An agent the registry does not know at all answers false, which is the safe way round: see
+    /// <see cref="ReopenOffer"/>. A promise of a conversation that does not arrive is worse than a plain
+    /// "this will be a blank session".
     /// </summary>
     /// <param name="agent">The seat's agent, as the record holds it.</param>
-    public static bool Resumes(string? agent) => Normalise(agent) is "claudecode" or "claude" or "pi";
+    public static bool Resumes(string? agent) => Plugin(agent)?.Launch.CanResumeSavedConversation ?? false;
 
-    /// <summary>The agent's name as a person reads it. An agent this build does not know is named as the
-    /// record spells it, rather than being renamed into something it is not.</summary>
+    /// <summary>The agent's name as a person reads it, from the plugin that owns it. An agent the registry
+    /// does not know is named as the record spells it, rather than being renamed into something it is not.</summary>
     /// <param name="agent">The seat's agent, as the record holds it.</param>
-    public static string AgentName(string? agent) => Normalise(agent) switch
+    public static string AgentName(string? agent)
     {
-        "claudecode" or "claude" => "Claude Code",
-        "pi" => "Pi",
-        "codex" => "Codex",
-        "" => "This agent",
-        _ => agent?.Trim() ?? "This agent",
-    };
+        var known = Plugin(agent);
+        if (known is not null) return known.DisplayName;
+        return string.IsNullOrWhiteSpace(agent) ? "This agent" : agent.Trim();
+    }
+
+    /// <summary>
+    /// The registered plugin for the agent a record names, or null when this build has no such agent.
+    ///
+    /// A record holds the agent as a STRING, so the spelling is matched loosely against the three names the
+    /// plugin itself publishes - its kind, its id and its display name - which keeps "ClaudeCode", "claude"
+    /// and "Claude Code" one answer without a table of spellings living here.
+    /// </summary>
+    /// <param name="agent">The seat's agent, as the record holds it.</param>
+    private static IAgentPlugin? Plugin(string? agent)
+    {
+        var wanted = Normalise(agent);
+        if (wanted.Length == 0) return null;
+        foreach (var plugin in AgentPluginRegistry.All)
+        {
+            if (Normalise(plugin.Kind.ToString()) == wanted
+                || Normalise(plugin.Id) == wanted
+                || Normalise(plugin.DisplayName) == wanted)
+                return plugin;
+        }
+        return null;
+    }
 
     /// <summary>The first line a reopened session is given: one line, because a long prompt parks unsubmitted
     /// in an agent's composer.</summary>

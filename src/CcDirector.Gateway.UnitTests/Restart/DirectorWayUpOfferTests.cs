@@ -13,6 +13,7 @@ namespace CcDirector.Gateway.UnitTests.Restart;
 /// running may still hold a record worth offering, and a Director with none may hold nothing - so these
 /// tests never set up a session, because the engine has no way to ask about one.
 /// </summary>
+[Collection(DirectorGatesCollection.Name)]
 public class DirectorWayUpOfferTests
 {
     private static readonly DateTime Shutdown = new(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc);
@@ -54,6 +55,10 @@ public class DirectorWayUpOfferTests
 
         Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
         Assert.Null(offer.Record);
+
+        // NOTHING WAITING IS ALSO A PROMISE ABOUT THE RECORD. The offered path asserts this too; a path
+        // that answers "nothing" after asking what is running would be the same race by the other door.
+        Assert.Equal(0, rig.Gateway.RosterAsked);
     }
 
     /// <summary>The owner cancelled and kept working, so the sessions never stopped. Offering it back would
@@ -89,9 +94,15 @@ public class DirectorWayUpOfferTests
     }
 
     /// <summary>
-    /// ONE OWED SEAT IS ENOUGH, and nothing is asked about what is running. The engine's Gateway seam
-    /// carries no question about sessions at all - listing records, reading one, and starting one to reopen
-    /// it are all it can do - so the check cannot be a session count even by accident.
+    /// ONE OWED SEAT IS ENOUGH, and nothing is asked about what is running.
+    ///
+    /// READ THIS BEFORE YOU BELIEVE THE SEAM CANNOT ASK: it can. The engine's Gateway seam has a fourth
+    /// method, <c>GetRosterAsync</c>, because the REOPEN needs it to refuse a seat that may still be
+    /// alive. So what keeps the start-up check a promise about the RECORD rather than a race with whatever
+    /// happens to be running is no longer the seam's shape - it is the count asserted at the end of this
+    /// test, and the same count asserted on the nothing-waiting path here, on the history and on the bring
+    /// back. Only <c>ReopenAsync</c> may ask. If you are adding a roster call to another path, those four
+    /// assertions are what you are about to break, and breaking them is the point of them.
     /// </summary>
     [Fact]
     public async Task A_record_with_one_owed_seat_is_offered_and_nothing_is_asked_about_running_sessions()
@@ -114,6 +125,11 @@ public class DirectorWayUpOfferTests
         Assert.Equal("Reason: update to 2.9.0", record.ReasonLabel);
         Assert.Equal(Shutdown, record.ShutdownAtUtc);
         Assert.Empty(rig.Gateway.Started);
+
+        // The seam CAN ask what is running - the reopen needs it, to refuse a seat that may still be alive -
+        // so the rule that the start-up check never asks is now held by this count rather than by the seam
+        // having no such method at all.
+        Assert.Equal(0, rig.Gateway.RosterAsked);
     }
 
     /// <summary>Newest first: the record offered is the most recent one that may be offered, not the first
@@ -315,6 +331,57 @@ public class DirectorWayUpOfferTests
         Assert.True(reopen.CanReopen);
         Assert.Equal("Open a fresh session in its repository", reopen.Offer);
         Assert.Contains("Codex cannot be started on a saved conversation", reopen.What);
+        Assert.Contains("NEW, blank session", reopen.What);
+    }
+
+    /// <summary>
+    /// COPILOT REALLY DOES RESUME: <c>CopilotAgent.BuildLaunchSpec</c> appends "--resume &lt;id&gt;", so the
+    /// offer must not tell the owner his conversation is lost. This was the defect in review finding 2 - a
+    /// hand-written list of agent names in the wording knew only Claude Code and Pi - and the fix was to
+    /// read the fact from the agent's own plugin instead.
+    /// </summary>
+    [Fact]
+    public async Task A_copilot_seat_is_offered_its_saved_conversation()
+    {
+        var reopen = await ReopenOfferFor("Copilot");
+
+        Assert.True(reopen.CanReopen);
+        Assert.Equal("Reopen its saved conversation", reopen.Offer);
+        Assert.Contains("GitHub Copilot is started again on this session's saved conversation", reopen.What);
+        Assert.DoesNotContain("NEW, blank session", reopen.What);
+    }
+
+    /// <summary>CURSOR REALLY DOES RESUME TOO: its driver appends "--resume=&quot;&lt;id&gt;&quot;".</summary>
+    [Fact]
+    public async Task A_cursor_seat_is_offered_its_saved_conversation()
+    {
+        var reopen = await ReopenOfferFor("Cursor");
+
+        Assert.True(reopen.CanReopen);
+        Assert.Equal("Reopen its saved conversation", reopen.Offer);
+        Assert.Contains("Cursor is started again on this session's saved conversation", reopen.What);
+        Assert.DoesNotContain("NEW, blank session", reopen.What);
+    }
+
+    /// <summary>
+    /// GEMINI, GROK AND OPENCODE EACH LOG THAT THEY ARE IGNORING THE ID, so each is told plainly that the
+    /// session will be blank. Named here beside Copilot and Cursor so that this file holds both sides: the
+    /// wording is read from each agent's own plugin, and reading it must not turn every agent into a
+    /// resuming one.
+    /// </summary>
+    /// <param name="agent">The agent the seat was running, as a record spells it.</param>
+    /// <param name="shownAs">The agent's name as a person reads it.</param>
+    [Theory]
+    [InlineData("Gemini", "Gemini")]
+    [InlineData("Grok", "Grok")]
+    [InlineData("OpenCode", "OpenCode")]
+    public async Task An_agent_whose_driver_ignores_the_id_is_offered_a_fresh_session(string agent, string shownAs)
+    {
+        var reopen = await ReopenOfferFor(agent);
+
+        Assert.True(reopen.CanReopen);
+        Assert.Equal("Open a fresh session in its repository", reopen.Offer);
+        Assert.Contains($"{shownAs} cannot be started on a saved conversation", reopen.What);
         Assert.Contains("NEW, blank session", reopen.What);
     }
 

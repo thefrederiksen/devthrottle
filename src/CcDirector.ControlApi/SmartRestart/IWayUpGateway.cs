@@ -31,6 +31,17 @@ public interface IWayUpGateway
     /// <param name="request">The session to start.</param>
     /// <param name="ct">Cancellation.</param>
     Task<SessionDto> StartSessionAsync(NewSessionRequest request, CancellationToken ct);
+
+    /// <summary>
+    /// The live roster of the whole account, with each Director's reachability - THE SAME QUESTION
+    /// <see cref="IRestoreGateway.GetRosterAsync"/> asks, so that the reopen can refuse a seat that may
+    /// still be running by the product's own rule rather than a second one written here.
+    ///
+    /// IT IS ASKED ONLY WHEN A SESSION IS ABOUT TO BE STARTED. The start-up check is a check on the RECORD
+    /// and never on what is running, and it does not call this.
+    /// </summary>
+    /// <param name="ct">Cancellation.</param>
+    Task<RestoreRoster> GetRosterAsync(CancellationToken ct);
 }
 
 /// <summary>
@@ -82,6 +93,16 @@ public sealed class GatewayClientWayUp : IWayUpGateway
     /// <inheritdoc />
     public Task<SessionDto> StartSessionAsync(NewSessionRequest request, CancellationToken ct)
         => Required().SpawnOnThisDirectorAsync(request, ct);
+
+    /// <inheritdoc />
+    public async Task<RestoreRoster> GetRosterAsync(CancellationToken ct)
+    {
+        // The envelope, not the plain list: the plain list says nothing about which Directors it could not
+        // reach, and "not on the list" is exactly the fact this check acts on. Word for word what
+        // GatewayClientRestoreGateway does, for the same reason.
+        var (sessions, directors) = await Required().ListFleetSessionsWithReachabilityAsync(ct).ConfigureAwait(false);
+        return new RestoreRoster(sessions, directors);
+    }
 
     private GatewayClient Required()
         => _client() ?? throw new InvalidOperationException(NotConnected);

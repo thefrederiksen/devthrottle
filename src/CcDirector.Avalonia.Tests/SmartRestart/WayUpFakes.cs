@@ -40,8 +40,20 @@ internal static class WayUp
             new DateTime(2026, 9, 19, 17, 50, 0, DateTimeKind.Local),
             headline, whenLabel, null, reasonLabel, seatsOwed, seatsOwedLabel, rows);
 
+    /// <summary>A seat in the history that carries NO reopen offer: it handed over, or it came back.</summary>
     internal static WayUpHistorySeat HistorySeat(string sessionId, string name, string outcome) =>
-        new(sessionId, name, null, null, outcome);
+        new(sessionId, name, null, null, outcome, null);
+
+    /// <summary>
+    /// A seat in the history that ENDED WITHOUT A HANDOVER, and so carries the engine's reopen offer -
+    /// the same <see cref="WayUpReopenOffer"/> the start-up window's rows carry.
+    /// </summary>
+    /// <param name="canReopen">False when the engine says there is nothing to reopen.</param>
+    /// <param name="offer">What the button says, or null when there is nothing to offer.</param>
+    /// <param name="what">What reopening would really do. Always said, including when nothing can be.</param>
+    internal static WayUpHistorySeat EndedHistorySeat(
+        string sessionId, string name, string outcome, bool canReopen, string? offer, string what) =>
+        new(sessionId, name, null, null, outcome, new WayUpReopenOffer(canReopen, offer, what));
 
     internal static WayUpHistoryEntry HistoryEntry(
         string workspaceId,

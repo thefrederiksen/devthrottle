@@ -13,9 +13,21 @@ namespace CcDirector.Gateway.UnitTests.Restart;
 ///
 /// The fakes COUNT what they were asked, because several of these rules are about what the way up does NOT
 /// do: it never asks how many sessions are running, and it never starts a session except to reopen one.
+///
+/// THE RIG IS NOT THE OWNER OF THE ONCE-ONLY REOPEN CLAIM, and cannot be: that claim belongs to the
+/// PROCESS, because there is one Director per process and the rule is the Director's. So building a rig
+/// forgets the claims this process has taken, and every way up test class sits in
+/// <see cref="DirectorGatesCollection"/> so no two of them are in that process state at once.
 /// </summary>
 public sealed class WayUpTestRig
 {
+    /// <summary>
+    /// Start this test clean of every reopen claim an earlier test took. Several tests use the same record
+    /// slug and the same seat id, so without this the second of them would be refused for a reason that is
+    /// about the test runner and not about the product.
+    /// </summary>
+    public WayUpTestRig() => DirectorWayUp.ForgetReopenClaims();
+
     /// <summary>The machine every record in this rig was captured on.</summary>
     public const string ThisMachine = "SOREN_NORTH";
 
@@ -153,6 +165,27 @@ public sealed class FakeWayUpGateway : IWayUpGateway
     /// <summary>Records the Gateway lists but no longer holds, to stand in for one deleted between the two calls.</summary>
     public HashSet<string> ListedButGone { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>How many times the roster was asked for. The start-up check must never ask: a check on what
+    /// is RUNNING is exactly what the presence check is not.</summary>
+    public int RosterAsked { get; private set; }
+
+    /// <summary>The sessions the roster answers with. Empty by default: nothing is running.</summary>
+    public List<SessionDto> RosterSessions { get; } = new();
+
+    /// <summary>Each Director's reachability on the roster. A Director absent from this list is unreachable.</summary>
+    public List<DirectorReachabilityDto> RosterDirectors { get; } = new();
+
+    /// <summary>Put a session on the roster, running on a Director the Gateway can reach.</summary>
+    /// <param name="sessionId">The session id, which is a seat's captured session id when it is still alive.</param>
+    /// <param name="directorId">The Director it is running on.</param>
+    public FakeWayUpGateway Running(string sessionId, string directorId = "some-other-director")
+    {
+        RosterSessions.Add(new SessionDto { SessionId = sessionId, DirectorId = directorId, Name = sessionId });
+        if (!RosterDirectors.Any(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase)))
+            RosterDirectors.Add(new DirectorReachabilityDto { DirectorId = directorId, State = DirectorReachabilityDto.StateOnline });
+        return this;
+    }
+
     /// <summary>Put a record on this Gateway.</summary>
     /// <param name="doc">The record.</param>
     public FakeWayUpGateway With(WorkspaceDocument doc)
@@ -197,6 +230,14 @@ public sealed class FakeWayUpGateway : IWayUpGateway
         if (Unreachable is not null) throw new HttpRequestException(Unreachable);
         Started.Add(request);
         return Task.FromResult(new SessionDto { SessionId = NextSessionId, Name = request.Name ?? "" });
+    }
+
+    /// <inheritdoc />
+    public Task<RestoreRoster> GetRosterAsync(CancellationToken ct)
+    {
+        if (Unreachable is not null) throw new HttpRequestException(Unreachable);
+        RosterAsked++;
+        return Task.FromResult(new RestoreRoster(RosterSessions, RosterDirectors));
     }
 }
 

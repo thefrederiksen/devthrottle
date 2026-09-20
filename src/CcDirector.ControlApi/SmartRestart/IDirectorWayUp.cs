@@ -63,6 +63,17 @@ public interface IDirectorWayUp
     /// What actually arrives depends on the agent, and <see cref="WayUpReopenOffer.What"/> says which - see
     /// <see cref="WayUpWords.ReopenOffer"/>. It does not write to the record, so a seat reopened this way
     /// is still listed in the history as ended without a handover.
+    ///
+    /// IT REFUSES A SEAT THAT MAY STILL BE RUNNING, by the same rule the restore uses, and it reopens each
+    /// seat ONCE while this Director is up. That once-only claim is held by the PROCESS, so it holds
+    /// however many engines a caller builds. Because nothing is written onto the record, it does NOT
+    /// survive a Director restart: across one, the same seat can still be reopened twice. Closing that
+    /// needs a new mark on the record, which is a Gateway change and a Delivery Lead decision.
+    ///
+    /// A REOPEN WHOSE START FAILS KEEPS ITS CLAIM, and that is deliberate rather than a bug to report: a
+    /// start whose answer never came back may have happened anyway, so the seat is refused from then until
+    /// this Director restarts. A button that goes dead after one failure is doing what it was built to do,
+    /// and the refusal says to look in the session list.
     /// </summary>
     /// <param name="request">The record and the seat.</param>
     /// <param name="ct">Cancellation.</param>
@@ -213,12 +224,20 @@ public sealed record WayUpHistoryEntry(
 /// <param name="Mission">The mission it was on, or null.</param>
 /// <param name="Role">Its role, or null.</param>
 /// <param name="Outcome">What became of it, in plain words.</param>
+/// <param name="Reopen">
+/// The reopen offer for a seat that ended without a handover, and null for every other seat. It is here as
+/// well as on <see cref="WayUpRow.Reopen"/>, and it is here whether or not this record still owes a seat
+/// that can come back: the history says such a conversation can be reopened, so the words for what
+/// reopening really does must travel with it. Without them a window would have to invent the sentence,
+/// which is what critical rule 7 forbids.
+/// </param>
 public sealed record WayUpHistorySeat(
     string SessionId,
     string Name,
     string? Mission,
     string? Role,
-    string Outcome);
+    string Outcome,
+    WayUpReopenOffer? Reopen);
 
 /// <summary>Bring back the rows that were ticked.</summary>
 /// <param name="WorkspaceId">The record to bring back from.</param>

@@ -254,6 +254,10 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// The engine holds NO Gateway client and NO display name of its own. Both are read at the moment of
     /// each call: a settings change replaces the client, and a rename lands fleet-wide without a restart,
     /// so an engine holding either would answer from a fact that has moved on.
+    ///
+    /// A FRESH ENGINE PER CALL IS SAFE, and callers need not hold one: the once-only reopen claim is held
+    /// by the PROCESS, not by the object, so the start-up window and the history window may each build
+    /// their own and still reopen a seat once between them.
     /// </summary>
     public SmartRestart.IDirectorWayUp CreateDirectorWayUp()
     {

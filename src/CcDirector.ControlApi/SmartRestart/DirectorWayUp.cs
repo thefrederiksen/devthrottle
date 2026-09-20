@@ -34,6 +34,36 @@ public sealed class DirectorWayUp : IDirectorWayUp
     private readonly string _machine;
     private readonly Func<string?> _directorName;
 
+    /// <summary>
+    /// ONE REOPEN PER SEAT WHILE THIS DIRECTOR IS UP, keyed on the record and the seat. A double click, or
+    /// the history open on two screens, would otherwise start two live agents in ONE saved conversation,
+    /// each acting on the other's half-written work - which is worse than a duplicate blank session,
+    /// because both believe they are the same session.
+    ///
+    /// THE CLAIM BELONGS TO THE PROCESS, NOT TO THIS OBJECT, and that is the whole point of it being
+    /// static. There is exactly ONE Director per process, and this rule is the DIRECTOR'S: a seat is
+    /// reopened once, however many engines happen to exist. <see cref="Drain.DirectorRestore"/> holds its
+    /// own one-at-a-time rule in a static field under a static lock for precisely the same reason. Held on
+    /// the instance instead, the guarantee would depend on the CALLER keeping one engine for the
+    /// Director's lifetime - and the factory hands out a new engine on every call, while the start-up
+    /// window and the history window each want one of their own. A guard whose promise is the next
+    /// caller's to keep is a tripwire that caller cannot see, so the promise is kept here.
+    ///
+    /// AND THE STILL-RUNNING CHECK DOES NOT CATCH WHAT THIS MISSES: a reopened session comes back under a
+    /// NEW session id, so moments after a reopen the roster still says nothing at all about the seat's
+    /// CAPTURED id, and a second reopen would sail straight through it.
+    ///
+    /// WHAT THIS DOES NOT COVER, said plainly rather than hidden: ACROSS A DIRECTOR RESTART THE SAME SEAT
+    /// CAN STILL BE REOPENED TWICE, because nothing is written onto the record. Marking a seat needs the
+    /// restore lease and a workspace write, and a new mark kind would change
+    /// <c>CcDirector.Gateway.Contracts</c> and need a Gateway deploy - a Delivery Lead decision, not this
+    /// engine's. This guard covers one run of one Director and no more.
+    /// </summary>
+    private static readonly HashSet<string> Reopened = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The lock over <see cref="Reopened"/>. Its own lock, taken by nothing else.</summary>
+    private static readonly object ReopenGate = new();
+
     /// <summary>Create the engine.</summary>
     /// <param name="gateway">The Gateway seam. Throws when the Gateway cannot be reached, which becomes a
     /// refusal carrying the reason.</param>
@@ -144,6 +174,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
         {
             var found = await _gateway.GetWorkspaceAsync(request.WorkspaceId, ct).ConfigureAwait(false);
             if (found is null) return Refused($"there is no record '{request.WorkspaceId}' on the Gateway any more, so nothing was brought back.");
+            if (NotThisDirectors(found) is { } notMine) return Refused(notMine);
             doc = found;
             record = BuildRecord(doc);
 
@@ -200,6 +231,8 @@ public sealed class DirectorWayUp : IDirectorWayUp
             if (doc is null)
                 return new WayUpReopenResult(false, null,
                     $"There is no record '{request.WorkspaceId}' on the Gateway any more, so nothing was reopened.");
+            if (NotThisDirectors(doc) is { } notMine)
+                return new WayUpReopenResult(false, null, $"Nothing was reopened: {notMine}");
 
             var seat = doc.Seats.FirstOrDefault(s =>
                 string.Equals(s.SessionId, request.SeatSessionId, StringComparison.OrdinalIgnoreCase));
@@ -211,6 +244,26 @@ public sealed class DirectorWayUp : IDirectorWayUp
             if (!offer.CanReopen)
                 return new WayUpReopenResult(false, null, offer.What);
 
+            // THE SEAT MAY STILL BE RUNNING. The drain writes "ended at the limit" onto the record and saves
+            // it BEFORE it ends the sessions, so an end that fails leaves a seat alive under a record that
+            // already says it is gone. Every seat the RESTORE brings back is guarded by this same rule, and
+            // this is the one path that used to escape it - so it asks the rule, rather than writing a
+            // second one here.
+            var roster = await _gateway.GetRosterAsync(ct).ConfigureAwait(false);
+            if (DirectorRestore.StillRunning(seat, roster) is { } running)
+                return new WayUpReopenResult(false, null,
+                    $"Nothing was reopened: {running} Two agents in one saved conversation would interleave " +
+                    "their turns into one transcript.");
+
+            if (!ClaimReopen(doc.Id, SeatId(seat)))
+                return new WayUpReopenResult(false, null,
+                    $"'{seat.Name}' has already been reopened from this record since this Director started, so it " +
+                    "is not opened again - a second agent in the same saved conversation would interleave its " +
+                    "turns with the first one's. Find it in the session list.");
+
+            // THE CLAIM IS TAKEN BEFORE THE START LEAVES, and it is NOT given back when the start fails, for
+            // the reason DirectorRestore.TimedOut gives: a start whose answer never came back may have
+            // happened anyway, and asking again is exactly the second agent this guard exists to prevent.
             var created = await _gateway.StartSessionAsync(BuildReopen(doc, seat), ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(created.SessionId))
                 return new WayUpReopenResult(false, null,
@@ -323,7 +376,16 @@ public sealed class DirectorWayUp : IDirectorWayUp
                 .Where(s => !string.IsNullOrWhiteSpace(s.SessionId))
                 .OrderBy(s => s.SortOrder)
                 .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(s => new WayUpHistorySeat(SeatId(s), s.Name, s.Mission?.Name, s.Role, WayUpWords.SeatOutcome(s)))
+                // EVERY SEAT THAT ENDED WITHOUT A HANDOVER CARRIES ITS REOPEN OFFER, here as well as in the
+                // start-up answer, and whether or not this record still owes a seat that can come back. The
+                // history tells the owner such a conversation can be reopened; without the offer beside it a
+                // window would have to invent the sentence saying what reopening really does, which is
+                // precisely what critical rule 7 forbids. A record that owes nothing - every seat of which
+                // ended at the limit - is still not OFFERED at start-up, and its conversations are still
+                // readable here, with working buttons.
+                .Select(s => new WayUpHistorySeat(
+                    SeatId(s), s.Name, s.Mission?.Name, s.Role, WayUpWords.SeatOutcome(s),
+                    EndedWithoutHandover(s) ? WayUpWords.ReopenOffer(s.Agent, s.ClaudeSessionId) : null))
                 .ToList(),
 
             // The same rule the start-up check uses, so a record is offered from the history exactly when it
@@ -595,6 +657,61 @@ public sealed class DirectorWayUp : IDirectorWayUp
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) request.MissionId = missionId;
         return request;
+    }
+
+    /// <summary>
+    /// WHY THIS RECORD IS NOT ONE THIS DIRECTOR MAY ACT ON, or null. One rule, in one place, used by the
+    /// bring back and by the reopen alike.
+    ///
+    /// Both of those take whatever workspace id they are handed, while the two READ paths narrow candidates
+    /// to this machine and this Director's display name. Today only the engine's own answers supply an id,
+    /// so this is defence in depth - but the phase 4 command line is a second caller, and the Gateway's
+    /// restore route refuses a record from another MACHINE and not one from another Director on this
+    /// machine. Without this, such a caller could bring another Director's sessions up onto this one.
+    /// </summary>
+    /// <param name="doc">The record named by the caller.</param>
+    private string? NotThisDirectors(WorkspaceDocument doc)
+    {
+        var directorName = DirectorName();
+        if (!string.Equals(doc.Machine, _machine, StringComparison.OrdinalIgnoreCase))
+            return $"the record '{doc.Id}' was captured on machine '{doc.Machine}', not on '{_machine}', so this " +
+                   "Director will not act on it.";
+        if (!string.Equals(doc.DirectorName, directorName, StringComparison.OrdinalIgnoreCase))
+            return $"the record '{doc.Id}' belongs to Director '{doc.DirectorName}', not to '{directorName}', so " +
+                   "this Director will not act on it.";
+        return null;
+    }
+
+    /// <summary>
+    /// Claim the one reopen this seat gets while this Director is up, or answer false because it is already
+    /// taken. STATIC, because the claim belongs to the process and not to whoever built this engine: see
+    /// the comment on <see cref="Reopened"/> for what this covers and what it does not.
+    /// </summary>
+    /// <param name="workspaceId">The record.</param>
+    /// <param name="seatSessionId">The seat's captured session id.</param>
+    private static bool ClaimReopen(string workspaceId, string seatSessionId)
+    {
+        lock (ReopenGate)
+        {
+            return Reopened.Add(workspaceId + "\n" + seatSessionId);
+        }
+    }
+
+    /// <summary>
+    /// FOR TESTS ONLY: forget every reopen claim taken in this process, so a test starts clean.
+    ///
+    /// A test process is not a Director. The product runs one Director per process and never wants this;
+    /// a test run holds many records named alike in one process, and a claim left behind by an earlier
+    /// test would refuse a later one for a reason that is about the test runner and not about the product.
+    /// The way up test classes sit in <c>DirectorGatesCollection</c> so they never run side by side, and
+    /// each test's rig calls this as it is built.
+    /// </summary>
+    internal static void ForgetReopenClaims()
+    {
+        lock (ReopenGate)
+        {
+            Reopened.Clear();
+        }
     }
 
     /// <summary>A bring back that started nothing, with the reason in plain words.</summary>
