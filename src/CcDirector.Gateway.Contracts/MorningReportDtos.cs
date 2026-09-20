@@ -75,6 +75,7 @@ public sealed class MorningReportWindowDto
 [JsonDerivedType(typeof(WaitingSessionAttentionDto))]
 [JsonDerivedType(typeof(StaleWorktreesAttentionDto))]
 [JsonDerivedType(typeof(UnmergedBranchesAttentionDto))]
+[JsonDerivedType(typeof(UsageLimitStopsAttentionDto))]
 [JsonDerivedType(typeof(OutdatedDirectorsAttentionDto))]
 public abstract class MorningAttentionItemDto
 {
@@ -89,6 +90,7 @@ public static class MorningAttentionTypes
     public const string WaitingSession = "waiting-session";
     public const string StaleWorktrees = "stale-worktrees";
     public const string UnmergedBranches = "unmerged-branches";
+    public const string UsageLimitStops = "usage-limit-stops";
     public const string OutdatedDirectors = "outdated-directors";
 }
 
@@ -113,6 +115,28 @@ public sealed class OutdatedDirectorDto
 {
     public string Machine { get; set; } = "";
     public string Version { get; set; } = "";
+}
+
+/// <summary>
+/// Sessions that stopped because the agent's plan ran out of usage, and have not worked since (#3124).
+/// ONE item per account. Read from the supervisor's recovery log, which records the fault the moment the
+/// turn ends on it - so this is a fact that was observed, never an inference from a session going quiet.
+/// A session that died overnight for any OTHER reason is deliberately not here (owner ruling, 19 September
+/// 2026: a crash cannot be told from a clean finish, and an email that cries wolf stops being read).
+/// </summary>
+public sealed class UsageLimitStopsAttentionDto : MorningAttentionItemDto
+{
+    public override string Type => MorningAttentionTypes.UsageLimitStops;
+
+    public List<UsageLimitStopDto> Sessions { get; set; } = new();
+}
+
+/// <summary>One stopped session: its friendly name when the Gateway can see it live, otherwise its id -
+/// never blank - and when the limit was hit.</summary>
+public sealed class UsageLimitStopDto
+{
+    public string Session { get; set; } = "";
+    public DateTime StoppedUtc { get; set; }
 }
 
 /// <summary>A session whose last recorded state is waiting on the human, and how long it has been there.</summary>

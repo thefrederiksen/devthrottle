@@ -207,10 +207,24 @@ public static class TerminatingFaultClassifier
     private static readonly string[] NonRecoverableSignatures =
     {
         "credit balance is too low", "out of credits", "insufficient credits",
-        "hit your free usage limit", "hit your usage limit.", "hit your weekly limit",
+        UsageLimitFree, UsageLimitPlain, UsageLimitWeekly,
         "invalid api key", "invalid x-api-key", "api key auth failed", "authentication_error", "authentication failed",
         "oauth token has expired", "please run /login", "permission_error", "403 forbidden",
     };
+
+    private const string UsageLimitFree = "hit your free usage limit";
+    private const string UsageLimitPlain = "hit your usage limit.";
+    private const string UsageLimitWeekly = "hit your weekly limit";
+
+    /// <summary>
+    /// The usage-limit BLOCKS among the non-recoverable signatures, by the one spelling the classifier
+    /// matches with. The daily report's usage-limit row (#3124) reads the recovery log for exactly these,
+    /// so a session stopped on a plan limit can be told apart from one stopped on a bad API key - both are
+    /// non-recoverable, only one of them fixes itself when the limit resets. The WARNINGS are not here for
+    /// the reason given above: a session showing one is still working.
+    /// </summary>
+    public static IReadOnlyList<string> UsageLimitSignatures { get; } =
+        new[] { UsageLimitFree, UsageLimitPlain, UsageLimitWeekly };
 
     /// <summary>A line that announces itself as a failure without naming a class we know. The ONLY thing
     /// that reaches step 3.</summary>
