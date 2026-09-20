@@ -75,9 +75,11 @@ public sealed class MorningReportWindowDto
 [JsonDerivedType(typeof(WaitingSessionAttentionDto))]
 [JsonDerivedType(typeof(StaleWorktreesAttentionDto))]
 [JsonDerivedType(typeof(UnmergedBranchesAttentionDto))]
+[JsonDerivedType(typeof(OutdatedDirectorsAttentionDto))]
 public abstract class MorningAttentionItemDto
 {
-    /// <summary>The item's discriminator: "waiting-session", "stale-worktrees", "unmerged-branches".</summary>
+    /// <summary>The item's discriminator: "waiting-session", "stale-worktrees", "unmerged-branches",
+    /// "outdated-directors".</summary>
     public abstract string Type { get; }
 }
 
@@ -87,6 +89,30 @@ public static class MorningAttentionTypes
     public const string WaitingSession = "waiting-session";
     public const string StaleWorktrees = "stale-worktrees";
     public const string UnmergedBranches = "unmerged-branches";
+    public const string OutdatedDirectors = "outdated-directors";
+}
+
+/// <summary>
+/// Directors this account is running that are behind the newest published release (#3124). ONE item per
+/// account, listing every such Director - three machines behind is one thing to do, not three rows.
+/// Present only when the newest release is KNOWN and at least one Director heard from in the last day is
+/// provably older than it; a version that cannot be read is never called behind.
+/// </summary>
+public sealed class OutdatedDirectorsAttentionDto : MorningAttentionItemDto
+{
+    public override string Type => MorningAttentionTypes.OutdatedDirectors;
+
+    /// <summary>The newest published release the Directors were compared against, e.g. "2.8.1".</summary>
+    public string Newest { get; set; } = "";
+
+    public List<OutdatedDirectorDto> Directors { get; set; } = new();
+}
+
+/// <summary>One Director that is behind: the machine it runs on and the version it reported.</summary>
+public sealed class OutdatedDirectorDto
+{
+    public string Machine { get; set; } = "";
+    public string Version { get; set; } = "";
 }
 
 /// <summary>A session whose last recorded state is waiting on the human, and how long it has been there.</summary>
