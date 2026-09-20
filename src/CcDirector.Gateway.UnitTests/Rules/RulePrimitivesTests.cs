@@ -113,6 +113,45 @@ public sealed class RulePrimitivesTests : IDisposable
         Assert.True(RulePrimitives.IsPathInside(Path.Combine(link, "file.cs"), root));
     }
 
+    /// <summary>
+    /// THE MACOS AND LINUX DEFECT, BUILT BY HAND SO IT DOES NOT DEPEND ON WHERE THE TEMPORARY DIRECTORY IS.
+    ///
+    /// The test above found this by accident, because on macOS the temporary directory sits under
+    /// <c>/var</c>, which is a link to <c>/private/var</c>. This one builds the same shape deliberately: a
+    /// link whose TARGET is written through a linked ancestor. The operating system call behind
+    /// <c>ResolveLinkTarget</c> on macOS and Linux follows the link chain but leaves the target's own
+    /// directories as written, so the containment check used to compare one fully-resolved path against one
+    /// half-resolved one and report a file plainly inside the repository as outside it.
+    ///
+    /// It is stated here as its own case because the accident is not a specification. Windows resolves the
+    /// whole path inside its own call and never showed this, and the hosted Gateway - where rules actually
+    /// run - is Linux.
+    /// </summary>
+    [Fact]
+    public void IsPathInside_follows_a_link_whose_target_is_written_through_a_linked_ancestor()
+    {
+        // <dir>/actual is the real place; <dir>/gateway is a link to it.
+        var actual = Path.Combine(_dir, "actual");
+        var root = Path.Combine(actual, "repo");
+        var real = Path.Combine(root, "real");
+        Directory.CreateDirectory(real);
+
+        var ancestorLink = Path.Combine(_dir, "gateway");
+        CreateDirectoryLink(ancestorLink, actual);
+
+        // <dir>/actual/repo/alias points at the same "real" directory, but NAMED THROUGH the link.
+        var alias = Path.Combine(root, "alias");
+        CreateDirectoryLink(alias, Path.Combine(ancestorLink, "repo", "real"));
+
+        // The instrument first: both links must exist and resolve, or the assertion below proves nothing.
+        Assert.True(Directory.ResolveLinkTarget(ancestorLink, returnFinalTarget: true) is not null,
+            ancestorLink + " was created but is not a link");
+        Assert.True(Directory.ResolveLinkTarget(alias, returnFinalTarget: true) is not null,
+            alias + " was created but is not a link");
+
+        Assert.True(RulePrimitives.IsPathInside(Path.Combine(alias, "file.cs"), root));
+    }
+
     [Fact]
     public void IsPathInside_answers_false_for_missing_arguments()
     {

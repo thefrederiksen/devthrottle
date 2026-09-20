@@ -231,9 +231,12 @@ public static class LegacyWorkspaceImport
                     $"sessions[{position}] has no repoPath, and a seat with nowhere to run cannot be imported " +
                     "- importing the rest would silently drop it");
 
+            // The folder name is read from the PATH, not with Path.GetFileName, because these files were
+            // written on a Windows desktop and are now opened on macOS too - where Path.GetFileName sees no
+            // separator in 'D:\ReposFred\x' and hands back the whole path as the seat's name.
             var seatName = !string.IsNullOrWhiteSpace(e.CustomName)
                 ? e.CustomName!.Trim()
-                : Path.GetFileName(repo.TrimEnd('\\', '/'));
+                : RepositoryPaths.FolderName(repo);
             if (string.IsNullOrWhiteSpace(seatName))
                 throw new LegacyWorkspaceFileException(
                     $"sessions[{position}] has no name and none can be taken from its repoPath '{repo}'");

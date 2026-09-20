@@ -246,10 +246,22 @@ public sealed class SessionHistoryRecorder
     }
 
     /// <summary>The repository catalog is additive support for the picker. A catalog write failure is
-    /// contained here so it cannot suppress the existing session-history observation.</summary>
+    /// contained here so it cannot suppress the existing session-history observation.
+    ///
+    /// WHICH repository is the one the session was STARTED IN, not always the one it runs in: a
+    /// session holding a pooled worktree runs in a throwaway slot, and recording the slot put a
+    /// directory into the picker that nobody would ever choose and that the pool deletes when it takes
+    /// the slot back - while the real repository it came out of never moved up the list at all. The
+    /// rule is <see cref="Core.Configuration.RepositoryUsage.StartedIn"/>, shared with the Director's
+    /// own registry so the two catalogs cannot disagree about which repository was used last.</summary>
     private void ObserveKnownRepository(TenantId tenant, SessionDto session, DirectorFacts facts, DateTime nowUtc)
     {
-        if (_knownRepositories is null || string.IsNullOrWhiteSpace(session.RepoPath))
+        if (_knownRepositories is null)
+            return;
+
+        var repository = Core.Configuration.RepositoryUsage.StartedIn(
+            session.RepoPath, session.PooledWorktree?.Repo);
+        if (repository is null)
             return;
 
         var machine = string.IsNullOrWhiteSpace(session.MachineName) ? facts.MachineName : session.MachineName;
@@ -258,7 +270,7 @@ public sealed class SessionHistoryRecorder
 
         try
         {
-            _knownRepositories.Observe(tenant, machine, session.RepoPath, session.RepoName, nowUtc);
+            _knownRepositories.Observe(tenant, machine, repository, session.RepoName, nowUtc);
         }
         catch (Exception ex)
         {

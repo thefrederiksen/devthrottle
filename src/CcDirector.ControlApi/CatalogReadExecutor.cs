@@ -128,6 +128,14 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
     /// dependency the tunnel command surface did not carry before wave 3; it rides in
     /// <see cref="SessionCommandServices.Repositories"/>. A null registry lists nothing (an empty array),
     /// exactly as the REST route returned when no registry was wired.
+    ///
+    /// A repository whose stored name is empty falls back to its folder name, and that name is read from the
+    /// PATH rather than from whichever machine happens to be running this code -
+    /// <see cref="RepositoryPaths.FolderName"/>. <c>Path.GetFileName</c> honours only the host's own
+    /// separator, so a Windows path in a Director's registry read on macOS or Linux answers with the whole
+    /// path where the reader expects a folder name. This list is the one the Cockpit, the phone and (from
+    /// phase 3 of the one-repository-list mission) the Gateway's ordered union are all built out of, so a
+    /// name that is wrong here is wrong on every screen at once.
     /// </summary>
     internal static DirectorCommandResult ReposList(RepositoryRegistry? repositories)
     {
@@ -138,7 +146,7 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
         var repos = repositories.Repositories
             .Select(r => new RepositoryDto
             {
-                Name = string.IsNullOrEmpty(r.Name) ? Path.GetFileName(r.Path.TrimEnd('\\', '/')) : r.Name,
+                Name = string.IsNullOrEmpty(r.Name) ? RepositoryPaths.FolderName(r.Path) : r.Name,
                 Path = r.Path,
                 LastUsed = r.LastUsed,
             })
@@ -203,6 +211,9 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
     /// by last-used descending. The live registry rides in <see cref="SessionCommandServices.Repositories"/>
     /// (as <c>repos-list</c> reads it) and the live sessions come from the producing Director's own
     /// <see cref="SessionManager"/>, so the value is identical on the REST path and this tunnel verb.
+    ///
+    /// The empty-name fallback reads the folder name from the path itself, for the reason given on
+    /// <see cref="ReposList"/>.
     /// </summary>
     internal static DirectorCommandResult ReposOverview(SessionManager sessionManager, RepositoryRegistry? repositories)
     {
@@ -259,7 +270,7 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
 
             return new RepoOverviewDto
             {
-                Name = string.IsNullOrEmpty(r.Name) ? Path.GetFileName(r.Path.TrimEnd('\\', '/')) : r.Name,
+                Name = string.IsNullOrEmpty(r.Name) ? RepositoryPaths.FolderName(r.Path) : r.Name,
                 Path = r.Path,
                 LastUsed = r.LastUsed,
                 PathExists = Directory.Exists(r.Path),

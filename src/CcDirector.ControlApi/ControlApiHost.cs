@@ -30,6 +30,10 @@ public sealed class ControlApiHost : IAsyncDisposable
 {
     private readonly SessionManager _sessionManager;
     private readonly RepositoryRegistry? _repositoryRegistry;
+
+    /// <summary>Records which repository was used last, for every session this Director creates.
+    /// Null only where no registry was supplied, which is a host with no catalogue to record into.</summary>
+    private readonly RepositoryUsageRecorder? _repositoryUsage;
     private readonly string _version;
     private readonly Func<Task> _requestShutdownAsync;
 
@@ -262,6 +266,15 @@ public sealed class ControlApiHost : IAsyncDisposable
                 _ = RefreshInjectedTextAsync();
         };
         _repositoryRegistry = repositoryRegistry;
+
+        // WHICH REPOSITORY WAS USED LAST, recorded for every session this Director creates rather than
+        // only the ones started by the desktop dialog's own button (the one-repository-list mission,
+        // phase 1). Subscribed HERE, in the constructor, and not in StartAsync: the host is constructed
+        // before anything can create a session, whereas StartAsync runs on a background task and a
+        // session created while it was still running would be a use nobody recorded.
+        if (_repositoryRegistry is not null)
+            _repositoryUsage = new RepositoryUsageRecorder(_sessionManager, _repositoryRegistry);
+
         // Tests pass an isolated instances directory so test Directors never appear in a real
         // Gateway's discovery (and a real Director never appears in a test Gateway's).
         _instancesDirectory = instancesDirectory;
@@ -1477,6 +1490,12 @@ public sealed class ControlApiHost : IAsyncDisposable
         // Stop the injected-text refresh poll first so it does not tick against a tearing-down host.
         try { _injectedTextRefreshCts.Cancel(); _injectedTextRefreshCts.Dispose(); }
         catch (Exception ex) { FileLog.Write($"[ControlApiHost] injected-text poll cancel error: {ex.Message}"); }
+
+        // Let go of the session manager's creation event, so a host that is stopped and replaced
+        // (the settings reapply path, and every test that stands one up) leaves no handler behind
+        // writing into the registry of a host nobody is using any more.
+        try { _repositoryUsage?.Dispose(); }
+        catch (Exception ex) { FileLog.Write($"[ControlApiHost] repository-usage recorder dispose error: {ex.Message}"); }
 
         if (_gatewayClient is not null)
         {

@@ -125,6 +125,14 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
         _conn.InvokeAsync("PushSnapshot", ++_sequence, sessions);
 
     /// <summary>
+    /// Push the Director's FULL repository snapshot - what its root-folder scan currently finds - the way
+    /// <c>ControlApiHost.WireRepositoryPush</c> does on every upsert, removal and completed scan, plus the
+    /// ten-second reseed. Each call bumps the sequence.
+    /// </summary>
+    public Task PushRepoSnapshotAsync(params RepoStatusDto[] repositories) =>
+        _conn.InvokeAsync("PushRepoSnapshot", ++_sequence, repositories);
+
+    /// <summary>
     /// Push ONE session delta, the way a Director reports a single session changing. Each call bumps the
     /// sequence.
     ///

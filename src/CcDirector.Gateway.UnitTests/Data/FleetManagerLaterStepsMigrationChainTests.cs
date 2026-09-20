@@ -28,6 +28,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260917110500_AddTurnVerdictAnswerChoice",
         "20260917110600_AddFleetOutcomeStopIdentity",
         "20260918171353_AddWingmanNarrationCallTrace",
+        "20260920021757_AddDiscoveredRepositories",
     })]
     [InlineData("postgres", new[]
     {
@@ -38,6 +39,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260917110509_AddTurnVerdictAnswerChoice",
         "20260917110609_AddFleetOutcomeStopIdentity",
         "20260918181205_AddWingmanNarrationCallTrace",
+        "20260920021806_AddDiscoveredRepositories",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -63,8 +65,9 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
             changes += modelChange.Count;
         }
         // Five advice columns, then three answer columns and their index, then the verdict's answer column, then the
-        // record's two stop columns, then the narration call's six trace columns: an empty comparison proves nothing.
-        Assert.Equal(18, changes);
+        // record's two stop columns, then the narration call's six trace columns, then the repository catalog's
+        // nullable last-used time and its two discovered columns: an empty comparison proves nothing.
+        Assert.Equal(21, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>

@@ -17,6 +17,11 @@ public sealed class CockpitInfoDto
     /// Null when Tailscale is unavailable self-hosted, in which case the caller must surface the problem
     /// rather than fall back to localhost. The client OPENS this verbatim; it must NOT compose a path onto
     /// it (the Gateway owns the URL, the client just opens it - CLAUDE.md rule 7).
+    ///
+    /// When the request carried a <c>sessionId</c>, this is that ONE session's Cockpit screen
+    /// ({base}/session/{session id}) instead of the front door. Which address to hand back is the Gateway's
+    /// ruling, made from the request; the client asks for a session and opens whatever comes back, so a
+    /// caller that wants a session screen still composes nothing.
     /// </summary>
     public string? Url { get; set; }
 
