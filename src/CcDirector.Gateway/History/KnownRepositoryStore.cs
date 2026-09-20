@@ -361,7 +361,7 @@ public sealed class KnownRepositoryStore
     ///
     /// And the disagreement is INVISIBLE to this repository's database tests, which is the dangerous part:
     /// SQLite sorts nulls as smallest, so its DESC puts them LAST and agrees with C#. Both were run rather
-    /// than remembered. A sort pushed into SQL would therefore pass every test here and inverted the list on
+    /// than remembered. A sort pushed into SQL would therefore pass every test here and invert the list on
     /// the hosted Gateway alone. If phase 3 does move it, it must say NULLS LAST explicitly.
     /// </summary>
     public IReadOnlyList<KnownRepositoryDto> ReadForMachine(TenantId tenant, string machineName)
