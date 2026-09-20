@@ -157,3 +157,5 @@ The two refusals are independent.
 - The first hosted run outlasted the ten minute foreground limit and the shell moved it aside by itself; it
   finished (21 passed) and was read from its output file. Every later hosted run stayed in the foreground.
 - No real Director restart was performed. That is phase 5.
+- `origin/main` gained four commits while this was built. None touches a file this branch touches, and a trial
+  merge (`git merge-tree`) is clean. The counts above are on this branch's base, not on that merge.
