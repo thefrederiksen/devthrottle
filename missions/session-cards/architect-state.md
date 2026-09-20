@@ -155,6 +155,27 @@ Two pre-existing findings for the owner's report, NOT mission work and not to be
 macOS suite is red, and `CcDirector.Gateway.UnitTests` is parked (issue #2824), so a proof that lives
 only there is a proof nobody sees at commit time.
 
+## If the fleet tools disappear mid-run
+
+They did, on 19 September, about an hour into the run: `cc-devthrottle`, `cc-dev-reports` and
+`cc-ship` all vanished from the Director's `bin` directory, leaving only the pty shims. Do not
+restart the Director to fix it - your own session runs under it.
+
+The fix is a wrapper, because from v2.8.0 **every fleet command goes through the Gateway, not the
+Director**. It needs only `CC_GATEWAY_URL` and `CC_GATEWAY_SESSION_KEY`, which a session already
+has. Build a virtual environment, install `typer`, `rich`, `requests` and `certifi`, put the tool
+sources on `PYTHONPATH` under their package names (`cc_devthrottle`, `cc_dev_reports`, `cc_shared`,
+`cc_storage`), and run `tools/<tool>/main.py`.
+
+Two traps. A fresh virtual environment has no certificate bundle, so every Gateway call fails with
+`CERTIFICATE_VERIFY_FAILED` - set `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to `certifi.where()`. And
+take the tool sources from a CURRENT worktree: the shared checkout is hundreds of commits behind and
+does not even contain `tools/cc-dev-reports`.
+
+A diagnostic worth keeping: this Director listens on NO loopback port - it is tunnel-only, with just
+outbound connections to the Gateway. So `CC_DIRECTOR_API` is meaningless here, and any tool that
+still wants it is being read from a stale checkout.
+
 ## Where the owner's answers live
 
 The design was settled with him over four versions of a dev report, "Session cards - what I intend to
