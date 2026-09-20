@@ -145,6 +145,98 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IDisposa
     }
 
     /// <summary>
+    /// THE ONE REPOSITORY LIST for this Director's machine, read from the Gateway
+    /// (GET /directors/{id}/known-repositories; the one-repository-list mission, phase 6).
+    ///
+    /// The list arrives ALREADY ORDERED - most recently used first, never-opened beneath - and this method
+    /// hands it on in that order. Nothing here sorts, filters, de-duplicates or re-names a row: the order
+    /// and the verdicts are the Gateway's ruling and this is a wire, not a second opinion (Critical Rule 7).
+    ///
+    /// Unlike the rest of this client it does NOT collapse every failure to null, because its caller - the
+    /// New Session dialog - is allowed to fall back to the machine's own scan for one of those failures and
+    /// must never fall back for another. The four outcomes are on
+    /// <see cref="KnownRepositoryListOutcome"/> and the distinction that matters is this: a 200 IS THE LIST
+    /// whatever it contains, including an empty one. A client that decided an empty list "looked wrong" and
+    /// showed its own instead would be hiding the exact defect this mission exists to end.
+    ///
+    /// The credential is this Director's own Gateway token. It is not a session key: session keys are
+    /// refused on /directors/* by design, and this call is the Director asking about itself.
+    /// </summary>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<KnownRepositoryListResult> GetKnownRepositoriesAsync(CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+        {
+            FileLog.Write("[GatewayClient] GetKnownRepositoriesAsync: no Gateway is configured");
+            return KnownRepositoryListResult.NotConfigured("no Gateway is configured on this Director");
+        }
+
+        var route = $"directors/{Uri.EscapeDataString(_directorId)}/known-repositories";
+        FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync: GET /{route}");
+        try
+        {
+            using var resp = await _http.GetAsync(route, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var said = await ReadGatewayErrorAsync(resp, ct);
+                FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync REFUSED: HTTP {(int)resp.StatusCode}: {said}");
+                return KnownRepositoryListResult.Refused(said);
+            }
+
+            var rows = await resp.Content.ReadFromJsonAsync<List<KnownRepositoryDto>>(ct);
+            if (rows is null)
+            {
+                FileLog.Write("[GatewayClient] GetKnownRepositoriesAsync REFUSED: the answer carried no list");
+                return KnownRepositoryListResult.Refused("the Gateway's answer carried no list");
+            }
+
+            FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync: {rows.Count} repositories");
+            return KnownRepositoryListResult.Served(rows);
+        }
+        catch (JsonException ex)
+        {
+            // A 200 whose body is not a list. The Gateway answered - it is reachable - so this is a
+            // refusal to report, never a reason to quietly show a different list.
+            FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync REFUSED: the answer could not be read: {ex.Message}");
+            return KnownRepositoryListResult.Refused("the Gateway's answer could not be read");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync UNREACHABLE: {ex.Message}");
+            return KnownRepositoryListResult.Unreachable(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// The Gateway's own words from a failed answer - its <c>error</c> key when it sent one, otherwise the
+    /// status line, which is the only fact available. Never throws: this runs while reporting a failure.
+    /// </summary>
+    private static async Task<string> ReadGatewayErrorAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        try
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("error", out var err)
+                    && err.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(err.GetString()))
+                {
+                    return err.GetString()!;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            // No readable body. The status line below is the honest answer.
+        }
+
+        return $"the Gateway answered HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}".TrimEnd();
+    }
+
+    /// <summary>
     /// Turn a failed Gateway relay response into the exception the /fleet/* endpoint will word for the human,
     /// CARRYING the Gateway's own message instead of throwing it away.
     ///

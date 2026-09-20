@@ -810,7 +810,16 @@ public partial class App : Application
                 repositoryRegistry: RepositoryRegistry,
                 // Repositories mission (#510 phase C): the monitor feeds the Gateway push and the
                 // /fleet/repositories - /fleet/worktrees standalone fallback.
-                repositoryMonitor: RepositoryMonitor);
+                repositoryMonitor: RepositoryMonitor,
+                // The one-repository-list mission, "the catalogue forgets": the same push also carries
+                // what currently exists under the registered root folders, which is what lets the
+                // Gateway catalogue forget a repository whose folder has gone. Read through a delegate
+                // rather than handed a snapshot, so a root added or removed in Settings reaches the
+                // Gateway on the next push.
+                rootFolders: () => RootDirectoryStore.Roots
+                    .Select(r => r.Path)
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .ToList());
 
             _ = Task.Run(async () =>
             {
