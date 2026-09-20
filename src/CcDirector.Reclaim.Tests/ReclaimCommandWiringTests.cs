@@ -9,6 +9,14 @@ namespace CcDirector.Reclaim.Tests;
 /// shared by every test in the process, so a test that changes one must never run beside another
 /// test: every fixture tree is made under the temporary folder the variable names, and a test that
 /// moved it mid-run would send a neighbour's tree somewhere it did not ask for.
+///
+/// What carries that guarantee is the DisableParallelization setting on the definition below, and
+/// nothing else. The test runner schedules a collection that disables parallelization on its own:
+/// it runs the collections that may run side by side first, and only when they have all finished
+/// does it run this one, one test at a time. Putting a class in a collection without that setting
+/// would only stop its own tests running beside each other - every other collection would still
+/// run beside it - so a class that changes the environment joins THIS collection by name and never
+/// declares a collection of its own.
 /// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class ChangesTheProcessEnvironment

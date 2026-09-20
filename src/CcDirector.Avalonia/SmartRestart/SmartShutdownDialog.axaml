@@ -10,12 +10,26 @@
         CanResize="False"
         Background="#252526">
 
+    <!-- docs/VisualStyle.md section 13: a disabled button stays readable and keeps its colour identity,
+         dimmed. The confirm is dead while the engine is asked and when it refuses, with the owner
+         looking at it. -->
+    <Window.Styles>
+        <Style Selector="Button.primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#004E82" />
+            <Setter Property="Foreground" Value="#6699BB" />
+        </Style>
+        <Style Selector="Button:disabled">
+            <Setter Property="Cursor" Value="Arrow" />
+        </Style>
+    </Window.Styles>
+
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />  <!-- the number of sessions -->
             <RowDefinition Height="Auto" />  <!-- the review: working against waiting -->
             <RowDefinition Height="Auto" />  <!-- the review: question boxes open -->
             <RowDefinition Height="Auto" />  <!-- smart shutdown, the default -->
+            <RowDefinition Height="Auto" />  <!-- the engine's check: checking, or why not -->
             <RowDefinition Height="Auto" />  <!-- the lesser choice, in words -->
             <RowDefinition Height="Auto" />  <!-- buttons -->
         </Grid.RowDefinitions>
@@ -94,6 +108,47 @@
         </Border>
 
         <TextBlock Grid.Row="4"
+                   x:Name="TxtChecking"
+                   Text="{Binding CheckingText}"
+                   IsVisible="{Binding IsChecking}"
+                   Foreground="#AAAAAA"
+                   FontSize="12"
+                   Margin="0,12,0,0" />
+
+        <!-- The engine's reasons, shown exactly as given. The amber border is the same one the question
+             boxes use: something the owner should read before choosing. -->
+        <Border Grid.Row="4"
+                x:Name="RefusalPanel"
+                IsVisible="{Binding HasRefusal}"
+                Background="#1E1E1E"
+                BorderBrush="#D97706" BorderThickness="1"
+                CornerRadius="4"
+                Padding="12,8"
+                Margin="0,12,0,0">
+            <StackPanel>
+                <TextBlock x:Name="TxtRefusalHeading"
+                           Text="{Binding RefusalHeading}"
+                           Foreground="#F59E0B"
+                           FontSize="12" FontWeight="SemiBold"
+                           TextWrapping="Wrap" />
+                <TextBlock x:Name="TxtSmartShutdownRefusal"
+                           Text="{Binding SmartShutdownRefusalText}"
+                           IsVisible="{Binding HasSmartShutdownRefusal}"
+                           Foreground="#CCCCCC"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           Margin="0,4,0,0" />
+                <TextBlock x:Name="TxtRestartRefusal"
+                           Text="{Binding RestartRefusalText}"
+                           IsVisible="{Binding HasRestartRefusal}"
+                           Foreground="#CCCCCC"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           Margin="0,4,0,0" />
+            </StackPanel>
+        </Border>
+
+        <TextBlock Grid.Row="5"
                    x:Name="TxtIgnoreExplanation"
                    Text="{Binding IgnoreExplanationText}"
                    Foreground="#888888"
@@ -101,7 +156,7 @@
                    TextWrapping="Wrap"
                    Margin="0,12,0,0" />
 
-        <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,6,0,0">
+        <Grid Grid.Row="6" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,6,0,0">
             <Button Grid.Column="0"
                     x:Name="BtnIgnore"
                     Content="{Binding IgnoreButtonText}"
@@ -114,6 +169,8 @@
                     x:Name="BtnSmart"
                     Content="{Binding ConfirmButtonText}"
                     Click="BtnSmart_Click"
+                    Classes="primary"
+                    IsEnabled="{Binding CanConfirm}"
                     MinWidth="130"
                     HorizontalContentAlignment="Center"
                     Background="#007ACC" Foreground="White"

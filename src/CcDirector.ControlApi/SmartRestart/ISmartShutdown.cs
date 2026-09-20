@@ -136,8 +136,12 @@ public sealed record SmartShutdownAvailability(
 /// <param name="WorkspaceId">The record on the Gateway. Null when it was not written.</param>
 /// <param name="RecordRefusal">Why the record was not written, in plain words. Null when it was.</param>
 /// <param name="SessionsEnded">How many sessions this call ended. Zero for a record-only call.</param>
+/// <param name="Detail">Anything the owner must be told that the other fields cannot say, in plain words:
+/// a session that was ended although it is in no record because it appeared after the record was written,
+/// and a session that would not end. Null when there is nothing to say.</param>
 public sealed record IgnoreAllResult(
     bool RecordWritten,
     string? WorkspaceId,
     string? RecordRefusal,
-    int SessionsEnded);
+    int SessionsEnded,
+    string? Detail = null);

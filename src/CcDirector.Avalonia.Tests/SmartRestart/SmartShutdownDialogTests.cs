@@ -15,7 +15,7 @@ using Xunit;
 namespace CcDirector.Avalonia.Tests.SmartRestart;
 
 /// <summary>
-/// The Smart shutdown dialog, OPENED. The window this replaces (DrainDirectorDialog) threw on opening
+/// The Smart shutdown dialog, OPENED. The window it replaced (DrainDirectorDialog, since removed) threw on opening
 /// in every shipped build because nothing ever opened it under test; every test here that touches the
 /// window calls Show() first and reads what the real controls show, and every result comes from
 /// driving the real buttons and keys, never from a result built by hand.

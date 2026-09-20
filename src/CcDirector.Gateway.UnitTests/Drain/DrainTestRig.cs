@@ -178,6 +178,19 @@ internal class FakeSessionControl : IDrainSessionControl
         return true;
     }
 
+    /// <summary>Every flag TAKEN BACK, in order. Only "Cancel and keep working" does it. A session whose
+    /// flag is taken back is never reaped: it stays present, as the real one does.</summary>
+    public List<string> DeletionCancelled { get; } = new();
+
+    public virtual bool CancelDeletion(string sessionId)
+    {
+        if (!Live.Contains(sessionId)) return false;
+        DeletionCancelled.Add(sessionId);
+        Journal?.Add($"cancel-deletion:{sessionId}");
+        _reapCountdown.Remove(sessionId);
+        return true;
+    }
+
     // ---- the two smart shutdown verbs. The older drain never calls either, and a test asserts it. ----
 
     /// <summary>Every interrupt ASKED FOR, in order, whatever came of it. The "older drain never
