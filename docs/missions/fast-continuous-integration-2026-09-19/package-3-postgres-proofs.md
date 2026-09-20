@@ -162,6 +162,67 @@ one everywhere else.
 That is the whole package in two log extracts: what the tooling calls a pass, and what this job calls
 it.
 
+## The unit suite needs no database, stated as a presence
+
+The claim is not "no database test is left in `CcDirector.Gateway.UnitTests`", which is an absence and is
+satisfied by a run that looked at nothing. It is the assembly's own skip list, read off two runs of the
+same job on Windows:
+
+| | Total | Skipped | The database skips among them |
+|---|---|---|---|
+| main, run 35478491468 | 6373 | 8 | the six `HostedSchemaRefusesAnUnownedRowTests` methods, and `GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres` |
+| this change, run 35483698850 | 6364 | 1 | none - the one skip is `TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep`, an architecture test that has nothing to do with a database |
+
+The nine tests that left the assembly are named and account for exactly the difference: six from the
+moved class, one live-database test moved out of `GatewayHostBootSmokeTests`, and the two
+`PostgresRigIsPresentWhenRequiredTests` that were linked in and are not any more. 6373 - 9 = 6364. The
+same single skip, and no database skip, was seen again in a full local run of that assembly on macOS.
+
+## The Windows solution run, and the one failure that had to be chased
+
+`Build & Test (.NET)` on run 35483698850 built the solution successfully with the new project in it, and
+ran every suite. `CcDirector.Gateway.Postgres.Tests` reported 64 tests, 5 passed and 59 skipped there,
+which is right and is not a regression: that job starts no database, and the job that does is the one
+that asserts nothing in this assembly may be skipped.
+
+The .NET job FAILED, with nine failures. **Eight of them are main's, not this change's**, established by
+reading other runs rather than by assertion - each one appears on at least one branch that does not
+carry this change, and four of them appear on a run of main itself (35478491468):
+
+| Failing test | Also seen on |
+|---|---|
+| `HostedDirectorTunnelGovernanceTests.A_tunnel_push_reaches_the_ledger_and_the_morning_report` | main 35478491468, and three other branches |
+| `TunnelExplicitRouteProofTests.RecapGenerate_ridesTheTunnel_andPreservesThe201AndModel` | main 35478491468, `fix/tools-venv-stage-and-swap` |
+| `TunnelExplicitRouteProofTests.RecapRead_ridesTheTunnel` | `ci/package-1-hosted-image-test-to-deploy`, `mission/email-family-phase1-undetermined` |
+| `TunnelExplicitRouteProofTests.Summary_ridesTheTunnel` | `ci/package-1-hosted-image-test-to-deploy` |
+| `SessionSupervisorLiveWiringTests.AParkedSessionThatDiedOnAConnectionFault_IsSentContinueOverTheTunnel` | main 35478491468 |
+| `VoiceServingLoopIsolationTests.Voice_sweep_reaches_only_the_owning_tenants_director` | main 35478491468, and four other branches |
+| `VoiceSweepBudgetTests.Cached_audio_cannot_hide_a_terminal_failure_after_a_later_user_message` | main 35478491468, and two other branches |
+| `WingmanMenuGuardProofTests.Prompt_WithoutMenuGuard_MenuOnScreen_ForwardsAndNeverReadsTheScreen` | main 35478491468, and four other branches |
+
+**The ninth is not accounted for that way and was chased.**
+`DeviceKeyAtRestTests.IssuedKey_StillAuthenticates_AndSurvivesARestart` appears in no other run examined,
+and it lives in `CcDirector.Gateway.UnitTests` - the assembly whose composition this change alters. That
+is exactly the case where "it was already like that" has to be earned.
+
+What was done: a throwaway workflow ran that ONE assembly on Windows three times on the package tree
+(run **35487798173**) and three times on main's tree (run **35487801757**). **All six were green.** It
+also passes in isolation on macOS, and in a full local run of the assembly.
+
+So the failure is not deterministic on this tree. What the probe does NOT reproduce is the solution run's
+conditions, where several assemblies execute at once, so it does not settle the question - and the
+mechanism found while looking says it will not be settled by repetition either. The test constructs a
+`DeviceRegistry`, which constructs a `GatewayDatabase`, whose provider selection reads the process-global
+`CC_GATEWAY_DB_CONNECTION`. Unlike `GatewayDbTestHarness` and `DatabaseOpensAfterTheBindTests`, this
+class does NOT take `GatewayDbEnvironmentGate` - the lock that exists to serialise exactly this against
+the test that blanks that variable. That gate's own comment describes the consequence in one sentence:
+"Without it a full parallel run fails exactly one database test, a different one each time, all passing
+in isolation." This failure has that shape exactly.
+
+It is a defect in the test, not in the product, and it is not this package's to fix: the remedy is to put
+that class behind the existing gate, which is a change to a file this package does not otherwise touch
+and to a suite another package is about to split. It is raised rather than repaired here.
+
 ## What is NOT proven
 
 - **The local release gate was not run.** `scripts/test-local.ps1` cannot run on this machine - the
@@ -182,3 +243,8 @@ it.
   and the deploy runs the proofs again before anything reaches production - but it is a gap and it is
   not proven to be harmless.
 - **One run each.** No timing is an average; the 3 minutes 51 seconds is one measurement of one run.
+- **The .NET job on this head is RED, and this change does not make it green.** Eight of its nine
+  failures are shown above to be main's. The ninth is shown not to be deterministic, and is not shown to
+  be unrelated - six green probe runs against one red is evidence, not proof. Nobody should read this
+  package as leaving continuous integration green, because continuous integration was not green when it
+  started.
