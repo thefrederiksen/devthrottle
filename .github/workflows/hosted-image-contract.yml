@@ -1,0 +1,199 @@
+name: Hosted image contract
+
+# THE PROOF THAT THE PUBLISHED HOSTED IMAGE FAILS CLOSED, RUN BEFORE THE HOSTED GATEWAY IS DEPLOYED.
+#
+# One test lives here: HostedImagePublishedArtifactTests, in src/CcDirector.Gateway.HostedImage.Tests.
+# It publishes the hosted host and proves that EVERY runnable entry executable in the published output
+# exits with the contract-refusal code - rather than starting an open, unauthenticated Gateway - when the
+# hosted contract is missing.
+#
+# WHY IT IS HERE AND NOT IN CONTINUOUS INTEGRATION. It took 16 minutes 32 seconds of a 103-minute .NET job
+# (measured in run 35461379953 on 19 September 2026) and it was paid on every pull request and every push
+# to main, while proving a property of an artifact only the hosted deploy ever publishes. The deploy is the
+# run that ships that artifact, so the deploy is the run that has to pass this.
+#
+# HOW IT BINDS THE DEPLOY. deploy-hosted-gateway.yml calls this file as a job, and its `deploy` job declares
+# `needs:` on it. A job that fails, errors or is skipped does not satisfy `needs`, so the deploy does not
+# start. There is no path where the deploy runs and this did not pass.
+#
+# BOTH TRIGGERS ARE DELIBERATE:
+#   workflow_call     - the hosted deploy calls it. Because the call is `./.github/workflows/...`, the file
+#                       that runs is the one at the commit being shipped, so the test that gates the deploy
+#                       is the test as it stands on that commit.
+#   workflow_dispatch - anybody can REHEARSE the deploy's gate on any branch without deploying anything.
+#                       Nothing in this workflow touches Azure, holds the production lock, or needs a
+#                       credential, so a rehearsal is free of consequence. That is how this gate gets proven
+#                       without a real release.
+
+on:
+  workflow_call:
+    inputs:
+      require_main:
+        description: >-
+          Refuse to run against any ref but main. The hosted deploy passes true, because production ships
+          main and only main. A rehearsal leaves it false, so the gate can be run on a branch.
+        type: boolean
+        default: false
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-image-contract:
+    name: Every published entry executable fails closed
+    runs-on: ubuntu-latest
+    # The published hosted image is Linux, and the whole test is a publish plus a handful of child
+    # processes, so the runner that matches the artifact is also the cheapest one.
+    #
+    # The 35-minute ceiling is roughly twice the 16m32s the test has measured, so a genuine slowdown is
+    # visible as a timeout rather than as an open-ended job. It is NOT a pass condition: a timeout fails.
+    timeout-minutes: 35
+
+    steps:
+      # Checked out at the caller's commit - the exact code that is about to be built into the image.
+      - uses: actions/checkout@v5
+
+      # Cheap, first, and only when the caller asked for it. deploy-hosted-gateway.yml refuses a non-main
+      # ref in its own `deploy` job as well; that refusal is the authoritative one and stays where it is.
+      # This one exists so a misdirected deploy costs seconds instead of sixteen minutes.
+      - name: Refuse any ref but main
+        if: ${{ inputs.require_main }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "REFUSED: this run was started against '$GITHUB_REF'."
+            echo "The live Gateway ships main and only main."
+            exit 1
+          fi
+          echo "Ref check passed: refs/heads/main."
+
+      # A CONTROL. The verdict step below is the whole gate, so before it is trusted on the real run it
+      # is run against inputs that MUST be refused. A check only ever exercised on the state you hope
+      # passes has demonstrated nothing: this proves it FIRES.
+      #
+      # Three known-bad inputs, one per arm of the verdict:
+      #   1. a declared list with no tests in it - the broken-instrument arm;
+      #   2. no result file at all - the run-never-happened arm;
+      #   3. a declared test whose result says it was not executed - the skipped-test arm, which is the
+      #      one the deploy gate most needs to refuse, because a skipped test looks exactly like a
+      #      passing one in every summary GitHub shows.
+      #
+      # Each must exit non-zero. If any is accepted, this job stops here and the deploy does not happen,
+      # because the instrument that is supposed to gate it has been shown not to work.
+      - name: Prove the verdict refuses a run that did not happen
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+
+          refuses() {
+            what="$1"; shift
+            if python3 .github/scripts/verify_hosted_image_contract.py "$@" > "$work/out.txt" 2>&1; then
+              echo "CONTROL FAILED: the verdict ACCEPTED $what."
+              cat "$work/out.txt"
+              echo "The gate that is supposed to stop an unproven hosted image does not work, so this"
+              echo "run refuses to certify anything."
+              exit 1
+            fi
+            echo "ok - the verdict refused $what:"
+            grep "^REFUSED:" "$work/out.txt" | sed "s/^/    /"
+          }
+
+          trx_open='<?xml version="1.0" encoding="UTF-8"?>'
+          trx_root='<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
+
+          # 1. A declared list with no tests in it.
+          printf 'The following Tests are available:\n\n' > "$work/declared-empty.txt"
+          mkdir -p "$work/results-empty"
+          printf '%s\n%s<Results /></TestRun>\n' "$trx_open" "$trx_root" > "$work/results-empty/run.trx"
+          refuses "a declared list with no tests in it" \
+            --declared "$work/declared-empty.txt" --results "$work/results-empty"
+
+          # 2. A real declared list and no result file.
+          printf 'The following Tests are available:\n    A.B.C\n' > "$work/declared-one.txt"
+          mkdir -p "$work/results-missing"
+          refuses "a run that wrote no result file" \
+            --declared "$work/declared-one.txt" --results "$work/results-missing"
+
+          # 3. A declared test whose result says it was not executed.
+          mkdir -p "$work/results-skipped"
+          printf '%s\n%s<Results><UnitTestResult testName="A.B.C" outcome="NotExecuted" /></Results></TestRun>\n' \
+            "$trx_open" "$trx_root" > "$work/results-skipped/run.trx"
+          refuses "a declared test whose result says NotExecuted" \
+            --declared "$work/declared-one.txt" --results "$work/results-skipped"
+
+          echo
+          echo "All three known-bad inputs were refused. The verdict below can be believed."
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      # Debug, and with the three web targets off, for the same reason the test itself publishes that way:
+      # a Release build of CcDirector.Gateway runs the Cockpit build, the mobile build and the workspace
+      # typecheck, all of which need Node.js and none of which this test looks at. The property under test -
+      # does a published entry executable refuse to start without the hosted contract - is decided by the
+      # startup contract gate, not by the build configuration.
+      - name: Build the hosted image contract test project
+        run: |
+          dotnet build src/CcDirector.Gateway.HostedImage.Tests/CcDirector.Gateway.HostedImage.Tests.csproj \
+            -c Debug \
+            -p:RunMobileBuild=false -p:RunCockpitBuild=false -p:RunWorkspaceTypecheck=false
+
+      # THE DECLARED LIST, READ OFF THE BUILT ASSEMBLY. This is the inventory the run is reconciled
+      # against, and it is DERIVED from the artifact under test rather than typed here, so it cannot go
+      # stale when a test is added, renamed or removed.
+      - name: List the tests the built assembly declares
+        run: |
+          set -euo pipefail
+          dotnet test src/CcDirector.Gateway.HostedImage.Tests/CcDirector.Gateway.HostedImage.Tests.csproj \
+            -c Debug --no-build --list-tests | tee declared-tests.txt
+
+      # Run them, with a result file. This step fails the job on its own if a test fails; the verdict step
+      # below is what catches the cases where a step can be GREEN without the test having run.
+      - name: Run the hosted image contract test
+        id: run-tests
+        run: |
+          set -euo pipefail
+          dotnet test src/CcDirector.Gateway.HostedImage.Tests/CcDirector.Gateway.HostedImage.Tests.csproj \
+            -c Debug --no-build \
+            --logger "trx;LogFileName=hosted-image-contract.trx" \
+            --results-directory test-results
+
+      # THE VERDICT, AND IT IS A PRESENCE.
+      #
+      # "dotnet test did not report a failure" is an ABSENCE, and an absence is satisfied by a run that
+      # never happened: a filter that matches nothing, a project that built no tests, a [Fact(Skip=...)],
+      # a result file that was never written. Every one of those leaves the step green and the hosted image
+      # unproven, which would make this whole gate decoration.
+      #
+      # So the pass condition is: here is EVERY test the assembly declares, and here is a result for each
+      # one of them, and every one of those results says Passed. Three arms, stated:
+      #   - the expected result is a pass;
+      #   - a result that is not Passed, or a declared test with no result, is the defect;
+      #   - an EMPTY declared list, or a missing or empty result file, is a BROKEN INSTRUMENT and fails
+      #     too. It is never read as a clean run.
+      #
+      # It runs even when the step above failed, so the record names what happened rather than stopping at
+      # a red tick.
+      # Runs even when the step above FAILED, so the record names what happened rather than stopping at a
+      # red tick - but not when that step never ran at all, because then the job has already failed for
+      # some other reason and there is nothing to reconcile.
+      - name: Verify every declared test actually ran and passed
+        if: ${{ !cancelled() && steps.run-tests.conclusion != 'skipped' }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/verify_hosted_image_contract.py \
+            --declared declared-tests.txt \
+            --results test-results
+
+      - name: Upload the test result file
+        if: ${{ !cancelled() && steps.run-tests.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosted-image-contract-results
+          path: |
+            test-results/
+            declared-tests.txt
+          if-no-files-found: error

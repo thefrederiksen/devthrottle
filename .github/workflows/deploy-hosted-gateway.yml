@@ -53,8 +53,38 @@ env:
   STAGING_URL: https://devthrottle-gw-staging.azurewebsites.net
 
 jobs:
+  # THE HOSTED IMAGE CONTRACT, AND THE DEPLOY WAITS FOR IT.
+  #
+  # HostedImagePublishedArtifactTests publishes the hosted host and proves that EVERY runnable entry
+  # executable in the published output refuses to start - exits with the contract-refusal code, with no
+  # listener - when the hosted contract is missing. Without it the image can boot as an open,
+  # unauthenticated Gateway, which is the hole Codex found in pull request #1968.
+  #
+  # It used to run on every pull request and every push to main as part of CcDirector.Gateway.Tests,
+  # where it cost 16 minutes 32 seconds of a 103-minute .NET job (measured in run 35461379953 on
+  # 19 September 2026) to prove a property of an artifact only THIS workflow ever publishes. So it moved
+  # here, into its own project outside cc-director.sln, and this is the run that has to pass it.
+  #
+  # IT FAILS CLOSED. The `deploy` job below declares `needs: hosted-image-contract`, and GitHub does not
+  # start a job whose `needs` did not succeed - a failure, an error, a timeout and a skip all stop the
+  # deploy. Inside the called workflow the pass condition is not "nothing failed" either: it reconciles
+  # the tests the built assembly declares against the tests the result file says ran, and every one of
+  # them must say Passed. A skipped test, an empty result file, or a run that discovered no tests is a
+  # refusal there, not a pass.
+  #
+  # `./.github/workflows/...` pins the called file to THIS commit, so the test that gates the deploy is
+  # the test as it stands on the commit being shipped - not whatever is on main.
+  hosted-image-contract:
+    name: Hosted image contract
+    uses: ./.github/workflows/hosted-image-contract.yml
+    with:
+      # Production ships main and only main. The `deploy` job refuses a non-main ref itself as well, and
+      # that refusal stays; this one only makes a misdirected run cost seconds instead of sixteen minutes.
+      require_main: true
+
   deploy:
     name: Build image and deploy via warmed slot swap
+    needs: hosted-image-contract
     runs-on: ubuntu-latest
     environment: hosted-gateway-production
 
