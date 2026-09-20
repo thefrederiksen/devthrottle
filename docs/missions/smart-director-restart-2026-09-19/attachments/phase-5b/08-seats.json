@@ -1,0 +1,131 @@
+{
+    "takenAtUtc":  "2026-09-20T21:30:16Z",
+    "gatewayUrl":  "http://127.0.0.1:7911",
+    "machine":  "SOREN_NORTH",
+    "directorId":  "3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe",
+    "specification":  "D:\\ReposFred\\devthrottle-smart-restart-cases\\scripts\\restart-qa\\session-shapes.json",
+    "workRoot":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats",
+    "seats":  [
+                  {
+                      "key":  "alpha-lead",
+                      "sessionId":  "b0204e64-fa48-42be-b679-9d3b6c3b618a",
+                      "name":  "Restart QA Alpha - Lead - collects its worker\u0027s document first",
+                      "agent":  "Pi",
+                      "mission":  "alpha",
+                      "missionId":  "0da1d0b5-796e-4b59-8392-6d23a5a940a0",
+                      "controller":  null,
+                      "folder":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats\\alpha-lead",
+                      "why":  "A lead with a seat under it. The smart shutdown tells it to collect its subordinate\u0027s document BEFORE finishing its own, which is the serial dependency nobody has ever timed."
+                  },
+                  {
+                      "key":  "alpha-worker",
+                      "sessionId":  "1a3e267d-b2e5-4721-89f8-eeac910c733d",
+                      "name":  "Restart QA Alpha - Worker - the seat under the lead",
+                      "agent":  "Pi",
+                      "mission":  "alpha",
+                      "missionId":  "0da1d0b5-796e-4b59-8392-6d23a5a940a0",
+                      "controller":  "alpha-lead",
+                      "folder":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats\\alpha-worker",
+                      "why":  "The subordinate. Its lead is asked; it is not asked directly, and its lead must wait for it."
+                  },
+                  {
+                      "key":  "alpha-long-turn",
+                      "sessionId":  "e1484738-a6d2-4bf1-ac2e-3d8281fec5c5",
+                      "name":  "Restart QA Alpha - Worker - a long turn that can be interrupted",
+                      "agent":  "ClaudeCode",
+                      "mission":  "alpha",
+                      "missionId":  "0da1d0b5-796e-4b59-8392-6d23a5a940a0",
+                      "controller":  null,
+                      "folder":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats\\alpha-long-turn",
+                      "why":  "Mid-turn on a long turn with an agent that DOES declare the Interrupt capability, so the two-thirds interrupt lands and a handover follows."
+                  },
+                  {
+                      "key":  "beta-long-turn-pi",
+                      "sessionId":  "f3281235-f9ad-47fd-bd3d-5e4dd5662feb",
+                      "name":  "Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt",
+                      "agent":  "Pi",
+                      "mission":  "beta",
+                      "missionId":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                      "controller":  null,
+                      "folder":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats\\beta-long-turn-pi",
+                      "why":  "The same shape on Pi, which declares no Interrupt capability, so product issue 3207 bites in the open instead of in a log nobody reads."
+                  },
+                  {
+                      "key":  "beta-question-box",
+                      "sessionId":  "714f4ebc-af51-4306-b847-e8f10d61e155",
+                      "name":  "Restart QA Beta - Worker - a question box open for the owner",
+                      "agent":  "ClaudeCode",
+                      "mission":  "beta",
+                      "missionId":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                      "controller":  null,
+                      "folder":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats\\beta-question-box",
+                      "why":  "Session.PendingInteraction is filled for Claude Code only, and only from the transcript, so the only honest way to get this shape is to have a real Claude Code session ask a real question."
+                  },
+                  {
+                      "key":  "beta-silent",
+                      "sessionId":  "1913a203-9403-4284-bc88-aad73239dbdb",
+                      "name":  "Restart QA Beta - Worker - takes the request and never answers",
+                      "agent":  "RawCli",
+                      "mission":  "beta",
+                      "missionId":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                      "controller":  null,
+                      "folder":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats\\beta-silent",
+                      "why":  "A program that echoes what is typed and answers loudly, and never writes a handover. That is the mission\u0027s idle-and-never-answering seat: the request DOES land, so it is ended at the limit and noted, not reported as a delivery failure."
+                  },
+                  {
+                      "key":  "beta-wedged",
+                      "sessionId":  "04a71893-2cf1-4387-9b60-5493cd352c05",
+                      "name":  "Restart QA Beta - Worker - wedged and cannot take a prompt",
+                      "agent":  "RawCli",
+                      "mission":  "beta",
+                      "missionId":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                      "controller":  null,
+                      "folder":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats\\beta-wedged",
+                      "why":  "A process that never echoes what is typed. The submit protocol watches for the echo and throws ComposerNotAcceptingInputException, which is what the product calls a wedged seat - reported in its row, never waited on in silence."
+                  }
+              ],
+    "liveOnDirector":  [
+                           {
+                               "sessionId":  "e1484738-a6d2-4bf1-ac2e-3d8281fec5c5",
+                               "name":  "Restart QA Alpha - Worker - a long turn that can be interrupted",
+                               "agent":  "ClaudeCode",
+                               "activityState":  "WaitingForInput"
+                           },
+                           {
+                               "sessionId":  "1a3e267d-b2e5-4721-89f8-eeac910c733d",
+                               "name":  "Restart QA Alpha - Worker - the seat under the lead",
+                               "agent":  "Pi",
+                               "activityState":  "WaitingForInput"
+                           },
+                           {
+                               "sessionId":  "b0204e64-fa48-42be-b679-9d3b6c3b618a",
+                               "name":  "Restart QA Alpha - Lead - collects its worker\u0027s document first",
+                               "agent":  "Pi",
+                               "activityState":  "WaitingForInput"
+                           },
+                           {
+                               "sessionId":  "f3281235-f9ad-47fd-bd3d-5e4dd5662feb",
+                               "name":  "Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt",
+                               "agent":  "Pi",
+                               "activityState":  "WaitingForInput"
+                           },
+                           {
+                               "sessionId":  "714f4ebc-af51-4306-b847-e8f10d61e155",
+                               "name":  "Restart QA Beta - Worker - a question box open for the owner",
+                               "agent":  "ClaudeCode",
+                               "activityState":  "WaitingForInput"
+                           },
+                           {
+                               "sessionId":  "1913a203-9403-4284-bc88-aad73239dbdb",
+                               "name":  "Restart QA Beta - Worker - takes the request and never answers",
+                               "agent":  "RawCli",
+                               "activityState":  "WaitingForInput"
+                           },
+                           {
+                               "sessionId":  "04a71893-2cf1-4387-9b60-5493cd352c05",
+                               "name":  "Restart QA Beta - Worker - wedged and cannot take a prompt",
+                               "agent":  "RawCli",
+                               "activityState":  "WaitingForInput"
+                           }
+                       ]
+}

@@ -1,0 +1,31 @@
+{
+    "sentAtUtc":  "2026-09-20T21:32:48Z",
+    "promptName":  "longTurn",
+    "promptLength":  358,
+    "results":  [
+                    {
+                        "key":  "alpha-long-turn",
+                        "sessionId":  "e1484738-a6d2-4bf1-ac2e-3d8281fec5c5",
+                        "name":  "Restart QA Alpha - Worker - a long turn that can be interrupted",
+                        "landed":  true,
+                        "detail":  "{\"accepted\":true,\"sentAt\":\"2026-09-20T21:32:20.8254713Z\",\"bufferCursor\":1617,\"activityState\":\"Working\",\"output\":null,\"waitStatus\":null,\"error\":null,\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "Working"
+                    },
+                    {
+                        "key":  "beta-long-turn-pi",
+                        "sessionId":  "f3281235-f9ad-47fd-bd3d-5e4dd5662feb",
+                        "name":  "Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt",
+                        "landed":  true,
+                        "detail":  "{\"accepted\":true,\"sentAt\":\"2026-09-20T21:32:26.6195422Z\",\"bufferCursor\":5382,\"activityState\":\"Working\",\"output\":null,\"waitStatus\":null,\"error\":null,\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "Working"
+                    },
+                    {
+                        "key":  "beta-silent",
+                        "sessionId":  "1913a203-9403-4284-bc88-aad73239dbdb",
+                        "name":  "Restart QA Beta - Worker - takes the request and never answers",
+                        "landed":  true,
+                        "detail":  "{\"accepted\":true,\"sentAt\":\"2026-09-20T21:32:28.3298283Z\",\"bufferCursor\":119,\"activityState\":\"Working\",\"output\":null,\"waitStatus\":null,\"error\":null,\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "WaitingForInput"
+                    }
+                ]
+}

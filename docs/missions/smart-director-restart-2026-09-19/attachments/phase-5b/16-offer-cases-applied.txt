@@ -1,0 +1,39 @@
+The three treatments, applied.
+
+TRANSCRIBED FROM THE CONSOLE, not piped to a file, and said so rather than presented as a capture:
+the script used Write-Host, which bypasses the pipeline in Windows PowerShell 5.1, so the
+Tee-Object this was piped into wrote nothing at all. The script has since been changed to
+Write-Output so the next run captures. The lines below are the run's output exactly as printed.
+
+The command:
+
+  scripts\restart-qa\offer-cases.ps1 -GatewayUrl http://127.0.0.1:7911 `
+    -TokenFile C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\config\director\gateway-token.txt `
+    -DirectorId 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe `
+    -Age restart-20260920-1648-sorennorth `
+    -Clear restart-20260920-1230-sorennorth `
+    -Use restart-20260920-1619-sorennorth
+
+The output:
+
+  [offer-cases] AGE restart-20260920-1648-sorennorth by 8 day(s) - so the seven day rule stops it being offered
+  [offer-cases] restart-20260920-1648-sorennorth : shutdown time was 2026-09-20T20:49:22.1558494Z, is now 2026-09-12T20:49:22.1558494Z
+  [offer-cases]   to put it back: -Restore restart-20260920-1648-sorennorth -RestoreTo 2026-09-20T20:49:22.1558494Z
+  [offer-cases] CLEAR restart-20260920-1230-sorennorth - the mark the 'Don't ask again' button writes
+  [offer-cases]   written
+  [offer-cases] USE restart-20260920-1619-sorennorth - the mark that bringing ONE seat back writes, on seat:
+  [offer-cases]   66b3f777-2382-481d-a32a-be6e8bbc845a  Restart QA Alpha - Lead - collects its worker's document first
+  [offer-cases]   written
+
+A later, separate call cleared the control record as well, so that the next Director start-up would
+have nothing at all to offer:
+
+  scripts\restart-qa\offer-cases.ps1 ... -Clear restart-20260920-1733-sorennorth
+
+  [offer-cases] CLEAR restart-20260920-1733-sorennorth - the mark the 'Don't ask again' button writes
+  [offer-cases]   written
+
+WHAT MAKES THESE CHECKABLE WITHOUT TRUSTING THE LINES ABOVE: each treatment left a dated sentence on
+the record, written by the Gateway and not by this script, and those sentences are read back through
+the Director's own engine, minutes later, by a different command - in
+17-history-after-the-treatments.json, 18-history-readable.txt and 25-history-final-summary.txt.

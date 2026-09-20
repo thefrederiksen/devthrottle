@@ -1,0 +1,5 @@
+﻿[rig-cli] the source that answered: C:\Users\soren\AppData\Local\Temp\restart-qa-rig-pkgroot\cc_devthrottle\cli.py
+No smart shutdown has been started on SOREN_NORTH since it came up. Start one with: cc-devthrottle director smart-restart
+help[2]:
+  cc-devthrottle director restart-history --director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe
+  cc-devthrottle director list

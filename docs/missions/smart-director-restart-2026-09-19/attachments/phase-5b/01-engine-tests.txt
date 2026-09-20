@@ -1,0 +1,68 @@
+﻿  Determining projects to restore...
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj (in 115 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.AgentBrain\CcDirector.AgentBrain.csproj (in 115 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj (in 115 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.TrayUi\CcDirector.TrayUi.csproj (in 291 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Core\CcDirector.Core.csproj (in 301 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Engine\CcDirector.Engine.csproj (in 301 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.HostedAgent\CcDirector.HostedAgent.csproj (in 301 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj (in 301 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.ControlApi\CcDirector.ControlApi.csproj (in 334 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Launcher\CcDirector.Launcher.csproj (in 415 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway\CcDirector.Gateway.csproj (in 444 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway.Migrations.Postgres\CcDirector.Gateway.Migrations.Postgres.csproj (in 444 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj (in 461 ms).
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-smart-restart-cases\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  [TypecheckWorkspaces] node_modules is missing - running npm ci once (this takes a minute; later builds reuse it)
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+  npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+  npm warn deprecated source-map@0.8.0-beta.0: The work that was done in this beta branch won't be included in future versions
+  npm warn deprecated glob@11.1.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+  
+  added 624 packages, and audited 629 packages in 23s
+  
+  164 packages are looking for funding
+    run `npm fund` for details
+  
+  21 vulnerabilities (2 low, 6 moderate, 12 high, 1 critical)
+  
+  To address issues that do not require attention, run:
+    npm audit fix
+  
+  To address all issues, run:
+    npm audit fix --force
+  
+  Run `npm audit` for details.
+  [TypecheckWorkspaces] strict test-inclusive typecheck across every workspace (Debug)
+  
+  > @devthrottle/client-core@0.1.0 typecheck
+  > tsc --noEmit
+  
+  
+  > @devthrottle/cc-assistant@0.1.0 typecheck
+  > tsc --noEmit
+  
+  
+  > @devthrottle/cockpit@0.1.0 typecheck
+  > tsc --noEmit
+  
+  
+  > @devthrottle/mobile@0.1.0 typecheck
+  > tsc --noEmit
+  
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:   686, Skipped:     0, Total:   686, Duration: 22 s - CcDirector.Gateway.UnitTests.dll (net10.0)

@@ -1,0 +1,78 @@
+Director log lines, quoted verbatim. Source files:
+  the Director that ran the shutdown (process 56400):
+    C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\instances\default\logs\director\director-2026-09-20-56400.log
+  the Director the launcher started after the restart (process 45536):
+    C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\instances\default\logs\director\director-2026-09-20-45536.log
+
+=== the run started, process 56400 ===
+2026-09-20 17:33:40.969 [DirectorSmartShutdown] CheckAsync: purpose=Restart
+2026-09-20 17:33:40.982 [DirectorSmartShutdown] CheckAsync: canSmartShutdown=True, canRestart=True
+2026-09-20 17:33:40.985 [DirectorSmartShutdown] Start: purpose=Restart, minutes=5
+2026-09-20 17:33:40.990 [DirectorSmartShutdown] Start: the run has begun
+2026-09-20 17:33:40.992 [SmartShutdownRun] RunAsync: purpose=Restart, minutes=5, reason=phase 5b: the failure cases re-run on the current build
+2026-09-20 17:33:40.992 [DirectorSmartShutdown] CheckAsync: purpose=Restart
+2026-09-20 17:33:40.994 [DirectorSmartShutdown] CheckAsync: canSmartShutdown=True, canRestart=True
+2026-09-20 17:38:58.555 [SmartShutdownRun] AskLauncherAsync FAILED: launcherWasAsked=True: System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+2026-09-20 17:38:58.556 [SmartShutdownRun] finished: outcome=RestartRefused, workspace=restart-20260920-1733-sorennorth, detail=The launcher was asked to restart this Director, but its answer never came back: The operation was canceled. If the launcher did receive the request, this Director is stopped and started again shortly; if it did not, restart it by hand. Every session is shut down and recorded in workspace 'restart-20260920-1733-sorennorth'; it is offered when the Director is next started.
+
+=== every [DrainSessionControl] StopTurnAsync: line - issue 3241, the stop verb chosen from what the driver DECLARES ===
+2026-09-20 17:37:07.599 [DrainSessionControl] StopTurnAsync: session=b0204e64-fa48-42be-b679-9d3b6c3b618a, agent=Pi, declares=ClearContext, Cancel, ContextUsage, ModelReport, CompactContext
+2026-09-20 17:37:07.605 [DrainSessionControl] StopTurnAsync: session=b0204e64-fa48-42be-b679-9d3b6c3b618a stopped with escape
+2026-09-20 17:37:10.224 [DrainSessionControl] StopTurnAsync: session=1a3e267d-b2e5-4721-89f8-eeac910c733d, agent=Pi, declares=ClearContext, Cancel, ContextUsage, ModelReport, CompactContext
+2026-09-20 17:37:10.224 [DrainSessionControl] StopTurnAsync: session=1a3e267d-b2e5-4721-89f8-eeac910c733d stopped with escape
+2026-09-20 17:37:13.022 [DrainSessionControl] StopTurnAsync: session=f3281235-f9ad-47fd-bd3d-5e4dd5662feb, agent=Pi, declares=ClearContext, Cancel, ContextUsage, ModelReport, CompactContext
+2026-09-20 17:37:13.022 [DrainSessionControl] StopTurnAsync: session=f3281235-f9ad-47fd-bd3d-5e4dd5662feb stopped with escape
+
+=== every [DirectorDrain] line of the run, process 56400 ===
+2026-09-20 17:33:41.009 [DirectorDrain] RunAsync: director=3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe, workspace=restart-20260920-1733-sorennorth
+2026-09-20 17:33:41.054 [DirectorDrain] documents directory: C:\Users\soren\AppData\Local\cc-director\vault\handovers\director-restart\2026-09-20T173340-5660e5-SOREN_NORTH
+2026-09-20 17:33:45.758 [DirectorDrain] drain message to b0204e64-fa48-42be-b679-9d3b6c3b618a (Restart QA Alpha - Lead - collects its worker's document first): delivered=True
+2026-09-20 17:33:49.421 [DirectorDrain] drain message to e1484738-a6d2-4bf1-ac2e-3d8281fec5c5 (Restart QA Alpha - Worker - a long turn that can be interrupted): delivered=True
+2026-09-20 17:33:53.086 [DirectorDrain] drain message to f3281235-f9ad-47fd-bd3d-5e4dd5662feb (Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt): delivered=True
+2026-09-20 17:33:56.799 [DirectorDrain] drain message to 714f4ebc-af51-4306-b847-e8f10d61e155 (Restart QA Beta - Worker - a question box open for the owner): delivered=True
+2026-09-20 17:33:58.144 [DirectorDrain] drain message to 1913a203-9403-4284-bc88-aad73239dbdb (Restart QA Beta - Worker - takes the request and never answers): delivered=True
+2026-09-20 17:34:06.844 [DirectorDrain] drain message to 04a71893-2cf1-4387-9b60-5493cd352c05 (Restart QA Beta - Worker - wedged and cannot take a prompt): delivered=False, [RawCli] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=33, tailNeedle="0173358zjbrvmtxt", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screen=<the snapshot could not be read> Readable buffer tail: 
+2026-09-20 17:34:37.077 [DirectorDrain] handover read: e1484738-a6d2-4bf1-ac2e-3d8281fec5c5 -> no declaration
+2026-09-20 17:35:17.382 [DirectorDrain] handover read: e1484738-a6d2-4bf1-ac2e-3d8281fec5c5 -> drained
+2026-09-20 17:35:17.402 [DirectorDrain] flagged for deletion: e1484738-a6d2-4bf1-ac2e-3d8281fec5c5 (Restart QA Alpha - Worker - a long turn that can be interrupted)
+2026-09-20 17:35:57.450 [DirectorDrain] closed (verified absent): e1484738-a6d2-4bf1-ac2e-3d8281fec5c5 (Restart QA Alpha - Worker - a long turn that can be interrupted)
+2026-09-20 17:37:07.606 [DirectorDrain] stop the turn at two thirds: b0204e64-fa48-42be-b679-9d3b6c3b618a (Restart QA Alpha - Lead - collects its worker's document first): verb=Escape, landed=True
+2026-09-20 17:37:10.218 [DirectorDrain] hand over now to b0204e64-fa48-42be-b679-9d3b6c3b618a (Restart QA Alpha - Lead - collects its worker's document first): delivered=True
+2026-09-20 17:37:10.224 [DirectorDrain] stop the turn at two thirds: 1a3e267d-b2e5-4721-89f8-eeac910c733d (Restart QA Alpha - Worker - the seat under the lead): verb=Escape, landed=True
+2026-09-20 17:37:13.022 [DirectorDrain] hand over now to 1a3e267d-b2e5-4721-89f8-eeac910c733d (Restart QA Alpha - Worker - the seat under the lead): delivered=True
+2026-09-20 17:37:13.023 [DirectorDrain] stop the turn at two thirds: f3281235-f9ad-47fd-bd3d-5e4dd5662feb (Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt): verb=Escape, landed=True
+2026-09-20 17:37:15.675 [DirectorDrain] hand over now to f3281235-f9ad-47fd-bd3d-5e4dd5662feb (Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt): delivered=True
+2026-09-20 17:37:18.352 [DirectorDrain] hand over now to 714f4ebc-af51-4306-b847-e8f10d61e155 (Restart QA Beta - Worker - a question box open for the owner): delivered=True
+2026-09-20 17:37:19.702 [DirectorDrain] hand over now to 1913a203-9403-4284-bc88-aad73239dbdb (Restart QA Beta - Worker - takes the request and never answers): delivered=True
+2026-09-20 17:37:28.391 [DirectorDrain] hand over now to 04a71893-2cf1-4387-9b60-5493cd352c05 (Restart QA Beta - Worker - wedged and cannot take a prompt): delivered=False, [RawCli] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=33, tailNeedle="0173719wbo3mgtxt", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screen=<the snapshot could not be read> Readable buffer tail: 
+2026-09-20 17:37:38.433 [DirectorDrain] handover read: f3281235-f9ad-47fd-bd3d-5e4dd5662feb -> drained
+2026-09-20 17:37:38.442 [DirectorDrain] flagged for deletion: f3281235-f9ad-47fd-bd3d-5e4dd5662feb (Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt)
+2026-09-20 17:37:48.450 [DirectorDrain] handover read: 714f4ebc-af51-4306-b847-e8f10d61e155 -> drained
+2026-09-20 17:37:48.454 [DirectorDrain] flagged for deletion: 714f4ebc-af51-4306-b847-e8f10d61e155 (Restart QA Beta - Worker - a question box open for the owner)
+2026-09-20 17:38:28.705 [DirectorDrain] closed (verified absent): 714f4ebc-af51-4306-b847-e8f10d61e155 (Restart QA Beta - Worker - a question box open for the owner)
+2026-09-20 17:38:49.056 [DirectorDrain] the limit: the time allowed is up
+2026-09-20 17:38:51.054 [DirectorDrain] ended at the limit: 1a3e267d-b2e5-4721-89f8-eeac910c733d (Restart QA Alpha - Worker - the seat under the lead): ended=True, gone=False
+2026-09-20 17:38:51.054 [DirectorDrain] closed (verified absent): 1a3e267d-b2e5-4721-89f8-eeac910c733d (Restart QA Alpha - Worker - the seat under the lead)
+2026-09-20 17:38:53.336 [DirectorDrain] ended at the limit: b0204e64-fa48-42be-b679-9d3b6c3b618a (Restart QA Alpha - Lead - collects its worker's document first): ended=True, gone=False
+2026-09-20 17:38:53.336 [DirectorDrain] closed (verified absent): b0204e64-fa48-42be-b679-9d3b6c3b618a (Restart QA Alpha - Lead - collects its worker's document first)
+2026-09-20 17:38:56.292 [DirectorDrain] ended at the limit: f3281235-f9ad-47fd-bd3d-5e4dd5662feb (Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt): ended=True, gone=False
+2026-09-20 17:38:56.292 [DirectorDrain] closed (verified absent): f3281235-f9ad-47fd-bd3d-5e4dd5662feb (Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt)
+2026-09-20 17:38:57.108 [DirectorDrain] ended at the limit: 1913a203-9403-4284-bc88-aad73239dbdb (Restart QA Beta - Worker - takes the request and never answers): ended=True, gone=False
+2026-09-20 17:38:57.108 [DirectorDrain] closed (verified absent): 1913a203-9403-4284-bc88-aad73239dbdb (Restart QA Beta - Worker - takes the request and never answers)
+2026-09-20 17:38:57.886 [DirectorDrain] ended at the limit: 04a71893-2cf1-4387-9b60-5493cd352c05 (Restart QA Beta - Worker - wedged and cannot take a prompt): ended=True, gone=False
+2026-09-20 17:38:57.886 [DirectorDrain] closed (verified absent): 04a71893-2cf1-4387-9b60-5493cd352c05 (Restart QA Beta - Worker - wedged and cannot take a prompt)
+2026-09-20 17:38:57.941 [DirectorDrain] emptied=True, left=0
+2026-09-20 17:38:57.955 [DirectorDrain] integrity: swept=3, proved=10/10, findings=0, problems=12, ready=False
+2026-09-20 17:38:57.980 [DirectorDrain] finished: seats=7, closed=7, ready=False, reason=4 seat(s) did not hand over cleanly, 4 of them ended by the smart shutdown when the time allowed was up, starting with b0204e64 (Restart QA Alpha - Lead - collects its worker's document first). Each is recorded with its conversation id and whatever handover was on disk.
+
+=== the restart the Director asked the launcher for ===
+2026-09-20 17:38:58.183 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: POST /machines/SOREN_NORTH/director/restart onlyIfEmpty=true exePath=C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\app\cc-director.exe
+
+=== the way up on the Director that came back, process 45536 ===
+2026-09-20 17:39:11.833 [ControlApiHost] CreateDirectorWayUp: gatewayClient=present
+2026-09-20 17:39:11.840 [DirectorWayUp] FindOfferAsync: machine=SOREN_NORTH
+2026-09-20 17:39:13.086 [DirectorWayUp] FindOfferAsync: offering restart-20260920-1733-sorennorth, owed=2, rows=6
+2026-09-20 17:39:13.089 [ControlApiHost] CreateDirectorWayUp: gatewayClient=present
+2026-09-20 17:39:13.093 [WayUpOfferViewModel] Created: workspace=restart-20260920-1733-sorennorth, owed=2, endedWithoutHandover=4, bringBackRows=2, endedRows=4, endedSectionOpen=False
+2026-09-20 17:39:13.172 [WayUpOfferWindow] Created: workspace=restart-20260920-1733-sorennorth, rows=6
+2026-09-20 17:39:13.173 [WayUpOfferWindow] ShowForAnswerAsync: workspace=restart-20260920-1733-sorennorth

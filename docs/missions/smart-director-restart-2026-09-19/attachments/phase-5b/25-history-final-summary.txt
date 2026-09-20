@@ -1,0 +1,40 @@
+﻿The restart history as the Director's own engine renders it, in the order it returns.
+
+This Director has 10 restart records, newest first.
+
+'offered' below is the engine's own rule, not a guess: a record is offered at start-up when it has
+something left to act on AND carries no 'not offered' sentence. A record with nothing left to act on
+is silently not offered and is given no sentence, so the two must never be read as the same thing.
+
+restart-20260920-1746-sorennorth
+   shut down 2026-09-20 17:46   holds: nothing
+   not offered - nothing left to act on (no sentence is given for this, by design)
+
+restart-20260920-1733-sorennorth
+   shut down 2026-09-20 17:38   holds: 2 sessions are waiting to be brought back.
+   NOT OFFERED - You asked on 20 September 2026 at 17:45 not to be offered this when the Director starts, so it is not offered any more. Nothing was deleted: everything it holds can still be brought back from here.
+
+restart-20260920-1619-sorennorth
+   shut down 2026-09-20 16:24   holds: 2 sessions are waiting to be brought back.
+   NOT OFFERED - This restart has been used - a session has been brought back or reopened from it - so the Director no longer offers it when it starts. Nothing has been deleted: whatever it still holds can be brought back from here.
+
+restart-20260920-1230-sorennorth
+   shut down 2026-09-20 12:36   holds: One session is waiting to be brought back.
+   NOT OFFERED - You asked on 20 September 2026 at 17:44 not to be offered this when the Director starts, so it is not offered any more. Nothing was deleted: everything it holds can still be brought back from here.
+
+restart-20260920-1648-sorennorth
+   shut down 2026-09-12 16:49   holds: One session is waiting to be brought back.
+   NOT OFFERED - More than 7 days old, so the Director no longer offers it when it starts. Nothing has been deleted: what it holds can still be brought back from here.
+
+restart-20260920-1636-sorennorth
+   shut down 2026-09-20 16:41   holds: nothing
+   not offered - nothing left to act on (no sentence is given for this, by design)
+
+restart-20260920-1629-sorennorth
+   shut down 2026-09-20 16:34   holds: nothing
+   not offered - nothing left to act on (no sentence is given for this, by design)
+
+restart-20260920-1327-sorennorth
+   shut down 2026-09-20 13:29   holds: nothing
+   not offered - nothing left to act on (no sentence is given for this, by design)
+

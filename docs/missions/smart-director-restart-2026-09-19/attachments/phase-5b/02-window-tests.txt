@@ -1,0 +1,20 @@
+﻿  Determining projects to restore...
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Terminal.Avalonia\CcDirector.Terminal.Avalonia.csproj (in 547 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.StateAgreementCheck\CcDirector.StateAgreementCheck.csproj (in 584 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Avalonia\CcDirector.Avalonia.csproj (in 584 ms).
+  Restored D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Avalonia.Tests\CcDirector.Avalonia.Tests.csproj (in 588 ms).
+  6 of 10 projects are up-to-date for restore.
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-smart-restart-cases\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Terminal.Avalonia -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Terminal.Avalonia\bin\Debug\net10.0\CcDirector.Terminal.Avalonia.dll
+  CcDirector.Avalonia -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Avalonia\bin\Debug\net10.0\cc-director.dll
+  CcDirector.StateAgreementCheck -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.StateAgreementCheck\bin\Debug\net10.0\CcDirector.StateAgreementCheck.dll
+  CcDirector.Avalonia.Tests -> D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Avalonia.Tests\bin\Debug\net10.0\CcDirector.Avalonia.Tests.dll
+Test run for D:\ReposFred\devthrottle-smart-restart-cases\src\CcDirector.Avalonia.Tests\bin\Debug\net10.0\CcDirector.Avalonia.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:   159, Skipped:     0, Total:   159, Duration: 6 s - CcDirector.Avalonia.Tests.dll (net10.0)

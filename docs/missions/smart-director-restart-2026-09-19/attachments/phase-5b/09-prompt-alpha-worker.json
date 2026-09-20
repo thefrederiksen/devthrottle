@@ -1,0 +1,15 @@
+{
+    "sentAtUtc":  "2026-09-20T21:31:44Z",
+    "promptName":  "workerWork",
+    "promptLength":  258,
+    "results":  [
+                    {
+                        "key":  "alpha-worker",
+                        "sessionId":  "1a3e267d-b2e5-4721-89f8-eeac910c733d",
+                        "name":  "Restart QA Alpha - Worker - the seat under the lead",
+                        "landed":  true,
+                        "detail":  "{\"accepted\":true,\"sentAt\":\"2026-09-20T21:31:23.8929917Z\",\"bufferCursor\":5362,\"activityState\":\"Working\",\"output\":null,\"waitStatus\":null,\"error\":null,\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "Working"
+                    }
+                ]
+}

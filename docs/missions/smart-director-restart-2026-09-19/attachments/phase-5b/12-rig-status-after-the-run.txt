@@ -1,0 +1,12 @@
+﻿[restart-qa-rig] root: C:\Users\soren\AppData\Local\cc-director-restart-qa-rig  (exists: True)
+[restart-qa-rig] running: pid 45536   C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\app\cc-director.exe
+[restart-qa-rig] running: pid 52176   C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\launcher\cc-launcher.exe
+[restart-qa-rig] running: pid 48408   C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\gateway\devthrottle-gateway.exe
+[restart-qa-rig] task restart-qa-rig-gateway: Ready
+[restart-qa-rig] task restart-qa-rig-launcher: Ready
+[restart-qa-rig] launcher registration: pid 52176 version 2.8.1+8d0ba4a4f010506879c7497ec6f34e7168a2f3f8 started 2026-09-20T20:12:35.4351694Z
+[restart-qa-rig] Director registration: id 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe pid 45536 version 2.8.1
+[restart-qa-rig] Gateway /healthz: {"status":"ok","directors":1,"sessions":0,"version":"2.8.1+8d0ba4a4f010506879c7497ec6f34e7168a2f3f8","subsystems":{"statistics":"available"},"serverTime":"2026-09-20T21:39:19.344813Z","directorId":null,"machineName":null}
+[restart-qa-rig] Gateway /directors: [{"directorId":"3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe","pid":45536,"startedAt":"2026-09-20T21:39:01.8495866Z","controlEndpoint":"","machineName":"SOREN_NORTH","user":"soren","displayName":"SOREN_NORTH","version":"2.8.1","schemaVersion":1,"lastSeen":"2026-09-20T21:39:15.8620581Z","tailnetEndpoint":null,"endpointUnreachableReason":null,"source":"stream","streamVerifiedAt":null,"streamVerifyError":null,"advertisedEndpointState":null,"advertisedEndpointCheckedAt":null,"advertisedEndpointUnreachableSince":null,"advertisedEndpointError":null,"stoppedAtUtc":null}]
+[restart-qa-rig] Gateway /launchers: [{"machineName":"SOREN_NORTH","pid":52176,"version":"2.8.1+8d0ba4a4f010506879c7497ec6f34e7168a2f3f8","startedAt":"2026-09-20T20:12:35.8952826Z","lastSeenAt":"2026-09-20T21:39:05.9756758Z"}]
+[restart-qa-rig] Gateway /sessions: 0 session(s)

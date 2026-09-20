@@ -1,0 +1,41 @@
+{
+    "grantedAtUtc":  "2026-09-20T21:29:55Z",
+    "configPath":  "C:\\Users\\soren\\.claude.json",
+    "changed":  [
+                    {
+                        "folder":  "C:/Users/soren/AppData/Local/Temp/restart-qa-seats/alpha-lead",
+                        "wasAbsent":  true,
+                        "previous":  null
+                    },
+                    {
+                        "folder":  "C:/Users/soren/AppData/Local/Temp/restart-qa-seats/alpha-worker",
+                        "wasAbsent":  true,
+                        "previous":  null
+                    },
+                    {
+                        "folder":  "C:/Users/soren/AppData/Local/Temp/restart-qa-seats/alpha-long-turn",
+                        "wasAbsent":  false,
+                        "previous":  true
+                    },
+                    {
+                        "folder":  "C:/Users/soren/AppData/Local/Temp/restart-qa-seats/beta-long-turn-pi",
+                        "wasAbsent":  true,
+                        "previous":  null
+                    },
+                    {
+                        "folder":  "C:/Users/soren/AppData/Local/Temp/restart-qa-seats/beta-question-box",
+                        "wasAbsent":  false,
+                        "previous":  true
+                    },
+                    {
+                        "folder":  "C:/Users/soren/AppData/Local/Temp/restart-qa-seats/beta-silent",
+                        "wasAbsent":  true,
+                        "previous":  null
+                    },
+                    {
+                        "folder":  "C:/Users/soren/AppData/Local/Temp/restart-qa-seats/beta-wedged",
+                        "wasAbsent":  true,
+                        "previous":  null
+                    }
+                ]
+}

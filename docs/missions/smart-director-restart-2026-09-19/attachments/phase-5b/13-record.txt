@@ -1,0 +1,43 @@
+records on http://127.0.0.1:7911: 9 on machine 'SOREN_NORTH'
+director '3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe' is matched on each full record, not on the listing, which carries no Director
+
+==============================================================================
+record        : restart-20260920-1733-sorennorth
+name          : SOREN_NORTH smart shutdown 2026-09-20 17:33
+machine       : SOREN_NORTH   director: SOREN_NORTH (3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe)
+origin        : captured    shutdownKind: smart-shutdown
+reason        : phase 5b: the failure cases re-run on the current build
+created       : 2026-09-20T21:33:41.0412954Z   started: 2026-09-20T21:33:41.0403577Z
+completed     : 2026-09-20T21:38:57.9565845Z   cancelled:    updated: 2026-09-20T21:38:57.9753015Z
+versions      : before 2.8.1   after 
+restoreAfterRestart: e1484738-a6d2-4bf1-ac2e-3d8281fec5c5 f3281235-f9ad-47fd-bd3d-5e4dd5662feb
+seats         : 7
+
+seat                                   agent      drainState         restore   handover / conversation
+-------------------------------------- ---------- ------------------ --------- ------------------------------
+Restart QA Alpha - Lead - collects its Pi         ended-at-limit     undecided conversation: cea30e49-ea2e-422b-b3d2-ca984e94d98d
+Restart QA Alpha - Worker - the seat u Pi         ended-at-limit     undecided conversation: 1698a231-b653-4a03-9319-6baec620f20e
+Restart QA Alpha - Worker - a long tur ClaudeCode drained            restore   handover: e1484738 - Restart QA Alpha - Worker - a long turn that can be interrupted.md  conversation: da59b293-68dc-4f9f-90c2-3aa436674f6b
+Restart QA Beta - Worker - a long turn Pi         drained            restore   handover: f3281235 - Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt.md  conversation: 9225d062-1cb6-4a28-a4f3-a22476be4160
+Restart QA Beta - Worker - a question  ClaudeCode drained            close     handover: 714f4ebc - Restart QA Beta - Worker - a question box open for the owner.md  conversation: 4e9e779c-bf7d-41af-ab72-56bcd69269be
+Restart QA Beta - Worker - takes the r RawCli     ended-at-limit     undecided 
+Restart QA Beta - Worker - wedged and  RawCli     ended-at-limit     undecided 
+
+the secret sweep:
+  documents swept    : 3
+  patterns proved    : 10 of 10
+  findings           : 0
+  ready to restart   : False
+  not ready because  : 4 seat(s) did not hand over cleanly, 4 of them ended by the smart shutdown when the time allowed was up, starting with b0204e64 (Restart QA Alpha - Lead - collects its worker's document first). Each is recorded with its conversation id and whatever handover was on disk.
+  swept at           : 2026-09-20T21:38:57.9452206Z
+
+owner questions gathered by the run:
+  from Restart QA Alpha - Worker - a long turn that can be interrupted: Was the duplicated 1-18 block in notes.md an artifact to be trimmed, as I treated it, or evidence the restart QA wanted kept?
+
+  b0204e64-fa48-42be-b679-9d3b6c3b618a: mission 'Restart QA Alpha'; role 'Manager'; closed 2026-09-20T21:38:53.3362231Z
+  1a3e267d-b2e5-4721-89f8-eeac910c733d: reports to b0204e64-fa48-42be-b679-9d3b6c3b618a; mission 'Restart QA Alpha'; role 'Worker'; closed 2026-09-20T21:38:51.0548886Z
+  e1484738-a6d2-4bf1-ac2e-3d8281fec5c5: mission 'Restart QA Alpha'; role 'Worker'; restore why: The list is 25 of 400 done with 375 lines still to write, and the exact next action is a single unambiguous append that a clean session can run immediately.; closed 2026-09-20T21:35:57.4506434Z
+  f3281235-f9ad-47fd-bd3d-5e4dd5662feb: mission 'Restart QA Beta'; role 'Worker'; restore why: the task is 397/400 done and one short append of three verified lines finishes it - a restored session needs only the exact next action above; closed 2026-09-20T21:38:56.2927959Z
+  714f4ebc-af51-4306-b847-e8f10d61e155: mission 'Restart QA Beta'; role 'Worker'; restore why: The seat's only task - one question to the owner - was asked and answered (Delphine); nothing is in flight.; closed 2026-09-20T21:38:28.7053049Z
+  1913a203-9403-4284-bc88-aad73239dbdb: mission 'Restart QA Beta'; role 'Worker'; closed 2026-09-20T21:38:57.1082316Z
+  04a71893-2cf1-4387-9b60-5493cd352c05: mission 'Restart QA Beta'; role 'Worker'; closed 2026-09-20T21:38:57.8863913Z

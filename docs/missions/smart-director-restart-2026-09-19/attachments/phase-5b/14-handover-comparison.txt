@@ -1,0 +1,58 @@
+﻿
+RECORD restart-20260920-1230-sorennorth
+  shut down at : 2026-09-20T16:36:07.5752636Z
+  kind         : smart-shutdown
+  reason       : Run by the Director's own smart shutdown; no session drove it.
+  seats        : 7
+
+  seat                                                           drainState document agent
+  Restart QA Alpha - Lead - collects its worker's document fir   drained    yes      Pi
+  Restart QA Alpha - Worker - the seat under the lead            covered    covered  Pi
+  Restart QA Alpha - Worker - a long turn that can be interrup   drained    yes      ClaudeCode
+  Restart QA Beta - Worker - a long turn on an agent that refu   ended-at-limit none     Pi
+  Restart QA Beta - Worker - a question box open for the owner   drained    yes      ClaudeCode
+  Restart QA Beta - Worker - takes the request and never answe   ended-at-limit none     RawCli
+  Restart QA Beta - Worker - wedged and cannot take a prompt     ended-at-limit none     RawCli
+
+  wrote a handover document        : 3
+  covered by a lead's document     : 1
+  ENDED WITHOUT A HANDOVER         : 3 of 7
+
+RECORD restart-20260920-1619-sorennorth
+  shut down at : 2026-09-20T20:24:23.0184643Z
+  kind         : smart-shutdown
+  reason       : Run by the Director's own smart shutdown; no session drove it.
+  seats        : 8
+
+  seat                                                           drainState document agent
+  Restart QA Alpha - Lead - collects its worker's document fir   ended-at-limit none     Pi
+  Restart QA Alpha - Worker - the seat under the lead            unreachable none     Pi
+  Restart QA Alpha - Worker - a long turn that can be interrup   drained    yes      ClaudeCode
+  Restart QA Beta - Worker - a long turn on an agent that refu   drained    yes      Pi
+  Restart QA Beta - Worker - a question box open for the owner   drained    yes      ClaudeCode
+  Restart QA Beta - Worker - takes the request and never answe   ended-at-limit none     RawCli
+  Restart QA Beta - Worker - wedged and cannot take a prompt     ended-at-limit none     RawCli
+  Restart QA Beta - Worker - writes a handover carrying a plan   ended-at-limit none     RawCli
+
+  wrote a handover document        : 3
+  covered by a lead's document     : 0
+  ENDED WITHOUT A HANDOVER         : 5 of 8
+
+RECORD restart-20260920-1733-sorennorth
+  shut down at : 2026-09-20T21:38:57.9565845Z
+  kind         : smart-shutdown
+  reason       : Run by the Director's own smart shutdown; no session drove it.
+  seats        : 7
+
+  seat                                                           drainState document agent
+  Restart QA Alpha - Lead - collects its worker's document fir   ended-at-limit none     Pi
+  Restart QA Alpha - Worker - the seat under the lead            ended-at-limit none     Pi
+  Restart QA Alpha - Worker - a long turn that can be interrup   drained    yes      ClaudeCode
+  Restart QA Beta - Worker - a long turn on an agent that refu   drained    yes      Pi
+  Restart QA Beta - Worker - a question box open for the owner   drained    yes      ClaudeCode
+  Restart QA Beta - Worker - takes the request and never answe   ended-at-limit none     RawCli
+  Restart QA Beta - Worker - wedged and cannot take a prompt     ended-at-limit none     RawCli
+
+  wrote a handover document        : 3
+  covered by a lead's document     : 0
+  ENDED WITHOUT A HANDOVER         : 4 of 7

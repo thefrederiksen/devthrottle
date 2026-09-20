@@ -74,7 +74,10 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot "gateway-common.ps1")
 
-function Say([string]$text) { Write-Host "[populate] $text" }
+# Write-Output, not Write-Host: Write-Host bypasses the pipeline in Windows PowerShell 5.1, so a
+# caller piping this into Tee-Object gets an empty transcript - which is how two runs of these
+# scripts left no evidence file at all.
+function Say([string]$text) { Write-Output "[populate] $text" }
 
 if (-not (Test-Path $Spec)) { throw "no specification at $Spec." }
 $shapes = Get-Content $Spec -Raw | ConvertFrom-Json
