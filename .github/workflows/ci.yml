@@ -37,7 +37,8 @@ jobs:
   # Python tool was paying for all of it, plus six Python legs, before anyone could read an answer that
   # had nothing to do with the change. That wait is the cost the owner asked to cut (#1156 is the same
   # complaint about the local gate). So this job lists the files the pull request changes - a plain
-  # `git diff` against the base, no third-party action - and hands each job one flag: dotnet, web, tools.
+  # `git diff` against the base, no third-party action - and hands each job one flag: dotnet, web, tools,
+  # postgres.
   #
   # THE RULE LEANS TO KEEP. A job is skipped ONLY when every changed file is POSITIVELY outside what that
   # job builds or tests. The script below does not list what a job may skip by default; it lists, per
@@ -64,6 +65,11 @@ jobs:
   #     If you add a test that reads a file in one of those places, take that path out of the set in
   #     the script below in the same pull request - otherwise a change to it will skip the test that
   #     guards it.
+  #   - postgres: the PostgreSQL proofs. Every file that can change what they prove: the whole
+  #     CcDirector.Gateway project, the PostgreSQL migration assembly, the proofs project itself, the
+  #     CcDirector.Gateway.Tests project (the proofs compile five source files linked out of it),
+  #     Directory.Build.props, global.json, and either workflow file. The reasoning, and what is
+  #     deliberately left out of that list, is on the job itself below.
   #   - A change to this file runs every job: a workflow edit can break any of them.
   #   - An empty change list runs every job too. No files is not a clean result; it is a diff that did
   #     not work, and a broken instrument must not read as "nothing to test".
@@ -87,6 +93,7 @@ jobs:
       dotnet: ${{ steps.classify.outputs.dotnet }}
       web: ${{ steps.classify.outputs.web }}
       tools: ${{ steps.classify.outputs.tools }}
+      postgres: ${{ steps.classify.outputs.postgres }}
       tools_matrix: ${{ steps.classify.outputs.tools_matrix }}
 
     steps:
@@ -114,15 +121,16 @@ jobs:
             echo "dotnet=$1" >> "$GITHUB_OUTPUT"
             echo "web=$2" >> "$GITHUB_OUTPUT"
             echo "tools=$3" >> "$GITHUB_OUTPUT"
-            echo "tools_matrix=$4" >> "$GITHUB_OUTPUT"
-            echo "Result: dotnet=$1 web=$2 tools=$3"
-            echo "Python legs: $4"
+            echo "postgres=$4" >> "$GITHUB_OUTPUT"
+            echo "tools_matrix=$5" >> "$GITHUB_OUTPUT"
+            echo "Result: dotnet=$1 web=$2 tools=$3 postgres=$4"
+            echo "Python legs: $5"
             exit 0
           }
 
           if [ "$EVENT_NAME" != "pull_request" ]; then
             echo "Event is $EVENT_NAME, not a pull request: every job runs, every Python leg included."
-            finish true true true "{\"include\":[$all_latest,$all_floor]}"
+            finish true true true true "{\"include\":[$all_latest,$all_floor]}"
           fi
 
           pr_matrix="{\"include\":[$all_latest,{\"os\":\"ubuntu-latest\",\"dependencies\":\"floor\"}]}"
@@ -134,7 +142,7 @@ jobs:
           changed="$(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA")"
           if [ -z "$changed" ]; then
             echo "No changed files is not a clean result - the diff found nothing to classify. Running every job."
-            finish true true true "$pr_matrix"
+            finish true true true true "$pr_matrix"
           fi
           files=()
           while IFS= read -r line; do files+=("$line"); done <<< "$changed"
@@ -149,7 +157,19 @@ jobs:
             [ -z "$(find "$dir" -name '*.csproj' -print -quit)" ]
           }
 
-          dotnet=false; web=false; tools=false
+          dotnet=false; web=false; tools=false; postgres=false
+
+          # THE POSTGRESQL PROOFS ARE THE ONE JOB THAT ASKS A SECOND QUESTION OF EVERY FILE, so it is
+          # decided in its own loop rather than as another arm of the one below. A file can be a .NET
+          # file AND a database-facing file, and the case statement below stops at its first match.
+          for f in "${files[@]}"; do
+            case "$f" in
+              src/CcDirector.Gateway/*|src/CcDirector.Gateway.Migrations.Postgres/*|src/CcDirector.Gateway.Postgres.Tests/*|src/CcDirector.Gateway.Tests/*|Directory.Build.props|global.json|.github/workflows/postgres-proofs.yml|.github/workflows/ci.yml)
+                echo "  $f -> database-facing: the PostgreSQL proofs"
+                postgres=true ;;
+            esac
+          done
+
           for f in "${files[@]}"; do
             case "$f" in
               .github/workflows/ci.yml)
@@ -195,7 +215,7 @@ jobs:
             esac
           done
 
-          finish "$dotnet" "$web" "$tools" "$pr_matrix"
+          finish "$dotnet" "$web" "$tools" "$postgres" "$pr_matrix"
 
   build-and-test:
     name: Build & Test (.NET)
@@ -238,6 +258,38 @@ jobs:
         run: |
           dotnet test tools/cc-director-setup.Tests/ -c Release --verbosity normal
           dotnet test tools/cc-director-setup-engine.Tests/ -c Release --verbosity normal
+
+  # EVERY TEST THAT NEEDS A REAL POSTGRESQL SERVER, RUN AGAINST ONE.
+  #
+  # The body is in .github/workflows/postgres-proofs.yml, because the hosted deploy workflow requires the
+  # same job and two copies of it would drift - and the copy that drifted would be the one guarding
+  # production. Read that file for what the job does and for why its verdict is a presence rather than an
+  # absence.
+  #
+  # WHY IT IS STARTED BY PATHS AND NOT ALWAYS. The owner's ruling: "if we're not making any SQL changes,
+  # why run SQL tests". The paths are listed in the classifier above, in their own loop, and they are
+  # WIDER than the mission brief proposed. What the brief named was the Data, Stats and Tenancy folders of
+  # the Gateway; reading what the proofs actually exercise found them reaching Pairing (the device
+  # credential import), History (the session history and turn stores), Snooze, Streaming, Wingman and
+  # GatewayHost itself - eight folders and several root files. A list of eight folders is an inventory
+  # that goes stale the day a ninth appears, so the rule is the WHOLE Gateway project, which is a rule and
+  # cannot go stale. The brief also named Directory.Packages.props; no such file exists in this
+  # repository, and the file that actually decides how every test project builds is Directory.Build.props,
+  # which is named instead.
+  #
+  # WHAT IS DELIBERATELY NOT IN THE LIST, so nobody reads the omission as an oversight: CcDirector.Core
+  # and CcDirector.Gateway.Contracts are BUILD inputs to these proofs, and a change to either could in
+  # principle change what they prove. They are left out because including them would start this job on
+  # most .NET changes, which is exactly what the ruling above rules out. The gap is narrower than it
+  # looks: the proofs project is in cc-director.sln, so the .NET job builds it on any src change and a
+  # compile break is caught there. What can slip through is a BEHAVIOURAL change in Core that these
+  # proofs would have caught - and the deploy workflow runs them again before anything reaches
+  # production, which is the place it would matter.
+  postgres-proofs:
+    name: PostgreSQL proofs
+    needs: changes
+    if: needs.changes.outputs.postgres == 'true'
+    uses: ./.github/workflows/postgres-proofs.yml
 
   # The browser shells (the mobile PWA and the React Cockpit) and the client-core library they share.
   #
@@ -425,7 +477,7 @@ jobs:
   # outside the verdict.
   result:
     name: CI result
-    needs: [changes, build-and-test, web, tool-contracts]
+    needs: [changes, build-and-test, web, tool-contracts, postgres-proofs]
     if: always()
     runs-on: ubuntu-latest
 
@@ -440,6 +492,8 @@ jobs:
           WEB_RESULT: ${{ needs.web.result }}
           TOOLS_FLAG: ${{ needs.changes.outputs.tools }}
           TOOLS_RESULT: ${{ needs.tool-contracts.result }}
+          POSTGRES_FLAG: ${{ needs.changes.outputs.postgres }}
+          POSTGRES_RESULT: ${{ needs.postgres-proofs.result }}
         run: |
           set -euo pipefail
           bad=0
@@ -465,6 +519,7 @@ jobs:
           check "Build & Test (.NET)" "$DOTNET_FLAG" "$DOTNET_RESULT"
           check "Build & Test (web)" "$WEB_FLAG" "$WEB_RESULT"
           check "Tool contracts (Python)" "$TOOLS_FLAG" "$TOOLS_RESULT"
+          check "PostgreSQL proofs" "$POSTGRES_FLAG" "$POSTGRES_RESULT"
 
           if [ "$bad" -ne 0 ]; then
             echo "CI result: FAILED"

@@ -225,9 +225,10 @@ answer you already have locally was the single largest source of dead time in th
 
    Know exactly what the default run covers, because it is not everything:
    - It runs every suite that fits the two-minute budget, 1,634 tests as measured on 2026-09-13.
-   - **Three suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound, takes a
-     machine-wide lock), `Core.Tests` (far outside the budget), and `Gateway.UnitTests` (grew past
-     the ceiling; issue #2824). Run them with `-Parked`.
+   - **Four suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound, takes a
+     machine-wide lock), `Core.Tests` (far outside the budget), `Gateway.UnitTests` (grew past
+     the ceiling; issue #2824), and `Gateway.Postgres.Tests` (every proof that needs a real
+     PostgreSQL server; it cannot run at all without a database). Run them with `-Parked`.
    - **`Gateway.UnitTests` being parked is the one most likely to surprise you**: a green default run
      no longer says anything about the Gateway's 4,259 unit tests. If you touched the Gateway, the
      COVERAGE GAP line will say so - run `-Parked`.
@@ -263,12 +264,12 @@ commit about to be tagged, and it is ONE command:**
 
     .\scripts\test-local.ps1 -Parked -Configuration Release
 
-`-Parked` adds the three skipped suites. `-Configuration Release` matches what users download,
+`-Parked` adds the four skipped suites. `-Configuration Release` matches what users download,
 because the script defaults to Debug while the continuous integration job it replaced ran Release.
 
-**`-Parked` needs Docker running, and says so rather than skipping (issue #2834).** Two of those three
-suites carry PostgreSQL-backed proofs, and the run now BUILDS its own throwaway PostgreSQL, uses it, and
-destroys it - there is no container to start by hand and no connection-string variable to set. Whatever
+**`-Parked` needs Docker running, and says so rather than skipping (issue #2834).** One of those four
+suites, `Gateway.Postgres.Tests`, is nothing but PostgreSQL-backed proofs, and the run now BUILDS its own
+throwaway PostgreSQL, uses it, and destroys it - there is no container to start by hand and no connection-string variable to set. Whatever
 is in your user environment is ignored. If Docker is not running the gate stops and says so, because the
 alternative is those proofs reporting SKIPPED, which is indistinguishable from a pass in every report we
 produce - a dead shared container did exactly that to the v2.1.2 release gate. The DEFAULT run starts no
@@ -279,7 +280,7 @@ say the gate was THREE commands, because the two installer projects were not in 
 and the script "runs nine projects, all under `src\`". That is no longer true of the script: it
 names `tools\cc-director-setup.Tests` and `tools\cc-director-setup-engine.Tests` in its own project
 list, its default run reports both (25 and 454 tests), and a `-Parked` run produces ELEVEN result
-files. Verified twice - a Manager's eleven result files, and the Architect reading the project list
+files - TWELVE since `Gateway.Postgres.Tests` joined the parked list. Verified twice - a Manager's eleven result files, and the Architect reading the project list
 in `scripts\test-local.ps1` - rather than taken from either report. The two extra `dotnet test`
 commands were re-running suites the gate had already run. **If you are about to release, run the one
 command; the installer IS covered.**

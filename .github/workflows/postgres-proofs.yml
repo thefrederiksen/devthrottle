@@ -1,0 +1,352 @@
+name: PostgreSQL proofs
+
+# EVERY TEST IN THIS REPOSITORY THAT NEEDS A REAL POSTGRESQL SERVER, RUN AGAINST ONE THIS JOB BUILDS AND
+# THROWS AWAY.
+#
+# WHY IT EXISTS. About sixty tests prove our own migrations, the hosted statistics schema, and what the
+# restricted database role the hosted Gateway logs in as can and cannot do. Continuous integration started
+# no database, so every one of them reported SKIPPED on every run there has ever been - and a skip is
+# indistinguishable from a pass in the console summary, in the result files, and in every report built
+# from them. The local release gate was the only place they ever ran, and it needed Docker, so a machine
+# without Docker could not run them at all. The proofs guarding the hosted Gateway's own schema were the
+# least-run tests in the repository.
+#
+# CALLED, NEVER TRIGGERED. This file is a reusable workflow with one caller in continuous integration
+# (ci.yml, started only by the paths that can change what it proves) and one in the hosted deploy
+# (deploy-hosted-gateway.yml, where it is a REQUIREMENT, because the hosted Gateway is the only thing
+# these proofs protect). One body, two callers: two copies of a job this consequential would drift, and
+# the copy that drifted would be the one guarding production.
+#
+# THE VERDICT IS A PRESENCE, NEVER AN ABSENCE. A job that reports success having run nothing is the exact
+# failure this job was created to end, and "no test failed" is satisfied by a run in which no test ran.
+# So the last step does not look for failures. It reads the list of tests the assembly itself declares,
+# reads the results the run actually produced, and holds them to each other: every declared test must
+# appear in the results, every result must be a PASS, and the declared list must not have collapsed to
+# nothing. An empty or short list is a broken instrument, not a clean run.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: >-
+          The commit to check out and prove. Omit it on a pull request, where the caller's own checkout
+          ref is the right one; the hosted deploy passes the exact commit it is about to ship, because a
+          proof of a different commit is not a proof of that one.
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  postgres-proofs:
+    name: PostgreSQL proofs
+    runs-on: ubuntu-latest
+
+    # THE DATABASE, BORN AND DESTROYED WITH THE JOB. Nothing is shared, nothing persists between runs,
+    # and no connection string is stored anywhere: a runner is thrown away when the job ends, so the
+    # password below protects a server that exists for a few minutes and is reachable only from inside
+    # this one job's own network namespace. Version 16 on purpose - the hosted Gateway runs PostgreSQL 16,
+    # and a proof about our schema on a different major version is a proof about a different database.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: proof
+          # The database name the proofs expect for this rig instance. PostgresRigGate derives every name
+          # from the instance in CC_TEST_REQUIRE_POSTGRES and refuses to run against anything else, so
+          # this spelling is load-bearing: change the instance below and this has to change with it.
+          POSTGRES_DB: ccpgproof_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # THE NAMES THIS RUN BUILT. The rig instance is "ci", and every name below is derived from it the
+      # way scripts/pg-stats-proof-rig.ps1 derives its own. That derivation is not decoration:
+      # CC_TEST_REQUIRE_POSTGRES tells PostgresRigGate which rig this run built, and the gate then holds
+      # every connection to exactly these names and this login role. It is not a flag saying "a database
+      # exists somewhere" - a run pointed at somebody else's PostgreSQL fails on assembly load rather
+      # than passing while proving nothing. Change the instance and every name here changes with it.
+      PROOF_DATABASE: ccpgproof_ci
+      STATS_DATABASE: ccpgstats_ci
+      LIVE_DATABASE: ccpglive_ci
+      RESTRICTED_ROLE: gateway_app_ci
+      PROJECT: src/CcDirector.Gateway.Postgres.Tests/CcDirector.Gateway.Postgres.Tests.csproj
+      # The smallest number of tests this assembly may declare before the run is treated as a broken
+      # instrument rather than a clean one. It is a FLOOR, not the expected total: the exact total is
+      # derived from the assembly on every run and reconciled against the results, so this number never
+      # has to be edited when a proof is added. It exists for one case only - a build that produced an
+      # empty or truncated test list, where every derived comparison agrees with itself and says nothing.
+      # 64 tests were declared on 19 September 2026; the floor is set below that so ordinary churn does
+      # not trip it, and a collapse to a handful does.
+      MINIMUM_DECLARED_TESTS: 50
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      # READINESS IS A SUCCESSFUL QUERY OVER TCP, NOT A HEALTHY CONTAINER. The postgres image runs its
+      # initialisation against a temporary server bound to the unix socket only, then shuts that one down
+      # and starts the real one - so a socket probe can report READY during initialisation and the very
+      # next statement hits "the database system is shutting down". The temporary server never listens on
+      # TCP, so a query that succeeds over TCP is true readiness. The same lesson is written into
+      # scripts/pg-stats-proof-rig.ps1; it is repeated here because this job cannot call that script.
+      - name: Wait for a real answer over the network
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            if docker run --rm --network host -e PGPASSWORD=proof postgres:16 \
+                 psql -h 127.0.0.1 -U postgres -d "$PROOF_DATABASE" -c 'SELECT 1' >/dev/null 2>&1; then
+              echo "PostgreSQL answered a query over TCP on attempt $attempt."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "PostgreSQL did not answer a query within 120 seconds."
+          exit 1
+
+      # THE RESTRICTED ROLE, MIRRORING THE HOSTED GATEWAY'S MEASURED GRANTS AND NO MORE.
+      #
+      # The hosted Gateway connects to its database as a role called gateway_app. That role was
+      # interrogated read-only against the live database and measured to be: not a superuser, no
+      # CREATEDB, no CREATEROLE, no BYPASSRLS, inherits, member of no other role, CREATE on the database,
+      # USAGE and CREATE on the existing "gateway" schema, USAGE but NOT CREATE on "public", and a
+      # search_path of gateway, "$user", public.
+      #
+      # The statistics proofs exist to show what a role holding exactly those grants can and cannot do.
+      # Run them as the superuser and every one of them passes while proving nothing at all - which is why
+      # PostgresRigGate checks the LOGIN ROLE on the statistics connection and not merely that something
+      # answered. Every statement below is a copy of one in scripts/pg-stats-proof-rig.ps1, which is the
+      # same rig the local release gate builds; if the two ever disagree, the gate is the one that has
+      # been proven against a real deploy and this file is the one to correct.
+      - name: Build the statistics database and the restricted role
+        run: |
+          set -euo pipefail
+          run_sql() {
+            docker run --rm --network host -i -e PGPASSWORD=proof postgres:16 \
+              psql -h 127.0.0.1 -U postgres -d "$1" -v ON_ERROR_STOP=1
+          }
+
+          # CREATE DATABASE cannot run inside a transaction block and has no IF NOT EXISTS, and this
+          # server is brand new, so both are created unconditionally and a duplicate would be a fault
+          # worth failing on rather than shrugging at.
+          run_sql "$PROOF_DATABASE" <<SQL
+          CREATE DATABASE $STATS_DATABASE OWNER postgres;
+          CREATE DATABASE $LIVE_DATABASE OWNER postgres;
+          SQL
+
+          run_sql "$STATS_DATABASE" <<SQL
+          CREATE ROLE $RESTRICTED_ROLE LOGIN;
+
+          -- Stated explicitly rather than leaning on CREATE ROLE's defaults, so this role is the same
+          -- role on any server this ever runs on.
+          ALTER ROLE $RESTRICTED_ROLE NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT LOGIN
+              PASSWORD 'proof';
+
+          -- CONNECT is table stakes. CREATE on the DATABASE is what permits CREATE SCHEMA, and it is the
+          -- single privilege the statistics store's whole startup path rests on.
+          GRANT CONNECT ON DATABASE $STATS_DATABASE TO $RESTRICTED_ROLE;
+          GRANT CREATE ON DATABASE $STATS_DATABASE TO $RESTRICTED_ROLE;
+
+          -- public: USAGE yes, CREATE no. Revoked from PUBLIC as well as from the role, because a role
+          -- picks up PUBLIC's grants implicitly - leaving PUBLIC's CREATE in place would hand this role a
+          -- privilege the hosted role does not have and quietly invalidate every proof below.
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          REVOKE CREATE ON SCHEMA public FROM $RESTRICTED_ROLE;
+          GRANT USAGE ON SCHEMA public TO $RESTRICTED_ROLE;
+
+          -- The application schema: owned by the superuser, with the role able to use it and create in
+          -- it. That is the shape on the hosted database, and it is what makes "the gateway schema
+          -- already exists" reproducible here - its existence proves nothing about the create privilege.
+          CREATE SCHEMA IF NOT EXISTS gateway AUTHORIZATION postgres;
+          GRANT USAGE, CREATE ON SCHEMA gateway TO $RESTRICTED_ROLE;
+
+          ALTER ROLE $RESTRICTED_ROLE SET search_path = gateway, "\$user", public;
+          SQL
+
+          # The same questions that were asked of the live hosted role, asked of this one, printed into
+          # the log so a reader can see what the proofs below were actually held to.
+          run_sql "$STATS_DATABASE" <<SQL
+          SELECT 'rolsuper=' || r.rolsuper || ' rolcreatedb=' || r.rolcreatedb
+               || ' rolcreaterole=' || r.rolcreaterole || ' rolbypassrls=' || r.rolbypassrls
+            FROM pg_roles r WHERE r.rolname = '$RESTRICTED_ROLE';
+          SELECT 'database_CREATE=' || has_database_privilege('$RESTRICTED_ROLE', '$STATS_DATABASE', 'CREATE');
+          SELECT 'public_CREATE='   || has_schema_privilege('$RESTRICTED_ROLE', 'public', 'CREATE');
+          SELECT 'public_USAGE='    || has_schema_privilege('$RESTRICTED_ROLE', 'public', 'USAGE');
+          SELECT 'gateway_CREATE='  || has_schema_privilege('$RESTRICTED_ROLE', 'gateway', 'CREATE');
+          SQL
+
+      - name: Build the proofs
+        run: dotnet build "$PROJECT" -c Release
+
+      # THE INVENTORY, READ OFF THE ASSEMBLY ITSELF. Not a number typed into this file, which would go
+      # stale the first time a proof was added or removed, and not a count of what ran, which is the thing
+      # under test. This is the list the built assembly declares, and the last step holds the results to
+      # it name by name.
+      - name: List every test the assembly declares
+        run: |
+          set -euo pipefail
+          dotnet test "$PROJECT" -c Release --no-build --list-tests \
+            | sed -n 's/^    \([A-Za-z_][A-Za-z0-9_.]*\)$/\1/p' \
+            | sort -u > declared-tests.txt
+          count=$(wc -l < declared-tests.txt)
+          echo "The assembly declares $count test(s)."
+          if [ "$count" -lt "$MINIMUM_DECLARED_TESTS" ]; then
+            echo "FAILED: only $count test(s) were declared, and the floor is $MINIMUM_DECLARED_TESTS."
+            echo "A short list is a broken instrument, not a small suite: every check below compares the"
+            echo "run against this list, so a list that collapsed would agree with itself and prove nothing."
+            exit 1
+          fi
+
+      # PASS ONE: everything that runs against the throwaway rig.
+      #
+      # CC_GATEWAY_DB_CONNECTION is deliberately NOT set here. It is the RUNTIME selector a deployed
+      # Gateway reads, and setting it process-wide would change what the hosted statistics tests do -
+      # their session history store would open PostgreSQL instead of the local file it has always used.
+      # The two tests that DO want that selector run in their own process below.
+      - name: Run the proofs against the rig
+        env:
+          CC_TEST_REQUIRE_POSTGRES: ci
+          CC_GATEWAY_TEST_PG_CONNECTION: Host=127.0.0.1;Port=5432;Database=ccpgproof_ci;Username=postgres;Password=proof
+          CC_GATEWAY_TEST_PG_STATS_CONNECTION: Host=127.0.0.1;Port=5432;Database=ccpgstats_ci;Username=gateway_app_ci;Password=proof
+        run: |
+          dotnet test "$PROJECT" -c Release --no-build \
+            --filter "FullyQualifiedName!~GatewayDatabaseLivePostgresProofTests&FullyQualifiedName!~HostStartupPathAppliesPostgresMigrationsTests" \
+            --logger "trx;LogFileName=rig.trx" --results-directory "$GITHUB_WORKSPACE/results"
+
+      # PASS TWO: the two classes that prove the Gateway's OWN startup path - the one a deployment takes,
+      # where the Gateway is handed a connection string and has to find and apply the migration set
+      # itself. They read CC_GATEWAY_DB_CONNECTION because that is the variable a real deployment sets.
+      # They get a database of their own, separate from the one pass one deletes and re-migrates, because
+      # they apply the real migration chain and must not be racing anything dropping a schema underneath
+      # them.
+      - name: Run the startup-path proofs against a database of their own
+        # Runs even when the pass above failed, so the verdict step below reports what actually happened
+        # to every test rather than reporting these five as "never ran" when the real fault was next door.
+        if: success() || failure()
+        env:
+          CC_GATEWAY_DB_CONNECTION: Host=127.0.0.1;Port=5432;Database=ccpglive_ci;Username=postgres;Password=proof
+        run: |
+          dotnet test "$PROJECT" -c Release --no-build \
+            --filter "FullyQualifiedName~GatewayDatabaseLivePostgresProofTests|FullyQualifiedName~HostStartupPathAppliesPostgresMigrationsTests" \
+            --logger "trx;LogFileName=live.trx" --results-directory "$GITHUB_WORKSPACE/results"
+
+      # THE VERDICT, AND IT IS THE REASON THIS JOB EXISTS.
+      #
+      # `always()` so it still runs when a pass above failed - a run whose tests failed must not also be
+      # allowed to skip the step that says what actually ran.
+      #
+      # Three questions, all of them presences:
+      #   1. Every test the assembly declared appears in the results, named. Not "the counts agree" - a
+      #      count is a number ABOUT the run and a test that vanished from both the filter and the results
+      #      leaves every count unchanged. The comparison is name by name, in both directions, and it
+      #      prints what is missing.
+      #   2. Every result is a PASS. Not "nothing failed": a SKIPPED result is not a failure, and skipped
+      #      results reported as success is precisely the defect this job was created to end. Every
+      #      outcome is read and anything that is not Passed is named and fails the job.
+      #   3. There are results at all. An empty result file is a broken instrument, never a clean run.
+      - name: Every declared test ran, and every one of them passed
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import glob, sys, xml.etree.ElementTree as ET
+
+          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+
+          declared = set()
+          with open("declared-tests.txt", encoding="utf-8") as handle:
+              for line in handle:
+                  name = line.strip()
+                  if name:
+                      declared.add(name)
+
+          files = sorted(glob.glob("results/*.trx"))
+          print(f"Result files read: {files}")
+          if not files:
+              print("FAILED: no result file was written at all. A run that reported nothing is not a run.")
+              sys.exit(1)
+
+          executed = {}
+          for path in files:
+              root = ET.parse(path).getroot()
+              methods = {}
+              for definition in root.iterfind(".//t:UnitTest", ns):
+                  method = definition.find("t:TestMethod", ns)
+                  if method is not None:
+                      methods[definition.get("id")] = (
+                          f'{method.get("className")}.{method.get("name")}'
+                      )
+              for result in root.iterfind(".//t:UnitTestResult", ns):
+                  name = methods.get(result.get("testId"), result.get("testName", "<unnamed>"))
+                  executed.setdefault(name, []).append(
+                      (result.get("testName"), result.get("outcome"))
+                  )
+
+          total = sum(len(v) for v in executed.values())
+          print(f"The assembly declared {len(declared)} test(s).")
+          print(f"The run produced {total} result(s) across {len(executed)} test method(s).")
+
+          failures = []
+
+          missing = sorted(declared - set(executed))
+          if missing:
+              failures.append(
+                  "These tests were declared by the assembly and produced NO result. A test that was "
+                  "never run cannot have proved anything:\n  "
+                  + "\n  ".join(missing)
+              )
+
+          unexpected = sorted(set(executed) - declared)
+          if unexpected:
+              failures.append(
+                  "These results name tests the assembly did not declare, so the list this run was "
+                  "checked against is not the list that ran:\n  "
+                  + "\n  ".join(unexpected)
+              )
+
+          not_passed = sorted(
+              f"{case} -> {outcome}"
+              for cases in executed.values()
+              for case, outcome in cases
+              if outcome != "Passed"
+          )
+          if not_passed:
+              failures.append(
+                  "These results are not a pass. A skipped test is written into a result file as "
+                  "NotExecuted, and it is counted here as a failure ON PURPOSE: this job exists "
+                  "because a skipped database proof reads as a green one everywhere else.\n  "
+                  + "\n  ".join(not_passed)
+              )
+
+          if failures:
+              print()
+              for failure in failures:
+                  print(failure)
+                  print()
+              sys.exit(1)
+
+          print(
+              f"PASSED: all {len(declared)} declared test(s) ran, producing {total} result(s), "
+              "every one of them a pass and not one of them skipped."
+          )
+          PYTHON
+
+      - name: Keep the result files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-proof-results
+          path: |
+            results/*.trx
+            declared-tests.txt
+          if-no-files-found: warn

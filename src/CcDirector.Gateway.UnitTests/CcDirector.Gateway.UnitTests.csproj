@@ -92,12 +92,13 @@
          full parallel run fails exactly one database test, a different one each time, all passing in
          isolation. -->
     <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbEnvironmentGate.cs" Link="Data/GatewayDbEnvironmentGate.cs" />
-    <!-- WHETHER THIS RUN WAS PROMISED A DATABASE, and the one test that holds it to that (issue #2834).
-         Both assemblies carry Postgres-backed proofs and both can lose their database mid-run, so the
-         rule and its pinning test are LINKED into both rather than copied - a split that let the two
-         disagree about when a skip is honest would reintroduce the false green they exist to remove. -->
-    <Compile Include="..\CcDirector.Gateway.Tests\Data\PostgresRigGate.cs" Link="Data/PostgresRigGate.cs" />
-    <Compile Include="..\CcDirector.Gateway.Tests\Data\PostgresRigIsPresentWhenRequiredTests.cs" Link="Data/PostgresRigIsPresentWhenRequiredTests.cs" />
+    <!-- THE RIG GATE IS GONE FROM HERE, AND THAT IS THE POINT. This assembly used to link
+         PostgresRigGate and its pinning test because it held one PostgreSQL-backed class,
+         HostedSchemaRefusesAnUnownedRowTests. That class has moved to CcDirector.Gateway.Postgres.Tests
+         and this assembly now needs no database at all, so there is no promise left for a gate to hold
+         anyone to. If a database-backed test ever appears here again it is in the wrong project: it
+         belongs next door with the other proofs, where one job runs them against a real server and
+         asserts that not one of them was skipped. -->
     <Compile Include="..\CcDirector.Gateway.Tests\StatsConcurrencyTestDb.cs" Link="StatsConcurrencyTestDb.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\TestEs256Key.cs" Link="TestEs256Key.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\Stats\FrozenSqliteStatsReader.cs" Link="Stats/FrozenSqliteStatsReader.cs" />

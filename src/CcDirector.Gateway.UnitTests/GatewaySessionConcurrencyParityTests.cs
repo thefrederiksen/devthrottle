@@ -18,7 +18,7 @@ namespace CcDirector.Gateway.Tests;
 /// would show up in a row-by-row comparison of the two stores' contents.
 ///
 /// The fixture and the comparison live in <see cref="ConcurrencyStoreScenarios"/> and are run against real
-/// PostgreSQL too, in <see cref="GatewaySessionConcurrencyPostgresTests"/>.
+/// PostgreSQL too, in <c>GatewaySessionConcurrencyPostgresTests</c> (CcDirector.Gateway.Postgres.Tests).
 ///
 /// SCOPE. The main fixture moves forward in time, because production time does. Observations that arrive
 /// for an EARLIER hour than one already folded are covered separately, by
