@@ -20,50 +20,55 @@ namespace CcDirector.Gateway.Wingman;
 /// would silently carry sixty, so the host builds the judge through this method and a test pins the brain it
 /// returns to the settings' value.
 ///
-/// THE ROLE IS THINKING, WITH THE THINKING TURNED OFF - and the second half of that sentence is the whole
-/// point. The slice 0 grading put the judge on the fast tier (<c>devthrottle/wingman-fast</c>) because the
-/// thinking tier left roughly half of its calls unanswered at the product's own ceiling of eight in flight.
-/// That was true, and it was true OF THE REASONING, not of the model: reasoning is what produced 4,290 output
-/// tokens a call, a median reply of 144 seconds, and the unanswered half.
+/// THE ROLE IS FAST. The slice 0 grading decided the judge is the included fast tier
+/// (<c>devthrottle/wingman-fast</c>): the thinking tier left roughly half of its calls unanswered at the
+/// product's own ceiling of eight in flight.
 ///
-/// Measured on 2026-09-20 over eleven models, 85 screens whose picker truth is known, and the 381 labelled
-/// corpus stops, on the SAME v3 prompt (devthrottle_internal
-/// <c>docs/missions/wingman-picker-flag-2026-09-19/</c>):
+/// IT WAS MOVED TO THE THINKING TIER WITH REASONING OFF ON 2026-09-20, AND MOVED BACK THE SAME EVENING,
+/// BECAUSE IT BROKE EVERY READING IN PRODUCTION. Read this before proposing it again - the idea is sound
+/// and the evidence for it was not.
 ///
-///   <c>devthrottle/wingman</c>, thinking off : 85/85 pickers, 0 invented, 79.6% agreement, p50 2.0s, p95 4.5s,
-///                                              0 of 381 calls past the 20-second bound, about $20 a month
-///   <c>devthrottle/wingman-fast</c> (before)  : 72/85 pickers, 13 invented, 75.1% agreement, p50 6.1s, p95 14.9s
+/// What the measurement said (eleven models, 85 screens whose picker truth is known, 381 labelled corpus
+/// stops, devthrottle_internal <c>docs/missions/wingman-picker-flag-2026-09-19/</c>):
+/// <c>devthrottle/wingman</c> with reasoning off read 85 of 85 pickers against the fast tier's 72, invented
+/// none against 13, agreed with the human label 79.6% of the time against 75.1%, and answered with a MEDIAN
+/// OF 68 OUTPUT TOKENS IN 2.0 SECONDS, with no call past the twenty-second bound in 381.
 ///
-/// So this is not the old thinking tier coming back. Turning the reasoning off makes the stronger model both
-/// FASTER and more accurate than the fast tier it replaces, which is why the slice 0 reasoning no longer holds.
-/// Putting it back on this role without re-running that measurement restores every symptom slice 0 fled.
+/// What production did, within four minutes of the deploy: every reading failed, in two shapes - the judge
+/// not answering inside its thirty-second deadline, and an answer that was valid JSON followed by more text,
+/// which the contract refuses. Re-asked afterwards through the same endpoint with the same four fields on a
+/// full-size v3 prompt, the model took 46 SECONDS AND WROTE 3,397 OUTPUT TOKENS, with the provider still
+/// reporting no reasoning tokens.
 ///
-/// THE NARRATION CALL MOVES WITH IT, by construction: <see cref="GatewayTurnVerdictEnvironment.AskNarratorAsync"/>
-/// builds from this same brain. Today's narration prompt was measured on this model before the switch shipped,
-/// on slice J's own twenty stops against slice J's own ceiling: 17 of 20, against the 14 of 20 the shipped
-/// narration call scores on the fast tier. It is slower there than the judge is - half the calls over 22
-/// seconds, the slowest 52.6 - and the deadline it runs under is
-/// <see cref="TurnVerdictSettings.NarrationCallTimeoutSeconds"/>, sixty. A narration that misses that deadline
-/// costs the better wording, not the reading: the judge's own spoken text is stored and playable first.
+/// THE LESSON IS ABOUT THE INSTRUMENT, NOT THE MODEL. Fifty times the output and twenty times the latency,
+/// on the same model, the same prompt file, the same endpoint and the same argument, means the corpus
+/// packages the measurement asked about were not like the packages a live session produces - and the
+/// harness also capped output at <c>max_tokens 4000</c> where the product sends no cap at all. So the
+/// measurement was answering an easier question than production asks. Anyone returning to this must first
+/// make the measurement reproduce a LIVE stop - same package sizes, no output cap - and only then compare
+/// models. The accuracy numbers above are not thereby disproved; they are simply not evidence about speed
+/// or output length on real traffic, which is what took the Wingman down.
+///
+/// AND IT WOULD TAKE THE NARRATION WITH IT: <see cref="GatewayTurnVerdictEnvironment.AskNarratorAsync"/>
+/// builds from this same brain, so a change to this role silently changes every spoken word too.
 /// </summary>
 internal static class TurnVerdictJudge
 {
     /// <summary>The model role the judge runs on. See the type comment before changing it.</summary>
-    public const WingmanModelRole Role = WingmanModelRole.Thinking;
+    public const WingmanModelRole Role = WingmanModelRole.Fast;
 
     /// <summary>
-    /// A hosted brain bound to the settings' judge timeout, with the model's reasoning turned OFF.
+    /// A hosted brain bound to the settings' judge timeout.
     ///
-    /// THIS IS THE ONLY CALLER THAT TURNS IT OFF, and that is deliberate rather than incidental: the argument
-    /// defaults to off in <see cref="HostedInferenceBrain"/> so that every other brain in the product keeps the
-    /// behaviour it has today, and a test pins both halves - that this builder sets it, and that the
-    /// translator's brain does not.
+    /// IT ASKS FOR NO CHANGE TO THE MODEL'S REASONING. <see cref="HostedInferenceBrain"/> can turn reasoning
+    /// off and defaults to leaving it alone; this builder takes the default, so the judge's request body is
+    /// exactly what it was before 2026-09-20. A test asserts that an ordinary brain sends no such key at all.
     /// </summary>
     public static HostedInferenceBrain BuildBrain(string baseUrl, string apiKey, IncludedModelId model, TurnVerdictSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
         return new HostedInferenceBrain(baseUrl, apiKey, model, log: FileLog.Write,
-            callTimeout: TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds), thinkingOff: true);
+            callTimeout: TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds));
     }
 }
 
