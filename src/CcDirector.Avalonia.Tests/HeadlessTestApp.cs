@@ -9,8 +9,9 @@ namespace CcDirector.Avalonia.Tests;
 
 /// <summary>
 /// Minimal Avalonia headless app so [AvaloniaFact] tests can construct real controls (the onboarding
-/// wizard's Skip seam, issue #1809). No real drawing is needed - these tests assert config side effects,
-/// not pixels - so headless drawing is left on.
+/// wizard's Skip seam, issue #1809). Real drawing is ON (Skia, headless drawing off) so a test can call
+/// CaptureRenderedFrame() and get a picture of the window rather than a blank frame; tests that assert
+/// only side effects are unaffected.
 /// </summary>
 internal sealed class HeadlessTestApp : Application
 {
@@ -34,5 +35,6 @@ internal static class TestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<HeadlessTestApp>()
-            .UseHeadless(new AvaloniaHeadlessPlatformOptions());
+            .UseSkia()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
 }

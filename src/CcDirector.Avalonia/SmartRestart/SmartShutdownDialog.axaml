@@ -1,0 +1,135 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:CcDirector.Avalonia.SmartRestart"
+        x:Class="CcDirector.Avalonia.SmartRestart.SmartShutdownDialog"
+        x:DataType="local:SmartShutdownViewModel"
+        x:CompileBindings="True"
+        Title="{Binding Title}"
+        Width="560" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#252526">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />  <!-- the number of sessions -->
+            <RowDefinition Height="Auto" />  <!-- the review: working against waiting -->
+            <RowDefinition Height="Auto" />  <!-- the review: question boxes open -->
+            <RowDefinition Height="Auto" />  <!-- smart shutdown, the default -->
+            <RowDefinition Height="Auto" />  <!-- the lesser choice, in words -->
+            <RowDefinition Height="Auto" />  <!-- buttons -->
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   x:Name="TxtSessionCount"
+                   Text="{Binding SessionCountText}"
+                   Foreground="#CCCCCC"
+                   FontSize="14" FontWeight="SemiBold" />
+
+        <TextBlock Grid.Row="1"
+                   x:Name="TxtWorkingWaiting"
+                   Text="{Binding WorkingWaitingText}"
+                   Foreground="#AAAAAA"
+                   FontSize="12"
+                   Margin="0,4,0,0" />
+
+        <Border Grid.Row="2"
+                x:Name="QuestionBoxPanel"
+                IsVisible="{Binding HasQuestionBoxes}"
+                Background="#1E1E1E"
+                BorderBrush="#D97706" BorderThickness="1"
+                CornerRadius="4"
+                Padding="12,8"
+                Margin="0,12,0,0">
+            <StackPanel>
+                <TextBlock x:Name="TxtQuestionBoxHeading"
+                           Text="{Binding QuestionBoxHeading}"
+                           Foreground="#F59E0B"
+                           FontSize="12" FontWeight="SemiBold" />
+                <ItemsControl x:Name="QuestionBoxList"
+                              ItemsSource="{Binding QuestionBoxSessionNames}"
+                              Margin="0,4,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <TextBlock Text="{Binding}"
+                                       Foreground="#CCCCCC"
+                                       FontSize="12"
+                                       Margin="8,2,0,2" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="3"
+                Background="#1E1E1E"
+                CornerRadius="4"
+                Padding="12"
+                Margin="0,12,0,0">
+            <StackPanel>
+                <TextBlock x:Name="TxtExplanation"
+                           Text="{Binding ExplanationText}"
+                           Foreground="#CCCCCC"
+                           FontSize="14"
+                           TextWrapping="Wrap" />
+                <TextBlock x:Name="TxtWhy"
+                           Text="{Binding WhyText}"
+                           Foreground="#AAAAAA"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           Margin="0,8,0,0" />
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <TextBlock Text="{Binding TimeAllowedLabel}"
+                               Foreground="#CCCCCC"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0" />
+                    <ComboBox x:Name="CmbTimeAllowed"
+                              ItemsSource="{Binding TimeOptions}"
+                              SelectedItem="{Binding SelectedTimeOption}"
+                              Width="130"
+                              FontSize="12" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Grid.Row="4"
+                   x:Name="TxtIgnoreExplanation"
+                   Text="{Binding IgnoreExplanationText}"
+                   Foreground="#888888"
+                   FontSize="11"
+                   TextWrapping="Wrap"
+                   Margin="0,12,0,0" />
+
+        <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,6,0,0">
+            <Button Grid.Column="0"
+                    x:Name="BtnIgnore"
+                    Content="{Binding IgnoreButtonText}"
+                    Click="BtnIgnore_Click"
+                    Background="Transparent" Foreground="#AAAAAA"
+                    BorderBrush="#3C3C3C" BorderThickness="1"
+                    FontSize="12"
+                    Height="28" Cursor="Hand" />
+            <Button Grid.Column="2"
+                    x:Name="BtnSmart"
+                    Content="{Binding ConfirmButtonText}"
+                    Click="BtnSmart_Click"
+                    MinWidth="130"
+                    HorizontalContentAlignment="Center"
+                    Background="#007ACC" Foreground="White"
+                    BorderThickness="0"
+                    Height="28" Cursor="Hand"
+                    IsDefault="True" />
+            <Button Grid.Column="3"
+                    x:Name="BtnCancel"
+                    Content="{Binding CancelButtonText}"
+                    Click="BtnCancel_Click"
+                    Width="80"
+                    HorizontalContentAlignment="Center"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0"
+                    Height="28" Cursor="Hand"
+                    IsCancel="True" Margin="8,0,0,0" />
+        </Grid>
+    </Grid>
+</Window>
