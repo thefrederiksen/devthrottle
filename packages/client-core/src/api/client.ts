@@ -658,12 +658,17 @@ function isUnreachableStatus(status: number): boolean {
  *
  *  THE REASON IT IS HANDED IS NOT GUARANTEED TO BE A TERMINATED SENTENCE, so this terminates it before
  *  appending. The Gateway writes some reasons as SENTENCES ("That machine is catching up.") and some as
- *  PHRASES ("Director not connected"), and appending to a phrase produced
- *  "Director not connected Try again." - two sentences run together with nothing between them, on every
- *  screen that shows a Gateway error. It survived this long because every reason anyone had looked at
- *  happened to end in a full stop; it was found by photographing a disconnected Director for the
- *  one-repository-list mission's phase-4 proof. Fixed here, at the one place that joins the two parts,
- *  rather than in the screen that happened to be pointed at it. */
+ *  PHRASES, and appending to a phrase ran the two together with nothing between them.
+ *
+ *  A shipped example, cited because a made-up one is how this was nearly mis-diagnosed:
+ *  `SessionWsProxyEndpoints.WriteVerbJsonAsync` answers `{ error = "owning director is not connected" }`
+ *  at 503 when the owning Director is not tunnel-connected. 503 is retryable by default (see the
+ *  GatewayError constructor), so that reason reached the screen as
+ *  "owning director is not connected Try again."
+ *
+ *  It survived this long because every reason anyone had looked at happened to end in a full stop,
+ *  including every reason in errorReporting.test.ts. Fixed here, at the one place that joins the two
+ *  parts, rather than in whichever screen happens to be pointed at it. */
 function withRetryHint(sentence: string, retryable: boolean): string {
   if (!retryable) return sentence;
   if (/try again|retrying|retry/i.test(sentence)) return sentence;

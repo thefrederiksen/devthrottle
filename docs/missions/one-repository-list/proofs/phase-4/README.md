@@ -147,7 +147,7 @@ ship. Revert D is that test watched failing.
 | `apps/cockpit/src/sessions/NewSessionDialog.tsx` | The repository half redrawn: the machine row, the search box, the Name / Path / Last Used table with sortable headings, the first-run empty state, the path box paired with Add, and **a click that selects instead of starting a session**. |
 | `apps/cockpit/src/styles.css` | The `.newsess-*` family extended in its own idiom: the machine picker becomes a compact wrapping row, the list becomes a table on one shared column track, plus the empty state, the headings and the Last Used cell. |
 | `packages/client-core/src/api/client.ts` | `addRepo` and `RepoAddResult`, in the idiom of the readers beside them (`encodeURIComponent`, `authHeaders`, `GatewayError.from`) - additive, so phase 5's work in this file conflicts with nothing. Plus the two-line `withRetryHint` fix in section 7a, which is the one existing thing this phase changed there and is a defect this proof found. |
-| `apps/cockpit/src/sessions/newSessionDialogOneList.test.tsx` | The screen's test file, **7 tests to 30**. The seven that were there are intact; one fixture row was RENAMED (`"Never opened"` to `"Not yet opened"`) because the product now uses those exact words in a cell and an exact text query could no longer tell the two apart. |
+| `apps/cockpit/src/sessions/newSessionDialogOneList.test.tsx` | The screen's test file, **7 tests to 32**. The seven that were there are intact; one fixture row was RENAMED (`"Never opened"` to `"Not yet opened"`) because the product now uses those exact words in a cell and an exact text query could no longer tell the two apart. |
 | `apps/cockpit/src/fleet/FleetMapView.test.tsx`, `apps/cockpit/src/sessions/sessionsBadge.test.tsx` | `addRepo` added to the client mock beside `getKnownRepositories`. |
 
 **No Gateway change, no Director change, no phone change, and nothing in
@@ -162,6 +162,38 @@ means **STRUCTURE and WORDING parity, never COLOUR parity**. The binding referen
 `--border`, `--accent`). **No hex value was copied out of the Avalonia XAML**, and no token was
 invented.
 
+## 5a. How the Add note decides whether the path it added is in the list
+
+**The mission's own first defect arrived in this phase's code and a Reviewer caught it.** After a
+successful Add the screen re-reads the list and reports whether the added path is in it (section 2).
+The first version of that comparison folded CASE and nothing else.
+
+That is wrong in both directions. Both stores this mission joins compare paths by
+`KnownRepositoryStore.NormalizePathKey`, which **normalizes separators and trailing slashes** - so a
+trailing slash or the other separator could make the note say *"it does not show this path"* with the
+row sitting visible on the screen above it, which is the screen telling the owner something the screen
+itself disproves. And a plain `toLowerCase()` folds case on a POSIX path, where `/work/Atlas` and
+`/work/atlas` are two different folders and calling them one is a claim the machine does not agree
+with. **Deciding path identity by a rule that is not the path's own shape is exactly the defect family
+this mission exists to end.**
+
+`repositoryPathKey` now mirrors `NormalizePathKey` clause for clause and **no wider**: trim; backslash
+to forward slash; drop trailing slashes except a Windows drive root; and fold case **only when the
+path's own shape says it is a Windows path** - a drive letter, or a `//` network prefix. Two places
+where TypeScript and C# are not identical were checked rather than assumed and are written on the
+function: `char.IsLetter` is Unicode-aware where `/[A-Za-z]/` is not, which cannot matter for a drive
+letter; and JavaScript's `toUpperCase` is locale-independent, like `ToUpperInvariant`.
+
+Two tests hold it: one asserting each clause, **including that two POSIX paths differing only in case
+are NOT the same repository** - the assertion a plain case fold fails - and one driving the whole Add
+through a path the Director echoes back with the other separator and a trailing slash.
+
+**Row selection is deliberately still an exact string match, and that is not an oversight.** The path
+box is set from the row that was clicked, so the two are the same string by construction; and a
+normalizing match would light a row up as "selected" while Create session ran on the different string
+in the box. The rule above is for the Add note, which compares two paths that genuinely came from two
+places.
+
 ## 6. The mission check, section 7, as I ran it
 
 Machine: Sorens Mac mini, macOS 25.5 (Darwin 25.5.0), Apple silicon, `dotnet` at `~/.dotnet/dotnet`.
@@ -171,14 +203,14 @@ describes.
 | Command | Result |
 |---|---|
 | `npm run typecheck` | **Green.** All four workspaces. |
-| `npm test --workspaces --if-present` | **Green. 2,153 passed, 0 failed** - client-core 1,459, cc-assistant 106, cockpit 487, mobile 101. |
+| `npm test --workspaces --if-present` | **Green. 2,155 passed, 0 failed** - client-core 1,459, cc-assistant 106, cockpit 489, mobile 101. |
 | `dotnet test src/CcDirector.Gateway.UnitTests` | **Green. 0 failed, 6,547 passed, 8 skipped.** |
 | `dotnet test src/CcDirector.Core.Tests` | **Green. 0 failed, 4,485 passed, 18 skipped.** |
 | `dotnet test src/CcDirector.Avalonia.Tests` | **Green. 0 failed, 646 passed, 0 skipped.** |
 
 **Zero failures, and no baseline is quoted.** Against the Tech Lead's own measurement of this
 branch's base, the three .NET suites are identical to the digit (6,547 / 4,485 / 646); the Cockpit is
-up by the 23 tests this phase adds to that screen, and client-core by the 3 that pin section 7a's fix.
+up by the 25 tests this phase adds to that screen, and client-core by the 3 that pin section 7a's fix.
 Nothing else moved. **The .NET numbers were measured before section 7a**, whose change is three
 TypeScript lines and a test file; no `.cs` file is touched anywhere in this branch.
 
@@ -237,61 +269,110 @@ through the left rail, so the router does the navigating.
 | Shot | What it shows |
 |---|---|
 | `08-a-machine-with-no-repositories-yet.png` | **An empty catalogue.** The Director's own empty state - "No repositories yet", its sentence, its footnote - with **Add where the Director puts Browse**. |
-| `09-the-director-is-not-connected-the-route-is-502.png` | **The Director is gone and the route answers 502.** The screen says what the Gateway said. It does NOT show the first-run empty state, which would tell the owner his machine holds nothing when all that is known is that the Gateway could not be asked; and it draws no table at all, because a bare heading row offers to sort a list the screen does not have. |
-| `09a-before-the-fix-the-reason-and-the-advice-ran-together.png` | **The same shot before section 7a's fix**, kept deliberately: it is the photograph of the defect this proof found. |
+| `09-the-director-is-offline-the-list-survives-the-write-is-refused.png` | **THE MISSION'S CENTRAL CLAIM, PHOTOGRAPHED.** The Director is offline. The list is **still all there** - ten repositories, in the Gateway's order - because `GET /directors/{id}/known-repositories` is synchronous and storage-backed and has no tunnel leg in it at all. In the same frame, Add is refused in the Gateway's own words, *"The Director is not connected right now, so the command was not delivered."*, because `POST /directors/{id}/repos` DOES ride the tunnel. One image, both facts: **the read survives the Director going away and the write does not**. That is the whole reason this screen was moved onto the catalogue route. |
+| `09b-the-catalogue-store-is-unavailable.png` | **A real failure of the read route**, from its own code: `knownRepositories is null` answers 503 *"Known repository storage is not available."* The screen says what the Gateway said. It does NOT show the first-run empty state, which would tell the owner his machine holds nothing when all that is known is that the Gateway could not be asked; and it draws no table at all, because a bare heading row offers to sort a list the screen does not have. |
 | `10-add-registers-the-path-and-says-what-it-then-found.png` | **Add succeeded and the row is genuinely not in the list.** Section 2. Two facts and no forecast. |
 | `11-add-refused-the-path-does-not-exist-on-that-machine.png` | **Add refused, 400.** The Gateway's own sentence inline, the list untouched, and nothing claiming a repository was added. |
 
 ### The tests behind the same behaviour
 
-`apps/cockpit/src/sessions/newSessionDialogOneList.test.tsx`, 30 tests. The seven that existed before
-this phase are unchanged. The 23 added cover: the machine row's facts; the served array returned by
+`apps/cockpit/src/sessions/newSessionDialogOneList.test.tsx`, 32 tests. The seven that existed before
+this phase are unchanged. The 25 added cover: the machine row's facts; the served array returned by
 identity; the pure reversal; the heading transitions; the round trip over the adversarial fixture; the
 status line naming the real order; the ladder, rung by rung and on the page; the verdict read rather
 than inferred; the filter over name AND path; a filter that matched nothing not being mistaken for an
 empty machine; the click selecting; Create session being the only thing that creates; the empty state;
-the absence of Browse; and the five Add outcomes.
+the absence of Browse; the five Add outcomes; and **the path rule in section 5a**.
 
-## 7a. What taking the screenshots found - a real defect in shared code
+## 7a. A correction to this proof, and the real defect that came out of it
 
-**Screen 09 was, at first, a photograph of malformed text.** It read:
+**This section records that an earlier version of this proof got a Gateway fact wrong, photographed it,
+and asserted it in prose.** It is written out rather than quietly re-shot, because a proof that
+corrects itself in the open is worth more than one that has never been caught.
+
+### What this proof claimed, and what the route actually does
+
+An earlier shot 09 was captioned *"the Director is not connected, the route is 502"* and showed an
+empty list. The staging behind it made `GET /directors/{id}/known-repositories` answer 502 with the
+reason "Director not connected".
+
+**That cannot happen.** Read the route on `origin/main` (`GatewayEndpoints.cs`,
+`app.MapGet("/directors/{id}/known-repositories", (HttpContext ctx, string id) => ...`): it is
+**synchronous**. No `CancellationToken`, no `TrySendAsync`, no `TunnelFailure` - **there is no tunnel
+leg in it at all.** It resolves the Director, checks the store and returns
+`knownRepositories.ReadForMachine(...)`. Its real failure branches are a 503 when the store is
+unavailable, a 403 with no bound tenant, a 409 when the Director has reported no machine name, and
+whatever `TryResolveOwnedDirector` returns. `GET /directors/{id}/repos`, two screens up in the same
+file, **is** async and **does** ride the tunnel - that is the route that 502s when a Director is gone,
+and it is the route this phase moved OFF.
+
+**The harm was worse than a wrong caption**, which is why the picture was replaced rather than
+re-labelled. The owner opening this folder would have seen a photograph captioned "the Director is not
+connected" over an empty list, and read it as *a disconnected Director empties the Cockpit's list*.
+That is the **opposite** of what this mission is for, and it contradicts the header comment on this
+screen's own read - *"it survives that Director being disconnected, which is exactly when this screen
+still needs something to show."* The proof asserted the design claim in prose while photographing its
+opposite.
+
+Found by the Reviewer, verified independently by the Tech Lead and again here against `origin/main`
+before anything was changed.
+
+### What replaced it
+
+`09-the-director-is-offline-the-list-survives-the-write-is-refused.png` - the shot the mission actually
+wants, and a stronger one: the Director is offline, **the list is still all there**, and in the same
+frame the tunnel-backed Add is refused in the Gateway's own words. Both halves of that image are what
+the real Gateway sends for an offline Director. Plus
+`09b-the-catalogue-store-is-unavailable.png`, a genuine failure of the read route taken from its own
+code.
+
+### The defect the exercise found, which is real and is NOT the above
+
+While staging that 502, the error line rendered as two sentences run together:
 
 ```
-Could not load repositories: Director not connected Try again.
+... not connected Try again.
 ```
 
-Two sentences with nothing between them. The Tech Lead refused the proof over it, correctly: a QA
-report whose screenshot shows broken text is a proof of a defect rather than of the fix.
+**The malformed-text class is real and shipped**, even though the reason this proof staged was not one
+this route sends. `withRetryHint` in `packages/client-core/src/api/client.ts` appended `" Try again."`
+to whatever it was handed, assuming it already ended in terminal punctuation. The Gateway writes some
+reasons as SENTENCES ("That machine is catching up.") and some as PHRASES. A shipped example, cited
+from the product rather than invented, since a made-up one is exactly how this was nearly
+mis-diagnosed:
 
-**The root cause is not this screen, and it was traced rather than guessed.** `withRetryHint` in
-`packages/client-core/src/api/client.ts` appended `" Try again."` to whatever sentence it was handed,
-assuming that sentence already ended in terminal punctuation. The Gateway writes some reasons as
-SENTENCES ("That machine is catching up.") and some as PHRASES ("Director not connected"). Every phrase
-produced this line, **on every screen in both shells that shows a Gateway error** - not only here. It
-had gone unseen because every reason anyone had looked at happened to end in a full stop, including
-every reason in `errorReporting.test.ts`.
+> `SessionWsProxyEndpoints.WriteVerbJsonAsync` answers `{ error = "owning director is not connected" }`
+> at **503** when the owning Director is not tunnel-connected. 503 is retryable by default in the
+> `GatewayError` constructor, so that reason reached the screen as
+> *"owning director is not connected Try again."*
 
-**It is fixed in `withRetryHint`, not in the dialog** - `CLAUDE.md` rule 3, fix the root cause rather
-than papering over it where it happens to show. The change is two lines: trim the reason, terminate it
-if it is not already terminated, then append.
-
-Three tests in `packages/client-core/src/api/errorReporting.test.ts` pin BOTH endings, because a
-careless fix trades one malformed line for another:
+**It is fixed in `withRetryHint`, not in the dialog** - `CLAUDE.md` rule 3. Two lines: trim the reason,
+terminate it if it is not already terminated, then append. Three tests in
+`packages/client-core/src/api/errorReporting.test.ts` pin BOTH endings, because a careless fix trades
+one malformed line for another:
 
 | Test | What it holds |
 |---|---|
-| `terminates a reason that is a PHRASE before adding the hint...` | The defect itself: "Director not connected" becomes "Director not connected. Try again." |
-| `leaves a reason that already ends in a sentence exactly as it was` | The opposite mistake - an unconditional full stop giving an already-terminated reason two of them. Full stop, question mark and exclamation mark. |
+| `terminates a reason that is a PHRASE before adding the hint...` | The defect, on the real shipped phrase above, at its real status, with **no `retryable` flag set by hand** - so it exercises the default rule that makes a 503 retryable, which is the half that turns a merely-unterminated reason into a run-together line. |
+| `leaves a reason that already ends in a sentence exactly as it was` | The opposite mistake - an unconditional full stop giving an already-terminated reason two of them. Full stop, question mark and exclamation mark, each asserted on the whole string. |
 | `does not leave a gap where the reason had trailing space` | A reason with trailing whitespace does not leave a hole before the full stop. |
 
-**Both screenshots are committed** - `09a` is the defect as first photographed, `09` is the same
-failure case afterwards - so a reader can see it rather than take this section's word for it. Revert F
-in section 8 watches the fix fail.
+Revert F in section 8 watches the fix fail.
 
-**This is the part of the exercise that justifies taking screenshots at all.** Thirty passing tests of
-this screen did not find it. A person looking at a picture of the failure case did, and the defect was
-in shared code that both shells have shipped for as long as the Gateway has written a reason without a
-full stop.
+**NO SCREENSHOT IN THIS PROOF SHOWS THAT DEFECT, and that is stated rather than implied.** The earlier
+picture of it was produced by a reason this route does not send, so it has been deleted rather than
+kept with a caption. Of the failures this screen can actually produce, none carries an unterminated
+reason today: the 503 is *"Known repository storage is not available."* and the Add refusal is *"The
+Director is not connected right now, so the command was not delivered."* - both already sentences. The
+fix stands on the code citation and the tests, not on a picture.
+
+### What this whole episode is worth writing down
+
+Thirty passing tests of this screen did not find the run-together line; staging a failure case and
+looking at it did. And no test of this screen could have found the wrong-route claim either - it was
+in a caption and in prose, where only a reader who went to the route could catch it. **The Reviewer
+could not render images, so the pictorial content was the one thing it could not check, and it is
+exactly where the error was.** Both facts belong in the record.
 
 ## 8. Watched failing
 
@@ -307,6 +388,7 @@ including the two places the prediction was wrong.
 | D - infer the verdict | exactly 1 | **exactly 1**, both rows wrong in opposite directions |
 | E - filter on the name only | exactly 1 | **exactly 1** |
 | F - the retry hint stops terminating the reason | exactly 2, and one named test staying green | **exactly 2**, and that test stayed green |
+| G - the Add note compares paths by a plain case fold | exactly 2, named | **exactly those 2** |
 
 In every one of the five, the other 55 Cockpit test files stayed green.
 
@@ -333,11 +415,17 @@ In every one of the five, the other 55 Cockpit test files stayed green.
   simply correct when the registry-to-catalogue feed lands follows from the re-read and the wording; it
   cannot be shown until that feed exists. When it does, screenshot 10's scenario should be re-run - the
   note under it should change by itself, and if it does not, that is a defect here.
-- **Section 7a's fix is proved by test and by one screenshot, not by a sweep.** `withRetryHint` is
-  shared by both browser shells and every screen that shows a Gateway error. This phase fixed it and
-  photographed ONE of those screens. **No audit was made of which other reasons the Gateway writes
-  without terminal punctuation, or of which other screens were showing the same run-together line.**
-  That is worth someone's afternoon and it is not this phase's.
+- **Section 7a's fix is proved by TEST AND CODE CITATION ONLY - by no screenshot at all.** `withRetryHint` is
+  shared by both browser shells and every screen that shows a Gateway error, and **none of the failures
+  this screen can produce carries an unterminated reason**, so nothing here photographs it. **No audit
+  was made of which other reasons the Gateway writes without terminal punctuation, or of which other
+  screens were showing the same run-together line** - `SessionWsProxyEndpoints` is one citation, not a
+  survey. That is worth someone's afternoon and it is not this phase's.
+- **Nothing here was run against a really disconnected Director.** Shot 09's two halves are each what
+  the real Gateway sends for one - the storage-backed read unaffected, the tunnel-backed write refused
+  with `MapDirectorFailure`'s own sentence - and both were read out of `origin/main` before being
+  staged. But no Director was actually disconnected, so what is proved is that the screen renders those
+  two answers correctly, not that the Gateway produces them together. Phase 6 disconnects a real one.
 - **No browser other than Chrome, and one viewport.** 1440 by 1040 at device scale 2. Nothing here
   says what this screen does on a narrow window, and the Cockpit is desktop-first by design.
 - **Volume.** Phase 3 recorded that nothing caps this route's result and nothing measures what a

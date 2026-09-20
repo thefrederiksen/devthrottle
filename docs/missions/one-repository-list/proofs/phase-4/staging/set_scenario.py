@@ -53,9 +53,25 @@ SCENARIOS = {
     "full": {"knownRepositories": FULL_LIST, "repoAdd": {"status": 201, "added": True}},
     # A machine the Gateway knows nothing about - the first-run empty state.
     "empty": {"knownRepositories": [], "repoAdd": {"status": 201, "added": True}},
-    # THE FAILURE CASE: the Director is not connected to the Gateway, so the route is a 502.
-    "director-gone": {"knownRepositories": {"status": 502, "error": "Director not connected"},
-                      "repoAdd": {"status": 502, "error": "Director not connected"}},
+    # THE MISSION'S CENTRAL CLAIM, and the one failure case worth photographing most: THE DIRECTOR IS
+    # OFFLINE. The read route (GET known-repositories) is SYNCHRONOUS and storage-backed - read it, there
+    # is no tunnel leg in it - so it serves the durable, machine-keyed catalogue exactly as before and the
+    # list is still there. The WRITE route (POST repos) rides the tunnel, so it is refused, in the
+    # Gateway's own words from MapDirectorFailure(null).
+    #
+    # An earlier version of this file staged a 502 on the READ route and called it "the Director is not
+    # connected". That cannot happen, a Reviewer caught it, and this pair replaces it. See the proof's
+    # section 7a.
+    "director-offline": {
+        "knownRepositories": FULL_LIST,
+        "repoAdd": {"status": 502,
+                    "error": "The Director is not connected right now, so the command was not delivered."},
+    },
+    # A REAL failure of the read route, from its own code: `knownRepositories is null` -> 503.
+    "storage-unavailable": {
+        "knownRepositories": {"status": 503, "error": "Known repository storage is not available."},
+        "repoAdd": {"status": 503, "error": "Known repository storage is not available."},
+    },
     # Add succeeds, and the path is genuinely not in the Gateway's catalogue afterwards.
     "add-not-listed": {"knownRepositories": FULL_LIST,
                        "repoAdd": {"status": 201, "added": True, "name": "harbour"}},

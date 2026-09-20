@@ -33,7 +33,13 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
   gatewayErrorMessage: (err: unknown) => String(err),
 }));
 
-import { NewSessionDialog, lastUsedAgo, orderRepositories, nextRepoSort } from "./NewSessionDialog";
+import {
+  NewSessionDialog,
+  lastUsedAgo,
+  orderRepositories,
+  nextRepoSort,
+  repositoryPathKey,
+} from "./NewSessionDialog";
 
 function director(directorId: string) {
   return {
@@ -573,6 +579,58 @@ describe("the Cockpit New Session dialog draws the desktop tab's repository tabl
       await screen.findByText(
         "Used yesterday was already on this machine. It is in the list above.",
       ),
+    ).toBeTruthy();
+  });
+
+  // ---- the path rule the Add note compares by -----------------------------------------------------
+
+  it("decides path identity by the Gateway's own rule, and takes case from the path's own shape", () => {
+    // Mirrors KnownRepositoryStore.NormalizePathKey. Each line below is one clause of it, and each is a
+    // way a differently-spelled path can arrive: the Director echoes back what it stored, the Gateway
+    // serves what it holds, and the two are not obliged to be spelled the same.
+    const same = (a: string, b: string) => repositoryPathKey(a) === repositoryPathKey(b);
+
+    // A trailing separator does not make it a different repository.
+    expect(same("/work/atlas", "/work/atlas/")).toBe(true);
+    // Nor does the other separator.
+    expect(same("C:\\Repos\\atlas", "C:/Repos/atlas")).toBe(true);
+    // Nor does case, ON A WINDOWS PATH, where the disk does not care.
+    expect(same("C:\\Repos\\Atlas", "c:/repos/atlas")).toBe(true);
+    expect(same("//share/team/atlas", "//SHARE/Team/Atlas")).toBe(true);
+    // Nor does surrounding whitespace.
+    expect(same("  /work/atlas  ", "/work/atlas")).toBe(true);
+
+    // BUT CASE ON A POSIX PATH DOES. /work/Atlas and /work/atlas are two folders on that disk, and
+    // folding them together would be the client inventing an identity the machine does not agree with.
+    // This is the assertion a plain toLowerCase() fails, and a plain toLowerCase() is what was here.
+    expect(same("/work/Atlas", "/work/atlas")).toBe(false);
+
+    // A Windows drive root keeps its one separator rather than being stripped to "C:".
+    expect(repositoryPathKey("C:\\")).toBe("C:/");
+    // Two genuinely different repositories stay different.
+    expect(same("/work/atlas", "/work/atlas-notes")).toBe(false);
+  });
+
+  it("matches the added path against the list by that rule, not by how it happens to be spelled", async () => {
+    // The Director echoes the path back with a trailing separator and the other separator; the Gateway
+    // serves it the way it holds it. Before the rule above, the note read "it does not show this path"
+    // with the row sitting visible on the screen - the screen telling the owner something the screen
+    // itself disproves.
+    addRepoMock.mockResolvedValue({ added: true, name: "atlas", path: "C:\\Repos\\Atlas\\" });
+    getKnownRepositoriesMock
+      .mockResolvedValueOnce(THE_GATEWAYS_ORDER)
+      .mockResolvedValueOnce([
+        { name: "atlas", path: "c:/repos/atlas", lastUsed: "", neverOpened: true },
+        ...THE_GATEWAYS_ORDER,
+      ]);
+    renderDialog();
+
+    await waitFor(() => expect(renderedPaths()).toHaveLength(3));
+    fireEvent.change(pathBox(), { target: { value: "C:\\Repos\\Atlas\\" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to this machine" }));
+
+    expect(
+      await screen.findByText("Added atlas to this machine. It is in the list above."),
     ).toBeTruthy();
   });
 

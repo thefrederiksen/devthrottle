@@ -266,6 +266,40 @@ function listSummary(count: number, column: RepoSortColumn, ascending: boolean):
 }
 
 /**
+ * Do two paths name the same repository?
+ *
+ * THIS MIRRORS `KnownRepositoryStore.NormalizePathKey` IN THE GATEWAY, clause for clause, and it is
+ * deliberately no wider than that. Both stores this mission joins compare paths by that rule, so a
+ * client that compares them by any OTHER rule will disagree with the list it is looking at:
+ *
+ *   1. trim;
+ *   2. every backslash becomes a forward slash;
+ *   3. trailing slashes are dropped, except that a Windows drive root ("C:/") keeps its one;
+ *   4. **case is folded ONLY when the path's own shape says it is a Windows path** - a drive letter,
+ *      or a "//" network prefix. A POSIX path keeps its case, because on a POSIX disk
+ *      /work/Atlas and /work/atlas are two different folders and folding them is a lie.
+ *
+ * That last clause is the point. This function used to be `toLowerCase()` on both sides, which is the
+ * mission's own first defect - deciding path identity by a rule that is not the path's own shape -
+ * arriving in the client. It got here as a plain case fold and a Reviewer caught it.
+ *
+ * Two places where TypeScript and C# are not identical, both checked rather than assumed: `char.IsLetter`
+ * is Unicode-aware where `/[A-Za-z]/` is not, which cannot matter for a drive letter; and JavaScript's
+ * `toUpperCase` is locale-independent, like `ToUpperInvariant` and unlike `toLocaleUpperCase`.
+ */
+export function repositoryPathKey(path: string): string {
+  let normalized = path.trim().replace(/\\/g, "/");
+  while (normalized.length > 1 && normalized.endsWith("/")) {
+    if (normalized.length === 3 && /[A-Za-z]/.test(normalized[0]) && normalized[1] === ":") break;
+    normalized = normalized.slice(0, -1);
+  }
+  const windowsShaped =
+    (normalized.length >= 2 && /[A-Za-z]/.test(normalized[0]) && normalized[1] === ":") ||
+    normalized.startsWith("//");
+  return windowsShaped ? normalized.toUpperCase() : normalized;
+}
+
+/**
  * What to say once the Add button has done its work. TWO FACTS, AND NOT A THIRD: what the route did,
  * and what the list looked like when this screen went and read it again. No prediction of any kind.
  *
@@ -533,8 +567,11 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
       if (reqId !== reposReqRef.current) return; // the machine changed under us
       setRepos(list);
       setReposError(null);
-      const wanted = (result.path.trim() || path).toLowerCase();
-      setAddNote(addOutcome(result, list.some((r) => r.path.trim().toLowerCase() === wanted)));
+      // Compared by the GATEWAY'S OWN path rule - see repositoryPathKey. A plain case fold here let a
+      // trailing slash or the other separator make this note say "it does not show this path" with the
+      // row sitting visible on the screen above it.
+      const wanted = repositoryPathKey(result.path.trim() || path);
+      setAddNote(addOutcome(result, list.some((r) => repositoryPathKey(r.path) === wanted)));
     } catch (err) {
       setCreateError(gatewayErrorMessage(err));
     } finally {
