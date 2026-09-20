@@ -14,9 +14,15 @@ neither touches a file this task touches, so the branch was not rebased.
 |---|---|---|---|
 | Baseline on untouched `origin/main` at `2092941b6` (the Tech Lead's figure; not re-measured by me) | 418 | 0 | 418 |
 | After, on `52e4b3228`, built from source in the same command | 475 | 0 | 475 |
+| After the review finding was answered, on `6b775ec2c`, built from source in the same command | 477 | 0 | 477 |
 
 475 - 418 = 57, and 57 is the number of new test cases counted by hand below. No existing test was
 changed or removed.
+
+The last row is a second Developer seat's, which answered the one finding of `review-phase-1-1.md` (see
+`review-phase-1-1-answers.md`): 477 - 475 = 2, the two new `HandOverNow` cases listed below. Again no
+existing test was changed or removed. The workspace tests and the whole project were NOT run again for
+that change; it touches one message method and one test file.
 
 The workspace tests (`--filter "FullyQualifiedName~Workspace"`): 182 passed, 0 failed, of which 17 are
 new. I did not measure the workspace count before the change; 165 is arithmetic, not a run.
@@ -118,7 +124,7 @@ the agent process is a stand-in backend.
 run on the rig over a clean, a blocked, a silent, a wedged and a never-reaped session, calls neither new
 verb and never writes `ended-at-limit`; the test first asserts the run really met all five cases.
 
-`DrainMessagesSmartShutdownTests` (12 cases)
+`DrainMessagesSmartShutdownTests` (14 cases: 12, and 2 added in answer to the review)
 - `SmartShutdown_Message_SaysHowLongThereIsAndToWriteTheNextActionFirst`: the minutes, the next-action-first
   instruction, the Director, the reason and the path are all in it.
 - `SmartShutdown_Message_NeverPromisesTheSessionWillNotBeKilled`: none of the older promise is in it.
@@ -131,6 +137,12 @@ verb and never writes `ended-at-limit`; the test first asserts the run really me
   of the new wording.
 - `HandOverNow_Message_IsTheShortSecondRequest_NextActionFirst`: the phrase, the minutes left, the path and
   the block are in it and it is under half the first message's length.
+- `HandOverNow_Message_NamesEveryLineTheParserReads` (added in answer to the review): the short message
+  quotes a line for every key in `DrainReportBlock.Keys` and offers `state: blocked`, because for a session
+  under a lead it is the only description of the block there is.
+- `HandOverNow_Message_ABlockWrittenAsItDescribes_ParsesWithNothingLeftOver` (added in answer to the
+  review): the lines the message quotes, lifted out of its text and written into a block, parse through
+  the real `DrainReportBlock.Parse` with nothing unparsed.
 - `HandOverNow_Message_IsTellableApartFromTheFirstRequest`: it does not carry START NOTHING NEW, which is
   how the rig recognises the first request.
 - `HandOverNow_Message_WithUnderAMinuteLeft_SaysOneMinuteNeverZero` (3): it never says zero minutes.
@@ -180,6 +192,14 @@ presence question comes before the stop); the closing-block-equality case (retur
 makes the paragraphs equal by construction); the older-message case, the two other `HandOverNow` cases and the
 `RestartIsOff` case; the accepted-record and round-trip cases that do not use `ended-at-limit`. None of
 these was claimed as a revert proof.
+
+Round three, by the second Developer seat, for the review finding, on `6b775ec2c` with the code already
+committed: `DrainMessages.cs` put back as it stood at `4d0ec0e1e` (the short message naming only `state:
+drained`, `restore` and `why`), a full build and the whole check: **2 failed, 475 passed, 477 in all** -
+`HandOverNow_Message_NamesEveryLineTheParserReads` and
+`HandOverNow_Message_ABlockWrittenAsItDescribes_ParsesWithNothingLeftOver`, and nothing else. Restored
+with `git checkout -- src`, no difference against `6b775ec2c`, the fix confirmed present in the file,
+REBUILT, and the whole check run again: 477 passed, 0 failed.
 
 ## What I could not reach
 
