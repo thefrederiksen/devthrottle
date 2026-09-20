@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -185,6 +186,9 @@ public class WayUpOfferWindowTests
         Assert.NotNull(window.BtnBringBack);
         Assert.NotNull(window.BtnNotNow);
         Assert.NotNull(window.BtnClose);
+        Assert.NotNull(window.ClearPanel);
+        Assert.NotNull(window.BtnClear);
+        Assert.NotNull(window.TxtClearDetail);
     }
 
     // ===== The client is dumb =====
@@ -774,6 +778,178 @@ public class WayUpOfferWindowTests
         // And the record that HAS something to bring back still draws it.
         var withSomething = Open(ThreeMissions(), new FakeWayUp());
         Assert.True(withSomething.BtnBringBack.IsEffectivelyVisible);
+    }
+
+    // ===== The third answer: stop asking about this record at all =====
+
+    /// <summary>
+    /// THE CLEARING ANSWER IS DRAWN AWAY FROM THE PRIMARY PAIR, which is what the owner's ruling asks for in
+    /// as many words: it must not be hittable by a hand reaching for the two answers. It sits on its own line
+    /// above them, on the LEFT, while "Bring back" and "Not now" stay at the bottom right - so this asserts
+    /// the real geometry of the opened window, not just that three buttons exist.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_TheClearingAnswer_IsDrawnOnItsOwnLineAwayFromThePrimaryPair()
+    {
+        var window = Open(ThreeMissions(), new FakeWayUp());
+
+        Assert.True(window.BtnClear.IsEffectivelyVisible);
+
+        var clearFarCorner = window.BtnClear.TranslatePoint(
+            new Point(window.BtnClear.Bounds.Width, window.BtnClear.Bounds.Height), window)!.Value;
+        var bringBack = window.BtnBringBack.TranslatePoint(new Point(0, 0), window)!.Value;
+        var notNow = window.BtnNotNow.TranslatePoint(new Point(0, 0), window)!.Value;
+
+        // Above the pair, and clear of both horizontally: its far corner is above and left of where they begin.
+        Assert.True(clearFarCorner.Y <= bringBack.Y, $"clear bottom={clearFarCorner.Y}, bring back top={bringBack.Y}");
+        Assert.True(clearFarCorner.X < bringBack.X, $"clear right={clearFarCorner.X}, bring back left={bringBack.X}");
+        Assert.True(clearFarCorner.X < notNow.X, $"clear right={clearFarCorner.X}, not now left={notNow.X}");
+    }
+
+    /// <summary>
+    /// THE SENTENCE BESIDE IT IS THE ENGINE'S, SHOWN AS GIVEN. The window is handed a sentence no engine
+    /// would ever produce and draws it unchanged - the same proof every other label on this window gets,
+    /// because the difference between "Not now" and "Don't ask again" is said in words the ENGINE chooses.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_TheClearingAnswer_DrawsTheEnginesOwnSentenceBesideIt()
+    {
+        var record = WayUp.RecordWith(
+            "ws-clear", "A restart is available", "Shut down on 19 September 2026 at 17:50.", null,
+            1, "One session is waiting to be brought back.",
+            new[]
+            {
+                WayUp.BringBackRow("s-solo", "A row", "Brings back one session, reading its own handover.", true,
+                    WayUp.Seat("s-solo", "solo", "it comes back reading its handover")),
+            },
+            clearDetail: "This window says something only this test would ever say about clearing.");
+
+        var window = Open(record, new FakeWayUp());
+
+        Assert.Equal(
+            "This window says something only this test would ever say about clearing.",
+            window.TxtClearDetail.Text);
+        Assert.Equal("Don't ask again", window.BtnClear.Content);
+    }
+
+    /// <summary>
+    /// A RECORD THE ENGINE SAYS CANNOT BE CLEARED DRAWS NO CLEARING ACTION AT ALL - not the button and not
+    /// the sentence. A record already cleared, or already used, has stopped interrupting him for good, and a
+    /// button whose press changes nothing reads as broken.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_ARecordTheEngineSaysCannotBeCleared_DrawsNoClearingAction()
+    {
+        var record = WayUp.RecordWith(
+            "ws-already-cleared", "A restart is available", "Shut down on 19 September 2026 at 17:50.", null,
+            1, "One session is waiting to be brought back.",
+            new[]
+            {
+                WayUp.BringBackRow("s-solo", "A row", "Brings back one session, reading its own handover.", true,
+                    WayUp.Seat("s-solo", "solo", "it comes back reading its handover")),
+            },
+            canClearFromStartUpOffer: false);
+
+        var window = Open(record, new FakeWayUp());
+
+        Assert.False(window.ClearPanel.IsEffectivelyVisible);
+        Assert.False(window.BtnClear.IsEffectivelyVisible);
+        Assert.False(window.TxtClearDetail.IsEffectivelyVisible);
+        Assert.False(window.ViewModel.ShowClear);
+
+        // And the two answers are untouched: this takes nothing else away.
+        Assert.True(window.BtnBringBack.IsEffectivelyVisible);
+        Assert.True(window.BtnNotNow.IsEffectivelyVisible);
+    }
+
+    /// <summary>
+    /// PRESSING IT REACHES THE ENGINE WITH THIS RECORD'S ID, off the interface thread, and what came of it is
+    /// the ENGINE's own sentence in the place every other answer is shown.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task BtnClear_Clicked_ReachesTheEngineWithThisRecordAndShowsItsAnswer()
+    {
+        var engine = new FakeWayUp
+        {
+            Clear = new WayUpClearResult(true, "You will not be asked about this again when the Director starts."),
+        };
+        var window = Open(ThreeMissions(), engine);
+
+        Click(window.BtnClear);
+        await window.WorkTheLastPressStarted;
+
+        Assert.True(window.ClearAsked);
+        var request = Assert.Single(engine.ClearRequests);
+        Assert.Equal("ws-1", request.WorkspaceId);
+        Assert.False(engine.WasEverCalledOnTheInterfaceThread);
+
+        Assert.True(window.ResultPanel.IsEffectivelyVisible);
+        Assert.Equal(
+            "You will not be asked about this again when the Director starts.",
+            window.TxtResult.Text);
+
+        // Nothing was brought back and nothing was reopened by it.
+        Assert.Empty(engine.BringBackRequests);
+        Assert.Empty(engine.ReopenRequests);
+        Assert.False(window.BringBackAsked);
+    }
+
+    /// <summary>
+    /// A CLEARING THE ENGINE REFUSED SHOWS THE ENGINE'S REFUSAL, word for word. The window has no sentence of
+    /// its own for this, and it must not: it is the one place where saying "that is done" about a Gateway
+    /// that recorded nothing would send him away believing it.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task BtnClear_TheEngineRefused_ShowsTheRefusalAndNotASentenceOfItsOwn()
+    {
+        var engine = new FakeWayUp
+        {
+            Clear = new WayUpClearResult(false, "Nothing was changed, and here is the engine's own reason."),
+        };
+        var window = Open(ThreeMissions(), engine);
+
+        Click(window.BtnClear);
+        await window.WorkTheLastPressStarted;
+
+        Assert.Equal("Nothing was changed, and here is the engine's own reason.", window.TxtResult.Text);
+    }
+
+    /// <summary>
+    /// ONCE AN ANSWER HAS COME BACK THE THREE ACTIONS ARE REPLACED BY THE ONE THAT CLOSES THE WINDOW. Leaving
+    /// "Don't ask again" on screen after a bring back would offer him a third thing to do about a record he
+    /// has just used - and it is one the engine would refuse.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task BtnClear_AfterAnAnswerHasComeBack_TheClearingAnswerIsGoneWithTheOthers()
+    {
+        var window = Open(ThreeMissions(), new FakeWayUp());
+
+        Click(window.BtnBringBack);
+        await window.WorkTheLastPressStarted;
+
+        Assert.False(window.BtnClear.IsEffectivelyVisible);
+        Assert.False(window.BtnBringBack.IsEffectivelyVisible);
+        Assert.False(window.BtnNotNow.IsEffectivelyVisible);
+        Assert.True(window.BtnClose.IsEffectivelyVisible);
+    }
+
+    /// <summary>
+    /// "NOT NOW" STILL WRITES NOTHING. It is the difference the new answer exists against: the window closes,
+    /// the engine is asked for nothing at all, and the record is left to be offered again next time.
+    /// </summary>
+    [AvaloniaFact]
+    public void BtnNotNow_Clicked_AsksTheEngineForNothingAtAll()
+    {
+        var engine = new FakeWayUp();
+        var window = Open(ThreeMissions(), engine);
+
+        Click(window.BtnNotNow);
+
+        Assert.Empty(engine.ClearRequests);
+        Assert.Empty(engine.BringBackRequests);
+        Assert.Empty(engine.ReopenRequests);
+        Assert.False(window.BringBackAsked);
+        Assert.False(window.ClearAsked);
     }
 
     // ===== The view model refuses what the window must never show =====

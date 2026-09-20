@@ -64,6 +64,7 @@ public class WayUpScreenshotTests
         // and asks DirectorWayUp to word it. The owner reads these pictures, so what is in them has to be
         // what the product would put in front of him.
         var ownersCase = OpenOffer(TheOwnersOwnCase());
+        AssertTheClearingActionIsReallyDrawn(ownersCase);
         Capture(ownersCase, folder, "way-up-9-offer-one-to-bring-back-and-six-that-ended.png");
 
         var ownersCaseOpened = OpenOffer(TheOwnersOwnCase());
@@ -78,6 +79,76 @@ public class WayUpScreenshotTests
 
         Capture(await HistoryARecordOlderThanSevenDaysAsync(), folder,
             "way-up-13-history-older-than-seven-days-is-not-offered-at-start-up.png");
+
+        // ===== The owner's ruling of 20 September 2026: offered once, and clearable =====
+        Capture(await HistoryARecordThatWasUsedAsync(), folder,
+            "way-up-14-history-a-record-that-was-used-is-not-offered-again.png");
+
+        Capture(await HistoryARecordThatWasClearedAsync(), folder,
+            "way-up-15-history-a-record-the-owner-cleared.png");
+    }
+
+    /// <summary>
+    /// THE NINTH PICTURE IS NOW THE OFFER WITH THE THIRD ACTION ON IT, and "more than a hundred colours"
+    /// cannot say that the action is really there. This asserts the button, its words, and the engine's
+    /// sentence beside it - the sentence that names "Not now", which is how the owner tells the two apart.
+    /// </summary>
+    private static void AssertTheClearingActionIsReallyDrawn(Window window)
+    {
+        var offer = (WayUpOfferWindow)window;
+        Assert.True(offer.BtnClear.IsEffectivelyVisible);
+        Assert.Equal(WayUpOfferViewModel.ClearButtonText, offer.BtnClear.Content);
+        Assert.True(offer.TxtClearDetail.IsEffectivelyVisible);
+        Assert.Equal(WayUpWords.ClearDetail, offer.TxtClearDetail.Text);
+    }
+
+    /// <summary>
+    /// A RECORD THE OWNER HAS USED, WHICH IS NOT OFFERED AGAIN - his ruling of 20 September 2026: "as soon as
+    /// we have used a restart it should no longer be offered on startup". One session came back; six were
+    /// never touched. Those six are all HERE, each with its own button, and the entry says in the engine's own
+    /// sentence why the Director has stopped putting it in front of him.
+    /// </summary>
+    private static Task<Window> HistoryARecordThatWasUsedAsync()
+    {
+        var doc = Stored(
+            "restart-used-once",
+            "updating the Director to 2.8.2",
+            Owed("s-billing-lead", "Billing - Delivery Lead - invoices", "Billing", "Delivery Lead"),
+            Ended("s-voice", "Voice - Developer - the wake word"),
+            Ended("s-fleet", "Fleet - Tech Lead - the restart"),
+            Ended("s-docs", "Docs - Developer - the install page"),
+            Ended("s-totals", "Billing - Developer - the totals"),
+            Ended("s-export", "Billing - Developer - the export"),
+            Ended("s-review", "Docs - Reviewer - the install page"));
+        doc.Seats[0].RestoredSessionId = "a1b2c3d4-e5f6";
+
+        return OpenHistoryAsync(new WayUpHistory(
+            false,
+            WayUpWords.HistoryRead(1),
+            [DirectorWayUp.BuildHistoryEntry(doc, Now)]));
+    }
+
+    /// <summary>
+    /// A RECORD THE OWNER CLEARED WITHOUT USING IT - his own case: "it could be that they shut down but they
+    /// don't want to use it and they don't want to see it on every upstart." Nothing was brought back and
+    /// nothing was deleted: every seat is still here with everything it had, and the entry says he asked, and
+    /// when.
+    /// </summary>
+    private static Task<Window> HistoryARecordThatWasClearedAsync()
+    {
+        var doc = Stored(
+            "restart-cleared",
+            "the machine had to be rebooted",
+            Owed("s-billing-lead", "Billing - Delivery Lead - invoices", "Billing", "Delivery Lead"),
+            Ended("s-voice", "Voice - Developer - the wake word"),
+            Ended("s-fleet", "Fleet - Tech Lead - the restart"));
+        doc.ClearedFromStartUpOfferAtUtc = Now.AddHours(-2);
+        doc.ClearedFromStartUpOfferByDirectorId = "the-director-after-the-restart";
+
+        return OpenHistoryAsync(new WayUpHistory(
+            false,
+            WayUpWords.HistoryRead(1),
+            [DirectorWayUp.BuildHistoryEntry(doc, Now)]));
     }
 
     // ===== The owner's own case, worded by the real engine =====

@@ -55,6 +55,8 @@ internal static class WayUp
     /// <param name="endedSectionDetail">What those sessions are.</param>
     /// <param name="endedSectionStartsOpen">Whether that section starts open.</param>
     /// <param name="canBringBackAnything">Whether the bring back answer is drawn at all.</param>
+    /// <param name="canClearFromStartUpOffer">Whether the clearing answer is drawn at all.</param>
+    /// <param name="clearDetail">What the clearing answer does, in the test's own words.</param>
     internal static WayUpRecord RecordWith(
         string workspaceId,
         string headline,
@@ -66,7 +68,9 @@ internal static class WayUp
         string? endedSectionLabel = null,
         string? endedSectionDetail = null,
         bool? endedSectionStartsOpen = null,
-        bool? canBringBackAnything = null)
+        bool? canBringBackAnything = null,
+        bool canClearFromStartUpOffer = true,
+        string? clearDetail = null)
     {
         var ended = rows.Count(r => r.Kind == WayUpRowKind.EndedWithoutHandover);
         return new WayUpRecord(
@@ -81,6 +85,10 @@ internal static class WayUp
             ended,
             seatsLabel,
             canBringBackAnything ?? seatsOwed > 0,
+            canClearFromStartUpOffer,
+            canClearFromStartUpOffer
+                ? clearDetail ?? "the test's own words for what stops the Director asking"
+                : null,
             endedSectionLabel ?? (ended == 0
                 ? null
                 : ended == 1
@@ -161,6 +169,8 @@ internal sealed class FakeWayUp : IDirectorWayUp
 
     internal WayUpReopenResult Reopen { get; set; } = new(true, "new-1", "reopened");
 
+    internal WayUpClearResult Clear { get; set; } = new(true, "you will not be asked again");
+
     /// <summary>Set to throw from every call, to prove a caller survives a seam that fails.</summary>
     internal Exception? Throws { get; set; }
 
@@ -171,6 +181,8 @@ internal sealed class FakeWayUp : IDirectorWayUp
     internal List<WayUpBringBackRequest> BringBackRequests { get; } = [];
 
     internal List<WayUpReopenRequest> ReopenRequests { get; } = [];
+
+    internal List<WayUpClearRequest> ClearRequests { get; } = [];
 
     /// <summary>True when ANY call arrived on the interface thread. It must stay false.</summary>
     internal bool WasEverCalledOnTheInterfaceThread { get; private set; }
@@ -205,6 +217,15 @@ internal sealed class FakeWayUp : IDirectorWayUp
         return Throws is null
             ? Task.FromResult(Reopen)
             : Task.FromException<WayUpReopenResult>(Throws);
+    }
+
+    public Task<WayUpClearResult> ClearFromStartUpOfferAsync(WayUpClearRequest request, CancellationToken ct)
+    {
+        Note();
+        ClearRequests.Add(request);
+        return Throws is null
+            ? Task.FromResult(Clear)
+            : Task.FromException<WayUpClearResult>(Throws);
     }
 
     private void Note()

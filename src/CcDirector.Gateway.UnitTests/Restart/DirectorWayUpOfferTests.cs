@@ -108,9 +108,14 @@ public class DirectorWayUpOfferTests
     public async Task A_record_with_one_owed_seat_is_offered_and_nothing_is_asked_about_running_sessions()
     {
         var rig = new WayUpTestRig();
+        // The first seat handed over and was decided NOT to come back, so it is not owed and is not listed.
+        // It used to be a seat that had ALREADY come back, which does the same job here - but a record one of
+        // whose seats came back has been USED, and since the owner's ruling of 20 September 2026 a used record
+        // is not offered at start-up at all (DirectorWayUpOfferOnceTests). That would have made this test
+        // about the wrong thing.
         rig.Gateway.With(WayUpTestRig.Record("restart-owed", Shutdown, new[]
         {
-            WayUpTestRig.AlreadyBack("seat-1", "A lead"),
+            WayUpTestRig.NotComingBack("seat-1", "A lead"),
             WayUpTestRig.Owed("seat-2", "A worker"),
         }));
 

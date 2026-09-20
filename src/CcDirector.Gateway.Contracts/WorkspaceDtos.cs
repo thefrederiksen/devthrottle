@@ -115,6 +115,29 @@ public sealed class WorkspaceDocument
     /// </summary>
     public DateTime? CancelledAtUtc { get; set; }
 
+    /// <summary>
+    /// WHEN THE OWNER ASKED NOT TO BE OFFERED THIS RECORD AT START-UP AGAIN, or null when he never did.
+    ///
+    /// His own case, in his own words on 20 September 2026: "it could be that they shut down but they don't
+    /// want to use it and they don't want to see it on every upstart". So this is one field saying both that
+    /// he cleared it and when, and the two can never disagree.
+    ///
+    /// IT DELETES NOTHING AND BRINGS NOTHING BACK. The record keeps every seat, every decision and every
+    /// saved conversation, and the restart history still reads it in full - with its offer, whose buttons
+    /// still work. The ONE thing it changes is that the Director stops putting this record in front of him
+    /// when it starts.
+    ///
+    /// Written only by <c>POST /gateway/workspaces/{id}/restore/marks</c> of kind
+    /// <see cref="WorkspaceRestoreMarkKinds.Cleared"/>, and restored over every ordinary write, for the same
+    /// reason the reopen claim is: a writer who could set it would make a record vanish from the owner's
+    /// start-up, and one who could clear it would put a record he has dismissed back in front of him.
+    /// </summary>
+    public DateTime? ClearedFromStartUpOfferAtUtc { get; set; }
+
+    /// <summary>The Director that recorded the clearing. Provenance, like
+    /// <see cref="ClearedFromStartUpOfferAtUtc"/> beside it, and never written by an ordinary write.</summary>
+    public string? ClearedFromStartUpOfferByDirectorId { get; set; }
+
     // THERE IS NO COARSE "outcome" FIELD, and its absence is deliberate.
     //
     // The hand-written index had one, with four words, and two of them welded two independent facts into

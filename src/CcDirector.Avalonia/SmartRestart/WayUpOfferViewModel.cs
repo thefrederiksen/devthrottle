@@ -32,6 +32,14 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
     /// <summary>The answer that writes nothing and leaves the record in the history.</summary>
     public const string NotNowButtonText = "Not now";
 
+    /// <summary>
+    /// THE ANSWER THAT STOPS THE DIRECTOR ASKING. The owner's own case: he shut down, does not want the
+    /// sessions back, and does not want to meet this window at every start. It brings nothing back and
+    /// deletes nothing, and the sentence beside it on the window says so and names "Not now" so the
+    /// difference between the two is read off the window rather than out of a manual.
+    /// </summary>
+    public const string ClearButtonText = "Don't ask again";
+
     /// <summary>What closes the window once a bring back has answered.</summary>
     public const string CloseButtonText = "Close";
 
@@ -178,6 +186,22 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
     /// <summary>The not now answer's own words. A constant, never chosen by a state.</summary>
     public string NotNowText => NotNowButtonText;
 
+    /// <summary>The clearing answer's own words. A constant, never chosen by a state.</summary>
+    public string ClearText => ClearButtonText;
+
+    /// <summary>
+    /// Whether the clearing answer is drawn. The ENGINE says whether this record can be cleared at all
+    /// (<see cref="WayUpRecord.CanClearFromStartUpOffer"/>) - a record already cleared, or already used, has
+    /// stopped interrupting him for good, and a button whose press changes nothing reads as broken.
+    /// </summary>
+    public bool ShowClear => Record.CanClearFromStartUpOffer && ShowAnswers;
+
+    /// <summary>What the clearing answer does, in the engine's words. Empty when it is not drawn.</summary>
+    public string ClearDetail => Record.ClearDetail ?? "";
+
+    /// <summary>Whether there is a sentence to draw beside the clearing answer.</summary>
+    public bool HasClearDetail => !string.IsNullOrWhiteSpace(Record.ClearDetail);
+
     /// <summary>What closes the window once an answer has come back. A constant.</summary>
     public string CloseText => CloseButtonText;
 
@@ -194,6 +218,7 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
             Raise(nameof(CanAnswer));
             Raise(nameof(ShowAnswers));
             Raise(nameof(ShowBringBack));
+            Raise(nameof(ShowClear));
         }
     }
 
@@ -267,6 +292,36 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
             await row.Reopen.ReopenAsync(ct).ConfigureAwait(true);
             SeatResults = Array.Empty<string>();
             ResultText = row.Reopen.ResultText;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// STOP THE DIRECTOR OFFERING THIS RECORD AT START-UP. The engine is asked off the interface thread,
+    /// because it reads the record from the Gateway and writes the clearing back to it.
+    ///
+    /// Nothing is judged on the way out: whether it was recorded or refused, the ENGINE's own sentence is
+    /// shown where every other answer is shown. A window that said "you will not be asked again" on its own
+    /// account could say it about a Gateway that recorded nothing.
+    /// </summary>
+    /// <param name="ct">Cancellation.</param>
+    public async Task ClearFromStartUpOfferAsync(CancellationToken ct = default)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        if (_isBusy || HasResult) return;
+
+        FileLog.Write($"[WayUpOfferViewModel] ClearFromStartUpOfferAsync: workspace={Record.WorkspaceId}");
+        IsBusy = true;
+        try
+        {
+            var request = new WayUpClearRequest(Record.WorkspaceId);
+            var result = await Task.Run(() => _engine.ClearFromStartUpOfferAsync(request, ct), ct).ConfigureAwait(true);
+            SeatResults = Array.Empty<string>();
+            ResultText = result.Message;
+            FileLog.Write($"[WayUpOfferViewModel] ClearFromStartUpOfferAsync: cleared={result.Cleared}");
         }
         finally
         {

@@ -311,6 +311,44 @@ public sealed class DirectorWayUp : IDirectorWayUp
         }
     }
 
+    /// <inheritdoc />
+    public async Task<WayUpClearResult> ClearFromStartUpOfferAsync(WayUpClearRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        FileLog.Write($"[DirectorWayUp] ClearFromStartUpOfferAsync: workspace={request.WorkspaceId}");
+        try
+        {
+            var doc = await _gateway.GetWorkspaceAsync(request.WorkspaceId, ct).ConfigureAwait(false);
+            if (doc is null)
+                return new WayUpClearResult(false,
+                    $"There is no record '{request.WorkspaceId}' on the Gateway any more, so nothing was changed.");
+            if (NotThisDirectors(doc) is { } notMine)
+                return new WayUpClearResult(false, $"Nothing was changed: {notMine}");
+
+            // THE CLEARING IS WRITTEN ON THE RECORD AND NOWHERE ELSE, for the reason product issue 3230 gave
+            // for the reopen claim: a fact this process remembered would be forgotten by the very restart it
+            // exists to survive. Nothing is deleted and nothing is started - the record keeps every seat and
+            // every button it had, in the restart history.
+            var mark = await _gateway.MarkClearedFromStartUpOfferAsync(doc.Id, ct).ConfigureAwait(false);
+            if (mark.State != WayUpMarkState.Marked)
+            {
+                // LOUD AND SAFE. There is deliberately no path that says "you will not be asked again" when
+                // the record carries nothing of the kind: he would meet the same window at the next start
+                // with no idea why (CLAUDE.md: no fallback programming).
+                FileLog.Write($"[DirectorWayUp] ClearFromStartUpOfferAsync: the record could not be marked: {mark.Reason}");
+                return new WayUpClearResult(false, WayUpWords.ClearRefusedMessage(mark.Reason));
+            }
+
+            FileLog.Write($"[DirectorWayUp] ClearFromStartUpOfferAsync: workspace={doc.Id} is cleared from the start-up offer");
+            return new WayUpClearResult(true, WayUpWords.ClearedMessage);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            FileLog.Write($"[DirectorWayUp] ClearFromStartUpOfferAsync FAILED: {ex.Message}");
+            return new WayUpClearResult(false, WayUpWords.ClearRefusedMessage(ex.Message));
+        }
+    }
+
     /// <summary>
     /// The records this Director may read: captured, on THIS machine, and written by a Director with THIS
     /// display name - never this identifier, which a restart changes. Newest first, capped.
@@ -345,21 +383,70 @@ public sealed class DirectorWayUp : IDirectorWayUp
     private sealed record Candidates(IReadOnlyList<WorkspaceSummaryDto> Read, int Matched);
 
     /// <summary>
-    /// MAY THIS RECORD INTERRUPT THE OWNER AT START-UP? The actionability rule below, and the age.
+    /// MAY THIS RECORD INTERRUPT THE OWNER AT START-UP? Four rules, and every one of them is about
+    /// INTERRUPTING HIM - not about what the record still holds.
     ///
-    /// Both halves come from what the owner said on 20 September 2026: "Once you restart a session, it
-    /// shouldn't be there anymore, I think, or they should timeout." The first half is
-    /// <see cref="HasSomethingToActOn"/> - a record every seat of which has been dealt with holds nothing to
-    /// offer, so it stops appearing. The second is <see cref="OfferedForDays"/>.
+    /// - <see cref="HasSomethingToActOn"/>: there is something left to act on at all;
+    /// - <see cref="HasBeenUsed"/>: he has not already used this restart;
+    /// - <see cref="IsClearedFromStartUpOffer"/>: he has not asked to stop being offered it;
+    /// - <see cref="IsTooOldToOffer"/>: it is not older than <see cref="OfferedForDays"/> days.
     ///
-    /// THIS IS THE ONLY RULE WITH AN AGE IN IT, and only the start-up read asks it. The history asks
-    /// <see cref="HasSomethingToActOn"/> directly, so the question "is there anything to act on" has exactly
-    /// one answer for both surfaces.
+    /// THE HISTORY ASKS NONE OF THESE FOUR BUT THE FIRST. It asks <see cref="HasSomethingToActOn"/>
+    /// directly, so the question "is there anything to act on" has exactly one answer on both surfaces, and
+    /// the other three - all of them reasons to stop putting a window in front of him - are asked only here.
+    /// A record none of them offers still carries its whole offer in the history, with working buttons, and
+    /// says which of the three stopped it appearing.
     /// </summary>
     /// <param name="doc">The record.</param>
     /// <param name="nowUtc">The time now, in universal time.</param>
     internal static bool IsOfferedAtStartUp(WorkspaceDocument doc, DateTime nowUtc)
-        => HasSomethingToActOn(doc) && !IsTooOldToOffer(doc, nowUtc);
+        => HasSomethingToActOn(doc)
+           && !HasBeenUsed(doc)
+           && !IsClearedFromStartUpOffer(doc)
+           && !IsTooOldToOffer(doc, nowUtc);
+
+    /// <summary>
+    /// HAS THIS RESTART BEEN USED? True the moment ANYTHING has been brought back or reopened from it, even
+    /// when every other seat it holds was never touched.
+    ///
+    /// THE OWNER'S OWN RULING, 20 September 2026: "as soon as we have used a restart it should no longer be
+    /// offered on startup ... So this means that automatically we should only see this restart message once
+    /// if we use it." It is deliberately NOT the older rule of "every seat dealt with": one seat brought back
+    /// out of seven ends the start-up offer for the whole record.
+    ///
+    /// THE SIX UNTOUCHED SEATS ARE NOT LOST, and that is the other half of what he asked for: "the user would
+    /// have to go to a menu in the file system and saying open from old restart". They stay in the record,
+    /// they stay in the restart history, and every button they had still works there - what stops is the
+    /// INTERRUPTION at start-up, not the offer.
+    ///
+    /// IT READS THE SAME TWO MARKS EVERYTHING ELSE READS, and adds no third way of deciding: a seat that came
+    /// back carries <see cref="WorkspaceSeat.RestoredSessionId"/>, written by a restore mark, and a seat whose
+    /// conversation was reopened carries its reopen claim - the two facts <see cref="EndedWithoutHandover"/>
+    /// already drops a seat for, written only by the Gateway and surviving a restart.
+    /// </summary>
+    /// <param name="doc">The record.</param>
+    internal static bool HasBeenUsed(WorkspaceDocument doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        return doc.Seats.Any(s => !string.IsNullOrWhiteSpace(s.RestoredSessionId)
+                                  || s.Restore?.ReopenedAtUtc is not null);
+    }
+
+    /// <summary>
+    /// HAS THE OWNER ASKED NOT TO BE OFFERED THIS RECORD AT START-UP? His own case, in his own words: "it
+    /// could be that they shut down but they don't want to use it and they don't want to see it on every
+    /// upstart."
+    ///
+    /// It is a fact on the RECORD (<see cref="WorkspaceDocument.ClearedFromStartUpOfferAtUtc"/>), written by
+    /// the Gateway and restored over every ordinary write, for the same reason the reopen claim is: a
+    /// clearing this process remembered would be forgotten by the very restart it exists to survive.
+    /// </summary>
+    /// <param name="doc">The record.</param>
+    internal static bool IsClearedFromStartUpOffer(WorkspaceDocument doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        return doc.ClearedFromStartUpOfferAtUtc is not null;
+    }
 
     /// <summary>
     /// Is this record older than the Director offers a record for? Measured from when the shutdown was, which
@@ -485,6 +572,14 @@ public sealed class DirectorWayUp : IDirectorWayUp
             // ended without a handover are counted on their own section instead.
             SeatsLabel: WayUpWords.SeatsLabel(owed.Count),
             CanBringBackAnything: owed.Count > 0,
+
+            // WHETHER THE CLEARING ACTION IS DRAWN AT ALL. It is drawn only where pressing it would change
+            // something: a record already cleared, or one already used, has stopped interrupting him at
+            // start-up for good, and a button whose press changes nothing reads as broken. The AGE is not
+            // part of it - an old record is still offered from the history, and he may still say "stop
+            // asking" about it there.
+            CanClearFromStartUpOffer: CanClear(doc),
+            ClearDetail: CanClear(doc) ? WayUpWords.ClearDetail : null,
             EndedSectionLabel: WayUpWords.EndedSectionLabel(ended),
             EndedSectionDetail: WayUpWords.EndedSectionDetail(ended),
 
@@ -544,9 +639,43 @@ public sealed class DirectorWayUp : IDirectorWayUp
             // owner's reason for the history is restarting something later; NotOfferedAtStartUpLabel says why
             // it stopped appearing by itself. See OfferedForDays.
             Offer: HasSomethingToActOn(doc) ? BuildRecord(doc) : null,
-            NotOfferedAtStartUpLabel: HasSomethingToActOn(doc) && IsTooOldToOffer(doc, nowUtc)
-                ? WayUpWords.TooOldToOfferLabel(OfferedForDays)
-                : null);
+            NotOfferedAtStartUpLabel: NotOfferedAtStartUpLabel(doc, nowUtc));
+    }
+
+    /// <summary>
+    /// MAY THE CLEARING ACTION BE OFFERED FOR THIS RECORD? Only where pressing it would change something:
+    /// a record already cleared, or already used, has stopped interrupting the owner at start-up for good.
+    /// One rule, asked by the two fields that carry it, so the button and the sentence beside it can never
+    /// disagree.
+    /// </summary>
+    /// <param name="doc">The record.</param>
+    internal static bool CanClear(WorkspaceDocument doc)
+        => !IsClearedFromStartUpOffer(doc) && !HasBeenUsed(doc);
+
+    /// <summary>
+    /// WHY A RECORD THAT STILL HOLDS SOMETHING TO ACT ON HAS STOPPED APPEARING WHEN THE DIRECTOR STARTS, or
+    /// null when it still appears. Read in the restart history, which is where nothing is ever hidden: a
+    /// record that quietly stopped appearing with no sentence anywhere is the same confusion in the other
+    /// direction.
+    ///
+    /// A RECORD WITH NOTHING LEFT TO ACT ON GETS NO SENTENCE HERE, because it already has its own in
+    /// <see cref="WayUpWords.OutcomeLabel"/>, and two sentences saying the same thing in different words on
+    /// one entry is what this screen was cleaned up to stop.
+    ///
+    /// THE THREE REASONS ARE RANKED, because a record can carry more than one and the reader gets ONE
+    /// sentence. Used comes first: it is the strongest thing that happened - sessions came back out of this
+    /// record - and it is what he is most likely to be asking about. Cleared comes next, because it is his
+    /// own act and he may well have forgotten it. Age comes last, being the only one nobody did on purpose.
+    /// </summary>
+    /// <param name="doc">The record.</param>
+    /// <param name="nowUtc">The time now, in universal time.</param>
+    internal static string? NotOfferedAtStartUpLabel(WorkspaceDocument doc, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        if (!HasSomethingToActOn(doc)) return null;
+        if (HasBeenUsed(doc)) return WayUpWords.AlreadyUsedLabel;
+        if (doc.ClearedFromStartUpOfferAtUtc is { } cleared) return WayUpWords.ClearedLabel(ToLocal(cleared));
+        return IsTooOldToOffer(doc, nowUtc) ? WayUpWords.TooOldToOfferLabel(OfferedForDays) : null;
     }
 
     /// <summary>

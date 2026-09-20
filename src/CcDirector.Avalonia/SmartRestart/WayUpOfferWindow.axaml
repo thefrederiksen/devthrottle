@@ -76,6 +76,7 @@
             <RowDefinition Height="Auto" />  <!-- what the main list holds -->
             <RowDefinition Height="*" />     <!-- the main list, then the ended section -->
             <RowDefinition Height="Auto" />  <!-- what came of a bring back -->
+            <RowDefinition Height="Auto" />  <!-- stop asking about this record at all -->
             <RowDefinition Height="Auto" />  <!-- the answers -->
         </Grid.RowDefinitions>
 
@@ -280,7 +281,46 @@
             </StackPanel>
         </Border>
 
-        <Grid Grid.Row="5" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+        <!-- STOP ASKING ABOUT THIS RECORD AT ALL (the owner's ruling, 20 September 2026: "the user should
+             also be able to clear it if they don't want it ... they don't want to see it on every upstart").
+
+             IT IS DELIBERATELY NOT BESIDE THE PRIMARY PAIR. It sits on its own line, on the LEFT, under a
+             divider, with the whole width of the window between it and the two answers at the bottom right,
+             so a hand reaching for "Bring back" or "Not now" cannot land on it. It is drawn in secondary
+             grey, never in the primary blue, because it is not the thing he came here to do.
+
+             THE SENTENCE BESIDE IT IS THE ENGINE'S and it names "Not now" by name, so the difference between
+             "ask me again next time" and "stop asking" is read off this window rather than out of a manual. -->
+        <StackPanel Grid.Row="5"
+                    x:Name="ClearPanel"
+                    IsVisible="{Binding ShowClear}"
+                    Margin="0,12,0,0">
+            <Border Background="#3C3C3C" Height="1" />
+            <Grid ColumnDefinitions="Auto,*" Margin="0,10,0,0">
+                <Button Grid.Column="0"
+                        x:Name="BtnClear"
+                        Classes="secondary"
+                        Content="{Binding ClearText}"
+                        IsEnabled="{Binding CanAnswer}"
+                        Click="BtnClear_Click"
+                        MinWidth="130" Height="28"
+                        HorizontalContentAlignment="Center"
+                        VerticalAlignment="Top"
+                        Background="#3C3C3C" Foreground="#CCCCCC"
+                        BorderThickness="0" Cursor="Hand" />
+                <TextBlock Grid.Column="1"
+                           x:Name="TxtClearDetail"
+                           Text="{Binding ClearDetail}"
+                           IsVisible="{Binding HasClearDetail}"
+                           Foreground="#888888"
+                           FontSize="11"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           Margin="12,0,0,0" />
+            </Grid>
+        </StackPanel>
+
+        <Grid Grid.Row="6" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
             <Button Grid.Column="1"
                     x:Name="BtnBringBack"
                     Classes="primary"

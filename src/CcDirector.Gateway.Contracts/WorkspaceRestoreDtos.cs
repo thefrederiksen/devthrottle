@@ -120,8 +120,31 @@ public static class WorkspaceRestoreMarkKinds
     /// </summary>
     public const string Reopened = "reopened";
 
+    /// <summary>
+    /// THE OWNER ASKED NOT TO BE OFFERED THIS RECORD AT START-UP AGAIN (the Smart Director Restart mission,
+    /// the owner's ruling of 20 September 2026). Written onto
+    /// <see cref="WorkspaceDocument.ClearedFromStartUpOfferAtUtc"/> and its companion, so the Director stops
+    /// putting the record in front of him every time it starts.
+    ///
+    /// IT NAMES NO SEAT, because it is a fact about the whole record and not about one session, and it is the
+    /// second kind that needs no restore lease, for the reason <see cref="Reopened"/> gives: the lease is
+    /// granted only by asking for a restore, and clearing is not a restore - it starts nothing, brings nothing
+    /// back and deletes nothing. What it must not do is cut across a restore that IS running, so it is refused
+    /// while ANOTHER Director holds a live lease, and it never grants, renews or releases one.
+    ///
+    /// CLEARING A RECORD THAT IS ALREADY CLEARED CHANGES NOTHING AND IS NOT AN ERROR. The first clearing's
+    /// moment and Director stand, and the answer is success - unlike a second <see cref="Reopened"/>, which is
+    /// refused because it would put a second agent into one saved conversation. Here there is no such harm:
+    /// the owner asked for the record to stop appearing, and after either call it has.
+    ///
+    /// AN OLDER GATEWAY DOES NOT KNOW IT and refuses it by name (HTTP 400, "kind must be one of: ..."), which
+    /// is the answer we want: the Director says the record could not be marked and nothing is hidden, rather
+    /// than telling him it will not ask again when it will.
+    /// </summary>
+    public const string Cleared = "cleared";
+
     /// <summary>Every kind.</summary>
-    public static readonly IReadOnlyList<string> All = new[] { Started, Restored, Failed, Finished, Reopened };
+    public static readonly IReadOnlyList<string> All = new[] { Started, Restored, Failed, Finished, Reopened, Cleared };
 }
 
 /// <summary>
