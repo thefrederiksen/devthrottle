@@ -229,7 +229,8 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
             {
                 const string busy =
                     "A smart shutdown or a drain is already under way on this Director, and it is closing " +
-                    "these same sessions. Use \"Shut down now\" on it. Nothing has been touched by this request.";
+                    "these same sessions. A smart shutdown offers \"Shut down now\"; a drain has no such button " +
+                    "and has to finish first. Nothing has been touched by this request.";
                 FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync FAILED: {busy}");
                 throw new InvalidOperationException(busy);
             }
@@ -239,17 +240,53 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         // fallback: it is the owner's stated choice (mission document section 7). He chose to discard
         // these sessions; a Gateway that is down takes away the history entry and not his decision. What
         // he is told is exactly that - RecordWritten is false and RecordRefusal says why.
-        var (drain, workspaceId, refusal) = await WriteRecordAsync(
+        var (drain, workspaceId, refusal, recordedIds) = await WriteRecordAsync(
             request.Reason, "shut down ignoring all", (d, o, c) => d.RecordIgnoreAllAsync(o, c), ct).ConfigureAwait(false);
 
+        var recorded = new HashSet<string>(recordedIds ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         var ended = 0;
-        foreach (var id in sessions.LiveSessionIds())
+        var inNoRecord = new List<string>();
+        var wouldNotEnd = new List<string>();
+
+        async Task EndEachAsync(IEnumerable<string> ids)
         {
-            var end = await sessions.EndAsync(id, "Shut down and ignore all sessions.").ConfigureAwait(false);
-            if (end.Ended) ended++;
-            else if (!end.SessionGone)
-                FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: session {id} could not be ended: {end.Reason}");
+            foreach (var id in ids)
+            {
+                var end = await sessions.EndAsync(id, "Shut down and ignore all sessions.").ConfigureAwait(false);
+                if (end.Ended)
+                {
+                    ended++;
+                    // Only a record that was written can be missing a session. When none was written,
+                    // RecordRefusal already says that nothing names any of them.
+                    if (refusal is null && !recorded.Contains(id)) inNoRecord.Add(id);
+                }
+                else if (!end.SessionGone)
+                {
+                    wouldNotEnd.Add($"{id} ({end.Reason ?? "no reason given"})");
+                    FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: session {id} could not be ended: {end.Reason}");
+                }
+            }
         }
+
+        var first = sessions.LiveSessionIds();
+        await EndEachAsync(first).ConfigureAwait(false);
+
+        // ONE MORE PASS, AND ONLY ONE. Nothing interrupted the sessions before they were ended, so one of
+        // them may have started another while the record was being written or the others were being
+        // ended. That session is in no record and was not in the list above; the application is about to
+        // close on top of it, which would end it and say nothing. It is ended with the rest and NAMED,
+        // as the smart path does for the same sessions. Not a loop: a Director that keeps producing
+        // sessions is not something a second or a tenth pass settles.
+        var asked = new HashSet<string>(first, StringComparer.OrdinalIgnoreCase);
+        await EndEachAsync(sessions.LiveSessionIds().Where(id => !asked.Contains(id)).ToList()).ConfigureAwait(false);
+
+        var said = new List<string>();
+        if (inNoRecord.Count > 0)
+            said.Add(
+                $"{inNoRecord.Count} session(s) were ended that are NOT in the record, because they appeared " +
+                $"after it was written: {string.Join(", ", inNoRecord)}. Nothing describes them and they cannot be offered back.");
+        if (wouldNotEnd.Count > 0)
+            said.Add($"{wouldNotEnd.Count} session(s) could not be ended and are still on this Director: {string.Join(", ", wouldNotEnd)}.");
 
         if (drain is not null && refusal is null)
         {
@@ -257,7 +294,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
             // failure here is said in the log and does not turn a written record into an unwritten one.
             try
             {
-                await drain.SaveSessionsEndedAsync(ct).ConfigureAwait(false);
+                await drain.SaveSessionsEndedAsync(said, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
@@ -265,9 +302,10 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
             }
         }
 
-        var result = new IgnoreAllResult(refusal is null, refusal is null ? workspaceId : null, refusal, ended);
+        var result = new IgnoreAllResult(refusal is null, refusal is null ? workspaceId : null, refusal, ended,
+            said.Count == 0 ? null : string.Join(" ", said));
         FileLog.Write(
-            $"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: recordWritten={result.RecordWritten}, ended={ended}, workspace={result.WorkspaceId ?? "-"}");
+            $"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: recordWritten={result.RecordWritten}, ended={ended}, workspace={result.WorkspaceId ?? "-"}, detail={result.Detail ?? "-"}");
         return result;
     }
 
@@ -293,7 +331,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
             return answer;
         }
 
-        var (_, workspaceId, refusal) = await WriteRecordAsync(
+        var (_, workspaceId, refusal, _) = await WriteRecordAsync(
             "The operating system was shutting down.", "operating system shutdown",
             (d, o, c) => d.RecordOperatingSystemShutdownAsync(o, c), ct).ConfigureAwait(false);
 
@@ -308,7 +346,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
     /// This is the entry point both record-only calls share, so it is where a Gateway that does not
     /// answer is caught and turned into the sentence the caller hands back.
     /// </summary>
-    private async Task<(DirectorDrain? Drain, string? WorkspaceId, string? Refusal)> WriteRecordAsync(
+    private async Task<(DirectorDrain? Drain, string? WorkspaceId, string? Refusal, IReadOnlyList<string>? SessionIds)> WriteRecordAsync(
         string? reason, string what,
         Func<DirectorDrain, DrainOptions, CancellationToken, Task<DrainRecordOnly>> write,
         CancellationToken ct)
@@ -317,7 +355,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         if (drain is null)
             return (null, null,
                 "this Director is not connected to a Gateway, so there is nowhere off this machine to keep " +
-                "the record of what was closed.");
+                "the record of what was closed.", null);
 
         var startedLocal = _utcNow().ToLocalTime();
         var options = new DrainOptions
@@ -332,12 +370,12 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         {
             var record = await write(drain, options, ct).ConfigureAwait(false);
             var id = string.IsNullOrWhiteSpace(record.Document.Id) ? options.WorkspaceId : record.Document.Id;
-            return (drain, id, null);
+            return (drain, id, null, record.SessionIds);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             FileLog.Write($"[DirectorSmartShutdown] the record ({what}) could not be written: {ex.Message}");
-            return (drain, null, $"the record of what was closed could not be written to the Gateway: {ex.Message}");
+            return (drain, null, $"the record of what was closed could not be written to the Gateway: {ex.Message}", null);
         }
     }
 }
@@ -602,8 +640,32 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
             return;
         }
 
-        var step = await DirectorLauncherRestartStep.RunAsync(gateway, _machine, _exePath, null, CancellationToken.None)
-            .ConfigureAwait(false);
+        // THE RUN'S OWN LAST STEP, so this is where what it throws is caught. A Gateway that dies between
+        // the drain's final save and this ask is the same fact as a Gateway client that is gone, which is
+        // RestartRefused a few lines up: the Director is verifiably empty and the record stands. Left to
+        // the run's catch-all it would read as a shutdown that stopped on an error, and the owner would
+        // not be told the record is offered on the next start. Nothing is retried and nothing is hidden:
+        // the outcome carries the error's own words.
+        var launcherWasAsked = false;
+        LauncherRestartStepResult step;
+        try
+        {
+            step = await DirectorLauncherRestartStep.RunAsync(gateway, _machine, _exePath,
+                () => { launcherWasAsked = true; return Task.CompletedTask; }, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SmartShutdownRun] AskLauncherAsync FAILED: launcherWasAsked={launcherWasAsked}: {ex}");
+            Finish(SmartShutdownOutcome.RestartRefused, workspaceId,
+                (launcherWasAsked
+                    ? "The launcher was asked to restart this Director, but its answer never came back: " + ex.Message +
+                      " If the launcher did receive the request, this Director is stopped and started again shortly; if it did not, restart it by hand."
+                    : "The launcher was not asked, because the machine could not be checked again first: " + ex.Message) +
+                stands);
+            return;
+        }
+
         switch (step.Verdict)
         {
             case LauncherRestartStepVerdict.Accepted:

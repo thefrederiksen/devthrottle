@@ -56,7 +56,14 @@ not hand back nothing.
   `RecordRefusal` says why, and the sessions are still ended, because the owner chose to discard them.
 
     public sealed record IgnoreAllResult(
-        bool RecordWritten, string? WorkspaceId, string? RecordRefusal, int SessionsEnded);
+        bool RecordWritten, string? WorkspaceId, string? RecordRefusal, int SessionsEnded,
+        string? Detail = null);
+
+- `Detail` was added after the review of task 4 (`review-phase-1-4-answers.md`, finding 1). It is null
+  when there is nothing to say. Otherwise it names, in plain words, any session that was ended although
+  it is in no record because it appeared after the record was written, and any session that would not
+  end. It has a default, so code written against the four fields compiles unchanged; a screen that
+  shows the result should show it when it is not null.
 
 ## 3. One run - what the progress screen subscribes to
 

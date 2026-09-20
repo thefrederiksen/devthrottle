@@ -132,7 +132,7 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         FakeWorkspaceSink sink,
         string directory,
         RigRestoreGateway? restore = null,
-        DirectorRestartCycleTests.Gateway? launcher = null,
+        IRestartCycleGateway? launcher = null,
         Action<int>? onPoll = null,
         Func<CancellationToken, Task>? reachGateway = null,
         bool? launcherWouldRestartThis = true,
@@ -177,7 +177,7 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         FakeWorkspaceSink sink,
         string directory,
         RigRestoreGateway? restore = null,
-        DirectorRestartCycleTests.Gateway? launcher = null,
+        IRestartCycleGateway? launcher = null,
         SmartShutdownPurpose purpose = SmartShutdownPurpose.Close,
         Action<int, ISmartShutdownRun>? onPoll = null,
         Action<SmartShutdownSnapshot, ISmartShutdownRun>? onSnapshot = null)
@@ -574,6 +574,88 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         Assert.Null(DirectorDrain.Running);
     }
 
+    /// <summary>A Director on which a working session starts another one at the moment the first session
+    /// is ended - which is after the record was written AND after the list of sessions to end was taken,
+    /// the exact window nothing interrupts the sessions in.</summary>
+    private sealed class StartsAnotherSessionWhileBeingEnded : FakeSessionControl
+    {
+        private bool _started;
+
+        public override Task<DrainEnd> EndAsync(string sessionId, string reason)
+        {
+            if (!_started)
+            {
+                _started = true;
+                Live.Add("late");
+            }
+            return base.EndAsync(sessionId, reason);
+        }
+    }
+
+    // Shows: a session that appears after the record is written - started by a working session while the
+    // others are being ended - is ended too, by the one further pass, and is not left for the closing
+    // application to end without a trace: the result says in words that it was ended and is in no record,
+    // naming it, and the record's own problems say the same. The record itself never names it, because it
+    // did not exist when the record was written.
+    [Fact]
+    public async Task ShutDownIgnoringAllAsync_ASessionThatAppearsAfterTheRecordIsWritten_IsEndedToo_AndTheResultSaysItIsInNoRecord()
+    {
+        using var dir = new TempDir();
+        var sessions = new StartsAnotherSessionWhileBeingEnded { PollsBeforeReap = 1 };
+        sessions.Live.Add("one");
+        sessions.Live.Add("two");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(Seat("one", "First"), Seat("two", "Second", order: 1)) };
+        var journal = new List<string>();
+        sessions.Journal = journal;
+        sink.Journal = journal;
+
+        var result = await Engine(sessions, sink, dir.Path).ShutDownIgnoringAllAsync(
+            new SmartShutdownRequest(SmartShutdownPurpose.Close, SmartShutdownTimes.Default, null), CancellationToken.None);
+
+        Assert.Empty(sessions.Live);
+        Assert.Equal(3, result.SessionsEnded);
+        Assert.Equal("save", journal[0]);
+        Assert.Equal("end:late", journal.Last(e => e.StartsWith("end:")));
+        Assert.Single(journal, e => e == "end:late");
+
+        Assert.True(result.RecordWritten);
+        Assert.NotNull(result.Detail);
+        Assert.Contains("late", result.Detail);
+        Assert.Contains("NOT in the record", result.Detail);
+        Assert.DoesNotContain("one", result.Detail);
+        Assert.DoesNotContain("two", result.Detail);
+
+        Assert.DoesNotContain(sink.Saves[0].Seats, s => s.SessionId == "late");
+        Assert.Contains(sink.Last.Integrity!.Problems, p => p.Contains("late") && p.Contains("NOT in the record"));
+        Assert.Null(DirectorDrain.Running);
+    }
+
+    // Shows: a session that will not end is named in the result with the reason the stop path gave, and
+    // the others are still ended; and a run with nothing to add says nothing (the detail is null only
+    // when every session ended and every one was in the record, which the first half of this test holds).
+    [Fact]
+    public async Task ShutDownIgnoringAllAsync_ASessionThatWillNotEnd_IsNamedInTheResultWithTheReason()
+    {
+        using var dir = new TempDir();
+        var (clean, cleanSink) = Rig(Seat("one", "First"));
+        var nothingToSay = await Engine(clean, cleanSink, dir.Path).ShutDownIgnoringAllAsync(
+            new SmartShutdownRequest(SmartShutdownPurpose.Close, SmartShutdownTimes.Default, null), CancellationToken.None);
+        Assert.Null(nothingToSay.Detail);
+
+        var (sessions, sink) = Rig(Seat("stuck", "Will not die"), Seat("two", "Second", order: 1));
+        sessions.RefuseEndWithReason["stuck"] = "the process would not exit";
+
+        var result = await Engine(sessions, sink, dir.Path).ShutDownIgnoringAllAsync(
+            new SmartShutdownRequest(SmartShutdownPurpose.Close, SmartShutdownTimes.Default, null), CancellationToken.None);
+
+        Assert.Equal(1, result.SessionsEnded);
+        Assert.Equal(new[] { "stuck" }, sessions.Live.ToArray());
+        Assert.Contains("stuck", result.Detail);
+        Assert.Contains("the process would not exit", result.Detail);
+        Assert.DoesNotContain("NOT in the record", result.Detail);
+        Assert.Single(sessions.Ended, e => e.SessionId == "stuck");
+    }
+
     // ================= the operating system shutdown record =================
 
     // Shows: the record for an operating system shutdown is saved with every conversation id, as a smart
@@ -698,6 +780,75 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         Assert.Equal(WorkspaceDrainStates.Drained, saved.DrainState);
         Assert.Equal(WorkspaceRestoreDecisions.Restore, saved.Restore!.Decision);
         Assert.Contains(watched.Result.WorkspaceId!, watched.Result.Detail);
+    }
+
+    /// <summary>A Gateway that dies in the seconds between the drain's final save and the launcher step:
+    /// either the machine cannot be checked again, or the check answers and the ask itself never returns.</summary>
+    private sealed class GatewayThatDies : IRestartCycleGateway
+    {
+        public bool DiesOnlyAtTheAsk;
+        public int CapabilityChecks;
+        public int LauncherAsks;
+
+        public Task<MachineRestartCapabilityDto> CheckCapabilityAsync(string machine, CancellationToken ct)
+        {
+            CapabilityChecks++;
+            if (!DiesOnlyAtTheAsk) throw new HttpRequestException("No connection could be made to gateway.example");
+            return Task.FromResult(new MachineRestartCapabilityDto
+            {
+                Verdict = RestartVerdict.CanRestart, Reason = "can be restarted",
+                GuardedRestart = CapabilityState.Available, GuardedRestartReason = "declares the guard",
+            });
+        }
+
+        public Task<LauncherRestartAnswer> AskOwnLauncherRestartOnlyIfEmptyAsync(string machine, string? exePath, CancellationToken ct)
+        {
+            LauncherAsks++;
+            throw new HttpRequestException("The connection to gateway.example was closed");
+        }
+
+        public Task ReportAsync(string machine, string requestId, DirectorRestartProgressReport report, CancellationToken ct)
+            => Task.CompletedTask;
+    }
+
+    // Shows: a Gateway that dies at the launcher step - the re-check throws, or the ask itself throws -
+    // ends the run RestartRefused with the error's own words, NOT as a shutdown that stopped on an error:
+    // the Director is empty, the record stands uncancelled with its session still decided "restore", and
+    // the owner is told it is offered on the next start. When the ask was sent and no answer came back,
+    // the words say that the launcher may still act on it.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Start_WithTheRestartPurpose_AGatewayThatDiesAtTheLauncherStep_EndsRestartRefusedWithTheReason_AndTheRecordStands(bool diesOnlyAtTheAsk)
+    {
+        using var dir = new TempDir();
+        var (sessions, sink) = Rig(Seat("done", "Hands over at once"));
+        sessions.Handover(dir.Path, "done", "Hands over at once", DrainTestRig.Block(restore: true, why: "Work is left."));
+        var launcher = new GatewayThatDies { DiesOnlyAtTheAsk = diesOnlyAtTheAsk };
+
+        var watched = await RunWatchedAsync(sessions, sink, dir.Path, launcher: launcher, purpose: SmartShutdownPurpose.Restart);
+
+        Assert.Equal(SmartShutdownOutcome.RestartRefused, watched.Result.Outcome);
+        Assert.Equal(1, launcher.CapabilityChecks);
+        Assert.Equal(diesOnlyAtTheAsk ? 1 : 0, launcher.LauncherAsks);
+        Assert.Contains(
+            diesOnlyAtTheAsk ? "The connection to gateway.example was closed" : "No connection could be made to gateway.example",
+            watched.Result.Detail);
+        Assert.Contains(diesOnlyAtTheAsk ? "its answer never came back" : "The launcher was not asked", watched.Result.Detail);
+        Assert.DoesNotContain("stopped on an error", watched.Result.Detail);
+        Assert.Contains(watched.Result.WorkspaceId!, watched.Result.Detail);
+        Assert.Contains("offered when the Director is next started", watched.Result.Detail);
+        Assert.Empty(sessions.Live);
+
+        Assert.Equal(WorkspaceShutdownKinds.SmartShutdown, sink.Last.ShutdownKind);
+        Assert.Null(sink.Last.CancelledAtUtc);
+        var saved = sink.Last.Seats.Single();
+        Assert.Equal(WorkspaceRestoreDecisions.Restore, saved.Restore!.Decision);
+
+        var phases = watched.Seen.Select(s => s.Phase).ToList();
+        Assert.Equal(SmartShutdownPhase.Restarting, phases[^2]);
+        Assert.Equal(SmartShutdownPhase.Finished, phases[^1]);
+        Assert.Null(DirectorSmartShutdown.Active);
     }
 
     // Shows: Start with the restart purpose on a Director its launcher would not restart throws

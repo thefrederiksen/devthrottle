@@ -479,7 +479,8 @@ public sealed class SmartShutdownRunTests
     // Shows: one real run over six kinds of session reaches every state a row can be in short of a cancel,
     // and every phase short of a cancel and a restart; and EVERY snapshot raised on the way is whole - its
     // count is the count of its rows, its label says that count, every word is the engine's own, the two
-    // times are where they belong, and cancel is never offered because it is not built.
+    // times are where they belong, and cancel is never offered because this test's engine is wired with
+    // no restore, and a run that cannot bring a session back must not offer a cancel.
     [Fact]
     public async Task Start_AcrossOneRealRun_EveryStateAndPhaseIsReached_AndEverySnapshotIsWhole()
     {

@@ -2075,13 +2075,18 @@ public sealed class DirectorDrain
     /// onto every seat that is verifiably absent, finish the record, and save it again. A seat still
     /// present gets no close time and the record says it would not go.
     /// </summary>
+    /// <param name="alsoSay">What the caller found while ending the sessions that this record cannot know
+    /// by itself - a session that was ended although it appeared after the record was written - each a
+    /// whole sentence, added to the record's problems so that such a session leaves a trace.</param>
     /// <param name="ct">Cancels the wait on the Gateway.</param>
     /// <exception cref="InvalidOperationException">No record was written by this drain.</exception>
-    public async Task SaveSessionsEndedAsync(CancellationToken ct = default)
+    public async Task SaveSessionsEndedAsync(IReadOnlyList<string>? alsoSay = null, CancellationToken ct = default)
     {
         var doc = _recordOnly ?? throw new InvalidOperationException(
             "This drain wrote no record, so there is nothing to write close times onto.");
-        FileLog.Write($"[DirectorDrain] SaveSessionsEndedAsync: workspace={doc.Id}");
+        FileLog.Write($"[DirectorDrain] SaveSessionsEndedAsync: workspace={doc.Id}, alsoSay={alsoSay?.Count ?? 0}");
+
+        foreach (var sentence in alsoSay ?? Array.Empty<string>()) doc.Integrity!.Problems.Add(sentence);
 
         var now = _utcNow();
         foreach (var seat in doc.Seats)
