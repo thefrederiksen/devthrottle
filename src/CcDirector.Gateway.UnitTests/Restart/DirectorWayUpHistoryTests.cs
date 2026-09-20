@@ -50,6 +50,44 @@ public class DirectorWayUpHistoryTests
     }
 
     /// <summary>
+    /// NEWEST FIRST MEANS NEWEST SHUTDOWN FIRST, and not the order the Gateway happened to list the
+    /// records in (product issue 3258).
+    ///
+    /// The Gateway lists by when each record was last WRITTEN, so any mark on an old record - a restore
+    /// that failed, a reopen, a clearing - moves it to the top of that list. In the owner's own output a
+    /// record shut down on 12 September sat above one shut down on 20 September, under a message saying
+    /// "newest first" and above rows that each showed their own shutdown time. This holds two records
+    /// whose written order and shutdown order DISAGREE, so a history that used either one would be
+    /// distinguishable from a history that used the other.
+    /// </summary>
+    [Fact]
+    public async Task The_history_is_ordered_by_the_shutdown_and_not_by_when_the_record_was_last_written()
+    {
+        var rig = new WayUpTestRig();
+
+        // Shut down eight days ago and written again a moment ago: a restore of one of its seats was tried
+        // and failed, which is a mark on the record and moves it to the top of the Gateway's list.
+        var touched = WayUpTestRig.Record("restart-older", Shutdown.AddDays(-8),
+            new[] { WayUpTestRig.Owed("seat-old", "An old seat") });
+        touched.Seats[0].Restore!.Failure = "the repository was gone";
+        touched.UpdatedUtc = Shutdown;
+
+        // Shut down four hours ago and untouched since, so the Gateway lists it SECOND.
+        var newer = WayUpTestRig.Record("restart-newer", Shutdown.AddHours(-4),
+            new[] { WayUpTestRig.Owed("seat-new", "A new seat") });
+
+        rig.Gateway.With(touched).With(newer);
+
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { "restart-newer", "restart-older" },
+            history.Entries.Select(e => e.WorkspaceId).ToArray());
+        Assert.True(history.Entries[0].AtUtc > history.Entries[1].AtUtc);
+        // Both were read: the order is decided from the documents, which is where the shutdown time is.
+        Assert.Equal(new[] { "restart-older", "restart-newer" }, rig.Gateway.Read.ToArray());
+    }
+
+    /// <summary>
     /// A CAPPED READ IS NEVER STATED AS THIS DIRECTOR'S TOTAL (review of phase 4, finding 6).
     ///
     /// The way up reads the newest twenty-five records, because reading every one of them at start-up would

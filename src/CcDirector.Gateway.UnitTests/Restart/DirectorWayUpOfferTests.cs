@@ -156,6 +156,43 @@ public class DirectorWayUpOfferTests
         Assert.Equal(new[] { "restart-newer" }, rig.Gateway.Read);
     }
 
+    /// <summary>
+    /// THE OFFER PICKS BY THE SHUTDOWN TOO, so the one record the owner is interrupted with at start-up is
+    /// the one he just made (product issue 3258).
+    ///
+    /// The offer walks the same list the history reads, and that list is in the order the Gateway last
+    /// WROTE each record. So a mark on an older record - here a restore that was tried and failed - puts
+    /// it ahead of a newer one in the queue to be offered, and the owner is shown the wrong restart. Both
+    /// records here may be offered, so neither is picked by being the only one that qualifies.
+    /// </summary>
+    [Fact]
+    public async Task The_record_offered_is_the_one_with_the_newest_shutdown_not_the_one_written_last()
+    {
+        var rig = new WayUpTestRig();
+
+        // Shut down two days ago; a restore of its seat was tried a moment ago and failed, so the record
+        // was written again and the Gateway lists it FIRST. It still owes that seat, so it may be offered.
+        var touched = WayUpTestRig.Record("restart-touched", Shutdown.AddDays(-2),
+            new[] { WayUpTestRig.Owed("seat-old", "An old seat") });
+        touched.Seats[0].Restore!.Failure = "the repository was gone";
+        touched.UpdatedUtc = Shutdown;
+
+        // Shut down an hour ago and untouched since, so the Gateway lists it SECOND.
+        var latest = WayUpTestRig.Record("restart-latest", Shutdown.AddHours(-1),
+            new[] { WayUpTestRig.Owed("seat-new", "A new seat") });
+
+        rig.Gateway.With(touched).With(latest);
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+
+        Assert.Equal(WayUpOfferState.Offered, offer.State);
+        Assert.Equal("restart-latest", offer.Record?.WorkspaceId);
+        Assert.Equal(Shutdown.AddHours(-1), offer.Record?.ShutdownAtUtc);
+        // It read on past the first record it could have offered, because that record's own shutdown was
+        // older than a later candidate could still be.
+        Assert.Equal(new[] { "restart-touched", "restart-latest" }, rig.Gateway.Read.ToArray());
+    }
+
     /// <summary>A Director with years of records must not make hundreds of calls at start-up, so only the
     /// newest twenty-five are read as documents.</summary>
     [Fact]

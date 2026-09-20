@@ -153,7 +153,8 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         Action<int>? onPoll = null,
         Func<CancellationToken, Task>? reachGateway = null,
         bool? launcherWouldRestartThis = true,
-        bool noGatewayClient = false)
+        bool noGatewayClient = false,
+        Func<bool>? hasBeenAskedToStop = null)
         => new(
             () => noGatewayClient
                 ? null
@@ -178,7 +179,8 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
             sessions: sessions,
             launcherGateway: launcher is null ? null : () => launcher,
             machine: "TEST_MACHINE",
-            exePath: @"C:\app\cc-director.exe");
+            exePath: @"C:\app\cc-director.exe",
+            hasBeenAskedToStop: hasBeenAskedToStop);
 
     private sealed class Watched
     {
@@ -197,13 +199,15 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         IRestartCycleGateway? launcher = null,
         SmartShutdownPurpose purpose = SmartShutdownPurpose.Close,
         Action<int, ISmartShutdownRun>? onPoll = null,
-        Action<SmartShutdownSnapshot, ISmartShutdownRun>? onSnapshot = null)
+        Action<SmartShutdownSnapshot, ISmartShutdownRun>? onSnapshot = null,
+        Func<bool>? hasBeenAskedToStop = null)
     {
         var listening = new TaskCompletionSource();
         ISmartShutdownRun? run = null;
         var engine = Engine(sessions, sink, directory, restore, launcher,
             onPoll: n => onPoll?.Invoke(n, run!),
-            reachGateway: _ => listening.Task);
+            reachGateway: _ => listening.Task,
+            hasBeenAskedToStop: hasBeenAskedToStop);
 
         run = engine.Start(new SmartShutdownRequest(purpose, TimeSpan.FromMinutes(10), "update to 2.9.0"));
         var seen = new List<SmartShutdownSnapshot>();
@@ -866,6 +870,107 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         Assert.Equal(SmartShutdownPhase.Restarting, phases[^2]);
         Assert.Equal(SmartShutdownPhase.Finished, phases[^1]);
         Assert.Null(DirectorSmartShutdown.Active);
+    }
+
+    /// <summary>
+    /// THE LAUNCHER ANSWERING THE ONLY WAY IT CAN: by stopping the Director that asked. It raises this
+    /// Director's shutdown signal and the ask then dies with the process, so no answer ever comes back -
+    /// which in the rig Director's own log was a TaskCanceledException 372 milliseconds after the request
+    /// went out, and 154 milliseconds after the signal arrived (product issue 3257).
+    /// </summary>
+    private sealed class LauncherThatStopsTheDirectorThatAsked : IRestartCycleGateway
+    {
+        private readonly Action _raiseTheShutdownSignal;
+
+        public LauncherThatStopsTheDirectorThatAsked(Action raiseTheShutdownSignal)
+            => _raiseTheShutdownSignal = raiseTheShutdownSignal;
+
+        public int CapabilityChecks;
+        public int LauncherAsks;
+
+        public Task<MachineRestartCapabilityDto> CheckCapabilityAsync(string machine, CancellationToken ct)
+        {
+            CapabilityChecks++;
+            return Task.FromResult(new MachineRestartCapabilityDto
+            {
+                Verdict = RestartVerdict.CanRestart, Reason = "can be restarted",
+                GuardedRestart = CapabilityState.Available, GuardedRestartReason = "declares the guard",
+            });
+        }
+
+        public Task<LauncherRestartAnswer> AskOwnLauncherRestartOnlyIfEmptyAsync(string machine, string? exePath, CancellationToken ct)
+        {
+            LauncherAsks++;
+            _raiseTheShutdownSignal();
+            throw new TaskCanceledException("The operation was canceled.");
+        }
+
+        public Task ReportAsync(string machine, string requestId, DirectorRestartProgressReport report, CancellationToken ct)
+            => Task.CompletedTask;
+    }
+
+    // Shows: the launcher accepting by STOPPING the Director that asked ends the run RestartAccepted and
+    // not RestartRefused, although the ask itself died with a cancellation and no answer ever came back.
+    // The two facts that recognise it are both positive - the ask was sent, and this process was then
+    // asked to stop - and the outcome the command line reads is the one that exits zero. The record still
+    // stands, uncancelled, with its handed-over seat still decided "restore" (product issue 3257).
+    [Fact]
+    public async Task Start_WithTheRestartPurpose_ALauncherThatAnswersByStoppingThisDirector_EndsRestartAccepted()
+    {
+        using var dir = new TempDir();
+        var (sessions, sink) = Rig(Seat("done", "Hands over at once"));
+        sessions.Handover(dir.Path, "done", "Hands over at once", DrainTestRig.Block(restore: true, why: "Work is left."));
+        var askedToStop = false;
+        var launcher = new LauncherThatStopsTheDirectorThatAsked(() => askedToStop = true);
+
+        var watched = await RunWatchedAsync(sessions, sink, dir.Path, launcher: launcher,
+            purpose: SmartShutdownPurpose.Restart, hasBeenAskedToStop: () => askedToStop);
+
+        Assert.Equal(SmartShutdownOutcome.RestartAccepted, watched.Result.Outcome);
+        Assert.Equal(1, launcher.CapabilityChecks);
+        Assert.Equal(1, launcher.LauncherAsks);
+        Assert.True(askedToStop);
+        Assert.Contains("The launcher accepted the restart", watched.Result.Detail);
+        Assert.Contains("stopping this Director", watched.Result.Detail);
+        Assert.Contains("The operation was canceled.", watched.Result.Detail);
+        Assert.DoesNotContain("restart it by hand", watched.Result.Detail);
+        Assert.DoesNotContain("its answer never came back", watched.Result.Detail);
+        Assert.Empty(sessions.Live);
+
+        Assert.Equal(WorkspaceShutdownKinds.SmartShutdown, sink.Last.ShutdownKind);
+        Assert.Null(sink.Last.CancelledAtUtc);
+        Assert.Equal(WorkspaceRestoreDecisions.Restore, sink.Last.Seats.Single().Restore!.Decision);
+
+        var phases = watched.Seen.Select(s => s.Phase).ToList();
+        Assert.Equal(SmartShutdownPhase.Restarting, phases[^2]);
+        Assert.Equal(SmartShutdownPhase.Finished, phases[^1]);
+        Assert.Null(DirectorSmartShutdown.Active);
+    }
+
+    // Shows: the other half of the same rule - an ask that failed with NO stop behind it is still
+    // RestartRefused, and so is one made by a process that was ALREADY on its way down before the launcher
+    // was asked. A Director shutting down for its own reasons never reads that as its launcher accepting,
+    // and the refusal still carries the error's own words and says the record is offered on the next
+    // start. This is what stops the fix for issue 3257 from turning every dead ask into a success.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Start_WithTheRestartPurpose_AnAskThatDiesWithNoStopBehindIt_IsStillRestartRefused(bool alreadyStoppingBeforeTheAsk)
+    {
+        using var dir = new TempDir();
+        var (sessions, sink) = Rig(Seat("done", "Hands over at once"));
+        sessions.Handover(dir.Path, "done", "Hands over at once", DrainTestRig.Block(restore: true, why: "Work is left."));
+        var launcher = new GatewayThatDies { DiesOnlyAtTheAsk = true };
+
+        var watched = await RunWatchedAsync(sessions, sink, dir.Path, launcher: launcher,
+            purpose: SmartShutdownPurpose.Restart, hasBeenAskedToStop: () => alreadyStoppingBeforeTheAsk);
+
+        Assert.Equal(SmartShutdownOutcome.RestartRefused, watched.Result.Outcome);
+        Assert.Equal(1, launcher.LauncherAsks);
+        Assert.Contains("The connection to gateway.example was closed", watched.Result.Detail);
+        Assert.Contains("its answer never came back", watched.Result.Detail);
+        Assert.Contains("offered when the Director is next started", watched.Result.Detail);
+        Assert.DoesNotContain("The launcher accepted the restart", watched.Result.Detail);
     }
 
     // Shows: Start with the restart purpose on a Director its launcher would not restart throws

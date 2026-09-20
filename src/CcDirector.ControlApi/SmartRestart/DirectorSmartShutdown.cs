@@ -47,6 +47,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
     private readonly Func<IRestartCycleGateway?>? _launcherGateway;
     private readonly string _machine;
     private readonly string? _exePath;
+    private readonly Func<bool>? _hasBeenAskedToStop;
 
     /// <summary>Create the engine.</summary>
     /// <param name="createDrain">Builds a drain of this Director, or returns null when this Director has
@@ -70,6 +71,11 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
     /// way to restart; a restart is then refused at the start.</param>
     /// <param name="machine">This machine, as the restart route names it.</param>
     /// <param name="exePath">This process's executable, sent to the restart route as evidence.</param>
+    /// <param name="hasBeenAskedToStop">Has something outside this process asked it to stop? Read around
+    /// the launcher ask, because the launcher ACCEPTS a restart by stopping the Director that asked, so
+    /// an accepted restart reaches this engine as the ask dying rather than as an answer. Null means this
+    /// engine cannot see its own process being stopped, and the accepted case is then not recognisable at
+    /// all - which is what every caller had before product issue 3257.</param>
     public DirectorSmartShutdown(
         Func<DirectorDrain?> createDrain,
         Func<CancellationToken, Task> reachGateway,
@@ -81,7 +87,8 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         IDrainSessionControl? sessions = null,
         Func<IRestartCycleGateway?>? launcherGateway = null,
         string? machine = null,
-        string? exePath = null)
+        string? exePath = null,
+        Func<bool>? hasBeenAskedToStop = null)
     {
         _createDrain = createDrain ?? throw new ArgumentNullException(nameof(createDrain));
         _reachGateway = reachGateway ?? throw new ArgumentNullException(nameof(reachGateway));
@@ -94,6 +101,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         _launcherGateway = launcherGateway;
         _machine = string.IsNullOrWhiteSpace(machine) ? Environment.MachineName : machine;
         _exePath = exePath;
+        _hasBeenAskedToStop = hasBeenAskedToStop;
     }
 
     /// <summary>The run under way on this Director, or null. For a screen deciding what to offer.</summary>
@@ -242,7 +250,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
             }
 
             run = new SmartShutdownRun(this, request, _createDrain, _directorName, _directory, _utcNow,
-                _bringBack, _launcherGateway, _machine, _exePath);
+                _bringBack, _launcherGateway, _machine, _exePath, _hasBeenAskedToStop);
             _active = run;
         }
 
@@ -436,6 +444,7 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
     private readonly Func<IRestartCycleGateway?>? _launcherGateway;
     private readonly string _machine;
     private readonly string? _exePath;
+    private readonly Func<bool>? _hasBeenAskedToStop;
     private readonly CancellationTokenSource _shutDownNow = new();
     private readonly CancellationTokenSource _cancel = new();
     private readonly TaskCompletionSource<SmartShutdownResult> _completion =
@@ -460,7 +469,8 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         BringBackClosedSessions? bringBack,
         Func<IRestartCycleGateway?>? launcherGateway,
         string machine,
-        string? exePath)
+        string? exePath,
+        Func<bool>? hasBeenAskedToStop)
     {
         _engine = engine;
         _request = request;
@@ -472,6 +482,7 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         _launcherGateway = launcherGateway;
         _machine = machine;
         _exePath = exePath;
+        _hasBeenAskedToStop = hasBeenAskedToStop;
 
         var started = utcNow();
         _current = new SmartShutdownSnapshot(
@@ -657,6 +668,21 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
     ///
     /// A refusal leaves the record standing: every session is shut down and recorded, and the way up
     /// offers them whenever the Director is next started.
+    ///
+    /// HOW AN ACCEPTED RESTART ARRIVES HERE (product issue 3257). The launcher's way of accepting is to
+    /// STOP THE DIRECTOR THAT ASKED, so on the happy path the awaited ask never returns an answer at all -
+    /// it dies with the process, as a cancellation. Read as an error that is a launcher which refused,
+    /// and twice out of two a Director restarted correctly and told the person on the last screen of the
+    /// main path that its restart had been REFUSED, with the command line exiting non-zero for a good run.
+    ///
+    /// THE ACCEPTED CASE IS RECOGNISED FROM TWO POSITIVE FACTS, never from the exception: the ask was
+    /// SENT, and this process was then ASKED TO STOP. Both are observed rather than assumed - the first by
+    /// the step's own beforeAsk hook, the second by the lifecycle signal the launcher raises to stop a
+    /// Director (<c>DirectorSupervisor.StopAsync</c>), recorded in
+    /// <see cref="CcDirector.Core.Lifecycle.LifecycleStopRequest"/>. The stop is read BEFORE the ask as
+    /// well as after it, so a process already on its way down is never mistaken for one the launcher
+    /// stopped, and nothing here sniffs the exception's type or swallows it: an ask that failed with no
+    /// stop behind it is still a refusal and still carries the error's own words.
     /// </summary>
     private async Task AskLauncherAsync(string? workspaceId, string emptied)
     {
@@ -685,6 +711,7 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         // not be told the record is offered on the next start. Nothing is retried and nothing is hidden:
         // the outcome carries the error's own words.
         var launcherWasAsked = false;
+        var wasAlreadyStopping = HasBeenAskedToStop();
         LauncherRestartStepResult step;
         try
         {
@@ -694,7 +721,19 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SmartShutdownRun] AskLauncherAsync FAILED: launcherWasAsked={launcherWasAsked}: {ex}");
+            var stoppedByTheLauncher = launcherWasAsked && !wasAlreadyStopping && HasBeenAskedToStop();
+            FileLog.Write($"[SmartShutdownRun] AskLauncherAsync FAILED: launcherWasAsked={launcherWasAsked}, " +
+                          $"wasAlreadyStopping={wasAlreadyStopping}, stoppedByTheLauncher={stoppedByTheLauncher}: {ex}");
+
+            if (stoppedByTheLauncher)
+            {
+                Finish(SmartShutdownOutcome.RestartAccepted, workspaceId,
+                    emptied + " The launcher accepted the restart: it answered by stopping this Director, which is " +
+                    "why the request itself never came back (" + ex.Message + "). This Director is being stopped " +
+                    "and started again now.");
+                return;
+            }
+
             Finish(SmartShutdownOutcome.RestartRefused, workspaceId,
                 (launcherWasAsked
                     ? "The launcher was asked to restart this Director, but its answer never came back: " + ex.Message +
@@ -721,6 +760,13 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
                 return;
         }
     }
+
+    /// <summary>
+    /// Has something outside this process asked it to stop? False when this engine was given no way to
+    /// see that - which is a Director that cannot recognise its own launcher's acceptance, never a claim
+    /// that nothing stopped it.
+    /// </summary>
+    private bool HasBeenAskedToStop() => _hasBeenAskedToStop?.Invoke() ?? false;
 
     private void Finish(SmartShutdownOutcome outcome, string? workspaceId, string detail)
     {
