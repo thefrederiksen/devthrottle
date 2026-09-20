@@ -752,6 +752,10 @@ public partial class MainWindow : Window
 
         _gatewayMonitor = host.GatewayMonitor;
 
+        // THE WAY UP (mission "Smart Director Restart", 5.3 item 10). Everything it does - ask once, off
+        // this thread, and show nothing unless the engine offers something - is in WayUpStartUpAsk.
+        SmartRestart.WayUpStartUpAsk.WatchForRestartOffer(host, this);
+
         // The rail's colour hover is built from the legend the Gateway serves, and that read finishes
         // seconds AFTER these rows are on screen. Without this, every hover would show the Gateway's
         // stamped label alone until some unrelated event repainted the row. Same shape as the connection
@@ -4612,6 +4616,15 @@ public partial class MainWindow : Window
             var dialog = new DrainDirectorDialog(
                 host, InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
             await dialog.ShowDialog(this);
+        }));
+        // THE RESTART HISTORY (mission "Smart Director Restart", 5.3 item 11), beside the drain because
+        // it is the record of what a drain or a smart shutdown left behind, and the way to bring those
+        // sessions back later.
+        file.Menu.Items.Add(Item("Restart history...", async () =>
+        {
+            FileLog.Write("[MainWindow] Menu: Restart history");
+            await SmartRestart.RestartHistoryWindow.ShowForAsync(
+                this, (global::Avalonia.Application.Current as App)?.ControlApiHost);
         }));
         file.Menu.Items.Add(new NativeMenuItemSeparator());
         file.Menu.Items.Add(Item("Open Logs", () =>
