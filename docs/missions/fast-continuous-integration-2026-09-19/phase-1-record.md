@@ -98,7 +98,56 @@ should mean for a commit that will never get a verdict of its own - was raised t
 20 September with that recommendation. The full write-up is in
 `how-the-deploy-gate-treats-a-cancelled-run.md` beside this record.
 
+## Package 4 - open as pull request 3163
+
+Branch `ci/package-4-continuous-integration-keeper`, opened 20 September 2026, not merged.
+`tools/cc-continuous-integration-keeper` with `collect` and `check`, every threshold in
+`.github/continuous-integration-budget.json`, a daily job at 12:17 Coordinated Universal Time that
+takes a repository as an input, and its tests added to the pull request run. The job holds
+`actions:read` and `contents:read` and no write permission at all: it proposes and changes nothing,
+which is the owner's ruling.
+
+**Checked by the Delivery Lead.** The ninety-one tests were run here, not taken on report: all
+green. The named assertions were read as well as counted, because a suite that passes proves
+nothing until you know what it asserts. The two that matter:
+
+- `test_the_eighteen_hour_red_test_is_raised_by_name_and_by_number` and
+  `test_the_budget_is_raised_with_the_76_minute_median` - the proof the brief asked for, against a
+  frozen fixture of this repository's own records for 16 to 19 September, which
+  `test_the_fixture_still_reads_back_exactly` pins as genuine.
+- `test_04_an_unmeasured_condition_is_never_a_pass`, eight tests ending in
+  `test_the_command_ends_with_an_error_when_it_measured_nothing`. A keeper that reports "clear"
+  because it could read nothing would be the same fail-open this mission exists to end, and it
+  refuses to.
+
+**Two decisions taken here rather than sent to the owner**, both written into the pull request body:
+
+1. **Condition 3 is scoped to every branch, not to main.** The brief words it as three finished runs
+   in a row *on main*. Measured against the very week it exists to catch, that never fires: one of
+   the eighteen runs naming the red test was on main, and the longest row on main is one, because
+   only fifty-one of a hundred and thirty-five runs on main finished that week. The brief's wording
+   and the brief's proof owed cannot both be satisfied, and the proof owed is the outcome the
+   package exists for. The cause is the owner's own ruling 3 - cancellation applies on main too -
+   so this is that ruling's consequence surfacing, not a disagreement with it. It is a setting,
+   both settings are proved, and one edit moves it back.
+2. **The keeper is not registered in `tools/registry.json`**, matching the two sibling repository
+   tools `cc-history` and `cc-status`, which are unregistered for the same reason.
+
+**Not proven, and said plainly in the body:** condition 4 fires on built records only - this
+repository skipped no job it should have run in those four days. The daily schedule itself cannot
+run until this is on main, and with it the assumption that the workflow token can download job
+logs; the live run used a personal token. "Any repository" is proved by construction and against
+three common test runners, not against a second repository. Job logs age out at ninety days, and an
+older window reads as not measured rather than as clear.
+
+**Two live findings routed elsewhere:** the keeper's real run over the seven days to 20 September
+reports the .NET suite up 23.2 per cent and the web suite up 40.8 per cent in six days - package 7's
+territory - and reports the budget broken by a wide margin, which it will raise daily until
+packages 1, 2 and 3 land. Both are the keeper working.
+
 ## Open
 
-- Packages 3 and 4 still building.
+- Package 3 still building.
 - The measured .NET job time from pull request 3161's first run, to replace the predicted saving.
+- All three branches are based on `736d9afe2`; main has since moved on. Each is merged by the
+  Architect, which rebases or lets the merge carry it.
