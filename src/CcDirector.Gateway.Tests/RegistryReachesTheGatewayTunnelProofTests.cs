@@ -353,11 +353,14 @@ public sealed class RegistryReachesTheGatewayTunnelProofTests : IAsyncLifetime
         var coldStart = MonitorOver(WatchedPath("alpha"), WatchedPath("bravo"));
         Assert.False(coldStart.HasCompletedAScan);
         var coldPush = await DirectorPushAsync(registry, coldStart);
-        Assert.Empty(coldPush);
         await director.PushRepoSnapshotAsync(coldPush);
 
-        // Nothing was erased: the list the Cockpit and the phone read is untouched.
+        // THE CONSEQUENCE IS ASSERTED FIRST, DELIBERATELY. Nothing was erased: the list the Cockpit and
+        // the phone read is untouched. Were the guard checked here instead, this test would stop at the
+        // guard and never watch the damage it prevents - and a proof that only restates the mechanism
+        // cannot tell you what the mechanism is for.
         Assert.Equal(3, (await ServedAsync()).Count);
+        Assert.Empty(coldPush);
 
         // And the scan then settles, saying the same thing again.
         await coldStart.RescanAsync(new[] { Path.Combine(_root, "watched") });
