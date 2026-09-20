@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using CcDirector.ControlApi;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
@@ -473,8 +474,36 @@ public partial class NewSessionDialog : Window
     private List<HandoverViewModel>? _allHandovers;
     private bool _sessionsLoaded;
     private bool _handoversLoaded;
-    private string _repoSortColumn = "LastUsed";
+    private string _repoSortColumn = NewSessionRepositoryList.LastUsedColumn;
     private bool _repoSortAscending;
+
+    /// <summary>
+    /// The repository list as it was built or served, never re-ordered in place. Sorting reads from this
+    /// and writes <see cref="_allRepos"/>, so the Gateway's own order survives a trip through the Name
+    /// heading and back (the one-repository-list mission, phase 6).
+    /// </summary>
+    private List<RepositoryConfig> _sourceRepos = new();
+
+    /// <summary>
+    /// True while <see cref="_sourceRepos"/> is the ONE list the Gateway serves, false while it is this
+    /// machine's own local union. It decides two things and nothing else: that the last-used heading
+    /// renders the served order instead of computing one, and that the screen is showing a fallback
+    /// notice.
+    /// </summary>
+    private bool _sourceIsTheGatewaysOrder;
+
+    /// <summary>
+    /// How this dialog asks for the one repository list. Production resolves it from the running
+    /// Director's Gateway connection; a test supplies its own so the four outcomes - including a Gateway
+    /// that cannot be reached - can be driven without a network.
+    /// </summary>
+    private readonly Func<CancellationToken, Task<KnownRepositoryListResult>> _gatewayRepositories;
+
+    /// <summary>
+    /// Cancelled when the dialog closes, so an ask still in flight does not come back to a window that
+    /// is gone. The user can close this dialog long before a Gateway that is not answering gives up.
+    /// </summary>
+    private readonly CancellationTokenSource _closing = new();
 
     public string? SelectedPath { get; private set; }
     public string? SelectedResumeSessionId { get; private set; }
@@ -539,12 +568,22 @@ public partial class NewSessionDialog : Window
             ?? new AgentOptions();
     }
 
-    public NewSessionDialog(RepositoryRegistry? registry = null, SessionHistoryStore? historyStore = null)
+    /// <param name="registry">This Director's own recently-used repositories.</param>
+    /// <param name="historyStore">Session history, for the Resume Session tab.</param>
+    /// <param name="gatewayRepositories">How to ask for the ONE repository list (the one-repository-list
+    /// mission, phase 6). Null - every production caller - resolves the running Director's Gateway
+    /// connection. A test supplies its own so each of the four outcomes, including a Gateway that cannot
+    /// be reached, is driven without a network.</param>
+    public NewSessionDialog(
+        RepositoryRegistry? registry = null,
+        SessionHistoryStore? historyStore = null,
+        Func<CancellationToken, Task<KnownRepositoryListResult>>? gatewayRepositories = null)
     {
         FileLog.Write("[NewSessionDialog] Constructor: initializing");
         InitializeComponent();
         _registry = registry;
         _historyStore = historyStore;
+        _gatewayRepositories = gatewayRepositories ?? AskTheDirectorsGatewayAsync;
 
         // Alpha gating: Handovers, GitHub remote sessions and the Assistant/Coach
         // quick-launch cards are alpha features - hidden by default. The dialog is
@@ -569,13 +608,13 @@ public partial class NewSessionDialog : Window
             Height = screen.WorkingArea.Height * 0.7 / screen.Scaling;
         }
 
-        _allRepos = BuildRepositoryList();
-        if (_allRepos.Count > 0)
-        {
-            ApplyRepoSort();
-            RepoList.ItemsSource = _allRepos;
-        }
-        UpdateRepoEmptyState();
+        // The machine's own list goes up FIRST, synchronously, so the screen is never blank and never
+        // waits on a network (Critical Rule 1). The Gateway's list replaces it below when it arrives -
+        // and while it has not, the notice says so rather than letting the user believe this is the one
+        // list everybody else is looking at.
+        ShowRepositories(BuildRepositoryList(), isTheGatewaysOrder: false);
+        RepoSourceNoticeText.Text = NewSessionRepositoryList.CheckingNotice;
+        RepoSourceNotice.IsVisible = true;
 
         // Named sessions (issue #508): show the saved items and reflect them against the
         // currently registered agents so a removed agent reads as unavailable.
@@ -584,6 +623,7 @@ public partial class NewSessionDialog : Window
         Loaded += async (_, _) =>
         {
             Dispatcher.UIThread.Post(() => RepoSearchBox.Focus());
+            await LoadGatewayRepositoriesAsync();
             await LoadSessionHistoryAsync();
         };
 
@@ -592,6 +632,25 @@ public partial class NewSessionDialog : Window
 
     // Parameterless constructor for XAML designer
     public NewSessionDialog() : this(null, null) { }
+
+    /// <summary>
+    /// Stop waiting on the Gateway when the dialog goes. A Gateway that is not answering takes as long
+    /// as its timeout, and the user is entitled to close this window in the meantime.
+    /// </summary>
+    /// <param name="e">The close event.</param>
+    protected override void OnClosed(EventArgs e)
+    {
+        try
+        {
+            _closing.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Closed twice. There is nothing left to cancel.
+        }
+
+        base.OnClosed(e);
+    }
 
     /// <summary>
     /// The repositories this dialog offers: the ones you have USED, in their recency order, then every
@@ -627,9 +686,7 @@ public partial class NewSessionDialog : Window
                     if (!seen.Add(NormalizeRepoPath(status.Path))) continue;
                     discovered.Add(new RepositoryConfig
                     {
-                        Name = string.IsNullOrWhiteSpace(status.Name)
-                            ? System.IO.Path.GetFileName(status.Path.TrimEnd(System.IO.Path.DirectorySeparatorChar))
-                            : status.Name,
+                        Name = NewSessionRepositoryList.NameForScannedRepository(status.Name, status.Path),
                         Path = status.Path,
                         // Deliberately null: these have never been opened, so they carry no recency and
                         // sort below everything that has.
@@ -665,6 +722,106 @@ public partial class NewSessionDialog : Window
         catch
         {
             return path;
+        }
+    }
+
+    /// <summary>
+    /// Ask the running Director's Gateway connection for the one repository list. The production
+    /// resolution of <see cref="_gatewayRepositories"/>; a Director whose services have not started yet
+    /// has nobody to ask, which is one of the four outcomes rather than an error.
+    /// </summary>
+    private static Task<KnownRepositoryListResult> AskTheDirectorsGatewayAsync(CancellationToken ct)
+    {
+        var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+        return host is null
+            ? Task.FromResult(KnownRepositoryListResult.NotConfigured(
+                "this Director's Gateway connection has not started"))
+            : host.GetKnownRepositoriesAsync(ct);
+    }
+
+    /// <summary>
+    /// Take the ONE repository list from the Gateway and show it, or say on screen why this is the
+    /// machine's own list instead (the one-repository-list mission, phase 6; the owner chose Gateway
+    /// first, local scan as the fallback, and SAYING SO when it is on the fallback).
+    ///
+    /// WHAT COUNTS AS THE FALLBACK IS DELIBERATELY NARROW, and these three clauses are the rule as the
+    /// mission adopted it. Law 1 forbids fixing things by adding things, and the only thing that makes
+    /// this fallback honest rather than a mask is that it SAYS what happened:
+    ///
+    /// <list type="number">
+    ///   <item>A 200 IS THE LIST, whatever it contains, including empty. Never fall back on a list you
+    ///     dislike - that is how a screen comes to disagree with the other two, which is the defect this
+    ///     mission exists to end.</item>
+    ///   <item>No answer at all - not configured, cannot connect, timed out - falls back.</item>
+    ///   <item>An error status falls back AND quotes the Gateway's own words on screen, so the defect is
+    ///     displayed rather than hidden.</item>
+    /// </list>
+    /// </summary>
+    private async Task LoadGatewayRepositoriesAsync()
+    {
+        try
+        {
+            var answer = await _gatewayRepositories(_closing.Token);
+            if (_closing.IsCancellationRequested)
+            {
+                FileLog.Write("[NewSessionDialog] LoadGatewayRepositoriesAsync: the dialog closed before the answer arrived");
+                return;
+            }
+
+            FileLog.Write($"[NewSessionDialog] LoadGatewayRepositoriesAsync: outcome={answer.Outcome}, "
+                          + $"repositories={answer.Repositories.Count}, reason={answer.Reason ?? "(none)"}");
+
+            if (answer.Outcome == KnownRepositoryListOutcome.Served)
+            {
+                ShowRepositories(
+                    NewSessionRepositoryList.FromGateway(answer.Repositories), isTheGatewaysOrder: true);
+                RepoSourceNotice.IsVisible = false;
+                return;
+            }
+
+            // The local list built in the constructor stays on screen; only the sentence changes.
+            RepoSourceNoticeText.Text =
+                NewSessionRepositoryList.FallbackNotice(answer.Outcome, answer.Reason);
+            RepoSourceNotice.IsVisible = true;
+        }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            FileLog.Write("[NewSessionDialog] LoadGatewayRepositoriesAsync: the ask was cancelled by the dialog closing");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[NewSessionDialog] LoadGatewayRepositoriesAsync FAILED: {ex.Message}");
+            if (_closing.IsCancellationRequested) return;
+
+            RepoSourceNoticeText.Text = NewSessionRepositoryList.FallbackNotice(
+                KnownRepositoryListOutcome.Refused, "the repository list could not be read");
+            RepoSourceNotice.IsVisible = true;
+        }
+    }
+
+    /// <summary>
+    /// Put one repository list on screen: hold it as the source, order it by whichever heading the user
+    /// has pressed, re-apply the search box, and keep the row the user had already chosen selected.
+    /// </summary>
+    /// <param name="repositories">The list as built or served, in ITS OWN order.</param>
+    /// <param name="isTheGatewaysOrder">True when this is the Gateway's ordered list.</param>
+    private void ShowRepositories(List<RepositoryConfig> repositories, bool isTheGatewaysOrder)
+    {
+        var chosen = SelectedPath;
+
+        FileLog.Write($"[NewSessionDialog] ShowRepositories: count={repositories.Count}, "
+                      + $"source={(isTheGatewaysOrder ? "the Gateway's one list" : "this machine's own list")}");
+
+        _sourceRepos = repositories;
+        _sourceIsTheGatewaysOrder = isTheGatewaysOrder;
+        ApplyRepoSort();
+        ApplyRepoFilter();
+        UpdateRepoEmptyState();
+
+        if (!string.IsNullOrEmpty(chosen) && _allRepos is not null)
+        {
+            RepoList.SelectedItem = _allRepos.FirstOrDefault(
+                r => string.Equals(r.Path, chosen, StringComparison.Ordinal));
         }
     }
 
@@ -1136,7 +1293,9 @@ public partial class NewSessionDialog : Window
         else
         {
             _repoSortColumn = column;
-            _repoSortAscending = column != "LastUsed"; // LastUsed defaults descending
+            // Last Used defaults descending - most recently used at the top, which is the order the
+            // Gateway already serves.
+            _repoSortAscending = column != NewSessionRepositoryList.LastUsedColumn;
         }
 
         ApplyRepoSort();
@@ -1145,23 +1304,16 @@ public partial class NewSessionDialog : Window
         FileLog.Write($"[NewSessionDialog] RepoHeader_Click: sort={_repoSortColumn}, asc={_repoSortAscending}");
     }
 
+    /// <summary>
+    /// Order the list for the screen. The rules are in <see cref="NewSessionRepositoryList.Order"/>, not
+    /// here: while the list is the Gateway's, the last-used heading renders the served order rather than
+    /// computing one, because that order is the Gateway's ruling and this screen is one of three showing
+    /// it (Critical Rule 7).
+    /// </summary>
     private void ApplyRepoSort()
     {
-        if (_allRepos == null || _allRepos.Count == 0)
-            return;
-
-        _allRepos = _repoSortColumn switch
-        {
-            "Name" => _repoSortAscending
-                ? _allRepos.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList()
-                : _allRepos.OrderByDescending(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList(),
-            "Path" => _repoSortAscending
-                ? _allRepos.OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase).ToList()
-                : _allRepos.OrderByDescending(r => r.Path, StringComparer.OrdinalIgnoreCase).ToList(),
-            _ => _repoSortAscending
-                ? _allRepos.OrderBy(r => r.LastUsed ?? DateTime.MinValue).ToList()
-                : _allRepos.OrderByDescending(r => r.LastUsed ?? DateTime.MinValue).ToList(),
-        };
+        _allRepos = NewSessionRepositoryList.Order(
+            _sourceRepos, _sourceIsTheGatewaysOrder, _repoSortColumn, _repoSortAscending);
     }
 
     private void UpdateRepoHeaderLabels()
@@ -1246,10 +1398,13 @@ public partial class NewSessionDialog : Window
             if (_registry != null)
             {
                 _registry.TryAdd(folderPath);
-                _allRepos = BuildRepositoryList();
-                ApplyRepoSort();
-                ApplyRepoFilter();
-                UpdateRepoEmptyState();
+
+                // Only the machine's own list is rebuilt here. While the screen is showing the Gateway's
+                // list, rebuilding would quietly swap it for a different one with no notice - which is
+                // the failure the owner named. The browsed folder is in the path box and Start works on
+                // it now; it joins the one list on the Director's next push.
+                if (!_sourceIsTheGatewaysOrder)
+                    ShowRepositories(BuildRepositoryList(), isTheGatewaysOrder: false);
             }
 
             UpdateActionButton();
@@ -1264,13 +1419,19 @@ public partial class NewSessionDialog : Window
 
         FileLog.Write($"[NewSessionDialog] BtnRemoveRepo_Click: {path}");
 
+        // Remove is offered on the machine's own list only - RepositoryConfig.CanRemove is false for every
+        // row that came off the Gateway's catalogue, because removing from this Director's registry would
+        // not remove it there and the row would be back on the next read.
+        if (_sourceIsTheGatewaysOrder)
+        {
+            FileLog.Write("[NewSessionDialog] BtnRemoveRepo_Click: ignored - the list on screen is the Gateway's");
+            return;
+        }
+
         if (_registry != null)
         {
             _registry.Remove(path);
-            _allRepos = BuildRepositoryList();
-            ApplyRepoSort();
-            ApplyRepoFilter();
-            UpdateRepoEmptyState();
+            ShowRepositories(BuildRepositoryList(), isTheGatewaysOrder: false);
 
             if (PathInput.Text == path)
             {
