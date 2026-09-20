@@ -19,6 +19,14 @@ name: Continuous integration keeper
 #
 # The keeper is pointed at a repository, which is an input rather than a constant: run it by hand
 # with a different owner/name and it reads that repository instead.
+#
+# WHAT IT COSTS TO READ. One request per hundred runs, one per finished run for its jobs, and one per
+# job log it needs - the failed jobs, and every job of the runs at the two ends of the window, which
+# is where the test counts come from. Over seven days of this repository that measured about 530
+# requests and six minutes. The token this job uses is allowed a thousand requests an hour against
+# one repository, so a much longer window or a much busier repository would go past it. It fails
+# LOUDLY if it does: a refused request ends the collection with the message the interface gave, and
+# this job goes red. It never returns a short list as though that were the whole window.
 
 on:
   schedule:
