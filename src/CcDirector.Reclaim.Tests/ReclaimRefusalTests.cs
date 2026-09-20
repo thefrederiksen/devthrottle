@@ -988,7 +988,81 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
         Assert.Equal(2048, apply.CandidateBytesBefore);
     }
 
+    [Fact]
+    public void Reclaim_AnOwnersOwnCommandThatWillNotStart_SaysSoAndTouchesNothing()
+    {
+        using var tree = new FixtureTree(nameof(Reclaim_AnOwnersOwnCommandThatWillNotStart_SaysSoAndTouchesNothing));
+        var (rule, item, holdingRoot) = AnOwnerCommandRule(tree, "a-program-nobody-installed-7f3a9c --clean");
+
+        var applied = Assert.Single(ApplyWith(tree, rule, holdingRoot).Items);
+
+        // The gate passed the item, the command could not be started, and the answer says exactly
+        // that: it did not run, there is no exit code, and the reason names the command.
+        Assert.True(applied.Gate.Eligible, applied.Gate.Reason);
+        Assert.False(applied.OwnersCommandRan);
+        Assert.Null(applied.OwnersCommandExitCode);
+        Assert.Contains("could not be started", applied.OutcomeReason);
+        Assert.Contains("a-program-nobody-installed-7f3a9c", applied.OutcomeReason);
+
+        // Nothing was held and nothing was touched.
+        Assert.False(applied.Moved);
+        Assert.False(Directory.Exists(holdingRoot));
+        Assert.Equal(2048, new FileInfo(Path.Combine(item, "cached.bin")).Length);
+    }
+
+    [Fact]
+    public void Reclaim_AnOwnersOwnCommandThatFails_ReportsItsExitCodeAndHoldsNothing()
+    {
+        using var tree = new FixtureTree(nameof(Reclaim_AnOwnersOwnCommandThatFails_ReportsItsExitCodeAndHoldsNothing));
+        var command = OperatingSystem.IsWindows() ? "cmd.exe /c \"exit 3\"" : "/bin/sh -c \"exit 3\"";
+        var (rule, item, holdingRoot) = AnOwnerCommandRule(tree, command);
+
+        var result = ApplyWith(tree, rule, holdingRoot);
+        var applied = Assert.Single(result.Items);
+
+        // The command ran and failed. Its own exit code is reported as it was, never rounded to a
+        // success, and the report's line for the item carries it.
+        Assert.True(applied.OwnersCommandRan, applied.OutcomeReason);
+        Assert.Equal(3, applied.OwnersCommandExitCode);
+        Assert.Contains("command: ran, exit code 3", result.Lines);
+
+        // The bytes are measured after as well as before, and a command that cleared nothing is
+        // reported as having cleared nothing.
+        Assert.Equal(2048, result.CandidateBytesBefore);
+        Assert.Equal(2048, result.CandidateBytesAfter);
+        Assert.Equal(0, result.BytesMoved);
+        Assert.False(Directory.Exists(holdingRoot));
+        Assert.Equal(2048, new FileInfo(Path.Combine(item, "cached.bin")).Length);
+    }
+
     // -- The helpers --
+
+    private static (IReclaimRule Rule, string Item, string HoldingRoot) AnOwnerCommandRule(FixtureTree tree, string command)
+    {
+        var cache = tree.Folder("package-cache");
+        var item = Path.Combine(cache, "the-cache");
+        Directory.CreateDirectory(item);
+        File.WriteAllBytes(Path.Combine(item, "cached.bin"), new byte[2048]);
+
+        var rule = new OfferingRule(
+            cache,
+            new ReclaimCandidate(item, 2048, DateTimeOffset.UtcNow, "the cache of a package manager, cleared by its own command"),
+            proof: ProofKind.OwnersOwnCommand,
+            commandToRun: command);
+        return (rule, item, Path.Combine(tree.Root, "holding"));
+    }
+
+    private static ReclaimRunResult ApplyWith(FixtureTree tree, IReclaimRule rule, string holdingRoot) =>
+        ReclaimRunner.Run(new ReclaimRunRequest
+        {
+            Rules = [rule],
+            RootPath = tree.Root,
+            HoldingRootPath = holdingRoot,
+            ProtectedPaths = [],
+            UserFolders = [],
+            Apply = true,
+            NowUtc = DateTimeOffset.UtcNow.AddDays(400)
+        });
 
     private static ReclaimRunResult DryRun(
         FixtureTree tree,
