@@ -46,6 +46,16 @@ public sealed class MorningReportBuilderTests : IDisposable
 
     // ---- seeding ---------------------------------------------------------------------------------------
 
+    /// <summary>A live roster for <paramref name="tenant"/>. A waiting row is only produced for a session
+    /// the Gateway can SEE (#3124), so most tests here need one.</summary>
+    private static PushedSessionStore Live(TenantId tenant, params SessionDto[] sessions)
+    {
+        var store = new PushedSessionStore(() => Now);
+        store.RegisterConnection(tenant, "dir-1", "conn-1");
+        Assert.True(store.ApplySnapshot(tenant, "dir-1", "conn-1", 0, sessions.ToList()));
+        return store;
+    }
+
     private static void SeedSessionEvent(GatewayDatabase db, TenantId tenant, string sessionId, string state, DateTime occurredUtc)
     {
         using var ctx = db.CreateContext(tenant);
@@ -71,15 +81,16 @@ public sealed class MorningReportBuilderTests : IDisposable
         SeedSessionEvent(db, Alice, "s1", GovernanceEventState.Active, waitingSince.AddHours(-1));
         SeedSessionEvent(db, Alice, "s1", GovernanceEventState.WaitingOnHuman, waitingSince);
 
-        var report = NewBuilder(db).Build("alice@example.com", Alice, Window());
+        var live = Live(Alice, new SessionDto { SessionId = "s1", Name = "Email - Developer" });
+        var report = NewBuilder(db, live).Build("alice@example.com", Alice, Window());
 
         var item = Assert.IsType<WaitingSessionAttentionDto>(Assert.Single(report.Attention));
         Assert.Equal(MorningAttentionTypes.WaitingSession, item.Type);
         Assert.Equal(waitingSince, item.WaitingSinceUtc);
         Assert.Equal(6.0, item.AgeHours);
-        // With no live roster to name it, the row still identifies itself - by session id, never blank.
-        Assert.Equal("s1", item.Session);
-        Assert.Null(item.Repo);
+        // THE AGE STILL COMES FROM THE LEDGER, never from the live roster - the roster only labels.
+        Assert.Equal("Email - Developer", item.Session);
+        Assert.Equal("s1", item.SessionId);
     }
 
     [Fact]
@@ -104,7 +115,11 @@ public sealed class MorningReportBuilderTests : IDisposable
         SeedSessionEvent(db, Alice, "oldest", GovernanceEventState.WaitingOnHuman, Now.AddHours(-30));
         SeedSessionEvent(db, Alice, "middle", GovernanceEventState.WaitingOnPermission, Now.AddHours(-9));
 
-        var report = NewBuilder(db).Build("alice@example.com", Alice, Window());
+        var live = Live(Alice,
+            new SessionDto { SessionId = "recent", Name = "recent" },
+            new SessionDto { SessionId = "oldest", Name = "oldest" },
+            new SessionDto { SessionId = "middle", Name = "middle" });
+        var report = NewBuilder(db, live).Build("alice@example.com", Alice, Window());
 
         var names = report.Attention.Cast<WaitingSessionAttentionDto>().Select(i => i.Session).ToList();
         Assert.Equal(new[] { "oldest", "middle", "recent" }, names);
@@ -120,14 +135,21 @@ public sealed class MorningReportBuilderTests : IDisposable
         sessions.RegisterConnection(Alice, "dir-1", "conn-1");
         Assert.True(sessions.ApplySnapshot(Alice, "dir-1", "conn-1", 0, new List<SessionDto>
         {
-            new() { SessionId = "s1", Name = "Morning report - Developer", RepoPath = "D:/ReposFred/devthrottle", ActivityState = "WaitingForInput" },
+            new() { SessionId = "s1", Name = "Morning report - Developer", RepoName = "devthrottle",
+                    RepoPath = "D:/ReposFred/devthrottle", MachineName = "SOREN_NORTH", Number = 131,
+                    ControllerSessionId = "lead-9", ActivityState = "WaitingForInput" },
         }));
 
         var report = NewBuilder(db, sessions).Build("alice@example.com", Alice, Window());
 
         var item = Assert.IsType<WaitingSessionAttentionDto>(Assert.Single(report.Attention));
         Assert.Equal("Morning report - Developer", item.Session);
-        Assert.Equal("D:/ReposFred/devthrottle", item.Repo);
+        // THE SHORT NAME, NOT THE PATH. "D:/ReposFred/devthrottle" in a sentence about a session is
+        // noise; the reader knows their repositories by name.
+        Assert.Equal("devthrottle", item.Repo);
+        Assert.Equal("SOREN_NORTH", item.Machine);
+        Assert.Equal(131, item.Number);
+        Assert.Equal("lead-9", item.ControllerSessionId);
         // The AGE still comes from the durable ledger, never from the live roster.
         Assert.Equal(3.0, item.AgeHours);
     }
@@ -194,7 +216,8 @@ public sealed class MorningReportBuilderTests : IDisposable
         SeedSessionEvent(db, Alice, "still-waiting", GovernanceEventState.WaitingOnHuman,
             Now - MorningReportBuilder.WaitingReportMaxAge + TimeSpan.FromHours(1));
 
-        var report = NewBuilder(db).Build("alice@example.com", Alice, Window());
+        var live = Live(Alice, new SessionDto { SessionId = "still-waiting", Name = "still-waiting" });
+        var report = NewBuilder(db, live).Build("alice@example.com", Alice, Window());
 
         var item = Assert.IsType<WaitingSessionAttentionDto>(Assert.Single(report.Attention));
         Assert.Equal("still-waiting", item.Session);
@@ -245,9 +268,18 @@ public sealed class MorningReportBuilderTests : IDisposable
         SeedSessionEvent(bobDb, Bob, "bob-1", GovernanceEventState.Active, inWindow);
         SeedSessionEvent(bobDb, Bob, "bob-3", GovernanceEventState.WaitingOnHuman, Now.AddHours(-40));
 
+        // Each tenant's own live roster, so each has a row to be isolated in the first place.
+        var live = new PushedSessionStore(() => Now);
+        live.RegisterConnection(Alice, "dir-a", "conn-a");
+        Assert.True(live.ApplySnapshot(Alice, "dir-a", "conn-a", 0,
+            new List<SessionDto> { new() { SessionId = "alice-2", Name = "alice-2" } }));
+        live.RegisterConnection(Bob, "dir-b", "conn-b");
+        Assert.True(live.ApplySnapshot(Bob, "dir-b", "conn-b", 0,
+            new List<SessionDto> { new() { SessionId = "bob-3", Name = "bob-3" } }));
+
         // Build BOTH reports through the SAME builder instance, to prove the tenant argument - not some
         // remembered ambient state - is what scopes the read.
-        var builder = NewBuilder(aliceDb);
+        var builder = NewBuilder(aliceDb, live);
         var aliceReport = builder.Build("alice@example.com", Alice, Window());
         var bobReport = builder.Build("bob@example.com", Bob, Window());
 
@@ -268,7 +300,13 @@ public sealed class MorningReportBuilderTests : IDisposable
         SeedSessionEvent(aliceDb, Alice, "alice-1", GovernanceEventState.Active, inWindow);
         SeedSessionEvent(aliceDb, Alice, "alice-2", GovernanceEventState.WaitingOnHuman, Now.AddHours(-2));
 
-        var bobReport = NewBuilder(aliceDb).Build("bob@example.com", Bob, Window());
+        // Alice must genuinely HAVE a row for this to test anything. Without a live roster she has none
+        // either, and "Bob's report is empty" would pass because nobody has rows - a test that proves
+        // isolation by proving there is nothing to isolate.
+        var live = Live(Alice, new SessionDto { SessionId = "alice-2", Name = "alice-2" });
+        Assert.NotEmpty(NewBuilder(aliceDb, live).Build("alice@example.com", Alice, Window()).Attention);
+
+        var bobReport = NewBuilder(aliceDb, live).Build("bob@example.com", Bob, Window());
 
         // Every read the report makes must itself be tenant-scoped. If it were not, Bob would get Alice's
         // waiting rows in his email - a claim made entirely out of Alice's data.
@@ -291,9 +329,11 @@ public sealed class MorningReportBuilderTests : IDisposable
 
         var report = NewBuilder(db, sessions).Build("alice@example.com", Alice, Window());
 
-        var item = Assert.IsType<WaitingSessionAttentionDto>(Assert.Single(report.Attention));
-        Assert.Equal("shared-id", item.Session);   // the id, NOT Bob's session name
-        Assert.Null(item.Repo);                    // and certainly not Bob's repository path
+        // STRONGER THAN IT USED TO BE. This once asserted the row appeared bearing the raw id rather
+        // than Bob's name. Now an unseeable session produces NO row at all, so Bob's label cannot leak
+        // even in principle - and the count says one wait was dropped rather than hiding it.
+        Assert.Empty(report.Attention);
+        Assert.Equal(1, report.LostContactCount);
     }
 
     // ---- argument discipline ---------------------------------------------------------------------------
