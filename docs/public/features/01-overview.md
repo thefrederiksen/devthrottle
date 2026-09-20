@@ -50,3 +50,7 @@ actions are wired; **partial** = the surface exists but is still being completed
 | New Session Dialog | implemented | [Key Dialogs](07-dialogs.md) |
 | Settings Dialog | implemented | [Key Dialogs](07-dialogs.md) |
 | Workflow Editor | partial | [Key Dialogs](07-dialogs.md) |
+| Smart Restart (the two doors and the dialog) | implemented | [Smart Restart](10-smart-restart.md) |
+| Shutdown Progress Screen | implemented | [Smart Restart](10-smart-restart.md) |
+| Restart Offer ("A restart is available") | implemented | [Smart Restart](10-smart-restart.md) |
+| Restart History | implemented | [Smart Restart](10-smart-restart.md) |

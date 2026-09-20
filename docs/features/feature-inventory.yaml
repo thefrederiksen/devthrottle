@@ -42,6 +42,9 @@ categories:
   - id: dialogs
     title: Key Dialogs
     page: docs/public/features/07-dialogs.md
+  - id: smart-restart
+    title: Smart Restart
+    page: docs/public/features/10-smart-restart.md
 
 features:
   # --- Main window and sessions -------------------------------------------
@@ -255,3 +258,52 @@ features:
       - src/CcDirector.Avalonia/WorkflowEditorWindow.axaml
     screenshot: workflow-editor.png
     summary: Three-column recorder/editor for desktop automation workflows (step list, editor, canvas). Framework present; not all step types are complete.
+
+  # --- Smart Restart -------------------------------------------------------
+  - id: smart-restart-dialog
+    title: Smart Restart Dialog
+    category: smart-restart
+    status: implemented
+    screen: dialog
+    source:
+      - src/CcDirector.Avalonia/SmartRestart/SmartShutdownDialog.axaml
+      - src/CcDirector.Avalonia/SmartRestart/SmartShutdownDialog.axaml.cs
+      - src/CcDirector.Avalonia/SmartRestart/SmartShutdownCoordinator.cs
+    screenshot: ""
+    summary: The one dialog behind both doors (File, Smart Restart and the window close) - the number of sessions running, working against waiting, the time allowed, and the choice between a smart shutdown, ignoring all sessions, and cancelling.
+
+  - id: shutdown-progress-screen
+    title: Shutdown Progress Screen
+    category: smart-restart
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/SmartRestart/ShutdownProgressView.axaml
+      - src/CcDirector.Avalonia/SmartRestart/ShutdownProgressView.axaml.cs
+    screenshot: ""
+    summary: Replaces the session view while a smart shutdown runs - one row per session with its state, the count shut down, the time left, "Shut down now" and "Cancel and keep working".
+
+  - id: restart-offer-window
+    title: Restart Offer Window
+    category: smart-restart
+    status: implemented
+    screen: dialog
+    source:
+      - src/CcDirector.Avalonia/SmartRestart/WayUpOfferWindow.axaml
+      - src/CcDirector.Avalonia/SmartRestart/WayUpOfferWindow.axaml.cs
+      - src/CcDirector.Avalonia/SmartRestart/WayUpOfferViewModel.cs
+      - src/CcDirector.Avalonia/SmartRestart/WayUpStartUpAsk.cs
+    screenshot: ""
+    summary: The offer headlined "A restart is available", shown once when a restarted Director reaches its Gateway and a record still owes sessions - when the shutdown was, the reason, the sessions waiting, and Bring back or Not now.
+
+  - id: restart-history-window
+    title: Restart History Window
+    category: smart-restart
+    status: implemented
+    screen: dialog
+    source:
+      - src/CcDirector.Avalonia/SmartRestart/RestartHistoryWindow.axaml
+      - src/CcDirector.Avalonia/SmartRestart/RestartHistoryWindow.axaml.cs
+      - src/CcDirector.Avalonia/SmartRestart/RestartHistoryViewModel.cs
+    screenshot: ""
+    summary: File, Restart history - every record this Director has written, newest first, with what became of each session, and the same bring back offer for any record still owed.
