@@ -12,7 +12,12 @@ namespace CcDirector.Gateway.UnitTests.Drain;
 /// ORDER would prove nothing about the order and take an hour.
 ///
 /// The clock and the waits are injected, so a ninety-minute deadline is exercised in milliseconds.
+///
+/// In the collection every test that takes the Director's one-at-a-time gates shares: a drain holds a
+/// process-wide gate, and the restart cycle's tests now run real drains too, so side by side the two
+/// classes would refuse each other's drains.
 /// </summary>
+[Collection(CcDirector.Gateway.UnitTests.Restart.DirectorGatesCollection.Name)]
 public class DirectorDrainTests
 {
     private DateTime _now = new(2026, 9, 6, 17, 25, 0, DateTimeKind.Utc);

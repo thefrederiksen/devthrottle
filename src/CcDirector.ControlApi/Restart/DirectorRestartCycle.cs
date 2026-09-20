@@ -13,24 +13,26 @@ public enum RestartDrainVerdict
     /// record named, and the restart must not proceed.</summary>
     Blocked,
 
-    /// <summary>This build cannot drain at all. Nothing was touched.</summary>
+    /// <summary>This Director cannot drain at all - it has no Gateway client, so there is nowhere off this
+    /// machine to keep the record. Nothing was touched.</summary>
     Unavailable,
 }
 
 /// <summary>The drain step's outcome: the verdict, the record it wrote (when it wrote one), and why.</summary>
 public sealed record RestartDrainOutcome(RestartDrainVerdict Verdict, string? WorkspaceId, string Detail);
 
-/// <summary>Whether a build can drain, and the sentence that says why.</summary>
+/// <summary>Whether this Director can drain, and the sentence that says why.</summary>
 public sealed record RestartDrainAvailability(bool Available, string Reason);
 
 /// <summary>
-/// The drain, behind a seam. Issue #2723 builds the drain itself; this is the shape the cycle calls it
-/// through, so the cycle's own rules - order, gates, never forcing - can be proved without a fleet.
+/// The drain, behind a seam. The drain itself is <c>Drain.DirectorDrain</c> and the step that runs it for
+/// the cycle is <see cref="DirectorDrainRestartStep"/>; this is the shape the cycle calls it through, so
+/// the cycle's own rules - order, gates, never forcing - can be proved without a fleet.
 /// </summary>
 public interface IRestartCycleDrain
 {
-    /// <summary>Whether this build can drain at all, and why. Asked BEFORE the owner is shown a request, so
-    /// a cycle that would stop at its first step is never offered for approval.</summary>
+    /// <summary>Whether this Director can drain at all, and why. Asked BEFORE the owner is shown a request,
+    /// so a cycle that would stop at its first step is never offered for approval. Cheap, and changes nothing.</summary>
     RestartDrainAvailability Availability { get; }
 
     /// <summary>Drain this Director to a record on the Gateway.</summary>
@@ -38,28 +40,6 @@ public interface IRestartCycleDrain
     /// <param name="progress">Called with one sentence on every state change.</param>
     /// <param name="ct">Cancellation.</param>
     Task<RestartDrainOutcome> RunAsync(DirectorRestartCycleOrder order, Action<string> progress, CancellationToken ct);
-}
-
-/// <summary>
-/// THE DRAIN THIS BUILD DOES NOT HAVE. The Director-side drain is issue #2723 and it has not merged into
-/// this tree, so the honest answer is a refusal that says so - never a cycle that skips the drain and
-/// asks the launcher anyway, which the launcher would refuse while sessions are live but which on an
-/// empty Director would restart it without a record. Replaced by the real step on the tree that carries
-/// the drain; the seam is one class.
-/// </summary>
-public sealed class NoDrainOnThisBuild : IRestartCycleDrain
-{
-    private const string Why =
-        "this Director build carries no drain - the drain inside the Director (issue #2723) is not part of "
-        + "it - so a restart cycle would stop at its first step, before closing anything. Update this Director "
-        + "to a build that carries the drain and ask again.";
-
-    /// <inheritdoc />
-    public RestartDrainAvailability Availability => new(false, Why);
-
-    /// <inheritdoc />
-    public Task<RestartDrainOutcome> RunAsync(DirectorRestartCycleOrder order, Action<string> progress, CancellationToken ct)
-        => Task.FromResult(new RestartDrainOutcome(RestartDrainVerdict.Unavailable, null, Why));
 }
 
 /// <summary>The launcher's answer to a guarded restart, as the Gateway relayed it.</summary>
