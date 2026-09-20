@@ -61,6 +61,59 @@ public class RepoStatusDto
     public bool StatusNotComputed { get; set; }
 
     public List<WorktreeDto> Worktrees { get; set; } = new();
+
+    /// <summary>
+    /// WHAT CURRENTLY EXISTS UNDER THIS DIRECTOR'S REGISTERED ROOT FOLDERS, as a plain directory
+    /// listing (the one-repository-list mission, "the catalogue forgets"). Null on a push from a
+    /// Director that predates this, and null on every row of a push except the first - see below.
+    ///
+    /// IT IS A PUSH-LEVEL FACT RIDING ON A ROW, AND THAT IS DELIBERATE. The Gateway catalogue can only
+    /// forget a repository when the Director that covers its folder positively says the folder is
+    /// gone, and the rest of this push cannot say that: the root-folder scan reports only a direct
+    /// child whose <c>.git</c> is a DIRECTORY, so a git WORKTREE - whose <c>.git</c> is a file - has
+    /// never appeared in a push at all. Measured on one machine on 20 September 2026: of the fourteen
+    /// repositories in that machine's catalogue that still existed, ELEVEN were worktrees the scan
+    /// cannot see. Treating "absent from the push" as "gone" would have deleted all eleven.
+    ///
+    /// So the Director answers the question the scan cannot: for each registered root folder it could
+    /// positively LIST, every direct child folder that exists right now, whatever is or is not inside
+    /// it. A root it could not list - unmounted, unreadable, or no longer registered - is left out
+    /// entirely, and nothing under it is ever forgotten.
+    ///
+    /// It rides on ONE row rather than on every row because <c>DirectorHub.PushRepoSnapshot(long,
+    /// RepoStatusDto[])</c> is matched by SignalR on name and argument count: a third parameter would
+    /// make every Director in the field fail its push outright. Repeating the listing on every row
+    /// would cost a machine with N repositories N copies of an N-entry list on a push that fires all
+    /// day. The Gateway reads the FIRST non-null it finds anywhere in the set, so the fact survives
+    /// any re-ordering, and a push with no rows carries none - which costs nothing, because a push
+    /// with no rows never reconciles anything either.
+    /// </summary>
+    public List<RootFolderListingDto>? RootFolders { get; set; }
+}
+
+/// <summary>
+/// One registered root folder, and the direct child folders that existed under it when the pushing
+/// Director listed it (the one-repository-list mission, "the catalogue forgets").
+///
+/// THE PRESENCE OF THIS ENTRY IS THE PERMISSION TO FORGET. A Director includes a root here only when
+/// it could read that folder, so a root that is registered but unmounted, unreadable, or gone is
+/// absent rather than present-and-empty. The difference matters: present-and-empty authorises the
+/// Gateway to forget every repository it holds under that root, and "I could not look" must never
+/// read as "there is nothing there".
+/// </summary>
+public class RootFolderListingDto
+{
+    /// <summary>The registered root folder, exactly as the Director holds it.</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>
+    /// The full path of every direct child FOLDER that existed under <see cref="Path"/> when the
+    /// Director listed it - not only the git repositories. Full paths rather than folder names so
+    /// that the Gateway compares them the one way it compares every path, through
+    /// <c>KnownRepositoryStore.NormalizePathKey</c>, and never has to decide a name's case for a
+    /// machine it is not.
+    /// </summary>
+    public List<string> ChildPaths { get; set; } = new();
 }
 
 /// <summary>One linked worktree of a repository. State strings are folded by the Director.</summary>
@@ -182,6 +235,9 @@ public static class FleetWorktreeFold
             WorktreesNeedAttention = r.WorktreesNeedAttention,
             WorktreeBytes = r.WorktreeBytes,
             Provisional = true,
+            // RootFolders is deliberately not carried: it is not a status, and this fold exists to make a
+            // status honest for GET /repositories. The catalog reads the listing off the push itself,
+            // before anything serves it.
             Worktrees = r.Worktrees.Select(w => new WorktreeDto
             {
                 Path = w.Path,

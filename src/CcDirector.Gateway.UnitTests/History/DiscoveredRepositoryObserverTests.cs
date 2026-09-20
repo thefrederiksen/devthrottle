@@ -225,4 +225,128 @@ public sealed class DiscoveredRepositoryObserverTests : IDisposable
         Assert.Equal(used, AllRows().Single(row => row.Path == "/repos/used").LastUsedUtc);
         Assert.Null(AllRows().Single(row => row.Path == "/roots/alpha/one").LastUsedUtc);
     }
+
+    // ---------- THE ROOT-FOLDER LISTING (the catalogue forgets) ----------
+
+    private static RootFolderListingDto Listing(string root, params string[] children)
+        => new() { Path = root, ChildPaths = children.ToList() };
+
+    /// <summary>
+    /// THE FLOW, through the observer: the listing rides on the push and the catalogue forgets the folder
+    /// that is not in it.
+    /// </summary>
+    [Fact]
+    public void ObserveSnapshot_TheRootFolderListing_LetsTheCatalogueForgetAFolderThatIsGone()
+    {
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/gone", "gone", _now.AddHours(-2));
+        var pushed = Pushed("/roots/alpha/one", "one");
+        pushed.RootFolders = new List<RootFolderListingDto> { Listing("/roots/alpha", "/roots/alpha/one") };
+
+        NewObserver().ObserveSnapshot(TenantId.Local, DirectorId, new[] { pushed }, _now);
+
+        Assert.Equal(new[] { "/roots/alpha/one" }, AllRows().Select(row => row.Path).ToArray());
+    }
+
+    /// <summary>
+    /// The listing is a push-level fact that rides on one row, so it is taken from the FIRST row that
+    /// carries it rather than from row zero. Nothing that re-orders or filters a push can lose it.
+    /// </summary>
+    [Fact]
+    public void ObserveSnapshot_TheListingOnALaterRow_IsStillUsed()
+    {
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/gone", "gone", _now.AddHours(-2));
+        var second = Pushed("/roots/alpha/two", "two");
+        second.RootFolders = new List<RootFolderListingDto>
+        {
+            Listing("/roots/alpha", "/roots/alpha/one", "/roots/alpha/two"),
+        };
+
+        NewObserver().ObserveSnapshot(TenantId.Local, DirectorId,
+            new[] { Pushed("/roots/alpha/one", "one"), second }, _now);
+
+        Assert.Equal(new[] { "/roots/alpha/one", "/roots/alpha/two" },
+            AllRows().Select(row => row.Path).ToArray());
+    }
+
+    /// <summary>
+    /// FAILURE CASE. A push with anything provisional in it is a partial view and reconciles nothing, so
+    /// a listing riding on it forgets nothing either. A warm-start Director must not be able to empty the
+    /// catalogue on its way up.
+    /// </summary>
+    [Fact]
+    public void ObserveSnapshot_AProvisionalPushCarryingAListing_ForgetsNothing()
+    {
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/gone", "gone", _now.AddHours(-2));
+        var pushed = Pushed("/roots/alpha/one", "one");
+        pushed.RootFolders = new List<RootFolderListingDto> { Listing("/roots/alpha", "/roots/alpha/one") };
+
+        NewObserver().ObserveSnapshot(TenantId.Local, DirectorId,
+            new[] { pushed, Pushed("/roots/alpha/warming-up", "warming-up", provisional: true) }, _now);
+
+        Assert.Contains("/roots/alpha/gone", AllRows().Select(row => row.Path));
+    }
+
+    /// <summary>
+    /// THE ONE THAT WOULD HAVE MADE THE WHOLE FEATURE SILENTLY DO NOTHING. The observer skips an
+    /// identical re-push without touching the database at all, and a folder DELETED under a watched root
+    /// changes nothing about the pushed repositories - the scan never reported it. So the skip's
+    /// signature has to cover the root-folder listing, or the very push that was meant to forget the
+    /// folder would be the one that is skipped.
+    ///
+    /// The row is deleted behind the observer's back and re-inserted, which is only visible if the fold
+    /// actually reached the database.
+    /// </summary>
+    [Fact]
+    public void ObserveSnapshot_AFolderDisappearsUnderAWatchedRoot_DefeatsTheUnchangedRePushSkip()
+    {
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/doomed", "doomed", _now.AddHours(-2));
+
+        var observer = NewObserver();
+        var before = Pushed("/roots/alpha/one", "one");
+        before.RootFolders = new List<RootFolderListingDto>
+        {
+            Listing("/roots/alpha", "/roots/alpha/one", "/roots/alpha/doomed"),
+        };
+        observer.ObserveSnapshot(TenantId.Local, DirectorId, new[] { before }, _now);
+        Assert.Contains("/roots/alpha/doomed", AllRows().Select(row => row.Path));
+
+        // The repositories pushed are byte-for-byte what they were. Only the listing shrank.
+        var after = Pushed("/roots/alpha/one", "one");
+        after.RootFolders = new List<RootFolderListingDto> { Listing("/roots/alpha", "/roots/alpha/one") };
+        observer.ObserveSnapshot(TenantId.Local, DirectorId, new[] { after }, _now.AddMinutes(1));
+
+        Assert.Equal(new[] { "/roots/alpha/one" }, AllRows().Select(row => row.Path).ToArray());
+    }
+
+    /// <summary>
+    /// And the saving is not lost: a re-push whose listing is the same set in a different order is still
+    /// skipped, because a directory listing publishes in whatever order the filesystem gave it.
+    /// </summary>
+    [Fact]
+    public void ObserveSnapshot_TheSameListingInADifferentOrder_IsStillSkipped()
+    {
+        var observer = NewObserver();
+        var first = Pushed("/roots/alpha/one", "one");
+        first.RootFolders = new List<RootFolderListingDto>
+        {
+            Listing("/roots/alpha", "/roots/alpha/one", "/roots/alpha/two"),
+        };
+        observer.ObserveSnapshot(TenantId.Local, DirectorId, new[] { first }, _now);
+
+        // Deleted behind the observer's back: if the fold runs again it comes back.
+        using (var context = _harness.Open().CreateContext(TenantId.Local))
+        {
+            context.KnownRepositories.RemoveRange(context.KnownRepositories.ToList());
+            context.SaveChanges();
+        }
+
+        var second = Pushed("/roots/alpha/one", "one");
+        second.RootFolders = new List<RootFolderListingDto>
+        {
+            Listing("/roots/alpha", "/roots/alpha/two", "/roots/alpha/one"),
+        };
+        observer.ObserveSnapshot(TenantId.Local, DirectorId, new[] { second }, _now.AddMinutes(1));
+
+        Assert.Empty(AllRows());
+    }
 }

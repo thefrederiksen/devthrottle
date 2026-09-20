@@ -84,12 +84,18 @@ public static class DirectorRepositorySnapshot
     /// <param name="registered">The machine's registered repository list, as
     /// <see cref="RepositoryRegistry.Repositories"/> returns it.</param>
     /// <param name="scanHasCompleted"><see cref="RepositoryMonitor.HasCompletedAScan"/>.</param>
+    /// <param name="rootFolders">What currently exists under the registered root folders, from
+    /// <see cref="DirectorRootFolders"/>, or null/empty when this Director has nothing to say about
+    /// them. It rides on the FIRST row - see <see cref="RepoStatusDto.RootFolders"/> for why it rides on
+    /// a row at all and why one row is enough - and a push with no rows carries none, which costs
+    /// nothing because a push with no rows reconciles nothing either.</param>
     /// <param name="directorId">The pushing Director.</param>
     /// <param name="machineName">The machine this Director runs on.</param>
     public static List<RepoStatusDto> Union(
         IReadOnlyList<RepositoryStatus>? scanned,
         IReadOnlyList<RepositoryConfig>? registered,
         bool scanHasCompleted,
+        IReadOnlyList<RootFolderListingDto>? rootFolders,
         string directorId,
         string machineName)
     {
@@ -98,7 +104,7 @@ public static class DirectorRepositorySnapshot
             .ToList();
 
         if (registered is null || registered.Count == 0 || !scanHasCompleted)
-            return rows;
+            return Stamp(rows, rootFolders);
 
         // Seeded from the scanned rows so a registered repository the scan already found is dropped
         // rather than pushed twice; Add then answers both questions at once - "was it scanned" and "have
@@ -118,6 +124,19 @@ public static class DirectorRepositorySnapshot
             rows.Add(RepositoryDtoMapper.IdentityOnly(entry.Path, entry.Name, directorId, machineName));
         }
 
+        return Stamp(rows, rootFolders);
+    }
+
+    /// <summary>
+    /// Put the root-folder listing on the first row of the push. Nothing when there is no listing to
+    /// carry, and nothing when there is no row to carry it - an empty push is the one the Gateway
+    /// already refuses to reconcile from, so it has nothing to authorise.
+    /// </summary>
+    private static List<RepoStatusDto> Stamp(
+        List<RepoStatusDto> rows, IReadOnlyList<RootFolderListingDto>? rootFolders)
+    {
+        if (rows.Count > 0 && rootFolders is { Count: > 0 })
+            rows[0].RootFolders = rootFolders.ToList();
         return rows;
     }
 }
