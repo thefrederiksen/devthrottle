@@ -1,9 +1,9 @@
 using System.Diagnostics;
-using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using CcDirector.Gateway.Tests;
 using Xunit;
 
-namespace CcDirector.Gateway.Tests;
+namespace CcDirector.Gateway.HostedImage.Tests;
 
 /// <summary>
 /// Published-artifact regression test for the fail-CLOSED hosted identity (production-readiness item MH-3).
@@ -22,6 +22,13 @@ namespace CcDirector.Gateway.Tests;
 /// unit seam: it publishes the host, then asserts that EVERY runnable entry executable in the output -
 /// including the unmarked <c>CcDirector.Gateway.dll</c> Codex ran - fails closed (a non-zero exit with no
 /// listener) when the hosted contract is missing.
+///
+/// WHERE THIS RUNS. Not in continuous integration. It is the only test in its own project, which is
+/// deliberately outside <c>cc-director.sln</c>, and the hosted deploy workflow runs it as a job the deploy
+/// waits on - see <c>.github/workflows/hosted-image-contract.yml</c>. It proves a property of the PUBLISHED
+/// hosted image, so the run that publishes that image is the run that should have to pass it. It cost
+/// 16 minutes 32 seconds of every continuous integration run before the move, measured in run 35461379953
+/// on 19 September 2026.
 /// </summary>
 public sealed class HostedImagePublishedArtifactTests
 {
@@ -184,7 +191,7 @@ public sealed class HostedImagePublishedArtifactTests
     /// a checkout, and bin-relative paths would break under different runners.</summary>
     private static string HostProjectPath([CallerFilePath] string thisFile = "")
     {
-        // this file: <repo>/src/CcDirector.Gateway.Tests/HostedImagePublishedArtifactTests.cs
+        // this file: <repo>/src/CcDirector.Gateway.HostedImage.Tests/HostedImagePublishedArtifactTests.cs
         var repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", ".."));
         return Path.Combine(repoRoot, "src", "CcDirector.Gateway.Host", "CcDirector.Gateway.Host.csproj");
     }

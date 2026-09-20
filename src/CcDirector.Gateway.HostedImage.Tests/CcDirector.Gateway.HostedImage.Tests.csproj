@@ -1,0 +1,73 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- THE HOSTED IMAGE CONTRACT TEST, AND WHY IT IS ITS OWN PROJECT OUTSIDE cc-director.sln.
+       ==================================================================================
+       This project holds exactly one test: HostedImagePublishedArtifactTests, which publishes the
+       hosted host and proves that EVERY runnable entry executable in the published output refuses to
+       start when the hosted contract is missing. It is the only proof we have of that property, and
+       losing it would let the hosted image boot as an open, unauthenticated Gateway.
+
+       It used to live in CcDirector.Gateway.Tests, and it cost 16 minutes 32 seconds of a 103-minute
+       continuous integration job (measured in run 35461379953 on 19 September 2026). It paid that on
+       every pull request and every push to main, while proving a property of something only the hosted
+       deploy ever ships - so nine times in ten it was testing an artifact nobody was about to publish.
+
+       So it moved to where it belongs: the hosted deploy workflow runs it, and the deploy does not
+       happen unless it passes. See .github/workflows/hosted-image-contract.yml, which the deploy
+       workflow calls as a required preceding job.
+
+       THIS PROJECT IS DELIBERATELY NOT IN cc-director.sln. The continuous integration test step is
+       `dotnet test cc-director.sln`, so leaving the project out of the solution is what takes the test
+       out of that step - a structural exclusion with nothing to forget, rather than a filter argument
+       somebody can drop. The installer test projects are outside the solution for the same kind of
+       reason. HostedImageContractRunsBeforeEveryDeployTests (in CcDirector.Core.Tests, which IS in the
+       solution) is the guard that fails if this project is ever added to the solution, or if the deploy
+       workflow stops running it. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>CcDirector.Gateway.HostedImage.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- For GatewayHostedMode.HostedImageMarkerFileName. The test asserts the marker is baked into the
+         published output, and it reads the file name from the product constant rather than repeating the
+         string here - a second copy of that name would go stale the day somebody renames the marker, and
+         the test would then look for a file that is no longer the one that matters.
+
+         NOTE: this references CcDirector.Gateway, NOT CcDirector.Gateway.Host. The Host project carries
+         the hosted-gateway.image marker as a Content item, and content flows transitively across project
+         references, so referencing the Host would drop the marker into this project's own output and make
+         every GatewayHost built in this process believe it is the hosted image. CcDirector.Gateway.Tests
+         has to delete the marker after every build for exactly that reason; this project avoids the
+         problem instead of cleaning up after it. The test reaches the Host by publishing its csproj by
+         path, which is what it wants anyway - the published artifact, not a project reference. -->
+    <ProjectReference Include="..\CcDirector.Gateway\CcDirector.Gateway.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- CcDirector.Gateway serves HTTP, so anything referencing it is an ASP.NET Core app. Declared
+         explicitly, matching CcDirector.Gateway.Tests. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ONE source file, compiled into two assemblies - not a copy. DeadPortReservation holds a loopback
+         port that is guaranteed to refuse connections for as long as the object lives (issue #1156), and
+         three other tests in CcDirector.Gateway.Tests depend on it there. Linking the file keeps a single
+         definition; duplicating it would give us two that drift. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\DeadPortReservation.cs" Link="DeadPortReservation.cs" />
+  </ItemGroup>
+
+</Project>
