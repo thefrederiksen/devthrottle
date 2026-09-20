@@ -16,6 +16,11 @@ export interface HistoryBubble {
   kind: string;
   /** True for Gemini raw terminal scrollback: render verbatim, not as Markdown. */
   isRawText: boolean;
+  /**
+   * For a "user" bubble, who authored it: "owner", "agent" or "unknown" as the Gateway stamped it, and
+   * "unknown" when it stamped nothing. Absent on the other kinds, where the question does not arise.
+   */
+  origin?: string;
   /** When the message was written (ISO), as the history carried it, or undefined when it carried none. A view
    *  that places other items among the bubbles by time reads this; the bubble itself does not show it. */
   timestamp?: string;
@@ -29,11 +34,32 @@ export interface HistoryBubbleFilter {
   showToolCalls: boolean;
   showToolResults: boolean;
   showThinking: boolean;
+  /**
+   * "My prompts only": drop everything that is not a turn the reader themself submitted, so a long
+   * conversation collapses to the questions that drove it and the one they are looking for is on screen.
+   *
+   * Unlike the other three - which ADD machinery back into the conversation - this one takes the
+   * conversation away, which is why it is not drawn beside them.
+   */
+  myPromptsOnly: boolean;
 }
 
 /** True when at least one kind is hidden (drives the "no messages match" empty text). */
 export function anyHidden(filter: HistoryBubbleFilter): boolean {
-  return !filter.showToolCalls || !filter.showToolResults || !filter.showThinking;
+  return !filter.showToolCalls || !filter.showToolResults || !filter.showThinking || filter.myPromptsOnly;
+}
+
+/**
+ * Is this bubble one of the reader's OWN prompts?
+ *
+ * Two rules, and the second is the one that matters. A tool result fed back to the agent is not a prompt
+ * even though the transcript files it under the user - the mapper has already sorted that into its own
+ * kind. And an author the Director could not establish is treated as the reader's and KEPT: "unknown"
+ * means the question went unanswered, not that the answer was "the product". Hiding a turn they really
+ * did type is the one failure they cannot see, so this leans to keep every time.
+ */
+export function isOwnPrompt(bubble: HistoryBubble): boolean {
+  return bubble.kind === "user" && bubble.origin !== "agent";
 }
 
 // Per-part / per-bubble length caps, identical to the desktop HistoryView so neither surface janks
@@ -60,6 +86,9 @@ export function mapHistory(
   for (const message of history.messages) {
     const bubble = mapMessage(message, isRawText, filter);
     if (bubble === null) continue;
+    // "My prompts only" is applied HERE rather than inside mapMessage, so it reads as what it is: a cut
+    // across finished bubbles, not another content filter woven through the per-part switch above.
+    if (filter.myPromptsOnly && !isOwnPrompt(bubble)) continue;
     if (message.timestamp) bubble.timestamp = message.timestamp;
     list.push(bubble);
   }
@@ -122,7 +151,14 @@ function mapMessage(
 
   return onlyToolResults
     ? { speaker: "Tool result", body: truncate(userBody, ToolResultBubbleMax), kind: "tool", isRawText }
-    : { speaker: "You", body: truncate(userBody, UserBodyMax), kind: "user", isRawText };
+    : {
+        speaker: "You",
+        body: truncate(userBody, UserBodyMax),
+        kind: "user",
+        isRawText,
+        // A Director too old to stamp this sends nothing, and nothing reads as unknown - which is shown.
+        origin: message.origin ?? "unknown",
+      };
 }
 
 function append(sb: string, text: string): string {

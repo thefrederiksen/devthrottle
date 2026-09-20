@@ -3336,6 +3336,12 @@ public sealed class Session : IDisposable
         // A SendTextAsync is exactly one submitted turn. StampSubmission stamps the submission event AND
         // counts the turn, in that one place, so this path and the raw-byte path cannot drift apart.
         StampSubmission(source, origin, SubmissionEvidence.OfText(provenance, text ?? ""));
+        // WHO AUTHORED THIS TURN, remembered for the conversation history. By the time these words reach the
+        // agent's transcript, a line the owner typed and a line the fleet doorbell typed look exactly alike -
+        // this choke point is the only place that still knows the difference. Recorded AFTER the delivery
+        // boundary above, so a send that threw is never claimed as a turn that happened. Same two words and
+        // the same test as WorkingOrigin, which is set from OriginFor at the top of this method.
+        Storage.PromptAuthorBuffer.Record(Id.ToString(), OriginFor(source, origin), text ?? "");
         SetActivityState(ActivityState.Working);
     }
 

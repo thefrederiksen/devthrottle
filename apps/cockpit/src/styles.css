@@ -3429,3 +3429,83 @@ body {
   border: 1px solid var(--owner-bubble-border);
   border-radius: 6px;
 }
+
+/* ===== Chat: "My prompts only" - the index of the reader's own turns ===== */
+
+/* Set apart from the three machinery toggles: those add content back, this takes content away. The gap
+   before it does the separating; the accent when it is on says the screen is not showing everything. */
+.chat-filter-mine {
+  margin-left: 16px;
+}
+
+.chat-filter-mine:has(input:checked) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.chat-index-lead {
+  max-width: 900px;
+  margin: 0 auto 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* The clock down the left of a prompt in the index. Absolute so it sits outside the bubble without
+   changing the layout the conversation already has; hidden on a narrow pane where there is no margin
+   to put it in. */
+.chat-index-clock {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* The way back into the thread, on the outer edge of the reader's own bubble. */
+.chat-index-jump {
+  position: absolute;
+  right: -22px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat-index-jump:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.chat-index-jump:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* In the index the whole row is about getting back, so the per-turn copy button would be two controls
+   competing on one bubble. The conversation keeps it; the index does not. */
+.chat-scroll:has(.chat-index-lead) .chat-turn-actions {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .chat-index-clock {
+    display: none;
+  }
+  .chat-index-jump {
+    right: 4px;
+  }
+}

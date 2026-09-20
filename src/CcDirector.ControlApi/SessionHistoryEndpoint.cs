@@ -1,6 +1,7 @@
 using CcDirector.Core.Agents;
 using CcDirector.Core.History;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -67,6 +68,13 @@ internal static class SessionHistoryEndpoint
             {
                 Role = message.Role.ToString(),
                 Timestamp = message.Timestamp,
+                // Only a user message has an author worth asking about, and only this machine can answer:
+                // the transcript shows the owner's typing and the fleet doorbell's typing as the same thing.
+                // Joined on the words rather than on a clock - see PromptAuthorBuffer for why - and honestly
+                // "unknown" when this Director did not see the submission or has forgotten it.
+                Origin = message.Role == ConversationRole.User
+                    ? PromptAuthorBuffer.AuthorOf(sid, TextOf(message))
+                    : null,
             };
             foreach (var part in message.Parts)
             {
@@ -93,5 +101,25 @@ internal static class SessionHistoryEndpoint
         }
 
         return dto;
+    }
+
+    /// <summary>
+    /// The words of a message, for matching it against what this Director submitted: its Text parts only,
+    /// joined the way they were written. A user turn's tool-result parts are the agent feeding itself and
+    /// were never typed by anyone, so they are not part of what was submitted and must not be matched on.
+    /// </summary>
+    private static string TextOf(CcDirector.Core.History.ConversationMessage message)
+    {
+        if (message.Parts.Count == 1 && message.Parts[0].Kind == CcDirector.Core.History.ConversationPartKind.Text)
+            return message.Parts[0].Text;
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var part in message.Parts)
+        {
+            if (part.Kind != CcDirector.Core.History.ConversationPartKind.Text) continue;
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(part.Text);
+        }
+        return sb.ToString();
     }
 }

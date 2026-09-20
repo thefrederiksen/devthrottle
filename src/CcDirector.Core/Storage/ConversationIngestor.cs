@@ -120,6 +120,7 @@ public sealed class ConversationIngestor : IDisposable
         if (_handlers.TryRemove(session.Id, out var h))
             session.OnActivityStateChanged -= h;
         InputOriginBuffer.Forget(session.Id.ToString());
+        PromptAuthorBuffer.Forget(session.Id.ToString());
         // Deliberately keep this source's seen-set: a session can be removed and restored, and its
         // transcript survives, so forgetting would re-push everything it ever said.
     }
