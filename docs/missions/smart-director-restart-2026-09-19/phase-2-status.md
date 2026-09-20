@@ -77,3 +77,9 @@ The Delivery Lead polls this file. Newest entry last.
   counts, take the word DRAFT off, merge the record branch; (6) the report paragraph here and with
   `cc-devthrottle session report`. Worktrees still standing: `-p2-dialog` and `-p2-progress` (merged;
   the first seat's stopped Developer sessions may still sit in them), `-p2-swap` (live).
+- Task 3 is BUILT and pushed: branch `smart-restart-p2-swap` at `52c5c2b54`. My own run on it: the
+  `SmartRestart` filter 87 passed (46 before), the whole project 686 passed, 0 failed. The two old
+  windows are gone from `src` and `tools`; the main window changed by 26 lines added and 39 removed over
+  its two files. Proof: `attachments/phase-2/swap-proof.md` on that branch. Developer 7329db2c ended by me.
+  Sent to a Reviewer on Pi with GLM 5.3 (`mandate-phase-2-reviewer-4.md`, worktree `-p2-review4`); the
+  review lands as `review-phase-2-4.md`. STILL BLOCKED for merging on the engine landing on main.
