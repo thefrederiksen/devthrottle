@@ -324,20 +324,43 @@ public class ShutdownProgressViewTests
 
     /// <summary>
     /// The engine reports from its own threads. Both a state change and a NEW row are raised from a
-    /// background thread here: the new row changes the bound collection, which throws on the wrong
-    /// thread, and that throw would surface through the awaited task.
+    /// background thread here. Avalonia does NOT throw when a bound collection changes on the wrong
+    /// thread - it races the layout pass instead - so "it did not throw" proves nothing (measured: with
+    /// the dispatch removed, that assertion alone stayed green). What is asserted is a presence: every
+    /// change to the bound rows and to the bound count was made ON the interface thread, and there was
+    /// at least one of each.
     /// </summary>
     [AvaloniaFact]
-    public async Task Changed_RaisedFromABackgroundThread_LandsInTheRowsWithoutThrowing()
+    public async Task Changed_RaisedFromABackgroundThread_ChangesTheRowsOnTheInterfaceThread()
     {
         var screen = Open(ShutdownProgressKind.Smart, "one", "two");
+        var rowChangesOnInterfaceThread = new List<bool>();
+        var countChangesOnInterfaceThread = new List<bool>();
+        screen.View.ViewModel.Rows.CollectionChanged += (_, _) =>
+        {
+            lock (rowChangesOnInterfaceThread)
+                rowChangesOnInterfaceThread.Add(Dispatcher.UIThread.CheckAccess());
+        };
+        screen.View.ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(ShutdownProgressViewModel.CountText))
+                return;
+            lock (countChangesOnInterfaceThread)
+                countChangesOnInterfaceThread.Add(Dispatcher.UIThread.CheckAccess());
+        };
 
         await Task.Run(() =>
         {
+            Assert.False(Dispatcher.UIThread.CheckAccess(), "the change must really come from another thread");
             screen.Source.MoveTo("one", ShutdownProgressState.ShutDown);
             screen.Source.Add("three", ShutdownProgressState.Writing);
         });
         Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEmpty(rowChangesOnInterfaceThread);
+        Assert.All(rowChangesOnInterfaceThread, Assert.True);
+        Assert.NotEmpty(countChangesOnInterfaceThread);
+        Assert.All(countChangesOnInterfaceThread, Assert.True);
 
         var rows = DrawnRows(screen.View);
         Assert.Equal(3, rows.Count);
