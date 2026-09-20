@@ -33,21 +33,26 @@ public sealed class TurnVerdictJudgeTimeoutTests
     }
 
     /// <summary>
-    /// THE JUDGE RUNS ON THE THINKING ROLE WITH THE REASONING TURNED OFF (2026-09-20). It ran on the fast role
-    /// until then, because the thinking tier left half its calls unanswered - which was true of the REASONING
-    /// rather than of the model. Measured both ways on 85 known picker screens and 381 labelled stops, the same
-    /// model with reasoning off is faster AND more accurate than the fast tier: 85/85 pickers against 72/85, and
-    /// 79.6% agreement against 75.1%. The two halves are pinned separately so that neither can drift back alone -
-    /// the role without the argument is exactly the slow, half-answering judge slice 0 fled.
+    /// THE JUDGE RUNS ON THE FAST ROLE AND ASKS FOR NO CHANGE TO THE MODEL'S REASONING.
+    ///
+    /// It was moved to the thinking tier with reasoning off on 2026-09-20 and moved back the same evening:
+    /// every reading in production failed within four minutes, either not answering inside the thirty-second
+    /// deadline or returning valid JSON followed by more text. The measurement that justified the move had the
+    /// model answering in 2.0 seconds with 68 output tokens; re-asked on a full-size live-shaped prompt with no
+    /// output cap, the same model took 46 seconds and wrote 3,397 tokens.
+    ///
+    /// Both halves are asserted here so that neither can come back alone and quietly: the role, and the absence
+    /// of the reasoning argument. See <see cref="TurnVerdictJudge"/> for what a future attempt has to measure
+    /// first.
     /// </summary>
     [Fact]
-    public void TheJudgeRunsOnTheThinkingRole_WithItsReasoningTurnedOff()
+    public void TheJudgeRunsOnTheFastRole_AndLeavesTheModelsReasoningAlone()
     {
-        Assert.Equal(WingmanModelRole.Thinking, TurnVerdictJudge.Role);
+        Assert.Equal(WingmanModelRole.Fast, TurnVerdictJudge.Role);
 
         var brain = TurnVerdictJudge.BuildBrain(
-            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.Wingman, TurnVerdictSettings.Defaults);
-        Assert.True(brain.ThinkingOff, "the judge's brain must ask its model not to reason out loud");
+            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.WingmanFast, TurnVerdictSettings.Defaults);
+        Assert.False(brain.ThinkingOff, "the judge's brain must not silently change how its model answers");
     }
 
     /// <summary>
