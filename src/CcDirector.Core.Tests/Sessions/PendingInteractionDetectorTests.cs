@@ -252,6 +252,37 @@ public sealed class PendingInteractionDetectorTests : IDisposable
         Assert.Equal(PendingInteractionReading.NoAnswer, result.Reading);
     }
 
+    /// <summary>
+    /// A LONG QUESTION IS STILL A QUESTION, even when its text cannot be quoted.
+    ///
+    /// StreamMessageParser truncates any tool input value over 2000 characters and appends a marker,
+    /// which leaves the questions array unclosed and unparseable. That is not hypothetical: of six real
+    /// AskUserQuestion calls read off this machine's own Claude Code transcripts, one serialised to
+    /// 3211 characters and would be cut.
+    ///
+    /// The detection must survive it, because the detection does not depend on the text at all - the
+    /// tool name and the missing tool result are structural. So the box is reported, with the plain
+    /// words "Claude needs your input" in place of a question nobody can read. Reporting no box would
+    /// be the real failure: the owner would be asked to shut down a session that is mid-question.
+    /// </summary>
+    [Fact]
+    public void Detect_AQuestionTooLongForTheParserToKeepWhole_IsStillReportedWithoutItsText()
+    {
+        var padding = new string('x', 2500);
+        var line =
+            """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_06Long","name":"AskUserQuestion","input":{"questions":[{"question":"Which of these should I do first, and why does it matter more than the rest? PADDING","header":"Order","multiSelect":false,"options":[{"label":"the first","description":"do this one"}]}]}}]}}"""
+                .Replace("PADDING", padding);
+
+        using var session = ClaudeSessionOn(WriteTranscript(UserAsks, line));
+
+        var result = PendingInteractionDetector.Detect(session);
+
+        Assert.Equal(PendingInteractionReading.Pending, result.Reading);
+        Assert.Equal(PendingInteractionKind.Question, result.Interaction!.Kind);
+        Assert.Equal("Claude needs your input", result.Interaction.Prompt);
+        Assert.Empty(result.Interaction.Options);
+    }
+
     /// <summary>A session with no transcript pointer and no agent session id has nothing to resolve. It
     /// is a logged fact, not a guess at the answer.</summary>
     [Fact]
