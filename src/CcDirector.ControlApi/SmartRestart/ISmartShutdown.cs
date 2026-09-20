@@ -105,12 +105,25 @@ public static class SmartShutdownTimes
     {
         if (Allowed.Contains(timeAllowed)) return timeAllowed;
 
-        var allowed = string.Join(", ", Allowed.Select(t => ((int)t.TotalMinutes).ToString()));
-        var message =
-            $"The time allowed for a smart shutdown must be one of {allowed} minutes; " +
-            $"{timeAllowed.TotalMinutes:0.###} minutes was asked for.";
+        var message = RefusalFor(timeAllowed);
         FileLog.Write($"[SmartShutdownTimes] RequireAllowed FAILED: {message}");
         throw new ArgumentOutOfRangeException(nameof(timeAllowed), timeAllowed, message);
+    }
+
+    /// <summary>
+    /// Why this time is not allowed, in plain words, naming what was asked for and what may be asked for.
+    ///
+    /// It is separate from <see cref="RequireAllowed"/> because a caller that can refuse BEFORE it builds a
+    /// request wants the sentence without the exception - the command line door answers a bad time as a
+    /// refusal a person reads, not as a stack trace - and the words must be the same sentence in both cases
+    /// rather than a second one written next to the first.
+    /// </summary>
+    /// <param name="timeAllowed">The candidate time.</param>
+    public static string RefusalFor(TimeSpan timeAllowed)
+    {
+        var allowed = string.Join(", ", Allowed.Select(t => ((int)t.TotalMinutes).ToString()));
+        return $"The time allowed for a smart shutdown must be one of {allowed} minutes; " +
+               $"{timeAllowed.TotalMinutes:0.###} minutes was asked for.";
     }
 }
 

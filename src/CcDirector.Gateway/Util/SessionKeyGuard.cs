@@ -33,6 +33,21 @@ public static class AgentInputRefusal
 }
 
 /// <summary>
+/// The sentence an agent reads when it tries to empty a Director (the mission "Smart Director Restart",
+/// section 5.3 item 12). Held here, beside the other refusals that name what to do instead, because a
+/// refusal that only says no sends the agent looking for a way round.
+/// </summary>
+public static class SmartRestartRefusal
+{
+    /// <summary>A session key asked to start a smart restart of a Director.</summary>
+    public const string Start =
+        "An agent may not empty and restart a Director: closing every session on a machine is the owner's, " +
+        "and he does it from the Director itself or with his own key. Ask for one instead - " +
+        "cc-devthrottle machine restart-request <machine> --reason \"<why>\" - which creates a request the " +
+        "owner accepts once. Reading is open to you: cc-devthrottle director restart-history.";
+}
+
+/// <summary>
 /// What a SESSION KEY may call on the Gateway (Remove-the-network-port mission, phase 1b).
 ///
 /// This began as the Gateway twin of the Director's ControlApiGuard.CheckSessionChild (deleted with the Director's listener; this guard is the surviving one), and it is written the same way and
@@ -128,6 +143,13 @@ public static class SessionKeyGuard
         if (IsAgentInput(verb, segments))
             return SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
 
+        // EMPTYING A DIRECTOR IS THE OWNER'S, and it is refused with its own sentence for the same reason
+        // typing is: an agent told only "you may not call POST /directors/x/smart-restart" does not learn
+        // that asking for a restart is a thing it CAN do. Checked before the allow list, so a later widening
+        // of that list cannot open this by accident.
+        if (IsSmartRestartStart(verb, segments))
+            return SessionKeyVerdict.Refuse(SmartRestartRefusal.Start);
+
         if (IsAllowed(verb, segments))
             return SessionKeyVerdict.Allow;
 
@@ -151,6 +173,15 @@ public static class SessionKeyGuard
     /// Compact-and-continue is the sixth such path; it shares its route with a plain compaction, so the route
     /// refuses it where it can read the body.
     /// </summary>
+    /// <summary>
+    /// <c>POST /directors/{id}/smart-restart</c> exactly - three segments, and the last is the literal word.
+    /// The two READS on the same surface (the progress, and the restart history) are allowed in the list
+    /// below: asking how an emptying is going, or what was emptied last week, is not asking to empty
+    /// anything, and both read records this key can already read at <c>/gateway/workspaces</c>.
+    /// </summary>
+    private static bool IsSmartRestartStart(string verb, string[] s)
+        => verb == "POST" && s.Length == 3 && s[0] == "directors" && s[2] == "smart-restart";
+
     private static bool IsAgentInput(string verb, string[] s)
     {
         if (verb != "POST") return false;
@@ -261,6 +292,14 @@ public static class SessionKeyGuard
 
             // The Fleet Manager's stored news, preferences and digest. See IsFleetManagerRoute.
             if (IsFleetManagerRoute(verb, s)) return true;
+
+            // HOW AN EMPTYING IS GOING, AND WHAT WAS EMPTIED BEFORE (the mission "Smart Director Restart").
+            // Two reads, listed as their own literal shapes rather than as a prefix. They are the same class
+            // of read as GET /gateway/workspaces above, which this key may already call: both are folded from
+            // the very records stored there, for a Director in the caller's own account. STARTING one is
+            // refused before this list is ever reached, with its own sentence.
+            if (s.Length == 3 && s[0] == "directors"
+                && (s[2] == "smart-restart" || s[2] == "restart-history")) return true;
 
             // Configuration, read side. A Director's settings, the application's own settings, and the
             // handovers on a Director - all three by the owner's ruling that an agent configures the product.

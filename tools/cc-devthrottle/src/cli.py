@@ -83,7 +83,11 @@ machine_app = typer.Typer(
 )
 director_app = typer.Typer(
     cls=AxiGroup,
-    help="List the Directors this account is running, on every machine.",
+    help=(
+        "The Directors this account runs, on every machine.\n\n"
+        "List them, empty one nicely and restart it, see where that has got to, and read what it "
+        "emptied before."
+    ),
     add_completion=False,
     no_args_is_help=True,
 )
@@ -562,6 +566,56 @@ _ACTIONS = [
             {"name": "seed", "required": False},
             {"name": "force-seat", "required": False},
             {"name": "wait-seconds", "required": False},
+        ],
+    },
+    {
+        "id": "director-smart-restart",
+        "description": (
+            "Empty a Director nicely and restart it - the same smart shutdown its own File, Smart "
+            "Restart starts. Every session is asked to hand over; at two thirds of the time allowed "
+            "the ones still mid-turn are interrupted and asked again; at the limit whatever is still "
+            "running is shut down for it and noted with its saved conversation. Only when the Director "
+            "is verifiably empty is its launcher asked to restart it. THE OWNER'S: a session's key is "
+            "refused and told to ask with 'machine restart-request' instead."
+        ),
+        "command": "cc-devthrottle director smart-restart [--director <id-or-name>] [--minutes 5|10|15|30|60] [--reason \"<why>\"] [--no-watch]",
+        "mutatesState": True,
+        "args": [
+            {"name": "director", "required": False},
+            {"name": "machine", "required": False},
+            {"name": "minutes", "required": False},
+            {"name": "reason", "required": False},
+            {"name": "watch", "required": False},
+        ],
+    },
+    {
+        "id": "director-smart-restart-status",
+        "description": (
+            "Where the smart restart on one Director stands: the phase, the count, one row per session "
+            "with what is happening to it, or - once it is over - how it ended. A Director on which "
+            "none has been started since it came up says exactly that, never an empty run."
+        ),
+        "command": "cc-devthrottle director smart-restart-status [--director <id-or-name>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "director", "required": False},
+            {"name": "machine", "required": False},
+        ],
+    },
+    {
+        "id": "director-restart-history",
+        "description": (
+            "Every restart record one Director wrote, newest first, with what came back and what did "
+            "not. Nothing is deleted, so a record stays readable whatever became of it, and one that "
+            "still owes sessions says how many are waiting. A history that could not be read is an "
+            "error naming why, never an empty list."
+        ),
+        "command": "cc-devthrottle director restart-history [--director <id-or-name>] [--count <n>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "director", "required": False},
+            {"name": "machine", "required": False},
+            {"name": "count", "required": False},
         ],
     },
     {
@@ -1687,6 +1741,100 @@ def director_restore(
     from .machine_ops import restore_workspace
 
     restore_workspace(workspace, director, seat, seed, wait_seconds, json_output, force_seat)
+
+
+# --- Emptying a Director nicely and restarting it (mission "Smart Director Restart", 5.3 item 12) ---
+#
+# The SECOND door onto the Director's own File, Smart Restart, so that one broken window can never
+# again leave a Director impossible to empty. Each command hands straight to the engine on that
+# Director and renders its sentences verbatim.
+
+
+@director_app.command("smart-restart")
+def director_smart_restart(
+    director: Optional[str] = typer.Option(
+        None, "--director",
+        help="Which Director to empty and restart, by id, exact name or id prefix. Defaults to the one this session belongs to. See 'director list'.",
+    ),
+    machine: Optional[str] = typer.Option(
+        None, "--machine", help="Narrow an ambiguous Director name to one computer."
+    ),
+    minutes: int = typer.Option(
+        10, "--minutes", "-m",
+        help="How long the sessions get in all: 5, 10, 15, 30 or 60. Anything else is refused by name.",
+    ),
+    reason: Optional[str] = typer.Option(
+        None, "--reason", "-r", help="Why, in your own words. Written into the record."
+    ),
+    watch: bool = typer.Option(
+        True, "--watch/--no-watch",
+        help="Watch it to the end, printing every change. --no-watch returns as soon as it is taken and exits 3.",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON of the acceptance, and do not watch."
+    ),
+) -> None:
+    """Empty a Director nicely and restart it, then bring the sessions back.
+
+    The same smart shutdown File, Smart Restart starts, through the same engine.
+    Every session is asked to hand over; at two thirds of the time allowed the ones still mid-turn are
+    interrupted and asked again; at the limit whatever is still running is shut down for it and noted
+    with its saved conversation. Only when the Director is verifiably empty is its launcher asked to
+    restart it, and what was closed is offered back when it comes up.
+
+    THE OWNER'S, not an agent's: a session's key is refused, and told to ask with
+    'cc-devthrottle machine restart-request' instead.
+
+    Exit 0 means the launcher accepted the restart. Exit 1: it did not, and the reason says why - the
+    record stands and is offered on the next start. Exit 3: accepted and not watched to the end, so
+    nothing here knows how it ended.
+    """
+    from . import smart_restart_ops
+
+    smart_restart_ops.smart_restart(director, machine, minutes, reason, watch, json_output)
+
+
+@director_app.command("smart-restart-status")
+def director_smart_restart_status(
+    director: Optional[str] = typer.Option(
+        None, "--director", help="Which Director. Defaults to the one this session belongs to."
+    ),
+    machine: Optional[str] = typer.Option(
+        None, "--machine", help="Narrow an ambiguous Director name to one computer."
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+) -> None:
+    """Where the smart restart on one Director stands, asked once. It changes nothing.
+
+    One row per session with what is happening to it, the phase and the count - or, once it is over,
+    how it ended. A Director on which none has been started since it came up says exactly that.
+    """
+    from . import smart_restart_ops
+
+    smart_restart_ops.smart_restart_status(director, machine, json_output)
+
+
+@director_app.command("restart-history")
+def director_restart_history(
+    director: Optional[str] = typer.Option(
+        None, "--director", help="Which Director. Defaults to the one this session belongs to."
+    ),
+    machine: Optional[str] = typer.Option(
+        None, "--machine", help="Narrow an ambiguous Director name to one computer."
+    ),
+    count: int = typer.Option(20, "--count", "-n", help="Largest number of records to show, newest first."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON: every record, every seat."),
+) -> None:
+    """Every restart record this Director wrote, newest first.
+
+    What came back and what did not.
+    Nothing is deleted, so a record stays readable whatever became of it, and one that still owes
+    sessions says how many are waiting. A history that could not be read is an error naming why -
+    never an empty list, which would read as "this Director has never been restarted".
+    """
+    from . import smart_restart_ops
+
+    smart_restart_ops.restart_history(director, machine, count, json_output)
 
 
 @machine_app.command("apps")

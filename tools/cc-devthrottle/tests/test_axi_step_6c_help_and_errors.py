@@ -345,6 +345,9 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "fleet-advise",
     # The Fleet Manager mission, step 8.
     "session-hand-over",
+    # The mission "Smart Director Restart", section 5.3 item 12: the command line door onto the
+    # Director's own smart shutdown, so one broken window cannot leave a Director impossible to empty.
+    "director-smart-restart", "director-smart-restart-status", "director-restart-history",
 }
 
 
