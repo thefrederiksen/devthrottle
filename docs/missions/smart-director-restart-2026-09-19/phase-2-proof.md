@@ -4,8 +4,9 @@ Written by the phase 2 Tech Lead, second seat (session c6c50eeb), on 20 Septembe
 (session number 120) opened the first two Developers and wrote the baseline below; it was ended while
 waiting, because on this Director a waiting session is never woken (product issue 3186).
 
-DRAFT until task 3 is merged; the word DRAFT leaves this line only then. Task 3 is built, reviewed and
-HELD: see "The hold on task 3" below.
+Finished. Task 3 was merged on 20 September 2026 (pull request 3217, squash commit `1ed421f7d`), by a
+Developer seat standing in for this Tech Lead, which had reported and gone. The word DRAFT is off this
+line, and the hold below is now the record of how it was lifted.
 
 ## The check
 
@@ -28,9 +29,17 @@ Developer's report.
 | `origin/main` after both merges | `8b296fe48`, the SAME tree `cc44f3307` | 46 | 645 |
 | Task 3, the swap, as first pushed (engine branch merged in) | `52c5c2b54` | 87 passed | 686 passed, 0 failed |
 | Task 3 after its review finding, main merged in | `43ac8c3e8` | 95 passed | 694 passed, 0 failed |
+| Task 3 as merged, `origin/main` = `c2bbf7d36` merged in | `5e3fbbff4` | 95 passed | 694 passed, 0 failed |
 
-The last two rows are one run: the squash merge of pull request 3191 produced exactly the tree the check
-had been run on, compared by tree identifier.
+Rows six and seven are one run: the squash merge of pull request 3191 produced exactly the tree the check
+had been run on, compared by tree identifier. The last row is the landing run, made by the Developer seat
+that merged task 3, on the merged result rather than on a report. It repeats the counts of the row above
+it, which is what a merge that touched no file under `src/CcDirector.Avalonia` or
+`src/CcDirector.Avalonia.Tests` should give, and that is what main did between `f20bbd33b` and
+`c2bbf7d36`. The same seat also ran the engine's own check on that result,
+`dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Drain|FullyQualifiedName~Restart"`:
+606 passed, 0 failed, the same count the Delivery Lead read on `origin/main` at `c2bbf7d36`. And
+`dotnet build cc-director.sln`: 0 warnings, 0 errors.
 
 That the check can fail was shown four times, each with a full build: a hand-written
 `InitializeComponent` (the defect of the old window) turns 18 of the dialog's 25 tests red, repeated
@@ -45,20 +54,50 @@ see it.
 |---|---|---|
 | 3189 | The Smart shutdown dialog, a window nobody calls yet | `642482c46` |
 | 3191 | The shutdown progress screen, a view nobody calls yet | `8b296fe48` |
-| none yet | Task 3: the swap of the two doors, the operating system shutting down, the two old windows removed. Branch `smart-restart-p2-swap` at `43ac8c3e8`, pushed | HELD, see below |
+| 3217 | Task 3: the swap of the two doors, the operating system shutting down, the two old windows removed. It closes defect 3168 | `1ed421f7d` |
 
-## The hold on task 3
+## The hold on task 3, and how it was lifted
 
-The swap is built, checked by the Tech Lead and reviewed, and it is NOT merged, on purpose. The fourth
-review found, and the Tech Lead confirmed by reading `origin/main`, that the engine on main still answers
-"not built yet" for three things the two doors need: the purpose Restart (`DirectorSmartShutdown.cs`
-line 132), `ShutDownIgnoringAllAsync` (line 173) and `RecordAndLetEndAsync` (line 182). The headless
-tests are green because they fake the engine, so the gate in mission section 8 would let the swap merge
-with the File menu door and the ignore-all choice as dead ends, in place of a close dialog that works
-today. The swap merges when phase 1 has landed all three: then `git merge origin/main` into the branch,
-the check again, a pull request, a squash merge. What the swap's tests prove, its revert proofs, its four
-pictures and its decisions are in `attachments/phase-2/swap-proof.md` on that branch; its change to the
-main window is 26 lines added and 39 removed over the two files.
+The swap was built, checked by the Tech Lead and reviewed twice, and then deliberately NOT merged. The
+fourth review found, and the Tech Lead confirmed by reading `origin/main`, that the engine on main still
+answered "not built yet" for three things the two doors need: the purpose Restart
+(`DirectorSmartShutdown.cs` line 132), `ShutDownIgnoringAllAsync` (line 173) and `RecordAndLetEndAsync`
+(line 182). The headless tests were green because they fake the engine, so the gate in mission section 8
+would have let the swap merge with the File menu door and the ignore-all choice as dead ends, in place
+of a close dialog that worked. That is the whole reason it was held; nothing about the swap itself.
+
+Phase 1 then landed all three (pull requests 3193, 3212, 3213). The hold was lifted on 20 September 2026
+by a Developer seat opened for that one task, and this is what it did:
+
+- **Merged, not rebased.** `git fetch origin` and `git merge origin/main`, bringing `c2bbf7d36` onto the
+  branch. There was **no conflict of any kind** - not in the File menu, not in `OnClosing`, not anywhere -
+  so nothing had to be resolved and no other mission's work was changed by a resolution. The reason there
+  was none: between the main already on the branch and `c2bbf7d36`, main touched no file under
+  `src/CcDirector.Avalonia` or `src/CcDirector.Avalonia.Tests`. After the merge `git diff origin/main --stat`
+  showed the swap's own 21 files and nothing else.
+- **The three paths were READ on the merged branch, not assumed to have been fixed.** `Start` with purpose
+  Restart no longer throws: it refuses, before anything is touched, only when the launcher would not
+  restart this Director, and otherwise builds a real run which asks the launcher at the finish.
+  `ShutDownIgnoringAllAsync` writes the record first, ends every live session, makes one further pass for
+  a session that appeared while the record was being written, and says in plain words what it did.
+  `RecordAndLetEndAsync` writes the operating system shutdown record. "Cancel and keep working" is live
+  too, which it never was: the run publishes the drain's own snapshots, and those say `CanCancel` is true
+  once the record exists.
+- **The flow needed no change for any of it.** The coordinator always called the real interface and always
+  showed the engine's own words; only what the engine answers has changed.
+- **The check was run on the merged result** and its counts are the last row of the table above.
+
+One thing was flagged and deliberately NOT changed, and the Delivery Lead should see it. Decision 1 of
+`swap-proof.md` - the File menu with no sessions shows a sentence and does nothing - was decided against
+the old engine, whose `Start` with purpose Restart refused outright. That reason has gone: a run with
+nothing to shut down would now find the Director empty and ask the launcher. The behaviour was left as it
+is, because changing it is a new decision about what the File menu should do with an empty Director, not
+part of landing this swap, and the mission (section 4.4) says that with no sessions running there is no
+dialog at all. It is written down so it is a choice somebody made, not something nobody noticed.
+
+What the swap's tests prove, its revert proofs, its four pictures and its decisions are in
+`attachments/phase-2/swap-proof.md`, merged with the code; its change to the main window is 26 lines
+added and 39 removed over the two files.
 
 ## What each new test proves, in plain words
 
