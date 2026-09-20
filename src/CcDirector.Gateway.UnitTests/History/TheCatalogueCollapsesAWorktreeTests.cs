@@ -232,6 +232,32 @@ public sealed class TheCatalogueCollapsesAWorktreeTests : IDisposable
         Assert.Equal(_now.AddHours(-1), LastUsedOf("/roots/work/devthrottle"));
     }
 
+    /// <summary>
+    /// A FOLDER INSIDE THE REPOSITORY IS NOT A WORKTREE OF IT. Somebody started a session in a
+    /// sub-folder once, so the catalogue holds a row for it; it is not named as a worktree, and it
+    /// stays. This is the test that stands between this rule and the obvious wrong one nobody wrote -
+    /// "collapse anything under the repository's folder" - which would fold a person's own choice of
+    /// working directory into a repository they did not pick.
+    /// </summary>
+    [Fact]
+    public void AFolderInsideTheRepository_IsNotCollapsedIntoIt()
+    {
+        var store = NewStore();
+        store.Observe(TenantId.Local, Machine, "/roots/work/devthrottle", "devthrottle", _now.AddHours(-5));
+        store.Observe(TenantId.Local, Machine, "/roots/work/devthrottle/docs", "", _now.AddHours(-1));
+        store.Observe(TenantId.Local, Machine, "/roots/work/devthrottle-p5-run-a", "", _now.AddHours(-2));
+
+        store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
+            new[] { Found("/roots/work/devthrottle", "devthrottle") },
+            rootFolders: null,
+            new[] { WorktreeOf("/roots/work/devthrottle", "/roots/work/devthrottle-p5-run-a") },
+            _now, reconcile: true);
+
+        Assert.Equal(
+            new[] { "/roots/work/devthrottle", "/roots/work/devthrottle/docs" }, Paths());
+        Assert.Equal(_now.AddHours(-2), LastUsedOf("/roots/work/devthrottle"));
+    }
+
     [Fact]
     public void APushThatIsNotARealObservation_CollapsesNothing()
     {
