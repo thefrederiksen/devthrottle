@@ -1,0 +1,79 @@
+# Phase 2 status - written as it happens by the Tech Lead (second seat, session c6c50eeb)
+
+The Delivery Lead polls this file. Newest entry last.
+
+## 20 September 2026
+
+- Seat taken. Read the handover, the mandate, the mission, `phase-1-interface.md` on `origin/main`
+  (`78255aba2`) and both Developers' proofs.
+- My own run of the check on the dialog branch (`smart-restart-p2-dialog` at `277498f16`): the
+  `SmartRestart` filter 25 passed, 0 failed; the whole `CcDirector.Avalonia.Tests` project 579 passed,
+  0 failed (554 + 25).
+- My own run on the progress branch (`smart-restart-p2-progress` at `e3e66e110`): the filter 14 passed,
+  0 failed; the whole project 568 passed, 0 failed (554 + 14).
+- Known before review: both branches change `HeadlessTestApp.cs` the same way with different comment
+  words, so the second one to merge has a small conflict. The dialog branch also names a type
+  `SmartShutdownResult` in `CcDirector.Avalonia.SmartRestart`; phase 1 has a type of the same name in
+  `CcDirector.ControlApi.SmartRestart`. Both are for the task 3 Developer.
+- Two Reviewers opened on Codex, one per branch, each in its own detached worktree
+  (`devthrottle-smart-restart-p2-review1` and `-review2`). Reviews land as `review-phase-2-1.md` (dialog)
+  and `review-phase-2-2.md` (progress) in this folder.
+- Codex could not review: both Codex seats hit the usage limit ("try again at Sep 22nd") before reading
+  their mandate. I ended both and reopened the two Reviewers on Pi with GLM 5.3, the other different
+  agent the method names. Sessions a6c3cdfb (dialog) and c58bc219 (progress), both confirmed working by
+  reading their terminal. I wait in the foreground on the two review files.
+- Both reviews landed (GLM 5.3 in Pi), copied into this folder as `review-phase-2-1.md` and
+  `review-phase-2-2.md`; both Reviewer sessions ended by me.
+  - Dialog: one finding, accepted. Its `SmartShutdownResult` has the same name as the engine's type;
+    renamed to `SmartShutdownChoice`. Everything else the reviewer checked held, including its own
+    repeat of the revert proof (18 of 25 red).
+  - Progress screen: two findings, both accepted. It never unsubscribes from the run, and its invented
+    interface cannot carry what the real one says (the engine's own words, the two "may I" flags, three
+    states, the end of the run). The screen is being rebuilt directly on the real `ISmartShutdownRun`,
+    whose types are on main (pull request 3182).
+  - MY READING, for the Delivery Lead to overrule if wrong: the owner's "the progress screen that comes
+    up in both cases" (mission 4.4) means both DOORS, not both kinds of shutdown. Ignore-all "ends
+    everything at once" and the phase 1 interface gives it no run, so the progress screen loses its
+    ignore-all kind. Task 3 shows a plain "ending your sessions" state while that one call runs.
+- Two fresh Developers opened on the two findings mandates (`mandate-phase-2-developer-dialog-findings.md`,
+  `mandate-phase-2-developer-progress-findings.md`).
+- FOR THE DELIVERY LEAD - task 3 is blocked on phase 1: `ControlApiHost.CreateSmartShutdown()` and the
+  engine behind it are not on `origin/main` (checked at `912340ed8`; only the two contract files are).
+  The swap of the menu item and the close hook cannot merge before that lands, because the door would
+  open onto nothing. Both windows can and will merge before it.
+- MERGED: the Smart shutdown dialog, pull request 3189, squash commit `642482c46`. My own run on the
+  rebased branch (`70b56e819`, on `origin/main` = `912340ed8`) before merging: the `SmartRestart` filter
+  25 passed, 0 failed; the whole project 624 passed, 0 failed (main alone is 599 now). The finding is
+  answered in `review-phase-2-1-answers.md`, merged with the code. Developer session fa8617e7 ended by me.
+- The progress screen Developer (5293ae7f) is still rebuilding the screen on the real run interface.
+- The progress screen is rebuilt on the real `ISmartShutdownRun` (branch head `8ee649166`, pushed;
+  answers in `review-phase-2-2-answers.md` on the branch). My own run on a trial merge of it into
+  `origin/main` = `642482c46`: the `SmartRestart` filter 46 passed (25 dialog + 21 screen), the whole
+  project 645 passed, 0 failed. Because it is a rebuild and not a small fix, it goes to a second
+  Reviewer (Pi, GLM 5.3) on `mandate-phase-2-reviewer-3.md`; the review lands as `review-phase-2-3.md`.
+- MERGED: the shutdown progress screen, pull request 3191, squash commit `8b296fe48`. The third review
+  (`review-phase-2-3.md`, on the rebuilt screen) found nothing and confirmed both earlier findings
+  answered in the code. `origin/main` after the merge has exactly the tree I ran the check on
+  (tree `cc44f3307`): filter 46 passed, whole project 645 passed, 0 failed. I looked at the pictures
+  myself, because neither Reviewer could view images: drawn, styled, and saying what they should.
+  Sessions 5293ae7f (Developer) and 00b7d33d (Reviewer) ended by me.
+- Task 3 (the swap) is opened WITHOUT waiting for phase 1: the engine is pushed on
+  `origin/smart-restart/p1-engine` (it carries `CreateSmartShutdown()`), not yet on main. The task 3
+  worktree `devthrottle-smart-restart-p2-swap` (branch `smart-restart-p2-swap`) is cut from main with
+  that engine branch merged into it. The Developer builds and pushes; it opens no pull request.
+  FOR THE DELIVERY LEAD: task 3 can merge only AFTER the engine lands on main. When it has, I move the
+  branch onto main, run the check again and merge. If the engine changes before it lands, tell me here.
+  Mandate: `mandate-phase-2-developer-swap.md`.
+- RISK, read this first if this seat has gone quiet: the task 3 Developer's terminal says the account has
+  used 96% of its usage limit, resetting at 6am Toronto time. That limit can stop that Developer (session
+  7329db2c) AND this Tech Lead seat mid-work. State at this moment: both windows are merged (3189, 3191);
+  task 3 has one commit on branch `smart-restart-p2-swap` (`af79c4d51`, local when I looked) and its
+  Developer is still working; the record is committed and pushed on branch `smart-restart-p2-record`.
+  WHAT IS LEFT if I am cut off: (1) the task 3 Developer finishes and pushes, or a fresh one is opened on
+  `mandate-phase-2-developer-swap.md` to finish from the commit on the branch; (2) my own run of the
+  check on it; (3) a Reviewer on a different agent (Pi with GLM 5.3; Codex is out until 22 September);
+  (4) the engine branch `smart-restart/p1-engine` lands on main, then `git merge origin/main` into the swap
+  branch, check again, pull request, squash merge; (5) `phase-2-proof.md`: fill the TASK 3 row and the
+  counts, take the word DRAFT off, merge the record branch; (6) the report paragraph here and with
+  `cc-devthrottle session report`. Worktrees still standing: `-p2-dialog` and `-p2-progress` (merged;
+  the first seat's stopped Developer sessions may still sit in them), `-p2-swap` (live).
