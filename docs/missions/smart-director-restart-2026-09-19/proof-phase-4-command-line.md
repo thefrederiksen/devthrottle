@@ -7,10 +7,13 @@ Written on 20 September 2026 by the Developer seat that built it. Its mandate is
 `mandate-phase-4-command-line.md` beside this file. The other half of phase 4, dev report inheritance,
 is merged as pull request 3199 and is not this.
 
-Branch `smart-restart/p4-command-line`, cut from `origin/main` and REBASED onto `origin/main` at
-`8fcda423b` before anything was measured. The worktree was cut at `c2bbf7d36`, and `origin/main` had
-moved three commits past it by the time work started (phase 2's screens landed); every number below is
-against `8fcda423b`, not against the commit the worktree was cut at.
+Branch `smart-restart/p4-command-line`. The worktree was cut at `c2bbf7d36`; `origin/main` had moved
+three commits past it before work started (phase 2's screens landed), and eight more while the work
+was done (phases 3 and 6, and two other missions). The branch was rebased twice, and **every number
+below is against `origin/main` at `d8fdaafed`**, which is the base the branch now sits on. Both
+baselines were measured there, in a THROWAWAY WORKTREE of its own cut from `origin/main` - never in
+this one - so no edit of mine could move the files a baseline run was reading. That worktree was
+removed afterwards. The earlier base `8fcda423b` gave the same two baseline numbers, 606 and 3401.
 
 ## What was built
 
@@ -72,10 +75,11 @@ The mandate's check:
 
 | When | Passed | Failed |
 |---|---|---|
-| Before, untouched `origin/main` at `8fcda423b` | 606 | 0 |
+| Before, untouched `origin/main` at `d8fdaafed` | 606 | 0 |
 | After | 624 | 0 |
 
-606 matches the Delivery Lead's own baseline at `c2bbf7d36`, measured before phase 2's screens merged.
+606 matches the Delivery Lead's own baseline at `c2bbf7d36`, and it is unchanged across the eleven
+commits `origin/main` moved in between - none of them added a test this filter matches.
 The 18 added are 11 in the new `SmartRestartCommandLineTests` and 7 guard cases in
 `SessionKeyGuardTests` (one fact plus two theories of two and four cases); the guard tests match the
 mission's filter because their METHOD names carry the word Restart.
@@ -86,7 +90,7 @@ the `tool-contracts` continuous integration job runs it.**
 
 | When | Passed | Failed | Skipped |
 |---|---|---|---|
-| Before, untouched `origin/main` at `8fcda423b` | 3401 | 0 | 3 |
+| Before, untouched `origin/main` at `d8fdaafed` | 3401 | 0 | 3 |
 | After | 3442 | 0 | 3 |
 
 The 41 added are the 24 in the new `tests/test_smart_restart.py` and 17 cases in the existing
@@ -107,7 +111,9 @@ floor is not installed on the machine it ships from - is NOT this phase's and is
 Also run, because this change touches the engine's own file and the Gateway:
 
 - The whole `CcDirector.Gateway.UnitTests` project: **6701 passed, 0 failed, 8 skipped**, twice.
-  Read the caveat under "what could not be reached" about the run before those two.
+  Read the caveat under "what could not be reached" about the run before those two. These three runs
+  were on the earlier base `8fcda423b`; the two suites in the table above were re-run after the final
+  rebase and gave the same counts, but the whole-project run was NOT repeated on `d8fdaafed`.
 - `dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~SmartRestart"`: 95 passed,
   0 failed - phase 2's screens, which build on the same engine file I changed.
 - `RetiredMessagingWordsTests` in `CcDirector.Core.UnitTests`: 5 passed, 0 failed. Phase 1 tripped this
