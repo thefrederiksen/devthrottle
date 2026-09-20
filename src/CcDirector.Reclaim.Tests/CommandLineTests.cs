@@ -228,6 +228,131 @@ public class CommandLineTests
         Assert.Equal(AnyIndexDirectory, Parsed(["scan", "C:\\"]).IndexDirectory);
     }
 
+    // -- The reclaim command --
+
+    [Fact]
+    public void Parse_ReclaimWithAFolder_IsADryRunByDefault()
+    {
+        var request = Parsed(["reclaim", "D:\\repos"]);
+
+        Assert.Equal(CommandName.Reclaim, request.Command);
+        Assert.Equal("D:\\repos", request.FolderPath);
+        Assert.False(request.Apply);
+        Assert.Null(request.RuleId);
+    }
+
+    [Fact]
+    public void Parse_ReclaimWithTheApplyFlagAndARule_ReadsThemBoth()
+    {
+        var request = Parsed(["reclaim", "D:\\repos", "--apply", "--rule", "devthrottle-test-scratch-folders", "--json"]);
+
+        Assert.True(request.Apply);
+        Assert.Equal("devthrottle-test-scratch-folders", request.RuleId);
+        Assert.True(request.Json);
+    }
+
+    [Fact]
+    public void Parse_ReclaimWithAFlagItDoesNotTake_IsRefusedNamingTheFlagsItDoes()
+    {
+        var refusal = Refused(["reclaim", "D:\\repos", "--days", "30"]);
+
+        Assert.Contains("--days", refusal, StringComparison.Ordinal);
+        Assert.Contains("--apply", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_ReclaimWithNoFolder_IsAUsageErrorNamingTheCommand()
+    {
+        var refusal = Refused(["reclaim"]);
+
+        Assert.Contains("reclaim", refusal, StringComparison.Ordinal);
+        Assert.Contains("needs a folder", refusal, StringComparison.Ordinal);
+    }
+
+    // -- The holding commands --
+
+    [Fact]
+    public void Parse_HoldingListWithAFolderOrVolume_IsRead()
+    {
+        var request = Parsed(["holding", "list", "D:\\"]);
+
+        Assert.Equal(CommandName.HoldingList, request.Command);
+        Assert.Equal("D:\\", request.FolderPath);
+        Assert.Equal("holding list", request.CommandWord);
+    }
+
+    [Fact]
+    public void Parse_HoldingRestoreWithAnEntryAndAHoldingRoot_IsRead()
+    {
+        var request = Parsed(["holding", "restore", "2026-09-19-3f2a1b9c", "--holding-root", "D:\\cc-reclaim-holding", "--json"]);
+
+        Assert.Equal(CommandName.HoldingRestore, request.Command);
+        Assert.Equal("2026-09-19-3f2a1b9c", request.EntryId);
+        Assert.Equal("D:\\cc-reclaim-holding", request.HoldingRootPath);
+        Assert.True(request.Json);
+    }
+
+    [Fact]
+    public void Parse_HoldingPurgeByDefault_IsADryRun()
+    {
+        var request = Parsed(["holding", "purge", "--holding-root", "D:\\cc-reclaim-holding"]);
+
+        Assert.Equal(CommandName.HoldingPurge, request.Command);
+        Assert.False(request.Apply);
+        Assert.Null(request.Days);
+    }
+
+    [Fact]
+    public void Parse_HoldingPurgeWithTheApplyFlagAndDays_ReadsThemBoth()
+    {
+        var request = Parsed(["holding", "purge", "--holding-root", "D:\\cc-reclaim-holding", "--apply", "--days", "7"]);
+
+        Assert.True(request.Apply);
+        Assert.Equal(7, request.Days);
+    }
+
+    [Fact]
+    public void Parse_HoldingWithNoWordAfterIt_IsAUsageErrorNamingTheThree()
+    {
+        var refusal = Refused(["holding"]);
+
+        Assert.Contains("list, restore or purge", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_HoldingWithAWordNobodyMade_IsAUsageErrorNamingTheThree()
+    {
+        var refusal = Refused(["holding", "empty", "D:\\"]);
+
+        Assert.Contains("there is no holding command empty", refusal, StringComparison.Ordinal);
+        Assert.Contains("list, restore and purge", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_HoldingRestoreWithNoEntryId_IsAUsageError()
+    {
+        var refusal = Refused(["holding", "restore", "--holding-root", "D:\\cc-reclaim-holding"]);
+
+        Assert.Contains("needs an entry id", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_HoldingRestoreWithNoHoldingRoot_IsAUsageError()
+    {
+        var refusal = Refused(["holding", "restore", "2026-09-19-3f2a1b9c"]);
+
+        Assert.Contains("needs the holding folder", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_HoldingListWithAFlagItDoesNotTake_IsRefusedNamingTheFlagsItDoes()
+    {
+        var refusal = Refused(["holding", "list", "D:\\", "--apply"]);
+
+        Assert.Contains("--apply", refusal, StringComparison.Ordinal);
+        Assert.Contains("--json", refusal, StringComparison.Ordinal);
+    }
+
     private static Request Parsed(string[] arguments)
     {
         var outcome = CommandLine.Parse(arguments, AnyIndexDirectory);

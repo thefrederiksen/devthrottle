@@ -10,8 +10,9 @@ namespace CcDirector.Reclaim.Tests;
 
 /// <summary>
 /// The tool end to end, against a tree the test builds and an index folder of its own. Nothing here
-/// touches the machine's real saved scans, and nothing here removes anything, because phase 1 holds
-/// no code that could.
+/// touches the machine's real saved scans, and nothing here removes anything it did not build on a
+/// fixture tree itself: the reclaim answers are dry runs or applies over folders no rule looks
+/// inside, and the holding answers work on a holding root inside the fixture.
 /// </summary>
 public class RunnerTests
 {
@@ -322,8 +323,10 @@ public class RunnerTests
 
             Assert.Contains(word, invocation, StringComparison.Ordinal);
 
-            // The word the page hands a machine is given to the reader that would refuse it.
-            var outcome = CommandLine.Parse([word, home.Root], home.Root);
+            // The word the page hands a machine is given to the reader that would refuse it. A
+            // command whose word is two words - "holding list" - is handed as the two words it is,
+            // and the reader must take them and name the command by both.
+            var outcome = CommandLine.Parse(WordsOf(word, home.Root), home.Root);
             Assert.Null(outcome.UsageError);
             Assert.NotNull(outcome.Request);
             Assert.Equal(word, outcome.Request.CommandWord);
@@ -378,6 +381,10 @@ public class RunnerTests
             ("--index-directory", home.Root),
             ("--top", "5"),
             ("--folder-depth", "2"),
+            ("--rule", "some-rule"),
+            ("--apply", null),
+            ("--holding-root", home.Root),
+            ("--days", "30"),
             ("--help", null),
             ("-h", null),
             ("--version", null)
@@ -397,11 +404,10 @@ public class RunnerTests
             var taken = new List<string?>();
             foreach (var (flag, value) in everySpelling)
             {
-                var arguments = new List<string>();
-                if (word.Length > 0) arguments.Add(word);
-                arguments.Add(flag);
-                if (value is not null) arguments.Add(value);
-                if (word.Length > 0) arguments.Add(home.Root);
+                var arguments = new List<string>(WordsOf(word, home.Root));
+                var at = word.Length == 0 ? 0 : word.Split(' ').Length;
+                arguments.Insert(at, flag);
+                if (value is not null) arguments.Insert(at + 1, value);
 
                 // A request built at all means the reader took the flag; a flag it does not take is
                 // the one thing that stops a command line this well formed from being understood.
@@ -440,6 +446,13 @@ public class RunnerTests
             Runner.Run(Request(CommandName.Scan, empty.Root, home.Root)),
             Runner.Run(Request(CommandName.Report, tree.Root, home.Root)),
             Runner.Run(Request(CommandName.SavedScans, null, home.Root)),
+            Runner.Run(ReclaimRequest(tree.Root, apply: false)),
+            Runner.Run(ReclaimRequest(tree.Root, apply: true)),
+            Runner.Run(HoldingRequest(CommandName.HoldingList, home.Root, folder: tree.Root)),
+            Runner.Run(HoldingRequest(
+                CommandName.HoldingRestore, home.Root, folder: tree.Root, entryId: "2026-09-19-3f2a1b9c")),
+            Runner.Run(HoldingRequest(CommandName.HoldingPurge, home.Root, folder: tree.Root, apply: false)),
+            Runner.Run(HoldingRequest(CommandName.HoldingPurge, home.Root, folder: tree.Root, apply: true)),
             Runner.Failure("scan", "usage", "there is no flag --nope", ExitCodes.Usage)
         ];
 
@@ -624,6 +637,266 @@ public class RunnerTests
         Assert.NotEmpty(single.WhyItIsSafe);
         Assert.NotEmpty(single.Controls);
     }
+
+
+    /// <summary>
+    /// The shortest well-formed command line that asks for one command's word, so the page's word
+    /// is always handed to the reader that would refuse it. The holding commands whose word is two
+    /// words are handed as the two words they are, and each command is given only what its own
+    /// reader demands - a restore needs an entry and the holding folder, a purge needs the holding
+    /// folder, and everything else takes the folder.
+    /// </summary>
+    private static string[] WordsOf(string word, string folder) => word switch
+    {
+        "" => [],
+        "holding restore" => ["holding", "restore", "an-entry", "--holding-root", folder],
+        "holding purge" => ["holding", "purge", "--holding-root", folder],
+        _ => word.Split(' ').Concat([folder]).ToArray()
+    };
+
+    /// <summary>
+    /// No rule on this machine looks inside a fixture folder, and the tool says so as a broken answer
+    /// rather than as an empty one - exactly the posture the mission demands of an empty result.
+    /// </summary>
+    [Fact]
+    public void Run_ReclaimOfAFolderNoRuleLooksInside_EndsOnOneAndNamesWhy()
+    {
+        using var tree = new FixtureTree(nameof(Run_ReclaimOfAFolderNoRuleLooksInside_EndsOnOneAndNamesWhy));
+
+        var answer = Runner.Run(ReclaimRequest(tree.Root, apply: false));
+
+        Assert.Equal(ExitCodes.Failed, answer.ExitCode);
+        var json = Assert.IsType<ReclaimJson>(answer.JsonPayload);
+        Assert.False(json.Ok);
+        Assert.NotNull(json.BrokenReason);
+        Assert.Contains(
+            answer.TextLines,
+            line => line.Contains("no rule on this machine looks inside", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A rule id that is not among the rules that look inside the folder asked about is an error
+    /// naming the rules that do, never a quiet empty answer.
+    /// </summary>
+    [Fact]
+    public void Run_ReclaimWithARuleThatDoesNotLookInside_IsAUsageErrorNamingIt()
+    {
+        using var tree = new FixtureTree(nameof(Run_ReclaimWithARuleThatDoesNotLookInside_IsAUsageErrorNamingIt));
+
+        var answer = Runner.Run(ReclaimRequest(tree.Root, apply: false, ruleId: "devthrottle-test-scratch-folders"));
+
+        Assert.Equal(ExitCodes.Usage, answer.ExitCode);
+        var json = Assert.IsType<ErrorJson>(answer.JsonPayload);
+        Assert.Equal("no-such-rule-here", json.Code);
+        Assert.Contains("is not among the rules that look inside", json.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The machine-readable output carries all ten outcomes for a refused item, with the ones after
+    /// the refusal marked not-reached, so an agent reading one item can see the reach of every
+    /// refusal and never read an unchecked one as a passed one.
+    /// </summary>
+    [Fact]
+    public void Run_ReclaimJsonForARefusedItem_CarriesAllTenOutcomesWithTheNotReachedOnesMarked()
+    {
+        using var tree = new FixtureTree(nameof(Run_ReclaimJsonForARefusedItem_CarriesAllTenOutcomesWithTheNotReachedOnesMarked));
+        var temp = tree.Folder("temp");
+        var item = Path.Combine(temp, "cc-director-tests");
+        Directory.CreateDirectory(item);
+        File.WriteAllBytes(Path.Combine(item, "scratch.txt"), new byte[64]);
+        Directory.CreateDirectory(Path.Combine(temp, ".git"));
+
+        // A real engine result on a fixture tree, mapped by the tool's own mapper - the same path the
+        // command takes, with the rules the test built instead of this machine's.
+        var result = CcDirector.Reclaim.Removal.ReclaimRunner.Run(new CcDirector.Reclaim.Removal.ReclaimRunRequest
+        {
+            Rules = [new CcDirector.Reclaim.Windows.TestScratchFoldersRule(temp)],
+            RootPath = tree.Root,
+            HoldingRootPath = Path.Combine(tree.Root, "holding"),
+            ProtectedPaths = [],
+            UserFolders = [],
+            Apply = false,
+            NowUtc = DateTimeOffset.UtcNow.AddDays(400)
+        });
+
+        var json = Runner.ToReclaimJson(result);
+        var written = JsonSerializer.Serialize(json, JsonShape.Options);
+        using var read = JsonDocument.Parse(written);
+
+        var refused = read.RootElement.GetProperty("items")[0];
+        Assert.False(refused.GetProperty("eligible").GetBoolean());
+        Assert.Equal(2, refused.GetProperty("firedCheck").GetInt32());
+
+        var checks = refused.GetProperty("checks").EnumerateArray().ToList();
+        Assert.Equal(10, checks.Count);
+        for (var number = 0; number < 10; number++)
+        {
+            var outcome = checks[number].GetProperty("outcome").GetString();
+            if (number == 1)
+                Assert.Equal("refused", outcome);
+            else if (number > 1)
+                Assert.Equal("not-reached", outcome);
+        }
+
+        Assert.Equal("inside a git working tree", checks[1].GetProperty("name").GetString());
+        Assert.NotNull(checks[1].GetProperty("reason").GetString());
+    }
+
+    /// <summary>An honest empty answer: no holding root is count zero, not an error.</summary>
+    [Fact]
+    public void Run_HoldingListOfAHoldingRootThatIsNotThere_SaysCountZero()
+    {
+        using var tree = new FixtureTree(nameof(Run_HoldingListOfAHoldingRootThatIsNotThere_SaysCountZero));
+        var holdingRoot = Path.Combine(tree.Root, "holding");
+
+        var answer = Runner.Run(HoldingRequest(CommandName.HoldingList, holdingRoot, folder: tree.Root));
+
+        Assert.Equal(ExitCodes.Ok, answer.ExitCode);
+        var json = Assert.IsType<HoldingListJson>(answer.JsonPayload);
+        Assert.True(json.Ok);
+        Assert.False(json.RootExists);
+        Assert.Equal(0, json.Count);
+        Assert.Empty(json.Entries);
+        Assert.Contains(
+            answer.TextLines,
+            line => line.StartsWith("count: 0", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The whole holding flow through the tool: the engine holds an item on a fixture tree, the tool
+    /// lists it, restores it byte for byte, purges the re-held entry after its period, and the tree
+    /// is checked after each step.
+    /// </summary>
+    [Fact]
+    public void Run_TheWholeHoldingFlowThroughTheTool_ListsRestoresAndPurges()
+    {
+        using var tree = new FixtureTree(nameof(Run_TheWholeHoldingFlowThroughTheTool_ListsRestoresAndPurges));
+        var temp = tree.Folder("temp");
+        var item = Path.Combine(temp, "cc-director-tests");
+        Directory.CreateDirectory(item);
+        File.WriteAllBytes(Path.Combine(item, "scratch.txt"), new byte[512]);
+
+        var holdingRoot = Path.Combine(tree.Root, "holding");
+        var held = new CcDirector.Reclaim.Removal.HoldingStore(holdingRoot).Hold(
+            new ReclaimCandidate(item, 512, DateTimeOffset.UtcNow, "created by one of DevThrottle's own test suites"),
+            "devthrottle-test-scratch-folders",
+            DateTimeOffset.UtcNow);
+        Assert.True(held.Held, held.RefusalReason);
+
+        // The list names the entry with its original path and bytes.
+        var list = Runner.Run(HoldingRequest(CommandName.HoldingList, holdingRoot, folder: tree.Root));
+        var listJson = Assert.IsType<HoldingListJson>(list.JsonPayload);
+        Assert.Equal(ExitCodes.Ok, list.ExitCode);
+        var entry = Assert.Single(listJson.Entries);
+        Assert.Equal(held.EntryId, entry.EntryId);
+        Assert.Equal(Path.GetFullPath(item), entry.OriginalPath);
+        Assert.Equal(512, entry.Bytes);
+
+        // The restore puts the item back, byte for byte, and clears the entry.
+        Assert.NotNull(held.EntryId);
+        var restore = Runner.Run(HoldingRequest(
+            CommandName.HoldingRestore, holdingRoot, folder: tree.Root, entryId: held.EntryId));
+        Assert.Equal(ExitCodes.Ok, restore.ExitCode);
+        var restoreJson = Assert.IsType<HoldingRestoreJson>(restore.JsonPayload);
+        Assert.True(restoreJson.Restored);
+        Assert.True(File.Exists(Path.Combine(item, "scratch.txt")));
+        Assert.Equal(512, new FileInfo(Path.Combine(item, "scratch.txt")).Length);
+
+        // Held again, then purged: first the dry run that names it as not yet purgeable, then the
+        // apply after the period, which is the only step that frees space.
+        var heldAgain = new CcDirector.Reclaim.Removal.HoldingStore(holdingRoot).Hold(
+            new ReclaimCandidate(item, 512, DateTimeOffset.UtcNow, "created by one of DevThrottle's own test suites"),
+            "devthrottle-test-scratch-folders",
+            DateTimeOffset.UtcNow);
+        Assert.True(heldAgain.Held);
+
+        Assert.NotNull(heldAgain.EntryId);
+        var purgeDryRun = Runner.Run(HoldingRequest(
+            CommandName.HoldingPurge, holdingRoot, folder: tree.Root, apply: false));
+        var dryRunJson = Assert.IsType<HoldingPurgeJson>(purgeDryRun.JsonPayload);
+        Assert.False(dryRunJson.Applied);
+        Assert.Empty(dryRunJson.Purgeable);
+        Assert.Single(dryRunJson.NotYetPurgeable);
+
+        var purge = Runner.Run(HoldingRequest(
+            CommandName.HoldingPurge, holdingRoot, folder: tree.Root, apply: true, days: 0));
+        var purgeJson = Assert.IsType<HoldingPurgeJson>(purge.JsonPayload);
+        Assert.True(purgeJson.Applied);
+        Assert.Equal(1, purgeJson.PurgedCount);
+        Assert.False(Directory.Exists(Path.Combine(holdingRoot, heldAgain.EntryId)));
+        Assert.False(Directory.Exists(item));
+    }
+
+    /// <summary>A restore that is refused - something now stands at the original path - never overwrites.</summary>
+    [Fact]
+    public void Run_HoldingRestoreOntoAnOccupiedPath_IsRefusedAndOverwritesNothing()
+    {
+        using var tree = new FixtureTree(nameof(Run_HoldingRestoreOntoAnOccupiedPath_IsRefusedAndOverwritesNothing));
+        var temp = tree.Folder("temp");
+        var item = Path.Combine(temp, "cc-director-tests");
+        Directory.CreateDirectory(item);
+
+        var holdingRoot = Path.Combine(tree.Root, "holding");
+        var held = new CcDirector.Reclaim.Removal.HoldingStore(holdingRoot).Hold(
+            new ReclaimCandidate(item, 0, DateTimeOffset.UtcNow, "created by one of DevThrottle's own test suites"),
+            "devthrottle-test-scratch-folders",
+            DateTimeOffset.UtcNow);
+        Assert.True(held.Held);
+
+        var newcomer = tree.Folder("temp/cc-director-tests");
+        File.WriteAllText(Path.Combine(newcomer, "somebody-else.txt"), "not ours");
+
+        Assert.NotNull(held.EntryId);
+        var answer = Runner.Run(HoldingRequest(
+            CommandName.HoldingRestore, holdingRoot, folder: tree.Root, entryId: held.EntryId));
+
+        Assert.Equal(ExitCodes.Failed, answer.ExitCode);
+        var json = Assert.IsType<HoldingRestoreJson>(answer.JsonPayload);
+        Assert.False(json.Restored);
+        Assert.NotNull(json.RefusalReason);
+        Assert.Contains("never overwrites", json.RefusalReason, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(newcomer, "somebody-else.txt")));
+        Assert.True(Directory.Exists(Path.Combine(holdingRoot, held.EntryId)));
+    }
+
+    private static Request ReclaimRequest(string folder, bool apply, string? ruleId = null) => new()
+    {
+        Command = CommandName.Reclaim,
+        FolderPath = folder,
+        Json = false,
+        IndexDirectory = "unused-index-directory",
+        LargestFolders = ScanReportBuilder.DefaultLargestFolders,
+        FolderDepth = 2,
+        RuleId = ruleId,
+        Apply = apply,
+        HoldingRootPath = null,
+        EntryId = null,
+        Days = null,
+        CommandWord = "reclaim"
+    };
+
+    private static Request HoldingRequest(
+        CommandName command, string holdingRoot, string folder, bool apply = false, string? entryId = null, int? days = null) => new()
+    {
+        Command = command,
+        FolderPath = folder,
+        Json = false,
+        IndexDirectory = "unused-index-directory",
+        LargestFolders = ScanReportBuilder.DefaultLargestFolders,
+        FolderDepth = 2,
+        RuleId = null,
+        Apply = apply,
+        HoldingRootPath = holdingRoot,
+        EntryId = entryId,
+        Days = days,
+        CommandWord = command switch
+        {
+            CommandName.HoldingList => "holding list",
+            CommandName.HoldingRestore => "holding restore",
+            CommandName.HoldingPurge => "holding purge",
+            _ => "holding"
+        }
+    };
 
     private static Request Request(CommandName command, string? folder, string indexDirectory) => new()
     {
