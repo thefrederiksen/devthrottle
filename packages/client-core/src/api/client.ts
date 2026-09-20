@@ -153,6 +153,25 @@ export interface RepoInfo {
   lastUsed: string;
 }
 
+// One repository on the ONE list the Gateway serves from GET /directors/{id}/known-repositories: the
+// union of what has been opened on that machine and what a Director found under a registered root folder
+// but nobody has ever opened. Everything a RepoInfo carries, plus the Gateway's verdict on which half
+// this row is in.
+//
+// It is a SEPARATE interface rather than a field on RepoInfo on purpose. getRepos reads a different
+// route, the Director's own registry, which carries no such verdict - so putting the field on RepoInfo
+// would force getRepos to INVENT one, which is the client ruling for itself that Critical Rule 7 forbids.
+// Because this extends RepoInfo, anything that already takes a RepoInfo takes one of these unchanged.
+export interface KnownRepoInfo extends RepoInfo {
+  /**
+   * The Gateway's stamped verdict: this repository was found under a registered root folder and has never
+   * been opened, which is why it sits beneath everything that has been. It is read, never derived - a
+   * client must not decide for itself what an absent lastUsed MEANS, and must never compare lastUsed to
+   * work out where a row belongs. The Gateway already decided both.
+   */
+  neverOpened: boolean;
+}
+
 // One selectable agent on a Director, projected from GET /directors/{id}/agents (issue #1497): the
 // machine's configured, enabled agents, one per kind - the remote counterpart of the desktop New
 // Session dialog's agent radios. Not in the OpenAPI schema; read with this narrow local shape.
@@ -1717,7 +1736,10 @@ export async function getRepos(directorId: string, signal?: AbortSignal): Promis
 // did not expect it would render something plausible rather than something true. The guard against this
 // coming back is packages/client-core/src/api/newSession.test.ts, "serves the Gateway's order untouched
 // and never re-sorts on lastUsed".
-export async function getKnownRepositories(directorId: string, signal?: AbortSignal): Promise<RepoInfo[]> {
+export async function getKnownRepositories(
+  directorId: string,
+  signal?: AbortSignal,
+): Promise<KnownRepoInfo[]> {
   const id = encodeURIComponent(directorId);
   const res = await gatewayFetch(`/directors/${id}/known-repositories`, {
     method: "GET",
@@ -1728,11 +1750,15 @@ export async function getKnownRepositories(directorId: string, signal?: AbortSig
     throw await GatewayError.from(res, "load that machine's repository history");
   }
   const raw = (await res.json()) as Array<Record<string, unknown>>;
-  const list: RepoInfo[] = raw
+  const list: KnownRepoInfo[] = raw
     .map((repository) => ({
       name: String(repository.name ?? ""),
       path: String(repository.path ?? ""),
       lastUsed: String(repository.lastUsed ?? ""),
+      // Carried through as the Gateway sent it. A row the Gateway did not stamp is NOT guessed at from
+      // the absent time - it reads as false, which is what an unstamped row is: one this client has no
+      // verdict for, and so has no business drawing a conclusion about.
+      neverOpened: repository.neverOpened === true,
     }))
     .filter((repository) => repository.path.length > 0);
   return list;

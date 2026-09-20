@@ -82,6 +82,26 @@ describe("new session client", () => {
     // A missing time reads as no time - not as a crash, and not as a date nobody chose.
     expect(repositories.map((repository) => repository.lastUsed))
       .toEqual(["2026-09-01T00:00:00Z", "2026-08-01T00:00:00Z", "", ""]);
+    // And the Gateway's verdict ARRIVES, row by row, rather than being thrown away and re-derived by
+    // each screen from the absent time. This is the field that lets a client render "never opened"
+    // without deciding for itself what an empty date means.
+    expect(repositories.map((repository) => repository.neverOpened))
+      .toEqual([false, false, true, true]);
+  });
+
+  // A row the Gateway did not stamp is not a row to guess about. The verdict reads as false - "this
+  // client has no verdict for you" - and nothing infers one from the missing time, which would be the
+  // client ruling for itself by the back door.
+  it("does not invent the never-opened verdict for a row that arrives without one", async () => {
+    globalThis.fetch = (async () => jsonResponse([
+      { name: "Unstamped", path: "/repositories/unstamped" },
+    ])) as unknown as typeof fetch;
+
+    const repositories = await getKnownRepositories("director-one");
+
+    expect(repositories).toHaveLength(1);
+    expect(repositories[0].neverOpened).toBe(false);
+    expect(repositories[0].lastUsed).toBe("");
   });
 
   it("surfaces a known-repository route failure instead of returning an empty list", async () => {
