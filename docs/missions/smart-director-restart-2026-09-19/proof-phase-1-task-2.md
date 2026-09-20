@@ -99,11 +99,16 @@ cannot see what the host wires. Tests 10 and 11 exist for exactly that reason.
 
 **Mutation B - the step made to behave as the stand-in did** (`RunAsync` answers `Unavailable` at once
 and drains nothing). Result: 421 passed, 7 failed. Red: tests 1, 2, 3, 4, 7, 8 and 9. Tests 5 and 6 are
-about `Availability`, which this mutation does not touch, and 10 and 11 are about the host. So every new
-test goes red under one of the two mutations, and the order test goes red under B.
+about `Availability`, which this mutation does not touch, and 10 and 11 are about the host.
 
-**Restored** with `git checkout`, REBUILT, run again: 428 passed, 0 failed. `git status` clean and
-`git diff HEAD` empty before that run.
+**Mutation C - the availability answer turned upside down** (available when there is NO drain to build).
+Added because A and B left tests 5 and 6 never seen red. Result: 425 passed, 3 failed. Red: tests 5, 6
+and 11.
+
+So every one of the eleven new tests has been seen red under a mutation, and the order test under B.
+
+**Restored** with `git checkout` after each mutation, REBUILT, run again: 428 passed, 0 failed, with
+`git status` clean before the run. Done after B and again after C.
 
 Two things the revert proof turned up, both worth knowing:
 
