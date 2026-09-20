@@ -101,6 +101,6 @@ public sealed class SmartShutdownViewModel : INotifyPropertyChanged
     public string CancelButtonText => "Cancel";
 
     /// <summary>The result of the confirm button: smart shutdown, with the time now selected.</summary>
-    public SmartShutdownResult BuildSmartShutdownResult() =>
-        SmartShutdownResult.SmartShutdown(SelectedTimeOption.TimeAllowed);
+    public SmartShutdownChoice BuildSmartShutdownChoice() =>
+        SmartShutdownChoice.SmartShutdown(SelectedTimeOption.TimeAllowed);
 }

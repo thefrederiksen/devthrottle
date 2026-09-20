@@ -201,7 +201,7 @@ public class SmartShutdownDialogTests
 
         Click(dialog.BtnSmart);
 
-        Assert.Equal(SmartShutdownChoice.SmartShutdown, dialog.Result.Choice);
+        Assert.Equal(SmartShutdownChoiceKind.SmartShutdown, dialog.Result.Choice);
         Assert.Equal(TimeSpan.FromMinutes(10), dialog.Result.TimeAllowed);
         Assert.False(dialog.IsVisible);
     }
@@ -215,7 +215,7 @@ public class SmartShutdownDialogTests
 
         Click(dialog.BtnSmart);
 
-        Assert.Equal(SmartShutdownChoice.SmartShutdown, dialog.Result.Choice);
+        Assert.Equal(SmartShutdownChoiceKind.SmartShutdown, dialog.Result.Choice);
         Assert.Equal(TimeSpan.FromMinutes(30), dialog.Result.TimeAllowed);
     }
 
@@ -227,7 +227,7 @@ public class SmartShutdownDialogTests
         dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(SmartShutdownChoice.SmartShutdown, dialog.Result.Choice);
+        Assert.Equal(SmartShutdownChoiceKind.SmartShutdown, dialog.Result.Choice);
         Assert.Equal(TimeSpan.FromMinutes(10), dialog.Result.TimeAllowed);
         Assert.False(dialog.IsVisible);
     }
@@ -239,7 +239,7 @@ public class SmartShutdownDialogTests
 
         Click(dialog.BtnIgnore);
 
-        Assert.Equal(SmartShutdownChoice.IgnoreAllSessions, dialog.Result.Choice);
+        Assert.Equal(SmartShutdownChoiceKind.IgnoreAllSessions, dialog.Result.Choice);
         Assert.Null(dialog.Result.TimeAllowed);
         Assert.False(dialog.IsVisible);
     }
@@ -251,7 +251,7 @@ public class SmartShutdownDialogTests
 
         Click(dialog.BtnCancel);
 
-        Assert.Equal(SmartShutdownChoice.Cancelled, dialog.Result.Choice);
+        Assert.Equal(SmartShutdownChoiceKind.Cancelled, dialog.Result.Choice);
         Assert.Null(dialog.Result.TimeAllowed);
         Assert.False(dialog.IsVisible);
     }
@@ -264,7 +264,7 @@ public class SmartShutdownDialogTests
         dialog.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(SmartShutdownChoice.Cancelled, dialog.Result.Choice);
+        Assert.Equal(SmartShutdownChoiceKind.Cancelled, dialog.Result.Choice);
         Assert.False(dialog.IsVisible);
     }
 
@@ -283,7 +283,7 @@ public class SmartShutdownDialogTests
         dialog.Close();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(SmartShutdownChoice.Cancelled, dialog.Result.Choice);
+        Assert.Equal(SmartShutdownChoiceKind.Cancelled, dialog.Result.Choice);
         Assert.Null(dialog.Result.TimeAllowed);
     }
 
@@ -300,7 +300,7 @@ public class SmartShutdownDialogTests
         Click(dialog.BtnSmart);
         var result = await pending;
 
-        Assert.Equal(SmartShutdownChoice.SmartShutdown, result.Choice);
+        Assert.Equal(SmartShutdownChoiceKind.SmartShutdown, result.Choice);
         Assert.Equal(TimeSpan.FromMinutes(10), result.TimeAllowed);
     }
 

@@ -7,7 +7,7 @@ started. Every command below was run in the foreground in that worktree on 19 Se
 
 New files only, under `src/CcDirector.Avalonia/SmartRestart/`: the window `SmartShutdownDialog`, the view
 model `SmartShutdownViewModel` that holds every word and count, the plain input `SmartShutdownSession`, the
-door `SmartShutdownDoor`, the result `SmartShutdownResult`, the dropdown entry `SmartShutdownTimeOption`,
+door `SmartShutdownDoor`, the result `SmartShutdownChoice`, the dropdown entry `SmartShutdownTimeOption`,
 and the helper `SmartShutdownSessionReader` that builds the input from `Session` objects. Nothing calls the
 window yet. `MainWindow`, `CloseDialog`, `DrainDirectorDialog` and `src/CcDirector.ControlApi` are untouched.
 
@@ -52,6 +52,31 @@ blank frame fails it. Each picture was looked at after it was written; all four 
 - `dialog-from-file-menu.png` - confirm button says "Smart Restart"
 - `dialog-two-question-boxes-open.png` - "Answer these first?" with two sessions by name
 - `dialog-time-allowed-30-minutes.png` - the dropdown and the explanation both say 30 minutes
+
+## After the review - the result was renamed (20 September 2026)
+
+The review (`review-phase-2-1.md`) found that the dialog's `SmartShutdownResult` had the same name as the
+engine's `CcDirector.ControlApi.SmartRestart.SmartShutdownResult`, which the wiring task must use in the
+same file. The dialog's record is now `SmartShutdownChoice`, in `SmartShutdownChoice.cs`: it is what the
+owner chose, where the engine's type is how a run ended. The name `SmartShutdownChoice` was already held by
+the enumeration beside the record, so that enumeration is now `SmartShutdownChoiceKind`. The view model's
+`BuildSmartShutdownResult()` is now `BuildSmartShutdownChoice()`. Nothing else about the dialog changed:
+the record's members, the window's `Result` property and `ShowForResultAsync` keep their names, and every
+word the window shows is the same. The answers to the review are in `review-phase-2-1-answers.md`.
+
+The branch was rebased onto `origin/main` at `912340ed85d2cc98abd99d1dac6be06e2ef32878`, cleanly. Run after
+the rename, in the foreground, each with a full build:
+
+| Run | Command | Result |
+|---|---|---|
+| The filter | `dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~SmartRestart"` | 25 passed, 0 failed, 0 skipped |
+| Whole project | `dotnet test src/CcDirector.Avalonia.Tests` | 624 passed, 0 failed, 0 skipped |
+| The application | `dotnet build src/CcDirector.Avalonia --no-incremental` | 0 warnings, 0 errors (warnings are errors) |
+
+The whole project count rose from 579 to 624 because `origin/main` gained tests between the two bases; the
+25 tests of this change are the same 25. The counts in the first table above are the first Developer's, on
+the old base `0f084d60b`, and are left as they were written. The opening test mutation was not repeated
+after the rename: the rename does not touch `InitializeComponent` or any named control.
 
 ## What this proof does NOT cover
 
