@@ -10,6 +10,19 @@ shows only the swap's own files. Review finding 1 is fixed in `da62648b0`: decis
 REPLACED, and the counts, the tests and the revert proofs are brought up to date. The answers to both
 findings are in `docs/missions/smart-director-restart-2026-09-19/review-phase-2-4-answers.md`.
 
+**Landed 20 September 2026, by the Developer seat that merged it.** The branch was held for one reason
+only - review finding 2, that the engine on main still answered "not built yet" for three of this
+flow's paths. Phase 1 has landed all three (pull requests 3193, 3212, 3213). `git fetch origin` and
+`git merge origin/main` (a merge, no rebase, no force push) brought `origin/main` at `c2bbf7d36` onto
+the branch with NO CONFLICT of any kind - not in the File menu, not in `OnClosing`, not anywhere - so
+nothing had to be resolved and no other mission's work was changed by the resolution. The reason there
+was none: between `f20bbd33b` (the main already on the branch) and `c2bbf7d36`, main touched no file
+under `src/CcDirector.Avalonia` or `src/CcDirector.Avalonia.Tests` at all
+(`git diff --stat abb232669 origin/main -- src/CcDirector.Avalonia src/CcDirector.Avalonia.Tests`
+shows only this branch's own files, in reverse). `git diff origin/main --stat` after the merge shows
+the swap's own 21 files and nothing else. The section "What the engine could not give me" is REWRITTEN
+below, because it is no longer true, and the counts of that merge are in their own table.
+
 ## What was built
 
 - **`SmartShutdownCoordinator`** (`src/CcDirector.Avalonia/SmartRestart/`), the whole flow in one class.
@@ -56,6 +69,20 @@ After the review, on main at `f20bbd33b` plus finding 1 (each with a full build,
 | `dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~SmartRestart"` | 87 | **95 passed, 0 failed, 0 skipped** |
 | `dotnet test src/CcDirector.Avalonia.Tests` | 686 | **694 passed, 0 failed, 0 skipped** |
 | `dotnet build cc-director.sln` | | **0 warnings, 0 errors** |
+
+On the merged result, main at `c2bbf7d36` (the landing run, each with a full build, in the foreground):
+
+| Command | Count |
+|---|---|
+| `dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~SmartRestart"` | **95 passed, 0 failed, 0 skipped** |
+| `dotnet test src/CcDirector.Avalonia.Tests` | **694 passed, 0 failed, 0 skipped** |
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Drain|FullyQualifiedName~Restart"` (the engine) | **606 passed, 0 failed, 0 skipped** |
+| `dotnet build cc-director.sln` | **0 warnings, 0 errors** |
+
+95 and 694 are the same counts the Tech Lead and the fifth Reviewer read before the hold, which is what
+a merge that touched no Avalonia file should give; 606 is the same count the Delivery Lead read on
+`origin/main` at `c2bbf7d36`. The counts were READ, not the colour: the `SmartRestart` filter matching
+nothing would also exit green, and 95 is not nothing.
 
 How 87 became 95: one test came in with main (a session reader test, pull request 3195); the one old
 no-engine test was taken out, because it asserted the silent carry-on the review found; eight no-engine
@@ -203,24 +230,42 @@ Drawn by Skia under the headless platform in a bare window, not by the running a
 11. **While the progress screen is shown the session rail at the left stays live.** Only the session view
     is replaced, as the mandate says.
 
-## What the engine could not give me
+## What the engine could give me, once phase 1 landed
 
-Read in `DirectorSmartShutdown.cs` on this branch (engine merged at `55870f183`), and read again after
-the review in main's copy at `f20bbd33b`: all three refusals below are still there, word for word. That
-is review finding 2, and it holds this branch back from merging; see the answers file.
+This section USED to list three refusals. Read again in `DirectorSmartShutdown.cs` as it stands on this
+merged branch (main at `c2bbf7d36`), all three are gone and each reaches real, built code. Read, not
+assumed; the line numbers are this file's.
 
-- `Start` with purpose **Restart** throws `NotSupportedException` ("not built yet"). So File, Smart
-  Restart, confirmed, today shows that sentence in the notification bar and changes nothing.
-- `ShutDownIgnoringAllAsync` throws `NotSupportedException`. So "Shut down and ignore all sessions",
-  from either door, today shows the ending state for an instant, then that sentence, and the session
-  view comes back. Nothing is ended and nothing is closed.
-- `RecordAndLetEndAsync` throws `NotSupportedException`. So on an operating system shutdown nothing is
-  recorded today; it is logged and the close carries on.
-- `CancelAndKeepWorking` is ignored and every snapshot says `CanCancel` false, so that button is dead.
+- **`Start` with purpose `Restart`** (lines 167 to 180) no longer throws `NotSupportedException`. It asks
+  the restart eligibility first and throws `InvalidOperationException` with the launcher's own reason only
+  when the launcher would not restart this Director - refused before anything is touched. Otherwise it
+  builds and begins a real run, and the run asks the launcher at the end
+  (`RunAsync` line 592, `AskLauncherAsync`). So File, Smart Restart, confirmed, now runs end to end.
+- **`ShutDownIgnoringAllAsync`** (lines 217 to 309) is built: it refuses while a run or a drain holds the
+  Director, writes the record first, ends every live session, makes one further pass for a session that
+  appeared while the record was being written, and returns `RecordWritten`, the count ended and a detail
+  in plain words. When the record cannot be written the sessions are still ended and `RecordRefusal` says
+  why - which is what this flow already showed the owner.
+- **`RecordAndLetEndAsync`** (lines 313 to 341) is built: it returns the existing workspace when a run has
+  already written the record, and otherwise writes an operating-system-shutdown record and ends nothing.
+- **`CancelAndKeepWorking`** (line 484) is honoured, and the snapshots the run publishes are the drain's
+  own (`OnSnapshot = Publish`), which say `CanCancel: _recordExists` (`DirectorDrain.cs` line 2176). So
+  the progress screen's "Cancel and keep working" button is live once the record exists, where it used
+  to be dead in every state.
 
-What works end to end against the engine as built is the window close with the smart choice. I did not
-reach into the engine for any of this. Each of the three throws is covered by a test that feeds the
-coordinator the same exception.
+The coordinator was NOT changed for any of this and did not need to be: it always called the real
+interface and always showed the engine's own words. The tests that fed it `NotSupportedException` still
+stand, because an engine that refuses is a state the flow must still handle - they no longer describe
+what the engine does today, and each one says so in its own name (it is an engine that throws, not an
+engine that is unbuilt). I reached into no engine file.
+
+**One thing this landing does NOT change, and the Delivery Lead should know it.** Decision 1 below (the
+File menu with no sessions shows a sentence and does nothing) was decided on the OLD engine, whose
+`Start` with purpose `Restart` refused outright. That reason has gone: a run with nothing to shut down
+would now find the Director empty and ask the launcher. The behaviour was left exactly as it is, because
+changing it is a new decision about what the File menu should do with an empty Director, not part of
+landing this swap, and the mission (section 4.4) says with no sessions running there is no dialog at all.
+It is written here so it is a choice somebody made, not something nobody noticed.
 
 ## What this proof does NOT cover
 
@@ -228,7 +273,8 @@ coordinator the same exception.
   coordinator is read from its source, not run. The five functions the main window hands the coordinator
   (hide `SessionViewGrid`, show `SmartShutdownHost`, `Close`, `ShowNotification`, the session list) are
   not exercised by any test.
-- The real engine is never called by these tests; the fake answers in its place.
+- The real engine is never called by these tests; the fake answers in its place. That is still true
+  after phase 1 landed: the engine is built, and no test here runs it.
 - `WindowCloseReason.OSShutdown` is handed in by the test; no operating system shut anything down.
 - The native File menu is not pressed.
 
