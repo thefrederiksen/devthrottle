@@ -188,3 +188,57 @@ absent in that save) are the rule under test.
 - **`Start` returns at once** is held only by construction (`Task.Run`), not by a timing test.
 - **Cancellation of the drain's own token** is never used by the run; nothing here cancels a run except
   the two buttons, one of which is not built.
+
+## After the review
+
+The review is `review-phase-1-3.md` and every finding is answered in `review-phase-1-3-answers.md`,
+both beside this file. This section was written by a fresh Developer (task 3b); the Developer that
+wrote everything above it is gone. The code commit for this section is `0b780c625`, on top of
+`2d2abd541`. The branch was not rebased.
+
+The same check, every run in the foreground, built from source in the same command:
+
+| When | Passed | Failed | Total |
+|---|---|---|---|
+| Before, my own run on the untouched worktree at `2d2abd541` | 517 | 0 | 517 |
+| After the fix and the new test, on `0b780c625` | 518 | 0 | 518 |
+| Revert proof: the capture put back, REBUILT | 517 | 1 | 518 |
+| Restored with `git checkout -- src/CcDirector.ControlApi/ControlApiHost.cs`, REBUILT | 518 | 0 | 518 |
+
+518 - 517 = 1, and one test was added. No existing test was edited. `dotnet build
+src/CcDirector.Avalonia`, run because the host changed: 0 warnings, 0 errors.
+
+**What changed.** The engine's reachability question now goes through the host's own
+`ListWorkspacesAsync` wrapper, which reads the Gateway client at the moment of each call, so it is the
+same age as the client `CreateDrain()` reads. `ReapplyGatewayAsync` gained an internal overload that
+takes the configuration read, so a test can drive the host's real replacement path without reading
+this machine's real configuration and dialling the owner's real Gateway; the public method passes
+`GatewayConfig.Load` and reads it at the same point as before. The `Changed` event's contract gained
+the sentence that a handler must return at once and dispatch asynchronously, in the interface comment
+and in `phase-1-interface.md`, in the same words. One comment in `FlagEligibleAsync` was corrected.
+
+**The new test, in one sentence.**
+`CreateSmartShutdown_AnEngineMadeBeforeTheHostHadAClient_AnswersFromTheClientTheHostHasNow`: a real
+host with no Gateway client hands out a real engine, the host is then driven through the same
+replacement path a settings change takes, and the SAME engine must now answer with a sentence only a
+Gateway client can say and must no longer say "not connected to a Gateway".
+
+**The revert proof.** Done AFTER the commit. The captured variable and the closure over it were put
+back in `CreateSmartShutdown`, the WHOLE check was rebuilt and run with no narrowed filter: 1 failed,
+517 passed, and the one red test was the new one, on the assertion that the refusal contains "Gateway
+is not configured" - the engine had answered "the Gateway could not be reached (this Director is not
+connected to a Gateway.)" about a host that had a client. Restored with the literal path above, no
+difference against `0b780c625`, the fix confirmed back in the file by search, REBUILT: 518 passed.
+
+**What I could not reach.**
+
+- **An engine holding an OLD client that a settings change disposed** is not separately observed. The
+  real replacement path with a Gateway address also builds a stream client that dials that address at
+  once, and the host cannot be handed a stub transport; a client with no address refuses before it
+  touches its transport, so an old and a new one say the same sentence. It is the same captured
+  variable as the case that IS tested, and that test goes red when the capture returns.
+- **Finding 2 has no test**, because the fix is a sentence in the contract and the engine did not
+  change. It is closed for good only when phase 2's handler is reviewed for a synchronous invoke.
+- **The whole `CcDirector.Gateway.UnitTests` project and the parked suites were not run**, only the
+  mission's check and the Avalonia build.
+- Everything listed under "What I could not reach" above still stands.
