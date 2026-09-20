@@ -106,14 +106,27 @@ public sealed class SessionColourLegendCache
     /// <summary>
     /// Start a read unless one is already running, and never let its failure escape - an unreachable
     /// Gateway must not crash the app or a hover. Fire-and-forget by design: the caller keeps whatever it
-    /// already had.
+    /// already had. A caller that must WAIT for the answer awaits <see cref="ReadNowAsync"/> instead, which
+    /// is the same single read.
     /// </summary>
-    public void BeginRefresh()
+    public void BeginRefresh() => _ = ReadNowAsync();
+
+    /// <summary>
+    /// Read now, or JOIN the read that is already running, and hand back the task that finishes when the
+    /// answer has landed. This is what a caller awaits when it has nothing to show and must wait for
+    /// something - the legend window on a cold Director.
+    ///
+    /// IT EXISTS SO A COLD WINDOW DOES NOT DIAL TWICE. The window reads <see cref="Current"/>, which starts
+    /// a background refresh when the answer is stale or absent, and then had to wait for one - and awaiting
+    /// <see cref="RefreshAsync"/> directly walked straight past the in-flight guard and opened a second
+    /// request to the Gateway for the same words.
+    /// </summary>
+    public Task ReadNowAsync(CancellationToken ct = default)
     {
         lock (_lock)
         {
-            if (_inFlight is { IsCompleted: false }) return;
-            _inFlight = Task.Run(() => RefreshAsync());
+            if (_inFlight is { IsCompleted: false } running) return running;
+            return _inFlight = Task.Run(() => RefreshAsync(ct), ct);
         }
     }
 

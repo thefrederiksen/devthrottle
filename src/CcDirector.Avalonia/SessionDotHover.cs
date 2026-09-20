@@ -17,8 +17,15 @@ namespace CcDirector.Avalonia;
 /// stopped, so a purple "Carrying on" dot hovered "needs you", and a calm row could hover the words the
 /// owner scans for. That is the ruling behind this file, in his words: <em>"Nobody should give any local
 /// reason for anything. It should always be the gateway ... if you hover over the color, it should show
-/// you what that color means."</em> Both halves of the hover now come from the one fold, so the hover
-/// cannot disagree with the dot it is attached to.
+/// you what that color means."</em>
+///
+/// THE TWO HALVES ARE JOINED ONLY WHEN THEY DESCRIBE THE SAME MOMENT. The label is the Gateway's last stamp
+/// and is FROZEN while the tunnel is down; the dot in that same moment may be the gateway-offline floor's
+/// own live reading of the terminal. Joining those two produced "Working: Snoozed" - a row contradicting
+/// itself, which is the very defect this mission exists to remove. So the caller passes
+/// <see cref="SessionViewModel.RailDot"/>, which carries whether the dot is the Gateway's own stamp for this
+/// session; a dot the rail chose for itself is named on its own, with no label after it. Saying less is the
+/// honest answer. The gateway-offline floor that paints those pixels is a separate ruling and is untouched.
 ///
 /// It is the same rule and the same shape as the web client's <c>dotTitle</c>
 /// (<c>packages/client-core/src/sessions/sessionColours.ts</c>), so the three surfaces answer "what is
@@ -31,7 +38,9 @@ public static class SessionDotHover
     /// <summary>
     /// The hover text for one dot.
     /// </summary>
-    /// <param name="foldColour">The colour name the rail is painting (<c>SessionViewModel.EffectiveColor</c>).</param>
+    /// <param name="dot">The dot as the rail is painting it: its colour name, and whether that colour is the
+    /// Gateway's own stamp for this session. When it is NOT - the gateway-offline floor's live local reading
+    /// - the Gateway's stamped label is about a different moment and is not appended.</param>
     /// <param name="gatewayLabel">The Gateway's stamped label for this session (<c>SessionDto.StateLabel</c>).</param>
     /// <param name="legend">The legend this desktop last read from its Gateway, or null when it has not
     /// read one yet. Null is not a failure to paper over: the hover then shows the stamped label alone,
@@ -40,11 +49,15 @@ public static class SessionDotHover
     /// The words, or an empty string when the Gateway has given this desktop neither a name nor a label -
     /// which is the honest answer, and is exactly what an unstamped session (the magenta sentinel) is.
     /// </returns>
-    public static string For(string? foldColour, string? gatewayLabel, SessionColourLegendDto? legend)
+    public static string For(SessionViewModel.RailDot dot, string? gatewayLabel, SessionColourLegendDto? legend)
     {
-        var label = (gatewayLabel ?? "").Trim();
-        var title = TitleFor(foldColour, legend);
+        var title = TitleFor(dot.Colour, legend);
 
+        // The rail painted this pixel itself, so the Gateway's label describes a state the dot is NOT
+        // showing. Name the colour and stop - never "Working: Snoozed".
+        if (!dot.ColourIsTheGatewaysStamp) return title;
+
+        var label = (gatewayLabel ?? "").Trim();
         if (title.Length == 0) return label;
         if (label.Length == 0 || string.Equals(label, title, StringComparison.OrdinalIgnoreCase)) return title;
         return $"{title}: {label}";

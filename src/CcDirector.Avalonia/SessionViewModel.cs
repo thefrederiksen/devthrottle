@@ -211,7 +211,14 @@ public class SessionViewModel : INotifyPropertyChanged
     /// unrecognised stamp value still falls through to the magenta sentinel in <see cref="StatusColorBrush"/>,
     /// which is the real fail-loud. (docs/new_architecture/sessions.html.)
     /// </summary>
-    private string EffectiveColor => RailColor(IsGatewayOffline, FoldInput.EffectiveColor, Session.ActivityState, IsGatewaySettled, Session.OnHold);
+    private string EffectiveColor => Dot.Colour;
+
+    /// <summary>
+    /// The rail dot as the rail is actually painting it right now - the colour AND whether that colour is the
+    /// Gateway's own stamp for this session. The second half is what stops the hover contradicting the dot;
+    /// see <see cref="RailDot"/>.
+    /// </summary>
+    private RailDot Dot => RailDotFor(IsGatewayOffline, FoldInput.EffectiveColor, Session.ActivityState, IsGatewaySettled, Session.OnHold);
 
     /// <summary>
     /// The rail dot's colour name. Pure so it is tested without an Avalonia app - the getter above binds the
@@ -237,11 +244,37 @@ public class SessionViewModel : INotifyPropertyChanged
     /// cannot know what it is doing. (docs/new_architecture/sessions.html.)
     /// </summary>
     internal static string RailColor(bool gatewayOffline, string? gatewayStamp, ActivityState localActivity, bool gatewaySettled, bool isHeld = false)
+        => RailDotFor(gatewayOffline, gatewayStamp, localActivity, gatewaySettled, isHeld).Colour;
+
+    /// <summary>
+    /// The rail dot: the colour <see cref="RailColor"/> paints, and WHERE THAT COLOUR CAME FROM.
+    ///
+    /// <paramref name="ColourIsTheGatewaysStamp"/> is true only when the dot is showing the colour the
+    /// Gateway itself stamped onto this session - so the Gateway's stamped LABEL for the session describes
+    /// the very state the dot is showing, and the two may be read as one sentence. It is false whenever the
+    /// rail chose the pixel for itself: the gateway-offline floor's blue and red, its grey for a held session
+    /// with no frozen stamp, the warm-up placeholder, and the unstamped sentinel.
+    ///
+    /// WHY THIS EXISTS. The offline floor paints a LIVE local fact (is the agent producing output right now)
+    /// while <c>SessionDto.StateLabel</c> is frozen on whatever the Gateway last said before the tunnel
+    /// dropped. Those two describe different moments, and the Session Cards mission combined them into one
+    /// hover - which produced the string "Working: Snoozed", a row contradicting itself, which is the exact
+    /// defect this mission exists to remove. The floor is not the defect and is not changed here; combining
+    /// its colour with a label about another state was. <see cref="SessionDotHover"/> reads this flag and
+    /// declines to join the two.
+    /// </summary>
+    public readonly record struct RailDot(string Colour, bool ColourIsTheGatewaysStamp);
+
+    /// <summary>
+    /// <see cref="RailColor"/>'s decision, with its provenance. One function so the colour and "is this the
+    /// Gateway's stamp" can never drift apart - <see cref="RailColor"/> is this function's Colour.
+    /// </summary>
+    internal static RailDot RailDotFor(bool gatewayOffline, string? gatewayStamp, ActivityState localActivity, bool gatewaySettled, bool isHeld = false)
     {
         if (gatewayOffline)
         {
             if (localActivity is ActivityState.Working or ActivityState.Starting)
-                return "blue";
+                return new RailDot("blue", ColourIsTheGatewaysStamp: false);
 
             // A snooze is an explicit, durable hold the USER set, cached on the Director as a Gateway-owned
             // fact (Session.OnHold, stamped down from SessionDto.OnHold) - a locally-known truth, NOT a
@@ -249,21 +282,26 @@ public class SessionViewModel : INotifyPropertyChanged
             // fold: keep a snoozed idle session snoozed (the grey the Gateway last stamped) instead of
             // flattening it to red. Without this, a snoozed session reverts to "Needs you" red on every
             // tunnel reconnect - and when the tunnel flaps, snooze appears to "not stick" at all.
+            // The frozen stamp is kept here, so when there IS one the dot is once again showing the Gateway's
+            // own colour and its frozen label describes that same state. With no stamp the grey is the rail's
+            // own choice, and the label - if any - is about something else.
             if (isHeld)
-                return gatewayStamp ?? "grey";
+                return gatewayStamp is not null
+                    ? new RailDot(gatewayStamp, ColourIsTheGatewaysStamp: true)
+                    : new RailDot("grey", ColourIsTheGatewaysStamp: false);
 
-            return "red";
+            return new RailDot("red", ColourIsTheGatewaysStamp: false);
         }
 
         if (gatewayStamp is not null)
-            return gatewayStamp;
+            return new RailDot(gatewayStamp, ColourIsTheGatewaysStamp: true);
 
         // Online, but the Gateway has stamped no display state for this session. Until the tunnel has SETTLED
         // (the first stamps arrive within the Gateway's ~5s fold sweep) this is the normal connect warm-up, so
         // show the neutral placeholder and wait. Once settled and STILL unstamped, the push seam is not
         // delivering - the exact fault that let a working session sit grey while the Gateway folded it blue
         // (issue #1966) - so raise the loud magenta sentinel, never a grey that reads as "parked".
-        return gatewaySettled ? UnstampedSentinel : "unknown";
+        return new RailDot(gatewaySettled ? UnstampedSentinel : "unknown", ColourIsTheGatewaysStamp: false);
     }
 
     /// <summary>The colour name <see cref="RailColor"/> returns when the Director is CONNECTED and settled yet
@@ -479,8 +517,14 @@ public class SessionViewModel : INotifyPropertyChanged
     ///
     /// Empty when the Gateway has given this desktop neither a legend entry nor a label, which is what the
     /// unstamped sentinel is: the Gateway said nothing, so the rail says nothing.
+    ///
+    /// WITH THE TUNNEL DOWN IT IS THE COLOUR'S NAME ALONE. The gateway-offline floor paints a live local
+    /// reading of the terminal while <see cref="ActivityLabel"/> stays frozen on the Gateway's last word, so
+    /// the two are about different moments - joined, they read "Working: Snoozed". <see cref="Dot"/> carries
+    /// which pixels the rail chose for itself, and <see cref="SessionDotHover"/> leaves the frozen label off
+    /// those. The floor itself is a separate ruling and is untouched.
     /// </summary>
-    public string ColourHover => SessionDotHover.For(EffectiveColor, ActivityLabel, ColourLegend);
+    public string ColourHover => SessionDotHover.For(Dot, ActivityLabel, ColourLegend);
 
     /// <summary>
     /// What this desktop last read from its Gateway about what the colours mean, or null when it has not

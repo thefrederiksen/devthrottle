@@ -62,8 +62,9 @@ public partial class ColourLegendDialog : Window
             if (legend is null)
             {
                 // Nothing read yet - a Director that has only just connected, or one whose last read
-                // failed. Ask now rather than show an empty window.
-                await cache.RefreshAsync();
+                // failed. Ask now rather than show an empty window - and JOIN the read the line above may
+                // just have started rather than opening a second one for the same words.
+                await cache.ReadNowAsync();
                 legend = cache.Current;
             }
 
@@ -86,8 +87,12 @@ public partial class ColourLegendDialog : Window
 
     /// <summary>Draw the Gateway's answer: one row per colour, then its note about the Wingman's
     /// verdicts. Verbatim - the only strings this method contributes are the punctuation around the
-    /// "asks for you" answer, which the web legend renders the same way.</summary>
-    private void Render(SessionColourLegendDto legend)
+    /// "asks for you" answer, which the web legend renders the same way.
+    ///
+    /// Internal so <c>ColourLegendDialogTests</c> can fill a MOUNTED window and then measure what is on it.
+    /// Reading the strings off an unmounted row is what let this window ship with nine of its ten
+    /// explanations running off the right-hand edge: every string was correct and none of them fitted.</summary>
+    internal void Render(SessionColourLegendDto legend)
     {
         FileLog.Write($"[ColourLegendDialog] Render: {legend.Entries.Count} colour(s)");
         ColourRows.Children.Clear();
@@ -114,8 +119,11 @@ public partial class ColourLegendDialog : Window
             Width = 14,
             Height = 14,
             CornerRadius = new global::Avalonia.CornerRadius(3),
-            // The Gateway resolves the pixel from the one canonical palette and sends it beside the name,
-            // so the legend's dot and the session's dot are the same hex by construction.
+            // The hex the Gateway resolved from the one canonical palette and sent beside the name, rendered
+            // rather than looked up here. It is the same pixel the session's dot shows for every colour this
+            // build knows - but NOT for one it does not: an unknown name paints StatusPalette.Neutral on the
+            // rail while this swatch still shows the Gateway's hex, which is the version gap the mission
+            // exists for. The legend is the place that can still show the real colour, so it does.
             Background = new SolidColorBrush(Color.Parse(entry.Hex)),
             VerticalAlignment = VerticalAlignment.Top,
             Margin = new global::Avalonia.Thickness(0, 3, 10, 0),
@@ -127,6 +135,7 @@ public partial class ColourLegendDialog : Window
             Foreground = new SolidColorBrush(Color.Parse("#CCCCCC")),
             FontSize = 13,
             FontWeight = FontWeight.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
         };
 
         var asks = new TextBlock
@@ -134,12 +143,24 @@ public partial class ColourLegendDialog : Window
             Text = $"Asks for you: {entry.AsksForYou}",
             Foreground = new SolidColorBrush(Color.Parse("#888888")),
             FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
             Margin = new global::Avalonia.Thickness(10, 1, 0, 0),
         };
 
-        var heading = new StackPanel { Orientation = Orientation.Horizontal };
+        // EVERY CONTAINER HERE MUST HAND ITS CHILDREN A FINITE WIDTH, and that is why these are Grids and not
+        // horizontal StackPanels. A horizontal StackPanel measures its children with UNBOUNDED width, so
+        // TextWrapping.Wrap below has nothing to wrap at and the sentence runs off the window - which is
+        // exactly what this window did when it shipped: nine of its ten explanations were wider than its
+        // 580-pixel rows viewport, the widest at 1570. A Grid's Auto column is measured against the width
+        // that is actually left, so the words wrap inside the window instead of leaving it.
+        var heading = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+        };
         heading.Children.Add(title);
+        Grid.SetColumn(title, 0);
         heading.Children.Add(asks);
+        Grid.SetColumn(asks, 1);
 
         var means = new TextBlock
         {
@@ -150,13 +171,20 @@ public partial class ColourLegendDialog : Window
             Margin = new global::Avalonia.Thickness(0, 2, 0, 0),
         };
 
+        // A VERTICAL StackPanel is fine: it passes its children the full width it was given and only leaves
+        // the HEIGHT unbounded. It is the horizontal one that was the defect.
         var words = new StackPanel();
         words.Children.Add(heading);
         words.Children.Add(means);
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+        };
         row.Children.Add(dot);
+        Grid.SetColumn(dot, 0);
         row.Children.Add(words);
+        Grid.SetColumn(words, 1);
         return row;
     }
 
