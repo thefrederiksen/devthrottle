@@ -166,7 +166,7 @@ Run by me on this worktree, after the reverts were restored.
 | `npm test --workspaces --if-present` | **2,126 passed, 0 failed** - client-core 1,456, cc-assistant 106, cockpit 457, mobile 107 |
 | `dotnet test src/CcDirector.Gateway.UnitTests` | **6,600 passed, 0 failed, 8 skipped** |
 | `dotnet test src/CcDirector.Core.Tests` | **4,491 passed, 0 failed, 18 skipped** |
-| `dotnet test src/CcDirector.Avalonia.Tests` | **676 passed, 0 failed, 0 skipped** |
+| `dotnet test src/CcDirector.Avalonia.Tests` | **677 passed, 0 failed, 0 skipped** |
 
 **Zero failures, and the skipped counts are stated rather than buried:** 8 in the Gateway unit tests and
 18 in Core, both pre-existing and neither in anything this phase touched. No baseline of known-red tests
@@ -215,6 +215,59 @@ carrying this defect and the code comment says so.
 **These two attacks were added AFTER `predicted-symptoms.md` was committed**, because the defect they
 guard was found by the proof itself, halfway through. They are not counted among the eight predictions
 and they are declared here rather than back-dated.
+
+---
+
+## 3a. One more guard, also added after the predictions
+
+Reviewing the finished code rather than the tests, one case had no guard: a Gateway that is not
+answering takes as long as its timeout, and the user may close the dialog well before that. The answer
+then arrives to a window that is gone.
+
+The ask now carries a token cancelled on close, and a late answer is dropped. Watched failing - with the
+check lifted, the closed dialog takes the late list:
+
+```
+WhenTheDialogIsClosedBeforeTheAnswerArrives_TheAnswerIsDropped  [FAIL]
+  Expected: 2
+  Actual:   4
+```
+
+Two rows were the machine's own, on a window the user had already closed; four is the Gateway's list
+applied to it afterwards. Declared here rather than back-dated into the predictions, for the same reason
+as section 3.
+
+---
+
+## 3b. Core.Tests failed twice in one run, and it is reported rather than buried
+
+**One run of `CcDirector.Core.Tests` reported `Failed: 2, Passed: 4489, Skipped: 18, Total: 4509`.** It
+is recorded here because the alternative - noticing it, re-running until green and publishing the green
+one - is precisely what this mission wrote `an-aborted-run-reports-passed.md` about.
+
+What is known, and what is not:
+
+- **It was a complete run, not an aborted one.** The total was 4,509, the suite's full count, so the
+  failure mode in that record does not explain this one. Two tests genuinely failed.
+- **I do not know which two.** The command piped its output through a summary filter, so the names were
+  never captured. That is my mistake and it is the reason this cannot be named as a defect in a test or
+  in the product, which is what the rule requires.
+- **It has not reproduced.** Core.Tests has since run green {GREEN_RUNS} more times on the same code, at
+  4,491 passed each time, including a deliberate repeat of the exact sequence it failed in - the Gateway
+  unit tests immediately followed by Core - and a run of the three classes that touch the one Core file
+  this phase changed (`RepositoryConfig`), which pass in 4 seconds.
+- **This machine is shared.** Several other sessions were running their own test suites throughout;
+  `uptime` during this work showed load averages between 3 and 8 with eight or more `dotnet` processes
+  competing. `RepositoryRegistryConcurrencyTests` contains ten-second waits on threads, which is the
+  shape of test that fails under contention - but that is a suspicion and it is NOT evidence, and it is
+  written here as a suspicion.
+
+**This is handed to the Delivery Lead rather than closed.** It belongs to the same family as the two
+sightings already recorded in this mission's proofs folder (`the-parked-suite-nobody-runs.md` and
+`an-aborted-run-reports-passed.md`), it is not caused by anything in this phase - the one Core file this
+phase touches is exercised by 27 tests that pass in isolation and in every full run - and the honest
+statement is the one at the top of this section: it happened once, I lost the names, and it has not
+happened again.
 
 ---
 

@@ -744,12 +744,18 @@ public partial class NewSessionDialog : Window
     /// machine's own list instead (the one-repository-list mission, phase 6; the owner chose Gateway
     /// first, local scan as the fallback, and SAYING SO when it is on the fallback).
     ///
-    /// WHAT COUNTS AS THE FALLBACK IS DELIBERATELY NARROW. A served list is shown whatever it contains,
-    /// including an empty one: that is the Gateway saying this machine has no repositories, and swapping
-    /// in a different list because the answer looked wrong is how a screen comes to disagree with the
-    /// other two - the defect this mission exists to end. Only an answer that is NOT a list - no Gateway,
-    /// no connection, or a Gateway that refused - keeps the local list, and then the screen says which of
-    /// those happened, in the Gateway's own words where there are any.
+    /// WHAT COUNTS AS THE FALLBACK IS DELIBERATELY NARROW, and these three clauses are the rule as the
+    /// mission adopted it. Law 1 forbids fixing things by adding things, and the only thing that makes
+    /// this fallback honest rather than a mask is that it SAYS what happened:
+    ///
+    /// <list type="number">
+    ///   <item>A 200 IS THE LIST, whatever it contains, including empty. Never fall back on a list you
+    ///     dislike - that is how a screen comes to disagree with the other two, which is the defect this
+    ///     mission exists to end.</item>
+    ///   <item>No answer at all - not configured, cannot connect, timed out - falls back.</item>
+    ///   <item>An error status falls back AND quotes the Gateway's own words on screen, so the defect is
+    ///     displayed rather than hidden.</item>
+    /// </list>
     /// </summary>
     private async Task LoadGatewayRepositoriesAsync()
     {

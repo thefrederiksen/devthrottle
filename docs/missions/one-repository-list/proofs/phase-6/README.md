@@ -63,6 +63,14 @@ under my registered roots". If it also carried the roots, the Gateway could remo
 folder sits under a root that Director covers and no longer reports - leaving alone any repository
 outside every root, which no Director can speak for.
 
+**Ruled on 20 September 2026: ACCEPTED, and this shape taken.** The Delivery Lead has seated a separate
+Developer on it as Gateway work, and ruled that it blocks phase 6's MERGE rather than its build - *three
+rows becoming eighty-nine of which seventy-six are dead folders is not a smaller version of success, it
+is the mission failing at its own goal.* He also backed the refusal to filter in the client explicitly:
+an existence check in the Director would make the three screens disagree again. **And he recorded the
+consequence for work already merged: phase 5 put the phone on this same route, so the phone inherits the
+same rows - merged but not deployed, so fixable before anyone sees it.**
+
 ### Finding 2 - the name on a used row is the session's, and the Director can never correct it
 
 A used row's `Name` is `session.RepoName`, written by `SessionHistoryRecorder`. On the same 89 rows:
@@ -78,11 +86,18 @@ called. The fix belongs in the Gateway's fold - and it is not free, because the 
 is `ThenBy(Name)`, so correcting the names moves the order for the phone and the Cockpit too. That is
 why it is handed up rather than taken here.
 
+**Ruled on 20 September 2026: ACCEPTED.** The Gateway serves the folder name from the path when the
+stored name is blank or is a slug that does not distinguish the row, in the one fold and in no client.
+The Delivery Lead accepted the consequence as *correct rather than regrettable - all three screens should
+sort by the name a person actually sees* - and it goes to the same Gateway work as finding 1, not into
+phase 6.
+
 ### Not a finding
 
 One repository present in the local scan was absent from the live catalogue. Explained: the HOSTED
-Gateway predates phase 2, so it has no discovered half deployed yet. Nothing to fix in code - but it
-does mean the mission is unproven against the deployed Gateway until the Gateway is deployed.
+Gateway predates phase 2, so it has no discovered half deployed yet. Nothing to fix in code - but,
+in the Delivery Lead's words, **it means the mission is unproven against the DEPLOYED Gateway until it is
+deployed, and deployment is the owner's decision, not ours.**
 
 ---
 
@@ -98,11 +113,22 @@ does mean the mission is unproven against the deployed Gateway until the Gateway
 - `KnownRepositoryListResult` - four outcomes, because the dialog is allowed to fall back for some and
   must not for others. `Served`, `NotConfigured`, `Unreachable`, `Refused`.
 
-**The distinction the whole design rests on: a 200 IS THE LIST, whatever it contains, including empty.**
-The rest of this client collapses every failure to null; this one cannot, because "the Gateway says this
-machine has no repositories" and "the Gateway could not be asked" must reach the screen as different
-things. A client that treated an empty list as a failure would hand a screen the licence to show a
-different list from the Cockpit and the phone.
+### The fallback rule, as the Delivery Lead adopted it for this phase
+
+Written here in the terms he ruled, because a fallback is the one thing on this screen that law 1 - no
+fallback programming - would otherwise forbid, and what makes it honest rather than a mask is that it
+SAYS what happened:
+
+1. **A 200 is the list WHATEVER it contains, including empty. Never fall back on a list you dislike.**
+2. **No answer at all - not configured, cannot connect, timed out - falls back.**
+3. **An error status falls back AND quotes the Gateway's own words on screen, so the defect is displayed
+   rather than hidden.**
+
+The third clause is the one that matters most. The rest of this client collapses every failure to null;
+this one cannot, because "the Gateway says this machine has no repositories", "the Gateway could not be
+asked" and "the Gateway refused" must reach the screen as three different things. A client that treated
+an empty list as a failure would hand a screen the licence to show a different list from the Cockpit and
+the phone.
 
 ### The screen renders the order and never computes one
 
@@ -140,7 +166,7 @@ error red.
 the row they had already chosen. While it has not arrived the screen says so, rather than letting the
 user believe they are looking at the one list everybody else sees.
 
-### Three consequences worth naming rather than discovering later
+### Four consequences worth naming rather than discovering later
 
 1. **Remove is not offered on a row that came off the catalogue.** It only ever removed from this
    Director's own registry, and a used row is never removed from the catalogue by anything a Director
@@ -152,7 +178,11 @@ user believe they are looking at the one list everybody else sees.
 2. **Browse does not rebuild the list while the Gateway's list is on screen.** Rebuilding would swap one
    list for another with no notice, which is the failure the owner named. The browsed folder is in the
    path box and Start works on it immediately; it joins the one list on the Director's next push.
-3. **The folder-name line inside the rewritten builder was fixed**, and it is disclosed rather than
+3. **Closing the dialog stops the ask.** A Gateway that is not answering takes as long as its timeout,
+   and the user may close the window well before that; the ask carries a token cancelled on close, a late
+   answer is dropped rather than applied to a window that has gone, and a cancelled ask is not reported
+   to the user as a Gateway that refused. Guarded, and watched failing.
+4. **The folder-name line inside the rewritten builder was fixed**, and it is disclosed rather than
    swept: `Path.GetFileName` honours only the separator of the host it runs on, so a Windows path read on
    macOS put the whole path in the Name column. It is `RepositoryPaths.FolderName` now, through
    `NameForScannedRepository`, with a theory over both separators. This is the mission's recurring defect,
