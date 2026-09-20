@@ -1961,7 +1961,13 @@ public sealed class TurnVerdictService : IDisposable
             }
 
             var state = _env.ReadSessionState(tenant, sid);
-            if (SessionStateSkipCause(state, TurnVerdictTrigger.Retry) is not null) continue;
+            if (SessionStateSkipCause(state, TurnVerdictTrigger.Retry) is { } skipCause)
+            {
+                // Still booked and still due: the next pass asks again. Said out loud, because a due retry that
+                // never runs and never says why is exactly the silence this schedule exists to end.
+                FileLog.Write($"[TurnVerdictService] StartDueRetries: sid={sid} tenant={tenant.ToLogString()} a retry is due and was not started this pass ({skipCause}); it stays due");
+                continue;
+            }
 
             var directorId = state.Facts?.DirectorId ?? "";
             var retryNumber = snapshot.RetriesMade + 1;

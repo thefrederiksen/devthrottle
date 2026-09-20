@@ -1,0 +1,43 @@
+// Screenshot the Cockpit and the phone app of a local proof Gateway. Usage:
+//   node shot.js <baseUrl> <token> <outDir> <name> [press]
+// "press" presses the first "Ask again" button on each surface and waits for the Gateway's answer first.
+const path = require("path");
+const { chromium } = require(path.join(process.env.APPDATA, "npm", "node_modules", "playwright"));
+(async () => {
+  const [baseUrl, token, outDir, name, action] = process.argv.slice(2);
+  const browser = await chromium.launch();
+  const surfaces = [
+    { id: "cockpit", url: baseUrl + "/sessions", width: 1360, height: 860, mobile: false },
+    { id: "mobile", url: baseUrl + "/mobile/", width: 412, height: 880, mobile: true },
+  ];
+  for (const s of surfaces) {
+    const context = await browser.newContext({
+      viewport: { width: s.width, height: s.height },
+      deviceScaleFactor: s.mobile ? 2 : 1,
+      isMobile: s.mobile,
+      hasTouch: s.mobile,
+    });
+    await context.addInitScript((t) => {
+      try { localStorage.setItem("cc.deviceKey", t); localStorage.setItem("cc.installId", "proof-rig"); } catch (e) {}
+    }, token);
+    // The Gateway sends a signed-out page load to the sign-in screen, so the page load itself must carry the token.
+    await context.addCookies([{ name: "cc-gateway-token", value: token, url: baseUrl }]);
+    const page = await context.newPage();
+    page.on("response", (r) => { if (r.status() >= 400) console.log("[" + s.id + " " + r.status() + "] " + r.url()); });
+    page.on("framenavigated", (f) => { if (f === page.mainFrame()) console.log("[" + s.id + " nav] " + f.url()); });
+    page.on("pageerror", (e) => console.log("[pageerror " + s.id + "] " + e.message));
+    await page.goto(s.url, { waitUntil: "networkidle", timeout: 30000 }).catch((e) => console.log("goto: " + e.message));
+    await page.waitForTimeout(2500);
+    if (action === "press") {
+      const button = page.getByRole("button", { name: "Ask again" }).first();
+      await button.click({ timeout: 10000 });
+      await page.waitForSelector(".wingman-error-answer", { timeout: 120000 });
+      await page.waitForTimeout(500);
+    }
+    const file = path.join(outDir, name + "-" + s.id + ".png");
+    await page.screenshot({ path: file });
+    console.log("wrote " + file + "  title=" + (await page.title()) + "  errors=" + (await page.locator(".wingman-error").count()));
+    await context.close();
+  }
+  await browser.close();
+})().catch((e) => { console.log("SHOT FAILED: " + e.message); process.exit(1); });

@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { SessionDto } from "../api/client";
-import { WingmanErrorLine } from "./WingmanErrorLine";
+import { WingmanErrorLine, resetWingmanErrorPressesForTest } from "./WingmanErrorLine";
 import { waitWords, wingmanErrorOf, wingmanRetryLine, type WingmanErrorDisplay } from "./wingmanError";
 
 const SID = "5b0c2e7a-0000-4000-8000-000000000009";
@@ -55,6 +55,7 @@ function fakeGateway(status: number, body: Record<string, unknown>) {
 
 beforeEach(() => {
   calls = [];
+  resetWingmanErrorPressesForTest();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
 });
@@ -135,6 +136,38 @@ describe("the Wingman error on a card", () => {
     // The press changed nothing on the card's schedule: the line is still the Gateway's booked retry.
     expect(screen.getByText("retry 2 of 8 in 40 seconds")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Ask again" })).toBeTruthy();
+  });
+
+  it("keeps its place, and then the answer, when the Gateway clears the error while the press is being read", async () => {
+    let release: (r: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => { release = resolve; })),
+    );
+    const view = render(<WingmanErrorLine session={session(booked())} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ask again" }));
+
+    // The row is now being read, so the next roster poll arrives with no error stamped at all.
+    view.rerender(<WingmanErrorLine session={session(null)} />);
+    expect(screen.getByRole("button", { name: "Asking..." })).toBeTruthy();
+    expect(screen.queryByText(/retry \d of 8/)).toBeNull();   // no time is claimed while nothing is stamped
+
+    // The roster also moved the row to another group, which unmounts it. The press is still in flight on the new one.
+    view.unmount();
+    const moved = render(<WingmanErrorLine session={session(null)} />);
+    expect(screen.getByRole("button", { name: "Asking..." })).toBeTruthy();
+
+    // The attempt fails again; the Gateway stamps the error back, and the answer is still there to read.
+    release(new Response(JSON.stringify({ failed: true, message: "That attempt failed too." }), { status: 200 }));
+    moved.rerender(<WingmanErrorLine session={session(booked())} />);
+    await waitFor(() => expect(screen.getByText("That attempt failed too.")).toBeTruthy());
+    expect(screen.getByText("retry 2 of 8 in 40 seconds")).toBeTruthy();
+  });
+
+  it("clears away once the reading succeeds and no press is in flight", () => {
+    const view = render(<WingmanErrorLine session={session(booked())} />);
+    view.rerender(<WingmanErrorLine session={session(null)} />);
+    expect(view.container.innerHTML).toBe("");
   });
 
   it("says so when the press itself could not reach the Gateway", async () => {
