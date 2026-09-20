@@ -595,3 +595,72 @@ Stated plainly, because a proof that does not say where it stops is read as cove
     the catch branches that turn "cannot answer" into a refusal, the record written before the move -
     and this task did not mutate them. Each has a test in section 7; none of those tests has been
     proven red with its code taken out.
+
+## 9. The Tech Lead's own check of this proof
+
+Added by the Tech Lead for phase 3, 19 September 2026, on commit `9effb0590`. Sections 1 to 8 are the
+Developer's claims. This section is what the Tech Lead ran itself, in the same worktree, after the
+Developer had stopped writing to it. A claim is checked, not read.
+
+**What was run.**
+
+1. `dotnet test src/CcDirector.Reclaim.Tests` on `3677958dd`, before the Developer was opened:
+   253 passed, 0 failed, 0 skipped.
+2. The same command on `9effb0590`: 261 passed, 0 failed, 0 skipped. `git diff --stat 3677958dd HEAD`
+   shows the Developer changed two test files and two documents and no product code.
+3. **All thirteen mutations, made again by the Tech Lead**, one at a time, each by deleting the lines
+   by hand (mutations 11, 12 and 13 by the one-line replacement section 4 describes), each followed by
+   a build and the WHOLE Reclaim test project with no filter, each restored with `git checkout --` and
+   the tracked tree shown empty before the next one began. No mutation failed the build.
+
+| # | Red tests, Tech Lead's run | Developer's final claim | Same test names |
+|---|---|---|---|
+| 1 | 2 of 261 | 2 | yes |
+| 2 | 5 of 261 | 5 | yes |
+| 3 | 2 of 261 | 2 | yes |
+| 4 | 1 of 261 | 1 | yes |
+| 5 | 2 of 261 | 2 | yes |
+| 6 | 2 of 261 | 2 | yes |
+| 7 | 1 of 261 | 1 | yes |
+| 8 | 3 of 261 | 3 | yes |
+| 9 | 5 of 261 | 5 | yes |
+| 10 | 1 of 261 | 1 | yes |
+| 11 | 2 of 261 | 2 | yes |
+| 12 | 1 of 261 | 1 | yes |
+| 13 | 1 of 261 | 1 | yes |
+
+   Every count and every test name in section 4 was reproduced. The three that the Developer found
+   unheld at 253 tests (11, 12, 13) are each red now under their own mutation.
+4. The restore run, with a full build and never `--no-build`: 261 passed. `git status` showed only the
+   untracked `fixbackslashes.py`, which nobody touched.
+5. After mutation 9, which makes a dry run move things, neither `C:\cc-reclaim-holding` nor
+   `D:\cc-reclaim-holding` exists.
+6. The five protected paths tests, `dotnet test src/CcDirector.Core.Tests --filter
+   "FullyQualifiedName~CcStorageProtectedPathsTests"`: 5 passed. **This one run was filtered, on
+   purpose**: the whole of `Core.Tests` is a parked suite far outside what this seat may run, and the
+   filter names one class. It is not a revert proof and nothing was mutated under it.
+7. The four files the Developer wrote hold no byte above 127, counted by a script that reported each
+   file's real length, after a first search errored and reported nought for a reason that had nothing
+   to do with the files.
+
+**What the Tech Lead did NOT check.**
+
+- The Tech Lead's runs recorded which tests went red, by name, and not what each one said. The KIND of
+  each red - held, or name only - is the Developer's reading in section 4. It agrees with the gate's
+  code as the Tech Lead read it before opening the Developer (with refusal 5 or 7 deleted, refusal 8
+  still refuses the item), but the assertion messages were not re-read.
+- The byte numbers in section 6 were not re-measured. The flow test asserts them and passed in the
+  runs above; the pasted lines are the Developer's.
+- `.\scripts\test-local.ps1` and the `-Parked` gate were not run by this seat either. The Delivery
+  Lead runs the gate in its own worktree. Nothing in this document is evidence about any test outside
+  `CcDirector.Reclaim.Tests` and the five tests named in item 6.
+- No Reviewer has read this phase yet. The mandate requires one, from a different agent family,
+  BEFORE merge, and the Delivery Lead sends it.
+
+**Two things the Delivery Lead and the Reviewer should look at hardest**, both from section 8:
+
+- Item 2: `RunnerTests.Run_EveryAnswerThisToolCanGive_IsPlainAscii` calls the real command with the
+  apply flag. It is safe only because no real rule looks inside a fresh fixture tree. That is safety
+  by rule selection, not by the flag, in the one phase where the difference matters.
+- Item 4: on macOS and Linux refusal 4 would be the only defence against an item reached through a
+  link, and on Windows its red is name only. Nothing here shows it holds where it matters most.
