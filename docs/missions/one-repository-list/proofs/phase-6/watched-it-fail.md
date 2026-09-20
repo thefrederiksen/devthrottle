@@ -160,17 +160,20 @@ CcDirector.Gateway.UnitTests --filter GatewayClientKnownRepositoriesTests     9 
 
 Run by me on this worktree, after the reverts were restored.
 
-| Command | Result |
-|---|---|
-| `npm run typecheck` | **green**, all four workspaces |
-| `npm test --workspaces --if-present` | **2,126 passed, 0 failed** - client-core 1,456, cc-assistant 106, cockpit 457, mobile 107 |
-| `dotnet test src/CcDirector.Gateway.UnitTests` | **6,600 passed, 0 failed, 8 skipped** |
-| `dotnet test src/CcDirector.Core.Tests` | **4,491 passed, 0 failed, 18 skipped** - see section 3b |
-| `dotnet test src/CcDirector.Avalonia.Tests` | **677 passed, 0 failed, 0 skipped** |
+Run at the branch head after its final rebase onto `origin/main`, with **the exit code captured for
+every one of them**, not just the summary line.
 
-The Gateway and Avalonia figures are from runs at the branch head with the EXIT CODE captured (both
-exit 0, neither log containing the word aborted or crashed), because a summary line alone is not a
-pass in this repository - `an-aborted-run-reports-passed.md` is why.
+| Command | Exit | Result |
+|---|---|---|
+| `npm run typecheck` | **0** | green, all four workspaces |
+| `npm test --workspaces --if-present` | **0** | **2,161 passed, 0 failed** - client-core 1,459, cc-assistant 106, cockpit 489, mobile 107 |
+| `dotnet test src/CcDirector.Gateway.UnitTests` | **0** | **6,683 passed, 0 failed, 8 skipped** |
+| `dotnet test src/CcDirector.Core.Tests` | **0** | **4,500 passed, 0 failed, 18 skipped** - see section 3b |
+| `dotnet test src/CcDirector.Avalonia.Tests` | **0** | **677 passed, 0 failed, 0 skipped** |
+
+**The exit codes are in the table because a summary line alone is not a pass in this repository** -
+`an-aborted-run-reports-passed.md` is why. None of the three .NET logs contains the word *aborted* or
+*crashed*, and each suite's count is its full one.
 
 **Zero failures, and the skipped counts are stated rather than buried:** 8 in the Gateway unit tests and
 18 in Core, both pre-existing and neither in anything this phase touched. No baseline of known-red tests
