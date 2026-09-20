@@ -49,6 +49,48 @@ public class DirectorWayUpHistoryTests
         Assert.Equal(0, rig.Gateway.RosterAsked);
     }
 
+    /// <summary>
+    /// A CAPPED READ IS NEVER STATED AS THIS DIRECTOR'S TOTAL (review of phase 4, finding 6).
+    ///
+    /// The way up reads the newest twenty-five records, because reading every one of them at start-up would
+    /// be hundreds of calls before the first window appears. The history reads the same capped list - so a
+    /// Director restarted most mornings passes the cap inside a month, and the sentence used to say "This
+    /// Director has 25 restart records" to a Director that had thirty. That is an absence presented as a
+    /// complete answer, on the one surface whose whole promise is that nothing is deleted. The sentence now
+    /// says how many are being shown, how many exist, and that the rest are still on the Gateway.
+    /// </summary>
+    [Fact]
+    public async Task The_history_says_when_older_records_exist_that_it_is_not_reading()
+    {
+        var rig = new WayUpTestRig();
+        for (var i = 0; i < DirectorWayUp.MostRecentRecordsRead + 5; i++)
+            rig.Gateway.With(WayUpTestRig.Record($"restart-{i:D2}", Shutdown.AddMinutes(-i),
+                new[] { WayUpTestRig.Owed($"seat-{i}", "A seat") }));
+
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal(DirectorWayUp.MostRecentRecordsRead, history.Entries.Count);
+        Assert.Equal(
+            "The newest 25 of this Director's 30 restart records, newest first. The other 5 are older and " +
+            "are not read here; they are kept on the Gateway and nothing has been deleted.",
+            history.Message);
+    }
+
+    /// <summary>The whole history read is worded as it always was: the cap sentence appears only when the
+    /// cap actually cut something off.</summary>
+    [Fact]
+    public async Task The_history_says_nothing_about_a_cap_that_cut_nothing_off()
+    {
+        var rig = new WayUpTestRig();
+        for (var i = 0; i < DirectorWayUp.MostRecentRecordsRead; i++)
+            rig.Gateway.With(WayUpTestRig.Record($"restart-{i:D2}", Shutdown.AddMinutes(-i),
+                new[] { WayUpTestRig.Owed($"seat-{i}", "A seat") }));
+
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal("This Director has 25 restart records, newest first.", history.Message);
+    }
+
     /// <summary>Another Director's records on this machine are not this Director's history.</summary>
     [Fact]
     public async Task The_history_leaves_out_another_directors_records()
@@ -361,14 +403,20 @@ public class DirectorWayUpHistoryTests
 
     /// <summary>
     /// A RECORD WHOSE EVERY SEAT ENDED AT THE LIMIT IS READABLE IN THE HISTORY WITH A REAL REOPEN OFFER PER
-    /// SEAT, AND IS STILL NOT OFFERED AT START-UP (review finding 3).
+    /// SEAT, AND IS NOW OFFERED AT START-UP TOO.
     ///
-    /// Both halves matter. The start-up presence check is unchanged - the mission says a record with no seat
-    /// decided restore is not offered - but the history told the owner the conversation could be reopened
-    /// and carried no words saying what reopening would do, so a window would have had to invent them.
+    /// The second half was the other way round until the mission's ruling
+    /// <c>ruling-way-up-presence-check.md</c>: the presence check counted only seats decided "restore", so
+    /// the record the operating system shutdown writes - every seat ended at the limit, nothing decided -
+    /// could never be offered, and ruling 10.5 could not be satisfied by any record at all. The check now
+    /// also counts a seat that ended without a handover whose saved conversation can be reopened.
+    ///
+    /// What the history shows per seat is unchanged (review finding 3): the offer beside each seat is what
+    /// makes the sentence "its saved conversation can be reopened" true, rather than leaving a window to
+    /// invent what reopening would do.
     /// </summary>
     [Fact]
-    public async Task A_record_whose_every_seat_ended_at_the_limit_offers_its_conversations_in_the_history()
+    public async Task A_record_whose_every_seat_ended_at_the_limit_offers_its_conversations_at_start_up_and_in_the_history()
     {
         var rig = new WayUpTestRig();
         rig.Gateway.With(WayUpTestRig.Record("restart-all-ended", Shutdown, new[]
@@ -380,11 +428,22 @@ public class DirectorWayUpHistoryTests
         var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
         var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
 
-        Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
-        Assert.Null(offer.Record);
+        // OFFERED AT START-UP, for those seats alone: nothing is waiting to come back, both seats are
+        // listed, and both are unticked.
+        Assert.Equal(WayUpOfferState.Offered, offer.State);
+        var record = Assert.IsType<WayUpRecord>(offer.Record);
+        Assert.Equal(0, record.SeatsOwed);
+        Assert.Equal(2, record.SeatsEndedWithoutHandover);
+        Assert.All(record.Rows, r => Assert.Equal(WayUpRowKind.EndedWithoutHandover, r.Kind));
+        Assert.All(record.Rows, r => Assert.False(r.Ticked));
 
+        // And the history carries the SAME offer, because one rule decides both.
         var entry = Assert.Single(history.Entries);
-        Assert.Null(entry.Offer);
+        var fromHistory = Assert.IsType<WayUpRecord>(entry.Offer);
+        Assert.Equal(record.SeatsLabel, fromHistory.SeatsLabel);
+        Assert.Equal(
+            record.Rows.Select(r => r.RowId).ToArray(),
+            fromHistory.Rows.Select(r => r.RowId).ToArray());
         Assert.Equal(2, entry.Seats.Count);
 
         var worker = Assert.Single(entry.Seats, s => s.SessionId == "ended-1");
@@ -399,7 +458,7 @@ public class DirectorWayUpHistoryTests
         Assert.True(leadReopen.CanReopen);
         Assert.Contains("Codex cannot be started on a saved conversation", leadReopen.What);
 
-        // And the buttons really work: the record is not offerable, and reopening from it still starts.
+        // And the buttons really work: reopening one of those seats starts a session.
         var reopened = await rig.WayUp().ReopenAsync(
             new WayUpReopenRequest("restart-all-ended", "ended-1"), CancellationToken.None);
         Assert.True(reopened.Started);

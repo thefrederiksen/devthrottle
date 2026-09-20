@@ -144,6 +144,24 @@ public sealed class ControlApiHost : IAsyncDisposable
         => _gatewayClient?.GetLatestTurnBriefAsync(sessionId, ct) ?? Task.FromResult<Gateway.Contracts.TurnBriefDto?>(null);
 
     /// <summary>
+    /// THE ONE REPOSITORY LIST for this Director's machine, read from the Gateway (the
+    /// one-repository-list mission, phase 6). The desktop New Session dialog's source.
+    ///
+    /// It never returns null, because "there is no Gateway" is one of the answers the caller has to be able
+    /// to tell apart from the others: the dialog may show its own local scan instead for a Gateway that
+    /// could not answer, and may NOT show it for a Gateway that answered. The four outcomes are on
+    /// <see cref="KnownRepositoryListOutcome"/>.
+    ///
+    /// The list arrives already ordered and is passed on untouched - the order is the Gateway's ruling
+    /// (Critical Rule 7), and this Director is one of three screens rendering it.
+    /// </summary>
+    /// <param name="ct">Cancellation.</param>
+    public Task<KnownRepositoryListResult> GetKnownRepositoriesAsync(CancellationToken ct = default)
+        => _gatewayClient?.GetKnownRepositoriesAsync(ct)
+           ?? Task.FromResult(KnownRepositoryListResult.NotConfigured(
+               "no Gateway is configured on this Director"));
+
+    /// <summary>
     /// Issue #1627: the FLEET-WIDE session roster - every session on every machine - as the desktop fleet
     /// map's source. Backed by the live <see cref="GatewayClient"/>, which already holds the resolved
     /// Gateway address and fleet token, so it reuses the Director's existing outbound Gateway connection.
@@ -239,7 +257,19 @@ public sealed class ControlApiHost : IAsyncDisposable
             ct => ListWorkspacesAsync(ct)
                 ?? throw new InvalidOperationException("this Director is not connected to a Gateway."),
             JudgeRestartEligibility,
-            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
+            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName,
+            // "Cancel and keep working" brings closed sessions back through the Gateway's restore door,
+            // onto THIS Director. Like the two questions above, it reads the host's client when it is
+            // used, never when the engine was made.
+            bringBack: new SmartRestart.GatewaySmartShutdownBringBack(
+                () => _gatewayClient is { } client ? new SmartRestart.GatewayClientBringBackGateway(client) : null,
+                DirectorId).BringBackAsync,
+            // "Shut down and ignore all sessions" ends sessions with or without a Gateway.
+            sessions: new Drain.SessionManagerDrainControl(_sessionManager),
+            // The restart purpose asks the launcher through the same seam the restart cycle uses.
+            launcherGateway: () => _gatewayClient is { } client ? new Restart.GatewayClientRestartCycleGateway(client) : null,
+            machine: Environment.MachineName,
+            exePath: Environment.ProcessPath);
     }
 
     /// <summary>
@@ -304,6 +334,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private Core.Storage.TurnReviewLogger? _turnReviewLogger;
     private Core.Sessions.SessionRecordsWatcher? _recordsWatcher;
     private Core.Pi.PiSessionRebinder? _piSessionRebinder;
+    private Core.Sessions.PendingInteractionWatcher? _pendingInteractionWatcher;
     // Remove-the-network-port mission, phase 3: the two halves of the session-hook channel that
     // replaced the three Control API routes. Both started by StartSessionStateServices, because
     // neither touches the bound port and both must run even when it fails to bind - a Director whose
@@ -314,6 +345,9 @@ public sealed class ControlApiHost : IAsyncDisposable
     private Core.Storage.ConversationIngestor? _conversationIngestor;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private readonly string? _instancesDirectory;
+    /// <summary>This Director's registered root folders, read fresh on every push. Null in a host that
+    /// was given none, which is every headless and test host.</summary>
+    private readonly Func<IReadOnlyList<string>>? _rootFolders;
     private bool _stopped;
     private bool _stateServicesStarted;
 
@@ -321,9 +355,12 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// Construct a Director host. There is nothing to configure about a listener because there is
     /// no listener; see the class comment.
     /// </summary>
-    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, string? instancesDirectory = null, Core.Git.RepositoryMonitor? repositoryMonitor = null)
+    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, string? instancesDirectory = null, Core.Git.RepositoryMonitor? repositoryMonitor = null, Func<IReadOnlyList<string>>? rootFolders = null)
     {
         _repositoryMonitor = repositoryMonitor;
+        // Read per push, never captured once: a root folder the user adds or removes in Settings has to
+        // reach the Gateway on the next push rather than on the next Director restart.
+        _rootFolders = rootFolders;
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _version = version ?? "0.0.0";
         _requestShutdownAsync = requestShutdownAsync ?? throw new ArgumentNullException(nameof(requestShutdownAsync));
@@ -959,6 +996,15 @@ public sealed class ControlApiHost : IAsyncDisposable
         _piSessionRebinder = new Core.Pi.PiSessionRebinder(_sessionManager);
         _piSessionRebinder.Start();
 
+        // Whether a session is holding a question box or a plan awaiting approval (issue #3167). On the
+        // same turn-end trigger, read the agent's own transcript for an interaction tool call that has
+        // no result yet and stamp Session.PendingInteraction. The Smart shutdown dialog reads that
+        // property to show the owner which sessions have a question open before it asks him anything;
+        // until this watcher existed nothing in the product ever set it, so that section of the dialog
+        // could never appear.
+        _pendingInteractionWatcher = new Core.Sessions.PendingInteractionWatcher(_sessionManager);
+        _pendingInteractionWatcher.Start();
+
         // The prompt record (issue #1551): on the same turn-end trigger, read each session's
         // conversation out of the agent's own transcript, join on where each prompt came from, and PUSH
         // it to the Gateway's log. The Director captures because it is the only thing that sees a prompt
@@ -1098,8 +1144,18 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// the Gateway-initiated REMOTE stop (<c>DELETE /directors/{id}</c>) taking the same in-process self-shutdown
     /// path, fired-and-forgotten (like the REST route) so the Ok result flushes before Kestrel and the stream tear down.
     /// </summary>
-    private Task<DirectorCommandResult> DispatchTunnelCommandAsync(DirectorCommand cmd)
+    internal Task<DirectorCommandResult> DispatchTunnelCommandAsync(DirectorCommand cmd)
     {
+        // The command line door onto the smart shutdown (mission "Smart Director Restart", section 5.3
+        // item 12). Host-level for the same reason the restart cycle's verbs are: they are about THIS
+        // PROCESS, not about one session. Each one hands straight to the engine that already exists.
+        if (string.Equals(cmd.Verb, Gateway.Contracts.SmartRestartVerbs.Start, StringComparison.Ordinal))
+            return StartSmartRestartAsync(cmd);
+        if (string.Equals(cmd.Verb, Gateway.Contracts.SmartRestartVerbs.Progress, StringComparison.Ordinal))
+            return Task.FromResult(AnswerSmartRestartProgress(cmd));
+        if (string.Equals(cmd.Verb, Gateway.Contracts.SmartRestartVerbs.History, StringComparison.Ordinal))
+            return AnswerSmartRestartHistoryAsync(cmd);
+
         // Issue #2725 (restart epic, Phase 6): the two host-level verbs of the restart cycle. Host-level
         // for the same reason shutdown is - they are about THIS PROCESS, not a session - and answered here
         // rather than in the session executor.
@@ -1308,6 +1364,159 @@ public sealed class ControlApiHost : IAsyncDisposable
         return ok;
     }
 
+    /// <summary>The Director as a person names it, read the way every other smart shutdown caller reads it.</summary>
+    private string SmartRestartDirectorName()
+        => InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName;
+
+    private static readonly System.Text.Json.JsonSerializerOptions SmartRestartJson =
+        new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// START A SMART SHUTDOWN WITH THE RESTART PURPOSE, asked from the command line (mission "Smart
+    /// Director Restart", section 5.3 item 12): the same engine File, Smart Restart starts, through the
+    /// same call, so one broken window can never leave a Director impossible to empty.
+    ///
+    /// ANSWERED AS SOON AS THE RUN IS TAKEN, like the restart cycle and the restore beside it. The run
+    /// closes sessions for as long as the owner allowed - up to an hour - and a command that waited for it
+    /// would be cut off by the Gateway's own bound long before it ended. Where it got to is read back with
+    /// <see cref="Gateway.Contracts.SmartRestartVerbs.Progress"/>.
+    ///
+    /// REFUSED BEFORE ANYTHING IS TOUCHED, IN THE ENGINE'S OWN WORDS. The availability question the dialog
+    /// asks is asked here too, and its refusal is passed through unchanged - a Director with no Gateway, or
+    /// one whose launcher would not restart it, is told exactly what a person at the screen would be told.
+    /// </summary>
+    private async Task<DirectorCommandResult> StartSmartRestartAsync(DirectorCommand cmd)
+    {
+        DirectorCommandResult Refuse(DirectorCommandStatus status, string why)
+        {
+            FileLog.Write($"[ControlApiHost] tunnel '{cmd.Verb}' REFUSED: {why}");
+            var fail = DirectorCommandResult.Fail(status, why);
+            fail.CommandId = cmd.CommandId;
+            return fail;
+        }
+
+        Gateway.Contracts.SmartRestartStartOrder? order = null;
+        try
+        {
+            order = System.Text.Json.JsonSerializer.Deserialize<Gateway.Contracts.SmartRestartStartOrder>(
+                cmd.PayloadJson ?? "", SmartRestartJson);
+        }
+        catch (System.Text.Json.JsonException) { /* refused below as an unreadable order */ }
+        if (order is null)
+            return Refuse(DirectorCommandStatus.BadRequest,
+                "the smart restart order could not be read; nothing has been touched.");
+
+        // THE TIME IS CHECKED HERE so a bad one is a refusal a person reads rather than an exception out of
+        // the request's own constructor, and the sentence is the engine's, not a second one written here.
+        var timeAllowed = TimeSpan.FromMinutes(order.Minutes);
+        if (!SmartRestart.SmartShutdownTimes.Allowed.Contains(timeAllowed))
+            return Refuse(DirectorCommandStatus.BadRequest,
+                SmartRestart.SmartShutdownTimes.RefusalFor(timeAllowed) + " Nothing has been touched.");
+
+        var engine = CreateSmartShutdown();
+        var availability = await engine.CheckAsync(SmartRestart.SmartShutdownPurpose.Restart, CancellationToken.None)
+            .ConfigureAwait(false);
+        if (!availability.CanSmartShutdown)
+            return Refuse(DirectorCommandStatus.Conflict,
+                availability.SmartShutdownRefusal ?? "this Director cannot do a smart shutdown, and nothing said why.");
+        if (!availability.CanRestart)
+            return Refuse(DirectorCommandStatus.Conflict,
+                availability.RestartRefusal ?? "this Director cannot be restarted through its launcher, and nothing said why.");
+
+        SmartRestart.ISmartShutdownRun run;
+        try
+        {
+            run = engine.Start(new SmartRestart.SmartShutdownRequest(
+                SmartRestart.SmartShutdownPurpose.Restart, timeAllowed, order.Reason));
+        }
+        catch (InvalidOperationException ex)
+        {
+            // A run or a drain is already under way on this Director, or the launcher would not restart it.
+            // The engine's message says which, and it has touched nothing.
+            return Refuse(DirectorCommandStatus.Conflict, ex.Message);
+        }
+
+        FileLog.Write(
+            $"[ControlApiHost] tunnel '{cmd.Verb}': taking a smart restart of {SmartRestartDirectorName()}, " +
+            $"{order.Minutes} minute(s) allowed, reason={order.Reason ?? "-"}");
+
+        var accepted = new Gateway.Contracts.SmartRestartStartAccepted
+        {
+            Taken = true,
+            DirectorId = DirectorId,
+            Minutes = order.Minutes,
+            Detail =
+                $"The smart restart of {SmartRestartDirectorName()} has started. Every session is asked to hand " +
+                $"over; anything still running after {order.Minutes} minutes is shut down for it, and the " +
+                "Director is then restarted through its launcher.",
+        };
+        // The run's first snapshot exists the moment Start returns, so the caller's first reading of the
+        // progress can never arrive before there is one.
+        _ = run.Current;
+
+        var ok = DirectorCommandResult.Success(
+            System.Text.Json.JsonSerializer.Serialize(accepted, SmartRestartJson));
+        ok.CommandId = cmd.CommandId;
+        return ok;
+    }
+
+    /// <summary>
+    /// WHERE THE RUN STANDS, as one complete snapshot. A read: it changes nothing and it starts nothing.
+    ///
+    /// It reports the LAST run on this Director whoever started it - the command line, the File menu or the
+    /// close hook - because there is one run at a time per process, so there is exactly one thing "the run"
+    /// can mean. A Director on which none has been started says so in plain words; it does not answer an
+    /// empty run, which would read as a run that had found nothing to do.
+    /// </summary>
+    private DirectorCommandResult AnswerSmartRestartProgress(DirectorCommand cmd)
+    {
+        var run = SmartRestart.DirectorSmartShutdown.Latest;
+        Gateway.Contracts.SmartRestartProgressDto answer;
+        if (run is null)
+        {
+            answer = SmartRestart.SmartRestartWire.NothingStarted(SmartRestartDirectorName());
+        }
+        else
+        {
+            SmartRestart.SmartShutdownResult? result = null;
+            string? endedWithoutResult = null;
+            if (run.Completion.IsCompletedSuccessfully) result = run.Completion.Result;
+            else if (run.Completion.IsCompleted)
+                endedWithoutResult =
+                    "The smart restart ended without a result, which its engine says cannot happen. " +
+                    "The Director's log holds what the run was doing when it stopped.";
+            answer = SmartRestart.SmartRestartWire.Progress(run.Current, result, endedWithoutResult);
+        }
+
+        FileLog.Write(
+            $"[ControlApiHost] tunnel '{cmd.Verb}': started={answer.Started}, running={answer.Running}, " +
+            $"phase={answer.Phase}, outcome={answer.Outcome ?? "-"}");
+        var ok = DirectorCommandResult.Success(
+            System.Text.Json.JsonSerializer.Serialize(answer, SmartRestartJson));
+        ok.CommandId = cmd.CommandId;
+        return ok;
+    }
+
+    /// <summary>
+    /// EVERY RESTART RECORD THIS DIRECTOR WROTE, newest first, with what came back and what did not
+    /// (mission "Smart Director Restart", section 5.3 item 11). A read: it changes nothing.
+    ///
+    /// It is the way up's own history, the very answer the history window shows, so the command line and
+    /// the window can never disagree about what a record says. A Gateway that cannot be read comes back as
+    /// a refusal carrying the reason, never as an empty list.
+    /// </summary>
+    private async Task<DirectorCommandResult> AnswerSmartRestartHistoryAsync(DirectorCommand cmd)
+    {
+        var history = await CreateDirectorWayUp().ReadHistoryAsync(CancellationToken.None).ConfigureAwait(false);
+        var answer = SmartRestart.SmartRestartWire.History(history);
+        FileLog.Write(
+            $"[ControlApiHost] tunnel '{cmd.Verb}': refused={answer.Refused}, records={answer.Entries.Count}");
+        var ok = DirectorCommandResult.Success(
+            System.Text.Json.JsonSerializer.Serialize(answer, SmartRestartJson));
+        ok.CommandId = cmd.CommandId;
+        return ok;
+    }
+
     /// <summary>
     /// Full per-session snapshot for the stream, built through the SAME <see cref="ControlEndpoints.Map"/>
     /// the local /sessions endpoint uses (issue #1176, review #6), so a pushed snapshot row is identical
@@ -1359,8 +1568,29 @@ public sealed class ControlApiHost : IAsyncDisposable
             // No monitor at all means there is no scan to wait for: the registered list IS everything
             // this Director knows, and it is a complete statement of that from the first push.
             _repositoryMonitor?.HasCompletedAScan ?? true,
+            RootFolderListing(),
             DirectorId,
             Environment.MachineName);
+
+    /// <summary>
+    /// What currently exists under this Director's registered root folders, for the push to carry (the
+    /// one-repository-list mission, "the catalogue forgets"). It is what lets the Gateway catalogue
+    /// forget a repository whose folder has gone, and <see cref="DirectorRootFolders"/> says why the
+    /// root-folder scan cannot answer that question by itself.
+    ///
+    /// NOTHING IS REPORTED UNTIL THIS DIRECTOR HAS COMPLETED A SCAN, and the default when there is no
+    /// monitor at all is FALSE - the opposite of the registry's default above, deliberately. The
+    /// registry's default says "the registered list is everything I know, and I know it now"; this one
+    /// authorises DELETION on the Gateway, and a Director that has not settled, or that has no
+    /// root-folder scan at all, has no business authorising any. A push that carries no listing forgets
+    /// nothing, which is the safe answer in both cases.
+    /// </summary>
+    private List<RootFolderListingDto>? RootFolderListing()
+    {
+        if (_rootFolders is null || _repositoryMonitor?.HasCompletedAScan != true)
+            return null;
+        return DirectorRootFolders.Build(_rootFolders(), DirectorRootFolders.ListChildFolders);
+    }
 
     /// <summary>
     /// Push the repository snapshot on model changes, debounced: a scan streaming thirty upserts
@@ -1653,6 +1883,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         _recordsWatcher = null;
         _piSessionRebinder?.Dispose();
         _piSessionRebinder = null;
+        _pendingInteractionWatcher?.Dispose();
+        _pendingInteractionWatcher = null;
         _conversationIngestor?.Dispose();
         _conversationIngestor = null;
         _sessionRecorder?.Dispose();

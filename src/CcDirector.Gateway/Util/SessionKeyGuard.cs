@@ -2,11 +2,33 @@
 
 /// <summary>The verdict on one request from a session key, and the sentence explaining it. A refusal always
 /// names its reason so an agent whose command breaks is debuggable from one log line.</summary>
-public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
+/// <param name="RaisedGrant">Which of the two grants a RAISED session has let this request through, or
+/// <see cref="RaisedGrant.None"/> when any session key may make it. Anything but None is an action an unraised key
+/// could not have taken, which is exactly what the middleware records.</param>
+public readonly record struct SessionKeyVerdict(bool Allowed, string Reason, RaisedGrant RaisedGrant = RaisedGrant.None)
 {
     public static readonly SessionKeyVerdict Allow = new(true, "");
 
     public static SessionKeyVerdict Refuse(string reason) => new(false, reason);
+
+    public static SessionKeyVerdict AllowRaised(RaisedGrant grant) => new(true, "", grant);
+}
+
+/// <summary>
+/// The two things a RAISED session key may do that no other session key may (the Fleet Manager Improvement mission,
+/// phase 1). Two, by name - not "whatever the owner may do".
+/// </summary>
+public enum RaisedGrant
+{
+    /// <summary>Not a raised grant: a route any session key may call.</summary>
+    None,
+
+    /// <summary>Typing into a session: prompt, interrupt, escape, the fan-out, and answering a judged stop.</summary>
+    AgentInput,
+
+    /// <summary>The Fleet Manager routes that are otherwise the owner's alone: where it runs, start, restart and move,
+    /// the page and the walkthrough.</summary>
+    FleetManagerOwnerRoute,
 }
 
 /// <summary>
@@ -30,6 +52,21 @@ public static class AgentInputRefusal
     public const string CompactContinue =
         "An agent may compact a session but may not send it a prompt afterwards: typing into a session is the " +
         "owner's alone. Compact it with cc-devthrottle session compact, then " + Instead;
+}
+
+/// <summary>
+/// The sentence an agent reads when it tries to empty a Director (the mission "Smart Director Restart",
+/// section 5.3 item 12). Held here, beside the other refusals that name what to do instead, because a
+/// refusal that only says no sends the agent looking for a way round.
+/// </summary>
+public static class SmartRestartRefusal
+{
+    /// <summary>A session key asked to start a smart restart of a Director.</summary>
+    public const string Start =
+        "An agent may not empty and restart a Director: closing every session on a machine is the owner's, " +
+        "and he does it from the Director itself or with his own key. Ask for one instead - " +
+        "cc-devthrottle machine restart-request <machine> --reason \"<why>\" - which creates a request the " +
+        "owner accepts once. Reading is open to you: cc-devthrottle director restart-history.";
 }
 
 /// <summary>
@@ -74,6 +111,12 @@ public static class AgentInputRefusal
 /// first inspection of that mission: answering a judged stop, which types the verdict's chosen option into the
 /// session exactly as a prompt would.
 ///
+/// A RAISED SESSION IS THE ONE EXCEPTION TO THAT (the Fleet Manager Improvement mission, 20 September 2026). The owner
+/// may raise a session - the Fleet Manager first - to act with his own permissions, and for a raised session only this
+/// reverses the ruling above: it may type into a session, and it may call the Fleet Manager routes that are otherwise
+/// the owner's alone. Those are the only two things that change, each is a literal list, and every such request is
+/// recorded with the session that made it. See <see cref="Check(string?, string?, bool)"/> for what stays refused.
+///
 /// WHAT CHANGED, AND WHY THIS PARAGRAPH WAS REWRITTEN RATHER THAN AMENDED. Phase 1b refused the whole
 /// <c>/directors</c> surface bar two sub-paths, and said so here in prose. The owner's ruling reverses that
 /// for settings and handovers. The old sentence was not edited around, because an allow list whose stated
@@ -109,7 +152,26 @@ public static class SessionKeyGuard
     /// no query string; the query is deliberately not consulted, because a rule that depends on a query
     /// parameter is a rule a caller can move.
     /// </summary>
-    public static SessionKeyVerdict Check(string? method, string? path)
+    public static SessionKeyVerdict Check(string? method, string? path) => Check(method, path, raised: false);
+
+    /// <summary>
+    /// The same decision for a session key whose session the owner has RAISED (the Fleet Manager Improvement mission,
+    /// phase 1; <c>Fleet.RaisedSessions</c> is the one place that says whether it is).
+    ///
+    /// A NAMED WIDENING, NOT A BLANKET ALLOW. A raised key passes exactly two refusals an unraised key does not: the
+    /// agent input refusal (<see cref="IsAgentInput"/>) and the owner-only Fleet Manager routes
+    /// (<see cref="IsFleetManagerOwnerRoute"/>). Each is its own literal list, and the verdict says which one let the
+    /// request through (<see cref="SessionKeyVerdict.RaisedGrant"/>) so the middleware can record it. This is still an
+    /// allow list: a route the product grows later is refused to a raised key too, until somebody adds it here.
+    ///
+    /// WHAT A RAISED KEY IS STILL REFUSED, because nothing below lists it: the admission surface - devices, sign-in
+    /// and sign-out, billing, Director registration; RAISING OR LOWERING ANY SESSION (<c>POST /sessions/{sid}/raise</c>
+    /// and <c>/lower</c> are the owner's own device's, so a raised session never raises another and never itself);
+    /// shutting down the Gateway or force-killing a Director, which only the developer of DevThrottle or the owner at
+    /// his own screen does; and the Wingman's raw stops. The session key's tenant binding is untouched: a raised key
+    /// naming another account's session is answered exactly as an unraised one is.
+    /// </summary>
+    public static SessionKeyVerdict Check(string? method, string? path, bool raised)
     {
         var verb = (method ?? "").ToUpperInvariant();
         var p = (path ?? "").TrimEnd('/');
@@ -125,11 +187,26 @@ public static class SessionKeyGuard
         // NO AGENT TYPES INTO A SESSION (the Message Load mission, ruling 17). Checked before the allow list and
         // refused with its own sentence, because an agent told only "may not call POST /sessions/x/prompt" does
         // not learn that a queued message is what it should send instead.
+        //
+        // A RAISED session is the one exception (the Fleet Manager Improvement mission): the owner has let it type
+        // for him. The verdict carries the grant, so the middleware records the action.
         if (IsAgentInput(verb, segments))
-            return SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
+            return raised
+                ? SessionKeyVerdict.AllowRaised(RaisedGrant.AgentInput)
+                : SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
+
+        // EMPTYING A DIRECTOR IS THE OWNER'S, and it is refused with its own sentence for the same reason
+        // typing is: an agent told only "you may not call POST /directors/x/smart-restart" does not learn
+        // that asking for a restart is a thing it CAN do. Checked before the allow list, so a later widening
+        // of that list cannot open this by accident.
+        if (IsSmartRestartStart(verb, segments))
+            return SessionKeyVerdict.Refuse(SmartRestartRefusal.Start);
 
         if (IsAllowed(verb, segments))
             return SessionKeyVerdict.Allow;
+
+        if (raised && IsFleetManagerOwnerRoute(verb, segments))
+            return SessionKeyVerdict.AllowRaised(RaisedGrant.FleetManagerOwnerRoute);
 
         return SessionKeyVerdict.Refuse(
             $"a session key may not call {verb} {p}; it may run the fleet's agent routes and configure the " +
@@ -151,6 +228,15 @@ public static class SessionKeyGuard
     /// Compact-and-continue is the sixth such path; it shares its route with a plain compaction, so the route
     /// refuses it where it can read the body.
     /// </summary>
+    /// <summary>
+    /// <c>POST /directors/{id}/smart-restart</c> exactly - three segments, and the last is the literal word.
+    /// The two READS on the same surface (the progress, and the restart history) are allowed in the list
+    /// below: asking how an emptying is going, or what was emptied last week, is not asking to empty
+    /// anything, and both read records this key can already read at <c>/gateway/workspaces</c>.
+    /// </summary>
+    private static bool IsSmartRestartStart(string verb, string[] s)
+        => verb == "POST" && s.Length == 3 && s[0] == "directors" && s[2] == "smart-restart";
+
     private static bool IsAgentInput(string verb, string[] s)
     {
         if (verb != "POST") return false;
@@ -261,6 +347,14 @@ public static class SessionKeyGuard
 
             // The Fleet Manager's stored news, preferences and digest. See IsFleetManagerRoute.
             if (IsFleetManagerRoute(verb, s)) return true;
+
+            // HOW AN EMPTYING IS GOING, AND WHAT WAS EMPTIED BEFORE (the mission "Smart Director Restart").
+            // Two reads, listed as their own literal shapes rather than as a prefix. They are the same class
+            // of read as GET /gateway/workspaces above, which this key may already call: both are folded from
+            // the very records stored there, for a Director in the caller's own account. STARTING one is
+            // refused before this list is ever reached, with its own sentence.
+            if (s.Length == 3 && s[0] == "directors"
+                && (s[2] == "smart-restart" || s[2] == "restart-history")) return true;
 
             // Configuration, read side. A Director's settings, the application's own settings, and the
             // handovers on a Director - all three by the owner's ruling that an agent configures the product.
@@ -540,6 +634,31 @@ public static class SessionKeyGuard
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// The Fleet Manager routes <see cref="IsFleetManagerRoute"/> names as THE OWNER'S, which a RAISED session key may
+    /// also call (the Fleet Manager Improvement mission, phase 1): where the Fleet Manager runs (read and save), start,
+    /// restart and move, the owner's page, and the READ of the walkthrough. Every shape is a literal at its exact
+    /// length, verb by verb, for the reason that method gives.
+    ///
+    /// THE WALKTHROUGH'S THREE WRITES ARE NOT HERE, DELIBERATELY. <c>answered</c>, <c>snoozed</c> and <c>close</c> store
+    /// on the record that THE OWNER answered, snoozed or closed - in those words, as the owner's role. Made by a raised
+    /// session they would store a statement that is false, and the mission requires every raised action to be recorded
+    /// with the session that took it. A raised Fleet Manager answers a record with its own answer route, which records
+    /// the Fleet Manager, and types an answer into a session with the agent input grant.
+    /// </summary>
+    private static bool IsFleetManagerOwnerRoute(string verb, string[] s)
+    {
+        if (s.Length != 3 || s[0] != "gateway" || s[1] != "fleet-manager") return false;
+        var read = verb is "GET" or "HEAD";
+        return s[2] switch
+        {
+            "placement" => read || verb == "PUT",
+            "start" or "restart" or "move" => verb == "POST",
+            "page" or "walkthrough" => read,
+            _ => false,
+        };
     }
 
     /// <summary>

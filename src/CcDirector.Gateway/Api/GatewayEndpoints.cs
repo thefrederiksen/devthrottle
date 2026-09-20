@@ -293,8 +293,20 @@ internal static class GatewayEndpoints
         // email address, which is what the staff gate is decided on (see StaffAccess). Null means this Gateway
         // cannot tell who is asking, and the debug view is then open to nobody - which is the same answer an
         // unconfigured staff list gives, and the only safe one for a gate.
-        Tenancy.TenantRegistry? tenantRegistry = null)
+        Tenancy.TenantRegistry? tenantRegistry = null,
+        // The Fleet Manager Improvement mission, phase 1: the account's list of RAISED sessions and its record. The
+        // message routes ask the list whether the sender is raised, the roster fold stamps every row from it, and
+        // POST /sessions/{sid}/raise and /lower write it. Both null (older callers, tests without a database) means no
+        // session is ever raised here: the two routes are not mapped, and every sender is limited exactly as before.
+        Fleet.RaisedSessionStore? raisedSessions = null,
+        Fleet.RaisedSessionRecord? raisedRecord = null)
     {
+        if ((raisedSessions is null) != (raisedRecord is null))
+            throw new ArgumentException(
+                "The list of raised sessions and its record are given together: a raised session whose actions cannot be "
+                + "recorded must not exist.", nameof(raisedRecord));
+        Func<TenantId, IReadOnlySet<string>>? raisedIdsFor = raisedSessions is null ? null : raisedSessions.RaisedIds;
+
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
         // between the operator's own inbound dictation and their own typed send is theirs to make, not
@@ -1661,7 +1673,8 @@ internal static class GatewayEndpoints
                 turnVerdictRows, snoozeExpiry,
                 snoozeRosterSessionIds: unfilteredWholeAccount ? SnoozeRosterIds(fleet) : null,
                 inboxLines: inboxLines,
-                fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId);
+                fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId,
+                raisedSessions: raisedIdsFor);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -2016,7 +2029,8 @@ internal static class GatewayEndpoints
                 tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
                 snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
                 inboxLines: inboxLines,
-                fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId);
+                fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId,
+                raisedSessions: raisedIdsFor);
             return Results.Json(session);
         });
 
@@ -3353,13 +3367,34 @@ internal static class GatewayEndpoints
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
 
             var from = identity.SessionId.ToString();
+            // A RAISED SENDER is not held to the relationship rule or the rates (the Fleet Manager Improvement
+            // mission, phase 1). Asked of the one list, about the identity the auth gate resolved - never a body field.
+            var exemption = RaisedExemptionFor(tenant.Value, from);
             var outcome = fleetMessages.Send(tenant.Value,
                 PartyFrom(from, senderRow, senderOwner),
                 PartyFrom(session.SessionId, session, director),
-                req.Text ?? "", kind, replyWithin: replyWithin);
-            FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} kind={kind} replyWanted={req.ReplyWanted} status={outcome.Response.Status}");
+                req.Text ?? "", kind, exemption, replyWithin: replyWithin);
+            RecordRaisedMessage(tenant.Value, from, outcome);
+            FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} kind={kind} replyWanted={req.ReplyWanted} exemption={exemption} status={outcome.Response.Status}");
             return Results.Json(outcome.Response, statusCode: outcome.StatusCode);
         });
+
+        // THE ROUTE PICKS THE EXEMPTION, AND FOR A SESSION THERE IS ONE REASON FOR ONE: the owner raised it.
+        Messaging.FleetMessageExemption RaisedExemptionFor(TenantId tenant, string senderSessionId)
+            => raisedSessions is not null && raisedSessions.IsRaised(tenant, senderSessionId)
+                ? Messaging.FleetMessageExemption.Raised
+                : Messaging.FleetMessageExemption.None;
+
+        // A message queued ONLY because its sender is raised is an action no other session could have taken, so it is
+        // recorded with the session that sent it. A message the rules would have allowed anyway is not: the record
+        // holds what being raised changed, not everything a raised session does. The text is never recorded.
+        void RecordRaisedMessage(TenantId tenant, string senderSessionId, Messaging.FleetSendOutcome outcome)
+        {
+            if (!outcome.WaivedForRaisedSender) return;
+            raisedRecord!.Action(tenant, senderSessionId,
+                $"sent message {outcome.Response.MessageId} to session {outcome.Response.RecipientSessionId} past the "
+                + "relationship rule or a rate limit");
+        }
 
         // POST /fleet/reply - answer a message that asked for a reply (the Message Load mission, slice 3, ruling 10).
         //
@@ -3461,10 +3496,16 @@ internal static class GatewayEndpoints
                 });
 
             var kind = req.Everyone ? Messaging.FleetMessageKinds.Everyone : Messaging.FleetMessageKinds.Team;
-            var exemption = req.Everyone ? Messaging.FleetMessageExemption.HumanGrant : Messaging.FleetMessageExemption.None;
+            // A whole-account broadcast rides its human grant, as before. A copy to the sender's own workers is an
+            // ordinary send, so a raised sender's is not held to the rates there either.
+            var exemption = req.Everyone ? Messaging.FleetMessageExemption.HumanGrant : RaisedExemptionFor(reqTenant.Value, from);
             var response = new FleetBroadcastResponse();
             foreach (var (d, s) in targets)
-                response.Results.Add(fleetMessages.Send(reqTenant.Value, sender, PartyFrom(s.SessionId, s, d), req.Text, kind, exemption).Response);
+            {
+                var sent = fleetMessages.Send(reqTenant.Value, sender, PartyFrom(s.SessionId, s, d), req.Text, kind, exemption);
+                RecordRaisedMessage(reqTenant.Value, from, sent);
+                response.Results.Add(sent.Response);
+            }
             return Results.Json(response);
         });
 
@@ -3890,6 +3931,73 @@ internal static class GatewayEndpoints
             }
 
             return TunnelFailure(null, d.MachineName);
+        });
+
+        // --- The command line door onto the smart shutdown (mission "Smart Director Restart", 5.3 item 12) ---
+        //
+        // A Director is emptied and restarted from its own File menu, and that menu is a window. These three
+        // legs are the SECOND door, so that one broken window can never again leave a Director impossible to
+        // empty. Each rides the tunnel to the engine that already exists on that Director; the Gateway relays
+        // and rules nothing.
+        //
+        // WHO MAY OPEN WHICH. Starting a smart restart is the OWNER'S, exactly as POST
+        // /machines/{machine}/director/restart is: SessionKeyGuard refuses it to a session key and names the
+        // request route a session may use instead. The two READS beside it are allowed to a session key,
+        // because they read the same account's own records that GET /gateway/workspaces already serves -
+        // asking how an emptying is going, or what was emptied last week, is not asking to empty anything.
+        // That split is the one the restart-capability read and the restart verb already draw.
+        app.MapPost("/directors/{id}/smart-restart", async (HttpContext ctx, string id, CancellationToken ct) =>
+        {
+            FileLog.Write($"[GatewayEndpoints] POST /directors/{id}/smart-restart: caller={ctx.Connection.RemoteIpAddress}, identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (!TryResolveOwnedDirector(ctx, tenantBoundary, registry, id, out var d, out var err)) return err;
+
+            SmartRestartStartOrder? order;
+            try { order = await ctx.Request.ReadFromJsonAsync<SmartRestartStartOrder>(ct); }
+            catch (System.Text.Json.JsonException ex)
+            {
+                return Results.BadRequest(new { error = $"the body could not be read as JavaScript Object Notation: {ex.Message}" });
+            }
+            if (order is null)
+                return Results.BadRequest(new { error = "a smart restart order is required: {\"minutes\": 10}. Nothing has been touched." });
+
+            // The Director answers as soon as the run is TAKEN, so the default command wait is ample; the run
+            // itself lasts as long as the owner allowed and is read back with the GET leg below.
+            var sr = await DirectorCommandRouter.TrySendAsync(
+                sendCommand, id, SmartRestartVerbs.Start, "", order, ct, machineName: d.MachineName);
+            if (sr is null || !sr.Ok) return MapDirectorFailure(sr);
+            var accepted = DirectorCommandRouter.ReadBody<SmartRestartStartAccepted>(sr);
+            if (accepted is null)
+                return Results.Json(new { error = $"the Director on {d.MachineName} answered the smart restart with nothing readable, so whether it started is unknown. Read it with GET /directors/{id}/smart-restart before asking again." },
+                    statusCode: StatusCodes.Status502BadGateway);
+            return Results.Json(accepted, statusCode: StatusCodes.Status202Accepted);
+        });
+
+        app.MapGet("/directors/{id}/smart-restart", async (HttpContext ctx, string id, CancellationToken ct) =>
+        {
+            if (!TryResolveOwnedDirector(ctx, tenantBoundary, registry, id, out var d, out var err)) return err;
+
+            var sr = await DirectorCommandRouter.TrySendAsync(
+                sendCommand, id, SmartRestartVerbs.Progress, "", null, ct, machineName: d.MachineName);
+            if (sr is null || !sr.Ok) return MapDirectorFailure(sr);
+            var progress = DirectorCommandRouter.ReadBody<SmartRestartProgressDto>(sr);
+            if (progress is null)
+                return Results.Json(new { error = $"the Director on {d.MachineName} answered with nothing readable, so where the smart restart stands is unknown." },
+                    statusCode: StatusCodes.Status502BadGateway);
+            return Results.Json(progress);
+        });
+
+        app.MapGet("/directors/{id}/restart-history", async (HttpContext ctx, string id, CancellationToken ct) =>
+        {
+            if (!TryResolveOwnedDirector(ctx, tenantBoundary, registry, id, out var d, out var err)) return err;
+
+            var sr = await DirectorCommandRouter.TrySendAsync(
+                sendCommand, id, SmartRestartVerbs.History, "", null, ct, machineName: d.MachineName);
+            if (sr is null || !sr.Ok) return MapDirectorFailure(sr);
+            var history = DirectorCommandRouter.ReadBody<SmartRestartHistoryDto>(sr);
+            if (history is null)
+                return Results.Json(new { error = $"the Director on {d.MachineName} answered with nothing readable, so its restart history is unknown. An empty history is never reported as one that could not be read." },
+                    statusCode: StatusCodes.Status502BadGateway);
+            return Results.Json(history);
         });
 
         // --- The automation browsers on one machine (Remove-the-network-port mission, phase 2) ------------
@@ -5228,7 +5336,8 @@ internal static class GatewayEndpoints
         Wingman.ITurnVerdictRowSource? turnVerdictRows, Wingman.SnoozeExpiryReJudge? snoozeExpiry,
         Messaging.IFleetInboxLineSource? inboxLines = null,
         Func<TenantId, string?>? fleetManagerMark = null,
-        VoiceRowStamp.VoiceFacts? voiceFacts = null)
+        VoiceRowStamp.VoiceFacts? voiceFacts = null,
+        Func<TenantId, IReadOnlySet<string>>? raisedSessions = null)
     {
         var fleet = new List<SessionDto>();
         if (pushedSessions is null) return fleet;
@@ -5261,7 +5370,8 @@ internal static class GatewayEndpoints
             tenant: tenant, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
             snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
             inboxLines: inboxLines,
-            fleetManagerMark: fleetManagerMark);
+            fleetManagerMark: fleetManagerMark,
+            raisedSessions: raisedSessions);
         return fleet;
     }
 
@@ -5480,7 +5590,10 @@ internal static class GatewayEndpoints
         bool writes = true,
         // The Fleet Manager mission, step 4: the session the account has marked as its Fleet Manager, read for
         // OwnedByFleetManager. Null (or no tenant) stamps false on every row, which is "report as before".
-        Func<TenantId, string?>? fleetManagerMark = null)
+        Func<TenantId, string?>? fleetManagerMark = null,
+        // The Fleet Manager Improvement mission, phase 1: the ids of the account's RAISED sessions, read once for the
+        // whole fold. Null (or no tenant) stamps a null Raise on every row: no list was read, so nothing is claimed.
+        Func<TenantId, IReadOnlySet<string>>? raisedSessions = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5571,6 +5684,12 @@ internal static class GatewayEndpoints
         // The pin and the offered change of owner (the Fleet Manager mission, step 8), read from the same resolved
         // account, so every surface pins the same row and offers the same change.
         Fleet.FleetManagerRosterFold.Stamp(roleUniverse, all, marked);
+        // Whether each row is raised, and the raise or lower offered on it (the Fleet Manager Improvement mission,
+        // phase 1). Assigned either way, so a Director's echo never survives.
+        if (tenant is { IsValid: true } raiseTenant && raisedSessions is not null)
+            Fleet.RaisedSessionRosterFold.Stamp(all, raisedSessions(raiseTenant));
+        else
+            foreach (var s in all) s.Raise = null;
 
         // VOICE: A SESSION A LIVE SESSION OWNS IS NOT THE USER'S TO BE READ ALOUD, and now the screen says so.
         //

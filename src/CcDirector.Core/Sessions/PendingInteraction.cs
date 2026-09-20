@@ -51,10 +51,19 @@ public sealed class PendingInteractionOption
 /// currently waiting on. At most one of these is set per <see cref="Session"/>
 /// at any given time; the next one (if any) replaces it.
 ///
-/// Its only source was the Claude Code hook path, which has been removed; terminal-driven
-/// detection does not yet parse the structured ask off the screen, so this is currently
-/// never populated. The type is kept for the wizard-detection work that will repopulate it
-/// from the terminal grid.
+/// WHERE IT COMES FROM, AND WHERE IT DOES NOT. Its first source was the Claude Code hook path,
+/// which was removed, and for a while nothing filled it at all - the comment here said so, and
+/// expected the replacement to read the structured ask off the terminal grid. That is NOT what
+/// happened, and the difference matters to anyone adding a kind below.
+///
+/// It is filled from the agent's OWN TRANSCRIPT, by <see cref="PendingInteractionDetector"/>, at
+/// each turn end (<see cref="PendingInteractionWatcher"/>). A Claude Code tool call to
+/// AskUserQuestion or ExitPlanMode with no matching tool result yet is a box on the user's screen.
+/// Nothing is read off the screen, and no other agent is inspected.
+///
+/// That is why <see cref="PendingInteractionKind.Permission"/> is still never produced: its source
+/// was a hook event, and a hook event is not written into the transcript. Question and Plan are
+/// what a transcript can honestly say, and a permission ask is not faked from anything else.
 ///
 /// This object is intentionally volatile state: it is NOT persisted by
 /// <c>SessionStateStore</c>.

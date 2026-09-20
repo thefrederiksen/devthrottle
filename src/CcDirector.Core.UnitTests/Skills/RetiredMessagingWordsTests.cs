@@ -18,7 +18,7 @@ namespace CcDirector.Core.UnitTests.Skills;
 /// order to refuse it, and its comments and refusal sentence name it. Those are not taught to anyone.
 ///
 /// It also bans one COMMAND: <c>cc-devthrottle session prompt</c>, which the Gateway refuses to every
-/// session key, must not be taught to an agent as the way to answer a session. See
+/// session key the owner has not raised, must not be taught to an agent as the way to answer a session. See
 /// <see cref="RetiredTypingCommand"/> for why that one carries its own exemption list.
 ///
 /// Presence, not absence (skill checks-that-fail-open): the guard proves it read the files it names,
@@ -51,6 +51,13 @@ public sealed class RetiredMessagingWordsTests
     /// text an agent reads: the command still exists in order to print the Gateway's refusal, and two
     /// skills name it to teach that typing is the owner's alone. Those files are named in
     /// <see cref="TypingCommandExemptions"/>, one by one, with the reason.
+    ///
+    /// THE PREMISE MOVED ON 20 SEPTEMBER 2026 (the Fleet Manager Improvement mission, phase 1, issue #3177).
+    /// A session the owner has RAISED acts with the owner's permissions inside his account, and the guard
+    /// lets its key through the typing routes - recorded each time. So the command is no longer refused
+    /// to EVERY session key, and the Fleet Manager's own conduct must say what a raised Fleet Manager may
+    /// do, by the command's name. Those two texts are exempted below for that reason and no other; every
+    /// other text is still held to the ban, because every other session is still refused.
     /// </summary>
     private const string RetiredTypingCommand = "cc-devthrottle session prompt";
 
@@ -63,7 +70,11 @@ public sealed class RetiredMessagingWordsTests
         ("tools/cc-devthrottle/src/session_ops.py",
             "the command itself: its docstring and its blank-text usage name it, and running it prints the Gateway's refusal"),
         ("src/CcDirector.Gateway/Skills/Content/fleet-comms.skill.md",
-            "teaches that typing into a session is the owner's alone, by naming the refused command"),
+            "teaches that typing into a session is the owner's, and a raised session's, by naming the command refused to everyone else"),
+        ("src/CcDirector.Gateway/Skills/Content/fleet-manager.skill.md",
+            "says what a Fleet Manager the owner has RAISED may do, which includes this command, and that an unraised one is refused it"),
+        ("src/CcDirector.Gateway/Workflows/Content/fleet-manager.instructions.md",
+            "the Fleet Manager's conduct: names the command only under the rule on what raised allows and forbids"),
         (".claude/skills/fleet-comms/SKILL.md",
             "the repository copy of that skill, which is the shipped body plus frontmatter"),
     };
@@ -92,7 +103,7 @@ public sealed class RetiredMessagingWordsTests
             "Text agents read still teaches the messaging the Message Load mission retired (a message " +
             "interrupts, a blocking ask, one-line messages, naming another session as owner, or typing " +
             "into a session with 'cc-devthrottle session prompt', which the Gateway refuses to every " +
-            "session key). Rewrite it to the queue - the owner's words reach a session as a queued " +
+            "session key the owner has not raised). Rewrite it to the queue - the owner's words reach a session as a queued " +
             "message and one doorbell; see docs/FleetMessaging.md:\n  " + string.Join("\n  ", offenders));
     }
 

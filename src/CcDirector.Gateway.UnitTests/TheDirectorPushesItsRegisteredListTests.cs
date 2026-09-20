@@ -66,12 +66,14 @@ public sealed class TheDirectorPushesItsRegisteredListTests : IDisposable
     private static string RepositoryPathLeaf(string path)
         => CcDirector.Core.Utilities.RepositoryPaths.FolderName(path);
 
-    private ControlApiHost NewHost(RepositoryRegistry? registry, RepositoryMonitor? monitor, SessionManager sessions)
+    private ControlApiHost NewHost(RepositoryRegistry? registry, RepositoryMonitor? monitor, SessionManager sessions,
+        Func<IReadOnlyList<string>>? rootFolders = null)
         => new(sessions, "1.0.0-test", () => Task.CompletedTask,
             repositoryRegistry: registry,
             directorId: Guid.NewGuid().ToString(),
             instancesDirectory: _tempDir,
-            repositoryMonitor: monitor);
+            repositoryMonitor: monitor,
+            rootFolders: rootFolders);
 
     [Fact]
     public async Task A_host_with_a_registry_pushes_a_hand_added_repository_no_scan_reached()
@@ -182,6 +184,141 @@ public sealed class TheDirectorPushesItsRegisteredListTests : IDisposable
             var row = Assert.Single(host.SnapshotRepositories());
             Assert.False(row.StatusNotComputed);
             Assert.Equal("main", row.Branch);
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
+    }
+
+    // ---------- AND IT PUSHES WHAT EXISTS UNDER ITS ROOT FOLDERS (the catalogue forgets) ----------
+
+    /// <summary>
+    /// The one-repository-list mission, "the catalogue forgets": the Director actually WIRES its root
+    /// folders into the snapshot it pushes. Same reason as the class comment - the listing could be built
+    /// perfectly and never reach the wire, and every test of the builder would still pass.
+    ///
+    /// The listing is a plain directory listing, so the worktree here - a child folder whose
+    /// <c>.git</c> is a FILE, which the root-folder scan cannot see - is reported, and that is the whole
+    /// point of it.
+    /// </summary>
+    [Fact]
+    public async Task A_host_pushes_what_currently_exists_under_its_root_folders()
+    {
+        var root = Path.Combine(_tempDir, "roots");
+        Directory.CreateDirectory(Path.Combine(root, "a-clone", ".git"));
+        Directory.CreateDirectory(Path.Combine(root, "a-worktree"));
+        await File.WriteAllTextAsync(Path.Combine(root, "a-worktree", ".git"), "gitdir: /elsewhere");
+
+        var monitor = MonitorOver(Path.Combine(root, "a-clone"));
+        await monitor.RescanAsync(new[] { root });
+
+        using var sessions = new SessionManager(new AgentOptions());
+        var host = NewHost(registry: null, monitor, sessions, rootFolders: () => new[] { root });
+        try
+        {
+            var pushed = host.SnapshotRepositories();
+
+            var listing = Assert.Single(Assert.Single(pushed).RootFolders!);
+            Assert.Equal(root, listing.Path);
+            Assert.Equal(
+                new[] { "a-clone", "a-worktree" },
+                listing.ChildPaths.Select(Path.GetFileName).OrderBy(name => name, StringComparer.Ordinal).ToArray());
+
+            // And the scan itself still reports only the clone, which is why the listing is needed at all.
+            Assert.Equal(new[] { Path.Combine(root, "a-clone") }, pushed.Select(row => row.Path).ToArray());
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// FAILURE CASE. A Director that has not completed a scan authorises no deletions: the listing is the
+    /// permission to forget, and a Director that has not yet looked at its own disk has none to give.
+    /// The default when there is no monitor at all is the same, and it is deliberately the OPPOSITE of
+    /// the registry's default - the registry's says "what I know, I know now", this one would say "you
+    /// may delete".
+    /// </summary>
+    [Fact]
+    public async Task A_host_whose_scan_has_not_finished_pushes_no_root_folder_listing()
+    {
+        var root = Path.Combine(_tempDir, "roots");
+        Directory.CreateDirectory(Path.Combine(root, "a-clone", ".git"));
+
+        var registry = NewRegistry("hand-added");
+        var monitor = MonitorOver(Path.Combine(root, "a-clone"));
+
+        using var sessions = new SessionManager(new AgentOptions());
+        var host = NewHost(registry, monitor, sessions, rootFolders: () => new[] { root });
+        try
+        {
+            Assert.False(monitor.HasCompletedAScan);
+            Assert.Empty(host.SnapshotRepositories());
+
+            await monitor.RescanAsync(new[] { root });
+            Assert.True(monitor.HasCompletedAScan);
+            Assert.NotNull(host.SnapshotRepositories().First().RootFolders);
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// FAILURE CASE. A host with no monitor at all pushes its registered list - which it has always done
+    /// - and no root-folder listing, so nothing is ever forgotten on its account.
+    /// </summary>
+    [Fact]
+    public async Task A_host_with_no_monitor_pushes_no_root_folder_listing()
+    {
+        var root = Path.Combine(_tempDir, "roots");
+        Directory.CreateDirectory(Path.Combine(root, "a-clone", ".git"));
+
+        var registry = NewRegistry("hand-added");
+        using var sessions = new SessionManager(new AgentOptions());
+        var host = NewHost(registry, monitor: null, sessions, rootFolders: () => new[] { root });
+        try
+        {
+            var row = Assert.Single(host.SnapshotRepositories());
+            Assert.True(row.StatusNotComputed);
+            Assert.Null(row.RootFolders);
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// The roots are read on EVERY push and never captured once, so a root folder the user adds or
+    /// removes in Settings reaches the Gateway on the next push rather than on the next Director restart.
+    /// </summary>
+    [Fact]
+    public async Task The_root_folders_are_read_fresh_on_every_push()
+    {
+        var first = Path.Combine(_tempDir, "roots-one");
+        var second = Path.Combine(_tempDir, "roots-two");
+        Directory.CreateDirectory(Path.Combine(first, "alpha"));
+        Directory.CreateDirectory(Path.Combine(second, "beta"));
+
+        var roots = new List<string> { first };
+        var monitor = MonitorOver(Path.Combine(first, "alpha"));
+        await monitor.RescanAsync(new[] { first });
+
+        using var sessions = new SessionManager(new AgentOptions());
+        var host = NewHost(registry: null, monitor, sessions, rootFolders: () => roots);
+        try
+        {
+            Assert.Equal(new[] { first },
+                host.SnapshotRepositories().First().RootFolders!.Select(listing => listing.Path).ToArray());
+
+            roots.Add(second);
+
+            Assert.Equal(new[] { first, second },
+                host.SnapshotRepositories().First().RootFolders!.Select(listing => listing.Path).ToArray());
         }
         finally
         {

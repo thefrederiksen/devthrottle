@@ -12,6 +12,16 @@ public enum FleetMessageExemption
 
     /// <summary>A notice the Gateway writes itself (ruling 11). No rule applies but the duplicate rule.</summary>
     System,
+
+    /// <summary>
+    /// The sender is a session the owner has RAISED to act with his permissions (the Fleet Manager Improvement
+    /// mission, phase 1; <c>Fleet.RaisedSessions</c> says whether it is). The relationship rule and both rates are
+    /// waived - the owner may write to any of his sessions as often as he likes, and a raised session writes for him.
+    /// The duplicate rule stays, and so do the text rules and "a session cannot message itself": none of those is a
+    /// limit on who may be reached or how often. Unlike the two above, the sender is still a session and must be
+    /// identified.
+    /// </summary>
+    Raised,
 }
 
 /// <summary>What the policy decided.</summary>
@@ -102,7 +112,10 @@ public sealed record FleetMessageAttempt(
 
 /// <summary>The decision and the sentence that explains it. <see cref="Reason"/> is what the sender reads;
 /// it is empty only for <see cref="FleetMessageOutcome.Queued"/>.</summary>
-public readonly record struct FleetMessageVerdict(FleetMessageOutcome Outcome, string Reason)
+/// <param name="WaivedForRaisedSender">True when the message was queued ONLY because its sender is raised: the
+/// relationship rule or a rate would have refused it. That is an action an unraised session could not have taken, so
+/// the caller records it. False for every message an unraised sender could have sent just the same.</param>
+public readonly record struct FleetMessageVerdict(FleetMessageOutcome Outcome, string Reason, bool WaivedForRaisedSender = false)
 {
     /// <summary>True when the record should be written.</summary>
     public bool Queued => Outcome == FleetMessageOutcome.Queued;
@@ -139,6 +152,12 @@ public readonly record struct FleetMessageVerdict(FleetMessageOutcome Outcome, s
 /// not counted towards the replier's hourly six either (<see cref="FleetMessageStore"/> leaves it out of the
 /// count). A reply after the deadline is allowed like any other.
 ///
+/// A RAISED SENDER IS HELD TO NEITHER RULE 1 NOR THE TWO RATES (the Fleet Manager Improvement mission, phase 1). The
+/// owner may raise a session - the Fleet Manager first - to act with his own permissions, and he may write to any of
+/// his sessions as often as he likes. The duplicate rule stays, because the copy it drops adds nothing; so do the text
+/// rules and "a session cannot message itself". The verdict says when the waiver was what let a message through
+/// (<see cref="FleetMessageVerdict.WaivedForRaisedSender"/>), and the caller records exactly those.
+///
 /// THE ORDER IS PART OF THE RULE. Text first (nothing else can be judged about a blank message); then
 /// self and relationship, because a session that may not write to this recipient at all should be told
 /// THAT, not that it is sending too fast; then the duplicate, so a repeat of a waiting message is dropped
@@ -172,7 +191,12 @@ public static class FleetMessagePolicy
             return new(FleetMessageOutcome.RefusedText,
                 $"The message is {text.Length} characters; the limit is {limits.MaxTextLength}. Shorten it.");
 
-        var exempt = attempt.Exemption != FleetMessageExemption.None;
+        // A grant and a Gateway notice are judged by no rule but the duplicate rule. A RAISED sender is still a
+        // session: it is identified and may not write to itself, and the relationship rule and the two rates are
+        // WAIVED for it one at a time, so the verdict can say whether the waiver was what let the message through.
+        var exempt = attempt.Exemption is FleetMessageExemption.HumanGrant or FleetMessageExemption.System;
+        var raised = attempt.Exemption == FleetMessageExemption.Raised;
+        var waived = false;
         var recipient = attempt.RecipientSessionId;
         var sender = attempt.SenderSessionId;
 
@@ -191,9 +215,13 @@ public static class FleetMessagePolicy
             var recipientIsMySupervisor = Same(attempt.SenderControllerSessionId, recipient);
             var recipientIsMyWorker = Same(attempt.RecipientControllerSessionId, sender);
             if (!recipientIsMySupervisor && !recipientIsMyWorker)
-                return new(FleetMessageOutcome.RefusedNotRelated,
-                    $"You may message only the session that started you and the sessions you started. " +
-                    $"{Short(recipient)} is neither, so nothing was queued. {PutItInYourReport}");
+            {
+                if (!raised)
+                    return new(FleetMessageOutcome.RefusedNotRelated,
+                        $"You may message only the session that started you and the sessions you started. " +
+                        $"{Short(recipient)} is neither, so nothing was queued. {PutItInYourReport}");
+                waived = true;
+            }
         }
 
         if (attempt.RecipientHasUnreadDuplicate)
@@ -203,26 +231,34 @@ public static class FleetMessagePolicy
         {
             var isReport = attempt.Kind == FleetMessageKinds.Report;
             if (attempt.SentBySenderInWindow >= limits.PerSenderPerHour)
-                return new(FleetMessageOutcome.RefusedHourlyLimit,
-                    $"You have sent {attempt.SentBySenderInWindow} messages in the last " +
-                    $"{Describe(limits.SenderWindow)}; the limit is {limits.PerSenderPerHour}. " +
-                    $"Nothing was queued. {(isReport ? LeaveItInYourSession : PutItInYourReport)}");
+            {
+                if (!raised)
+                    return new(FleetMessageOutcome.RefusedHourlyLimit,
+                        $"You have sent {attempt.SentBySenderInWindow} messages in the last " +
+                        $"{Describe(limits.SenderWindow)}; the limit is {limits.PerSenderPerHour}. " +
+                        $"Nothing was queued. {(isReport ? LeaveItInYourSession : PutItInYourReport)}");
+                waived = true;
+            }
 
             if (!isReport && attempt.LastSentToRecipientUtc is { } last)
             {
                 var since = attempt.NowUtc - last;
                 if (since < limits.PerRecipientSpacing)
                 {
-                    var wait = limits.PerRecipientSpacing - since;
-                    return new(FleetMessageOutcome.RefusedRecipientSpacing,
-                        $"You messaged {Short(recipient)} {Describe(since)} ago; one message per recipient every " +
-                        $"{Describe(limits.PerRecipientSpacing)}. The next one is allowed in {Describe(wait)}. " +
-                        $"Nothing was queued. {PutItInYourReport}");
+                    if (!raised)
+                    {
+                        var wait = limits.PerRecipientSpacing - since;
+                        return new(FleetMessageOutcome.RefusedRecipientSpacing,
+                            $"You messaged {Short(recipient)} {Describe(since)} ago; one message per recipient every " +
+                            $"{Describe(limits.PerRecipientSpacing)}. The next one is allowed in {Describe(wait)}. " +
+                            $"Nothing was queued. {PutItInYourReport}");
+                    }
+                    waived = true;
                 }
             }
         }
 
-        return new(FleetMessageOutcome.Queued, "");
+        return new(FleetMessageOutcome.Queued, "", waived);
     }
 
     private static FleetMessageVerdict DecideReply(FleetMessageAttempt attempt, string recipient, string? sender)

@@ -279,6 +279,77 @@ public sealed class FleetMessagePolicyTests
         Assert.Equal(FleetMessageOutcome.DuplicateDropped, Decide(dup).Outcome);
     }
 
+    // ---------- A raised sender (the Fleet Manager Improvement mission, phase 1) ----------
+
+    [Fact]
+    public void Decide_RaisedSenderToAStranger_PassesTheRelationshipRule_AndSaysTheWaiverDidIt()
+    {
+        var v = Decide(Attempt(WorkerA, Stranger, exemption: FleetMessageExemption.Raised));
+
+        Assert.Equal(FleetMessageOutcome.Queued, v.Outcome);
+        Assert.True(v.WaivedForRaisedSender);
+
+        // The control: the very same attempt from a sender that is not raised is refused as it is today.
+        var unraised = Decide(Attempt(WorkerA, Stranger));
+        Assert.Equal(FleetMessageOutcome.RefusedNotRelated, unraised.Outcome);
+        Assert.False(unraised.WaivedForRaisedSender);
+    }
+
+    [Fact]
+    public void Decide_RaisedSenderOverTheHourlyLimit_IsQueued_AndTheUnraisedControlIsRefused()
+    {
+        var v = Decide(Attempt(Manager, WorkerA, sentInWindow: 6, exemption: FleetMessageExemption.Raised));
+
+        Assert.Equal(FleetMessageOutcome.Queued, v.Outcome);
+        Assert.True(v.WaivedForRaisedSender);
+        Assert.Equal(FleetMessageOutcome.RefusedHourlyLimit, Decide(Attempt(Manager, WorkerA, sentInWindow: 6)).Outcome);
+    }
+
+    [Fact]
+    public void Decide_RaisedSenderInsideTheSpacing_IsQueued_AndTheUnraisedControlIsRefused()
+    {
+        var v = Decide(Attempt(Manager, WorkerA, lastToRecipient: Now.AddMinutes(-1), exemption: FleetMessageExemption.Raised));
+
+        Assert.Equal(FleetMessageOutcome.Queued, v.Outcome);
+        Assert.True(v.WaivedForRaisedSender);
+        Assert.Equal(FleetMessageOutcome.RefusedRecipientSpacing,
+            Decide(Attempt(Manager, WorkerA, lastToRecipient: Now.AddMinutes(-1))).Outcome);
+    }
+
+    [Fact]
+    public void Decide_RaisedSenderWithinEveryRule_IsQueuedWithoutTheWaiver_SoNoRaisedRecordIsOwed()
+    {
+        // A raised Fleet Manager writing to a session it started, inside both rates, did nothing an unraised
+        // session could not. The flag is what the route records by, so it must be false here.
+        var v = Decide(Attempt(Manager, WorkerA, exemption: FleetMessageExemption.Raised));
+
+        Assert.Equal(FleetMessageOutcome.Queued, v.Outcome);
+        Assert.False(v.WaivedForRaisedSender);
+    }
+
+    [Fact]
+    public void Decide_RaisedSenderRepeatingAnUnreadMessage_IsStillDroppedAsADuplicate()
+    {
+        var v = Decide(Attempt(WorkerA, Stranger, unreadDuplicate: true, sentInWindow: 99, lastToRecipient: Now,
+            exemption: FleetMessageExemption.Raised));
+
+        Assert.Equal(FleetMessageOutcome.DuplicateDropped, v.Outcome);
+        Assert.False(v.Queued);
+        Assert.Contains("has not yet read an identical message", v.Reason);
+    }
+
+    [Fact]
+    public void Decide_RaisedSender_StillMayNotMessageItself_AndStillMustSaySomething()
+    {
+        Assert.Equal(Decide(Attempt(WorkerA, WorkerA)).Outcome,
+            Decide(Attempt(WorkerA, WorkerA, exemption: FleetMessageExemption.Raised)).Outcome);
+        Assert.True(Decide(Attempt(WorkerA, WorkerA, exemption: FleetMessageExemption.Raised)).Refused);
+
+        Assert.Equal(Decide(Attempt(WorkerA, Stranger, text: " ")).Outcome,
+            Decide(Attempt(WorkerA, Stranger, text: " ", exemption: FleetMessageExemption.Raised)).Outcome);
+        Assert.True(Decide(Attempt(WorkerA, Stranger, text: " ", exemption: FleetMessageExemption.Raised)).Refused);
+    }
+
     [Fact]
     public void A_system_notice_needs_no_sender()
     {

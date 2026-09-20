@@ -334,6 +334,10 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Every session this account has ever marked as its Fleet Manager (<c>fleet_manager_marks</c>), so
     /// the digest still finds the sessions an earlier Fleet Manager started. Only ever added to.</summary>
     public DbSet<FleetManagerMarkEntity> FleetManagerMarks => Set<FleetManagerMarkEntity>();
+
+    /// <summary>The sessions each account has raised to act with the owner's permissions (the Fleet Manager
+    /// Improvement mission, phase 1).</summary>
+    public DbSet<RaisedSessionEntity> RaisedSessions => Set<RaisedSessionEntity>();
     /// <summary>The events about sessions a Fleet Manager owns (<c>fleet_manager_events</c>, step 4): one stop or
     /// death per row, kept until the Fleet Manager acknowledges it.</summary>
     public DbSet<FleetManagerEventEntity> FleetManagerEvents => Set<FleetManagerEventEntity>();
@@ -911,6 +915,17 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
         });
 
+        modelBuilder.Entity<RaisedSessionEntity>(b =>
+        {
+            b.ToTable("raised_sessions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Source).HasMaxLength(32);
+            b.Property(e => e.RaisedBy).HasMaxLength(256);
+            // One row per session per account: raising a raised session again changes its source, never adds a row.
+            b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
+        });
+
         modelBuilder.Entity<FleetManagerEventEntity>(b =>
         {
             b.ToTable("fleet_manager_events");
@@ -1361,6 +1376,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FleetOutcomeEntity>(modelBuilder);
         ApplyTenantScope<FleetPreferenceEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerMarkEntity>(modelBuilder);
+        ApplyTenantScope<RaisedSessionEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerOwnedSessionEntity>(modelBuilder);
 
@@ -1452,6 +1468,10 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FleetOutcomeEntity>().Property(e => e.Status).UseCollation("C");
             // fleet_manager_marks: the session id is an exact key the unique index and the digest compare on.
             modelBuilder.Entity<FleetManagerMarkEntity>().Property(e => e.SessionId).UseCollation("C");
+            // raised_sessions: the session id is the exact key the guard looks a caller up by, and the source is a
+            // closed word compared byte-ordinally.
+            modelBuilder.Entity<RaisedSessionEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<RaisedSessionEntity>().Property(e => e.Source).UseCollation("C");
             // fleet_manager_events: the kind and the session ids are compared byte-ordinally for the same reason.
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.Kind).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");

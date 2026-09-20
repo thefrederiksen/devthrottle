@@ -247,6 +247,11 @@ internal static class SettingsEndpoints
         // the workflow it is seated on - makes it the Fleet Manager. Read by the turn-end seat at every stop, so a
         // change applies to the next stop with no Gateway restart.
         //
+        // SETTING THE MARK FROM THE OWNER'S OWN DEVICE ALSO RAISES THE MARKED SESSION (the Fleet Manager Improvement
+        // mission, phase 1), and raised follows the mark when it moves or clears. A session key may set the mark too -
+        // the Fleet Manager does, from the command line - but that never raises anybody: a session must not be able to
+        // raise itself, or another, by marking it. The caller is read from the verified credential, never the body.
+        //
         // ONE PUT SETS AND CLEARS: { "sessionId": "<id>" } marks that session, { "sessionId": null } removes the
         // mark. A body with no "sessionId" at all is REFUSED rather than read as either, for the reason the
         // switches above give: guessing answers "saved" for a choice nobody made.
@@ -271,7 +276,7 @@ internal static class SettingsEndpoints
                 // way sees the owner's change as the owner's (and a session waiting to take over is told once).
                 if (value is null)
                 {
-                    await host.FleetManagerPlacement.SetMarkByOwnerAsync(t.Value, null, ctx.RequestAborted);
+                    await host.FleetManagerPlacement.SetMarkByOwnerAsync(t.Value, null, ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx));
                     FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id cleared for tenant={t.Value.ToLogString()}");
                     return Results.Json(new { sessionId = (string?)null });
                 }
@@ -282,7 +287,7 @@ internal static class SettingsEndpoints
 
                 // The history beside the mark is written in the same transaction: the digest still finds the sessions an
                 // earlier Fleet Manager started.
-                var stored = await host.FleetManagerPlacement.SetMarkByOwnerAsync(t.Value, raw, ctx.RequestAborted);
+                var stored = await host.FleetManagerPlacement.SetMarkByOwnerAsync(t.Value, raw, ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx));
                 FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id set to {stored} for tenant={t.Value.ToLogString()}");
                 return Results.Json(new { sessionId = stored });
             }

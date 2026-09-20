@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "node ../../scripts/check-node-version.mjs && vitest run"
   },
   "dependencies": {
     "@devthrottle/client-core": "*",

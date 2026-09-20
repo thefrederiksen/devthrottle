@@ -30,10 +30,27 @@ public static class WayUpWords
 
     /// <summary>What the history is, when it has entries.</summary>
     /// <param name="count">How many records were read.</param>
-    public static string HistoryRead(int count) =>
-        count == 1
+    /// <param name="olderNotRead">
+    /// How many older records this Director has that were NOT read, because the way up reads only the newest
+    /// <see cref="DirectorWayUp.MostRecentRecordsRead"/>. Zero when the whole history was read.
+    /// </param>
+    /// <remarks>
+    /// THE SENTENCE NEVER STATES A CAPPED READ AS A TOTAL. A Director restarted most mornings passes
+    /// twenty-five records inside a month, and "This Director has 25 restart records" would then be an
+    /// absence presented as a complete answer - on the one surface whose whole promise is that nothing is
+    /// deleted. So when older records exist the sentence says how many are being shown AND that the rest are
+    /// still on the Gateway. When none are cut off the words are exactly what they always were.
+    /// </remarks>
+    public static string HistoryRead(int count, int olderNotRead = 0)
+    {
+        if (olderNotRead > 0)
+            return $"The newest {count} of this Director's {count + olderNotRead} restart records, newest " +
+                   $"first. The other {olderNotRead} are older and are not read here; they are kept on the " +
+                   "Gateway and nothing has been deleted.";
+        return count == 1
             ? "This Director has one restart record."
             : $"This Director has {count} restart records, newest first.";
+    }
 
     /// <summary>
     /// Why nothing could be read from the Gateway. NEVER an empty list: an empty list reads as "you have no
@@ -65,6 +82,36 @@ public static class WayUpWords
         owed == 1
             ? "One session is waiting to be brought back."
             : $"{owed} sessions are waiting to be brought back.";
+
+    /// <summary>
+    /// WHAT AN OFFERED RECORD HOLDS, IN ONE LINE - both counts, because a record can be offered for either
+    /// of them.
+    ///
+    /// A record whose every session ended at the limit is offered for those seats alone (ruling 10.5), and
+    /// under a line that said only how many are waiting to come back it would read "0 sessions are waiting
+    /// to be brought back" over a window full of rows. That is a true number and a false sentence, so the
+    /// line names both things and the window shows it as it is.
+    ///
+    /// IT PROMISES NOTHING ABOUT WHAT CAN BE REOPENED, because the count includes a seat whose conversation
+    /// was never recorded - such a seat is listed, and its own offer says it has nothing to reopen. The
+    /// line says what the rows ARE; each row says what can be done with it.
+    /// </summary>
+    /// <param name="owed">How many seats handed over and are waiting to be brought back.</param>
+    /// <param name="endedWithoutHandover">How many seats ended without a handover and are listed unticked.</param>
+    public static string SeatsLabel(int owed, int endedWithoutHandover)
+    {
+        if (endedWithoutHandover <= 0) return SeatsOwedLabel(owed);
+
+        var ended = endedWithoutHandover == 1
+            ? "One session ended without a handover. It is listed below, unticked, and nothing comes back " +
+              "unless you ask for it."
+            : $"{endedWithoutHandover} sessions ended without a handover. They are listed below, unticked, " +
+              "and nothing comes back unless you ask for it.";
+
+        return owed == 0
+            ? "No session is waiting to be brought back. " + ended
+            : SeatsOwedLabel(owed) + " " + ended;
+    }
 
     /// <summary>The name of a bring back row: the mission head, and its mission when it has one.</summary>
     /// <param name="seat">The mission head.</param>

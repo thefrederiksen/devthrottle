@@ -1382,6 +1382,46 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("push_subscriptions", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.RaisedSessionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("RaisedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RaisedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .UseCollation("C");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "SessionId")
+                        .IsUnique();
+
+                    b.ToTable("raised_sessions", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.RepoStateEntity", b =>
                 {
                     b.Property<string>("TenantId")

@@ -103,7 +103,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
         FileLog.Write($"[DirectorWayUp] FindOfferAsync: machine={_machine}");
         try
         {
-            var candidates = await CandidatesAsync(ct).ConfigureAwait(false);
+            var candidates = (await CandidatesAsync(ct).ConfigureAwait(false)).Read;
             foreach (var summary in candidates)
             {
                 var doc = await _gateway.GetWorkspaceAsync(summary.Id, ct).ConfigureAwait(false);
@@ -139,17 +139,22 @@ public sealed class DirectorWayUp : IDirectorWayUp
         {
             var candidates = await CandidatesAsync(ct).ConfigureAwait(false);
             var entries = new List<WayUpHistoryEntry>();
-            foreach (var summary in candidates)
+            foreach (var summary in candidates.Read)
             {
                 var doc = await _gateway.GetWorkspaceAsync(summary.Id, ct).ConfigureAwait(false);
                 if (doc is null) continue;
                 entries.Add(BuildHistoryEntry(doc));
             }
 
-            FileLog.Write($"[DirectorWayUp] ReadHistoryAsync: {entries.Count} record(s)");
+            // How many are NOT being read, so the sentence can say so. Only the cap is counted here: a record
+            // that was listed and has since been deleted is not an older record still sitting on the Gateway.
+            var olderNotRead = Math.Max(0, candidates.Matched - MostRecentRecordsRead);
+            FileLog.Write($"[DirectorWayUp] ReadHistoryAsync: {entries.Count} record(s), {olderNotRead} older not read");
             return new WayUpHistory(
                 Refused: false,
-                Message: entries.Count == 0 ? WayUpWords.NoHistory : WayUpWords.HistoryRead(entries.Count),
+                Message: entries.Count == 0
+                    ? WayUpWords.NoHistory
+                    : WayUpWords.HistoryRead(entries.Count, olderNotRead),
                 Entries: entries);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -286,25 +291,58 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// display name - never this identifier, which a restart changes. Newest first, capped.
     /// </summary>
     /// <param name="ct">Cancellation.</param>
-    private async Task<IReadOnlyList<WorkspaceSummaryDto>> CandidatesAsync(CancellationToken ct)
+    private async Task<Candidates> CandidatesAsync(CancellationToken ct)
     {
         var directorName = DirectorName();
         var all = await _gateway.ListWorkspacesAsync(ct).ConfigureAwait(false);
-        return all
+        var matched = all
             .Where(w => string.Equals(w.Origin, WorkspaceOrigins.Captured, StringComparison.Ordinal)
                         && string.Equals(w.Machine, _machine, StringComparison.OrdinalIgnoreCase)
                         && string.Equals(w.DirectorName, directorName, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(w => w.UpdatedUtc)
             .ThenByDescending(w => w.CreatedUtc)
-            .Take(MostRecentRecordsRead)
             .ToList();
+        return new Candidates(matched.Take(MostRecentRecordsRead).ToList(), matched.Count);
     }
 
     /// <summary>
+    /// The records that were READ, and how many this Director actually has on the Gateway.
+    /// </summary>
+    /// <param name="Read">The newest <see cref="MostRecentRecordsRead"/>, newest first.</param>
+    /// <param name="Matched">How many records matched before the cap was applied.</param>
+    /// <remarks>
+    /// THE CAP IS CARRIED, NOT HIDDEN. The start-up read only ever wants the newest, so the cap costs it
+    /// nothing. The history is read by a person asking what this Director has shut down, and a cap that
+    /// silently trimmed the answer let the history say "This Director has 25 restart records" to a Director
+    /// that had two hundred - an absence presented as a complete answer. So the count that was MATCHED
+    /// travels beside the records that were read, and the history's own sentence says when older ones exist.
+    /// </remarks>
+    private sealed record Candidates(IReadOnlyList<WorkspaceSummaryDto> Read, int Matched);
+
+    /// <summary>
     /// May this record be offered at start-up? A PRESENCE check on the record and never a count of running
-    /// sessions: it came from a smart shutdown, it was not cancelled, and at least one seat is still owed.
-    /// A record from an ignore-all, a cancelled record and a record whose every owed seat has already come
-    /// back are all silently not offered, and all three stay readable in the history.
+    /// sessions: it came from a smart shutdown, it was not cancelled, and it holds at least one seat that
+    /// can still be acted on. A record from an ignore-all, a cancelled record and a record with nothing left
+    /// to act on are all silently not offered, and all three stay readable in the history.
+    ///
+    /// A SEAT THAT CAN STILL BE ACTED ON IS ONE OF TWO THINGS, and the second is why this check is wider
+    /// than the sentence in mission document 5.3 item 10 (the mission's own
+    /// <c>ruling-way-up-presence-check.md</c>):
+    ///
+    /// - a seat decided "restore" that has not come back - <see cref="OwedSeats"/>; or
+    /// - a seat that ended without a handover whose saved conversation can be reopened and has not been -
+    ///   <see cref="ReopenableSeats"/>.
+    ///
+    /// WITHOUT THE SECOND, RULING 10.5 COULD NOT BE SATISFIED AT ALL. When the operating system shuts the
+    /// machine down there is no ten minutes, so <c>DirectorDrain.RecordOperatingSystemShutdownAsync</c>
+    /// writes EVERY seat as ended at the limit with nothing decided. Such a record owes no seat by
+    /// construction, and under a check that counted only owed seats it could never be offered - while 10.5
+    /// says in the owner's accepted words that on the way up those saved conversations ARE offered, as in
+    /// 10.3. 5.3 item 10 describes the ordinary shutdown, where at least one session hands over.
+    ///
+    /// WIDENING WHAT IS OFFERED IS NOT WIDENING WHAT COMES BACK. Such a seat is still unticked
+    /// (<see cref="BuildRows"/>), the drain still wrote it "undecided" so the restore still refuses it, and
+    /// its only offer is still the one button ruling 10.3 gives it. Nothing is brought back by itself.
     /// </summary>
     /// <param name="doc">The record.</param>
     internal static bool IsOfferable(WorkspaceDocument doc)
@@ -312,7 +350,32 @@ public sealed class DirectorWayUp : IDirectorWayUp
         ArgumentNullException.ThrowIfNull(doc);
         return string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.SmartShutdown, StringComparison.Ordinal)
                && doc.CancelledAtUtc is null
-               && OwedSeats(doc).Count > 0;
+               && (OwedSeats(doc).Count > 0 || ReopenableSeats(doc).Count > 0);
+    }
+
+    /// <summary>
+    /// The seats that ended without a handover and whose saved conversation there is something to do with:
+    /// <see cref="EndedWithoutHandover"/>, and an offer that CAN be taken.
+    ///
+    /// WHETHER IT CAN BE TAKEN IS ASKED OF <see cref="WayUpWords.ReopenOffer"/> AND IS NOT RESTATED HERE.
+    /// That is the one place deciding what reopening a seat would really do, and it is what the reopen
+    /// itself asks before it starts anything - so a seat this list holds is exactly a seat whose button
+    /// would work. A seat with no conversation recorded is not one: its offer says there is nothing to
+    /// reopen, and a record holding only such seats is not offered, because a window of buttons that can
+    /// never work is worse than the history those seats are already readable in.
+    ///
+    /// CODEX AND ITS KIND ARE IN THIS LIST, and that is the mission document's own answer (5.4): a Codex
+    /// session ended at the limit "is noted and offered as a fresh blank session in its repository". Its
+    /// driver ignores the conversation id, so what the button PROMISES differs - and that difference is
+    /// made once, in <see cref="WayUpWords.ReopenOffer"/>, never here.
+    /// </summary>
+    /// <param name="doc">The record.</param>
+    internal static List<WorkspaceSeat> ReopenableSeats(WorkspaceDocument doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        return doc.Seats
+            .Where(s => EndedWithoutHandover(s) && WayUpWords.ReopenOffer(s.Agent, s.ClaudeSessionId).CanReopen)
+            .ToList();
     }
 
     /// <summary>
@@ -339,6 +402,13 @@ public sealed class DirectorWayUp : IDirectorWayUp
         var owed = OwedSeats(doc);
         var at = ShutdownAtUtc(doc);
         var local = ToLocal(at);
+
+        // COUNTED OFF THE ROWS' OWN RULE, and not off ReopenableSeats: the rows list EVERY seat that ended
+        // without a handover, including one whose conversation was never recorded and which therefore gets a
+        // sentence and no button. The number a person reads is the number of rows under it, or it is a lie,
+        // so it is the same filter BuildRows uses.
+        var ended = doc.Seats.Count(EndedWithoutHandover);
+
         return new WayUpRecord(
             WorkspaceId: doc.Id,
             ShutdownAtUtc: at,
@@ -348,7 +418,8 @@ public sealed class DirectorWayUp : IDirectorWayUp
             Reason: doc.Reason,
             ReasonLabel: WayUpWords.ReasonLabel(doc.Reason),
             SeatsOwed: owed.Count,
-            SeatsOwedLabel: WayUpWords.SeatsOwedLabel(owed.Count),
+            SeatsEndedWithoutHandover: ended,
+            SeatsLabel: WayUpWords.SeatsLabel(owed.Count, ended),
             Rows: BuildRows(doc, owed));
     }
 
@@ -389,7 +460,9 @@ public sealed class DirectorWayUp : IDirectorWayUp
                 .ToList(),
 
             // The same rule the start-up check uses, so a record is offered from the history exactly when it
-            // would be offered at start-up - one rule, never two that can drift apart.
+            // would be offered at start-up - one rule, never two that can drift apart. A record whose seats
+            // ALL ended without a handover now carries one too, and what it offers is what the start-up
+            // window offers: those seats, unticked, each with its own button.
             Offer: IsOfferable(doc) ? BuildRecord(doc) : null);
     }
 
@@ -401,6 +474,10 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// seat the record does not hold. Headship is read over the WHOLE record and not over the owed seats
     /// alone, so a mission whose lead is not coming back still shows as one mission and not as a handful of
     /// loose sessions.
+    ///
+    /// EITHER GROUP MAY BE EMPTY. A record whose every session ended at the limit has no bring back row at
+    /// all, and it is still offered: it is offered FOR the rows below. Ticking nothing and pressing bring
+    /// back is then refused by <see cref="ChooseSeats"/> in its own words.
     /// </summary>
     /// <param name="doc">The record.</param>
     /// <param name="owed">The seats still owed, from <see cref="OwedSeats"/>.</param>

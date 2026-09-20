@@ -17,5 +17,8 @@
   "devDependencies": {
     "eslint": "9.15.0",
     "typescript-eslint": "8.16.0"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }

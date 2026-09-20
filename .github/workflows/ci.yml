@@ -257,10 +257,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Setup Node 22
+      # The version comes from .nvmrc, which is also what scripts/check-node-version.mjs reads, so the
+      # pinned version lives in exactly one file and a developer machine cannot quietly drift off it.
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
@@ -284,6 +286,12 @@ jobs:
 
       - name: Run mobile tests
         run: npm test --workspace @devthrottle/mobile
+
+      # Added 2026-09-19. This workspace has had 106 tests in 8 files and no line here, so nothing ran
+      # them - exactly the hole the note above is about, arrived at from the other side: the list is
+      # honest about what it runs, and silent about what it leaves out.
+      - name: Run cc-assistant tests
+        run: npm test --workspace @devthrottle/cc-assistant
 
       # The shells must still BUILD, not just typecheck: the production build runs the real Vite
       # pipeline (bundling, the PWA service worker) and fails on things tsc never sees.

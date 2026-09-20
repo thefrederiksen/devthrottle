@@ -12,6 +12,17 @@ namespace CcDirector.Gateway.History;
 public readonly record struct DiscoveredRepository(string Path, string Name);
 
 /// <summary>
+/// One registered root folder a Director could positively LIST, and the full path of every direct child
+/// folder that existed under it at that moment - git repository or not (the one-repository-list mission,
+/// "the catalogue forgets").
+///
+/// THE PRESENCE OF ONE OF THESE IS THE PERMISSION TO FORGET a used repository under that root, so a root
+/// the Director could not read is never one of these. See <see cref="RootFolderListingDto"/> for why the
+/// Director's root-folder SCAN cannot answer this question and a plain directory listing has to.
+/// </summary>
+public readonly record struct WatchedRootFolder(string Path, IReadOnlyList<string> ChildPaths);
+
+/// <summary>
 /// The durable catalog of repositories the Gateway knows about, grouped by tenant and machine. Session
 /// history is intentionally retained for only ninety days; this catalog is not part of that sweep.
 ///
@@ -183,6 +194,40 @@ public sealed class KnownRepositoryStore
     /// <see cref="Streaming.RepoHistoryStore.ObserveSnapshot"/> already pays for: an empty or
     /// all-provisional push must never be mistaken for "every repository was removed".
     ///
+    /// <para><b>AND THE CATALOGUE FORGETS A FOLDER THAT NO LONGER EXISTS</b> (the one-repository-list
+    /// mission, "the catalogue forgets"). Until this, nothing ever removed a row that had been USED, so a
+    /// folder created, worked in and deleted stayed in every screen's list for ever: measured against the
+    /// live Gateway on 20 September 2026, one machine's catalogue held 90 repositories of which 76 no
+    /// longer existed. <paramref name="rootFolders"/> is what makes removing one safe. A used row is
+    /// forgotten ONLY when all four of these hold:</para>
+    /// <list type="number">
+    ///   <item>this is a real observation (<paramref name="reconcile"/>), so never on an empty push, never
+    ///     on an all-provisional one, and never from a Director that has gone quiet - a Director that
+    ///     says nothing removes nothing;</item>
+    ///   <item>its folder's PARENT is one of the roots in <paramref name="rootFolders"/> - a root this
+    ///     Director could positively read just now. <b>A root the Director CANNOT list is omitted from
+    ///     that set entirely, so nothing beneath it is ever forgotten</b>: an unmounted disk, an
+    ///     unreadable folder and a root that has stopped being watched each mean "I know nothing here"
+    ///     and never "nothing is here". This is a destructive operation, so it acts only on what it can
+    ///     positively prove is disposable;</item>
+    ///   <item>its path is in neither the snapshot nor that root's child listing, so the Director has
+    ///     positively said the folder is not there; and</item>
+    ///   <item>nothing about which Director owns it, because a used row has no owner - which is why the
+    ///     root, and not ownership, is the scope. Another Director on the same machine reports its OWN
+    ///     roots, so it can only ever forget what is under those.</item>
+    /// </list>
+    /// <para><b>The child listing is load-bearing and is not the same as the snapshot.</b> The snapshot is
+    /// the root-folder SCAN, which reports a direct child only when its <c>.git</c> is a DIRECTORY - so a
+    /// git worktree has never been in it. On the machine measured above, ELEVEN of the fourteen surviving
+    /// repositories were worktrees, and forgetting rows that were merely absent from the snapshot would
+    /// have deleted all eleven live folders.</para>
+    /// <para><b>What is lost is the LAST-ACCESS TIME, and it does not come back.</b> A forgotten row is
+    /// DELETED, not hidden, and the last-access time is this mission's whole signal. If the folder
+    /// returns - a worktree re-made under the same name - its history does NOT return with it: it comes
+    /// back as never-opened and sits at the bottom of the list until it is next used. Nothing else is
+    /// lost, because the row holds no other fact a screen reads. That is the accepted cost of a list that
+    /// describes the disk.</para>
+    ///
     /// Every path here goes through <see cref="NormalizePathKey"/>, which decides Windows-ness from the
     /// PATH'S OWN SHAPE. The Gateway is a Linux container holding paths written by Windows and macOS
     /// machines and is never the machine a path describes, so nothing here may ask the host what a path
@@ -190,7 +235,8 @@ public sealed class KnownRepositoryStore
     /// the Director on the machine that owns the path; the Gateway never recomputes it.
     /// </summary>
     public bool ObserveDiscovered(TenantId tenant, string machineName, string directorId,
-        IReadOnlyList<DiscoveredRepository> found, DateTime seenUtc, bool reconcile)
+        IReadOnlyList<DiscoveredRepository> found, IReadOnlyList<WatchedRootFolder>? rootFolders,
+        DateTime seenUtc, bool reconcile)
     {
         if (!tenant.IsValid)
             throw new ArgumentException("A valid tenant is required.", nameof(tenant));
@@ -231,9 +277,27 @@ public sealed class KnownRepositoryStore
             snapshot[NormalizePathKey(repositoryPath)] = new DiscoveredRepository(repositoryPath, displayName);
         }
 
+        // The roots this Director could positively read, and everything it saw beside each of them, keyed
+        // the one way this class keys every path. A root with no usable path is dropped rather than
+        // matched against nothing.
+        var coveredRootKeys = new HashSet<string>(StringComparer.Ordinal);
+        var stillThere = new HashSet<string>(snapshot.Keys, StringComparer.Ordinal);
+        foreach (var root in rootFolders ?? Array.Empty<WatchedRootFolder>())
+        {
+            if (string.IsNullOrWhiteSpace(root.Path))
+                continue;
+            coveredRootKeys.Add(NormalizePathKey(root.Path.Trim()));
+            foreach (var child in root.ChildPaths ?? Array.Empty<string>())
+            {
+                if (!string.IsNullOrWhiteSpace(child))
+                    stillThere.Add(NormalizePathKey(child.Trim()));
+            }
+        }
+
         var changed = false;
         var inserted = 0;
         var removed = 0;
+        var forgotten = 0;
         lock (_gate)
         {
             using var context = _db.CreateContext(tenant);
@@ -333,6 +397,37 @@ public sealed class KnownRepositoryStore
                     changed = true;
                     removed = stale.Count;
                 }
+
+                // AND THE FOLDER THAT NO LONGER EXISTS IS FORGOTTEN, used or not (the one-repository-list
+                // mission, "the catalogue forgets"). Everything that makes this safe is in the four
+                // conditions on the remarks above; the two that live here are that the row's PARENT is a
+                // root this Director could read just now, and that the Director listed that root without
+                // it. A row whose parent is not a covered root - another machine's layout, a folder
+                // outside every watched root, a root this Director does not watch or could not read - is
+                // not even looked at.
+                //
+                // The parent is compared, not a prefix, because a root folder's scan and its listing both
+                // reach exactly one level: a repository two levels down was never reported by this root
+                // and this root may not speak for it. If that ever changes, this under-claims and keeps a
+                // row that could have gone, which is the direction to fail in.
+                var gone = rows
+                    .Where(row => row.LastUsedUtc is not null)
+                    .Where(row =>
+                    {
+                        var key = NormalizePathKey(row.Path);
+                        return coveredRootKeys.Contains(ParentPathKey(key)) && !stillThere.Contains(key);
+                    })
+                    .ToList();
+                foreach (var row in gone)
+                    context.KnownRepositories.Remove(row);
+                if (gone.Count > 0)
+                {
+                    changed = true;
+                    forgotten = gone.Count;
+                    foreach (var row in gone)
+                        FileLog.Write($"[KnownRepositoryStore] ObserveDiscovered: forgetting {row.Path} - "
+                                      + $"{reporter} listed its root folder and it was not there");
+                }
             }
 
             if (changed)
@@ -341,6 +436,7 @@ public sealed class KnownRepositoryStore
 
         FileLog.Write($"[KnownRepositoryStore] ObserveDiscovered: tenant={tenant.ToLogString()} machine={machine} "
                       + $"director={reporter} found={snapshot.Count} inserted={inserted} removed={removed} "
+                      + $"forgotten={forgotten} roots={coveredRootKeys.Count} "
                       + $"reconcile={reconcile} changed={changed}");
         return changed;
     }
@@ -418,32 +514,81 @@ public sealed class KnownRepositoryStore
     ///   <item>One row per repository. Two rows can share a path when the machine name was written with
     ///     different spellings, and the USED one wins - a repository that has been opened never loses its
     ///     place in the order to a discovered duplicate.</item>
+    ///   <item>Each row is given THE NAME A PERSON CAN TELL APART - see below. It happens before the
+    ///     ordering, because the list is sorted by the name that is shown.</item>
     ///   <item>Most recently used first; never-opened beneath everything used.</item>
     ///   <item>Within a tie - and every never-opened row ties with every other - by name and then by path,
     ///     so the list is a total order. Two clients reading the same catalog see the same list, and a
     ///     screen does not reshuffle between reads.</item>
     /// </list>
+    ///
+    /// <para><b>THE NAME (the one-repository-list mission, "the catalogue forgets").</b> A used row's
+    /// stored name is whatever the session carried - in practice the repository's GitHub slug, or nothing
+    /// at all - and a Director's push can never correct it, because a used row is untouchable from
+    /// <see cref="ObserveDiscovered"/>. Measured against the live Gateway on 20 September 2026: one
+    /// machine's 90 rows carried THREE distinct names between them - 66 said
+    /// <c>thefrederiksen/devthrottle</c>, 6 said <c>thefrederiksen/devthrottle_internal</c>, and 18 said
+    /// nothing - across ninety different folders. So the Gateway serves the folder name from the path when
+    /// the stored name is blank, or when it is shared with another row and therefore tells the two apart
+    /// from nothing.</para>
+    ///
+    /// <para>It is done HERE, in the one fold, and never in a client: Critical Rule 7 (CLAUDE.md). A
+    /// client that decided for itself when a name was worth showing would decide differently from the next
+    /// client, and three screens showing one machine would disagree again - which is the defect this
+    /// mission exists to end. The name comes from <see cref="RepositoryPaths.FolderName"/>, which reads
+    /// the path's own shape: the Gateway is a Linux container holding paths written by Windows and macOS
+    /// machines, and <c>Path.GetFileName</c> handed a Windows path on Linux returns the whole path.</para>
+    ///
+    /// <para>A name that is unique keeps its stored spelling, which is the ruling as given: a slug that
+    /// distinguishes the row is a good name for it. A path with no folder name in it at all keeps whatever
+    /// it had, because an empty name is not an improvement on a poor one.</para>
     /// </summary>
     internal static IReadOnlyList<KnownRepositoryDto> OrderOneList(
         IReadOnlyList<KnownRepositoryEntity> rows, string machineKey)
     {
-        return rows
+        var deduplicated = rows
             .Where(row => string.Equals(
                 NormalizeMachineKey(row.MachineName), machineKey, StringComparison.Ordinal))
             .GroupBy(row => NormalizePathKey(row.Path), StringComparer.Ordinal)
             .Select(group => group.OrderByDescending(row => row.LastUsedUtc).First())
-            .OrderByDescending(row => row.LastUsedUtc)
-            .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(row => row.Path, StringComparer.Ordinal)
+            .ToList();
+
+        // How many rows each stored name would have to speak for. A name held by more than one row cannot
+        // tell them apart, so none of them keeps it. Blank names are not counted here because they are
+        // replaced whether they are shared or not.
+        var timesUsed = deduplicated
+            .Select(row => (row.Name ?? "").Trim())
+            .Where(name => name.Length > 0)
+            .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+
+        return deduplicated
             .Select(row => new KnownRepositoryDto
             {
-                Name = row.Name,
+                Name = DisplayName(row, timesUsed),
                 Path = row.Path,
                 LastUsed = row.LastUsedUtc,
                 // Stamped here and nowhere else, so the flag and the time can never disagree.
                 NeverOpened = row.LastUsedUtc is null,
             })
+            .OrderByDescending(row => row.LastUsed)
+            .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(row => row.Path, StringComparer.Ordinal)
             .ToList();
+    }
+
+    /// <summary>
+    /// The name this row is served under: the stored one when it tells this row apart from every other,
+    /// and otherwise the folder the path ends in. See the remarks on <see cref="OrderOneList"/>.
+    /// </summary>
+    private static string DisplayName(KnownRepositoryEntity row, IReadOnlyDictionary<string, int> timesUsed)
+    {
+        var stored = (row.Name ?? "").Trim();
+        if (stored.Length > 0 && timesUsed.TryGetValue(stored, out var count) && count == 1)
+            return stored;
+
+        var folder = RepositoryPaths.FolderName(row.Path);
+        return folder.Length > 0 ? folder : stored;
     }
 
     internal static string NormalizeMachineKey(string machineName) =>
@@ -475,6 +620,31 @@ public sealed class KnownRepositoryStore
         var isWindowsPath = (normalized.Length >= 2 && char.IsLetter(normalized[0]) && normalized[1] == ':')
                             || normalized.StartsWith("//", StringComparison.Ordinal);
         return isWindowsPath ? normalized.ToUpperInvariant() : normalized;
+    }
+
+    /// <summary>
+    /// The folder one normalized path key sits directly in, as a key - or an empty string when the key has
+    /// no parent (a bare name, or a root). It takes a key rather than a path because
+    /// <see cref="NormalizePathKey"/> has already done every decision that could go wrong: both separators
+    /// are now one, a trailing one is gone, and a Windows path is upper-cased from its OWN shape rather
+    /// than from whatever machine the Gateway happens to be. All that is left is to cut at the last
+    /// separator, which is the same answer on every operating system.
+    ///
+    /// A key with no separator answers empty, and empty never matches a covered root because a root with
+    /// no usable path is dropped before the comparison. The two roots that are not simply "everything
+    /// before the last separator" are spelled out: the POSIX root is <c>/</c> and not the empty string,
+    /// and a Windows drive root is <c>C:/</c> and not <c>C:</c> - which is the spelling
+    /// <see cref="NormalizePathKey"/> keeps for a drive root, so the two agree.
+    /// </summary>
+    internal static string ParentPathKey(string pathKey)
+    {
+        var cut = pathKey.LastIndexOf('/');
+        if (cut < 0)
+            return "";
+        if (cut == 0)
+            return "/";
+        var parent = pathKey[..cut];
+        return parent.Length == 2 && char.IsLetter(parent[0]) && parent[1] == ':' ? parent + "/" : parent;
     }
 
     private static List<string> CandidateMachineKeys(string machineName) =>

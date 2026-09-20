@@ -105,12 +105,25 @@ public static class SmartShutdownTimes
     {
         if (Allowed.Contains(timeAllowed)) return timeAllowed;
 
-        var allowed = string.Join(", ", Allowed.Select(t => ((int)t.TotalMinutes).ToString()));
-        var message =
-            $"The time allowed for a smart shutdown must be one of {allowed} minutes; " +
-            $"{timeAllowed.TotalMinutes:0.###} minutes was asked for.";
+        var message = RefusalFor(timeAllowed);
         FileLog.Write($"[SmartShutdownTimes] RequireAllowed FAILED: {message}");
         throw new ArgumentOutOfRangeException(nameof(timeAllowed), timeAllowed, message);
+    }
+
+    /// <summary>
+    /// Why this time is not allowed, in plain words, naming what was asked for and what may be asked for.
+    ///
+    /// It is separate from <see cref="RequireAllowed"/> because a caller that can refuse BEFORE it builds a
+    /// request wants the sentence without the exception - the command line door answers a bad time as a
+    /// refusal a person reads, not as a stack trace - and the words must be the same sentence in both cases
+    /// rather than a second one written next to the first.
+    /// </summary>
+    /// <param name="timeAllowed">The candidate time.</param>
+    public static string RefusalFor(TimeSpan timeAllowed)
+    {
+        var allowed = string.Join(", ", Allowed.Select(t => ((int)t.TotalMinutes).ToString()));
+        return $"The time allowed for a smart shutdown must be one of {allowed} minutes; " +
+               $"{timeAllowed.TotalMinutes:0.###} minutes was asked for.";
     }
 }
 
@@ -136,8 +149,12 @@ public sealed record SmartShutdownAvailability(
 /// <param name="WorkspaceId">The record on the Gateway. Null when it was not written.</param>
 /// <param name="RecordRefusal">Why the record was not written, in plain words. Null when it was.</param>
 /// <param name="SessionsEnded">How many sessions this call ended. Zero for a record-only call.</param>
+/// <param name="Detail">Anything the owner must be told that the other fields cannot say, in plain words:
+/// a session that was ended although it is in no record because it appeared after the record was written,
+/// and a session that would not end. Null when there is nothing to say.</param>
 public sealed record IgnoreAllResult(
     bool RecordWritten,
     string? WorkspaceId,
     string? RecordRefusal,
-    int SessionsEnded);
+    int SessionsEnded,
+    string? Detail = null);

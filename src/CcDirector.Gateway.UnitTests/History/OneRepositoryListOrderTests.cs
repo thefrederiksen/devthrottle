@@ -51,7 +51,7 @@ public sealed class OneRepositoryListOrderTests : IDisposable
             Found("/repos/middle", "middle"),
             Found("/roots/alpha/zulu", "zulu"),
             Found("/roots/alpha/kilo", "kilo"),
-        }, _now, reconcile: true);
+        }, rootFolders: null, _now, reconcile: true);
 
         var served = store.ReadForMachine(TenantId.Local, Machine);
 
@@ -124,6 +124,11 @@ public sealed class OneRepositoryListOrderTests : IDisposable
     /// Two repositories with the SAME name under different root folders - which is ordinary, a worktree
     /// checkout beside its origin - are still a total order, by path. Without the tiebreak the two
     /// never-opened rows could arrive either way round and a screen would reshuffle between reads.
+    ///
+    /// These two also share a FOLDER name, so the name fold ("the catalogue forgets", gap 2) leaves them
+    /// still sharing one - which is the case that keeps the path tiebreak load-bearing. When the folder
+    /// names differ, the fold gives each row its own and the name decides; see
+    /// <c>TheNameARepositoryIsServedUnderTests</c>.
     /// </summary>
     [Fact]
     public void OrderOneList_TwoNeverOpenedRepositoriesShareAName_AreOrderedByPath()
@@ -148,7 +153,7 @@ public sealed class OneRepositoryListOrderTests : IDisposable
         var store = NewStore();
         var used = _now.AddHours(-3);
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/repos/alpha", "alpha") }, _now.AddHours(-4), reconcile: true);
+            new[] { Found("/repos/alpha", "alpha") }, rootFolders: null, _now.AddHours(-4), reconcile: true);
         store.Observe(TenantId.Local, Machine, "/repos/alpha", "alpha", used);
 
         var row = Assert.Single(store.ReadForMachine(TenantId.Local, Machine));
@@ -170,7 +175,7 @@ public sealed class OneRepositoryListOrderTests : IDisposable
         {
             Found("/roots/alpha/one", "one"),
             Found("/roots/alpha/two", "two"),
-        }, _now, reconcile: true);
+        }, rootFolders: null, _now, reconcile: true);
 
         // No further push, ever. A second store over the same database is a Gateway that has restarted
         // since, with no memory of the Director at all.
@@ -189,7 +194,7 @@ public sealed class OneRepositoryListOrderTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "one") }, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, _now, reconcile: true);
 
         Assert.Empty(store.ReadForMachine(TenantId.Local, "SOME-OTHER-MACHINE"));
     }
@@ -204,9 +209,9 @@ public sealed class OneRepositoryListOrderTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/mine", "mine") }, _now, reconcile: true);
+            new[] { Found("/roots/alpha/mine", "mine") }, rootFolders: null, _now, reconcile: true);
         store.ObserveDiscovered(TenantId.Local, "SOREN_SOUTH", DirectorTwo,
-            new[] { Found("/roots/alpha/theirs", "theirs") }, _now, reconcile: true);
+            new[] { Found("/roots/alpha/theirs", "theirs") }, rootFolders: null, _now, reconcile: true);
 
         Assert.Equal("/roots/alpha/mine",
             Assert.Single(store.ReadForMachine(TenantId.Local, Machine)).Path);
@@ -223,9 +228,9 @@ public sealed class OneRepositoryListOrderTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "one"), Found("/roots/shared/both", "both") }, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "one"), Found("/roots/shared/both", "both") }, rootFolders: null, _now, reconcile: true);
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorTwo,
-            new[] { Found("/roots/beta/two", "two"), Found("/roots/shared/both", "both") }, _now, reconcile: true);
+            new[] { Found("/roots/beta/two", "two"), Found("/roots/shared/both", "both") }, rootFolders: null, _now, reconcile: true);
 
         // "both" was reported by each of them and appears once.
         Assert.Equal(new[] { "/roots/shared/both", "/roots/alpha/one", "/roots/beta/two" },

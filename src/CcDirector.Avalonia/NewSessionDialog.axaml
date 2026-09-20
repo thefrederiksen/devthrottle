@@ -158,8 +158,23 @@
                              TextChanged="RepoSearchBox_TextChanged"
                              ToolTip.Tip="Filter repositories by name or path" />
 
+                    <StackPanel Grid.Row="3" Orientation="Vertical">
+
+                    <!-- Where this list came from (the one-repository-list mission, phase 6). Hidden
+                         while the Gateway's own list is on screen, which is the ordinary state and needs
+                         no words. Shown while the answer is still coming, and shown with the reason when
+                         the screen is on the machine's local fallback - the owner asked for exactly that,
+                         because a screen that quietly shows a different order is how the list stops being
+                         trusted. Amber on the "behind" badge background from docs/VisualStyle.md. -->
+                    <Border x:Name="RepoSourceNotice" IsVisible="False"
+                            Background="#3A2A1B" BorderBrush="#3C3C3C" BorderThickness="1"
+                            Margin="0,8,0,0" Padding="10,6" CornerRadius="3">
+                        <TextBlock x:Name="RepoSourceNoticeText"
+                                   Foreground="#F59E0B" FontSize="12" TextWrapping="Wrap" />
+                    </Border>
+
                     <!-- Column headers -->
-                    <Border Grid.Row="3" Background="#2D2D30" Margin="0,8,0,0"
+                    <Border Background="#2D2D30" Margin="0,8,0,0"
                             BorderBrush="#3C3C3C" BorderThickness="1,1,1,0"
                             Padding="4,0">
                         <Grid>
@@ -189,6 +204,8 @@
                                     HorizontalContentAlignment="Left" />
                         </Grid>
                     </Border>
+
+                    </StackPanel>
 
                     <!-- Empty state: shown instead of the list while NO repository is registered yet
                          (first run). Explains what a session needs and puts the Browse action right

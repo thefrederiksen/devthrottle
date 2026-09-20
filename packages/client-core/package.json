@@ -32,7 +32,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run",
+    "test": "node ../../scripts/check-node-version.mjs && vitest run",
     "gen:api": "openapi-typescript http://127.0.0.1:7878/openapi/v1.json --output src/api/schema.ts"
   },
   "dependencies": {

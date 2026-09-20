@@ -215,6 +215,13 @@ recipient every 10 minutes. An identical message that is still unread is dropped
 refusal says the same thing: put it in your report. `cc-devthrottle session report` at the end of your
 turn is where your news belongs; a message is for the rare thing that cannot wait for it.
 
+**The one exception is a session the owner has raised.** A raised session acts with the owner's
+permissions inside the owner's account: it may message any session of the account, and it is not held
+to the six an hour or the ten minutes. The duplicate rule still applies to it, and every message those
+limits would have refused is recorded against it. Only the owner raises a session, from his own phone
+or browser - setting a session up as the Fleet Manager there raises it. No session can raise or lower
+any session, itself included. Unless the owner raised you, none of this is about you.
+
 **A message never interrupts.** Nothing is typed into the receiving session while it works. The
 Gateway stores the message, and `message send` answers "queued" - never "delivered". When the
 recipient is not working and its composer is empty, its Director types ONE fixed doorbell line:
@@ -287,11 +294,12 @@ unless a human has issued a broadcast grant, and it requires a `--reason`:
 need this. If you think you do, ask the human for a grant - do not try to route around the Gateway (it
 enforces the limit and also rate-limits repeated broadcasts). See issue #1229.
 
-## Typing into a session is the owner's alone
+## Typing into a session is the owner's, and a raised session's
 
-`cc-devthrottle session prompt`, `session interrupt`, and `session compact-continue` with a message
-are refused to every session. Only the owner types into a session, from his own screens. To reach a
-session you own, queue a message.
+`cc-devthrottle session prompt` and `session interrupt` are refused to every session the owner has not
+raised. The owner types into a session from his own screens, and a session he has raised may type into
+a session of his account - each time it does is recorded against it. `session compact-continue` with
+a message is refused to every session, raised or not. To reach a session you own, queue a message.
 
 ## Health check
 
