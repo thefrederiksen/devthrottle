@@ -15,7 +15,12 @@ namespace CcDirector.Gateway.UnitTests.Drain;
 /// the same provenance, lease and token rules the hosted Gateway applies. The fake records every spawn, performs the
 /// spawn door's token record, and serves a roster the test controls. The route test
 /// (<c>WorkspaceRestoreRouteTests</c>) proves the same spawn on a real host.
+///
+/// In the collection every test that takes one of the Director's one-at-a-time gates shares: a restore holds a
+/// process-wide gate, and the smart shutdown's cancel tests now run a real restore too, so side by side each
+/// would refuse the other.
 /// </summary>
+[Collection(CcDirector.Gateway.UnitTests.Restart.DirectorGatesCollection.Name)]
 public sealed class DirectorRestoreTests : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);

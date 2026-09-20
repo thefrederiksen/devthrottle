@@ -142,6 +142,8 @@ public sealed record DirectorRestoreResult(string WorkspaceId, IReadOnlyList<Sea
 ///  - the owner is a seat here and came back in this run: its new id;
 ///  - the owner is a seat here that came back in an earlier run: that id, if it is still running;
 ///  - the owner is a seat here that BLOCKED the drain and was never closed: its current id, if it is still running;
+///  - the record is a CANCELLED smart shutdown and the owner is a seat here that was never closed: its current
+///    id, if it is still running;
 ///  - otherwise (it failed, was decided "close", has not come back, or is not running): this seat FAILS with that
 ///    reason. It is not started unowned and not started under a dead id - either would be a guess about who
 ///    collects its work.
@@ -337,7 +339,7 @@ public sealed class DirectorRestore
             }
             failure ??= EarlierStartUnresolved(seat, roster, forced.Contains(sid));
             if (failure is null)
-                (owner, failure) = ResolveOwner(seat, byId, failedHere, backHere, roster);
+                (owner, failure) = ResolveOwner(seat, byId, failedHere, backHere, roster, doc.CancelledAtUtc is not null);
 
             NewSessionRequest? request = null;
             if (failure is null)
@@ -561,7 +563,7 @@ public sealed class DirectorRestore
     /// </summary>
     internal static (string? Owner, string? Failure) ResolveOwner(
         WorkspaceSeat seat, IReadOnlyDictionary<string, WorkspaceSeat> byId, IReadOnlyDictionary<string, string> failedHere,
-        IReadOnlySet<string> backHere, RestoreRoster roster)
+        IReadOnlySet<string> backHere, RestoreRoster roster, bool shutdownWasCancelled = false)
     {
         var reportsTo = seat.ReportsTo?.Trim();
         if (string.IsNullOrEmpty(reportsTo)) return (null, null);
@@ -590,6 +592,15 @@ public sealed class DirectorRestore
             return roster.IsReachable(reportsTo)
                 ? (reportsTo, null)
                 : (null, NotRunning(reportsTo, $"{bossName}, which blocked the drain,"));
+
+        // A CANCELLED SMART SHUTDOWN LEAVES OWNERS RUNNING. Sessions are closed leaf first, so the usual cancel
+        // is exactly this: the session under a lead was already closed and the lead was not. That lead was told
+        // the restart is off and is still running under the id it had. Only on a record marked cancelled, and
+        // only when the roster says the owner is running now; on any other record the rules below stand.
+        if (shutdownWasCancelled && boss.ClosedAtUtc is null)
+            return roster.IsReachable(reportsTo)
+                ? (reportsTo, null)
+                : (null, NotRunning(reportsTo, $"{bossName}, which the cancelled shutdown never closed,"));
         if (failedHere.TryGetValue(reportsTo, out var why))
             return (null, $"its owner {bossName} was restarted in the same drain and could not be brought back ({why}), " +
                           "so there is no session to own it. Restore the owner, then this seat.");

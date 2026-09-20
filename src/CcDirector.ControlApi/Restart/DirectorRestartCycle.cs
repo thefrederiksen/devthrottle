@@ -205,29 +205,38 @@ public sealed class DirectorRestartCycle
 
         // ---- 3. The machine, checked AGAIN, immediately before the ask. Not a duplicate. ----
         await ReportAsync(DirectorRestartRequestState.Accepted, "drained; re-checking that the launcher can still be asked for a guarded restart", drained.WorkspaceId, ct);
-        var capability = await _gateway.CheckCapabilityAsync(Order.Machine, ct);
-        if (DirectorRestartGate.Refusal(capability) is { } refusal)
-            return await AbandonAsync(
-                "the machine was checked again after the drain and a guarded restart must not be sent: " + refusal
-                + $" Every session is closed and recorded in workspace '{drained.WorkspaceId}'; restore from it or restart by hand.",
-                drained.WorkspaceId, ct);
-
+        // Steps 3 and 4 are ONE shared step (DirectorLauncherRestartStep), because the smart shutdown asks
+        // the same launcher the same way and the re-check must not exist in two copies.
+        //
         // ---- 4. Ask my own launcher, only if empty. ----
-        // THIS REPORT IS WRITTEN BEFORE THE ASK BECAUSE A SUCCESSFUL ASK MAY NEVER RETURN HERE. The
-        // launcher answers only after it has stopped this process and started the next one, so the line
-        // below is the last thing this process can say when the restart goes ahead. The next process,
+        // THE REPORT BELOW IS WRITTEN BEFORE THE ASK BECAUSE A SUCCESSFUL ASK MAY NEVER RETURN HERE. The
+        // launcher answers only after it has stopped this process and started the next one, so that line
+        // is the last thing this process can say when the restart goes ahead. The next process,
         // seeded from the workspace named here, owes the final report (issue #2724); a record that never
         // moves past this line expires as unreported on the Gateway rather than reading "running" for ever.
-        await ReportAsync(DirectorRestartRequestState.Accepted,
-            $"asking this Director's launcher for a restart only if it is empty. If the restart goes ahead this process "
-            + $"is stopped before it can say so; the Director that comes back reports the outcome. Its fleet is recorded in workspace '{drained.WorkspaceId}'.",
-            drained.WorkspaceId, ct);
-        var answer = await _gateway.AskOwnLauncherRestartOnlyIfEmptyAsync(Order.Machine, _exePath, ct);
-        if (answer.Status is < 200 or >= 300)
-            return await AbandonAsync(
-                $"the launcher did not accept the guarded restart (HTTP {answer.Status}): {answer.Body} "
-                + $"Every session is closed and recorded in workspace '{drained.WorkspaceId}'.",
-                drained.WorkspaceId, ct);
+        var step = await DirectorLauncherRestartStep.RunAsync(_gateway, Order.Machine, _exePath,
+            () => ReportAsync(DirectorRestartRequestState.Accepted,
+                $"asking this Director's launcher for a restart only if it is empty. If the restart goes ahead this process "
+                + $"is stopped before it can say so; the Director that comes back reports the outcome. Its fleet is recorded in workspace '{drained.WorkspaceId}'.",
+                drained.WorkspaceId, ct),
+            ct);
+        switch (step.Verdict)
+        {
+            case LauncherRestartStepVerdict.Accepted:
+                break;
+            case LauncherRestartStepVerdict.CapabilityRefused:
+                return await AbandonAsync(
+                    "the machine was checked again after the drain and a guarded restart must not be sent: " + step.Refusal
+                    + $" Every session is closed and recorded in workspace '{drained.WorkspaceId}'; restore from it or restart by hand.",
+                    drained.WorkspaceId, ct);
+            case LauncherRestartStepVerdict.LauncherRefused:
+                return await AbandonAsync(
+                    step.Refusal + $" Every session is closed and recorded in workspace '{drained.WorkspaceId}'.",
+                    drained.WorkspaceId, ct);
+            default:
+                // A verdict this build does not know is not an accepted restart.
+                return await AbandonAsync($"the launcher step answered with a verdict this cycle does not know how to read ({step.Verdict}), so nothing further is done.", drained.WorkspaceId, ct);
+        }
 
         // From here this process is being stopped by its launcher. The restore after the gap is the new
         // process's work (issue #2724), seeded from the workspace named here.

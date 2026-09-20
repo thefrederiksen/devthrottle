@@ -1,4 +1,5 @@
 using CcDirector.ControlApi.Drain;
+using CcDirector.ControlApi.Restart;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -11,10 +12,12 @@ namespace CcDirector.ControlApi.SmartRestart;
 /// chain, leaf first closing, the poll, the floor under a half-written file, the re-read at close, the
 /// secret sweep, the owner questions - lives in <see cref="DirectorDrain"/> and is used from there, not
 /// copied. What this class adds is what a screen needs around it: an answer to "can this be done at
-/// all", a run that returns at once and reports as it goes, and the one button built so far.
+/// all", a run that returns at once and reports as it goes, the two buttons, and the restart.
 ///
-/// NOT BUILT YET, and each says so rather than pretending: "Cancel and keep working", "Shut down and
-/// ignore all sessions", the record for an operating system shutdown, and the restart purpose.
+/// THE RESTORE AND THE LAUNCHER ARE NOT COPIED EITHER. "Cancel and keep working" brings closed sessions
+/// back through the Director's existing restore, handed in as <see cref="BringBackClosedSessions"/>; the
+/// restart purpose asks the launcher through <see cref="DirectorLauncherRestartStep"/>, the same step the
+/// restart cycle takes, with the same re-check. There is no second way of doing either.
 ///
 /// THE DRAIN COMES THROUGH A FACTORY for the reason it does in the restart cycle: a drain is built per
 /// run, and whether one can be built at all - null means this Director has no Gateway client - is half
@@ -39,6 +42,11 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
     private readonly string _directorName;
     private readonly string? _directory;
     private readonly Func<DateTime> _utcNow;
+    private readonly BringBackClosedSessions? _bringBack;
+    private readonly IDrainSessionControl? _sessions;
+    private readonly Func<IRestartCycleGateway?>? _launcherGateway;
+    private readonly string _machine;
+    private readonly string? _exePath;
 
     /// <summary>Create the engine.</summary>
     /// <param name="createDrain">Builds a drain of this Director, or returns null when this Director has
@@ -52,13 +60,28 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
     /// <param name="directory">Where the handover documents go. Null uses the drain's standard location
     /// under the data root; a test passes its own.</param>
     /// <param name="utcNow">Test seam for the clock. It must be the same clock the drain was given.</param>
+    /// <param name="bringBack">How "Cancel and keep working" brings back the sessions already closed:
+    /// the Director's existing restore, against this same Director. Null means cancel is never offered -
+    /// a run that could not bring a session back must not say it can be cancelled.</param>
+    /// <param name="sessions">This Director's live sessions, for "Shut down and ignore all sessions",
+    /// which must end them even when there is no Gateway and so no drain to borrow a seam from.</param>
+    /// <param name="launcherGateway">The seam the restart purpose asks the launcher through, read at the
+    /// moment of the ask so it is the host's CURRENT Gateway client. Null when this engine was given no
+    /// way to restart; a restart is then refused at the start.</param>
+    /// <param name="machine">This machine, as the restart route names it.</param>
+    /// <param name="exePath">This process's executable, sent to the restart route as evidence.</param>
     public DirectorSmartShutdown(
         Func<DirectorDrain?> createDrain,
         Func<CancellationToken, Task> reachGateway,
         Func<DirectorRestartEligibilityDto> eligibility,
         string directorName,
         string? directory = null,
-        Func<DateTime>? utcNow = null)
+        Func<DateTime>? utcNow = null,
+        BringBackClosedSessions? bringBack = null,
+        IDrainSessionControl? sessions = null,
+        Func<IRestartCycleGateway?>? launcherGateway = null,
+        string? machine = null,
+        string? exePath = null)
     {
         _createDrain = createDrain ?? throw new ArgumentNullException(nameof(createDrain));
         _reachGateway = reachGateway ?? throw new ArgumentNullException(nameof(reachGateway));
@@ -66,6 +89,11 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         _directorName = string.IsNullOrWhiteSpace(directorName) ? "this Director" : directorName;
         _directory = directory;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        _bringBack = bringBack;
+        _sessions = sessions;
+        _launcherGateway = launcherGateway;
+        _machine = string.IsNullOrWhiteSpace(machine) ? Environment.MachineName : machine;
+        _exePath = exePath;
     }
 
     /// <summary>The run under way on this Director, or null. For a screen deciding what to offer.</summary>
@@ -101,19 +129,29 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
             }
         }
 
-        var restart = _eligibility();
-        var canRestart = restart.Eligible == true;
+        var restartRefusal = RestartRefusal();
         var answer = new SmartShutdownAvailability(
             CanSmartShutdown: refusal is null,
             SmartShutdownRefusal: refusal,
-            CanRestart: canRestart,
-            RestartRefusal: canRestart
-                ? null
-                : restart.Reason ?? "this Director could not tell whether its launcher would restart it.");
+            CanRestart: restartRefusal is null,
+            RestartRefusal: restartRefusal);
 
         FileLog.Write(
             $"[DirectorSmartShutdown] CheckAsync: canSmartShutdown={answer.CanSmartShutdown}, canRestart={answer.CanRestart}");
         return answer;
+    }
+
+    /// <summary>
+    /// Why this Director's launcher would not restart it, or null when it would. ONE PLACE, read by
+    /// <see cref="CheckAsync"/> and by <see cref="Start"/>, so the dialog and the start cannot disagree.
+    /// == against the one answer that permits: "could not tell" refuses exactly as "no" does.
+    /// </summary>
+    private string? RestartRefusal()
+    {
+        var restart = _eligibility();
+        return restart.Eligible == true
+            ? null
+            : restart.Reason ?? "this Director could not tell whether its launcher would restart it.";
     }
 
     /// <inheritdoc />
@@ -125,11 +163,20 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
 
         if (request.Purpose == SmartShutdownPurpose.Restart)
         {
-            const string notYet =
-                "A smart shutdown that restarts the Director is not built yet; only the one that closes it " +
-                "is. Nothing has been touched.";
-            FileLog.Write($"[DirectorSmartShutdown] Start FAILED: {notYet}");
-            throw new NotSupportedException(notYet);
+            // REFUSED BEFORE ANYTHING IS TOUCHED. Emptying a Director its launcher would not restart
+            // closes every session for a restart that then never comes.
+            var refusal = RestartRefusal()
+                ?? (_launcherGateway is null
+                    ? "this smart shutdown was given no way to ask the launcher for a restart."
+                    : null);
+            if (refusal is not null)
+            {
+                var message =
+                    $"This Director cannot be restarted through its launcher: {refusal} " +
+                    "Nothing has been touched. Choose to close it instead, or restart it by hand.";
+                FileLog.Write($"[DirectorSmartShutdown] Start FAILED: {message}");
+                throw new InvalidOperationException(message);
+            }
         }
 
         SmartShutdownRun run;
@@ -156,7 +203,8 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
                 throw new InvalidOperationException(message);
             }
 
-            run = new SmartShutdownRun(this, request, _createDrain, _directorName, _directory, _utcNow);
+            run = new SmartShutdownRun(this, request, _createDrain, _directorName, _directory, _utcNow,
+                _bringBack, _launcherGateway, _machine, _exePath);
             _active = run;
         }
 
@@ -166,41 +214,165 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
     }
 
     /// <inheritdoc />
-    public Task<IgnoreAllResult> ShutDownIgnoringAllAsync(SmartShutdownRequest request, CancellationToken ct)
+    public async Task<IgnoreAllResult> ShutDownIgnoringAllAsync(SmartShutdownRequest request, CancellationToken ct)
     {
-        const string notYet = "Shut down and ignore all sessions is not built yet. Nothing has been touched.";
-        FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync FAILED: {notYet}");
-        throw new NotSupportedException(notYet);
+        ArgumentNullException.ThrowIfNull(request);
+        FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: purpose={request.Purpose}");
+
+        var sessions = _sessions ?? throw new InvalidOperationException(
+            "This smart shutdown was given no way to end this Director's sessions, so it cannot shut down " +
+            "and ignore them. Nothing has been touched.");
+
+        lock (Gate)
+        {
+            if (_active is { Completion.IsCompleted: false } || DirectorDrain.Running is not null)
+            {
+                const string busy =
+                    "A smart shutdown or a drain is already under way on this Director, and it is closing " +
+                    "these same sessions. Use \"Shut down now\" on it. Nothing has been touched by this request.";
+                FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync FAILED: {busy}");
+                throw new InvalidOperationException(busy);
+            }
+        }
+
+        // THE RECORD FIRST. And when it cannot be written, THE SESSIONS ARE STILL ENDED. That is not a
+        // fallback: it is the owner's stated choice (mission document section 7). He chose to discard
+        // these sessions; a Gateway that is down takes away the history entry and not his decision. What
+        // he is told is exactly that - RecordWritten is false and RecordRefusal says why.
+        var (drain, workspaceId, refusal) = await WriteRecordAsync(
+            request.Reason, "shut down ignoring all", (d, o, c) => d.RecordIgnoreAllAsync(o, c), ct).ConfigureAwait(false);
+
+        var ended = 0;
+        foreach (var id in sessions.LiveSessionIds())
+        {
+            var end = await sessions.EndAsync(id, "Shut down and ignore all sessions.").ConfigureAwait(false);
+            if (end.Ended) ended++;
+            else if (!end.SessionGone)
+                FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: session {id} could not be ended: {end.Reason}");
+        }
+
+        if (drain is not null && refusal is null)
+        {
+            // The close times. The record that matters - what was running - is already on the Gateway; a
+            // failure here is said in the log and does not turn a written record into an unwritten one.
+            try
+            {
+                await drain.SaveSessionsEndedAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: the close times could not be saved: {ex.Message}");
+            }
+        }
+
+        var result = new IgnoreAllResult(refusal is null, refusal is null ? workspaceId : null, refusal, ended);
+        FileLog.Write(
+            $"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: recordWritten={result.RecordWritten}, ended={ended}, workspace={result.WorkspaceId ?? "-"}");
+        return result;
     }
 
     /// <inheritdoc />
-    public Task<IgnoreAllResult> RecordAndLetEndAsync(CancellationToken ct)
+    public async Task<IgnoreAllResult> RecordAndLetEndAsync(CancellationToken ct)
     {
-        const string notYet =
-            "The record for an operating system shutdown is not built yet. Nothing has been written.";
-        FileLog.Write($"[DirectorSmartShutdown] RecordAndLetEndAsync FAILED: {notYet}");
-        throw new NotSupportedException(notYet);
+        FileLog.Write("[DirectorSmartShutdown] RecordAndLetEndAsync");
+
+        // A smart shutdown already under way has ALREADY written this record: it names every session with
+        // its repository and its conversation id from before anything was asked. Writing a second one
+        // beside it would be two records of one moment.
+        ISmartShutdownRun? active;
+        lock (Gate) active = _active is { Completion.IsCompleted: false } ? _active : null;
+        if (active is not null)
+        {
+            var existing = active.Current.WorkspaceId;
+            var answer = existing is not null
+                ? new IgnoreAllResult(true, existing, null, 0)
+                : new IgnoreAllResult(false, null,
+                    "a smart shutdown had just started on this Director and had not written its record yet.", 0);
+            FileLog.Write(
+                $"[DirectorSmartShutdown] RecordAndLetEndAsync: a run is under way, recordWritten={answer.RecordWritten}, workspace={existing ?? "-"}");
+            return answer;
+        }
+
+        var (_, workspaceId, refusal) = await WriteRecordAsync(
+            "The operating system was shutting down.", "operating system shutdown",
+            (d, o, c) => d.RecordOperatingSystemShutdownAsync(o, c), ct).ConfigureAwait(false);
+
+        // IT ENDS NOTHING. The operating system is doing that.
+        var result = new IgnoreAllResult(refusal is null, refusal is null ? workspaceId : null, refusal, 0);
+        FileLog.Write($"[DirectorSmartShutdown] RecordAndLetEndAsync: recordWritten={result.RecordWritten}, workspace={result.WorkspaceId ?? "-"}");
+        return result;
+    }
+
+    /// <summary>
+    /// Write a record with no handovers in it, and say in plain words why when it could not be written.
+    /// This is the entry point both record-only calls share, so it is where a Gateway that does not
+    /// answer is caught and turned into the sentence the caller hands back.
+    /// </summary>
+    private async Task<(DirectorDrain? Drain, string? WorkspaceId, string? Refusal)> WriteRecordAsync(
+        string? reason, string what,
+        Func<DirectorDrain, DrainOptions, CancellationToken, Task<DrainRecordOnly>> write,
+        CancellationToken ct)
+    {
+        var drain = _createDrain();
+        if (drain is null)
+            return (null, null,
+                "this Director is not connected to a Gateway, so there is nowhere off this machine to keep " +
+                "the record of what was closed.");
+
+        var startedLocal = _utcNow().ToLocalTime();
+        var options = new DrainOptions
+        {
+            WorkspaceId = DrainPaths.WorkspaceIdFor(_directorName, startedLocal),
+            WorkspaceName = $"{_directorName} {what} {startedLocal:yyyy-MM-dd HH:mm}",
+            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
+            DrivenByNote = "Written by the Director itself; no session drove it.",
+        };
+
+        try
+        {
+            var record = await write(drain, options, ct).ConfigureAwait(false);
+            var id = string.IsNullOrWhiteSpace(record.Document.Id) ? options.WorkspaceId : record.Document.Id;
+            return (drain, id, null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            FileLog.Write($"[DirectorSmartShutdown] the record ({what}) could not be written: {ex.Message}");
+            return (drain, null, $"the record of what was closed could not be written to the Gateway: {ex.Message}");
+        }
     }
 }
 
 /// <summary>
 /// One smart shutdown under way. It owns no rule about sessions - every one of those is the drain's. It
-/// owns the thread the drain runs on, the latest snapshot, the event, and the result.
+/// owns the thread the drain runs on, the latest snapshot, the event, the two buttons, and the result.
 /// </summary>
 internal sealed class SmartShutdownRun : ISmartShutdownRun
 {
+    private enum Button { None, ShutDownNow, Cancel }
+
     private readonly DirectorSmartShutdown _engine;
     private readonly SmartShutdownRequest _request;
     private readonly Func<DirectorDrain?> _createDrain;
     private readonly string _directorName;
     private readonly string? _directory;
     private readonly Func<DateTime> _utcNow;
+    private readonly BringBackClosedSessions? _bringBack;
+    private readonly Func<IRestartCycleGateway?>? _launcherGateway;
+    private readonly string _machine;
+    private readonly string? _exePath;
     private readonly CancellationTokenSource _shutDownNow = new();
+    private readonly CancellationTokenSource _cancel = new();
     private readonly TaskCompletionSource<SmartShutdownResult> _completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    // ONE BUTTON, ONCE. The two are rivals: whichever is chosen first is the one the run does, and the
+    // other is ignored from then on. The lock guards these two fields and NOTHING ELSE - no handler is
+    // ever called and no token is ever cancelled while it is held.
+    private readonly object _buttons = new();
+    private Button _pressed = Button.None;
+    private bool _sessionsAreDone;
+
     private volatile SmartShutdownSnapshot _current;
-    private int _shutDownNowPressed;
 
     internal SmartShutdownRun(
         DirectorSmartShutdown engine,
@@ -208,7 +380,11 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         Func<DirectorDrain?> createDrain,
         string directorName,
         string? directory,
-        Func<DateTime> utcNow)
+        Func<DateTime> utcNow,
+        BringBackClosedSessions? bringBack,
+        Func<IRestartCycleGateway?>? launcherGateway,
+        string machine,
+        string? exePath)
     {
         _engine = engine;
         _request = request;
@@ -216,6 +392,10 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         _directorName = directorName;
         _directory = directory;
         _utcNow = utcNow;
+        _bringBack = bringBack;
+        _launcherGateway = launcherGateway;
+        _machine = machine;
+        _exePath = exePath;
 
         var started = utcNow();
         _current = new SmartShutdownSnapshot(
@@ -252,17 +432,7 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
     {
         try
         {
-            if (!_current.CanShutDownNow)
-            {
-                FileLog.Write($"[SmartShutdownRun] ShutDownNow: ignored, the run is in phase {_current.Phase}");
-                return;
-            }
-            if (Interlocked.Exchange(ref _shutDownNowPressed, 1) == 1)
-            {
-                FileLog.Write("[SmartShutdownRun] ShutDownNow: ignored, it was already chosen once");
-                return;
-            }
-
+            if (!Choose(Button.ShutDownNow, _current.CanShutDownNow)) return;
             FileLog.Write("[SmartShutdownRun] ShutDownNow: jumping to the limit");
             _shutDownNow.Cancel();
         }
@@ -274,9 +444,35 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
 
     /// <inheritdoc />
     public void CancelAndKeepWorking()
-        => FileLog.Write(
-            "[SmartShutdownRun] CancelAndKeepWorking: ignored - it is not built yet, and every snapshot " +
-            "says so (CanCancel is false)");
+    {
+        try
+        {
+            if (!Choose(Button.Cancel, _current.CanCancel)) return;
+            FileLog.Write("[SmartShutdownRun] CancelAndKeepWorking: the restart is off");
+            _cancel.Cancel();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SmartShutdownRun] CancelAndKeepWorking FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>Whether this press is the one the run acts on: the snapshot offers the button, no button
+    /// has been chosen before, and the sessions are not already done with. Ignored and logged otherwise.</summary>
+    private bool Choose(Button button, bool offered)
+    {
+        string? ignored = null;
+        lock (_buttons)
+        {
+            if (!offered) ignored = $"the run is in phase {_current.Phase} and does not offer it";
+            else if (_sessionsAreDone) ignored = "every session is already dealt with";
+            else if (_pressed != Button.None) ignored = $"{_pressed} was already chosen";
+            else _pressed = button;
+        }
+        if (ignored is null) return true;
+        FileLog.Write($"[SmartShutdownRun] {button}: ignored, {ignored}");
+        return false;
+    }
 
     // THE RUN'S OWN TOP. The one place an unexpected failure is caught, so that Completion carries a
     // result in plain words instead of faulting on a screen that is showing sessions being shut down.
@@ -285,7 +481,7 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         string? workspaceId = null;
         try
         {
-            FileLog.Write($"[SmartShutdownRun] RunAsync: minutes={_request.TimeAllowed.TotalMinutes:0}, reason={_request.Reason}");
+            FileLog.Write($"[SmartShutdownRun] RunAsync: purpose={_request.Purpose}, minutes={_request.TimeAllowed.TotalMinutes:0}, reason={_request.Reason}");
 
             // THE SAME QUESTION THE DIALOG ASKED, asked the same way, before anything is touched. A
             // Gateway that went away between the dialog and the button must refuse here too.
@@ -310,6 +506,8 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
                 {
                     TimeAllowed = _request.TimeAllowed,
                     ShutDownNow = _shutDownNow.Token,
+                    Cancel = _cancel.Token,
+                    BringBack = _bringBack,
                     OnSnapshot = Publish,
                 },
             };
@@ -317,19 +515,49 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
             var result = await drain.RunAsync(options, _directory, CancellationToken.None).ConfigureAwait(false);
             workspaceId = string.IsNullOrWhiteSpace(result.Document.Id) ? workspaceId : result.Document.Id;
 
+            // From here on neither button does anything, whatever the last snapshot offered.
+            Button pressed;
+            lock (_buttons)
+            {
+                _sessionsAreDone = true;
+                pressed = _pressed;
+            }
+
+            if (result.Cancelled)
+            {
+                Finish(SmartShutdownOutcome.Cancelled, workspaceId,
+                    result.CancelDetail ?? "The smart shutdown was cancelled.");
+                return;
+            }
+
+            // A cancel the run said yes to and the drain could no longer act on - it arrived as the time
+            // ran out, or after the last session had gone. The owner is told, not left to wonder.
+            var tooLate = pressed == Button.Cancel
+                ? " \"Cancel and keep working\" was chosen too late to act on: the sessions were already being shut down."
+                : "";
+
             if (!result.Emptied)
             {
                 Finish(SmartShutdownOutcome.Failed, workspaceId,
-                    result.NotEmptiedReason ?? "the Director is not empty, and nothing said why.");
+                    (result.NotEmptiedReason ?? "the Director is not empty, and nothing said why.") + tooLate);
                 return;
             }
 
             var seats = result.Document.Seats;
             var ended = seats.Count(s => s.DrainState == WorkspaceDrainStates.EndedAtLimit);
             var handedOver = seats.Count(s => s.DrainState is WorkspaceDrainStates.Drained or WorkspaceDrainStates.Covered);
-            Finish(SmartShutdownOutcome.Emptied, workspaceId,
+            var emptied =
                 $"Every session is shut down and the Director is empty. {handedOver} handed over" +
-                (ended == 0 ? "." : $"; {ended} had not, and were ended when time was up - each is noted with its saved conversation."));
+                (ended == 0 ? "." : $"; {ended} had not, and were ended when time was up - each is noted with its saved conversation.") +
+                tooLate;
+
+            if (_request.Purpose == SmartShutdownPurpose.Restart)
+            {
+                await AskLauncherAsync(workspaceId, emptied).ConfigureAwait(false);
+                return;
+            }
+
+            Finish(SmartShutdownOutcome.Emptied, workspaceId, emptied);
         }
         catch (DrainAlreadyRunningException ex)
         {
@@ -346,8 +574,57 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         }
     }
 
+    /// <summary>
+    /// THE RESTART PURPOSE. Reached ONLY after the drain has answered that nothing at all is left on this
+    /// Director. The launcher is asked through the restart cycle's own launcher step - the machine is
+    /// checked again first, exactly as the cycle does - and never any other way.
+    ///
+    /// A refusal leaves the record standing: every session is shut down and recorded, and the way up
+    /// offers them whenever the Director is next started.
+    /// </summary>
+    private async Task AskLauncherAsync(string? workspaceId, string emptied)
+    {
+        Publish(_current with
+        {
+            Phase = SmartShutdownPhase.Restarting,
+            PhaseLabel = SmartShutdownWords.PhaseLabel(SmartShutdownPhase.Restarting),
+            CanShutDownNow = false,
+            CanCancel = false,
+            Note = "every session is shut down: asking this Director's launcher to restart it",
+        });
+
+        var stands = $" Every session is shut down and recorded in workspace '{workspaceId}'; it is offered when the Director is next started.";
+        var gateway = _launcherGateway?.Invoke();
+        if (gateway is null)
+        {
+            Finish(SmartShutdownOutcome.RestartRefused, workspaceId,
+                "The launcher was not asked: this Director is no longer connected to a Gateway, and the restart is asked for through it." + stands);
+            return;
+        }
+
+        var step = await DirectorLauncherRestartStep.RunAsync(gateway, _machine, _exePath, null, CancellationToken.None)
+            .ConfigureAwait(false);
+        switch (step.Verdict)
+        {
+            case LauncherRestartStepVerdict.Accepted:
+                Finish(SmartShutdownOutcome.RestartAccepted, workspaceId,
+                    emptied + " The launcher accepted the restart; this Director is being stopped and started again.");
+                return;
+            case LauncherRestartStepVerdict.CapabilityRefused:
+                Finish(SmartShutdownOutcome.RestartRefused, workspaceId,
+                    "The launcher was not asked, because the machine was checked again and a guarded restart must not be sent: " +
+                    step.Refusal + stands);
+                return;
+            default:
+                Finish(SmartShutdownOutcome.RestartRefused, workspaceId,
+                    "The Director was emptied, but " + (step.Refusal ?? "the launcher did not accept the restart.") + stands);
+                return;
+        }
+    }
+
     private void Finish(SmartShutdownOutcome outcome, string? workspaceId, string detail)
     {
+        lock (_buttons) _sessionsAreDone = true;
         var final = _current with
         {
             Phase = SmartShutdownPhase.Finished,
@@ -363,7 +640,7 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
     }
 
     // THE EVENT RAISE. Each handler on its own, so one screen that throws stops neither the shutdown nor
-    // the next handler.
+    // the next handler. Never called with the button lock held.
     private void Publish(SmartShutdownSnapshot snapshot)
     {
         _current = snapshot;

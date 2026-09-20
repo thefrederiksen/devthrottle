@@ -433,6 +433,34 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IDisposa
                ?? throw new InvalidOperationException($"Gateway {route} returned an unparsable body.");
     }
 
+    /// <summary>
+    /// Ask the Gateway to restore seats of a workspace onto a Director, through
+    /// <c>POST /gateway/workspaces/{id}/restore</c> - the ONE door a restore starts at. The Gateway grants
+    /// the restore lease and relays the order to the named Director, which runs its existing restore. A
+    /// Director asks for its OWN restore here when a smart shutdown is cancelled: starting the restore
+    /// directly would run it with no lease, and the Gateway refuses every mark of a restore with none.
+    /// Throws with the Gateway's reason when the restore is not taken.
+    /// </summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="request">The Director to restore onto, and the seats.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<WorkspaceRestoreAccepted> RequestWorkspaceRestoreAsync(
+        string workspaceId, WorkspaceRestoreRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot ask for a restore.");
+
+        var route = $"POST /gateway/workspaces/{workspaceId}/restore";
+        FileLog.Write($"[GatewayClient] RequestWorkspaceRestoreAsync: {route}, director={request.DirectorId}, seats={request.Seats?.Count ?? 0}");
+        using var resp = await _http.PostAsJsonAsync($"gateway/workspaces/{Uri.EscapeDataString(workspaceId)}/restore", request, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, route, ct);
+
+        return await resp.Content.ReadFromJsonAsync<WorkspaceRestoreAccepted>(ct)
+               ?? throw new InvalidOperationException($"Gateway {route} returned an unparsable body.");
+    }
+
     /// <summary>Create or replace a workspace. Returns the stored document with the Gateway's timestamps.</summary>
     /// <param name="doc">The workspace to store. Its Id is the route.</param>
     /// <param name="ct">Cancellation.</param>
