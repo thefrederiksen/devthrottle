@@ -103,57 +103,60 @@ public class MainWindowDoorsTests
     // ===== Door two: the window closing =====
 
     /// <summary>
-    /// A user close with a session running: the window's own OnClosing asks the coordinator, the
-    /// coordinator says cancel, and the window CANCELS its own close and returns. Without that branch
-    /// the Director would close with the session still running, which is the defect this feature exists
-    /// to fix.
+    /// THE SESSIONS DECIDE, AND BOTH ANSWERS ARE ASSERTED IN ONE TEST DELIBERATELY. "The close was not
+    /// cancelled" is true of a window with no smart shutdown in it at all, so on its own it certifies
+    /// nothing; a test that only asserted it would stay green with these fifteen lines deleted. What
+    /// cannot be true of an unwired window is the DIFFERENCE: the same window, asked twice, answering
+    /// differently because of what is on its rail.
+    ///
+    /// Empty: the Director closes as it always has. One session working: the close is cancelled and the
+    /// flow has the window.
     /// </summary>
     [AvaloniaFact]
-    public void OnClosing_UserCloseWithASessionRunning_IsCancelledByTheWindow()
+    public void OnClosing_WithNothingRunningTheCloseCarriesOn_WithASessionRunningTheWindowCancelsIt()
     {
         var window = new MainWindow();
+
+        var empty = RaiseOnClosing(window, WindowCloseReason.WindowClosing);
+        Assert.False(empty.Args.Cancel);
+        // Let through means the window carried on INTO its own teardown, which is how we know it did
+        // not simply return: see the note on RaiseOnClosing for what that throw is.
+        Assert.IsType<InvalidCastException>(empty.Error);
+
         AddSession(window, ActivityState.Working, "builder");
 
-        var closing = RaiseOnClosing(window, WindowCloseReason.WindowClosing);
-
-        Assert.True(closing.Args.Cancel);
-        // Cancelled means RETURNED: none of the window's own teardown below the branch ran, which is
-        // what the throw in the two tests below shows happening when the close IS let through.
-        Assert.Null(closing.Error);
+        var running = RaiseOnClosing(window, WindowCloseReason.WindowClosing);
+        Assert.True(running.Args.Cancel);
+        // Cancelled means RETURNED: none of the teardown below the branch ran.
+        Assert.Null(running.Error);
     }
 
     /// <summary>
-    /// The same window with the same session, and the other reason. The operating system shutting down
-    /// is neither asked about nor cancelled - there is no ten minutes to spend, and a dialog nobody can
-    /// answer would only hold the machine up. This is the test that proves OnClosing hands over the REAL
-    /// close reason rather than a constant: one rig, two reasons, two different answers.
+    /// THE REAL CLOSE REASON IS HANDED OVER, and again the proof is the difference rather than either
+    /// answer alone. Two windows in the same state, one session working on each, asked with the two
+    /// reasons that matter: a user close is cancelled so the owner can be asked, and the operating
+    /// system shutting down is let straight through - there is no ten minutes to spend and a dialog
+    /// nobody can answer would only hold the machine up.
+    ///
+    /// A window that passed a constant, or that never called the coordinator at all, would give the
+    /// same answer twice and this goes red.
     /// </summary>
     [AvaloniaFact]
-    public void OnClosing_OperatingSystemShutdownWithASessionRunning_IsNotCancelled_AndTheCloseCarriesOn()
+    public void OnClosing_TheRealCloseReasonIsHandedOver_UserCloseCancelsWhereOperatingSystemShutdownDoesNot()
     {
-        var window = new MainWindow();
-        AddSession(window, ActivityState.Working, "builder");
+        var userClose = new MainWindow();
+        AddSession(userClose, ActivityState.Working, "builder");
+        var cancelled = RaiseOnClosing(userClose, WindowCloseReason.WindowClosing);
 
-        var closing = RaiseOnClosing(window, WindowCloseReason.OSShutdown);
+        var operatingSystem = new MainWindow();
+        AddSession(operatingSystem, ActivityState.Working, "builder");
+        var letThrough = RaiseOnClosing(operatingSystem, WindowCloseReason.OSShutdown);
 
-        Assert.False(closing.Args.Cancel);
-        Assert.IsType<InvalidCastException>(closing.Error);
-    }
+        Assert.True(cancelled.Args.Cancel);
+        Assert.Null(cancelled.Error);
 
-    /// <summary>
-    /// A user close with nothing running is not cancelled either: the Director closes as it always has.
-    /// The same contrast again, this time on the sessions the window hands over rather than on the
-    /// reason.
-    /// </summary>
-    [AvaloniaFact]
-    public void OnClosing_UserCloseWithNoSessions_IsNotCancelled_AndTheCloseCarriesOn()
-    {
-        var window = new MainWindow();
-
-        var closing = RaiseOnClosing(window, WindowCloseReason.WindowClosing);
-
-        Assert.False(closing.Args.Cancel);
-        Assert.IsType<InvalidCastException>(closing.Error);
+        Assert.False(letThrough.Args.Cancel);
+        Assert.IsType<InvalidCastException>(letThrough.Error);
     }
 
     // ===== The things the window hands the coordinator when it builds it =====
