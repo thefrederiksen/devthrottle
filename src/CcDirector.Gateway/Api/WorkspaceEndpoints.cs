@@ -25,6 +25,9 @@ namespace CcDirector.Gateway.Api;
 ///   POST   /gateway/workspaces/{id}/restore/marks
 ///                                     -> what a restore did to one seat, written by the Director holding the
 ///                                        restore lease | 200 | 400 | 403 | 409 (inspection 7, ruling 1)
+///   POST   /gateway/workspaces/{id}/restore/dev-reports
+///                                     -> a restored seat's dev reports pass to the session it came back as, asked
+///                                        by the Director holding the restore lease | 200 | 400 | 403 | 404 | 409
 ///
 /// The routes sit under /gateway for the same reason the workflow routes do: the Gateway serves the
 /// single-page app at "/" and falls unknown page paths back to index.html, so an API at a bare
@@ -69,13 +72,17 @@ internal static class WorkspaceEndpoints
     /// when that Director is not connected (the Message Load mission, slice 6).</param>
     /// <param name="callerIsDirector">Whether the request's verified credential is the one the named Director said
     /// Hello on, in the request's own account (inspection 11, ruling 1).</param>
+    /// <param name="passDevReports">Pass a restored seat's dev reports to the session it came back as, in the request's
+    /// own account, and say what passed. A delegate so the account resolution stays in the one place that owns it.
+    /// Throws the workspace exceptions with the reason when the pass is refused.</param>
     public static void Map(
         IEndpointRouteBuilder app,
         WorkspaceStore store,
         Func<string, (Streaming.FleetObservation Observation, IReadOnlyList<SessionDto> Sessions)> connectedFleet,
         Func<string, DirectorDto?> lookupDirector,
         Func<string, WorkspaceRestoreOrder, CancellationToken, Task<DirectorCommandResult?>> sendRestore,
-        Func<HttpContext, string, bool> callerIsDirector)
+        Func<HttpContext, string, bool> callerIsDirector,
+        Func<WorkspaceDocument, WorkspaceDevReportPassRequest, DateTime, WorkspaceDevReportPassResult> passDevReports)
     {
         // RESTORE (the Message Load mission, slice 6; owner decision 2, 17 September 2026). A drained fleet is
         // brought back by the DIRECTOR, not by a session running spawn lines: a session key may name only itself
@@ -248,6 +255,62 @@ internal static class WorkspaceEndpoints
             catch (WorkspaceConflictException ex)
             {
                 FileLog.Write($"[WorkspaceEndpoints] restore mark CONFLICT: id={id}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+        });
+
+        // A RESTORED SEAT'S DEV REPORTS PASS TO THE SESSION IT CAME BACK AS (the Smart Director Restart mission,
+        // section 5.3 item 13). Asked by the Director running the restore, authorised exactly as its marks are: a
+        // Director's credential, and the one the named Director is connected on. A session key never reaches this
+        // route - SessionKeyGuard is an allow list that does not name it - and it is refused here as well, so a
+        // later edit to that list is not enough to let a session take over another session's reports. The body
+        // names a seat only; both session ids come from the stored workspace (see DevReportInheritance).
+        app.MapPost("/gateway/workspaces/{id}/restore/dev-reports", async (string id, HttpContext ctx, CancellationToken ct) =>
+        {
+            if (!IsDirectorCredential(ctx))
+            {
+                FileLog.Write($"[WorkspaceEndpoints] dev report pass REFUSED: id={id}: not a Director's credential");
+                return Results.Json(new { error = "only the Director running a restore passes a seat's dev reports to the session it came back as; a person or a session may not move a report from one session to another." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            WorkspaceDevReportPassRequest? req;
+            try
+            {
+                req = await JsonSerializer.DeserializeAsync<WorkspaceDevReportPassRequest>(ctx.Request.Body, WorkspaceStore.DocumentJsonOptions, ct);
+            }
+            catch (JsonException ex)
+            {
+                return Results.Json(new { error = $"the dev report pass could not be read: {ex.Message}" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+            if (req is null)
+                return Results.Json(new { error = "a dev report pass body is required" }, statusCode: StatusCodes.Status400BadRequest);
+
+            if (string.IsNullOrWhiteSpace(req.DirectorId) || !callerIsDirector(ctx, req.DirectorId))
+            {
+                FileLog.Write($"[WorkspaceEndpoints] dev report pass REFUSED: id={id}, director={req.DirectorId}: the credential is not the one that Director is connected on");
+                return Results.Json(new { error = $"this credential is not the one Director '{req.DirectorId}' is connected to this Gateway on, so it may not pass dev reports in that Director's name." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var doc = store.Get(id);
+            if (doc is null)
+                return Results.Json(new { error = $"no workspace with id '{id}'" }, statusCode: StatusCodes.Status404NotFound);
+
+            try
+            {
+                var result = passDevReports(doc, req, DateTime.UtcNow);
+                return Results.Json(result, WorkspaceStore.DocumentJsonOptions);
+            }
+            catch (WorkspaceValidationException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] dev report pass REFUSED: id={id}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            catch (WorkspaceConflictException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] dev report pass CONFLICT: id={id}: {ex.Message}");
                 return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
             }
         });

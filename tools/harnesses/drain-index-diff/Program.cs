@@ -725,6 +725,10 @@ internal sealed class HarnessSessions : IDrainSessionControl
     // This harness runs the OLDER drain, which never interrupts and never ends a session. Those two verbs
     // belong to the smart shutdown. A call to either from here means the older drain has started forcing,
     // and the harness stops rather than reporting a diff over a run that did.
+    public bool IsMidTurn(string sessionId)
+        => throw new InvalidOperationException(
+            $"The older drain asked whether session {sessionId} is mid-turn. It never interrupts, so it never asks; only the smart shutdown may.");
+
     public Task<DrainDelivery> InterruptAsync(string sessionId)
         => throw new InvalidOperationException(
             $"The older drain interrupted session {sessionId}. It never forces; only the smart shutdown may.");

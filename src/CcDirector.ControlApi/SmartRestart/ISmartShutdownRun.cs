@@ -18,6 +18,11 @@ public interface ISmartShutdownRun
     /// Raised on every change of any session's state or of the phase, and at least once per poll (ten
     /// seconds). It is raised on an ENGINE thread: the screen dispatches to the user interface thread
     /// itself. Each snapshot is complete and immutable; the screen replaces what it shows, never merges.
+    ///
+    /// The handler must return at once. It dispatches to the user interface thread ASYNCHRONOUSLY (a
+    /// post, never a synchronous invoke). A handler that blocks stalls the run, the two thirds stage, the
+    /// limit and the "Shut down now" button, and holds the one-run gate so that no later smart shutdown
+    /// can start.
     /// </summary>
     event Action<SmartShutdownSnapshot>? Changed;
 

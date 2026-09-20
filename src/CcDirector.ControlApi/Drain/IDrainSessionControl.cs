@@ -134,6 +134,17 @@ public interface IDrainSessionControl
     bool MarkForDeletion(string sessionId, string reason);
 
     /// <summary>
+    /// Whether the session is in the middle of a turn RIGHT NOW. SMART SHUTDOWN ONLY: the older drain
+    /// never asks, because it never interrupts.
+    ///
+    /// It is the same question the Director's own deletion reaper asks before it removes a flagged
+    /// session, answered from the same fact, so "mid-turn" means one thing on this Director. False for a
+    /// session that is not here: a session that has gone is not working.
+    /// </summary>
+    /// <param name="sessionId">The session id.</param>
+    bool IsMidTurn(string sessionId);
+
+    /// <summary>
     /// Interrupt the session's turn, through the Director's existing interrupt path. SMART SHUTDOWN ONLY:
     /// the older drain never calls this.
     ///
@@ -252,6 +263,17 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
         if (session is null) return false;
         session.MarkForDeletion(reason);
         return true;
+    }
+
+    /// <inheritdoc />
+    public bool IsMidTurn(string sessionId)
+    {
+        // ActivityState.Working, and only that, is what the deletion reaper treats as a turn it must not
+        // cut off (SessionManager.ReapPendingDeletions). The same fact is used here so the two agree.
+        var midTurn = Guid.TryParse(sessionId, out var id)
+                      && _sessions.GetSession(id) is { ActivityState: ActivityState.Working };
+        FileLog.Write($"[DrainSessionControl] IsMidTurn: session={sessionId}, midTurn={midTurn}");
+        return midTurn;
     }
 
     /// <inheritdoc />

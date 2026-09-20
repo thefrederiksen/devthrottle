@@ -131,11 +131,32 @@ public sealed class DirectorHub : Hub
     {
         var directorId = RequireBoundDirector();
         var set = repositories ?? Array.Empty<RepoStatusDto>();
+
+        // THE PUSH NOW CARRIES TWO KINDS OF ROW, AND ONLY ONE OF THEM HAS A STATUS (the
+        // one-repository-list mission, "the registry reaches the Gateway"). A Director sends everything
+        // it knows about its machine's repositories: the ones its root-folder scan measured, and the
+        // ones that exist only in the machine's hand-built registered list, which no scan ever reached.
+        // The second kind is marked StatusNotComputed and carries a path and a name and NOTHING else.
+        //
+        // The two observers below exist to report STATUS - PushedRepositoryStore serves GET /repositories
+        // and GET /worktrees, and RepoHistoryStore writes the daily drift rows the morning report reads.
+        // Handed an identity-only row they would publish its defaults as measurements: a branch nobody
+        // read, "not clean" for a repository nobody looked at, zero uncommitted files, zero commits
+        // behind main. Those are facts the product would be making up, so they are not given the row at
+        // all, and both surfaces show exactly what they showed before this change.
+        //
+        // The catalog observer IS given the whole set, because identity is all it ever wanted: it folds
+        // each row into the durable machine catalog as found-but-never-opened, reading only the path and
+        // the name. That is the point of the change.
+        var measured = set.Any(repository => repository.StatusNotComputed)
+            ? set.Where(repository => !repository.StatusNotComputed).ToArray()
+            : set;
+
         var accepted = _repositoryStore?.ApplySnapshot(RequireBoundTenant(), directorId, Context.ConnectionId,
-            sequence, set) ?? false;
+            sequence, measured) ?? false;
         if (accepted)
         {
-            _repoHistory?.ObserveSnapshot(RequireBoundTenant(), directorId, set);
+            _repoHistory?.ObserveSnapshot(RequireBoundTenant(), directorId, measured);
             // The one-repository-list mission, phase 2: the same accepted push, folded into the durable
             // machine catalog as the found-but-never-opened half. Gated on acceptance for the reason the
             // observer above is - a push from a superseded connection or a stale sequence is not
@@ -154,7 +175,8 @@ public sealed class DirectorHub : Hub
                 FileLog.Write($"[DirectorHub] PushRepoSnapshot: the discovered-repository fold FAILED (contained): {ex.Message}");
             }
         }
-        FileLog.Write($"[DirectorHub] PushRepoSnapshot: director={directorId} seq={sequence} repos={set.Length} accepted={accepted}");
+        FileLog.Write($"[DirectorHub] PushRepoSnapshot: director={directorId} seq={sequence} repos={set.Length} "
+                      + $"(measured={measured.Length}, identity-only={set.Length - measured.Length}) accepted={accepted}");
     }
 
     /// <summary>

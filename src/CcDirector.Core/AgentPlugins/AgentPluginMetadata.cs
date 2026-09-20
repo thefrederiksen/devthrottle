@@ -37,9 +37,22 @@ public sealed record AgentPluginHistoryMetadata(
     string StoreDescription);
 
 /// <summary>Plugin-owned launch metadata for one agent CLI.</summary>
+/// <param name="SupportsPreassignedSessionId">The agent accepts a caller-chosen session id at launch.</param>
+/// <param name="SupportsStudioMode">The agent can be launched in Studio (stream-json) mode.</param>
+/// <param name="CanResumeSavedConversation">
+/// THE AGENT CAN BE STARTED ON A SAVED CONVERSATION: handed a conversation id at launch, it comes back with
+/// that conversation rather than a blank one. Every plugin must state it - there is no default - because a
+/// plugin that could stay silent would be read as "cannot resume" by whoever asks, and the way up then tells
+/// the owner his conversation is lost when it is not (review of phase 3, finding 2).
+///
+/// It is stated HERE, beside the driver that really does it, and never in a second hand-kept list somewhere
+/// else: two lists drift apart, and this one had. <c>AgentPluginLaunchMetadataTests</c> walks every
+/// registered agent and fails the day this flag stops matching what the agent's own arguments do.
+/// </param>
 public sealed record AgentPluginLaunchMetadata(
     bool SupportsPreassignedSessionId,
-    bool SupportsStudioMode);
+    bool SupportsStudioMode,
+    bool CanResumeSavedConversation);
 
 /// <summary>Input used when callers ask a plugin to build a launch spec without constructing the agent directly.</summary>
 public sealed record AgentPluginLaunchRequest(

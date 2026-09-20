@@ -49,6 +49,42 @@ describe("gatewayErrorMessage: the server's reason reaches the user", () => {
     expect(msg.match(/try again/gi)?.length).toBe(1);
   });
 
+  it("terminates a reason that is a PHRASE before adding the hint, so the two do not run together", () => {
+    // A REASON THIS GATEWAY REALLY SENDS, quoted from the product rather than invented:
+    // SessionWsProxyEndpoints.WriteVerbJsonAsync answers `{ error = "owning director is not connected" }`
+    // at 503 when the owning Director is not tunnel-connected. It is a PHRASE, not a sentence, and the
+    // retry hint used to be appended straight onto it - so the screen read
+    // "owning director is not connected Try again.", two sentences with nothing between them.
+    //
+    // NO retryable FLAG IS SET HERE ON PURPOSE. That body carries none either, so this also exercises the
+    // default rule in the GatewayError constructor that makes a 503 retryable - which is the half that
+    // turns a merely-unterminated reason into a run-together line.
+    const err = new GatewayError(503, "x", { reason: "owning director is not connected" });
+
+    expect(gatewayErrorMessage(err, "send the prompt")).toBe(
+      "owning director is not connected. Try again.",
+    );
+  });
+
+  it("leaves a reason that already ends in a sentence exactly as it was", () => {
+    // The other half, and the one a careless fix would break: a reason that IS terminated must not gain
+    // a second full stop. Both endings have to be pinned, or the fix trades one malformed line for another.
+    const stop = new GatewayError(503, "x", { reason: "That machine is catching up.", retryable: true });
+    expect(gatewayErrorMessage(stop, "attach the image")).toBe("That machine is catching up. Try again.");
+
+    // A question mark and an exclamation mark end a sentence just as a full stop does.
+    const question = new GatewayError(503, "x", { reason: "Is that machine awake?", retryable: true });
+    expect(gatewayErrorMessage(question, "attach the image")).toBe("Is that machine awake? Try again.");
+  });
+
+  it("does not leave a gap where the reason had trailing space", () => {
+    const err = new GatewayError(503, "x", { reason: "owning director is not connected   " });
+
+    expect(gatewayErrorMessage(err, "attach the image")).toBe(
+      "owning director is not connected. Try again.",
+    );
+  });
+
   it("never invites a retry for a failure retrying cannot fix", () => {
     // A 404 for an unknown session is permanent. Telling the user to try again would have them press the
     // button forever.

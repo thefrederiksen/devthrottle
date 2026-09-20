@@ -111,6 +111,7 @@ internal class FakeSessionControl : IDrainSessionControl
                 "the composer never echoed the typed text after 2 attempts"));
 
         Sent.Add((sessionId, text));
+        Journal?.Add($"send:{sessionId}");
 
         if (!_responded && text.Contains("START NOTHING NEW"))
         {
@@ -119,7 +120,47 @@ internal class FakeSessionControl : IDrainSessionControl
             WhenMessaged?.Invoke();
         }
 
+        // A session that only writes once it is told to hand over NOW - the one that was mid-turn when the
+        // first request arrived and never got to it.
+        if (text.Contains("HAND OVER NOW") && _queuedOnHandOverNow.Remove(sessionId, out var late))
+            File.WriteAllText(late.Path, late.Text);
+
         return Task.FromResult(DrainDelivery.Ok);
+    }
+
+    private readonly Dictionary<string, (string Path, string Text)> _queuedOnHandOverNow =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Queue a handover for a seat, to be written only WHEN THAT SEAT IS SENT THE SHORT SECOND
+    /// MESSAGE ("HAND OVER NOW"), which is what a smart shutdown sends at two thirds of the time allowed.</summary>
+    /// <param name="dir">The drain directory.</param>
+    /// <param name="sessionId">The seat.</param>
+    /// <param name="name">Its name, which is half of the file name.</param>
+    /// <param name="block">Its drain-report block, or null for none.</param>
+    /// <returns>The path it will be written to.</returns>
+    public string HandoverWhenToldToHandOverNow(string dir, string sessionId, string name, string? block = null)
+    {
+        var path = DrainPaths.HandoverFor(dir, sessionId, name);
+        _queuedOnHandOverNow[sessionId] = (path, DrainTestRig.Body + "\n\n" + (block ?? ""));
+        return path;
+    }
+
+    /// <summary>When set, every send, interrupt and end is appended here IN ORDER. A test gives the same
+    /// list to <see cref="FakeWorkspaceSink.Journal"/>, which is what lets it assert that the record was
+    /// saved BEFORE a session was ended rather than only that both happened.</summary>
+    public List<string>? Journal { get; set; }
+
+    /// <summary>Sessions in the middle of a turn. An interrupt that lands takes a session out of it.</summary>
+    public HashSet<string> MidTurn { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every session the drain asked the mid-turn question about, in order. The older drain
+    /// never asks, and a test asserts it.</summary>
+    public List<string> AskedWhetherMidTurn { get; } = new();
+
+    public virtual bool IsMidTurn(string sessionId)
+    {
+        AskedWhetherMidTurn.Add(sessionId);
+        return Live.Contains(sessionId) && MidTurn.Contains(sessionId);
     }
 
     public virtual bool Rename(string sessionId, string name)
@@ -156,9 +197,11 @@ internal class FakeSessionControl : IDrainSessionControl
     public virtual Task<DrainDelivery> InterruptAsync(string sessionId)
     {
         Interrupted.Add(sessionId);
+        Journal?.Add($"interrupt:{sessionId}");
         if (!Live.Contains(sessionId)) return Task.FromResult(DrainDelivery.Gone);
         if (RefuseInterruptWithReason.TryGetValue(sessionId, out var why))
             return Task.FromResult(DrainDelivery.Refused(why));
+        MidTurn.Remove(sessionId);
         return Task.FromResult(DrainDelivery.Ok);
     }
 
@@ -167,6 +210,7 @@ internal class FakeSessionControl : IDrainSessionControl
     public virtual Task<DrainEnd> EndAsync(string sessionId, string reason)
     {
         Ended.Add((sessionId, reason));
+        Journal?.Add($"end:{sessionId}");
         if (!Live.Contains(sessionId)) return Task.FromResult(DrainEnd.Gone);
         if (RefuseEndWithReason.TryGetValue(sessionId, out var why))
             return Task.FromResult(DrainEnd.Refused(why));
@@ -206,6 +250,7 @@ internal sealed class FakeWorkspaceSink : IDrainWorkspaceSink
     public Task<WorkspaceDocument> CaptureAsync(WorkspaceCaptureRequest request, CancellationToken ct)
     {
         CaptureRequest = request;
+        if (CaptureFails is not null) return Task.FromException<WorkspaceDocument>(CaptureFails);
         Captured.Id = request.Id;
         Captured.Name = request.Name;
         Captured.DirectorId = request.DirectorId;
@@ -215,8 +260,16 @@ internal sealed class FakeWorkspaceSink : IDrainWorkspaceSink
         return Task.FromResult(Captured);
     }
 
+    /// <summary>When set, every save is appended here as "save", in order with whatever else writes to
+    /// the same list. See <see cref="FakeSessionControl.Journal"/>.</summary>
+    public List<string>? Journal { get; set; }
+
+    /// <summary>When set, the capture fails with this - a Gateway that cannot be reached.</summary>
+    public Exception? CaptureFails { get; set; }
+
     public Task<WorkspaceDocument> SaveAsync(WorkspaceDocument doc, CancellationToken ct)
     {
+        Journal?.Add("save");
         Saves.Add(Clone(doc));
         var echoed = Clone(doc);
         echoed.CreatedUtc = new DateTime(2026, 9, 6, 17, 25, 0, DateTimeKind.Utc);

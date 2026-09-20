@@ -69,7 +69,7 @@ public class DrainMessagesSmartShutdownTests
         var older = DrainMessages.Drain("D", Path, "C:/handovers/run-1", TwoUnder, null);
         var smart = DrainMessages.SmartShutdown("D", Path, TwoUnder, null, TimeSpan.FromMinutes(10));
 
-        // One parser (DrainReportBlock) reads the block whichever message asked for it, so there is one
+        // One parser (DrainReportBlock) reads the block whichever request called for it, so there is one
         // description of it. The same holds for the paragraph telling a lead the exact paths its own seats
         // write to. If somebody edits either paragraph in one message only, this goes red.
         Assert.Equal(

@@ -52,7 +52,9 @@ public sealed class CursorAgentPlugin : IAgentPlugin
 
     public AgentPluginHistoryMetadata History => HistoryMetadata;
 
-    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: true);
+    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: true,
+        // CursorAgent.BuildLaunchSpec appends "--resume=\"<id>\"".
+        CanResumeSavedConversation: true);
 
     public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 
