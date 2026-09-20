@@ -80,12 +80,25 @@ public sealed class MorningReportEndpointTests : IDisposable
     }
 
     private IResult Call(HttpContext ctx, string? account, GatewayDatabase db, HostedTenantBoundary boundary,
-        string date = "2026-07-23", string tz = "America/Toronto") =>
+        string date = "2026-07-23", string tz = "America/Toronto", Streaming.PushedSessionStore? live = null) =>
         MorningReportEndpoint.Handle(
             ctx, account, date, tz,
-            new MorningReportBuilder(db, pushedSessions: null, streamStale: TimeSpan.FromMinutes(5), utcNow: () => Now),
+            new MorningReportBuilder(db, pushedSessions: live, streamStale: TimeSpan.FromMinutes(5), utcNow: () => Now),
             new TenantRegistry(db),
             boundary);
+
+    /// <summary>A Director connected for this account, pushing exactly these sessions.
+    ///
+    /// Needed by any test that expects a waiting row on the wire. Since #3124 the report will not claim a
+    /// session is waiting on somebody unless it can currently SEE that session - so with no roster there
+    /// is nothing to assert a shape against, and a test that seeds none is asserting silence.</summary>
+    private static Streaming.PushedSessionStore Live(TenantId tenant, params SessionDto[] sessions)
+    {
+        var store = new Streaming.PushedSessionStore(() => Now);
+        store.RegisterConnection(tenant, "dir-1", "conn-1");
+        Assert.True(store.ApplySnapshot(tenant, "dir-1", "conn-1", 0, new List<SessionDto>(sessions)));
+        return store;
+    }
 
     /// <summary>Execute the result and read back the status and the JSON body the cron would actually receive.</summary>
     private static async Task<(int Status, JsonElement Body)> ExecuteAsync(IResult result, HttpContext ctx)
@@ -317,7 +330,11 @@ public sealed class MorningReportEndpointTests : IDisposable
         var (aliceStatus, aliceBody) = await ExecuteAsync(Call(aliceCtx, "alice@example.com", db, HostedBoundary()), aliceCtx);
 
         var bobCtx = Request($"Bearer {Token}");
-        var (bobStatus, bobBody) = await ExecuteAsync(Call(bobCtx, "bob@example.com", db, HostedBoundary()), bobCtx);
+        // Bob's Director is connected and pushing that session, so Bob genuinely HAS a row to leak. With
+        // no roster the report would name nobody and the isolation claim would pass on an empty payload.
+        var bobLive = Live(Bob, new SessionDto { SessionId = "bob-waiting", Name = "bob-session" });
+        var (bobStatus, bobBody) = await ExecuteAsync(
+            Call(bobCtx, "bob@example.com", db, HostedBoundary(), live: bobLive), bobCtx);
 
         Assert.Equal(StatusCodes.Status200OK, aliceStatus);
         Assert.Equal(StatusCodes.Status200OK, bobStatus);
@@ -326,6 +343,7 @@ public sealed class MorningReportEndpointTests : IDisposable
         // it appears NOWHERE in Alice's payload.
         Assert.Equal(0, aliceBody.GetProperty("attention").GetArrayLength());
         Assert.Equal(1, bobBody.GetProperty("attention").GetArrayLength());
+        Assert.Equal("bob-session", bobBody.GetProperty("attention")[0].GetProperty("session").GetString());
 
         // The strongest form of the claim: Bob's session identifiers appear NOWHERE in Alice's payload.
         Assert.DoesNotContain("bob-", aliceBody.GetRawText(), StringComparison.Ordinal);
@@ -344,7 +362,12 @@ public sealed class MorningReportEndpointTests : IDisposable
         SeedSessionEvent(db, Alice, "s1", GovernanceEventState.WaitingOnHuman, Now.AddHours(-7));
 
         var ctx = Request($"Bearer {Token}");
-        var (status, body) = await ExecuteAsync(Call(ctx, "alice@example.com", db, HostedBoundary()), ctx);
+        // A connected Director that can see s1 and knows its name. Since #3124 the report refuses to call
+        // a session "waiting on you" unless it can currently see it, so without this there is no row here
+        // and this test would be asserting the shape of nothing.
+        var live = Live(Alice, new SessionDto { SessionId = "s1", Name = "s1" });
+        var (status, body) = await ExecuteAsync(
+            Call(ctx, "alice@example.com", db, HostedBoundary(), live: live), ctx);
 
         Assert.Equal(StatusCodes.Status200OK, status);
         Assert.Equal("alice@example.com", body.GetProperty("account").GetString());
@@ -368,7 +391,10 @@ public sealed class MorningReportEndpointTests : IDisposable
         Assert.Equal("s1", item.GetProperty("session").GetString());
         Assert.Equal(7.0, item.GetProperty("ageHours").GetDouble());
         Assert.True(item.TryGetProperty("waitingSinceUtc", out _));
-        // No live roster knows this session, so it has no repository path - and the key is absent, not "".
+        // The id rides along so the email can link into the Cockpit (#3124) - a row names a session AND
+        // gives a way in, because a name the reader cannot act on is only half the row.
+        Assert.Equal("s1", item.GetProperty("sessionId").GetString());
+        // The roster knows this session but not its repository, so the key is absent, not "".
         Assert.False(item.TryGetProperty("repo", out _));
         // Polymorphism must not smuggle a synthetic discriminator into the contract.
         Assert.False(item.TryGetProperty("$type", out _));
