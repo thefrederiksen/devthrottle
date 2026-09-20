@@ -1918,11 +1918,14 @@ body {
   gap: 8px;
 }
 
+/* The row sat flush against the tab strip above it with nothing between the two. The padding is the
+   whole of that fix; the gap on .chat-tab handles the space below. */
 .chat-filter {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  padding: 8px 2px;
   font-size: 12px;
   color: var(--text-dim);
   flex: 0 0 auto;
@@ -1932,15 +1935,50 @@ body {
   font-weight: 600;
 }
 
-.chat-filter label {
+/* A pill that fills in when its choice is on. The checkbox inside is still a real checkbox - it keeps
+   its keyboard behaviour and its accessible name - it is simply not the thing drawn. */
+.chat-filter-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   cursor: pointer;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  line-height: 1.5;
+  user-select: none;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
-.chat-filter input {
-  cursor: pointer;
+.chat-filter-pill:hover {
+  border-color: var(--owner-bubble-border);
+  color: var(--text);
+}
+
+.chat-filter-pill input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.chat-filter-pill:has(input:checked) {
+  background: var(--owner-bubble-bg);
+  border-color: var(--owner-bubble-border);
+  color: var(--text);
+}
+
+/* Keyboard focus has to land somewhere visible, and the input itself is not drawn. */
+.chat-filter-pill:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .chat-live {
@@ -1996,24 +2034,57 @@ body {
   padding: 12px;
 }
 
-.chat-bubble {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 12px;
-  margin: 0 auto 8px;
+/* The centred column every turn lives in. It - not the bubble - sets the reading measure, and the
+   generous gap is BETWEEN turns while the spacing inside one stays tight, so a question and its answer
+   read as a pair instead of as two more rows in a list. */
+.chat-thread {
   max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
 }
 
+.chat-bubble {
+  position: relative;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* THE OWNER'S WORDS, ON THE RIGHT. Same fill, edge and corner as the owner's bubble on the Fleet
+   Manager page (.fmp-me), because it is the same person saying the same kind of thing - two screens
+   in one product should not disagree about what "something you said" looks like. */
 .chat-bubble.user {
-  background: #232a38;
+  align-self: flex-end;
+  max-width: 72%;
+  background: var(--owner-bubble-bg);
+  border: 1px solid var(--owner-bubble-border);
+  border-radius: 12px 12px 3px 12px;
+  padding: 9px 13px;
 }
 
+/* THE AGENT'S ANSWER: the full column, and no card at all. No background, no border, no padding to
+   indent it. This is the change that does the most work on this screen. */
 .chat-bubble.assistant {
-  background: #232826;
+  align-self: stretch;
+  background: none;
+  border: 0;
+  padding: 0;
 }
 
+/* Machinery - a tool result fed back to the agent. It keeps a card, because it is NOT part of the
+   conversation and should not be mistaken for it, and it keeps its speaker line, because "Tool result"
+   is the one thing about it the layout cannot say. Inset from the left so it reads as subordinate to
+   the answer above it rather than as a turn of its own. */
 .chat-bubble.tool {
-  background: #2a271b;
+  align-self: flex-start;
+  max-width: 88%;
+  margin-left: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  padding: 8px 11px;
 }
 
 .chat-speaker {
@@ -2022,16 +2093,52 @@ body {
   margin-bottom: 4px;
 }
 
-.chat-bubble.user .chat-speaker {
-  color: #6ca0f0;
-}
-
-.chat-bubble.assistant .chat-speaker {
-  color: #57c77d;
-}
-
+/* Only the tool bubble has one now; the other two say who is speaking with their side of the column. */
 .chat-bubble.tool .chat-speaker {
-  color: #c9a227;
+  color: var(--warn);
+}
+
+/* Prose is held near eighty characters even though the column is wider, because a line that runs the
+   whole width of a desktop window is hard to track back to. Code, tables and images are exempt - they
+   are read by scanning, not by line, and cramping them helps nobody. */
+.chat-bubble.assistant .chat-body.md > * {
+  max-width: 80ch;
+}
+
+.chat-bubble.assistant .chat-body.md > pre,
+.chat-bubble.assistant .chat-body.md > table,
+.chat-bubble.assistant .chat-body.md > img {
+  max-width: 100%;
+}
+
+/* One turn's own copy button, drawn only under the pointer or on keyboard focus. */
+.chat-turn-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.chat-bubble:hover .chat-turn-actions,
+.chat-turn-actions:focus-within {
+  opacity: 1;
+}
+
+.chat-turn-copy {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.chat-turn-copy:hover {
+  border-color: var(--owner-bubble-border);
+  color: var(--text);
 }
 
 .chat-body {
