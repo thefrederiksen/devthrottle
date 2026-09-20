@@ -139,7 +139,33 @@ Re-checked at `74485174f` after `origin/main` moved during the design round. All
   the Gateway's - but it is not a regression, since the desktop had no legend at all before.
 - **The word on the surviving cumulative number: "waited", not "idle".** Unchanged, Phase B.
 
-## The test gate - how Phase A is allowed to land
+## THE WINDOWS GATE IS MEASURED - and the repository's gate is red for every agent
+
+Run on Windows at `af4671a0e`: **the solution builds whole**, all nine test projects ran,
+**2451 of 2453 passed**. Detail in `missions/session-cards/windows-gate.md`.
+
+The two failures are `LauncherDeclaredCapabilitiesTests`, and they are NOT this mission's:
+
+- **Positively verified:** this branch's diff touches nothing under `Launcher` - checked by file
+  list, not assumed.
+- **The cause was found, not excused.** Inside a Director session `CC_DIRECTOR_ROOT` names the live
+  instance whose real launcher IS listening, so the kernel truthfully answers "armed" and a test
+  asserting an UNARMED launcher fails. Remove the variable and the Launcher suite is **197 of 197**.
+
+**That clean-environment result is the pass condition, and the baseline is NOT.** The worker also
+measured `origin/main` failing the same two, and that fact is recorded but is explicitly not the
+justification - the owner has banned a pre-existing-failures baseline as a pass, and rightly, because
+it certifies nothing. What licenses the landing is the positive 197 of 197.
+
+**A finding for the owner, bigger than this mission.** The default gate cannot pass when run from
+inside a Director session - which is how every agent runs it. The test reads a real machine-wide
+signal instead of isolating one. Not fixed here; it is not this mission's work.
+
+**Still owed before the pull request:** the branch is behind `main`. Verified it merges cleanly
+(`git merge-tree`, no conflicts), so the joined result is untested only in the sense that no suite has
+run on the merge itself.
+
+## The old landing note, superseded by the section above
 
 **The owner's standing ruling: zero test failures on any platform, and NEVER quote a "pre-existing
 failures" baseline as a pass.** The Phase A seat reported the macOS Avalonia suite at 567 passed and
