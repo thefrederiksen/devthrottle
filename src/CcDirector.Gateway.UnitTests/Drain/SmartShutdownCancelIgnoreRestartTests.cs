@@ -101,6 +101,23 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
                 _sessions.Live.Select(id => new SessionDto { SessionId = id, DirectorId = ThisDirector }).ToList(),
                 new[] { new DirectorReachabilityDto { DirectorId = ThisDirector, State = DirectorReachabilityDto.StateOnline } }));
 
+        /// <summary>Every dev report pass the restore asked for, in the order it asked. The restore asks for
+        /// each seat it brings back (phase 4, mission section 5.3 item 13); a Gateway with no reports to move
+        /// answers that none moved, which is what this rig's sessions have.</summary>
+        public List<WorkspaceDevReportPassRequest> PassRequests { get; } = new();
+
+        public Task<WorkspaceDevReportPassResult> PassDevReportsAsync(string workspaceId, WorkspaceDevReportPassRequest request, CancellationToken ct)
+        {
+            PassRequests.Add(request);
+            var seat = _stored?.Seats.FirstOrDefault(s => s.SessionId == request.SeatSessionId);
+            return Task.FromResult(new WorkspaceDevReportPassResult
+            {
+                FromSessionId = request.SeatSessionId,
+                ToSessionId = seat?.RestoredSessionId ?? "",
+                Passed = 0,
+            });
+        }
+
         public Task<SessionDto> SpawnOnThisDirectorAsync(NewSessionRequest request, CancellationToken ct)
         {
             Spawns.Add(request);
