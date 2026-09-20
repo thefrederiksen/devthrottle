@@ -28,7 +28,7 @@ log could not be read says nothing about which test was red.
 
 ## What is proved, and how
 
-81 tests, all passing:
+91 tests, all passing:
 `python3 -m pytest tools/cc-continuous-integration-keeper/tests -q`.
 
 **The proof the brief asks for** is `test_01_the_real_week_raises_the_budget_and_the_red_test.py`. It
@@ -72,6 +72,11 @@ as the name of a failing test.
 
 **The collector is proved against the payloads GitHub really answers with** (`test_07`), captured
 from the live interface and kept field for field apart from the blocks the keeper never reads.
+
+**A record file is read as strictly as the budget file** (`test_09`): a run that concluded with no
+end time, a job record that does not say whether its log was read, a time written some other way -
+each is refused rather than half-loaded, because a record file that half-loaded would be judged as
+though the parts it dropped had never happened.
 
 **The command is held to the AXI standard** (`test_08`): every finding reads back exactly out of the
 default output with the shared parser, no identifier is ever cut short, `--json` carries every field
