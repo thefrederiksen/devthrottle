@@ -297,4 +297,44 @@ public sealed class DirectorWayUpBringBackTests : IDisposable
         rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, seats, reason));
         return rig;
     }
+
+    /// <summary>
+    /// A RECORD OF ANOTHER DIRECTOR ON THIS MACHINE IS NOT BROUGHT BACK (review finding 4). The two read
+    /// paths narrow candidates to this machine and this Director's display name; the bring back took
+    /// whatever workspace id it was handed, so a second caller - the phase 4 command line, or a window
+    /// defect - could have brought another Director's sessions up onto this one. The Gateway's restore route
+    /// refuses a record from another MACHINE and not one from another Director here.
+    /// </summary>
+    [Fact]
+    public async Task Bringing_back_another_directors_record_is_refused_by_name_and_the_restore_is_never_called()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-theirs", Shutdown,
+            new[] { WayUpTestRig.Owed("seat-1", "Their lead") },
+            directorName: WayUpTestRig.OtherDirector));
+
+        var result = await rig.WayUp().BringBackAsync(
+            new WayUpBringBackRequest("restart-theirs", new[] { "seat-1" }), CancellationToken.None);
+
+        Assert.False(result.Started);
+        Assert.Empty(rig.Restore.Orders);
+        Assert.Contains($"belongs to Director '{WayUpTestRig.OtherDirector}'", result.Refusal);
+    }
+
+    /// <summary>A record captured on ANOTHER MACHINE is refused by the same one rule, naming the machine.</summary>
+    [Fact]
+    public async Task Bringing_back_a_record_from_another_machine_is_refused_by_name()
+    {
+        var rig = new WayUpTestRig();
+        var theirs = WayUpTestRig.Record("restart-elsewhere", Shutdown, new[] { WayUpTestRig.Owed("seat-1", "A lead") });
+        theirs.Machine = "SOME_OTHER_MACHINE";
+        rig.Gateway.With(theirs);
+
+        var result = await rig.WayUp().BringBackAsync(
+            new WayUpBringBackRequest("restart-elsewhere", new[] { "seat-1" }), CancellationToken.None);
+
+        Assert.False(result.Started);
+        Assert.Empty(rig.Restore.Orders);
+        Assert.Contains("captured on machine 'SOME_OTHER_MACHINE'", result.Refusal);
+    }
 }

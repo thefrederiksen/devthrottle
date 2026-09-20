@@ -247,4 +247,175 @@ public class DirectorWayUpHistoryTests
         Assert.False(result.Started);
         Assert.Contains("No connection could be made to the Gateway", result.Message);
     }
+
+    /// <summary>
+    /// A SEAT THAT MAY STILL BE RUNNING IS NEVER REOPENED (review finding 1). The drain writes "ended at the
+    /// limit" onto the record and SAVES IT BEFORE it ends the sessions, so an end that fails leaves the seat
+    /// alive under a record that already says it is gone. Starting it again would put two live agents in one
+    /// saved conversation, each acting on the other's half-written work.
+    ///
+    /// The rule is the restore's own - <c>DirectorRestore.StillRunning</c> - asked through the roster, not a
+    /// second rule written in the way up.
+    /// </summary>
+    [Fact]
+    public async Task Reopening_a_seat_that_is_still_running_is_refused_and_starts_nothing()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended", "A busy worker"),
+        }));
+        rig.Gateway.Running("ended", "some-other-director");
+
+        var result = await rig.WayUp().ReopenAsync(
+            new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+
+        Assert.False(result.Started);
+        Assert.Null(result.NewSessionId);
+        Assert.Empty(rig.Gateway.Started);
+        Assert.Contains("is still running on Director 'some-other-director'", result.Message);
+        Assert.Contains("interleave", result.Message);
+    }
+
+    /// <summary>
+    /// A seat still LISTED under a Director the Gateway cannot reach, which the drain never recorded closed,
+    /// is refused too - the second half of the same rule. The Gateway keeps serving an unreachable Director's
+    /// last-known sessions, so "on the list" and "running" are different facts and both are guarded.
+    /// </summary>
+    [Fact]
+    public async Task Reopening_a_seat_listed_under_a_director_nobody_can_reach_is_refused()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended", "A busy worker"),
+        }));
+        rig.Gateway.RosterSessions.Add(new SessionDto { SessionId = "ended", DirectorId = "a-director-nobody-can-reach", Name = "A busy worker" });
+
+        var result = await rig.WayUp().ReopenAsync(
+            new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+
+        Assert.False(result.Started);
+        Assert.Empty(rig.Gateway.Started);
+        Assert.Contains("still listed under Director 'a-director-nobody-can-reach'", result.Message);
+    }
+
+    /// <summary>
+    /// ONE REOPEN PER SEAT WHILE THIS DIRECTOR IS UP (review finding 1, part two). A double click, or the
+    /// history open on two screens, must not start two agents in one saved conversation. The second attempt
+    /// is refused in words of the ENGINE, so no window has to invent the sentence.
+    ///
+    /// WHAT THIS DOES NOT COVER: across a Director restart the same seat CAN still be reopened twice,
+    /// because nothing is written onto the record. That is stated in the answer file and on the code.
+    /// </summary>
+    [Fact]
+    public async Task Reopening_the_same_seat_twice_starts_only_one_session()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended", "A busy worker"),
+        }));
+        var wayUp = rig.WayUp();
+
+        var first = await wayUp.ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+        var second = await wayUp.ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+
+        Assert.True(first.Started);
+        Assert.False(second.Started);
+        Assert.Null(second.NewSessionId);
+        Assert.Single(rig.Gateway.Started);
+        Assert.Contains("has already been reopened from this record", second.Message);
+    }
+
+    /// <summary>
+    /// A RECORD OF ANOTHER DIRECTOR ON THIS MACHINE IS NOT REOPENED FROM (review finding 4). The read paths
+    /// narrow to this machine and this Director's name; the reopen took whatever id it was handed, and the
+    /// Gateway's own restore route refuses another MACHINE's record but not another Director's.
+    /// </summary>
+    [Fact]
+    public async Task Reopening_from_another_directors_record_is_refused_by_name()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-theirs", Shutdown,
+            new[] { WayUpTestRig.Ended("ended", "Their busy worker") },
+            directorName: WayUpTestRig.OtherDirector));
+
+        var result = await rig.WayUp().ReopenAsync(
+            new WayUpReopenRequest("restart-theirs", "ended"), CancellationToken.None);
+
+        Assert.False(result.Started);
+        Assert.Empty(rig.Gateway.Started);
+        Assert.Contains($"belongs to Director '{WayUpTestRig.OtherDirector}'", result.Message);
+    }
+
+    /// <summary>
+    /// A RECORD WHOSE EVERY SEAT ENDED AT THE LIMIT IS READABLE IN THE HISTORY WITH A REAL REOPEN OFFER PER
+    /// SEAT, AND IS STILL NOT OFFERED AT START-UP (review finding 3).
+    ///
+    /// Both halves matter. The start-up presence check is unchanged - the mission says a record with no seat
+    /// decided restore is not offered - but the history told the owner the conversation could be reopened
+    /// and carried no words saying what reopening would do, so a window would have had to invent them.
+    /// </summary>
+    [Fact]
+    public async Task A_record_whose_every_seat_ended_at_the_limit_offers_its_conversations_in_the_history()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-all-ended", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended-1", "A busy worker", "ClaudeCode", "conversation-one"),
+            WayUpTestRig.Ended("ended-2", "A busy lead", "Codex", "conversation-two"),
+        }));
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
+        Assert.Null(offer.Record);
+
+        var entry = Assert.Single(history.Entries);
+        Assert.Null(entry.Offer);
+        Assert.Equal(2, entry.Seats.Count);
+
+        var worker = Assert.Single(entry.Seats, s => s.SessionId == "ended-1");
+        Assert.Contains("Its saved conversation can be reopened", worker.Outcome);
+        var workerReopen = Assert.IsType<WayUpReopenOffer>(worker.Reopen);
+        Assert.True(workerReopen.CanReopen);
+        Assert.Equal("Reopen its saved conversation", workerReopen.Offer);
+        Assert.Contains("Claude Code is started again on this session's saved conversation", workerReopen.What);
+
+        var lead = Assert.Single(entry.Seats, s => s.SessionId == "ended-2");
+        var leadReopen = Assert.IsType<WayUpReopenOffer>(lead.Reopen);
+        Assert.True(leadReopen.CanReopen);
+        Assert.Contains("Codex cannot be started on a saved conversation", leadReopen.What);
+
+        // And the buttons really work: the record is not offerable, and reopening from it still starts.
+        var reopened = await rig.WayUp().ReopenAsync(
+            new WayUpReopenRequest("restart-all-ended", "ended-1"), CancellationToken.None);
+        Assert.True(reopened.Started);
+    }
+
+    /// <summary>
+    /// ONLY a seat that ended without a handover carries a reopen offer in the history. A seat that handed
+    /// over and is waiting, or that has already come back, carries none - an offer beside it would be a
+    /// button that starts a second copy of a session the bring back is going to restore.
+    /// </summary>
+    [Fact]
+    public async Task A_seat_that_handed_over_or_came_back_carries_no_reopen_offer_in_the_history()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.Owed("owed", "A waiting worker"),
+            WayUpTestRig.AlreadyBack("back", "A returned worker"),
+            WayUpTestRig.Ended("ended", "A busy worker"),
+        }));
+
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+
+        var entry = Assert.Single(history.Entries);
+        Assert.Null(Assert.Single(entry.Seats, s => s.SessionId == "owed").Reopen);
+        Assert.Null(Assert.Single(entry.Seats, s => s.SessionId == "back").Reopen);
+        Assert.NotNull(Assert.Single(entry.Seats, s => s.SessionId == "ended").Reopen);
+    }
 }

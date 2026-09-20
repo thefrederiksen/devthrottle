@@ -114,6 +114,11 @@ public class DirectorWayUpOfferTests
         Assert.Equal("Reason: update to 2.9.0", record.ReasonLabel);
         Assert.Equal(Shutdown, record.ShutdownAtUtc);
         Assert.Empty(rig.Gateway.Started);
+
+        // The seam CAN ask what is running - the reopen needs it, to refuse a seat that may still be alive -
+        // so the rule that the start-up check never asks is now held by this count rather than by the seam
+        // having no such method at all.
+        Assert.Equal(0, rig.Gateway.RosterAsked);
     }
 
     /// <summary>Newest first: the record offered is the most recent one that may be offered, not the first
@@ -315,6 +320,57 @@ public class DirectorWayUpOfferTests
         Assert.True(reopen.CanReopen);
         Assert.Equal("Open a fresh session in its repository", reopen.Offer);
         Assert.Contains("Codex cannot be started on a saved conversation", reopen.What);
+        Assert.Contains("NEW, blank session", reopen.What);
+    }
+
+    /// <summary>
+    /// COPILOT REALLY DOES RESUME: <c>CopilotAgent.BuildLaunchSpec</c> appends "--resume &lt;id&gt;", so the
+    /// offer must not tell the owner his conversation is lost. This was the defect in review finding 2 - a
+    /// hand-written list of agent names in the wording knew only Claude Code and Pi - and the fix was to
+    /// read the fact from the agent's own plugin instead.
+    /// </summary>
+    [Fact]
+    public async Task A_copilot_seat_is_offered_its_saved_conversation()
+    {
+        var reopen = await ReopenOfferFor("Copilot");
+
+        Assert.True(reopen.CanReopen);
+        Assert.Equal("Reopen its saved conversation", reopen.Offer);
+        Assert.Contains("GitHub Copilot is started again on this session's saved conversation", reopen.What);
+        Assert.DoesNotContain("NEW, blank session", reopen.What);
+    }
+
+    /// <summary>CURSOR REALLY DOES RESUME TOO: its driver appends "--resume=&quot;&lt;id&gt;&quot;".</summary>
+    [Fact]
+    public async Task A_cursor_seat_is_offered_its_saved_conversation()
+    {
+        var reopen = await ReopenOfferFor("Cursor");
+
+        Assert.True(reopen.CanReopen);
+        Assert.Equal("Reopen its saved conversation", reopen.Offer);
+        Assert.Contains("Cursor is started again on this session's saved conversation", reopen.What);
+        Assert.DoesNotContain("NEW, blank session", reopen.What);
+    }
+
+    /// <summary>
+    /// GEMINI, GROK AND OPENCODE EACH LOG THAT THEY ARE IGNORING THE ID, so each is told plainly that the
+    /// session will be blank. Named here beside Copilot and Cursor so that this file holds both sides: the
+    /// wording is read from each agent's own plugin, and reading it must not turn every agent into a
+    /// resuming one.
+    /// </summary>
+    /// <param name="agent">The agent the seat was running, as a record spells it.</param>
+    /// <param name="shownAs">The agent's name as a person reads it.</param>
+    [Theory]
+    [InlineData("Gemini", "Gemini")]
+    [InlineData("Grok", "Grok")]
+    [InlineData("OpenCode", "OpenCode")]
+    public async Task An_agent_whose_driver_ignores_the_id_is_offered_a_fresh_session(string agent, string shownAs)
+    {
+        var reopen = await ReopenOfferFor(agent);
+
+        Assert.True(reopen.CanReopen);
+        Assert.Equal("Open a fresh session in its repository", reopen.Offer);
+        Assert.Contains($"{shownAs} cannot be started on a saved conversation", reopen.What);
         Assert.Contains("NEW, blank session", reopen.What);
     }
 

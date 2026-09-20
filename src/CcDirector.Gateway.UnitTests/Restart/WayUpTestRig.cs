@@ -153,6 +153,27 @@ public sealed class FakeWayUpGateway : IWayUpGateway
     /// <summary>Records the Gateway lists but no longer holds, to stand in for one deleted between the two calls.</summary>
     public HashSet<string> ListedButGone { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>How many times the roster was asked for. The start-up check must never ask: a check on what
+    /// is RUNNING is exactly what the presence check is not.</summary>
+    public int RosterAsked { get; private set; }
+
+    /// <summary>The sessions the roster answers with. Empty by default: nothing is running.</summary>
+    public List<SessionDto> RosterSessions { get; } = new();
+
+    /// <summary>Each Director's reachability on the roster. A Director absent from this list is unreachable.</summary>
+    public List<DirectorReachabilityDto> RosterDirectors { get; } = new();
+
+    /// <summary>Put a session on the roster, running on a Director the Gateway can reach.</summary>
+    /// <param name="sessionId">The session id, which is a seat's captured session id when it is still alive.</param>
+    /// <param name="directorId">The Director it is running on.</param>
+    public FakeWayUpGateway Running(string sessionId, string directorId = "some-other-director")
+    {
+        RosterSessions.Add(new SessionDto { SessionId = sessionId, DirectorId = directorId, Name = sessionId });
+        if (!RosterDirectors.Any(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase)))
+            RosterDirectors.Add(new DirectorReachabilityDto { DirectorId = directorId, State = DirectorReachabilityDto.StateOnline });
+        return this;
+    }
+
     /// <summary>Put a record on this Gateway.</summary>
     /// <param name="doc">The record.</param>
     public FakeWayUpGateway With(WorkspaceDocument doc)
@@ -197,6 +218,14 @@ public sealed class FakeWayUpGateway : IWayUpGateway
         if (Unreachable is not null) throw new HttpRequestException(Unreachable);
         Started.Add(request);
         return Task.FromResult(new SessionDto { SessionId = NextSessionId, Name = request.Name ?? "" });
+    }
+
+    /// <inheritdoc />
+    public Task<RestoreRoster> GetRosterAsync(CancellationToken ct)
+    {
+        if (Unreachable is not null) throw new HttpRequestException(Unreachable);
+        RosterAsked++;
+        return Task.FromResult(new RestoreRoster(RosterSessions, RosterDirectors));
     }
 }
 

@@ -120,7 +120,7 @@ public sealed class AgentPluginLoaderTests : IDisposable
 
         public AgentPluginHistoryMetadata History { get; } = new(AgentHistoryProviderKind.None, false, "No test history.");
 
-        public AgentPluginLaunchMetadata Launch { get; } = new(false, false);
+        public AgentPluginLaunchMetadata Launch { get; } = new(false, false, false);
 
         public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 
