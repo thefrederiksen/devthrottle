@@ -716,6 +716,11 @@ public partial class App : Application
                 () =>
                 {
                     FileLog.Write("[CcDirector] shutdown requested by lifecycle signal");
+                    // RECORDED BEFORE THE SHUTDOWN RUNS, because something already under way needs to
+                    // read it. The launcher accepts a smart restart by stopping the Director that asked,
+                    // so the in-flight ask dies with the process; the smart shutdown reads this to tell
+                    // that acceptance apart from a launcher that refused (product issue 3257).
+                    CcDirector.Core.Lifecycle.LifecycleStopRequest.Record(DateTime.UtcNow);
                     RequestShutdownAsync().GetAwaiter().GetResult();
                 });
 

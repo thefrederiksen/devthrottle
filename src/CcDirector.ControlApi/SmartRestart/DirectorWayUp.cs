@@ -102,8 +102,26 @@ public sealed class DirectorWayUp : IDirectorWayUp
         try
         {
             var candidates = (await CandidatesAsync(ct).ConfigureAwait(false)).Read;
+            WorkspaceDocument? offered = null;
+            var read = 0;
             foreach (var summary in candidates)
             {
+                // WHERE THE READING STOPS, and why it is exact rather than a guess. A record cannot be
+                // WRITTEN before the shutdown it records, so a candidate's UpdatedUtc is an upper bound on
+                // its shutdown moment - and the candidates arrive in UpdatedUtc order, newest written
+                // first. So once a record that may be offered has a shutdown at or after the next
+                // candidate's UpdatedUtc, no record left in the list can have a newer shutdown, and the
+                // rest are not read. On the ordinary start-up - the newest record written at its own
+                // shutdown and untouched since - that is one document, exactly as it was before.
+                if (offered is not null && summary.UpdatedUtc <= ShutdownAtUtc(offered))
+                {
+                    FileLog.Write($"[DirectorWayUp] FindOfferAsync: stopped after {read} record(s); no record " +
+                                  $"written on or before {summary.UpdatedUtc:u} can have been shut down after " +
+                                  $"{ShutdownAtUtc(offered):u}");
+                    break;
+                }
+
+                read++;
                 var doc = await _gateway.GetWorkspaceAsync(summary.Id, ct).ConfigureAwait(false);
                 if (doc is null)
                 {
@@ -114,12 +132,18 @@ public sealed class DirectorWayUp : IDirectorWayUp
                 }
                 if (!IsOfferedAtStartUp(doc, _nowUtc())) continue;
 
-                var record = BuildRecord(doc);
-                FileLog.Write($"[DirectorWayUp] FindOfferAsync: offering {doc.Id}, owed={record.SeatsOwed}, rows={record.Rows.Count}");
+                if (offered is null || CompareNewestShutdownFirst(doc, offered) < 0) offered = doc;
+            }
+
+            if (offered is not null)
+            {
+                var record = BuildRecord(offered);
+                FileLog.Write($"[DirectorWayUp] FindOfferAsync: offering {offered.Id}, shut down " +
+                              $"{ShutdownAtUtc(offered):u}, owed={record.SeatsOwed}, rows={record.Rows.Count}");
                 return new WayUpOffer(WayUpOfferState.Offered, WayUpWords.Headline, record);
             }
 
-            FileLog.Write($"[DirectorWayUp] FindOfferAsync: nothing waiting ({candidates.Count} record(s) read)");
+            FileLog.Write($"[DirectorWayUp] FindOfferAsync: nothing waiting ({read} record(s) read)");
             return new WayUpOffer(WayUpOfferState.NothingWaiting, WayUpWords.NothingWaiting, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -136,13 +160,21 @@ public sealed class DirectorWayUp : IDirectorWayUp
         try
         {
             var candidates = await CandidatesAsync(ct).ConfigureAwait(false);
-            var entries = new List<WayUpHistoryEntry>();
+            var records = new List<WorkspaceDocument>();
             foreach (var summary in candidates.Read)
             {
                 var doc = await _gateway.GetWorkspaceAsync(summary.Id, ct).ConfigureAwait(false);
                 if (doc is null) continue;
-                entries.Add(BuildHistoryEntry(doc, _nowUtc()));
+                records.Add(doc);
             }
+
+            // NEWEST SHUTDOWN FIRST, which is what this window says and what every row of it shows. Sorted
+            // here and not left in the Gateway's list order, because that order is by when each record was
+            // last WRITTEN: any mark on an old record - a restore, a reopen, a clearing - moves it to the
+            // top, and a record shut down on 12 September sat above one shut down on 20 September in the
+            // owner's own output (product issue 3258).
+            records.Sort(CompareNewestShutdownFirst);
+            var entries = records.Select(doc => BuildHistoryEntry(doc, _nowUtc())).ToList();
 
             // How many are NOT being read, so the sentence can say so. Only the cap is counted here: a record
             // that was listed and has since been deleted is not an older record still sitting on the Gateway.
@@ -351,7 +383,12 @@ public sealed class DirectorWayUp : IDirectorWayUp
 
     /// <summary>
     /// The records this Director may read: captured, on THIS machine, and written by a Director with THIS
-    /// display name - never this identifier, which a restart changes. Newest first, capped.
+    /// display name - never this identifier, which a restart changes. Newest WRITTEN first, capped.
+    ///
+    /// THIS ORDER CHOOSES WHICH RECORDS ARE READ AND IS NOT THE ORDER ANYTHING IS SHOWN IN. It is by when
+    /// each record was last written, which is all a Gateway summary carries - the moment of the shutdown
+    /// lives on the document, not on the row. What is shown, and which record is offered, is ordered by
+    /// <see cref="CompareNewestShutdownFirst"/> once the documents have been read.
     /// </summary>
     /// <param name="ct">Cancellation.</param>
     private async Task<Candidates> CandidatesAsync(CancellationToken ct)
@@ -842,6 +879,24 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// <param name="doc">The record.</param>
     private static DateTime ShutdownAtUtc(WorkspaceDocument doc)
         => doc.CompletedAtUtc ?? doc.StartedAtUtc ?? doc.CreatedUtc;
+
+    /// <summary>
+    /// THE ONE ORDER THE WAY UP SHOWS AND PICKS RECORDS IN: newest SHUTDOWN first, ties broken by the
+    /// record's id so the order is total and one list never comes back in two orders.
+    ///
+    /// The history reads it and the start-up offer picks by it, so the window labelled "newest first" and
+    /// the one record the owner is interrupted with cannot disagree about which record is the newest.
+    /// Negative when <paramref name="a"/> comes first.
+    /// </summary>
+    /// <param name="a">One record.</param>
+    /// <param name="b">The other.</param>
+    internal static int CompareNewestShutdownFirst(WorkspaceDocument a, WorkspaceDocument b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        var byShutdown = ShutdownAtUtc(b).CompareTo(ShutdownAtUtc(a));
+        return byShutdown != 0 ? byShutdown : string.Compare(b.Id, a.Id, StringComparison.Ordinal);
+    }
 
     /// <summary>The same moment in the local time of the machine the person is standing at.</summary>
     /// <param name="utc">The moment, in universal time.</param>

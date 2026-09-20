@@ -269,7 +269,11 @@ public sealed class ControlApiHost : IAsyncDisposable
             // The restart purpose asks the launcher through the same seam the restart cycle uses.
             launcherGateway: () => _gatewayClient is { } client ? new Restart.GatewayClientRestartCycleGateway(client) : null,
             machine: Environment.MachineName,
-            exePath: Environment.ProcessPath);
+            exePath: Environment.ProcessPath,
+            // HOW THIS DIRECTOR SEES ITS OWN STOP. The launcher accepts a restart by stopping the Director
+            // that asked, so the ask dies with the process and there is no answer to read. This is the one
+            // fact that tells that acceptance apart from a launcher that refused (product issue 3257).
+            hasBeenAskedToStop: () => Core.Lifecycle.LifecycleStopRequest.WasMade);
     }
 
     /// <summary>
