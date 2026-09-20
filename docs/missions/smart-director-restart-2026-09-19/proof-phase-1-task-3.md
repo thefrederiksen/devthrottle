@@ -242,3 +242,10 @@ difference against `0b780c625`, the fix confirmed back in the file by search, RE
 - **The whole `CcDirector.Gateway.UnitTests` project and the parked suites were not run**, only the
   mission's check and the Avalonia build.
 - Everything listed under "What I could not reach" above still stands.
+
+## Task 3c
+
+- **The defect.** The comment on line 72 of `src/CcDirector.Gateway.UnitTests/Drain/DrainMessagesSmartShutdownTests.cs`, written by task 1 and already on `origin/main`, put two ordinary words side by side that together contain one of the retired messaging words, so `RetiredMessagingWordsTests` turned the default local gate red.
+- **Before the change**, on `236f097f7`, built from source: Failed 1, Passed 4, Total 5, and the failure named exactly that file and line 72 and nothing else.
+- **After the change**, built from source, never `--no-build`: Failed 0, Passed 5, Total 5.
+- **The new wording** is "whichever request called for it"; the sentence says the same thing, no exemption was added to the test, and nothing else changed.
