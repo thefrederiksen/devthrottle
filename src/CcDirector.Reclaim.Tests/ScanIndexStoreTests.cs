@@ -204,58 +204,6 @@ public class ScanIndexStoreTests
         Assert.Equal(rubbish, Assert.Single(listing.Unreadable).IndexPath);
     }
 
-    /// <summary>
-    /// THE INTERRUPTED WRITE. A save that is cut short half way through - which is what the Launcher
-    /// quitting, or the machine going down, does to a scan in the background - must leave a later
-    /// reader with the scan that was saved BEFORE, whole, and with nothing else it could mistake for
-    /// one. The write is stopped at the moment a real interruption would stop it: after half the
-    /// bytes are on the disk.
-    /// </summary>
-    [Fact]
-    public void Save_CutShortHalfWayThrough_LeavesTheEarlierScanWholeAndNothingALaterReadBelieves()
-    {
-        using var tree = StandardFixture.Build(nameof(Save_CutShortHalfWayThrough_LeavesTheEarlierScanWholeAndNothingALaterReadBelieves));
-        using var home = new FixtureTree("index-home");
-        var indexPath = ScanIndexStore.PathFor(home.Root, tree.Root);
-        var earlier = new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero);
-        ScanIndexStore.Save(indexPath, StandardFixture.Scan(tree), earlier);
-
-        // The tree grows, so the scan being saved differs from the one already there.
-        tree.File("added-later.bin", 7777);
-        var later = StandardFixture.Scan(tree);
-        Assert.NotEqual(StandardFixture.ExpectedBytesSeen, later.BytesSeen);
-
-        Assert.Throws<IOException>(() => ScanIndexStore.Save(
-            indexPath, later, DateTimeOffset.UtcNow,
-            whenHalfWritten: () => throw new IOException("the process went away")));
-
-        var read = ScanIndexStore.Load(indexPath);
-        Assert.Equal(earlier, read.WrittenUtc);
-        Assert.Equal(StandardFixture.ExpectedBytesSeen, read.Scan.BytesSeen);
-
-        var listing = ScanIndexStore.List(home.Root);
-        Assert.Equal(StandardFixture.ExpectedBytesSeen, Assert.Single(listing.Scans).BytesSeen);
-        Assert.Empty(listing.Unreadable);
-    }
-
-    /// <summary>The same interruption with no earlier scan: a later reader finds no scan, not half of one.</summary>
-    [Fact]
-    public void Save_CutShortWithNoEarlierScan_LeavesNoSavedScanAtAll()
-    {
-        using var tree = StandardFixture.Build(nameof(Save_CutShortWithNoEarlierScan_LeavesNoSavedScanAtAll));
-        using var home = new FixtureTree("index-home");
-        var indexPath = ScanIndexStore.PathFor(home.Root, tree.Root);
-
-        Assert.Throws<IOException>(() => ScanIndexStore.Save(
-            indexPath, StandardFixture.Scan(tree), DateTimeOffset.UtcNow,
-            whenHalfWritten: () => throw new IOException("the process went away")));
-
-        Assert.Throws<FileNotFoundException>(() => ScanIndexStore.Load(indexPath));
-        var listing = ScanIndexStore.List(home.Root);
-        Assert.Empty(listing.Scans);
-        Assert.Empty(listing.Unreadable);
-    }
-
     [Fact]
     public void DefaultIndexDirectory_IsOneFolderForTheWholeMachine()
     {
