@@ -94,16 +94,27 @@ internal static class RepoHygieneFold
         // The default branch's own short name, so "main" is not reported as an unmerged branch of itself.
         var defaultShort = ShortBranchName(repo.DefaultBranch);
 
-        var branches = repo.Branches
-            .Where(b => b.MergedIntoDefault == false)      // a definite false; a null is "not determined"
+        var candidates = repo.Branches
             .Where(b => !NameMatches(b.Name, defaultShort))
             .Where(b => !NameMatches(b.Name, repo.CurrentBranch))
             .Select(b => (Branch: b, AgeDays: AgeDays(b.TipCommitUtc, nowUtc)))
-            .Where(x => x.AgeDays is not null && x.AgeDays > UnmergedBranchHours / 24.0)
-            .OrderByDescending(x => x.AgeDays)             // oldest first
             .ToList();
 
-        if (branches.Count == 0)
+        var branches = candidates
+            .Where(x => x.Branch.MergedIntoDefault == false)   // a definite false; a null is "not determined"
+            .Where(x => x.AgeDays is not null && x.AgeDays > UnmergedBranchHours / 24.0)
+            .OrderByDescending(x => x.AgeDays)                 // oldest first
+            .ToList();
+
+        // What could not be placed either way: merge state never determined, or unmerged with no tip date
+        // to age it by. Still never NAMED as unmerged work - nobody established that it is - but COUNTED,
+        // because dropping it made the count in the email read as the whole truth (#3124). A definite
+        // merged branch and a branch touched within the day are known quantities, not unknowns.
+        var undetermined = candidates.Count(x =>
+            x.Branch.MergedIntoDefault is null ||
+            (x.Branch.MergedIntoDefault == false && x.AgeDays is null));
+
+        if (branches.Count == 0 && undetermined == 0)
             return null;
 
         return new UnmergedBranchesAttentionDto
@@ -115,6 +126,7 @@ internal static class RepoHygieneFold
                 AgeDays = Math.Round(x.AgeDays!.Value, 1),
                 Commits = x.Branch.CommitsAheadOfDefault,
             }).ToList(),
+            Undetermined = undetermined,
         };
     }
 
