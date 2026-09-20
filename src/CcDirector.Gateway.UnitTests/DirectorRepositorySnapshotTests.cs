@@ -48,8 +48,10 @@ public sealed class DirectorRepositorySnapshotTests
     private static List<RepoStatusDto> Union(
         IReadOnlyList<RepositoryStatus>? scanned,
         IReadOnlyList<RepositoryConfig>? registered,
-        bool scanHasCompleted = true)
-        => DirectorRepositorySnapshot.Union(scanned, registered, scanHasCompleted, DirectorId, Machine);
+        bool scanHasCompleted = true,
+        IReadOnlyList<RootFolderListingDto>? rootFolders = null)
+        => DirectorRepositorySnapshot.Union(
+            scanned, registered, scanHasCompleted, rootFolders, DirectorId, Machine);
 
     // ---------- THE FLOW: a hand-added repository no watched folder covers leaves the machine ----------
 

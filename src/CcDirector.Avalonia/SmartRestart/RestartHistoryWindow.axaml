@@ -1,0 +1,154 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:CcDirector.Avalonia.SmartRestart"
+        x:Class="CcDirector.Avalonia.SmartRestart.RestartHistoryWindow"
+        x:DataType="local:RestartHistoryViewModel"
+        x:CompileBindings="True"
+        Title="Restart history"
+        Width="680" Height="600"
+        WindowStartupLocation="CenterOwner"
+        Background="#252526">
+
+    <!-- File, Restart history (mission 5.3 item 11). Every word drawn here is the engine's, bound
+         straight from RestartHistoryViewModel; this file lays them out. docs/VisualStyle.md: #252526
+         window, #1E1E1E panels, #CCCCCC primary text, #AAAAAA secondary, #888888 tertiary. -->
+    <Window.Styles>
+        <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#505050" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />  <!-- what this history is, in the engine's words -->
+            <RowDefinition Height="*" />     <!-- the records, newest first -->
+            <RowDefinition Height="Auto" />  <!-- close -->
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   x:Name="TxtStatus"
+                   Text="{Binding StatusText}"
+                   Foreground="#CCCCCC"
+                   FontSize="14" FontWeight="SemiBold"
+                   TextWrapping="Wrap" />
+
+        <Border Grid.Row="1"
+                Background="#1E1E1E"
+                BorderBrush="#3C3C3C" BorderThickness="1"
+                CornerRadius="4"
+                Margin="0,12,0,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl x:Name="EntryList"
+                              ItemsSource="{Binding Entries}"
+                              Margin="8">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:RestartHistoryEntryViewModel">
+                            <Border Background="#252526"
+                                    BorderBrush="#3C3C3C" BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="12,10"
+                                    Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding WhenLabel}"
+                                               Foreground="#CCCCCC"
+                                               FontSize="13" FontWeight="SemiBold"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding KindLabel}"
+                                               Foreground="#AAAAAA"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Margin="0,3,0,0" />
+                                    <TextBlock Text="{Binding ReasonLabel}"
+                                               Foreground="#888888"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding OutcomeLabel}"
+                                               Foreground="#AAAAAA"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Margin="0,6,0,0" />
+                                    <ItemsControl ItemsSource="{Binding Seats}"
+                                                  IsVisible="{Binding HasSeats}"
+                                                  Margin="0,6,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="local:RestartHistorySeatViewModel">
+                                                <StackPanel Margin="0,1,0,1">
+                                                    <Grid ColumnDefinitions="200,*">
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="{Binding Name}"
+                                                                   Foreground="#888888"
+                                                                   FontSize="11"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   Margin="0,0,10,0" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding Outcome}"
+                                                                   Foreground="#888888"
+                                                                   FontSize="11"
+                                                                   TextWrapping="Wrap" />
+                                                    </Grid>
+
+                                                    <!-- A seat that ended without a handover: the engine's
+                                                         own sentence for what reopening really does, and
+                                                         its own button when there is something to reopen.
+                                                         Both come from the engine; this lays them out. -->
+                                                    <TextBlock Text="{Binding Reopen.WhatText}"
+                                                               IsVisible="{Binding Reopen.HasWhat}"
+                                                               Foreground="#888888"
+                                                               FontSize="11"
+                                                               TextWrapping="Wrap"
+                                                               Margin="210,2,0,0" />
+                                                    <Button Content="{Binding Reopen.OfferText}"
+                                                            IsVisible="{Binding Reopen.HasButton}"
+                                                            Classes="secondary"
+                                                            Click="BtnReopen_Click"
+                                                            Background="#3C3C3C" Foreground="#CCCCCC"
+                                                            BorderThickness="0"
+                                                            FontSize="12" Height="26"
+                                                            Cursor="Hand"
+                                                            HorizontalAlignment="Left"
+                                                            Margin="210,4,0,0" />
+                                                    <TextBlock Text="{Binding Reopen.ResultText}"
+                                                               IsVisible="{Binding Reopen.HasResult}"
+                                                               Foreground="#CCCCCC"
+                                                               FontSize="11"
+                                                               TextWrapping="Wrap"
+                                                               Margin="210,4,0,0" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Content="{Binding BringBackText}"
+                                            IsVisible="{Binding HasOffer}"
+                                            Classes="secondary"
+                                            Click="BtnBringBack_Click"
+                                            Background="#3C3C3C" Foreground="#CCCCCC"
+                                            BorderThickness="0"
+                                            FontSize="12" Height="26"
+                                            Cursor="Hand"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <Button Grid.Row="2"
+                x:Name="BtnClose"
+                Classes="secondary"
+                Content="Close"
+                Click="BtnClose_Click"
+                MinWidth="100" Height="30"
+                HorizontalAlignment="Right"
+                HorizontalContentAlignment="Center"
+                Background="#3C3C3C" Foreground="#CCCCCC"
+                BorderThickness="0" Cursor="Hand"
+                IsCancel="True"
+                Margin="0,12,0,0" />
+    </Grid>
+</Window>

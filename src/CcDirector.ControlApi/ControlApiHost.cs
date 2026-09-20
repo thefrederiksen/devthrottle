@@ -334,6 +334,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private Core.Storage.TurnReviewLogger? _turnReviewLogger;
     private Core.Sessions.SessionRecordsWatcher? _recordsWatcher;
     private Core.Pi.PiSessionRebinder? _piSessionRebinder;
+    private Core.Sessions.PendingInteractionWatcher? _pendingInteractionWatcher;
     // Remove-the-network-port mission, phase 3: the two halves of the session-hook channel that
     // replaced the three Control API routes. Both started by StartSessionStateServices, because
     // neither touches the bound port and both must run even when it fails to bind - a Director whose
@@ -344,6 +345,9 @@ public sealed class ControlApiHost : IAsyncDisposable
     private Core.Storage.ConversationIngestor? _conversationIngestor;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private readonly string? _instancesDirectory;
+    /// <summary>This Director's registered root folders, read fresh on every push. Null in a host that
+    /// was given none, which is every headless and test host.</summary>
+    private readonly Func<IReadOnlyList<string>>? _rootFolders;
     private bool _stopped;
     private bool _stateServicesStarted;
 
@@ -351,9 +355,12 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// Construct a Director host. There is nothing to configure about a listener because there is
     /// no listener; see the class comment.
     /// </summary>
-    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, string? instancesDirectory = null, Core.Git.RepositoryMonitor? repositoryMonitor = null)
+    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, string? instancesDirectory = null, Core.Git.RepositoryMonitor? repositoryMonitor = null, Func<IReadOnlyList<string>>? rootFolders = null)
     {
         _repositoryMonitor = repositoryMonitor;
+        // Read per push, never captured once: a root folder the user adds or removes in Settings has to
+        // reach the Gateway on the next push rather than on the next Director restart.
+        _rootFolders = rootFolders;
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _version = version ?? "0.0.0";
         _requestShutdownAsync = requestShutdownAsync ?? throw new ArgumentNullException(nameof(requestShutdownAsync));
@@ -989,6 +996,15 @@ public sealed class ControlApiHost : IAsyncDisposable
         _piSessionRebinder = new Core.Pi.PiSessionRebinder(_sessionManager);
         _piSessionRebinder.Start();
 
+        // Whether a session is holding a question box or a plan awaiting approval (issue #3167). On the
+        // same turn-end trigger, read the agent's own transcript for an interaction tool call that has
+        // no result yet and stamp Session.PendingInteraction. The Smart shutdown dialog reads that
+        // property to show the owner which sessions have a question open before it asks him anything;
+        // until this watcher existed nothing in the product ever set it, so that section of the dialog
+        // could never appear.
+        _pendingInteractionWatcher = new Core.Sessions.PendingInteractionWatcher(_sessionManager);
+        _pendingInteractionWatcher.Start();
+
         // The prompt record (issue #1551): on the same turn-end trigger, read each session's
         // conversation out of the agent's own transcript, join on where each prompt came from, and PUSH
         // it to the Gateway's log. The Director captures because it is the only thing that sees a prompt
@@ -1389,8 +1405,29 @@ public sealed class ControlApiHost : IAsyncDisposable
             // No monitor at all means there is no scan to wait for: the registered list IS everything
             // this Director knows, and it is a complete statement of that from the first push.
             _repositoryMonitor?.HasCompletedAScan ?? true,
+            RootFolderListing(),
             DirectorId,
             Environment.MachineName);
+
+    /// <summary>
+    /// What currently exists under this Director's registered root folders, for the push to carry (the
+    /// one-repository-list mission, "the catalogue forgets"). It is what lets the Gateway catalogue
+    /// forget a repository whose folder has gone, and <see cref="DirectorRootFolders"/> says why the
+    /// root-folder scan cannot answer that question by itself.
+    ///
+    /// NOTHING IS REPORTED UNTIL THIS DIRECTOR HAS COMPLETED A SCAN, and the default when there is no
+    /// monitor at all is FALSE - the opposite of the registry's default above, deliberately. The
+    /// registry's default says "the registered list is everything I know, and I know it now"; this one
+    /// authorises DELETION on the Gateway, and a Director that has not settled, or that has no
+    /// root-folder scan at all, has no business authorising any. A push that carries no listing forgets
+    /// nothing, which is the safe answer in both cases.
+    /// </summary>
+    private List<RootFolderListingDto>? RootFolderListing()
+    {
+        if (_rootFolders is null || _repositoryMonitor?.HasCompletedAScan != true)
+            return null;
+        return DirectorRootFolders.Build(_rootFolders(), DirectorRootFolders.ListChildFolders);
+    }
 
     /// <summary>
     /// Push the repository snapshot on model changes, debounced: a scan streaming thirty upserts
@@ -1683,6 +1720,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         _recordsWatcher = null;
         _piSessionRebinder?.Dispose();
         _piSessionRebinder = null;
+        _pendingInteractionWatcher?.Dispose();
+        _pendingInteractionWatcher = null;
         _conversationIngestor?.Dispose();
         _conversationIngestor = null;
         _sessionRecorder?.Dispose();

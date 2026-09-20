@@ -126,6 +126,7 @@ public sealed class MorningReportBuilder
                 Tz = window.Tz,
             },
             Attention = WaitingSessions(ctx, tenant, now),
+            WorkedInWindow = WorkedInWindow(ctx, window),
         };
 
         // The hygiene rows (issue #2118): stale worktrees and unmerged branches, from the repo-state
@@ -295,6 +296,37 @@ public sealed class MorningReportBuilder
             signature = signature[..^modelSuffix.Length];
         return Supervision.TerminatingFaultClassifier.UsageLimitSignatures
             .Contains(signature, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Did this account do anything at all in the reported window (#3124)?
+    ///
+    /// TWO SIGNALS, EITHER OF WHICH MEANS YES, because one alone is wrong in a way that would silence
+    /// somebody's email on a day they worked:
+    ///
+    ///   * A TURN SUBMITTED is a person driving an agent. It is the closest thing the Gateway holds to
+    ///     "they used DevThrottle", and on a normal working day there are many.
+    ///   * A SESSION BECOMING ACTIVE covers the day that produced no turn record - a session opened and
+    ///     worked without the turn feed reaching this Gateway, which is the hosted case when a Director
+    ///     is mid-reconnect.
+    ///
+    /// Anything found inside the window counts; nothing outside it does. The window is the reader's own
+    /// calendar day (see MorningReportWindow), so this asks about THEIR yesterday and not about UTC's.
+    /// </summary>
+    private static bool WorkedInWindow(GatewayDbContext ctx, MorningReportWindow window)
+    {
+        var start = window.StartUtc;
+        var end = window.EndUtc;
+
+        var turned = ctx.ActivityEvents.AsNoTracking()
+            .Any(e => e.EventType == ActivityEventTypes.TurnSubmitted &&
+                      e.OccurredUtc >= start && e.OccurredUtc < end);
+        if (turned) return true;
+
+        return ctx.GovernanceEvents.AsNoTracking()
+            .Any(e => e.SubjectKind == GovernanceEventSubject.Session &&
+                      e.State == GovernanceEventState.Active &&
+                      e.OccurredUtc >= start && e.OccurredUtc < end);
     }
 
     /// <summary>The floor of the running-too-long rule: a stretch shorter than this is never flagged,

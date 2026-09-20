@@ -811,6 +811,21 @@ public sealed class Session : IDisposable
     /// </summary>
     public PendingInteraction? PendingInteraction { get; private set; }
 
+    /// <summary>
+    /// Record what structured ask this session is holding, or pass null to say it is holding none.
+    ///
+    /// The setter stays private and this is the only door in, for the same reason
+    /// <see cref="SetBackgroundRunning"/> and <see cref="SetCurrentModel"/> are methods: a caller has to
+    /// be able to name itself, and the one caller here is
+    /// <see cref="PendingInteractionWatcher"/>, which reads the agent's own transcript at a turn end.
+    /// Nothing else may write it - a value guessed from the terminal screen is exactly what this
+    /// property is not for.
+    ///
+    /// Volatile state, as the property documents: it is not persisted, and it is dropped by
+    /// <see cref="SetActivityState"/> the moment the session leaves the waiting states.
+    /// </summary>
+    public void SetPendingInteraction(PendingInteraction? interaction) => PendingInteraction = interaction;
+
     /// <summary>User-chosen header color (hex string like "#2563EB"). Null means default dark header.</summary>
     public string? CustomColor { get; set; }
 
@@ -3598,6 +3613,13 @@ public sealed class Session : IDisposable
         // briefing re-evaluates from scratch. Only WaitingForInput/WaitingForPerm preserve it.
         if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
             IsBackgroundRunning = false;
+        // The same edge drops any structured ask. The user answered the question box or approved the
+        // plan, the session went back to work, and a question box left standing in the Smart shutdown
+        // dialog would send the owner hunting for a question nobody is asking. PendingInteraction has
+        // documented this clearing since it was written; until the detection that fills it landed
+        // (PendingInteractionWatcher) there was nothing to clear, and so no code here saying it.
+        if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
+            PendingInteraction = null;
         // The work that a submission explained is over once the session settles or exits; the next working
         // edge is explained only by the next submission.
         if (newState is not (ActivityState.Working or ActivityState.Starting))
