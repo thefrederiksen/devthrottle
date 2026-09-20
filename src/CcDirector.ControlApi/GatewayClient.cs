@@ -461,6 +461,31 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IDisposa
                ?? throw new InvalidOperationException($"Gateway {route} returned an unparsable body.");
     }
 
+    /// <summary>
+    /// Ask the Gateway to pass one restored seat's dev reports to the session it came back as (the Smart Director
+    /// Restart mission, section 5.3 item 13) through <c>POST /gateway/workspaces/{id}/restore/dev-reports</c>, on this
+    /// Director's own credential. Throws with the Gateway's reason when it refuses - notably when this Director does
+    /// not hold the workspace's restore lease, or the seat has not come back.
+    /// </summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="request">The Director asking and the seat.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<WorkspaceDevReportPassResult> PassDevReportsAsync(string workspaceId, WorkspaceDevReportPassRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot pass dev reports.");
+
+        var route = $"POST /gateway/workspaces/{workspaceId}/restore/dev-reports";
+        FileLog.Write($"[GatewayClient] PassDevReportsAsync: {route}, seat={request.SeatSessionId}");
+        using var resp = await _http.PostAsJsonAsync($"gateway/workspaces/{Uri.EscapeDataString(workspaceId)}/restore/dev-reports", request, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, route, ct);
+
+        return await resp.Content.ReadFromJsonAsync<WorkspaceDevReportPassResult>(ct)
+               ?? throw new InvalidOperationException($"Gateway {route} returned an unparsable body.");
+    }
+
     /// <summary>Create or replace a workspace. Returns the stored document with the Gateway's timestamps.</summary>
     /// <param name="doc">The workspace to store. Its Id is the route.</param>
     /// <param name="ct">Cancellation.</param>

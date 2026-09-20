@@ -6,7 +6,6 @@ import {
   getAgents,
   getDirectors,
   getKnownRepositories,
-  getRepos,
   type AgentChoice,
   type DirectorInfo,
   type RepoInfo,
@@ -15,7 +14,12 @@ import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting
 
 type ActiveStep = "director" | "agent" | "repository" | "review";
 
-const RECENT_REPOSITORY_COUNT = 5;
+/**
+ * How many of the one repository list's rows this step shows before you type a search. It is a
+ * LENGTH, not an opinion about which rows deserve to be there: the Gateway has already decided the
+ * order, so the top of its list is the top of this one.
+ */
+const TOP_REPOSITORY_COUNT = 5;
 const SEARCH_REPOSITORY_COUNT = 50;
 const AGENT_STORAGE_PREFIX = "mobile.newSession.agent.";
 
@@ -50,40 +54,6 @@ function repositoryLabel(repository: RepoInfo): string {
   if (repository.name.trim()) return repository.name.trim();
   const parts = repository.path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : repository.path;
-}
-
-function repositoryKey(path: string): string {
-  const normalized = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-  const isWindowsPath = /^[a-z]:\//i.test(normalized) || normalized.startsWith("//");
-  return isWindowsPath ? normalized.toLocaleLowerCase() : normalized;
-}
-
-function mergeRepositories(...sources: Array<RepoInfo[] | null>): RepoInfo[] {
-  const byPath = new Map<string, RepoInfo>();
-  for (const source of sources) {
-    for (const repository of source ?? []) {
-      const key = repositoryKey(repository.path);
-      if (!key) continue;
-      const existing = byPath.get(key);
-      if (
-        existing === undefined
-        || repository.lastUsed.localeCompare(existing.lastUsed) > 0
-      ) {
-        byPath.set(key, {
-          name: repository.name.trim() || existing?.name || "",
-          path: repository.path,
-          lastUsed: repository.lastUsed,
-        });
-      } else if (!existing.name.trim() && repository.name.trim()) {
-        byPath.set(key, { ...existing, name: repository.name.trim() });
-      }
-    }
-  }
-  return [...byPath.values()].sort((left, right) => {
-    const byUsed = right.lastUsed.localeCompare(left.lastUsed);
-    if (byUsed !== 0) return byUsed;
-    return repositoryLabel(left).localeCompare(repositoryLabel(right));
-  });
 }
 
 function rememberedAgent(directorId: string): string | null {
@@ -121,9 +91,7 @@ export function NewSession() {
   const [agentReload, setAgentReload] = useState(0);
   const [selectedAgentType, setSelectedAgentType] = useState<string | null>(null);
 
-  const [recentRepositories, setRecentRepositories] = useState<RepoInfo[] | null>(null);
   const [knownRepositories, setKnownRepositories] = useState<RepoInfo[] | null>(null);
-  const [recentRepositoriesError, setRecentRepositoriesError] = useState<string | null>(null);
   const [knownRepositoriesError, setKnownRepositoriesError] = useState<string | null>(null);
   const [repositoryReload, setRepositoryReload] = useState(0);
   const [repositoryQuery, setRepositoryQuery] = useState("");
@@ -144,9 +112,7 @@ export function NewSession() {
     setAgents(null);
     setAgentsError(null);
     setSelectedAgentType(null);
-    setRecentRepositories(null);
     setKnownRepositories(null);
-    setRecentRepositoriesError(null);
     setKnownRepositoriesError(null);
     setRepositoryQuery("");
     setSelectedRepository(null);
@@ -227,28 +193,11 @@ export function NewSession() {
     if (!selectedId) return;
 
     const directorId = selectedId;
-    const recentController = new AbortController();
     const knownController = new AbortController();
-    const isCurrent = () =>
-      !recentController.signal.aborted
-      && !knownController.signal.aborted
-      && selectedIdRef.current === directorId;
+    const isCurrent = () => !knownController.signal.aborted && selectedIdRef.current === directorId;
 
-    setRecentRepositories(null);
     setKnownRepositories(null);
-    setRecentRepositoriesError(null);
     setKnownRepositoriesError(null);
-
-    getRepos(directorId, recentController.signal)
-      .then((list) => {
-        if (!isCurrent()) return;
-        setRecentRepositories(list);
-      })
-      .catch((error) => {
-        if (recentController.signal.aborted || !isCurrent()) return;
-        setRecentRepositories([]);
-        setRecentRepositoriesError(gatewayErrorMessage(error));
-      });
 
     getKnownRepositories(directorId, knownController.signal)
       .then((list) => {
@@ -261,27 +210,31 @@ export function NewSession() {
         setKnownRepositoriesError(gatewayErrorMessage(error));
       });
 
-    return () => {
-      recentController.abort();
-      knownController.abort();
-    };
+    return () => knownController.abort();
   }, [selectedId, repositoryReload]);
 
-  const allRepositories = useMemo(
-    () => mergeRepositories(recentRepositories, knownRepositories),
-    [recentRepositories, knownRepositories],
-  );
+  // THE ONE REPOSITORY LIST, RENDERED IN THE ORDER IT ARRIVED. The Gateway has already put the most
+  // recently used repositories first and the ones nobody has ever opened beneath them, and it has
+  // already served one entry per repository for the whole machine. So this screen does not sort,
+  // does not merge a second source in, and does not de-duplicate: it slices and it filters, both of
+  // which keep the order they were handed (Critical Rule 7 in CLAUDE.md - the client is dumb, the
+  // Gateway owns all ruling).
+  //
+  // It used to read a second route as well, GET /directors/{id}/repos - the Director's own registry -
+  // and merge the two here. That merge could not avoid ruling: it had to decide which of two records
+  // of one repository won, in what order the result came out, and which two paths were the same
+  // repository. So the phone showed the Director's answer and the Cockpit showed the Gateway's, for
+  // one machine. The one-repository-list mission exists to end exactly that, and phase 5 ended it
+  // here. Do not add a second source back.
+  const allRepositories = useMemo(() => knownRepositories ?? [], [knownRepositories]);
   const matchedRepositories = useMemo(() => {
     const query = repositoryQuery.trim().toLocaleLowerCase();
-    if (!query) {
-      const recent = mergeRepositories(recentRepositories);
-      return (recent.length > 0 ? recent : allRepositories).slice(0, RECENT_REPOSITORY_COUNT);
-    }
+    if (!query) return allRepositories.slice(0, TOP_REPOSITORY_COUNT);
     return allRepositories.filter((repository) =>
       repositoryLabel(repository).toLocaleLowerCase().includes(query)
       || repository.path.toLocaleLowerCase().includes(query),
     );
-  }, [allRepositories, recentRepositories, repositoryQuery]);
+  }, [allRepositories, repositoryQuery]);
   const visibleRepositories = repositoryQuery.trim()
     ? matchedRepositories.slice(0, SEARCH_REPOSITORY_COUNT)
     : matchedRepositories;
@@ -345,9 +298,7 @@ export function NewSession() {
   }, [navigate, selectedAgent, selectedDirector, selectedId, selectedRepository]);
 
   const canReview = selectedDirector !== null && selectedAgent !== null && selectedRepository !== null;
-  const repositorySourcesSettled = recentRepositories !== null && knownRepositories !== null;
-  const repositorySourcesFailed =
-    recentRepositoriesError !== null || knownRepositoriesError !== null;
+  const repositoryListSettled = knownRepositories !== null;
 
   return (
     <div className="screen newsession-screen">
@@ -506,8 +457,15 @@ export function NewSession() {
                 value={repositoryQuery}
                 onChange={(event) => setRepositoryQuery(event.target.value)}
               />
-              {!repositoryQuery.trim() && (
-                <p className="newsession-recent-note">Showing up to five most recently used repositories.</p>
+              {/* The note and the empty-state sentence below both describe the list, so neither is
+                  shown when the list could not be loaded: a screen that says "showing the top five"
+                  above an error, and "no repositories are known on this machine" beside one, is
+                  telling the reader two things it does not know. Not loaded is not the same fact as
+                  nothing there. */}
+              {!repositoryQuery.trim() && knownRepositoriesError === null && (
+                <p className="newsession-recent-note">
+                  Showing the top five of this machine&rsquo;s repository list, most recently used first.
+                </p>
               )}
               {repositoryQuery.trim() && matchedRepositories.length > visibleRepositories.length && (
                 <p className="newsession-recent-note" role="status">
@@ -515,36 +473,36 @@ export function NewSession() {
                 </p>
               )}
 
-              {!repositorySourcesSettled && visibleRepositories.length === 0 && (
+              {!repositoryListSettled && visibleRepositories.length === 0 && (
                 <p className="status-line">Loading repositories…</p>
-              )}
-              {recentRepositoriesError !== null && (
-                <div className="banner banner-error newsession-source-error" role="alert">
-                  Recent repositories could not be loaded: {recentRepositoriesError}
-                </div>
               )}
               {knownRepositoriesError !== null && (
                 <div className="banner banner-error newsession-source-error" role="alert">
-                  Repository history could not be loaded: {knownRepositoriesError}
+                  The repository list could not be loaded: {knownRepositoriesError}
                 </div>
               )}
-              {repositorySourcesFailed && (
+              {knownRepositoriesError !== null && (
                 <button type="button" className="newsession-retry standalone" onClick={() => setRepositoryReload((value) => value + 1)}>
-                  Retry repository sources
+                  Retry the repository list
                 </button>
               )}
 
-              {repositorySourcesSettled && visibleRepositories.length === 0 && (
+              {repositoryListSettled && knownRepositoriesError === null && visibleRepositories.length === 0 && (
                 <p className="status-line">
                   {repositoryQuery.trim()
                     ? "No known repositories match that search."
                     : "No repositories are known on this machine yet."}
                 </p>
               )}
+              {/* The row key is the path itself: the Gateway serves one entry per repository for
+                  this machine, so there is nothing left for a client rule to de-duplicate - and the
+                  rule that used to do it here decided whether a path was a Windows one from the
+                  path's own shape, which is a judgement this mission has already found wrong in
+                  four places. */}
               {visibleRepositories.length > 0 && (
                 <ul className="roster newsession-choice-list newsession-repository-list">
                   {visibleRepositories.map((repository) => (
-                    <li key={repositoryKey(repository.path)} className="row">
+                    <li key={repository.path} className="row">
                       <button
                         type="button"
                         className="picker-link"

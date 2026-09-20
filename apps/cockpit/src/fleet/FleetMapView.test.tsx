@@ -23,7 +23,7 @@ vi.mock("@devthrottle/client-core/fleet/rosterStore", () => ({
 vi.mock("react-router-dom", () => ({ useNavigate: () => vi.fn() }));
 
 // The Fleet Map "+ New session" button opens the SAME NewSessionDialog the Sessions tab uses, which
-// loads its machine / repo / agent pickers from the Gateway. Mock those data calls so the dialog renders
+// loads its machine / repository / agent pickers from the Gateway. Mock those data calls so the dialog renders
 // against a fixed fleet without a real Gateway. getDirectors is what proves the pre-selection: the dialog
 // default-selects the NEWEST-started Director, so we make "soren-1" newest and assert the CLICKED
 // "north-1" is selected instead - which can only happen if the Fleet Map passed it through.
@@ -31,6 +31,11 @@ const getDirectorsMock = vi.fn();
 vi.mock("@devthrottle/client-core/api/client", () => ({
   getDirectors: (...args: unknown[]) => getDirectorsMock(...args),
   getRepos: () => Promise.resolve([]),
+  // The New Session dialog reads the one ordered repository list from here (the one-repository-list
+  // mission, phase 4). getRepos stays mocked beside it because the Director detail page still reads that.
+  getKnownRepositories: () => Promise.resolve([]),
+  // The dialog's Add button registers a path on the selected machine (POST /directors/{id}/repos).
+  addRepo: () => Promise.resolve({ added: true, name: "", path: "" }),
   getAgents: () => Promise.resolve([]),
   createSession: () => Promise.resolve({ sessionId: "new" }),
   gatewayErrorMessage: (e: unknown) => String(e),

@@ -153,6 +153,25 @@ export interface RepoInfo {
   lastUsed: string;
 }
 
+// One repository on the ONE list the Gateway serves from GET /directors/{id}/known-repositories: the
+// union of what has been opened on that machine and what a Director found under a registered root folder
+// but nobody has ever opened. Everything a RepoInfo carries, plus the Gateway's verdict on which half
+// this row is in.
+//
+// It is a SEPARATE interface rather than a field on RepoInfo on purpose. getRepos reads a different
+// route, the Director's own registry, which carries no such verdict - so putting the field on RepoInfo
+// would force getRepos to INVENT one, which is the client ruling for itself that Critical Rule 7 forbids.
+// Because this extends RepoInfo, anything that already takes a RepoInfo takes one of these unchanged.
+export interface KnownRepoInfo extends RepoInfo {
+  /**
+   * The Gateway's stamped verdict: this repository was found under a registered root folder and has never
+   * been opened, which is why it sits beneath everything that has been. It is read, never derived - a
+   * client must not decide for itself what an absent lastUsed MEANS, and must never compare lastUsed to
+   * work out where a row belongs. The Gateway already decided both.
+   */
+  neverOpened: boolean;
+}
+
 // One selectable agent on a Director, projected from GET /directors/{id}/agents (issue #1497): the
 // machine's configured, enabled agents, one per kind - the remote counterpart of the desktop New
 // Session dialog's agent radios. Not in the OpenAPI schema; read with this narrow local shape.
@@ -635,11 +654,27 @@ function isUnreachableStatus(status: number): boolean {
 }
 
 /** Add the retry advice unless the reason already gives it, so a retryable failure always tells the
- *  user that trying again is the right move (and a permanent one never suggests it). */
+ *  user that trying again is the right move (and a permanent one never suggests it).
+ *
+ *  THE REASON IT IS HANDED IS NOT GUARANTEED TO BE A TERMINATED SENTENCE, so this terminates it before
+ *  appending. The Gateway writes some reasons as SENTENCES ("That machine is catching up.") and some as
+ *  PHRASES, and appending to a phrase ran the two together with nothing between them.
+ *
+ *  A shipped example, cited because a made-up one is how this was nearly mis-diagnosed:
+ *  `SessionWsProxyEndpoints.WriteVerbJsonAsync` answers `{ error = "owning director is not connected" }`
+ *  at 503 when the owning Director is not tunnel-connected. 503 is retryable by default (see the
+ *  GatewayError constructor), so that reason reached the screen as
+ *  "owning director is not connected Try again."
+ *
+ *  It survived this long because every reason anyone had looked at happened to end in a full stop,
+ *  including every reason in errorReporting.test.ts. Fixed here, at the one place that joins the two
+ *  parts, rather than in whichever screen happens to be pointed at it. */
 function withRetryHint(sentence: string, retryable: boolean): string {
   if (!retryable) return sentence;
   if (/try again|retrying|retry/i.test(sentence)) return sentence;
-  return `${sentence} Try again.`;
+  const trimmed = sentence.trimEnd();
+  const terminated = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  return `${terminated} Try again.`;
 }
 
 /** The fallback sentence when the server sent no reason of its own. Never a bare number. */
@@ -1705,11 +1740,22 @@ export async function getRepos(directorId: string, signal?: AbortSignal): Promis
   return list;
 }
 
-// GET /directors/{id}/known-repositories - every repository the Gateway has durably observed on the
-// selected Director's machine. This is intentionally separate from getRepos: getRepos is the live
-// Director registry used for the five zero-query recent choices, while this complete catalog is the
-// search source and remains available when the Director tunnel is temporarily disconnected.
-export async function getKnownRepositories(directorId: string, signal?: AbortSignal): Promise<RepoInfo[]> {
+// GET /directors/{id}/known-repositories - the ONE repository list for the selected Director's machine,
+// in the ONE order the Gateway has already decided: most recently used first, with the repositories a
+// Director found under a registered root folder and nobody has ever opened beneath them. It is durable
+// and machine-keyed, so it survives that Director being disconnected, which is exactly when the screens
+// reading it still need a list.
+//
+// THIS READER DOES NOT SORT, AND MUST NOT. The order is the Gateway's ruling (Critical Rule 7 in
+// CLAUDE.md, applied to a list instead of a verdict): the rows are returned in the order they arrived,
+// index for index. A client that re-sorted would be a client that ruled, and the moment it met a row it
+// did not expect it would render something plausible rather than something true. The guard against this
+// coming back is packages/client-core/src/api/newSession.test.ts, "serves the Gateway's order untouched
+// and never re-sorts on lastUsed".
+export async function getKnownRepositories(
+  directorId: string,
+  signal?: AbortSignal,
+): Promise<KnownRepoInfo[]> {
   const id = encodeURIComponent(directorId);
   const res = await gatewayFetch(`/directors/${id}/known-repositories`, {
     method: "GET",
@@ -1720,15 +1766,63 @@ export async function getKnownRepositories(directorId: string, signal?: AbortSig
     throw await GatewayError.from(res, "load that machine's repository history");
   }
   const raw = (await res.json()) as Array<Record<string, unknown>>;
-  const list: RepoInfo[] = raw
+  const list: KnownRepoInfo[] = raw
     .map((repository) => ({
       name: String(repository.name ?? ""),
       path: String(repository.path ?? ""),
       lastUsed: String(repository.lastUsed ?? ""),
+      // Carried through as the Gateway sent it. A row the Gateway did not stamp is NOT guessed at from
+      // the absent time - it reads as false, which is what an unstamped row is: one this client has no
+      // verdict for, and so has no business drawing a conclusion about.
+      neverOpened: repository.neverOpened === true,
     }))
     .filter((repository) => repository.path.length > 0);
-  list.sort((left, right) => right.lastUsed.localeCompare(left.lastUsed));
   return list;
+}
+
+// The result of registering a repository through POST /directors/{id}/repos: whether the path was NEWLY
+// registered (the route's 201) or was already there (its 200), and the registered name and path as the
+// Director resolved them. Read, never inferred - `added` is the Director's own answer, and a caller that
+// guessed it from its own knowledge of the list would be ruling for itself.
+export interface RepoAddResult {
+  /** True when the path was newly registered; false when that machine already had it. */
+  added: boolean;
+  /** The registered display name, as the Director resolved it (the folder name when none was given). */
+  name: string;
+  /** The registered path, as the Director stored it. */
+  path: string;
+}
+
+// POST /directors/{id}/repos - register a repository path in THAT MACHINE'S OWN registry, which is what
+// its Director's New Session tab lists. This is deliberately NOT the same store as
+// GET /directors/{id}/known-repositories: that route serves the Gateway's catalogue, and this one writes
+// a Director's registry. So a caller must READ THE CATALOGUE BACK rather than assume this call put a row
+// in it, and must say what it then actually found rather than what it hoped for.
+//
+// The Gateway answers 201 when the path was newly registered and 200 when the machine already had it;
+// both are success and both carry the same body. A path that does not exist on that machine is a 400 and a
+// disconnected Director is a 502 - each arrives as a GatewayError the caller shows inline.
+export async function addRepo(
+  directorId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<RepoAddResult> {
+  const id = encodeURIComponent(directorId);
+  const res = await gatewayFetch(`/directors/${id}/repos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ path: path.trim() }),
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "add that repository to the machine");
+  }
+  const body = (await res.json()) as { added?: unknown; repo?: { name?: unknown; path?: unknown } };
+  return {
+    added: body.added === true,
+    name: String(body.repo?.name ?? ""),
+    path: String(body.repo?.path ?? ""),
+  };
 }
 
 // GET /directors/{id}/agents - a machine's configured, enabled agents (one per kind) for the New

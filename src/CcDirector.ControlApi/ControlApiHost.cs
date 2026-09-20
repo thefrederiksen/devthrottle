@@ -254,6 +254,40 @@ public sealed class ControlApiHost : IAsyncDisposable
             exePath: Environment.ProcessPath);
     }
 
+    /// <summary>
+    /// THE WAY UP (mission "Smart Director Restart", phase 3): the engine that finds the record of what
+    /// this Director last shut down, offers it back, reads the restart history, and brings the sessions
+    /// back through the restore.
+    ///
+    /// NEVER NULL, for the same reason <see cref="CreateSmartShutdown"/> is never null: a Director with no
+    /// Gateway says so in plain words through the engine's own answers, because an empty list would read as
+    /// "you have no records" and that is a lie.
+    ///
+    /// The engine holds NO Gateway client and NO display name of its own. Both are read at the moment of
+    /// each call: a settings change replaces the client, and a rename lands fleet-wide without a restart,
+    /// so an engine holding either would answer from a fact that has moved on.
+    ///
+    /// A FRESH ENGINE PER CALL IS SAFE, and callers need not hold one: the once-only reopen claim is held
+    /// by the PROCESS, not by the object, so the start-up window and the history window may each build
+    /// their own and still reopen a seat once between them.
+    /// </summary>
+    public SmartRestart.IDirectorWayUp CreateDirectorWayUp()
+    {
+        FileLog.Write($"[ControlApiHost] CreateDirectorWayUp: gatewayClient={(_gatewayClient is null ? "none" : "present")}");
+        return new SmartRestart.DirectorWayUp(
+            new SmartRestart.GatewayClientWayUp(() => _gatewayClient),
+            new SmartRestart.DirectorRestoreWayUp(() => _gatewayClient, DirectorId),
+            Environment.MachineName,
+
+            // The SAME name the Gateway stamps on a record: the one this Director tells it on every reseed,
+            // read from the named-instance registry rather than from the start-once static, so a Director
+            // renamed since it started still finds its own records.
+            () => NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName
+                  ?? InstanceContext.DisplayName
+                  ?? InstanceContext.Slug
+                  ?? Environment.MachineName);
+    }
+
     /// <summary>Create a workspace, refusing if the id is taken. See <see cref="ListWorkspacesAsync"/>
     /// for the null case.</summary>
     /// <param name="doc">The workspace to create.</param>
@@ -1020,8 +1054,12 @@ public sealed class ControlApiHost : IAsyncDisposable
             // connected = green (a live stream IS the proven two-way link), reconnecting = yellow.
             monitor: GatewayMonitor,
             // Repositories mission (#510 phase C): the repository/worktree snapshot rides the same
-            // tunnel; null when this host was built without a monitor (tests, older callers).
-            repoSnapshot: _repositoryMonitor is null ? null : SnapshotRepositories,
+            // tunnel; null when this host knows nothing about repositories at all (tests, older
+            // callers). The registry counts as knowing something (the one-repository-list mission,
+            // "the registry reaches the Gateway"): a Director with a hand-built repository list and no
+            // watched folders has a real list to send, and gating the push on the monitor alone would
+            // have left exactly that machine silent.
+            repoSnapshot: _repositoryMonitor is null && _repositoryRegistry is null ? null : SnapshotRepositories,
             // devthrottle_internal#1176: read the display name from the named-instance registry on EVERY
             // reseed (not InstanceContext.DisplayName, a start-once static) so a rename lands fleet-wide
             // on the next ~10s Hello without a Director restart.
@@ -1309,11 +1347,32 @@ public sealed class ControlApiHost : IAsyncDisposable
     private readonly Core.Git.RepositoryMonitor? _repositoryMonitor;
     private Timer? _repoPushDebounce;
 
-    /// <summary>The repository snapshot for the stream and the local relay (#510 phase C).</summary>
-    private List<RepoStatusDto> SnapshotRepositories()
-        => (_repositoryMonitor?.Snapshot() ?? (IReadOnlyList<Core.Git.RepositoryStatus>)Array.Empty<Core.Git.RepositoryStatus>())
-            .Select(s => RepositoryDtoMapper.Map(s, DirectorId, Environment.MachineName))
-            .ToList();
+    /// <summary>
+    /// The repository snapshot for the stream and the local relay (#510 phase C): EVERYTHING this
+    /// Director knows about the repositories on its machine.
+    ///
+    /// That used to mean the root-folder scan alone, which left a repository added to this Director by
+    /// hand - and not under any watched folder - existing nowhere but this machine's own
+    /// <c>repositories.json</c>. The Gateway had never heard of it, so it was missing from the Cockpit
+    /// and the phone (the one-repository-list mission, "the registry reaches the Gateway"). The rules
+    /// of the union, and why it is done HERE rather than as a second observation at the Gateway, are on
+    /// <see cref="DirectorRepositorySnapshot.Union"/>.
+    /// </summary>
+    /// <remarks>
+    /// INTERNAL rather than private so the wiring itself can be pinned by a test. The rules of the union
+    /// are a pure function and are tested as one, but a pure function nobody calls proves nothing: this
+    /// fix could be lifted out of the Director entirely and every test of <c>Union</c> would still pass.
+    /// <c>TheDirectorPushesItsRegisteredListTests</c> is the test that would fail.
+    /// </remarks>
+    internal List<RepoStatusDto> SnapshotRepositories()
+        => DirectorRepositorySnapshot.Union(
+            _repositoryMonitor?.Snapshot(),
+            _repositoryRegistry?.Repositories,
+            // No monitor at all means there is no scan to wait for: the registered list IS everything
+            // this Director knows, and it is a complete statement of that from the first push.
+            _repositoryMonitor?.HasCompletedAScan ?? true,
+            DirectorId,
+            Environment.MachineName);
 
     /// <summary>
     /// Push the repository snapshot on model changes, debounced: a scan streaming thirty upserts

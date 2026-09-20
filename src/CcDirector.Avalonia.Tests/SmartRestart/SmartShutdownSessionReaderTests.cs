@@ -79,6 +79,12 @@ public class SmartShutdownSessionReaderTests
         Assert.False(described.Single(s => s.DisplayName == "quiet").HasQuestionBoxOpen);
     }
 
+    /// <summary>
+    /// THE NAME IS READ FROM THE PATH, NOT FROM THE MACHINE READING IT. A Director on macOS opens a
+    /// workspace saved on a Windows desktop, so a Windows path has to answer "devthrottle" on every
+    /// platform. Both separators appear here on purpose: this test used to carry the Windows path
+    /// alone and so could only ever pass on Windows.
+    /// </summary>
     [Fact]
     public void Read_NamedAndUnnamedSessions_UseTheNameTheRailShows()
     {
@@ -86,10 +92,29 @@ public class SmartShutdownSessionReaderTests
         [
             SessionIn(ActivityState.Working, "Billing - Developer - the invoice page"),
             SessionIn(ActivityState.Working, null, @"D:\ReposFred\devthrottle\"),
+            SessionIn(ActivityState.Working, null, "/Users/soren/ReposFred/devthrottle"),
         ]);
 
         Assert.Equal("Billing - Developer - the invoice page", described[0].DisplayName);
         Assert.Equal("devthrottle", described[1].DisplayName);
+        Assert.Equal("devthrottle", described[2].DisplayName);
+    }
+
+    /// <summary>
+    /// The case that catches this defect on WINDOWS. Path.GetFileName understands BOTH separators on
+    /// Windows, so no ordinary repository path can tell the two implementations apart there - a drive
+    /// root can: Path.GetFileName(@"D:\") answers "" on Windows, and the rail would show a session with
+    /// no name at all. RepositoryPaths.FolderName answers "D:" on every platform.
+    /// </summary>
+    [Fact]
+    public void Read_DriveRootRepositoryPath_IsItsOwnName()
+    {
+        var described = SmartShutdownSessionReader.Read(
+        [
+            SessionIn(ActivityState.Working, null, @"D:\"),
+        ]);
+
+        Assert.Equal("D:", Assert.Single(described).DisplayName);
     }
 
     [Fact]

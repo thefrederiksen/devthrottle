@@ -56,7 +56,9 @@ public sealed class CodexAgentPlugin : IAgentPlugin
 
     public AgentPluginHistoryMetadata History => HistoryMetadata;
 
-    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: false);
+    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: false,
+        // CodexDriver.BuildLaunchSpec LOGS that it is ignoring the id and builds no flag from it.
+        CanResumeSavedConversation: false);
 
     public AgentPluginFleetMetadata Fleet { get; } = new(
         FleetPreambleStrategy.NativeHook, FleetPreambleStatus.Wired,

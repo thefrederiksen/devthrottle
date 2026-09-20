@@ -583,42 +583,172 @@ body {
   line-height: 1.5;
 }
 
+/* The repository table (the one-repository-list mission, phase 4): the desktop New Session tab's
+   layout, column for column - a search box, then Name / Path / Last Used with sortable headings - drawn
+   in the Cockpit's own tokens. docs/VisualStyle.md does NOT govern the browser shells and its hex
+   values are deliberately not ported here; what is copied from the desktop tab is the STRUCTURE and
+   the WORDING, never the colour.
+   The column track is declared once, on the table, and both the heading row and every repository row
+   inherit it - two declarations are how a heading comes to sit over the wrong column. The fourth,
+   narrow column is where the desktop tab puts its per-row remove; here it carries the selection
+   marker, because a remove on this screen would write to the Director's registry while this list is
+   the Gateway catalogue, and the row would not go away. */
+.newsess-repotable {
+  --newsess-repo-cols: minmax(96px, 190px) 1fr 84px 62px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.newsess-repohead {
+  display: grid;
+  grid-template-columns: var(--newsess-repo-cols);
+  align-items: stretch;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.newsess-repohead-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  white-space: pre;
+  cursor: pointer;
+}
+
+.newsess-repohead-btn:hover {
+  color: var(--text);
+}
+
+/* The ACTIVE heading. On a freshly opened dialog that is "Last Used", and it reads active because it
+   LABELS the order the Gateway ruled - not because this screen computed one. */
+.newsess-repohead-btn.active {
+  color: var(--text);
+}
+
+.newsess-nomatch {
+  padding: 14px 12px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+/* The first-run empty state, the desktop tab's wording, with Add standing where it puts Browse. */
+.newsess-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 20px;
+  text-align: center;
+}
+
+.newsess-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.newsess-empty-body,
+.newsess-empty-hint {
+  margin: 0;
+  max-width: 420px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.newsess-empty-body {
+  font-size: 12.5px;
+}
+
+.newsess-empty-hint {
+  font-size: 11.5px;
+}
+
+.newsess-search {
+  margin-bottom: 8px;
+}
+
 .newsess-list {
   list-style: none;
-  margin: 0 0 4px;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  max-height: 200px;
+  max-height: 264px;
   overflow-y: auto;
 }
 
-/* The machine picker: a 2-up grid of cards (each cc-director), so several Directors do not stack into a
-   tall thin column and same-named machines sit side by side to compare. */
+/* A thin scrollbar on the two scrolling regions of this dialog. The platform's full-width bar sits
+   on top of the Last Used column and reads as a piece of the table. */
+.newsess-list::-webkit-scrollbar,
+.newsess-machines::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.newsess-list::-webkit-scrollbar-thumb,
+.newsess-machines::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.newsess-list::-webkit-scrollbar-track,
+.newsess-machines::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* The machine row (the one-repository-list mission, phase 4). The desktop New Session tab has no
+   machine picker at all, because it IS the machine; the Cockpit has to say which machine these
+   repositories are on. It used to be a 2-up grid of tall cards that ate the dialog's vertical budget
+   before the repository list had had any. It is now ONE compact row that scrolls sideways when a
+   Gateway has many Directors, and no fact was thrown away to make it small: every chip still carries
+   the display name, the Control API port, how long that Director has been up, and its version. */
+.newsess-machinerow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+
+.newsess-machinerow-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
 .newsess-machines {
   list-style: none;
-  margin: 0 0 4px;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  max-height: 220px;
+  margin: 0;
+  padding: 2px 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  /* Two rows of chips at most, then it scrolls. A machine must never be clipped off the end of the
+     row - the one thing this control exists to say is WHICH machine, and a half-drawn chip does not
+     say it - so the chips wrap rather than run off the side. */
+  max-height: 68px;
   overflow-y: auto;
 }
 
 .newsess-machine {
-  width: 100%;
-  height: 100%;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
   text-align: left;
-  padding: 9px 11px;
+  padding: 5px 11px;
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 999px;
   cursor: pointer;
 }
 
@@ -629,13 +759,6 @@ body {
 .newsess-machine.sel {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-/* Top line: machine name + its Control API port (the disambiguator). */
-.newsess-machine-top {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
 }
 
 .newsess-machine-name {
@@ -653,14 +776,7 @@ body {
   color: var(--text-dim);
 }
 
-/* Subtitle: uptime + version on the left, the "selected" marker on the right. */
-.newsess-machine-sub {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-}
-
+/* The facts, on the same line as the name: how long this Director has been up, and its version. */
 .newsess-machine-meta {
   font-size: 11.5px;
   color: var(--text-dim);
@@ -675,23 +791,29 @@ body {
   color: var(--accent);
 }
 
+/* One repository row: a table row, on the table's own column track. Clicking it SELECTS the
+   repository - the footer's Create session button is what starts one. */
 .newsess-pick {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: var(--newsess-repo-cols, 1fr);
+  align-items: baseline;
+  gap: 8px;
   text-align: left;
-  padding: 8px 10px;
-  background: var(--surface-2);
+  padding: 7px 10px;
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
 }
 
+.newsess-list li:last-child .newsess-pick {
+  border-bottom: 0;
+}
+
 .newsess-pick:hover:not(:disabled) {
-  border-color: var(--accent);
+  background: var(--surface-2);
 }
 
 .newsess-pick:disabled {
@@ -700,13 +822,16 @@ body {
 }
 
 .newsess-pick.sel {
-  border-color: var(--accent);
+  background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .newsess-pick-name {
   font-size: 13px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .newsess-pick-path {
@@ -719,9 +844,21 @@ body {
   max-width: 100%;
 }
 
+/* The Last Used cell. Its wording is the desktop tab's own ladder - see lastUsedAgo - and for a
+   repository the Gateway has stamped as never opened it reads "Never opened" rather than nothing. */
+.newsess-pick-when {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .newsess-pick-check {
   font-size: 11px;
   color: var(--accent);
+  white-space: nowrap;
+  text-align: right;
 }
 
 .newsess-manual-label {
@@ -733,6 +870,13 @@ body {
 
 .newsess-manual {
   display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.newsess-manual .newsess-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .newsess-input {

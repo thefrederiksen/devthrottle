@@ -4163,7 +4163,10 @@ public sealed class GatewayHost : IAsyncDisposable
             (directorId, order, ct) => Api.DirectorCommandRouter.TrySendAsync(
                 SendCommandAsync, directorId, Contracts.WorkspaceRestoreVerbs.Restore, "", order, ct),
             (ctx, directorId) => _tenantPass.Current is { } tenant
-                && Registry.IsRegisteredByCredential(tenant, directorId, Util.AuthMiddleware.RegisteringCredential(ctx)));
+                && Registry.IsRegisteredByCredential(tenant, directorId, Util.AuthMiddleware.RegisteringCredential(ctx)),
+            (doc, request, nowUtc) => DevReports.DevReportInheritance.Pass(doc, request, _devReports,
+                _tenantPass.Current ?? throw new InvalidOperationException("no account is bound to this request, so no dev report can pass."),
+                nowUtc));
         Api.SkillEndpoints.Map(_app, _skills);
 
         // The standing instructions an account gives about its sessions, and the record of every firing
