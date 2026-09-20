@@ -14,7 +14,8 @@ namespace CcDirector.Gateway.Tests.Stats;
 /// These are the facts the port had to preserve when the statements moved to Entity Framework: one batch is
 /// one tenant, an IDLE poll writes nothing at all, and replaying one snapshot any number of times leaves the
 /// same numbers as replaying it once. The real-PostgreSQL half - no lost update between interleaved writers -
-/// is <see cref="GatewayStatsWritePathPostgresTests"/>, because a lost update cannot be demonstrated on a
+/// is <c>GatewayStatsWritePathPostgresTests</c> (CcDirector.Gateway.Postgres.Tests), because a lost update
+/// cannot be demonstrated on a
 /// single-writer SQLite file at all.
 /// </summary>
 public sealed class GatewayStatsWritePathTests : IDisposable
@@ -210,7 +211,8 @@ public sealed class GatewayStatsWritePathTests : IDisposable
     /// Retention on the SELF-HOST provider: the expired detail leaves, every turn it carried stays, and the
     /// working-day series stops claiming an hour that is no longer there.
     ///
-    /// The PostgreSQL half of this is in <see cref="GatewayStatsWritePathPostgresTests"/>. It is worth having
+    /// The PostgreSQL half of this is in <c>GatewayStatsWritePathPostgresTests</c>
+    /// (CcDirector.Gateway.Postgres.Tests). It is worth having
     /// BOTH, because the sweep is now a <c>DELETE ... RETURNING</c> whose rows are folded into the archive in
     /// memory, and SQLite is the provider with the sharp edge there: it may emit RETURNING rows while the
     /// statement is still running, and touching the same table mid-read is undefined. One implementation over

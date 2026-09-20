@@ -1,0 +1,91 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- EVERY TEST IN THIS REPOSITORY THAT NEEDS A REAL POSTGRESQL SERVER, AND NOTHING ELSE.
+
+       WHY IT EXISTS. These proofs used to live inside CcDirector.Gateway.Tests and
+       CcDirector.Gateway.UnitTests, mixed in with thousands of tests that need no database. Continuous
+       integration starts no database, so every one of them reported SKIPPED there on every run - and a
+       skip is indistinguishable from a pass in the console summary, in the result files and in every
+       report built from them. The local release gate was the only place they ever ran, and that gate
+       needed Docker, so a machine without Docker could not run them at all. The proofs that guard the
+       hosted Gateway's own schema and its restricted database role were therefore the least-run tests
+       in the repository.
+
+       Gathered here, they have a home of their own: one Linux job in .github/workflows/postgres-proofs.yml
+       starts a throwaway PostgreSQL, points this assembly at it, and asserts that every test in this
+       assembly EXECUTED and that none of them was skipped. That assertion is only possible because this
+       assembly holds nothing but database-backed proofs - in a mixed assembly "nothing was skipped" can
+       never be true, so the check could never have been written.
+
+       WHAT BELONGS IN HERE. A test that cannot run without a PostgreSQL server. A test that merely
+       mentions PostgreSQL - the model-level schema-qualification facts, the provider-selection facts,
+       the architecture guards - belongs with the suite that runs on every change, because it costs
+       nothing there and proves something on every pull request.
+
+       THE NAME ENDS IN .Tests ON PURPOSE. Directory.Build.props links the mutation-proof pin guard into
+       every project whose name ends in '.Tests'. A project named anything else would silently miss it,
+       which is the exact failure that file's own comment warns about. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The moved files keep the CcDirector.Gateway.Tests namespace they were written in, so a move needed
+         no edit inside the file and a reader following a type name is not sent to the wrong place. -->
+    <RootNamespace>CcDirector.Gateway.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+    <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+    <ProjectReference Include="..\CcDirector.Gateway\CcDirector.Gateway.csproj" />
+    <!-- The PostgreSQL migration assembly. Nothing here calls into it: Entity Framework resolves the
+         migration set BY ASSEMBLY NAME at run time, exactly as the hosted Gateway does, so the assembly has
+         to be present in the output directory or every proof throws FileNotFoundException. That makes this
+         reference load-bearing - do not remove it as unused. -->
+    <ProjectReference Include="..\CcDirector.Gateway.Migrations.Postgres\CcDirector.Gateway.Migrations.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SHARED SOURCE, NOT A COPY - the same arrangement CcDirector.Gateway.UnitTests uses, and for the same
+         reason: two copies of a guard this consequential drift apart.
+
+         TestStorageRootRedirect points CcStorage.Root at a throwaway temporary directory before any test
+         runs. Without it a test that resolves the root writes into the owner's real live storage - his
+         missions, cron jobs and key vault. That has happened once already. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\TestStorageRootRedirect.cs" Link="TestStorageRootRedirect.cs" />
+    <!-- The assembly's other module initializer, and a live-data guard too: it pins the Director
+         instance-discovery directory to a per-process temporary directory so no test can write an instance
+         file into the owner's real configuration, and it disables the turn-brief sweep and the Tailscale
+         serve provisioning. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\TestEnvironment.cs" Link="TestEnvironment.cs" />
+    <!-- The hosted-mode collection, which HostedStatsServeTests is a member of. It carries
+         DisableParallelization, so the class runs alone and nothing else can flip CC_GATEWAY_HOSTED
+         underneath it. Linked rather than copied so the collection NAME cannot drift between assemblies. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\GatewayHostedModeCollection.cs" Link="GatewayHostedModeCollection.cs" />
+    <!-- FixedTenantContext, which HostedStatsServeTests hands to the session history store. The harness
+         builds its own throwaway temporary directory per instance, so nothing in it is machine-global. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbTestHarness.cs" Link="Data/GatewayDbTestHarness.cs" />
+    <!-- Linked with the harness above and load-bearing beside it: it serialises the tests that read and
+         write the process-global CC_GATEWAY_DB_CONNECTION against every test that opens a database. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbEnvironmentGate.cs" Link="Data/GatewayDbEnvironmentGate.cs" />
+    <!-- The concurrency scenarios GatewaySessionConcurrencyPostgresTests drives. One source, compiled into
+         every assembly that runs them, so the PostgreSQL run and the SQLite run can never be proving
+         different things while reporting the same scenario names. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\ConcurrencyStoreScenarios.cs" Link="ConcurrencyStoreScenarios.cs" />
+  </ItemGroup>
+
+</Project>

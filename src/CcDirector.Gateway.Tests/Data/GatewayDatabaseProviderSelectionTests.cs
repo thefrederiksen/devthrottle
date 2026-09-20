@@ -19,7 +19,7 @@ public sealed class GatewayDatabaseEnvVarCollection
 /// Provider selection in <see cref="GatewayDatabase"/>: the env var UNSET selects the local SQLite file, and
 /// the env var SET-but-blank fails loud (it must never silently fall through to SQLite - that would be the
 /// hidden fallback the no-fallback rule forbids). The non-blank Postgres path is proved separately, against a
-/// real server, in <see cref="PostgresProviderProofTests"/>.
+/// real server, in <c>PostgresProviderProofTests</c> (CcDirector.Gateway.Postgres.Tests).
 /// </summary>
 [Collection("GatewayDatabase provider env var")]
 public sealed class GatewayDatabaseProviderSelectionTests

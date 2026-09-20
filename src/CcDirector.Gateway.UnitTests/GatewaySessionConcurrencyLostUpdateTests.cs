@@ -24,7 +24,8 @@ namespace CcDirector.Gateway.Tests;
 ///    failure is asserted here, in the committed suite, so the proof is not a claim about a red somebody saw
 ///    once on their own machine. If that writer were ever "fixed", this test turns red and says so.
 ///
-/// Both arms also run against REAL PostgreSQL, in <see cref="GatewaySessionConcurrencyPostgresTests"/>,
+/// Both arms also run against REAL PostgreSQL, in <c>GatewaySessionConcurrencyPostgresTests</c>
+/// (CcDirector.Gateway.Postgres.Tests),
 /// which is where the property actually matters: single-writer SQLite on one machine never exposed it.
 /// </summary>
 public sealed class GatewaySessionConcurrencyLostUpdateTests : IDisposable

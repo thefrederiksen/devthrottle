@@ -23,8 +23,8 @@
     default run because they are fast and because the thing they cover - the first screen a new user
     ever sees - was running nowhere locally at all.
 
-    WHAT THE DEFAULT NO LONGER RUNS - AND THIS IS DELIBERATE, NOT AN OVERSIGHT. Three suites are PARKED
-    behind -Parked because none can meet the budget:
+    WHAT THE DEFAULT NO LONGER RUNS - AND THIS IS DELIBERATE, NOT AN OVERSIGHT. Four suites are PARKED
+    behind -Parked. Three of them cannot meet the budget; the fourth cannot run at all without a database:
 
       CcDirector.Gateway.Tests   - serializes machine-wide (GatewayTestSuiteLock), so its cost is not its
                                    own runtime but the QUEUE behind every other working tree on the
@@ -35,8 +35,15 @@
                                    here is the host-bound remainder.
       CcDirector.Core.Tests      - 11 minutes on a quiet machine and 33 with the fleet busy. Nothing is
                                    wrong with it; it is simply far outside the budget.
+      CcDirector.Gateway.Postgres.Tests
+                                 - every test in the repository that needs a real PostgreSQL server,
+                                   gathered into one project so that one continuous-integration job can
+                                   run them against a real database and assert that not one of them was
+                                   skipped. It is parked because the only alternatives are starting a
+                                   database on every everyday run or reporting sixty-odd skips on every
+                                   everyday run, and neither is wanted.
 
-    THE TRADE, STATED PLAINLY SO NOBODY DISCOVERS IT THE HARD WAY: those three suites hold real coverage,
+    THE TRADE, STATED PLAINLY SO NOBODY DISCOVERS IT THE HARD WAY: those suites hold real coverage,
     including the Gateway's host-bound endpoint, tenancy and boundary tests. Parked means a regression in
     them can reach main without a local red. That is a deliberate, temporary choice to fix the speed
     problem first - a gate so slow that a day of work becomes a day of waiting is not protecting anything,
@@ -48,8 +55,8 @@
     be invoked by hand; a gate that depends on remembering two extra commands is one that will eventually
     be run without them, and a release is the one place there is no fixing it forward.
 
-    -PARKED NEEDS DOCKER, AND SAYS SO RATHER THAN SKIPPING (issue #2834). Two of the parked suites carry
-    PostgreSQL-backed proofs. This script now BUILDS a throwaway PostgreSQL for the run that needs one,
+    -PARKED NEEDS DOCKER, AND SAYS SO RATHER THAN SKIPPING (issue #2834). One of the parked suites,
+    CcDirector.Gateway.Postgres.Tests, is nothing but PostgreSQL-backed proofs. This script now BUILDS a throwaway PostgreSQL for the run that needs one,
     hands its connection strings to the test processes, and destroys it when the run ends - so there is
     no shared container for a person to start and nothing to go stale between runs. It IGNORES whatever
     the machine has in its user environment. With Docker absent the run STOPS: those proofs would report
@@ -72,8 +79,9 @@
     Run ONLY the parked Gateway suite (host-bound, machine-wide lock). Expect a queue.
 
 .PARAMETER Parked
-    Also run the three parked suites - Gateway.Tests, Core.Tests and Gateway.UnitTests. This is the
-    RELEASE gate. Expect tens of minutes, most of it queueing for the Gateway lock.
+    Also run the four parked suites - Gateway.Tests, Core.Tests, Gateway.UnitTests and
+    Gateway.Postgres.Tests. This is the RELEASE gate. Expect tens of minutes, most of it queueing for the
+    Gateway lock.
 
 .PARAMETER Fast
     Retained for callers that pass it. The default IS fast now, so this is a no-op.
@@ -204,7 +212,18 @@ $parkedProjects = @(
     # between them, so parking was never about their cost: it was that a parked suite tells a developer
     # nothing at commit time, and both exist to catch an edit at the moment it is made. Anything cheap
     # whose whole value is fast feedback belongs in a project that actually runs.
-    "src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj"
+    "src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj",
+    # EVERY TEST THAT NEEDS A REAL POSTGRESQL SERVER, gathered out of the two suites above so that one
+    # continuous-integration job can run them against a real database and assert that not one of them was
+    # skipped. It is parked here for the same reason the other two are: it cannot run at all without a
+    # database, so putting it in the default run would mean either starting a database on every run of
+    # the everyday gate or reporting sixty-odd skips on every run of it. Neither is wanted.
+    #
+    # A -Parked run still builds a throwaway PostgreSQL and runs it, exactly as before - the tests moved,
+    # the local gate's behaviour did not. What HAS changed is that the local gate is no longer the only
+    # place these proofs ever run: .github/workflows/postgres-proofs.yml runs them on every pull request
+    # that touches database-facing code, and before every hosted Gateway deploy.
+    "src\CcDirector.Gateway.Postgres.Tests\CcDirector.Gateway.Postgres.Tests.csproj"
 )
 
 # THE TWO-MINUTE BUDGET IS ENFORCED, NOT DOCUMENTED. A suite that exceeds it is KILLED and the run is
@@ -249,9 +268,12 @@ if ($Gateway) {
 # INHERITED VARIABLES ARE OVERRIDDEN, DELIBERATELY. Whatever a machine has in its user environment is
 # ignored: this run sets both variables in its own process, so its children see the rig it just built.
 # A run that trusted an inherited value would be back in the failure above.
+# ONE PROJECT NEEDS THE DATABASE NOW, not two. Every PostgreSQL-backed proof in the repository lives in
+# CcDirector.Gateway.Postgres.Tests; CcDirector.Gateway.Tests and CcDirector.Gateway.UnitTests hold none and
+# neither of them opens a connection any more. A rig is therefore built only for a run that actually
+# includes the proofs.
 $postgresProjects = @(
-    $gatewayProject,
-    "src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj"
+    "src\CcDirector.Gateway.Postgres.Tests\CcDirector.Gateway.Postgres.Tests.csproj"
 )
 $needsPostgres = @($toRun | Where-Object { $postgresProjects -contains $_ }).Count -gt 0
 

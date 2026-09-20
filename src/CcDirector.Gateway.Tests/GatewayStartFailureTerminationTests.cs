@@ -104,7 +104,8 @@ public sealed class GatewayStartFailureTerminationTests
     //     the weaker property, and that is a real gap rather than a technicality.
     //  2. PRESENCE IS NOT DATAFLOW. It cannot prove WHICH value reaches UseNpgsql, so a mutation that keeps
     //     the call and passes the raw connection string stays green. Proving that needs an integration test
-    //     against a real server, where PostgresProviderProofTests lives.
+    //     against a real server, where PostgresProviderProofTests lives - it is in
+    //     CcDirector.Gateway.Postgres.Tests now, with every other proof that needs a database.
     //  3. PRESENCE IS NOT ORDER. Nothing here proves the bounding happens BEFORE the provider is built.
     //
     // Hole (4) - a call sitting in some unrelated method of the same type - is closed below by scoping each

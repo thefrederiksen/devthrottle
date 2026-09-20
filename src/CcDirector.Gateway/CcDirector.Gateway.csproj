@@ -82,6 +82,10 @@
     <!-- The unlocked half of the same suite (the pure tests, split out so they no longer queue
          behind the machine-wide Gateway test lock). Same tests, same access, one assembly over. -->
     <InternalsVisibleTo Include="CcDirector.Gateway.UnitTests" />
+    <!-- The third assembly of the same suite: every test that needs a real PostgreSQL server, gathered so
+         one job can run them against a real database and assert that not one of them was skipped. Same
+         tests, same access, one assembly over. -->
+    <InternalsVisibleTo Include="CcDirector.Gateway.Postgres.Tests" />
   </ItemGroup>
 
   <ItemGroup>
