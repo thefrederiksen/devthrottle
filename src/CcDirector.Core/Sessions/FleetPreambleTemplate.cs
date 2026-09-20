@@ -41,7 +41,13 @@ public static class FleetPreambleTemplate
         "  cc-devthrottle session done          flag THIS session for deletion when you are finished\n" +
         "                                       and nothing needs the user (the Director reaps it shortly;\n" +
         "                                       does not kill you mid-turn). Use on unattended runs.\n" +
-        "  cc-devthrottle session report \"...\" finished: tell the session that started you what you did\n" +
+        "  cc-devthrottle session handback \"...\" finished: tell the session that started you what you did\n" +
+        "                                       (this reaches a SESSION, never the owner - see the next two lines)\n" +
+        "  cc-dev-reports open <file.html>      REPORT TO THE OWNER. Any report, write-up, mission document,\n" +
+        "                                       design or findings a PERSON asked you for is one HTML file\n" +
+        "                                       published with this - never a file path, never markdown, never\n" +
+        "                                       an artifact. The shape is checked and it is easy to get wrong:\n" +
+        "                                       read it first with 'cc-devthrottle skill get dev-reports'.\n" +
         "  cc-devthrottle session raise \"...\"  blocked on a decision: put your hand up to that session\n" +
         "  cc-devthrottle session spawn <repo>  open a new session on this Director\n" +
         "  cc-devthrottle message inbox         read the messages waiting for you (reading marks them read)\n" +

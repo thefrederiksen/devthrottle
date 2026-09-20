@@ -65,9 +65,15 @@ a session running a different agent, a check that the change works in the runnin
 reading, then the pull request and the merge. Every answer carries the run's one state and the next
 step. `cc-ship --help` is the whole command list.
 
-`cc-dev-reports` publishes one HTML file as this session's report for the owner - it lands on his
-phone or in the Cockpit, inside the report rather than on a list - and `cc-dev-reports reply` answers
-him in it.
+**`cc-dev-reports` is HOW YOU REPORT TO THE OWNER, and it is the default.** Any report, write-up,
+mission document, design or findings a PERSON asked you for is one HTML file published with
+`cc-dev-reports open` - never a file path handed over, never markdown, never an artifact. It lands on
+his phone or in the Cockpit, inside the report rather than on a list; it can carry questions he answers
+by tapping an option; and `cc-dev-reports reply` answers him in it afterwards.
+
+The shape is checked on publish and is easy to get wrong - the status is one of exactly three words.
+**Read `cc-devthrottle skill get dev-reports` before you write one.** Do not confuse it with
+`cc-devthrottle session handback`, which reaches a SESSION and never the owner.
 
 A handful of tools are registered but not yet built (`cc-twitter`, `cc-facebook`, `cc-youtube`, `cc-posthog`). If a tool isn't on PATH, it likely isn't built yet.
 

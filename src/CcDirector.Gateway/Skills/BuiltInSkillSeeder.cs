@@ -125,6 +125,14 @@ public static class BuiltInSkillSeeder
         head.PublishedVersion = nextVersion;
         head.UpdatedUtc = now;
         head.ShippedContentHash = shippedHash;
+        // PROMOTION. A skill can reach this branch as a TENANT row - it was published from a session
+        // with 'skill publish' and only later became part of the product. Seeding its content is not
+        // enough: IsBuiltIn is what makes it read-only, undeletable, and immune to a tenant skill
+        // taking its id, and only SeedFresh used to set it. Without this line a promoted skill has the
+        // shipped BODY but none of the protection, so the next 'skill push' overwrites what the product
+        // ships and the seeder silently overwrites that back on the next restart - a flip-flop nobody
+        // owns. Found while promoting the seven fleet-law skills (issue #3240).
+        head.IsBuiltIn = true;
         ctx.SaveChanges();
         FileLog.Write($"[BuiltInSkillSeeder] Upgraded built-in skill: id={head.Id}, " +
                       $"v{nextVersion} published from shipped content, hash={shippedHash[..12]}");

@@ -11,7 +11,13 @@ You can reach the fleet. This command is already on your PATH:
   cc-devthrottle session done          flag THIS session for deletion when you are finished
                                        and nothing needs the user (the Director reaps it shortly;
                                        does not kill you mid-turn). Use on unattended runs.
-  cc-devthrottle session report "..." finished: tell the session that started you what you did
+  cc-devthrottle session handback "..." finished: tell the session that started you what you did
+                                       (this reaches a SESSION, never the owner - see the next two lines)
+  cc-dev-reports open <file.html>      REPORT TO THE OWNER. Any report, write-up, mission document,
+                                       design or findings a PERSON asked you for is one HTML file
+                                       published with this - never a file path, never markdown, never
+                                       an artifact. The shape is checked and it is easy to get wrong:
+                                       read it first with 'cc-devthrottle skill get dev-reports'.
   cc-devthrottle session raise "..."  blocked on a decision: put your hand up to that session
   cc-devthrottle session spawn <repo>  open a new session on this Director
   cc-devthrottle message inbox         read the messages waiting for you (reading marks them read)
