@@ -426,28 +426,6 @@ public sealed class LauncherCore : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// The background scan of this machine's disks (Reclaim the Disk, phase 5), hosted here because
-    /// there is one launcher for a machine and several Directors. Installed mode only, like the update
-    /// loop beside it: a launcher started from a repository build or a test rig must never begin
-    /// walking the whole disk. It scans and recommends and NEVER removes - see
-    /// <see cref="BackgroundDiskScan"/>.
-    /// </summary>
-    public static async Task RunBackgroundDiskScanAsync(CancellationToken ct)
-    {
-        FileLog.Write("[LauncherCore] RunBackgroundDiskScanAsync: starting the background disk scan host");
-        try
-        {
-            await BackgroundDiskScan.ForThisMachine().RunLoopAsync(ct);
-        }
-        catch (Exception ex)
-        {
-            // Started and not awaited, so nothing else would ever see this. A launcher that cannot
-            // scan is still a launcher; it says so loudly and carries on.
-            FileLog.Write($"[LauncherCore] RunBackgroundDiskScanAsync FAILED, no background scan will run: {ex}");
-        }
-    }
-
     /// <summary>The launcher's informational version from the executing assembly.</summary>
     public static string ReadVersion()
     {

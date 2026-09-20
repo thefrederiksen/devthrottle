@@ -4,69 +4,50 @@ using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using CcDirector.Reclaim.Background;
 using CcDirector.Reclaim.Windows;
 using Xunit;
 
-namespace CcDirector.Launcher.Tests;
+namespace CcDirector.Reclaim.Tests;
 
 /// <summary>
-/// The background scan must never be ABLE to remove anything (Reclaim the Disk, issue 3120).
+/// A rule must never be ABLE to remove anything (Reclaim the Disk, issue 3120).
 ///
-/// The mission forbids unattended removal outright. The Launcher hosts the background scan, and the
-/// removal code - the runner, the holding store, the refusal gate - sits in the same engine assembly
-/// the Launcher already references, one line away from the scan it is allowed to call. Until now the
-/// only thing keeping them apart was a sentence in a class comment. These tests are what makes that
-/// sentence true: a change that lets the background scan reach removal fails here, by name.
+/// Removal is a person's act: the command line tool, run deliberately, with --apply. A RULE only
+/// looks and reports. The removal code - the runner, the holding store, the refusal gate - sits in
+/// the same engine assembly the rules already reference, one line away from the rule that is only
+/// allowed to look. Until now the only thing keeping them apart was a sentence in a class comment.
+/// This test is what makes that sentence true: a change that lets a rule reach removal fails here,
+/// by name.
 ///
-/// They read the COMPILED assemblies, never the source text. Source text can hide a type behind an
+/// It reads the COMPILED assembly, never the source text. Source text can hide a type behind an
 /// inferred variable, an alias or a file in another folder; a compiled assembly cannot use a type
-/// without naming it. Three ways in are closed, one test each:
+/// without naming it.
 ///
-///   1. the Launcher names a removal type itself;
-///   2. the Windows rules the background scan runs name one - the scan calls every rule, so a rule
-///      that held or purged would be the background scan removing;
-///   3. the background scan's own classes reach one through anything else in the engine assembly.
+/// It passes on an absence - no removal type was found - so it first proves its instrument works:
+/// that the removal types are really where it looks, and that the same reading DOES find a type
+/// known to be there. A reader that found nothing at all fails instead of passing.
 ///
-/// Every one of these passes on an absence - no removal type was found - so every one first proves
-/// its instrument works: that the removal types are really where it looks, and that the same reading
-/// DOES find types known to be there. A reader that found nothing at all fails instead of passing.
+/// This began as three tests guarding the Launcher's background scan. That scan was dropped on
+/// 20 September 2026 when the owner ruled the tool is a client-side agent tool with no unattended
+/// scanning, so the two tests about the Launcher went with it. This one outlived them because it
+/// was never really about the background scan: a rule that could remove would be wrong whoever
+/// called it.
 ///
-/// What this does not cover: an assembly the Launcher might load by name at run time. Nothing does
-/// that today, and no reading of compiled references could see it.
+/// What this does not cover: an assembly loaded by name at run time. Nothing does that today, and
+/// no reading of compiled references could see it.
 /// </summary>
-public sealed class TheBackgroundScanCannotRemoveTests
+public sealed class ARuleCanNeverRemoveTests
 {
     private const string RemovalNamespace = "CcDirector.Reclaim.Removal";
-    private const string BackgroundNamespace = "CcDirector.Reclaim.Background";
 
     // The three the review named. They are checked to exist inside the removal namespace, so moving
     // one out of it fails these tests rather than quietly taking it out of their sight.
     private static readonly string[] NamedRemovalTypes = ["ReclaimRunner", "HoldingStore", "RefusalGate"];
 
     [Fact]
-    public void LauncherAssembly_EveryTypeItNames_IsNotARemovalType()
-    {
-        using var engine = new CompiledAssembly(typeof(BackgroundScanJob).Assembly.Location);
-        AssertTheRemovalTypesAreWhereTheseTestsLook(engine);
-
-        using var launcher = new CompiledAssembly(typeof(BackgroundDiskScan).Assembly.Location);
-        var named = launcher.TypesNamedInOtherAssemblies();
-
-        // The instrument: the Launcher does host the scan, so this reading must see it name the job.
-        Assert.Contains($"{BackgroundNamespace}.{nameof(BackgroundScanJob)}", named);
-
-        var removal = named.Where(IsARemovalType).ToList();
-        Assert.True(
-            removal.Count == 0,
-            "The Launcher names removal code, and the background scan it hosts must never be able to " +
-            $"remove anything: {string.Join(", ", removal)}. Removal is a person's act, from the command line.");
-    }
-
-    [Fact]
     public void WindowsRulesAssembly_EveryTypeItNames_IsNotARemovalType()
     {
-        using var engine = new CompiledAssembly(typeof(BackgroundScanJob).Assembly.Location);
+        using var engine = new CompiledAssembly(typeof(CcDirector.Reclaim.Removal.ReclaimRunner).Assembly.Location);
         AssertTheRemovalTypesAreWhereTheseTestsLook(engine);
 
         using var rules = new CompiledAssembly(typeof(WindowsRuleSet).Assembly.Location);
@@ -80,48 +61,6 @@ public sealed class TheBackgroundScanCannotRemoveTests
             removal.Count == 0,
             "A Windows rule names removal code. The background scan runs every rule unattended, so a " +
             $"rule must only ever look and recommend: {string.Join(", ", removal)}.");
-    }
-
-    [Fact]
-    public void BackgroundScanClasses_EverythingTheyCanReachInTheEngine_IsNotARemovalType()
-    {
-        using var engine = new CompiledAssembly(typeof(BackgroundScanJob).Assembly.Location);
-        AssertTheRemovalTypesAreWhereTheseTestsLook(engine);
-
-        var startingFrom = engine.TypesDefined()
-            .Where(type => engine.NameOf(type).StartsWith(BackgroundNamespace + ".", StringComparison.Ordinal))
-            .ToList();
-        Assert.Contains(startingFrom, type => engine.NameOf(type) == $"{BackgroundNamespace}.{nameof(BackgroundScanJob)}");
-
-        // Follow every type a background class names, then every type THOSE name, until nothing new
-        // turns up. A removal type is recorded and not looked inside: reaching it is already the defect.
-        var reachedThrough = startingFrom.ToDictionary(type => type, _ => default(TypeDefinitionHandle));
-        var toLookInside = new Queue<TypeDefinitionHandle>(startingFrom);
-        while (toLookInside.Count > 0)
-        {
-            var type = toLookInside.Dequeue();
-            if (IsARemovalType(engine.NameOf(type))) continue;
-
-            foreach (var named in engine.TypesNamedBy(type))
-            {
-                if (reachedThrough.TryAdd(named, type)) toLookInside.Enqueue(named);
-            }
-        }
-
-        // The instrument: the job walks the disk and runs the rules, through calls inside compiled
-        // method bodies. A reader that could not follow a call would find neither of these.
-        var reached = reachedThrough.Keys.Select(engine.NameOf).ToHashSet(StringComparer.Ordinal);
-        Assert.Contains("CcDirector.Reclaim.Scanning.DirectoryScanner", reached);
-        Assert.Contains("CcDirector.Reclaim.Rules.RecommendationRun", reached);
-
-        var removal = reachedThrough.Keys
-            .Where(type => IsARemovalType(engine.NameOf(type)))
-            .Select(type => HowItWasReached(engine, reachedThrough, type))
-            .ToList();
-        Assert.True(
-            removal.Count == 0,
-            "The background scan can reach removal code, and it must never be able to remove anything. " +
-            $"Each line reads from the removal type back to a background class: {string.Join("; ", removal)}.");
     }
 
     private static bool IsARemovalType(string fullName) =>

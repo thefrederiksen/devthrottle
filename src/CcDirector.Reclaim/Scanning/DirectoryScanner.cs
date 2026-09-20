@@ -37,21 +37,7 @@ public sealed class DirectoryScanner
     /// </summary>
     /// <param name="options">What to walk, and how deep to record folder totals.</param>
     /// <exception cref="DirectoryNotFoundException">The root folder does not exist.</exception>
-    public ScanResult Scan(ScanOptions options) => Scan(options, CancellationToken.None);
-
-    /// <summary>
-    /// Walk the folder and return everything seen and everything refused, unless asked to stop.
-    ///
-    /// The request to stop is looked at once for every folder, which is often enough for a walk that
-    /// was measured at 1,406 seconds on a whole disk to stop within a moment of being asked, and costs
-    /// nothing worth measuring. A walk that is stopped returns NOTHING: it throws, so that no caller
-    /// can be handed the part of a disk that happened to be walked and take it for the whole of one.
-    /// </summary>
-    /// <param name="options">What to walk, and how deep to record folder totals.</param>
-    /// <param name="stop">Asks the walk to stop.</param>
-    /// <exception cref="DirectoryNotFoundException">The root folder does not exist.</exception>
-    /// <exception cref="OperationCanceledException">The walk was asked to stop before it finished.</exception>
-    public ScanResult Scan(ScanOptions options, CancellationToken stop)
+    public ScanResult Scan(ScanOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         FileLog.Write($"[DirectoryScanner] Scan: root={options.RootPath}, maxFolderDepth={options.MaxFolderDepth}");
@@ -94,12 +80,6 @@ public sealed class DirectoryScanner
 
         while (toExpand.Count > 0)
         {
-            if (stop.IsCancellationRequested)
-            {
-                FileLog.Write($"[DirectoryScanner] Scan STOPPED: root={root}, files={filesSeen}, reason=asked to stop");
-                stop.ThrowIfCancellationRequested();
-            }
-
             var frame = toExpand.Pop();
             var listing = DirectoryReadResult.Read(frame.Path);
 
