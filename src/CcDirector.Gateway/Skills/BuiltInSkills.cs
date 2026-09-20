@@ -81,6 +81,95 @@ public static class BuiltInSkills
                 "fleet manager", "you are the fleet manager", "what's waiting on me",
                 "take me through them", "what did I miss",
             }),
+
+        // FLEET LAW (issue #3240). These were published from a session and lived ONLY on the
+        // Gateway - no file in any repository, no review, no test, and any session with a key
+        // could rewrite what every agent in the fleet reads. They carry rules we treat as
+        // binding, so they ship with the product and change by deployment like the rest.
+        // Genuinely local or experimental skills still belong on the Gateway, not here.
+        new SkillDefinition(
+            Id: "devthrottle-method",
+            Name: "The DevThrottle Method",
+            Summary: "How we build software here - the seats, the twenty laws, and the mission document every piece of " +
+                     "work starts from.",
+            Triggers: new[]
+            {
+                "devthrottle method", "the method", "how do we build", "what is my seat",
+                "delivery lead", "tech lead", "release manager", "mission document",
+                "who reviews this", "who shuts me down", "what proof do I owe", "am I allowed to",
+            }),
+
+        new SkillDefinition(
+            Id: "fleet-naming",
+            Name: "Name a session, and put it in a Mission",
+            Summary: "Every session belongs to a Mission and is named to one convention: <Mission> - <Role> - <what " +
+                     "this seat does>. A session with no Mission is invisible on the fleet map.",
+            Triggers: new[]
+            {
+                "name a session", "rename a session", "what should I call this session",
+                "session naming", "create a mission", "attach a session to a mission",
+                "the fleet map is a mess", "sessions with no mission", "spawn a worker",
+            }),
+
+        new SkillDefinition(
+            Id: "foreground-only",
+            Name: "Foreground Only",
+            Summary: "Agents and sessions run in the FOREGROUND - never background or detached. Sessions exist to be " +
+                     "logged, tracked and improved; a hidden process is none of those.",
+            Triggers: new[]
+            {
+                "run_in_background", "run in the background", "background agent", "background session",
+                "detached", "spawn an agent", "long running job", "codex review",
+                "start it and check back",
+            }),
+
+        new SkillDefinition(
+            Id: "checks-that-fail-open",
+            Name: "Checks That Fail Open",
+            Summary: "A check whose pass condition is an ABSENCE certifies a run that never happened. Restate it as a " +
+                     "specific PRESENCE - and an empty result is a broken instrument, never a clean run.",
+            Triggers: new[]
+            {
+                "verify", "prove it", "sweep", "grep returned nothing", "zero hits", "clean run",
+                "it passed", "no defects", "reviewed", "delivered", "double check", "how do we know",
+            }),
+
+        new SkillDefinition(
+            Id: "proof-covers-the-wrong-thing",
+            Name: "Proof That Covers The Wrong Thing",
+            Summary: "A proof can be valid and still say nothing about what you changed - wrong surface, wrong reader, " +
+                     "wrong caller, or an untested premise. Name what your evidence does NOT cover.",
+            Triggers: new[]
+            {
+                "prove it", "by construction", "root cause", "reproduced it", "repro", "guard-local",
+                "skipped test", "suite is green", "premise", "assumption", "self review",
+                "it is settled",
+            }),
+
+        new SkillDefinition(
+            Id: "destructive-sweeps-lean-to-keep",
+            Name: "Destructive Sweeps Lean To Keep",
+            Summary: "A destructive operation acts only on what it can positively prove is disposable. Enumerate what " +
+                     "to DELETE, never what to skip - and refresh the safety signal on every real use.",
+            Triggers: new[]
+            {
+                "sweep", "purge", "cleanup", "delete old", "prune", "reclaim space", "stale files",
+                "retention", "aged out", "rm -rf", "git clean", "drop the table",
+            }),
+
+        new SkillDefinition(
+            Id: "dev-reports",
+            Name: "Dev reports - how you report to the owner",
+            Summary: "A report FOR THE OWNER is one HTML file published with cc-dev-reports - never a file path, never " +
+                     "markdown, never an artifact. Holds the required shape, including the only three allowed status " +
+                     "words.",
+            Triggers: new[]
+            {
+                "write a report", "write me a report", "dev report", "report format",
+                "mission document", "status report", "write up what you found",
+                "summarise what you did", "hand me a document", "cc-dev-reports", "findings",
+                "how do I report",
+            }),
     };
 
     /// <summary>Every skill the Gateway ships, in the order the register lists them.</summary>

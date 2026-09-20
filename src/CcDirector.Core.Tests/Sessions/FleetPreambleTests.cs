@@ -151,10 +151,41 @@ public class FleetPreambleTests
         Assert.Contains("--reply-wanted", text);
         Assert.Contains("cc-devthrottle message reply <id>", text);
         Assert.Contains("cc-devthrottle session raise", text);
-        Assert.Contains("cc-devthrottle session report", text);
+        Assert.Contains("cc-devthrottle session handback", text);
         Assert.DoesNotContain("message ask", text);
         Assert.DoesNotContain("interrupts", text);
         Assert.DoesNotContain("wait for its answer", text);
+    }
+
+    // Issue #3240. A session asked for a report went looking for how to write one, found what was then
+    // called 'cc-devthrottle session report' - which reaches a SESSION, not the owner - and confidently
+    // reported to the wrong place. That command is now 'session handback' for exactly this reason, but
+    // the old name still works, so the preamble must still do the teaching: name the owner-facing
+    // command, say that a report
+    // for a PERSON is published rather than handed over as a path, and mark the collision at the exact
+    // point it happens. Asserting the PRESENCE of each, so a preamble that quietly drops them fails.
+    [Fact]
+    public void Build_TeachesThatAReportForTheOwnerIsAPublishedDevReport()
+    {
+        var text = FleetPreamble.Build(
+            "a3dfb85e-49dd-442a-9e36-40fc44838783",
+            "devthrottle",
+            "MACHINE_A",
+            @"C:\repos\devthrottle");
+
+        Assert.Contains("cc-dev-reports open <file.html>", text);
+        Assert.Contains("REPORT TO THE OWNER", text);
+        Assert.Contains("never a file path, never markdown, never", text);
+        Assert.Contains("an artifact", text);
+        Assert.Contains("cc-devthrottle skill get dev-reports", text);
+        // The collision is marked where it is made: directly under the session-to-session command.
+        Assert.Contains("(this reaches a SESSION, never the owner", text);
+        var handback = text.IndexOf("cc-devthrottle session handback", StringComparison.Ordinal);
+        var warning = text.IndexOf("(this reaches a SESSION, never the owner", StringComparison.Ordinal);
+        var owner = text.IndexOf("cc-dev-reports open <file.html>", StringComparison.Ordinal);
+        Assert.True(handback < warning && warning < owner,
+            "The warning and the owner-facing command must come directly after the session handback, " +
+            "which is where an agent looking for how to report takes the wrong turn.");
     }
 
     [Fact]

@@ -1148,6 +1148,30 @@ _ACTIONS = [
         "args": [{"name": "session", "required": True}, {"name": "to", "required": True}],
     },
     {
+        "id": "dev-report-open",
+        "description": (
+            "REPORT TO THE OWNER. Any report, write-up, mission document, design or findings a PERSON asked "
+            "you for is one self-contained HTML file published with this - never a file path, never markdown, "
+            "never an artifact. Publishing the same file again makes a new version. It prints one address the "
+            "owner clicks, and it lands him inside the report on whatever device he opens it with. The shape is "
+            "checked on publish and is easy to get wrong: read it first with 'cc-devthrottle skill get "
+            "dev-reports'. Not to be confused with 'session report', which reaches a SESSION, never the owner."
+        ),
+        "command": "cc-dev-reports open <file.html> [--json]",
+        "mutatesState": True,
+        "args": [{"name": "file", "required": True}],
+    },
+    {
+        "id": "dev-report-reply",
+        "description": (
+            "Reply to the owner inside a dev report you published, after he has read it or answered a question "
+            "in it. Defaults to this session's newest report."
+        ),
+        "command": "cc-dev-reports reply \"<text>\" [--report <id>] [--json]",
+        "mutatesState": True,
+        "args": [{"name": "text", "required": True}, {"name": "report", "required": False}],
+    },
+    {
         "id": "browser-list",
         "description": "List this machine's drivable browser profiles (name, browser, status, account).",
         "command": "cc-devthrottle browser list --json",
@@ -2029,13 +2053,13 @@ def interrupt(
     interrupt_session(target)
 
 
-@session_app.command(name="report")
-def report(
+@session_app.command(name="handback")
+def handback(
     summary: Optional[str] = typer.Argument(
         None, help="What you did, in your own words. One or two sentences."
     ),
     target: Optional[str] = typer.Option(
-        None, "--target", help="Session to report for. Defaults to THIS session (CC_SESSION_ID)."
+        None, "--target", help="Session to hand back for. Defaults to THIS session (CC_SESSION_ID)."
     ),
 ) -> None:
     """Tell the session that owns you what you did, now that your turn has ended.
@@ -2051,6 +2075,30 @@ def report(
 
     If a FLEET MANAGER owns you, nothing is sent either: the Gateway tells it that you stopped, with the
     Wingman's reading, when it is next waiting for a prompt.
+
+    NOT to be confused with a DEV REPORT. This reaches a SESSION. A report for a PERSON is one HTML
+    file published with 'cc-dev-reports open' - see 'cc-devthrottle skill get dev-reports'.
+    """
+    report_to_parent(summary, target)
+
+
+# The old name. It owned the word an agent searches for when a PERSON asks it for a report, and that
+# collision sent a session to hand its work to another session instead of publishing a dev report for
+# the owner (issue #3240). Renamed to 'handback', which is what it does. The old name keeps working -
+# it is in habits, in documents, and in prompts already written - but it is hidden from the command
+# list so nothing new learns it.
+@session_app.command(name="report", hidden=True)
+def report(
+    summary: Optional[str] = typer.Argument(
+        None, help="What you did, in your own words. One or two sentences."
+    ),
+    target: Optional[str] = typer.Option(
+        None, "--target", help="Session to hand back for. Defaults to THIS session (CC_SESSION_ID)."
+    ),
+) -> None:
+    """Deprecated name for 'session handback'. Still works; use 'handback'.
+
+    A report for a PERSON is a dev report: 'cc-dev-reports open <file.html>'.
     """
     report_to_parent(summary, target)
 

@@ -51,7 +51,14 @@ public sealed class SkillStoreTests : IDisposable
 
         var skills = store.ListPublished();
 
-        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" },
+        // The five product skills, then the fleet-law skills promoted off the Gateway (issue #3240).
+        Assert.Equal(
+            new[]
+            {
+                "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager",
+                "devthrottle-method", "fleet-naming", "foreground-only", "checks-that-fail-open",
+                "proof-covers-the-wrong-thing", "destructive-sweeps-lean-to-keep", "dev-reports",
+            },
             skills.Select(s => s.Id).ToArray());
         Assert.All(skills, s =>
         {
@@ -72,12 +79,65 @@ public sealed class SkillStoreTests : IDisposable
 
         var store = new SkillStore(_h.Open());
 
+        var expected = BuiltInSkills.All().Count;
         var skills = store.ListPublished();
-        Assert.Equal(5, skills.Count);
+        Assert.Equal(expected, skills.Count);
         Assert.All(skills, s => Assert.Equal(1, s.Version));
 
         using var ctx = _h.Open().CreateContext();
-        Assert.Equal(5, ctx.SkillVersions.Count());
+        Assert.Equal(expected, ctx.SkillVersions.Count());
+    }
+
+    // Issue #3240. A skill can become part of the product AFTER it was published from a session: the
+    // seven fleet-law skills were promoted off the Gateway, where they already existed as tenant rows.
+    // The seeder's upgrade path republished their BODY but left IsBuiltIn false, which is what makes a
+    // skill read-only, undeletable and immune to a tenant skill taking its id. A half-promoted skill
+    // can still be overwritten by 'skill push', and the seeder overwrites that back on the next
+    // restart - a flip-flop nobody owns.
+    [Fact]
+    public void Promoting_a_skill_that_already_existed_as_a_tenant_row_makes_it_built_in()
+    {
+        var id = "dev-reports";
+
+        // A tenant row under an id the running binary ships, as promotion finds it.
+        using (var ctx = _h.Open().CreateContext())
+        {
+            ctx.Skills.Add(new SkillEntity
+            {
+                Id = id,
+                TenantId = ctx.ActiveTenant!,
+                IsBuiltIn = false,
+                Archived = false,
+                LatestVersion = 1,
+                PublishedVersion = 1,
+                ShippedContentHash = null,
+                CreatedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow,
+            });
+            ctx.SkillVersions.Add(new SkillVersionEntity
+            {
+                TenantId = ctx.ActiveTenant!,
+                SkillId = id,
+                Version = 1,
+                Status = SkillVersionStatus.Published,
+                Name = "Published from a session",
+                Summary = "Whatever the session wrote.",
+                Triggers = new List<string> { "something" },
+                BodyMarkdown = "# Not the shipped body",
+                ContentHash = "not-the-shipped-hash",
+                AuthoredBy = "session:whoever",
+                CreatedUtc = DateTime.UtcNow,
+                PublishedUtc = DateTime.UtcNow,
+            });
+            ctx.SaveChanges();
+        }
+
+        var store = new SkillStore(_h.Open());
+
+        var promoted = store.ListPublished().Single(s => s.Id == id);
+        Assert.True(promoted.IsBuiltIn, "a promoted skill must be built in, or it stays writable");
+        Assert.False(promoted.Editable);
+        Assert.Equal(BuiltInSkills.BodyFor(id), store.GetBody(id, null));
     }
 
     [Fact]
@@ -86,7 +146,7 @@ public sealed class SkillStoreTests : IDisposable
         _ = new SkillStore(_h.Open());
 
         using var ctx = _h.Open().CreateContext();
-        foreach (var id in new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" })
+        foreach (var id in BuiltInSkills.All().Select(s => s.Id))
         {
             var version = ctx.SkillVersions.Single(v => v.SkillId == id);
             Assert.Equal(BuiltInSkills.BodyFor(id), version.BodyMarkdown);

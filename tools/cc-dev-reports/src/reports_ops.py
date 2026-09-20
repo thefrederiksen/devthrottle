@@ -220,6 +220,10 @@ def render(result: Dict[str, Any], as_json: bool, stream: TextIO) -> int:
             blocks.append(f"errors[{len(result['errors'])}]:")
             blocks.extend(f"  {_ascii(e)}" for e in result["errors"])
         if result["code"] == "shape_check_failed":
+            # The agent that gets here guessed the format, so hand it the whole shape rather than only
+            # the rule it broke - otherwise it learns the contract one refusal at a time (issue #3240).
+            blocks.append("the whole shape, including the only three allowed status words:")
+            blocks.append("  cc-devthrottle skill get dev-reports")
             blocks.append(axi_output.format_help(["cc-dev-reports open <file>"]))
         axi_output.write_blocks(stream, *blocks)
         return EXIT_ERROR

@@ -129,6 +129,32 @@ def test_open_422_prints_every_shape_check_error_one_per_line_and_exits_1(wire, 
     assert "code: shape_check_failed" in lines
 
 
+def test_open_422_also_hands_over_the_whole_shape_not_only_the_broken_rule(wire, report_file):
+    """Issue #3240. An agent that reaches a shape-check refusal guessed the format - the specimen
+    invented a status word that does not exist. Naming only the rule it broke teaches the contract one
+    refusal at a time, so the refusal must also say where the whole shape is."""
+    wire((422, {"error": "The report failed the shape check.", "code": "shape_check_failed",
+                "errors": ["The header's status \"design\" is not allowed."]}))
+
+    result = runner.invoke(app, ["open", str(report_file)])
+
+    assert result.exit_code == 1
+    assert "cc-devthrottle skill get dev-reports" in result.output
+    assert "the whole shape, including the only three allowed status words:" in result.output
+    assert result.output.isascii()
+
+
+def test_a_refusal_that_is_not_the_shape_check_does_not_mention_the_shape(wire, report_file):
+    """The pointer belongs to the shape check alone - a size or authentication refusal that sent an
+    agent to read the markup would be sending it to fix the wrong thing."""
+    wire((413, {"error": "This report is too large.", "code": "report_too_large"}))
+
+    result = runner.invoke(app, ["open", str(report_file)])
+
+    assert result.exit_code == 1
+    assert "skill get dev-reports" not in result.output
+
+
 def test_open_413_prints_the_size_error_and_exits_1(wire, report_file):
     sentence = "This report is 10485761 bytes. A dev report can be at most 10485760 bytes (10 megabytes)."
     wire((413, {"error": sentence, "code": "report_too_large", "bytes": 10485761, "limitBytes": 10485760}))

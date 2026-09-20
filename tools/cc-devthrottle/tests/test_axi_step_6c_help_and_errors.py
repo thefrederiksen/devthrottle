@@ -348,6 +348,9 @@ _ACTIONS_ADDED_SINCE_PIN = {
     # The mission "Smart Director Restart", section 5.3 item 12: the command line door onto the
     # Director's own smart shutdown, so one broken window cannot leave a Director impossible to empty.
     "director-smart-restart", "director-smart-restart-status", "director-restart-history",
+    # Issue #3240: how a session reports TO THE OWNER was missing from the catalogue entirely, so an
+    # agent that asked the machine what it could do was told about worktree pools and not about this.
+    "dev-report-open", "dev-report-reply",
 }
 
 

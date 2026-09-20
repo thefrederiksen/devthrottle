@@ -207,7 +207,7 @@ and no workers cannot send a message at all.
 
 **Six an hour.** The Gateway allows at most 6 messages an hour from one session, and 1 to the same
 recipient every 10 minutes. An identical message that is still unread is dropped as a duplicate. Every
-refusal says the same thing: put it in your report. `cc-devthrottle session report` at the end of your
+refusal says the same thing: put it in your report. `cc-devthrottle session handback` at the end of your
 turn is where your news belongs; a message is for the rare thing that cannot wait for it.
 
 **The one exception is a session the owner has raised.** A raised session acts with the owner's
