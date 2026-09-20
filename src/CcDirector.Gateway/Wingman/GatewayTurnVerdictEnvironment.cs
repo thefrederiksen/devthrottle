@@ -20,21 +20,50 @@ namespace CcDirector.Gateway.Wingman;
 /// would silently carry sixty, so the host builds the judge through this method and a test pins the brain it
 /// returns to the settings' value.
 ///
-/// THE ROLE IS FAST. The slice 0 grading decided the judge is the included fast tier
-/// (<c>devthrottle/wingman-fast</c>): the thinking tier left roughly half of its calls unanswered at the
-/// product's own ceiling of eight in flight.
+/// THE ROLE IS THINKING, WITH THE THINKING TURNED OFF - and the second half of that sentence is the whole
+/// point. The slice 0 grading put the judge on the fast tier (<c>devthrottle/wingman-fast</c>) because the
+/// thinking tier left roughly half of its calls unanswered at the product's own ceiling of eight in flight.
+/// That was true, and it was true OF THE REASONING, not of the model: reasoning is what produced 4,290 output
+/// tokens a call, a median reply of 144 seconds, and the unanswered half.
+///
+/// Measured on 2026-09-20 over eleven models, 85 screens whose picker truth is known, and the 381 labelled
+/// corpus stops, on the SAME v3 prompt (devthrottle_internal
+/// <c>docs/missions/wingman-picker-flag-2026-09-19/</c>):
+///
+///   <c>devthrottle/wingman</c>, thinking off : 85/85 pickers, 0 invented, 79.6% agreement, p50 2.0s, p95 4.5s,
+///                                              0 of 381 calls past the 20-second bound, about $20 a month
+///   <c>devthrottle/wingman-fast</c> (before)  : 72/85 pickers, 13 invented, 75.1% agreement, p50 6.1s, p95 14.9s
+///
+/// So this is not the old thinking tier coming back. Turning the reasoning off makes the stronger model both
+/// FASTER and more accurate than the fast tier it replaces, which is why the slice 0 reasoning no longer holds.
+/// Putting it back on this role without re-running that measurement restores every symptom slice 0 fled.
+///
+/// THE NARRATION CALL MOVES WITH IT, by construction: <see cref="GatewayTurnVerdictEnvironment.AskNarratorAsync"/>
+/// builds from this same brain. Today's narration prompt was measured on this model before the switch shipped,
+/// on slice J's own twenty stops against slice J's own ceiling: 17 of 20, against the 14 of 20 the shipped
+/// narration call scores on the fast tier. It is slower there than the judge is - half the calls over 22
+/// seconds, the slowest 52.6 - and the deadline it runs under is
+/// <see cref="TurnVerdictSettings.NarrationCallTimeoutSeconds"/>, sixty. A narration that misses that deadline
+/// costs the better wording, not the reading: the judge's own spoken text is stored and playable first.
 /// </summary>
 internal static class TurnVerdictJudge
 {
-    /// <summary>The model role the judge runs on.</summary>
-    public const WingmanModelRole Role = WingmanModelRole.Fast;
+    /// <summary>The model role the judge runs on. See the type comment before changing it.</summary>
+    public const WingmanModelRole Role = WingmanModelRole.Thinking;
 
-    /// <summary>A hosted brain bound to the settings' judge timeout.</summary>
+    /// <summary>
+    /// A hosted brain bound to the settings' judge timeout, with the model's reasoning turned OFF.
+    ///
+    /// THIS IS THE ONLY CALLER THAT TURNS IT OFF, and that is deliberate rather than incidental: the argument
+    /// defaults to off in <see cref="HostedInferenceBrain"/> so that every other brain in the product keeps the
+    /// behaviour it has today, and a test pins both halves - that this builder sets it, and that the
+    /// translator's brain does not.
+    /// </summary>
     public static HostedInferenceBrain BuildBrain(string baseUrl, string apiKey, IncludedModelId model, TurnVerdictSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
         return new HostedInferenceBrain(baseUrl, apiKey, model, log: FileLog.Write,
-            callTimeout: TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds));
+            callTimeout: TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds), thinkingOff: true);
     }
 }
 

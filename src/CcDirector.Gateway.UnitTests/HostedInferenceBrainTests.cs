@@ -66,6 +66,52 @@ public sealed class HostedInferenceBrainTests
         Assert.Equal("translate this", messages[0].GetProperty("content").GetString());
     }
 
+    /// <summary>
+    /// THE REASONING IS TURNED OFF IN THE REQUEST BODY, and this asserts the BYTES rather than the flag that
+    /// asked for them. A test on the property alone would pass over a brain that carried the intent and sent a
+    /// body without it - which is the entire behaviour, since the argument only does anything upstream.
+    ///
+    /// Why it matters: with reasoning ON this model wrote 4,290 output tokens a call and answered in about 144
+    /// seconds at the median, which is why the judge was on the fast tier until 2026-09-20. See
+    /// <see cref="Gateway.Wingman.TurnVerdictJudge"/> for the measurement.
+    /// </summary>
+    [Fact]
+    public async Task AskAsync_ThinkingOff_AsksTheModelNotToReason()
+    {
+        var stub = new StubHandler(HttpStatusCode.OK, OkBody("the verdict"));
+        using var http = new HttpClient(stub);
+        var brain = new HostedInferenceBrain("https://devthrottle.com/api/v1", "dt_live_abc",
+            IncludedModelId.Wingman, http, _ => { }, thinkingOff: true);
+
+        await brain.AskAsync("judge this");
+
+        using var doc = JsonDocument.Parse(stub.LastRequestBody!);
+        Assert.False(doc.RootElement.GetProperty("chat_template_kwargs").GetProperty("thinking").GetBoolean());
+        // The rest of the body is untouched: the argument rides ALONGSIDE the call, it does not reshape it.
+        Assert.Equal("devthrottle/wingman", doc.RootElement.GetProperty("model").GetString());
+        Assert.Equal("judge this", doc.RootElement.GetProperty("messages")[0].GetProperty("content").GetString());
+        Assert.False(doc.RootElement.GetProperty("stream").GetBoolean());
+    }
+
+    /// <summary>
+    /// AND WITHOUT IT THE KEY IS ABSENT, not present and false-shaped. A reasoning model reads this argument from
+    /// its chat template; an empty or defaulted object is not the same input as no object, and every brain in the
+    /// product other than the judge's was measured with no object at all.
+    /// </summary>
+    [Fact]
+    public async Task AskAsync_ByDefault_SendsNoThinkingArgumentAtAll()
+    {
+        var stub = new StubHandler(HttpStatusCode.OK, OkBody("the spoken summary"));
+        using var http = new HttpClient(stub);
+        var brain = new HostedInferenceBrain("https://devthrottle.com/api/v1", "dt_live_abc",
+            IncludedModelId.Wingman, http, _ => { });
+
+        await brain.AskAsync("translate this");
+
+        using var doc = JsonDocument.Parse(stub.LastRequestBody!);
+        Assert.False(doc.RootElement.TryGetProperty("chat_template_kwargs", out _));
+    }
+
     [Fact]
     public async Task AskAsync_NoKey_ThrowsWithoutCallingModel()
     {
