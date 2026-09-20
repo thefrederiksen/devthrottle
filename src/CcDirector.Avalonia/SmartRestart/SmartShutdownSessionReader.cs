@@ -45,6 +45,12 @@ public static class SmartShutdownSessionReader
 
     // The same rule the session rail uses (SessionViewModel.DisplayName): the owner's name for the
     // session, or the repository folder's name when it has none.
+    //
+    // The folder name is read from the PATH's own shape, never from the separator of the machine
+    // running this code: Path.GetFileName honours only the host's separator, so handed a Windows
+    // path on macOS or Linux it finds no separator and returns the whole path. RepositoryPaths
+    // .FolderName understands both separators and ignores a trailing one, so no TrimEnd is needed
+    // here.
     private static string DisplayNameOf(Session session) =>
-        session.CustomName ?? Path.GetFileName(session.RepoPath.TrimEnd('\\', '/'));
+        session.CustomName ?? RepositoryPaths.FolderName(session.RepoPath);
 }
