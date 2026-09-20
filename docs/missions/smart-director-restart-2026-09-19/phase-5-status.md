@@ -119,3 +119,39 @@ NEWER one, which is exactly the case the mission exists for - a Director is upda
   `D:/ReposFred/devthrottle-smart-restart-p5-rig`, branch `smart-restart/p5-way-down`, mandate
   `mandate-phase-5-developer-way-down.md`. Confirmed started by reading its own terminal, not by the
   spawn's exit code. Working.
+
+### 12:25 to 13:05 - the run is real, and it has already found one product defect and shown two known ones biting
+
+I am reading the Developer's artifacts as they land, not its summary. What is on disk now:
+
+**The feature works end to end on a real Director.** Case 1, File, Smart Restart, on the rig Director
+(process 28968, seven sessions across two missions): the File menu opened, the dialog said "7 sessions
+are running", "2 working, 5 waiting", carried the explanation and the why in the owner's own sense, the
+time dropdown took "5 minutes", and the progress screen ran from "Asking each session to hand over" to
+Finished. The record `restart-20260920-1230-sorennorth` on the rig Gateway holds all seven seats with
+their conversation ids, and the Director restarted and came back. Screenshots and the whole automation
+transcript are committed. **The fifteen lines in `MainWindow.axaml.cs` have now been executed.**
+
+**A new product defect - one session that cannot take a prompt aborts the WHOLE smart shutdown.**
+Attempt 1 of case 1 ended at "0 of 7 shut down" with `PhaseText` = Finished and this in `ResultText`:
+
+    The smart shutdown stopped on an error: [SubmitVerifier] 'RawCli: @.temp/input_...txt' never
+    started a turn within 8 beats (4 nudge(s) sent): the agent produced under 2048 bytes, so the
+    prompt is parked in the composer unsubmitted.
+
+Nobody was asked to hand over. Mission section 7 requires the opposite of this: "a wedged session that
+cannot take a prompt: reported as such, **not waited on in silence**". One deliberately wedged RawCli
+seat took the other six down with it. I will have it filed as a product issue with the record and the
+picture attached; it is not phase 5's to fix.
+
+**Issue 3207 bit exactly where phase 3 said it would.** In the successful run the Pi session on a long
+turn is `ended-at-limit` with no handover, while the Claude Code session on a long turn was interrupted
+and wrote one and came back `restore`. That is the Pi interrupt gap, observed in the product rather
+than argued from the driver code.
+
+**Case 6, the shape nobody had ever run:** the Alpha lead is `drained` and its worker is `covered`,
+with the lead's own document named on both rows and a covered note explaining it. The lead closed at
+16:33:39 and its worker at 16:32:39 - the worker's document was collected first, as designed.
+
+Cases 2 (the X), 3 (no sessions) and 13 (the planted password) have run since. I will check each one
+against its own evidence before I accept any of it.
