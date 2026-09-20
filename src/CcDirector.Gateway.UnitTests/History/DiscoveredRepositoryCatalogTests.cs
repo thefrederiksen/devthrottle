@@ -23,9 +23,9 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
 
     private KnownRepositoryStore NewStore() => new(_harness.Open());
 
-    /// <summary>Every row the catalog holds for one machine, used and discovered alike - because
-    /// <see cref="KnownRepositoryStore.ReadForMachine"/> deliberately serves only the used half in phase 2,
-    /// and a test that read through it could not see what this one is about.</summary>
+    /// <summary>Every row the catalog holds for one machine, read straight out of the table. These tests
+    /// are about what is WRITTEN - the row's own discovered facts, which no read projects - so they look
+    /// at the rows rather than at what <see cref="KnownRepositoryStore.ReadForMachine"/> serves.</summary>
     private List<KnownRepositoryEntity> AllRows()
     {
         using var context = _harness.Open().CreateContext(TenantId.Local);
@@ -240,7 +240,7 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     }
 
     [Fact]
-    public void ReadForMachine_DiscoveredRepository_IsStoredAndIsNotServedYet()
+    public void ReadForMachine_DiscoveredRepository_IsServedBeneathTheUsedHalf()
     {
         var store = NewStore();
         store.Observe(TenantId.Local, Machine, "/repos/used", "used", _now.AddDays(-1));
@@ -250,12 +250,19 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
             Found("/roots/alpha/never-opened", "never-opened"),
         }, _now, reconcile: true);
 
-        // Stored.
+        // Stored as two rows - phase 2.
         Assert.Equal(2, AllRows().Count);
-        // Not served. Phase 2 stores; phase 3 lifts this filter and owns the order, and until then the
-        // phone reads exactly what it read before.
-        var served = Assert.Single(store.ReadForMachine(TenantId.Local, Machine));
-        Assert.Equal("/repos/used", served.Path);
+
+        // Served as ONE list in ONE order - phase 3. The used repository is first and the never-opened one
+        // is beneath it, and the never-opened row says what it is rather than leaving a client to read a
+        // missing date.
+        var served = store.ReadForMachine(TenantId.Local, Machine);
+        Assert.Equal(new[] { "/repos/used", "/roots/alpha/never-opened" },
+            served.Select(row => row.Path).ToArray());
+        Assert.Equal(_now.AddDays(-1), served[0].LastUsed);
+        Assert.False(served[0].NeverOpened);
+        Assert.Null(served[1].LastUsed);
+        Assert.True(served[1].NeverOpened);
     }
 
     [Fact]

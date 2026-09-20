@@ -20,6 +20,9 @@ public readonly record struct DiscoveredRepository(string Path, string Name);
 /// <see cref="ObserveDiscovered"/> writes the DISCOVERED half from a Director's root-folder scan. A
 /// discovered row carries NO last-used time, and the two halves never write each other's facts - see
 /// the remarks on <see cref="ObserveDiscovered"/>.
+///
+/// <see cref="ReadForMachine"/> serves that one table as ONE LIST in ONE ORDER (phase 3), so that no
+/// client sorts for itself. The order is decided in <see cref="OrderOneList"/> and nowhere else.
 /// </summary>
 public sealed class KnownRepositoryStore
 {
@@ -343,16 +346,21 @@ public sealed class KnownRepositoryStore
     }
 
     /// <summary>
-    /// Read every USED repository retained for one machine, newest first. There is deliberately no result
-    /// cap: the mobile client needs to search the complete catalog rather than a hidden recent subset.
+    /// Read the ONE repository list for one machine, already in the order every screen shows it (the
+    /// one-repository-list mission, phase 3): most recently used first, with never-opened repositories
+    /// beneath everything that has been used. There is deliberately no result cap - a client needs to
+    /// search the complete catalog rather than a hidden recent subset.
     ///
-    /// Rows with no last-used time - the DISCOVERED half - are deliberately NOT served here. Phase 2 of the
-    /// one-repository-list mission STORES the root-folder scan; phase 3 owns serving the union and its
-    /// order, and until it lands the phone reads exactly what it read before.
+    /// IT SERVES BOTH HALVES, AND THE ORDER IS THE RULING. A row with a last-used time has been opened; a
+    /// row without one was found by a Director under a registered root folder and never opened, and says
+    /// so on the wire in <see cref="KnownRepositoryDto.NeverOpened"/> rather than leaving a client to
+    /// decide what an absent date means. This is Critical Rule 7 (CLAUDE.md) applied to a list instead of
+    /// a verdict: the Gateway rules once, here, and no client sorts for itself or invents a different
+    /// answer.
     ///
-    /// READ THIS BEFORE MOVING THE SORT INTO THE DATABASE. The rows are materialized with ToList() and
-    /// ordered IN MEMORY, and once the last-used time is nullable that is load-bearing rather than
-    /// incidental. C# and PostgreSQL disagree about where a null goes in a descending sort:
+    /// READ THIS BEFORE MOVING THE SORT INTO THE DATABASE. THE SORT IS DELIBERATELY IN C#, over rows that
+    /// have already been materialized, and phase 3 kept it there on purpose. C# and PostgreSQL disagree
+    /// about where a null goes in a descending sort:
     ///
     ///   OrderByDescending on a DateTime? puts null LAST  - never-opened beneath everything used, which is
     ///                                                      what this mission's goal 2 asks for.
@@ -362,7 +370,12 @@ public sealed class KnownRepositoryStore
     /// And the disagreement is INVISIBLE to this repository's database tests, which is the dangerous part:
     /// SQLite sorts nulls as smallest, so its DESC puts them LAST and agrees with C#. Both were run rather
     /// than remembered. A sort pushed into SQL would therefore pass every test here and invert the list on
-    /// the hosted Gateway alone. If phase 3 does move it, it must say NULLS LAST explicitly.
+    /// the hosted Gateway alone, which is the one place nobody can test before shipping. If a later change
+    /// does move it, it must say NULLS LAST explicitly.
+    ///
+    /// The ordering itself lives in <see cref="OrderOneList"/>, which takes a materialized list rather
+    /// than a query for exactly that reason, and is proved to produce the same order whatever order the
+    /// rows are handed to it in - including the nulls-first order PostgreSQL would hand over.
     /// </summary>
     public IReadOnlyList<KnownRepositoryDto> ReadForMachine(TenantId tenant, string machineName)
     {
@@ -381,25 +394,56 @@ public sealed class KnownRepositoryStore
                 .ToList();
         }
 
-        var result = rows
-            .Where(row => row.LastUsedUtc is not null)
+        var result = OrderOneList(rows, machineKey);
+        var neverOpened = result.Count(row => row.NeverOpened);
+        FileLog.Write($"[KnownRepositoryStore] ReadForMachine: tenant={tenant.ToLogString()} machine={machine} "
+                      + $"count={result.Count} neverOpened={neverOpened}");
+        return result;
+    }
+
+    /// <summary>
+    /// THE ONE ORDER, decided in one place, over rows that are already in memory.
+    ///
+    /// It takes an <see cref="IReadOnlyList{T}"/> and not a query on purpose: the order a client sees must
+    /// be decided here and not by whichever database the Gateway happens to be running on, and the two
+    /// disagree about nulls in a way no test in this repository can catch (see the remarks on
+    /// <see cref="ReadForMachine"/>). Because this is a pure function over a materialized list, it can be
+    /// handed rows in the exact nulls-first order PostgreSQL would produce and proved to re-order them.
+    ///
+    /// The rules, in order:
+    /// <list type="number">
+    ///   <item>Only rows whose machine name normalizes to this machine - the candidate-key query above is
+    ///     deliberately wider than the answer, so a row written under a legacy key is found rather than
+    ///     missed, and this is where it is narrowed.</item>
+    ///   <item>One row per repository. Two rows can share a path when the machine name was written with
+    ///     different spellings, and the USED one wins - a repository that has been opened never loses its
+    ///     place in the order to a discovered duplicate.</item>
+    ///   <item>Most recently used first; never-opened beneath everything used.</item>
+    ///   <item>Within a tie - and every never-opened row ties with every other - by name and then by path,
+    ///     so the list is a total order. Two clients reading the same catalog see the same list, and a
+    ///     screen does not reshuffle between reads.</item>
+    /// </list>
+    /// </summary>
+    internal static IReadOnlyList<KnownRepositoryDto> OrderOneList(
+        IReadOnlyList<KnownRepositoryEntity> rows, string machineKey)
+    {
+        return rows
             .Where(row => string.Equals(
                 NormalizeMachineKey(row.MachineName), machineKey, StringComparison.Ordinal))
             .GroupBy(row => NormalizePathKey(row.Path), StringComparer.Ordinal)
             .Select(group => group.OrderByDescending(row => row.LastUsedUtc).First())
             .OrderByDescending(row => row.LastUsedUtc)
             .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(row => row.Path, StringComparer.Ordinal)
             .Select(row => new KnownRepositoryDto
             {
                 Name = row.Name,
                 Path = row.Path,
-                // Non-null by the filter above: the discovered half is not served in phase 2.
-                LastUsed = row.LastUsedUtc ?? default,
+                LastUsed = row.LastUsedUtc,
+                // Stamped here and nowhere else, so the flag and the time can never disagree.
+                NeverOpened = row.LastUsedUtc is null,
             })
             .ToList();
-
-        FileLog.Write($"[KnownRepositoryStore] ReadForMachine: tenant={tenant.ToLogString()} machine={machine} count={result.Count}");
-        return result;
     }
 
     internal static string NormalizeMachineKey(string machineName) =>
