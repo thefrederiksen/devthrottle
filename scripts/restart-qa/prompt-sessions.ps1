@@ -54,7 +54,10 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot "gateway-common.ps1")
 
-function Say([string]$text) { Write-Host "[prompt] $text" }
+# Write-Output, not Write-Host: Write-Host bypasses the pipeline in Windows PowerShell 5.1, so a
+# caller piping this into Tee-Object gets an empty transcript - which is how two runs of these
+# scripts left no evidence file at all.
+function Say([string]$text) { Write-Output "[prompt] $text" }
 
 if (-not (Test-Path $SeatsReport)) { throw "no seats report at $SeatsReport - run populate-sessions.ps1 first." }
 $seats = (Get-Content $SeatsReport -Raw | ConvertFrom-Json).seats

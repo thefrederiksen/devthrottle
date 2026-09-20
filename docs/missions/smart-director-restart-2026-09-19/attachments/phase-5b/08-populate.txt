@@ -1,0 +1,49 @@
+The seven seats, created.
+
+TRANSCRIBED FROM THE CONSOLE, and said so rather than presented as a capture: populate-sessions.ps1
+used Write-Host, which bypasses the pipeline in Windows PowerShell 5.1, so the Tee-Object this was
+piped into wrote nothing. The script has since been changed to Write-Output so the next run captures.
+The machine-written record of the same run is 08-seats.json, which the script wrote itself and which
+carries every session id below.
+
+The command:
+
+  scripts\restart-qa\populate-sessions.ps1 -GatewayUrl http://127.0.0.1:7911 `
+    -TokenFile C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\config\director\gateway-token.txt `
+    -DirectorId 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe -Machine SOREN_NORTH `
+    -WorkRoot C:\Users\soren\AppData\Local\Temp\restart-qa-seats `
+    -ReportTo <attachments>\08-seats.json `
+    -Only alpha-lead,alpha-worker,alpha-long-turn,beta-long-turn-pi,beta-question-box,beta-silent,beta-wedged
+
+The eighth shape, beta-secret, was left out on purpose: the comparison in section 3 of the report is
+against a first attempt of SEVEN seats, and adding an eighth is what made run A's comparison unequal.
+
+The output:
+
+  [populate] Director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe is listed by the Gateway (name: )
+  [populate] mission 'Restart QA Alpha' already exists: 0da1d0b5-796e-4b59-8392-6d23a5a940a0
+  [populate] mission 'Restart QA Beta' already exists: bd041b2e-d55d-4928-911b-7b4b17e57442
+  [populate] creating alpha-lead: agent=Pi folder=C:\Users\soren\AppData\Local\Temp\restart-qa-seats\alpha-lead
+  [populate]   created b0204e64-fa48-42be-b679-9d3b6c3b618a
+  [populate] creating alpha-worker: agent=Pi folder=...\alpha-worker
+  [populate]   created 1a3e267d-b2e5-4721-89f8-eeac910c733d
+  [populate] creating alpha-long-turn: agent=ClaudeCode folder=...\alpha-long-turn
+  [populate]   created e1484738-a6d2-4bf1-ac2e-3d8281fec5c5
+  [populate] creating beta-long-turn-pi: agent=Pi folder=...\beta-long-turn-pi
+  [populate]   created f3281235-f9ad-47fd-bd3d-5e4dd5662feb
+  [populate] creating beta-question-box: agent=ClaudeCode folder=...\beta-question-box
+  [populate]   created 714f4ebc-af51-4306-b847-e8f10d61e155
+  [populate]   seeded ...\beta-silent\silent-seat.ps1 (825 characters)
+  [populate] creating beta-silent: agent=RawCli folder=...\beta-silent
+  [populate]   created 1913a203-9403-4284-bc88-aad73239dbdb
+  [populate] creating beta-wedged: agent=RawCli folder=...\beta-wedged
+  [populate]   created 04a71893-2cf1-4387-9b60-5493cd352c05
+  [populate] skipped beta-secret (not in -Only)
+  [populate]
+  [populate] MADE 7 seat(s) across 2 mission(s)
+  [populate] the Gateway lists 7 session(s) on Director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe
+
+Every one of those session ids appears again, written by the Gateway rather than by a script, in
+10-sessions-before-the-run.txt (the roster a minute before the run), in 13-record.json (the record the
+smart shutdown wrote) and in 15-director-log-lines.txt (the Director's own log of asking each of them
+to hand over).

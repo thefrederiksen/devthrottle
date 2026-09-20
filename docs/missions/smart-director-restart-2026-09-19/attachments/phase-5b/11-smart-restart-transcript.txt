@@ -1,0 +1,59 @@
+﻿[rig-cli] the source that answered: C:\Users\soren\AppData\Local\Temp\restart-qa-rig-pkgroot\cc_devthrottle\cli.py
+STARTED smart restart of Director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe
+  The smart restart of SOREN_NORTH has started. Every session is asked to hand over; anything still running after 5 minutes is shut down for it, and the Director is then restarted through its launcher.
+
+Writing the record of what is running - 0 of 0 shut down
+Asking each session to hand over - 0 of 7 shut down
+  Restart QA Alpha - Lead - collects its worker's document first: Asked to hand over
+  Restart QA Alpha - Worker - the seat under the lead: Waiting to be asked by its lead
+  Restart QA Alpha - Worker - a long turn that can be interrupted: Waiting to be asked by its lead
+  Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt: Waiting to be asked by its lead
+  Restart QA Beta - Worker - a question box open for the owner: Waiting to be asked by its lead
+  Restart QA Beta - Worker - takes the request and never answers: Waiting to be asked by its lead
+  Restart QA Beta - Worker - wedged and cannot take a prompt: Waiting to be asked by its lead
+  Restart QA Alpha - Worker - a long turn that can be interrupted: Asked to hand over
+  Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt: Asked to hand over
+  Restart QA Beta - Worker - a question box open for the owner: Asked to hand over
+  Restart QA Beta - Worker - takes the request and never answers: Asked to hand over
+Waiting for handovers and closing sessions as they finish - 0 of 7 shut down
+  Restart QA Beta - Worker - wedged and cannot take a prompt: The request did not reach it
+    The request did not reach it: [RawCli] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=33, tailNeedle="0173358zjbrvmtxt", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screen=<the snapshot could not be read> Readable buffer tail: 
+  Restart QA Alpha - Worker - a long turn that can be interrupted: Writing its handover
+  Restart QA Alpha - Worker - a long turn that can be interrupted: Handed over
+  Restart QA Alpha - Worker - a long turn that can be interrupted: Shut down
+Interrupting sessions that are still working and asking again - 1 of 7 shut down
+  Restart QA Alpha - Lead - collects its worker's document first: Interrupted and asked to hand over now
+    It was still working at two thirds of the time allowed.
+  Restart QA Alpha - Worker - the seat under the lead: Interrupted and asked to hand over now
+    It was still working at two thirds of the time allowed.
+  Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt: Interrupted and asked to hand over now
+    It was still working at two thirds of the time allowed.
+  Restart QA Beta - Worker - a question box open for the owner: Asked to hand over
+    Asked again at two thirds of the time allowed.
+  Restart QA Beta - Worker - takes the request and never answers: Asked to hand over
+    Asked again at two thirds of the time allowed.
+  Restart QA Beta - Worker - wedged and cannot take a prompt: The request did not reach it
+    The request to hand over now did not reach it: [RawCli] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=33, tailNeedle="0173719wbo3mgtxt", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screen=<the snapshot could not be read> Readable buffer tail: .
+Waiting for handovers and closing sessions as they finish - 1 of 7 shut down
+  Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt: Handed over
+    It was still working at two thirds of the time allowed.
+  Restart QA Beta - Worker - a question box open for the owner: Handed over
+    Asked again at two thirds of the time allowed.
+  Restart QA Beta - Worker - a question box open for the owner: Shut down
+    Asked again at two thirds of the time allowed.
+Shutting down every session that is still running - 4 of 7 shut down
+  Restart QA Alpha - Lead - collects its worker's document first: Ended when time was up
+    It was still working at two thirds of the time allowed.
+  Restart QA Alpha - Worker - the seat under the lead: Ended when time was up
+    It was still working at two thirds of the time allowed.
+Every session is shut down - restarting the Director - 7 of 7 shut down
+  Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt: Shut down
+    It was still working at two thirds of the time allowed.
+  Restart QA Beta - Worker - takes the request and never answers: Ended when time was up
+    Asked again at two thirds of the time allowed.
+  Restart QA Beta - Worker - wedged and cannot take a prompt: Ended when time was up
+    The request to hand over now did not reach it: [RawCli] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=33, tailNeedle="0173719wbo3mgtxt", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screen=<the snapshot could not be read> Readable buffer tail: .
+accepted, not waited: Director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe stopped answering while the smart restart was running. It was last seen: Every session is shut down - restarting the Director. That is also what a restart looks like from here - the launcher stops this very Director - so whether it restarted is not known from this command. The Gateway said: The Director is not connected right now, so the command was not delivered.
+help[2]:
+  cc-devthrottle director list
+  cc-devthrottle director restart-history --director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe

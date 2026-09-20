@@ -1,0 +1,68 @@
+The rig binaries were published from 8d0ba4a4f010506879c7497ec6f34e7168a2f3f8.
+This branch is based at d1dc26286. Every file that differs between those two commits:
+
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/01-rig-status.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/02-claude-folder-trust-grant.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/03-populate.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/03-seats.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/04-prompt-alpha-lead.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/04-prompt-alpha-worker.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/04-prompt-long-turns.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/04-prompt-question-box.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/04-prompt-wedged-probe.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/04-prompts.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/05-history-before.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/05-history-before.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/06-smart-restart-transcript.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/07-status.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/07-status.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/08-history-after.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/08-history-after.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/09-record.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/09-record.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/10-run-b-populate.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/10-run-b-seats.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/11-run-b-transcript.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/12-run-c-populate.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/12-run-c-seats.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/13-run-c-transcript.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/14-run-d-populate.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/14-run-d-seats.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/15-run-d-transcript.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/16-run-d-record.json
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/16-run-d-record.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/17-planted-credential-handover.md
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/17-planted-credential-seat-log.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/18-director-log-lines.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/19-launcher-refused-the-restart.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/20-the-check.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/21-director-restarted-for-handover.txt
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/handovers-main-run/0ab6ab99 - Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt.md
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/handovers-main-run/1cbfa646 - Restart QA Beta - Worker - a question box open for the owner.md
+docs/missions/smart-director-restart-2026-09-19/attachments/phase-5-run-a/handovers-main-run/87bae9f0 - Restart QA Alpha - Worker - a long turn that can be interrupted.md
+docs/missions/smart-director-restart-2026-09-19/proof-phase-5-run-a.md
+scripts/restart-qa/claude-folder-trust.ps1
+scripts/restart-qa/gateway-common.ps1
+scripts/restart-qa/populate-sessions.ps1
+scripts/restart-qa/prompt-sessions.ps1
+scripts/restart-qa/read-record.ps1
+scripts/restart-qa/remove-sessions.ps1
+scripts/restart-qa/session-shapes.json
+scripts/restart-qa/start-director.ps1
+src/CcDirector.Gateway.UnitTests/HostedInferenceBrainTests.cs
+src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictJudgeTimeoutTests.cs
+src/CcDirector.Gateway/Wingman/GatewayTurnVerdictEnvironment.cs
+src/CcDirector.Gateway/Wingman/HostedInferenceBrain.cs
+
+Of those, the ones under src/ or tools/ - the only ones that can change a binary:
+
+src/CcDirector.Gateway.UnitTests/HostedInferenceBrainTests.cs
+src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictJudgeTimeoutTests.cs
+src/CcDirector.Gateway/Wingman/GatewayTurnVerdictEnvironment.cs
+src/CcDirector.Gateway/Wingman/HostedInferenceBrain.cs
+issue 3241 merged as 71ef69ec2
+  IS an ancestor of the rig build 8d0ba4a4f
+issue 3245 merged as 986557607
+  IS an ancestor of the rig build 8d0ba4a4f
+issue 3248 merged as 2d4d90a38
+  IS an ancestor of the rig build 8d0ba4a4f

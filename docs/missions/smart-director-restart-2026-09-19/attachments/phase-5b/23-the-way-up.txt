@@ -1,0 +1,35 @@
+The way up, on both Directors the launcher started, quoted verbatim.
+
+=== process 45536 - started 17:39, after the seven-seat run. The record was still on offer. ===
+2026-09-20 17:39:11.826 [WayUpStartUpAsk] Connected for the first time; asking the way up engine
+2026-09-20 17:39:11.832 [WayUpStartUpAsk] Watching for a restart offer: status=Connected
+2026-09-20 17:39:11.833 [ControlApiHost] CreateDirectorWayUp: gatewayClient=present
+2026-09-20 17:39:11.840 [DirectorWayUp] FindOfferAsync: machine=SOREN_NORTH
+2026-09-20 17:39:13.086 [DirectorWayUp] FindOfferAsync: offering restart-20260920-1733-sorennorth, owed=2, rows=6
+2026-09-20 17:39:13.087 [WayUpStartUpAsk] Offering: workspace=restart-20260920-1733-sorennorth, owed=2
+2026-09-20 17:39:13.089 [ControlApiHost] CreateDirectorWayUp: gatewayClient=present
+2026-09-20 17:39:13.093 [WayUpOfferViewModel] Created: workspace=restart-20260920-1733-sorennorth, owed=2, endedWithoutHandover=4, bringBackRows=2, endedRows=4, endedSectionOpen=False
+2026-09-20 17:39:13.172 [WayUpOfferWindow] Created: workspace=restart-20260920-1733-sorennorth, rows=6
+2026-09-20 17:39:13.173 [WayUpOfferWindow] ShowForAnswerAsync: workspace=restart-20260920-1733-sorennorth
+2026-09-20 17:44:37.646 [ControlApiHost] CreateDirectorWayUp: gatewayClient=present
+2026-09-20 17:44:37.654 [DirectorWayUp] ReadHistoryAsync: machine=SOREN_NORTH
+2026-09-20 17:44:37.782 [DirectorWayUp] ReadHistoryAsync: 9 record(s), 0 older not read
+2026-09-20 17:45:27.033 [ControlApiHost] CreateDirectorWayUp: gatewayClient=present
+2026-09-20 17:45:27.033 [DirectorWayUp] ReadHistoryAsync: machine=SOREN_NORTH
+2026-09-20 17:45:28.607 [DirectorWayUp] ReadHistoryAsync: 9 record(s), 0 older not read
+
+=== process 57016 - started 17:46, after every record had been cleared, used or aged out ===
+2026-09-20 17:46:18.210 [WayUpStartUpAsk] Connected for the first time; asking the way up engine
+2026-09-20 17:46:18.212 [ControlApiHost] CreateDirectorWayUp: gatewayClient=present
+2026-09-20 17:46:18.212 [WayUpStartUpAsk] Watching for a restart offer: status=Connected
+2026-09-20 17:46:18.214 [DirectorWayUp] FindOfferAsync: machine=SOREN_NORTH
+2026-09-20 17:46:18.391 [DirectorWayUp] FindOfferAsync: nothing waiting (10 record(s) read)
+2026-09-20 17:46:18.394 [WayUpStartUpAsk] Nothing shown: state=NothingWaiting, message=There is nothing waiting to come back. No smart shutdown of this Director in the last seven days is still on offer: each one has been used already, has been cleared, or has no session left to bring back and no saved conversation left to reopen. They are all still in File, Restart history.
+
+=== the launcher answer that never came back - BOTH restarts, and BOTH restarts happened anyway ===
+2026-09-20 17:38:58.183 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: POST /machines/SOREN_NORTH/director/restart onlyIfEmpty=true exePath=C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\app\cc-director.exe
+2026-09-20 17:38:58.555 [SmartShutdownRun] AskLauncherAsync FAILED: launcherWasAsked=True: System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+2026-09-20 17:38:58.556 [SmartShutdownRun] finished: outcome=RestartRefused, workspace=restart-20260920-1733-sorennorth, detail=The launcher was asked to restart this Director, but its answer never came back: The operation was canceled. If the launcher did receive the request, this Director is stopped and started again shortly; if it did not, restart it by hand. Every session is shut down and recorded in workspace 'restart-20260920-1733-sorennorth'; it is offered when the Director is next started.
+2026-09-20 17:46:01.702 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: POST /machines/SOREN_NORTH/director/restart onlyIfEmpty=true exePath=C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\app\cc-director.exe
+2026-09-20 17:46:02.820 [SmartShutdownRun] AskLauncherAsync FAILED: launcherWasAsked=True: System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+2026-09-20 17:46:02.837 [SmartShutdownRun] finished: outcome=RestartRefused, workspace=restart-20260920-1746-sorennorth, detail=The launcher was asked to restart this Director, but its answer never came back: The operation was canceled. If the launcher did receive the request, this Director is stopped and started again shortly; if it did not, restart it by hand. Every session is shut down and recorded in workspace 'restart-20260920-1746-sorennorth'; it is offered when the Director is next started.

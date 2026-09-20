@@ -1,0 +1,9 @@
+﻿[rig-cli] the source that answered: C:\Users\soren\AppData\Local\Temp\restart-qa-rig-pkgroot\cc_devthrottle\cli.py
+STARTED smart restart of Director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe
+  The smart restart of SOREN_NORTH has started. Every session is asked to hand over; anything still running after 5 minutes is shut down for it, and the Director is then restarted through its launcher.
+
+Writing the record of what is running - 0 of 0 shut down
+accepted, not waited: Director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe stopped answering while the smart restart was running. It was last seen: Writing the record of what is running. That is also what a restart looks like from here - the launcher stops this very Director - so whether it restarted is not known from this command. The Gateway said: The Director is not connected right now, so the command was not delivered.
+help[2]:
+  cc-devthrottle director list
+  cc-devthrottle director restart-history --director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe

@@ -1,0 +1,40 @@
+﻿[rig-cli] the source that answered: C:\Users\soren\AppData\Local\Temp\restart-qa-rig-pkgroot\cc_devthrottle\cli.py
+count: 4 of 9 total
+This Director has 9 restart records, newest first.
+
+Shut down on 20 September 2026 at 16:24. - workspace restart-20260920-1619-sorennorth
+  Smart shutdown - every session was asked to hand over.
+  Reason: phase 5 main run
+  2 sessions are waiting to be brought back. None has come back yet.
+  2 sessions are waiting to be brought back.
+  This restart has been used - a session has been brought back or reopened from it - so the Director no longer offers it when it starts. Nothing has been deleted: whatever it still holds can be brought back from here.
+    Restart QA Alpha - Lead - collects its worker's document first: Its saved conversation was reopened on 20 September 2026 at 17:44 as adb00211.
+    Restart QA Alpha - Worker - the seat under the lead: Never answered, so nothing was written for it. Its saved conversation can be reopened.
+    Restart QA Alpha - Worker - a long turn that can be interrupted: Handed over and is waiting to be brought back.
+    Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt: Not coming back: the task (notes.md, 400 verified lines, numbers 1-400 with primality and a fact each) is finished and independently verified; nothing remains for this seat to do
+    Restart QA Beta - Worker - a question box open for the owner: Handed over and is waiting to be brought back.
+    Restart QA Beta - Worker - takes the request and never answers: Ended when time was up, without a handover. Its saved conversation can be reopened.
+    Restart QA Beta - Worker - wedged and cannot take a prompt: Ended when time was up, without a handover. Its saved conversation can be reopened.
+    Restart QA Beta - Worker - writes a handover carrying a planted credential: Ended when time was up, without a handover. Its saved conversation can be reopened.
+
+Shut down on 20 September 2026 at 12:36. - workspace restart-20260920-1230-sorennorth
+  Smart shutdown - every session was asked to hand over.
+  One session is waiting to be brought back. None has come back yet.
+  One session is waiting to be brought back.
+  You asked on 20 September 2026 at 17:44 not to be offered this when the Director starts, so it is not offered any more. Nothing was deleted: everything it holds can still be brought back from here.
+    Restart QA Alpha - Lead - collects its worker's document first: Not coming back: my only job - seat collection and this handover - is complete once this file is saved; nothing of the mission's own work lived in this seat.
+    Restart QA Alpha - Worker - the seat under the lead: Covered by its lead's handover: it is the seat under the lead; it never woke from its snooze, produced no handover document, and was reaped by the drain - nothing of substance lost, it was brand new with 0% context and had never been given a task, so it had nothing of its own to hand over.
+    Restart QA Alpha - Worker - a long turn that can be interrupted: Handed over and is waiting to be brought back.
+    Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt: Ended when time was up, without a handover. Its saved conversation can be reopened.
+    Restart QA Beta - Worker - a question box open for the owner: Not coming back: The single question this seat existed to ask was answered ("Delphine"); nothing is in flight and no work is uncommitted.
+    Restart QA Beta - Worker - takes the request and never answers: Ended when time was up, without a handover. Its saved conversation can be reopened.
+    Restart QA Beta - Worker - wedged and cannot take a prompt: Ended when time was up, without a handover. Its saved conversation can be reopened.
+
+Shut down on 12 September 2026 at 16:49. - workspace restart-20260920-1648-sorennorth
+  Smart shutdown - every session was asked to hand over.
+  Reason: phase 5 run A: the planted credential, caught by the sweep
+  One session is waiting to be brought back. None has come back yet.
+  One session is waiting to be brought back.
+  More than 7 days old, so the Director no longer offers it when it starts. Nothing has been deleted: what it holds can still be brought back from here.
+    Restart QA Beta - Worker - writes a handover carrying a planted credential: Handed over and is waiting to be brought back.
+

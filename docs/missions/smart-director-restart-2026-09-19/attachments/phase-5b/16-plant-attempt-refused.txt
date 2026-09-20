@@ -1,0 +1,25 @@
+The first attempt at the three offer cases planted three COPIES of a real record, by PUT, and the
+Gateway refused every one. Recorded because the refusal is the reason the cases were then made on
+records that already existed, and because it is the store doing exactly what it should.
+
+The call:
+
+  PUT /gateway/workspaces/restart-qa-5b-too-old
+  (the body was record restart-20260920-1733-sorennorth with a new id and a shutdown time eight
+   days back)
+
+The answer:
+
+  HTTP 400 Bad Request
+  {"error":"A captured workspace can only be created by capturing a Director
+    (POST /gateway/workspaces). Store an authored workspace instead, or capture one."}
+
+Read in WorkspaceStore.RefuseForgedCapture, which says why in its own words: an authored document
+carrying a machine, a Director and a start time would keep them for ever, because every later write
+restores them from what is stored - so a caller could mint a fleet record that never ran.
+
+What an UPDATE of an existing captured record may change is the shutdown time, which is the one
+field the seven day rule reads (DirectorWayUp.ShutdownAtUtc -> CompletedAtUtc). ApplyStoredProvenance
+restores origin, machine, Director, start time, the restore lease and the clearing mark over any
+write, and does not restore CompletedAtUtc. That is what scriptsestart-qa\offer-cases.ps1 -Age
+uses, and it prints the original value so it can be put back.
