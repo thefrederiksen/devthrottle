@@ -1705,10 +1705,18 @@ export async function getRepos(directorId: string, signal?: AbortSignal): Promis
   return list;
 }
 
-// GET /directors/{id}/known-repositories - every repository the Gateway has durably observed on the
-// selected Director's machine. This is intentionally separate from getRepos: getRepos is the live
-// Director registry used for the five zero-query recent choices, while this complete catalog is the
-// search source and remains available when the Director tunnel is temporarily disconnected.
+// GET /directors/{id}/known-repositories - the ONE repository list for the selected Director's machine,
+// in the ONE order the Gateway has already decided: most recently used first, with the repositories a
+// Director found under a registered root folder and nobody has ever opened beneath them. It is durable
+// and machine-keyed, so it survives that Director being disconnected, which is exactly when the screens
+// reading it still need a list.
+//
+// THIS READER DOES NOT SORT, AND MUST NOT. The order is the Gateway's ruling (Critical Rule 7 in
+// CLAUDE.md, applied to a list instead of a verdict): the rows are returned in the order they arrived,
+// index for index. A client that re-sorted would be a client that ruled, and the moment it met a row it
+// did not expect it would render something plausible rather than something true. The guard against this
+// coming back is packages/client-core/src/api/newSession.test.ts, "serves the Gateway's order untouched
+// and never re-sorts on lastUsed".
 export async function getKnownRepositories(directorId: string, signal?: AbortSignal): Promise<RepoInfo[]> {
   const id = encodeURIComponent(directorId);
   const res = await gatewayFetch(`/directors/${id}/known-repositories`, {
@@ -1727,7 +1735,6 @@ export async function getKnownRepositories(directorId: string, signal?: AbortSig
       lastUsed: String(repository.lastUsed ?? ""),
     }))
     .filter((repository) => repository.path.length > 0);
-  list.sort((left, right) => right.lastUsed.localeCompare(left.lastUsed));
   return list;
 }
 
