@@ -49,6 +49,37 @@ describe("gatewayErrorMessage: the server's reason reaches the user", () => {
     expect(msg.match(/try again/gi)?.length).toBe(1);
   });
 
+  it("terminates a reason that is a PHRASE before adding the hint, so the two do not run together", () => {
+    // The defect this pins, found by photographing a disconnected Director for the one-repository-list
+    // mission's phase-4 proof: GET /directors/{id}/known-repositories answers 502 with the reason
+    // "Director not connected", which is a phrase and not a sentence. The retry hint was appended
+    // straight onto it and the screen read "Director not connected Try again." - two sentences with
+    // nothing between them. It had gone unseen because every reason anyone had looked at happened to
+    // end in a full stop.
+    const err = new GatewayError(502, "x", { reason: "Director not connected", retryable: true });
+
+    expect(gatewayErrorMessage(err, "load that machine's repositories")).toBe(
+      "Director not connected. Try again.",
+    );
+  });
+
+  it("leaves a reason that already ends in a sentence exactly as it was", () => {
+    // The other half, and the one a careless fix would break: a reason that IS terminated must not gain
+    // a second full stop. Both endings have to be pinned, or the fix trades one malformed line for another.
+    const stop = new GatewayError(503, "x", { reason: "That machine is catching up.", retryable: true });
+    expect(gatewayErrorMessage(stop, "attach the image")).toBe("That machine is catching up. Try again.");
+
+    // A question mark and an exclamation mark end a sentence just as a full stop does.
+    const question = new GatewayError(503, "x", { reason: "Is that machine awake?", retryable: true });
+    expect(gatewayErrorMessage(question, "attach the image")).toBe("Is that machine awake? Try again.");
+  });
+
+  it("does not leave a gap where the reason had trailing space", () => {
+    const err = new GatewayError(502, "x", { reason: "Director not connected   ", retryable: true });
+
+    expect(gatewayErrorMessage(err, "attach the image")).toBe("Director not connected. Try again.");
+  });
+
   it("never invites a retry for a failure retrying cannot fix", () => {
     // A 404 for an unknown session is permanent. Telling the user to try again would have them press the
     // button forever.

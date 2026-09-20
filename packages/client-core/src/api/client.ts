@@ -654,11 +654,22 @@ function isUnreachableStatus(status: number): boolean {
 }
 
 /** Add the retry advice unless the reason already gives it, so a retryable failure always tells the
- *  user that trying again is the right move (and a permanent one never suggests it). */
+ *  user that trying again is the right move (and a permanent one never suggests it).
+ *
+ *  THE REASON IT IS HANDED IS NOT GUARANTEED TO BE A TERMINATED SENTENCE, so this terminates it before
+ *  appending. The Gateway writes some reasons as SENTENCES ("That machine is catching up.") and some as
+ *  PHRASES ("Director not connected"), and appending to a phrase produced
+ *  "Director not connected Try again." - two sentences run together with nothing between them, on every
+ *  screen that shows a Gateway error. It survived this long because every reason anyone had looked at
+ *  happened to end in a full stop; it was found by photographing a disconnected Director for the
+ *  one-repository-list mission's phase-4 proof. Fixed here, at the one place that joins the two parts,
+ *  rather than in the screen that happened to be pointed at it. */
 function withRetryHint(sentence: string, retryable: boolean): string {
   if (!retryable) return sentence;
   if (/try again|retrying|retry/i.test(sentence)) return sentence;
-  return `${sentence} Try again.`;
+  const trimmed = sentence.trimEnd();
+  const terminated = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  return `${terminated} Try again.`;
 }
 
 /** The fallback sentence when the server sent no reason of its own. Never a bare number. */
