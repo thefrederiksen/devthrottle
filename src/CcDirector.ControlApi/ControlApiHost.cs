@@ -1051,15 +1051,19 @@ public sealed class ControlApiHost : IAsyncDisposable
             .PathFor(CcDirector.Setup.Engine.ComponentRegistry.Director);
 
     /// <summary>
-    /// THE DRAIN SEAM. On a tree carrying the drain inside the Director (issue #2723) this is the real step
-    /// over CreateDrain; on this tree it is the step that says the drain is not here - and says so BEFORE
-    /// the owner is asked, through the eligibility answer, not only when the cycle runs.
+    /// THE DRAIN SEAM (issue #3169). The real step, over CreateDrain - the same drain the desktop runs. A
+    /// Director with no Gateway client has nowhere to keep the record, so its step says the drain is not
+    /// available - and says so BEFORE the owner is asked, through the eligibility answer, not only when
+    /// the cycle runs. Internal, not private, so a test can watch THIS wiring and not only the step.
     /// </summary>
-    private static Restart.IRestartCycleDrain RestartDrainStep() => new Restart.NoDrainOnThisBuild();
+    internal Restart.IRestartCycleDrain RestartDrainStep()
+        => new Restart.DirectorDrainRestartStep(
+            onProgress => CreateDrain(onProgress),
+            InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
 
     /// <summary>This Director's own answer to "am I the Director my launcher would restart, and can I drain?",
     /// read fresh.</summary>
-    private static DirectorRestartEligibilityDto JudgeRestartEligibility()
+    internal DirectorRestartEligibilityDto JudgeRestartEligibility()
     {
         var answer = Restart.RestartEligibility.Judge(InstanceContext.Slug, InstanceContext.IsDefault,
             Environment.ProcessPath, SupervisedDirectorPath());

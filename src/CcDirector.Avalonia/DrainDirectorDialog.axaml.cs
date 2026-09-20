@@ -219,12 +219,7 @@ public partial class DrainDirectorDialog : Window
     /// <param name="directorName">The Director's display name.</param>
     /// <param name="startedLocal">When the drain started.</param>
     internal static string MintId(string directorName, DateTime startedLocal)
-    {
-        var name = WorkspaceSlug.From(directorName);
-        var id = $"restart-{startedLocal:yyyyMMdd-HHmm}-{name}";
-        if (id.Length > 64) id = id[..64].TrimEnd('-');
-        return id;
-    }
+        => DrainPaths.WorkspaceIdFor(directorName, startedLocal);
 
     private void BtnOpenFolder_Click(object? sender, RoutedEventArgs e)
     {

@@ -8,7 +8,11 @@ namespace CcDirector.Gateway.UnitTests.Restart;
 /// The Director-side cycle - issue #2725. What it proves: the ORDER of the gates, that every gate that
 /// says no stops the cycle with that gate's own words, that the launcher is asked ONLY after the drain
 /// and the re-check both passed, and that two cycles cannot run at once.
+///
+/// In the collection every test that takes the Director's one-at-a-time gates shares: a cycle holds a
+/// process-wide gate, so two classes running cycles side by side would refuse each other.
 /// </summary>
+[Collection(DirectorGatesCollection.Name)]
 public sealed class DirectorRestartCycleTests
 {
     private sealed class Drain : IRestartCycleDrain
@@ -24,7 +28,7 @@ public sealed class DirectorRestartCycleTests
         }
     }
 
-    private sealed class Gateway : IRestartCycleGateway
+    internal sealed class Gateway : IRestartCycleGateway
     {
         public MachineRestartCapabilityDto Capability = new()
         {
@@ -37,11 +41,15 @@ public sealed class DirectorRestartCycleTests
         public List<DirectorRestartProgressReport> Reports = new();
         public bool ReportsFail;
 
+        /// <summary>Run at the moment the launcher is asked, BEFORE it answers - where a test reads what
+        /// was true of the sessions at that moment.</summary>
+        public Action? WhenLauncherAsked;
+
         public Task<MachineRestartCapabilityDto> CheckCapabilityAsync(string machine, CancellationToken ct)
         { CapabilityChecks++; return Task.FromResult(Capability); }
 
         public Task<LauncherRestartAnswer> AskOwnLauncherRestartOnlyIfEmptyAsync(string machine, string? exePath, CancellationToken ct)
-        { LauncherAsks++; return Task.FromResult(LauncherAnswer); }
+        { LauncherAsks++; WhenLauncherAsked?.Invoke(); return Task.FromResult(LauncherAnswer); }
 
         public Task ReportAsync(string machine, string requestId, DirectorRestartProgressReport report, CancellationToken ct)
         {
@@ -95,21 +103,6 @@ public sealed class DirectorRestartCycleTests
         Assert.Equal(0, gateway.LauncherAsks);
         Assert.Equal(DirectorRestartRequestState.Abandoned, gateway.Last.State);
         Assert.Equal("eligibility said so", gateway.Last.Progress);
-    }
-
-    [Fact]
-    public async Task A_build_with_no_drain_stops_before_touching_anything_and_says_so()
-    {
-        var gateway = new Gateway();
-        var cycle = new DirectorRestartCycle(Order(), new NoDrainOnThisBuild(), gateway, () => Eligible(true), null);
-
-        var final = await cycle.RunAsync();
-
-        Assert.Equal(DirectorRestartRequestState.Abandoned, final);
-        Assert.Contains("carries no drain", gateway.Last.Progress);
-        Assert.Contains("#2723", gateway.Last.Progress);
-        Assert.Equal(0, gateway.CapabilityChecks);
-        Assert.Equal(0, gateway.LauncherAsks);
     }
 
     [Theory]

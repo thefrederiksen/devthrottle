@@ -55,6 +55,21 @@ public static class DrainPaths
             $"{startedLocal:yyyy-MM-ddTHHmmss}-{runMark}-{Sanitize(directorName ?? "Director")}");
 
     /// <summary>
+    /// The workspace id one drain's record is stored under on the Gateway. Minted by whoever starts the
+    /// drain, so the caller can name the record without listing every workspace - and minted HERE so the
+    /// desktop's drain and the restart cycle's drain name their records by one rule.
+    /// </summary>
+    /// <param name="directorName">The Director's display name.</param>
+    /// <param name="startedLocal">When the drain started, in local time.</param>
+    public static string WorkspaceIdFor(string directorName, DateTime startedLocal)
+    {
+        var name = CcDirector.Gateway.Contracts.WorkspaceSlug.From(directorName);
+        var id = $"restart-{startedLocal:yyyyMMdd-HHmm}-{name}";
+        if (id.Length > 64) id = id[..64].TrimEnd('-');
+        return id;
+    }
+
+    /// <summary>
     /// The handover file one seat is told to write, and the exact path the drain watches for it.
     /// </summary>
     /// <param name="directory">The drain's directory.</param>
