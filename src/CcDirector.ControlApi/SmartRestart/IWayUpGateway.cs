@@ -58,6 +58,19 @@ public interface IWayUpGateway
     /// <param name="ct">Cancellation.</param>
     Task<WayUpMarkOutcome> MarkReopenedAsync(
         string workspaceId, string seatSessionId, string? reopenedSessionId, CancellationToken ct);
+
+    /// <summary>
+    /// WRITE THE CLEARING ONTO THE RECORD (the owner's ruling of 20 September 2026): he does not want this
+    /// record offered when the Director starts, and does not want to be asked again.
+    ///
+    /// It names no seat, because it is a fact about the whole record. Like
+    /// <see cref="MarkReopenedAsync"/> it ANSWERS rather than throwing, because a Gateway that cannot record
+    /// it must produce a different sentence from one that did: telling the owner he will not be asked again
+    /// when the record says nothing of the kind is the one outcome this must never have.
+    /// </summary>
+    /// <param name="workspaceId">The record.</param>
+    /// <param name="ct">Cancellation.</param>
+    Task<WayUpMarkOutcome> MarkClearedFromStartUpOfferAsync(string workspaceId, CancellationToken ct);
 }
 
 /// <summary>What became of a write of the reopen mark. Three states, kept apart because they are three
@@ -172,6 +185,25 @@ public sealed class GatewayClientWayUp : IWayUpGateway
         return status == 409
             ? new WayUpMarkOutcome(WayUpMarkState.AlreadyDealtWith, error)
             : new WayUpMarkOutcome(WayUpMarkState.Refused, error);
+    }
+
+    /// <inheritdoc />
+    public async Task<WayUpMarkOutcome> MarkClearedFromStartUpOfferAsync(string workspaceId, CancellationToken ct)
+    {
+        var mark = new WorkspaceRestoreMark
+        {
+            DirectorId = _directorId,
+            Kind = WorkspaceRestoreMarkKinds.Cleared,
+        };
+
+        var (status, error) = await Required().RecordReopenMarkAsync(workspaceId, mark, ct).ConfigureAwait(false);
+        if (status is >= 200 and < 300) return new WayUpMarkOutcome(WayUpMarkState.Marked, null);
+
+        // THERE IS NO "ALREADY DEALT WITH" ANSWER HERE, and that is the store's rule and not a gap: clearing a
+        // record that is already cleared changes nothing and answers 2xx, because after either call the record
+        // has stopped appearing. Every other status - including the 400 a Gateway too old to know this mark
+        // answers with - is a record that could not be marked, and is never softened into "it worked".
+        return new WayUpMarkOutcome(WayUpMarkState.Refused, error);
     }
 
     private GatewayClient Required()

@@ -460,8 +460,12 @@ public class DirectorWayUpHistoryTests
     /// <summary>
     /// A SEAT DEALT WITH IS OFF THE OFFER, AND STILL IN THE HISTORY - the owner's own words: "Once you restart
     /// a session, it shouldn't be there anymore." The record here holds one seat waiting to come back and one
-    /// whose conversation has been reopened, so it is still offered; what it must not do is list the reopened
-    /// one again.
+    /// whose conversation has been reopened; what the offer must not do is list the reopened one again.
+    ///
+    /// THE OFFER IS READ FROM THE HISTORY AND NOT FROM THE START-UP CHECK, and that is the owner's ruling of
+    /// 20 September 2026 rather than a convenience: this record HAS been used, so it no longer interrupts him
+    /// when the Director starts (asserted below, and in DirectorWayUpOfferOnceTests). Everything it still
+    /// holds is offered here, which is where he goes for it.
     /// </summary>
     [Fact]
     public async Task A_reopened_seat_is_off_the_offer_and_its_reopen_is_readable_in_the_history()
@@ -473,13 +477,18 @@ public class DirectorWayUpHistoryTests
             WayUpTestRig.AlreadyReopened("ended", "A busy worker", reopenedAs: "aaaabbbb-cccc"),
         }));
 
-        var record = Assert.IsType<WayUpRecord>((await rig.WayUp().FindOfferAsync(CancellationToken.None)).Record);
+        Assert.Equal(
+            WayUpOfferState.NothingWaiting,
+            (await rig.WayUp().FindOfferAsync(CancellationToken.None)).State);
+
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+        var entry = Assert.Single(history.Entries);
+        var record = Assert.IsType<WayUpRecord>(entry.Offer);
         Assert.Equal(0, record.SeatsEndedWithoutHandover);
         Assert.Null(record.EndedSectionLabel);
         Assert.Equal(new[] { "lead" }, record.Rows.Select(r => r.RowId).ToArray());
 
-        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
-        var seat = Assert.Single(Assert.Single(history.Entries).Seats, x => x.SessionId == "ended");
+        var seat = Assert.Single(entry.Seats, x => x.SessionId == "ended");
         Assert.Contains("Its saved conversation was reopened on", seat.Outcome);
         Assert.Contains("aaaabbbb", seat.Outcome);
     }

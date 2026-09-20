@@ -192,4 +192,8 @@ internal sealed class NoHostWayUp : IDirectorWayUp
     public Task<WayUpReopenResult> ReopenAsync(WayUpReopenRequest request, CancellationToken ct) =>
         Task.FromResult(new WayUpReopenResult(
             false, null, WayUpWords.GatewayRefusal(RestartHistoryWindow.NoHostReason)));
+
+    public Task<WayUpClearResult> ClearFromStartUpOfferAsync(WayUpClearRequest request, CancellationToken ct) =>
+        Task.FromResult(new WayUpClearResult(
+            false, WayUpWords.ClearRefusedMessage(RestartHistoryWindow.NoHostReason)));
 }

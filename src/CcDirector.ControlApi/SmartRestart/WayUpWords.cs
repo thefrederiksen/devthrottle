@@ -20,8 +20,9 @@ public static class WayUpWords
 
     /// <summary>What is said when the Gateway answered and there is nothing waiting.</summary>
     public const string NothingWaiting =
-        "There is nothing waiting to come back. No smart shutdown of this Director in the last " +
-        "seven days still has a session to bring back or a saved conversation to reopen.";
+        "There is nothing waiting to come back. No smart shutdown of this Director in the last seven days is " +
+        "still on offer: each one has been used already, has been cleared, or has no session left to bring " +
+        "back and no saved conversation left to reopen. They are all still in File, Restart history.";
 
     /// <summary>What is said when the history is empty, which is not the same as unreadable.</summary>
     public const string NoHistory =
@@ -147,6 +148,63 @@ public static class WayUpWords
     public static string TooOldToOfferLabel(int days) =>
         $"More than {days} days old, so the Director no longer offers it when it starts. Nothing has been " +
         "deleted: what it holds can still be brought back from here.";
+
+    /// <summary>
+    /// WHAT THE CLEARING ACTION DOES, said on the offer window itself beside the button.
+    ///
+    /// The owner's ruling asks for two things of these words: that the difference from "Not now" is obvious
+    /// from the window rather than from a manual, and that it reads as "stop asking me" and never as "delete".
+    /// So the sentence names the other answer and says in the same breath what is NOT done - which is
+    /// everything except asking.
+    /// </summary>
+    public const string ClearDetail =
+        "Not now asks you again the next time the Director starts. This stops it asking at all: nothing is " +
+        "brought back and nothing is deleted, and the record stays in File, Restart history.";
+
+    /// <summary>
+    /// What is said once the clearing has been recorded. It says what was NOT done, because "cleared" is the
+    /// word most likely to be read as "deleted", and the owner's own rule is that nothing is ever deleted.
+    /// </summary>
+    public const string ClearedMessage =
+        "You will not be asked about this again when the Director starts. Nothing was brought back and " +
+        "nothing was deleted: the record is still in File, Restart history, with every session it holds and " +
+        "every button it had.";
+
+    /// <summary>
+    /// WHAT IS SAID WHEN THE RECORD COULD NOT BE MARKED, and it is the loud, safe answer: nothing was
+    /// recorded, and it says so rather than pretending. Telling the owner he will not be asked again when the
+    /// record carries nothing of the kind is the one outcome this must never have - he would meet the same
+    /// window at the next start with no idea why.
+    /// </summary>
+    /// <param name="reason">The Gateway's own words for the refusal.</param>
+    public static string ClearRefusedMessage(string? reason) =>
+        "Nothing was changed: this record could not be marked as cleared " +
+        $"({(string.IsNullOrWhiteSpace(reason) ? "no reason was given" : reason)}). Nothing has been deleted " +
+        "and nothing has been brought back, and you WILL be asked about this again the next time the Director " +
+        "starts. A Gateway older than this Director does not know the mark; it accepts it once it is up to date.";
+
+    /// <summary>
+    /// WHY A RECORD THAT HAS BEEN USED HAS STOPPED APPEARING AT START-UP, although it still holds something
+    /// to act on. Shown in the restart history, which is where nothing is ever hidden.
+    ///
+    /// The owner's ruling of 20 September 2026: "as soon as we have used a restart it should no longer be
+    /// offered on startup ... automatically we should only see this restart message once if we use it." A
+    /// record one of whose seats has come back or been reopened has been used, whatever else it still holds -
+    /// and what it still holds is reached from here, which is the second half of the same sentence.
+    /// </summary>
+    public const string AlreadyUsedLabel =
+        "This restart has been used - a session has been brought back or reopened from it - so the Director " +
+        "no longer offers it when it starts. Nothing has been deleted: whatever it still holds can be brought " +
+        "back from here.";
+
+    /// <summary>
+    /// WHY A RECORD THE OWNER CLEARED HAS STOPPED APPEARING AT START-UP. His own case: "it could be that they
+    /// shut down but they don't want to use it and they don't want to see it on every upstart."
+    /// </summary>
+    /// <param name="clearedAtLocal">When he cleared it, in local time.</param>
+    public static string ClearedLabel(DateTime clearedAtLocal) =>
+        $"You asked on {When(clearedAtLocal)} not to be offered this when the Director starts, so it is not " +
+        "offered any more. Nothing was deleted: everything it holds can still be brought back from here.";
 
     /// <summary>The name of a bring back row: the mission head, and its mission when it has one.</summary>
     /// <param name="seat">The mission head.</param>

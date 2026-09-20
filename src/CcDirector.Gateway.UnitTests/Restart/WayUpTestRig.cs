@@ -132,6 +132,23 @@ public sealed class WayUpTestRig
         Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided },
     };
 
+    /// <summary>
+    /// A seat that handed over and was decided NOT to come back. Nothing is owed for it, and - unlike a seat
+    /// that has already come back - it does not make the record a USED one.
+    /// </summary>
+    /// <param name="id">Its captured session id.</param>
+    /// <param name="name">Its name.</param>
+    public static WorkspaceSeat NotComingBack(string id, string name)
+    {
+        var seat = Owed(id, name);
+        seat.Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Close,
+            Why = "its work was finished",
+        };
+        return seat;
+    }
+
     /// <summary>A seat that has already come back, so nothing is owed for it.</summary>
     /// <param name="id">Its captured session id.</param>
     /// <param name="name">Its name.</param>
@@ -141,6 +158,20 @@ public sealed class WayUpTestRig
         var seat = Owed(id, name);
         seat.RestoredSessionId = restoredAs;
         return seat;
+    }
+
+    /// <summary>
+    /// A record the owner has asked not to be offered at start-up again. It holds everything it held before:
+    /// the clearing is one field on the record and takes nothing away from it.
+    /// </summary>
+    /// <param name="doc">The record.</param>
+    /// <param name="atUtc">When he cleared it.</param>
+    public static WorkspaceDocument Cleared(WorkspaceDocument doc, DateTime? atUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        doc.ClearedFromStartUpOfferAtUtc = atUtc ?? Now.AddMinutes(-2);
+        doc.ClearedFromStartUpOfferByDirectorId = "director-after-the-restart";
+        return doc;
     }
 
     /// <summary>
@@ -314,6 +345,42 @@ public sealed class FakeWayUpGateway : IWayUpGateway
         return Task.FromResult(new WayUpMarkOutcome(
             WayUpMarkState.AlreadyDealtWith,
             $"seat '{seatSessionId}' had its saved conversation reopened on {restore.ReopenedAtUtc:u}."));
+    }
+
+    /// <summary>Every record this fake was asked to clear from the start-up offer, in order.</summary>
+    public List<string> ClearMarks { get; } = new();
+
+    /// <summary>
+    /// When set, every clearing mark is refused with this reason instead of being written - which is what a
+    /// Gateway too old to know the mark does (it answers HTTP 400 naming the kinds it knows).
+    /// </summary>
+    public string? RefuseClearMarks { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// IT KEEPS THE CLEARING WHERE THE REAL STORE KEEPS IT - on the record - so a test that clears a record
+    /// and then asks for the offer again is reading the same fact the product reads. Clearing a record that
+    /// is already cleared keeps the FIRST moment and answers success, which is the store's own rule.
+    /// </remarks>
+    public Task<WayUpMarkOutcome> MarkClearedFromStartUpOfferAsync(string workspaceId, CancellationToken ct)
+    {
+        if (Unreachable is not null) throw new HttpRequestException(Unreachable);
+        ClearMarks.Add(workspaceId);
+
+        if (RefuseClearMarks is not null)
+            return Task.FromResult(new WayUpMarkOutcome(WayUpMarkState.Refused, RefuseClearMarks));
+
+        var doc = _records.FirstOrDefault(d => string.Equals(d.Id, workspaceId, StringComparison.OrdinalIgnoreCase));
+        if (doc is null)
+            return Task.FromResult(new WayUpMarkOutcome(
+                WayUpMarkState.Refused, $"no workspace with id '{workspaceId}'."));
+
+        if (doc.ClearedFromStartUpOfferAtUtc is null)
+        {
+            doc.ClearedFromStartUpOfferAtUtc = WayUpTestRig.Now;
+            doc.ClearedFromStartUpOfferByDirectorId = MarkingDirectorId;
+        }
+        return Task.FromResult(new WayUpMarkOutcome(WayUpMarkState.Marked, null));
     }
 
     /// <summary>The Director this fake stamps a reopen claim with. The real seam reads it from the Director

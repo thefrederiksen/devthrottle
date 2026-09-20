@@ -82,6 +82,28 @@ public interface IDirectorWayUp
     /// <param name="request">The record and the seat.</param>
     /// <param name="ct">Cancellation.</param>
     Task<WayUpReopenResult> ReopenAsync(WayUpReopenRequest request, CancellationToken ct);
+
+    /// <summary>
+    /// STOP OFFERING THIS RECORD WHEN THE DIRECTOR STARTS (the owner's ruling of 20 September 2026): "it
+    /// could be that they shut down but they don't want to use it and they don't want to see it on every
+    /// upstart."
+    ///
+    /// IT BRINGS NOTHING BACK AND IT DELETES NOTHING. The record keeps every seat, every decision and every
+    /// saved conversation, and the restart history still reads it in full, with its offer and working
+    /// buttons. The ONE thing that changes is that the Director stops putting it in front of him at start-up.
+    ///
+    /// It is the third answer on the offer, beside "Bring back" and "Not now", and the difference from "Not
+    /// now" - which writes nothing and is offered again next time - is said on the window itself
+    /// (<see cref="WayUpRecord.ClearDetail"/>).
+    ///
+    /// A GATEWAY THAT CANNOT RECORD IT CHANGES NOTHING AND SAYS SO. An older Gateway does not know the mark
+    /// and refuses it by name; this answers with that refusal in plain words and states that he WILL be asked
+    /// again, because telling him otherwise when the record says nothing of the kind is the one outcome this
+    /// must never have.
+    /// </summary>
+    /// <param name="request">The record to stop offering at start-up.</param>
+    /// <param name="ct">Cancellation.</param>
+    Task<WayUpClearResult> ClearFromStartUpOfferAsync(WayUpClearRequest request, CancellationToken ct);
 }
 
 /// <summary>What the start-up check found. The three states are kept apart deliberately: an honest "there
@@ -129,6 +151,12 @@ public sealed record WayUpOffer(WayUpOfferState State, string Message, WayUpReco
 /// <param name="CanBringBackAnything">Whether there is anything for "Bring back" to do. False on a record
 /// offered only for its saved conversations, where the window draws no bring back answer at all: a button whose
 /// only possible answer is a refusal reads as broken.</param>
+/// <param name="CanClearFromStartUpOffer">Whether the clearing answer - "stop asking me about this" - is drawn
+/// at all. False on a record already cleared and on one already used, both of which have stopped interrupting
+/// the owner at start-up for good: a button whose press changes nothing reads as broken.</param>
+/// <param name="ClearDetail">What the clearing answer does, in plain words, or null when it is not drawn. It
+/// names the OTHER answer, because the owner's ruling asks that the difference between "Not now" and this be
+/// obvious from the window rather than from a manual.</param>
 /// <param name="EndedSectionLabel">The one line the sessions that ended without a handover sit behind, or null
 /// when there are none. Ruling 10.3 still holds in full: they are moved, not dropped.</param>
 /// <param name="EndedSectionDetail">What those sessions are, said once for the section. Null when there are
@@ -151,6 +179,8 @@ public sealed record WayUpRecord(
     int SeatsEndedWithoutHandover,
     string SeatsLabel,
     bool CanBringBackAnything,
+    bool CanClearFromStartUpOffer,
+    string? ClearDetail,
     string? EndedSectionLabel,
     string? EndedSectionDetail,
     bool EndedSectionStartsOpen,
@@ -236,9 +266,10 @@ public sealed record WayUpHistory(bool Refused, string Message, IReadOnlyList<Wa
 /// null when there is nothing left to act on. Its AGE is not part of this: an old record still carries its
 /// offer here, which is what the history is for.</param>
 /// <param name="NotOfferedAtStartUpLabel">Why this record has stopped appearing when the Director starts
-/// although it still holds something to act on - it is older than
-/// <see cref="DirectorWayUp.OfferedForDays"/> days. Null when it is still offered, or when it holds nothing to
-/// act on and so has its own reason already in <paramref name="OutcomeLabel"/>.</param>
+/// although it still holds something to act on: it has been used, the owner cleared it, or it is older than
+/// <see cref="DirectorWayUp.OfferedForDays"/> days. One sentence, ranked when more than one is true - see
+/// <see cref="DirectorWayUp.NotOfferedAtStartUpLabel"/>. Null when it is still offered, or when it holds
+/// nothing to act on and so has its own reason already in <paramref name="OutcomeLabel"/>.</param>
 public sealed record WayUpHistoryEntry(
     string WorkspaceId,
     DateTime AtUtc,
@@ -306,6 +337,16 @@ public sealed record WayUpSeatResult(
 /// <param name="WorkspaceId">The record the seat is in.</param>
 /// <param name="SeatSessionId">The seat's captured session id.</param>
 public sealed record WayUpReopenRequest(string WorkspaceId, string SeatSessionId);
+
+/// <summary>Stop offering one record when the Director starts.</summary>
+/// <param name="WorkspaceId">The record.</param>
+public sealed record WayUpClearRequest(string WorkspaceId);
+
+/// <summary>What came of a clearing.</summary>
+/// <param name="Cleared">True when the record now carries the clearing. False means NOTHING was recorded and
+/// the owner will be asked about this record again - the two must never read as each other.</param>
+/// <param name="Message">What happened, in plain words, shown as it is.</param>
+public sealed record WayUpClearResult(bool Cleared, string Message);
 
 /// <summary>What came of a reopen.</summary>
 /// <param name="Started">True when a session was started.</param>

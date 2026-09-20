@@ -261,6 +261,13 @@ public sealed class WorkspaceStore
         // clears it by writing the document.
         doc.RestoreLease = stored.RestoreLease;
 
+        // WHETHER THE OWNER HAS ASKED NOT TO BE OFFERED THIS RECORD AT START-UP is provenance too, and is
+        // written only by a "cleared" restore mark. A writer who could set it would make a record vanish from
+        // the owner's start-up; one who could clear it would put a record he has dismissed back in front of
+        // him. It is restored BEFORE the authored early return below, so no origin escapes it.
+        doc.ClearedFromStartUpOfferAtUtc = stored.ClearedFromStartUpOfferAtUtc;
+        doc.ClearedFromStartUpOfferByDirectorId = stored.ClearedFromStartUpOfferByDirectorId;
+
         // AUTHORED - and ONLY authored - has no captured seats, so its seats are the caller's to edit
         // entirely. Written as "is authored" and not as "is not captured", which is not the same test:
         // an origin this build has never heard of, written by a newer one, would fall through the second
@@ -469,15 +476,20 @@ public sealed class WorkspaceStore
             // A REOPEN IS NOT A RESTORE, so it neither needs the lease nor touches it - see
             // WorkspaceRestoreMarkKinds.Reopened for why it cannot have one. What it must not do is cut across
             // a restore another Director is running, so that is the one thing checked.
+            // NEITHER A REOPEN NOR A CLEARING TAKES THE LEASE, and both are refused underneath another
+            // Director's live one. See WorkspaceRestoreMarkKinds.Reopened and .Cleared for why each cannot
+            // have a lease of its own.
             var reopen = string.Equals(mark.Kind, WorkspaceRestoreMarkKinds.Reopened, StringComparison.Ordinal);
-            if (reopen)
+            var cleared = string.Equals(mark.Kind, WorkspaceRestoreMarkKinds.Cleared, StringComparison.Ordinal);
+            if (reopen || cleared)
             {
                 if (lease is not null && lease.IsLiveAt(at)
                     && !string.Equals(lease.DirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
                     throw new WorkspaceConflictException(
                         $"Director '{lease.DirectorId}' is restoring workspace \"{doc.Id}\" (since " +
-                        $"{lease.GrantedAtUtc:u}), so Director '{mark.DirectorId}' does not reopen one of its " +
-                        "seats underneath it. Ask again when that restore has finished.");
+                        $"{lease.GrantedAtUtc:u}), so Director '{mark.DirectorId}' does not " +
+                        (reopen ? "reopen one of its seats" : "change what it offers") +
+                        " underneath it. Ask again when that restore has finished.");
             }
             else if (lease is null || !lease.IsLiveAt(at)
                      || !string.Equals(lease.DirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
@@ -491,6 +503,20 @@ public sealed class WorkspaceStore
                 doc.RestoreLease = null;
                 return true;
             }
+
+            // THE OWNER ASKED NOT TO BE OFFERED THIS RECORD AT START-UP AGAIN. It names no seat, so it is
+            // answered here, before the seat below is looked up.
+            if (cleared)
+            {
+                // ALREADY CLEARED IS NOT AN ERROR, and the FIRST clearing's moment stands: after either call
+                // the record has stopped appearing, which is the whole of what was asked for. Nothing is
+                // written, so the document's UpdatedUtc is not moved by a second press either.
+                if (doc.ClearedFromStartUpOfferAtUtc is not null) return false;
+                doc.ClearedFromStartUpOfferAtUtc = at;
+                doc.ClearedFromStartUpOfferByDirectorId = mark.DirectorId;
+                return true;
+            }
+
             if (!reopen) lease!.RenewedAtUtc = at;
 
             var seat = doc.Seats.FirstOrDefault(x => string.Equals(x.SessionId, mark.SeatSessionId, StringComparison.OrdinalIgnoreCase))

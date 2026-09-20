@@ -28,7 +28,7 @@ public partial class WayUpOfferWindow : Window
             new WayUpRecord(
                 "sample", DateTime.UtcNow, DateTime.Now,
                 WayUpWords.Headline, WayUpWords.WhenLabel(DateTime.Now), null, WayUpWords.ReasonLabel(null),
-                0, 0, WayUpWords.SeatsLabel(0), false,
+                0, 0, WayUpWords.SeatsLabel(0), false, false, null,
                 WayUpWords.EndedSectionLabel(0), WayUpWords.EndedSectionDetail(0), false,
                 Array.Empty<WayUpRow>()),
             new DesignerWayUp()))
@@ -120,6 +120,35 @@ public partial class WayUpOfferWindow : Window
         }
     }
 
+    /// <summary>
+    /// True once the owner has asked, from this window, not to be offered this record at start-up again.
+    /// It does NOT say the Gateway recorded it - the engine's own sentence does that.
+    /// </summary>
+    public bool ClearAsked { get; private set; }
+
+    private async void BtnClear_Click(object? sender, RoutedEventArgs e)
+    {
+        var work = ClearFromThePressAsync();
+        WorkTheLastPressStarted = work;
+        await work;
+    }
+
+    private async Task ClearFromThePressAsync()
+    {
+        try
+        {
+            ClearAsked = true;
+            await ViewModel.ClearFromStartUpOfferAsync();
+        }
+        catch (Exception ex)
+        {
+            // An entry point, so this is where a failure is caught (CLAUDE.md rule 4). The engine's own
+            // answers carry every word this window shows, so there is no sentence to invent here.
+            FileLog.Write($"[WayUpOfferWindow] BtnClear_Click FAILED: {ex}");
+            throw;
+        }
+    }
+
     private void BtnNotNow_Click(object? sender, RoutedEventArgs e)
     {
         try
@@ -180,6 +209,9 @@ internal sealed class DesignerWayUp : IDirectorWayUp
         throw new NotSupportedException(Why);
 
     public Task<WayUpReopenResult> ReopenAsync(WayUpReopenRequest request, CancellationToken ct) =>
+        throw new NotSupportedException(Why);
+
+    public Task<WayUpClearResult> ClearFromStartUpOfferAsync(WayUpClearRequest request, CancellationToken ct) =>
         throw new NotSupportedException(Why);
 
     private const string Why =
