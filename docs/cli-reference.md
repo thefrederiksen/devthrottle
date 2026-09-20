@@ -670,6 +670,10 @@ COMMANDS:
   session hand-over  Hand a running session to the Fleet Manager, back to the owner, or to
                    yourself (release one you own; take one that answers to the owner on his word).
   director list    List every Director this account runs, with the id --director accepts.
+  director smart-restart  Empty a Director nicely and restart it (the owner's; an agent asks
+                   instead, with machine restart-request).
+  director smart-restart-status  Where that smart restart stands, or how it ended.
+  director restart-history  Every restart record a Director wrote, newest first.
   worktree list    List the fleet's worktrees; --pool lists this machine's cc-worktrees pool.
   worktree get     Take a pooled worktree to work in (runs cc-worktrees).
   worktree return  Give a pooled worktree back (runs cc-worktrees).
@@ -953,6 +957,61 @@ help[5]:
   one-off; or a notify policy other than none, always or failure. With no filter, `--json` prints the
   rows as the Gateway sent them.
 - **An empty answer says so**: `count: 0`, or `count: 0 of N total` when a filter matched nothing.
+
+```
+USAGE: cc-devthrottle director smart-restart [OPTIONS]
+
+OPTIONS:
+  --director TEXT  Which Director, by id, exact name or id prefix. Default: this session's own.
+  --machine TEXT   Narrow an ambiguous Director name to one computer.
+  --minutes -m INTEGER  How long the sessions get in all: 5, 10, 15, 30 or 60 [default: 10].
+  --reason -r TEXT Why, in your own words. Written into the record.
+  --watch / --no-watch  Watch it to the end [default: --watch]. --no-watch exits 3.
+  --json -j        Output raw JSON of the acceptance, and do not watch.
+```
+
+Empties a Director nicely and restarts it: the SAME smart shutdown its own File, Smart Restart
+starts, through the same engine. Every session is asked to hand over; at two thirds of the time
+allowed the ones still mid-turn are interrupted and asked again; at the limit whatever is still
+running is shut down for it and noted with its saved conversation. Only when the Director is
+verifiably empty is its launcher asked to restart it, and what was closed is offered back when it
+comes up. It exists so that ONE BROKEN WINDOW can never leave a Director impossible to empty.
+
+**This is the owner's, not an agent's.** A session key is refused, and the refusal names what a
+session may do instead: `cc-devthrottle machine restart-request <machine> --reason "<why>"`, which
+creates a request the owner accepts once. Reading is open to a session - the two commands below.
+
+While it watches it prints each session's state as it changes, and the phase and count as they move.
+Every sentence it prints is the Director's own. Exit 0 means the launcher accepted the restart; exit
+1 means the restart did not happen and the reason says why - the record stands and is offered when
+the Director is next started; exit 3 means accepted and not watched to the end, so nothing here knows
+how it ended. **A Director that goes silent mid-run is reported as exactly that and exits 3**: the
+launcher stops this very Director, so the door being shut is also what a restart that WORKED looks
+like from here, and the two cannot be told apart from outside. `cc-devthrottle director list` answers
+the rest. A time that is not one of the five allowed is refused by the Director, by name.
+
+```
+USAGE: cc-devthrottle director smart-restart-status [OPTIONS]
+USAGE: cc-devthrottle director restart-history [OPTIONS]
+
+OPTIONS (both):
+  --director TEXT  Which Director. Default: this session's own.
+  --machine TEXT   Narrow an ambiguous Director name to one computer.
+  --json -j        Output raw JSON.
+OPTIONS (restart-history):
+  --count -n INTEGER  Largest number of records to show, newest first [default: 20].
+```
+
+`smart-restart-status` asks once where the smart restart on one Director stands: the phase, the
+count, and one row per session with what is happening to it - or, once it is over, how it ended. A
+Director on which none has been started since it came up says exactly that; it never answers an
+empty run, which would read as a run that found nothing to do. It changes nothing.
+
+`restart-history` lists every restart record that Director wrote, newest first, with what came back
+and what did not. Nothing is deleted, so a record stays readable whatever became of it, and one that
+still owes sessions says how many are waiting. A history that could not be READ is an error naming
+why, never an empty list - the two look identical on a screen and call for opposite next steps.
+Added 20 September 2026 (the Smart Director Restart mission).
 
 ### Fleet Manager
 
