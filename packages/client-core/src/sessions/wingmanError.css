@@ -1,0 +1,74 @@
+/* The "Wingman error" block on a session card (client-core/sessions/WingmanErrorLine.tsx). One stylesheet for
+   both shells; the phone only widens the touch target under its .screen ancestor. The red matches the
+   "Not delivered" tag: both say something the owner was owed did not happen. */
+.wingman-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(220, 68, 68, 0.7);
+  border-radius: 6px;
+  background: rgba(220, 68, 68, 0.1);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.wingman-error-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.wingman-error-tag {
+  padding: 1px 6px;
+  border: 1px solid rgba(220, 68, 68, 0.7);
+  border-radius: 4px;
+  background: rgba(220, 68, 68, 0.18);
+  color: #f08a8a;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wingman-error-retry {
+  color: var(--text, #e6e6e6);
+  font-variant-numeric: tabular-nums;
+}
+
+.wingman-error-reason,
+.wingman-error-answer {
+  color: var(--text-dim, #99a0b8);
+}
+
+.wingman-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.wingman-error-ask {
+  padding: 3px 10px;
+  border: 1px solid var(--border, #444);
+  border-radius: 4px;
+  background: var(--surface, #2a2a2a);
+  color: var(--text, #e6e6e6);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wingman-error-ask:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.screen .wingman-error {
+  margin: 0 12px 8px;
+  font-size: 13px;
+}
+
+.screen .wingman-error-ask {
+  min-height: 36px;
+  padding: 6px 14px;
+}

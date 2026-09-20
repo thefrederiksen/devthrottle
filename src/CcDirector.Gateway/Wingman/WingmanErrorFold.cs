@@ -41,6 +41,9 @@ public static class WingmanErrorFold
     public static WingmanErrorDisplay ForSchedule(string reason, int retriesMade, DateTime? nextRetryAtUtc)
     {
         var total = WingmanRetrySchedule.Total;
+        // The time is universal time wherever it came from; a value read back from storage without its kind would
+        // otherwise go out with no zone mark and a client would count down to the wrong hour.
+        if (nextRetryAtUtc is { } at) nextRetryAtUtc = DateTime.SpecifyKind(at, DateTimeKind.Utc);
         var exhausted = nextRetryAtUtc is null;
         var nextNumber = exhausted ? 0 : Math.Min(retriesMade + 1, total);
         return new WingmanErrorDisplay

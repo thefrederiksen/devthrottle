@@ -1,6 +1,8 @@
 import { useVoiceMode, formatClock } from "@devthrottle/client-core/voice/useVoiceMode";
 import { DictationDialog } from "@devthrottle/client-core/dictation/DictationDialog";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
+import { WingmanRetryCountdown } from "@devthrottle/client-core/sessions/WingmanErrorLine";
+import type { WingmanErrorDisplay } from "@devthrottle/client-core/sessions/wingmanError";
 
 // The Cockpit Voice tab (issue #1213): a thin view over the SAME shared client-core hook the mobile
 // Voice page uses (useVoiceMode), so the two apps render the hands-free Wingman narration from one
@@ -133,6 +135,8 @@ export function VoiceTab({ sessionId }: { sessionId: string | undefined }) {
                   <span className={"voice-state voice-state-" + vd.tone}>{vd.label}</span>
                 </div>
                 <div className="voice-narr"><div className="voice-narr-body">{vd.message}</div></div>
+                {/* A Wingman error says WHEN the booked retry runs - the shared countdown, the same as on the card. */}
+                <WingmanRetryCountdown error={(vd as { wingmanError?: WingmanErrorDisplay | null }).wingmanError} />
                 {vd.canGenerate && (
                   <button
                     type="button"

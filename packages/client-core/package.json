@@ -20,6 +20,7 @@
     "./sessions/VerdictPanel": "./src/sessions/VerdictPanel.tsx",
     "./sessions/WingmanTab": "./src/sessions/WingmanTab.tsx",
     "./sessions/WingmanNow": "./src/sessions/WingmanNow.tsx",
+    "./sessions/WingmanErrorLine": "./src/sessions/WingmanErrorLine.tsx",
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",
     "./devreports/DevReportList": "./src/devreports/DevReportList.tsx",

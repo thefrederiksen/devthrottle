@@ -929,6 +929,26 @@ export async function sendEscape(sessionId: string, signal?: AbortSignal): Promi
   }
 }
 
+/** What the Gateway said about one "Ask again" press: whether the reading failed again, and its own sentence. */
+export type WingmanAskAgainResult = { failed: boolean; message: string };
+
+// Ask the Wingman to read this stop again, now. POST /sessions/{sid}/wingman/ask-again. One attempt at once; it
+// neither resets nor consumes the retry schedule - the Gateway carries that across unchanged. The sentence that
+// comes back is the Gateway's and is shown verbatim.
+export async function askWingmanAgain(sessionId: string, signal?: AbortSignal): Promise<WingmanAskAgainResult> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/wingman/ask-again`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "ask the Wingman again");
+  }
+  const body = (await res.json()) as { failed?: boolean; message?: string };
+  return { failed: body.failed === true, message: typeof body.message === "string" ? body.message : "" };
+}
+
 // Interrupt a running agent turn (Ctrl+C). POST /sessions/{sid}/interrupt.
 export async function sendInterrupt(sessionId: string, signal?: AbortSignal): Promise<void> {
   const sid = encodeURIComponent(sessionId);
