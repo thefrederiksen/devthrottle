@@ -1,0 +1,15 @@
+{
+    "sentAtUtc":  "2026-09-20T20:16:16Z",
+    "promptName":  "questionBox",
+    "promptLength":  255,
+    "results":  [
+                    {
+                        "key":  "beta-question-box",
+                        "sessionId":  "1cbfa646-0221-4a43-b9ab-a90c33bc60ec",
+                        "name":  "Restart QA Beta - Worker - a question box open for the owner",
+                        "landed":  true,
+                        "detail":  "{\"accepted\":true,\"sentAt\":\"2026-09-20T20:16:11.3256953Z\",\"bufferCursor\":1625,\"activityState\":\"Working\",\"output\":null,\"waitStatus\":null,\"error\":null,\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "Working"
+                    }
+                ]
+}

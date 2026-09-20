@@ -1,0 +1,300 @@
+{
+    "schemaVersion":  1,
+    "id":  "restart-20260920-1619-sorennorth",
+    "name":  "SOREN_NORTH smart shutdown 2026-09-20 16:19",
+    "description":  "Captured by a smart shutdown of this Director.",
+    "origin":  "captured",
+    "machine":  "SOREN_NORTH",
+    "directorId":  "3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe",
+    "directorName":  "SOREN_NORTH",
+    "directorVersionBefore":  "2.8.1",
+    "startedAtUtc":  "2026-09-20T20:19:11.3540972Z",
+    "completedAtUtc":  "2026-09-20T20:24:23.0184643Z",
+    "drivenByNote":  "Run by the Director\u0027s own smart shutdown; no session drove it.",
+    "reason":  "phase 5 main run",
+    "shutdownKind":  "smart-shutdown",
+    "directorOutcome":  "not-restarted",
+    "seats":  [
+                  {
+                      "sessionId":  "66b3f777-2382-481d-a32a-be6e8bbc845a",
+                      "name":  "Restart QA Alpha - Lead - collects its worker\u0027s document first",
+                      "agent":  "Pi",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a\\alpha-lead",
+                      "mission":  {
+                                      "id":  "0da1d0b5-796e-4b59-8392-6d23a5a940a0",
+                                      "name":  "Restart QA Alpha"
+                                  },
+                      "role":  "Manager",
+                      "workflowRunId":  "3d40f406-3e0e-4af4-966e-91d97edb4d38",
+                      "sortOrder":  0,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "Working",
+                                           "stateLabel":  "Working",
+                                           "triageBucket":  "active",
+                                           "turnCount":  0
+                                       },
+                      "claudeSessionId":  "b3bc07b8-72d2-4b10-84e7-7bf93e588ae6",
+                      "createdAt":  "2026-09-20T20:15:23.6535942Z",
+                      "drainState":  "ended-at-limit",
+                      "restore":  {
+                                      "decision":  "undecided"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:24:22.4200905Z"
+                  },
+                  {
+                      "sessionId":  "d8388560-ec1c-4269-82e3-a0e21a5c7287",
+                      "name":  "Restart QA Alpha - Worker - the seat under the lead",
+                      "agent":  "Pi",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a\\alpha-worker",
+                      "mission":  {
+                                      "id":  "0da1d0b5-796e-4b59-8392-6d23a5a940a0",
+                                      "name":  "Restart QA Alpha"
+                                  },
+                      "role":  "Worker",
+                      "reportsTo":  "66b3f777-2382-481d-a32a-be6e8bbc845a",
+                      "parentSessionId":  "66b3f777-2382-481d-a32a-be6e8bbc845a",
+                      "workflowRunId":  "3d40f406-3e0e-4af4-966e-91d97edb4d38",
+                      "sortOrder":  1,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "Working",
+                                           "stateLabel":  "Working",
+                                           "triageBucket":  "active",
+                                           "turnCount":  0
+                                       },
+                      "claudeSessionId":  "9615114d-a93b-483a-aafe-8f8696ca20df",
+                      "createdAt":  "2026-09-20T20:15:24.8365746Z",
+                      "drainState":  "unreachable",
+                      "restore":  {
+                                      "decision":  "undecided"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:19:55.8124997Z"
+                  },
+                  {
+                      "sessionId":  "87bae9f0-28c5-4c2a-b132-f7c18bf277ab",
+                      "name":  "Restart QA Alpha - Worker - a long turn that can be interrupted",
+                      "agent":  "ClaudeCode",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a\\alpha-long-turn",
+                      "mission":  {
+                                      "id":  "0da1d0b5-796e-4b59-8392-6d23a5a940a0",
+                                      "name":  "Restart QA Alpha"
+                                  },
+                      "role":  "Worker",
+                      "workflowRunId":  "3d40f406-3e0e-4af4-966e-91d97edb4d38",
+                      "sortOrder":  2,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "Working",
+                                           "stateLabel":  "Working",
+                                           "triageBucket":  "active",
+                                           "turnCount":  0
+                                       },
+                      "claudeSessionId":  "2c3622e4-d848-49a9-9772-e623daa03cee",
+                      "claudeTranscriptPath":  "C:\\Users\\soren\\.claude\\projects\\C--Users-soren-AppData-Local-Temp-restart-qa-seats-run-a-alpha-long-turn\\2c3622e4-d848-49a9-9772-e623daa03cee.jsonl",
+                      "createdAt":  "2026-09-20T20:15:25.8391809Z",
+                      "handoverPath":  "C:\\Users\\soren\\AppData\\Local\\cc-director\\vault\\handovers\\director-restart\\2026-09-20T161911-b0dcae-SOREN_NORTH\\87bae9f0 - Restart QA Alpha - Worker - a long turn that can be interrupted.md",
+                      "drainState":  "drained",
+                      "restore":  {
+                                      "decision":  "restore",
+                                      "why":  "The task is 52 of 400 lines done and needs a session to finish the remaining 348 appends; nothing else can carry it.",
+                                      "command":  "cc-devthrottle director restore \"restart-20260920-1619-sorennorth\" --director \"\u003cthe NEW director id\u003e\" --seat 87bae9f0-28c5-4c2a-b132-f7c18bf277ab"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:20:55.9054232Z"
+                  },
+                  {
+                      "sessionId":  "0ab6ab99-0e9c-4ed7-bdce-4f7e42d8953f",
+                      "name":  "Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt",
+                      "agent":  "Pi",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a\\beta-long-turn-pi",
+                      "mission":  {
+                                      "id":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                                      "name":  "Restart QA Beta"
+                                  },
+                      "role":  "Worker",
+                      "workflowRunId":  "9e078427-9421-4c3e-b408-05a6e3e4128c",
+                      "sortOrder":  3,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "Working",
+                                           "stateLabel":  "Working",
+                                           "triageBucket":  "active",
+                                           "turnCount":  0
+                                       },
+                      "claudeSessionId":  "c020cf5d-c1a6-4972-9974-d0d3d4115194",
+                      "createdAt":  "2026-09-20T20:15:28.369129Z",
+                      "handoverPath":  "C:\\Users\\soren\\AppData\\Local\\cc-director\\vault\\handovers\\director-restart\\2026-09-20T161911-b0dcae-SOREN_NORTH\\0ab6ab99 - Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt.md",
+                      "drainState":  "drained",
+                      "restore":  {
+                                      "decision":  "close",
+                                      "why":  "the task (notes.md, 400 verified lines, numbers 1-400 with primality and a fact each) is finished and independently verified; nothing remains for this seat to do"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:21:55.9449078Z"
+                  },
+                  {
+                      "sessionId":  "1cbfa646-0221-4a43-b9ab-a90c33bc60ec",
+                      "name":  "Restart QA Beta - Worker - a question box open for the owner",
+                      "agent":  "ClaudeCode",
+                      "model":  "claude-opus-5",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a\\beta-question-box",
+                      "mission":  {
+                                      "id":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                                      "name":  "Restart QA Beta"
+                                  },
+                      "role":  "Worker",
+                      "workflowRunId":  "9e078427-9421-4c3e-b408-05a6e3e4128c",
+                      "sortOrder":  4,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "WaitingForInput",
+                                           "stateLabel":  "Needs you",
+                                           "triageBucket":  "needsYou",
+                                           "turnCount":  1
+                                       },
+                      "claudeSessionId":  "2d613a23-8572-4444-b00d-90d8cbce2c96",
+                      "claudeTranscriptPath":  "C:\\Users\\soren\\.claude\\projects\\C--Users-soren-AppData-Local-Temp-restart-qa-seats-run-a-beta-question-box\\2d613a23-8572-4444-b00d-90d8cbce2c96.jsonl",
+                      "createdAt":  "2026-09-20T20:15:29.0001252Z",
+                      "handoverPath":  "C:\\Users\\soren\\AppData\\Local\\cc-director\\vault\\handovers\\director-restart\\2026-09-20T161911-b0dcae-SOREN_NORTH\\1cbfa646 - Restart QA Beta - Worker - a question box open for the owner.md",
+                      "drainState":  "drained",
+                      "restore":  {
+                                      "decision":  "restore",
+                                      "why":  "The owner\u0027s naming answer (Delphine) lives only here, and the seat has no task yet - it needs one question put to the owner.",
+                                      "command":  "cc-devthrottle director restore \"restart-20260920-1619-sorennorth\" --director \"\u003cthe NEW director id\u003e\" --seat 1cbfa646-0221-4a43-b9ab-a90c33bc60ec"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:23:50.695432Z"
+                  },
+                  {
+                      "sessionId":  "c9972c1a-8b57-4fbc-b67a-9203b5db647e",
+                      "name":  "Restart QA Beta - Worker - takes the request and never answers",
+                      "agent":  "RawCli",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a\\beta-silent",
+                      "mission":  {
+                                      "id":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                                      "name":  "Restart QA Beta"
+                                  },
+                      "role":  "Worker",
+                      "workflowRunId":  "9e078427-9421-4c3e-b408-05a6e3e4128c",
+                      "sortOrder":  5,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "WaitingForInput",
+                                           "stateLabel":  "Ready",
+                                           "triageBucket":  "active",
+                                           "turnCount":  0
+                                       },
+                      "createdAt":  "2026-09-20T20:15:32.6695239Z",
+                      "drainState":  "ended-at-limit",
+                      "restore":  {
+                                      "decision":  "undecided"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:24:22.7488911Z"
+                  },
+                  {
+                      "sessionId":  "5ca23bbe-8b54-4ffa-910a-50974abd89c4",
+                      "name":  "Restart QA Beta - Worker - wedged and cannot take a prompt",
+                      "agent":  "RawCli",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a\\beta-wedged",
+                      "mission":  {
+                                      "id":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                                      "name":  "Restart QA Beta"
+                                  },
+                      "role":  "Worker",
+                      "workflowRunId":  "9e078427-9421-4c3e-b408-05a6e3e4128c",
+                      "sortOrder":  6,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "WaitingForInput",
+                                           "stateLabel":  "Ready",
+                                           "triageBucket":  "active",
+                                           "turnCount":  0
+                                       },
+                      "createdAt":  "2026-09-20T20:15:33.1037102Z",
+                      "drainState":  "ended-at-limit",
+                      "restore":  {
+                                      "decision":  "undecided"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:24:22.872903Z"
+                  },
+                  {
+                      "sessionId":  "5a5731d8-7f01-444c-ac30-04c917237f1e",
+                      "name":  "Restart QA Beta - Worker - writes a handover carrying a planted credential",
+                      "agent":  "RawCli",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a\\beta-secret",
+                      "mission":  {
+                                      "id":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                                      "name":  "Restart QA Beta"
+                                  },
+                      "role":  "Worker",
+                      "workflowRunId":  "9e078427-9421-4c3e-b408-05a6e3e4128c",
+                      "sortOrder":  7,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "WaitingForInput",
+                                           "stateLabel":  "Ready",
+                                           "triageBucket":  "active",
+                                           "turnCount":  0
+                                       },
+                      "createdAt":  "2026-09-20T20:15:33.2629447Z",
+                      "drainState":  "ended-at-limit",
+                      "restore":  {
+                                      "decision":  "undecided"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:24:22.9845411Z"
+                  }
+              ],
+    "ownerQuestions":  [
+                           {
+                               "fromSessionId":  "0ab6ab99-0e9c-4ed7-bdce-4f7e42d8953f",
+                               "fromName":  "Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt",
+                               "question":  "none - no questions were left on the owner"
+                           },
+                           {
+                               "fromSessionId":  "1cbfa646-0221-4a43-b9ab-a90c33bc60ec",
+                               "fromName":  "Restart QA Beta - Worker - a question box open for the owner",
+                               "question":  "Delphine is the agreed name for this scratch folder. What do you want done in it?"
+                           }
+                       ],
+    "restoreAfterRestart":  [
+                                "87bae9f0-28c5-4c2a-b132-f7c18bf277ab",
+                                "1cbfa646-0221-4a43-b9ab-a90c33bc60ec"
+                            ],
+    "restartCommand":  {
+                           "method":  "POST",
+                           "url":  "{gateway}/machines/SOREN_NORTH/director/restart",
+                           "confirmProtected":  true,
+                           "note":  "Needs a key with admission scope. An agent\u0027s session key is refused here - 403 session_key_out_of_scope - because this is the admission surface, which is a deliberate product decision and not an oversight."
+                       },
+    "integrity":  {
+                      "checkedAtUtc":  "2026-09-20T20:24:23.0046099Z",
+                      "documentsSwept":  3,
+                      "sweepPatternsProved":  10,
+                      "sweepPatternsTotal":  10,
+                      "sweepProofFailures":  [
+
+                                             ],
+                      "secretFindings":  [
+
+                                         ],
+                      "problems":  [
+                                       "the smart shutdown request could not be DELIVERED to 5ca23bbe (Restart QA Beta - Worker - wedged and cannot take a prompt) - the ask did not land, so it was never asked rather than asked and silent. The delivery path said: [RawCli] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=33, tailNeedle=\"0161927t51sbztxt\", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail=\"\", screen=\u003cthe snapshot could not be read\u003e Readable buffer tail: .",
+                                       "the smart shutdown request could not be DELIVERED to 5a5731d8 (Restart QA Beta - Worker - writes a handover carrying a planted credential) - the ask did not land, so it was never asked rather than asked and silent. The delivery path said: [SubmitVerifier] \u0027RawCli: @.temp/input_20260920_161936_54ofh0.txt\u0027 never started a turn within 8 beats (8 nudge(s) sent): the agent produced under 2048 bytes, so the prompt is parked in the composer unsubmitted. The TUI swallowed the Enter (an autocomplete popup, a startup window that drops Enter, or a composer repaint)..",
+                                       "seat d8388560 (Restart QA Alpha - Worker - the seat under the lead): the session went away by itself during the smart shutdown. It wrote no handover.",
+                                       "seat 66b3f777 (Restart QA Alpha - Lead - collects its worker\u0027s document first) had not handed over when the time allowed is up and was ended by the smart shutdown. It had written nothing. Its saved conversation is b3bc07b8-72d2-4b10-84e7-7bf93e588ae6.",
+                                       "seat c9972c1a (Restart QA Beta - Worker - takes the request and never answers) had not handed over when the time allowed is up and was ended by the smart shutdown. It had written nothing. The capture recorded NO conversation id for it, so its saved conversation cannot be offered back.",
+                                       "seat 5ca23bbe (Restart QA Beta - Worker - wedged and cannot take a prompt) had not handed over when the time allowed is up and was ended by the smart shutdown. It had written nothing. The capture recorded NO conversation id for it, so its saved conversation cannot be offered back.",
+                                       "seat 5a5731d8 (Restart QA Beta - Worker - writes a handover carrying a planted credential) had not handed over when the time allowed is up and was ended by the smart shutdown. It had written nothing. The capture recorded NO conversation id for it, so its saved conversation cannot be offered back.",
+                                       "seat 87bae9f0 says it covers 87bae9f0, which does not report to it. The claim was rejected and that seat is still expected to account for itself.",
+                                       "seat 0ab6ab99 says it covers \"none - this session started no other sessions and no seat re...\", which is not a seat on this Director. The claim was rejected.",
+                                       "seat 1cbfa646 says it covers 1cbfa646, which does not report to it. The claim was rejected and that seat is still expected to account for itself.",
+                                       "seat 66b3f777 (Restart QA Alpha - Lead - collects its worker\u0027s document first) has no restore decision, so nobody reading this afterwards knows whether it should come back.",
+                                       "seat d8388560 (Restart QA Alpha - Worker - the seat under the lead) has no restore decision, so nobody reading this afterwards knows whether it should come back.",
+                                       "seat c9972c1a (Restart QA Beta - Worker - takes the request and never answers) has no restore decision, so nobody reading this afterwards knows whether it should come back.",
+                                       "seat 5ca23bbe (Restart QA Beta - Worker - wedged and cannot take a prompt) has no restore decision, so nobody reading this afterwards knows whether it should come back.",
+                                       "seat 5a5731d8 (Restart QA Beta - Worker - writes a handover carrying a planted credential) has no restore decision, so nobody reading this afterwards knows whether it should come back."
+                                   ],
+                      "readyToRestart":  false,
+                      "notReadyReason":  "5 seat(s) did not hand over cleanly, 4 of them ended by the smart shutdown when the time allowed was up, starting with 66b3f777 (Restart QA Alpha - Lead - collects its worker\u0027s document first). Each is recorded with its conversation id and whatever handover was on disk."
+                  },
+    "createdUtc":  "2026-09-20T20:19:11.356704Z",
+    "updatedUtc":  "2026-09-20T20:24:23.03471Z"
+}

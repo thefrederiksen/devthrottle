@@ -1,0 +1,29 @@
+{
+    "takenAtUtc":  "2026-09-20T20:48:28Z",
+    "gatewayUrl":  "http://127.0.0.1:7911",
+    "machine":  "SOREN_NORTH",
+    "directorId":  "3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe",
+    "specification":  "D:\\ReposFred\\devthrottle-p5-run-a\\scripts\\restart-qa\\session-shapes.json",
+    "workRoot":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a4",
+    "seats":  [
+                  {
+                      "key":  "beta-secret",
+                      "sessionId":  "2bbdf72f-1227-4610-82e2-af3dd05e6007",
+                      "name":  "Restart QA Beta - Worker - writes a handover carrying a planted credential",
+                      "agent":  "RawCli",
+                      "mission":  "beta",
+                      "missionId":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                      "controller":  null,
+                      "folder":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a4\\beta-secret",
+                      "why":  "The planted password, by a route that cannot decline. The request the smart shutdown sends says NO SECRETS, and the sweep exists because an instruction is not a check. The first attempt asked a Pi seat to carry the credential and it refused, so the sweep swept a clean document and proved nothing. This seat is a stand-in program: it reads the exact handover path out of the request and writes the document itself, credential and all."
+                  }
+              ],
+    "liveOnDirector":  [
+                           {
+                               "sessionId":  "2bbdf72f-1227-4610-82e2-af3dd05e6007",
+                               "name":  "Restart QA Beta - Worker - writes a handover carrying a planted credential",
+                               "agent":  "RawCli",
+                               "activityState":  "WaitingForInput"
+                           }
+                       ]
+}

@@ -1,0 +1,23 @@
+{
+    "sentAtUtc":  "2026-09-20T20:16:28Z",
+    "promptName":  "longTurn",
+    "promptLength":  358,
+    "results":  [
+                    {
+                        "key":  "alpha-long-turn",
+                        "sessionId":  "87bae9f0-28c5-4c2a-b132-f7c18bf277ab",
+                        "name":  "Restart QA Alpha - Worker - a long turn that can be interrupted",
+                        "landed":  true,
+                        "detail":  "{\"accepted\":true,\"sentAt\":\"2026-09-20T20:16:18.0795934Z\",\"bufferCursor\":1605,\"activityState\":\"Working\",\"output\":null,\"waitStatus\":null,\"error\":null,\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "Working"
+                    },
+                    {
+                        "key":  "beta-long-turn-pi",
+                        "sessionId":  "0ab6ab99-0e9c-4ed7-bdce-4f7e42d8953f",
+                        "name":  "Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt",
+                        "landed":  true,
+                        "detail":  "{\"accepted\":true,\"sentAt\":\"2026-09-20T20:16:23.8053216Z\",\"bufferCursor\":5400,\"activityState\":\"Working\",\"output\":null,\"waitStatus\":null,\"error\":null,\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "Working"
+                    }
+                ]
+}

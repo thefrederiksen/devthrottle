@@ -1,0 +1,27 @@
+Director log lines, quoted verbatim. Source files:
+  the Director that ran every shutdown:  /c/Users/soren/AppData/Local/cc-director-restart-qa-rig/instances/default/logs/director/director-2026-09-20-41076.log   (process 41076)
+  the Director the launcher started after the restart: /c/Users/soren/AppData/Local/cc-director-restart-qa-rig/instances/default/logs/director/director-2026-09-20-67748.log   (process 67748)
+
+=== every [DrainSessionControl] StopTurnAsync: line, process 41076 ===
+2026-09-20 16:22:35.992 [DrainSessionControl] StopTurnAsync: session=66b3f777-2382-481d-a32a-be6e8bbc845a, agent=Pi, declares=ClearContext, Cancel, ContextUsage, ModelReport, CompactContext
+2026-09-20 16:22:35.995 [DrainSessionControl] StopTurnAsync: session=66b3f777-2382-481d-a32a-be6e8bbc845a stopped with escape
+
+=== every [DirectorWayUp] FindOfferAsync: line, process 41076 (the start BEFORE this phase's runs) ===
+2026-09-20 16:12:44.179 [DirectorWayUp] FindOfferAsync: machine=SOREN_NORTH
+2026-09-20 16:12:44.672 [DirectorWayUp] FindOfferAsync: offering restart-20260920-1230-sorennorth, owed=1, rows=4
+
+=== every [DirectorWayUp] FindOfferAsync: line, process 67748 (the start AFTER the restart) ===
+2026-09-20 16:49:27.800 [DirectorWayUp] FindOfferAsync: machine=SOREN_NORTH
+2026-09-20 16:49:27.892 [DirectorWayUp] FindOfferAsync: offering restart-20260920-1648-sorennorth, owed=1, rows=1
+
+=== the two stages firing, main run ===
+2026-09-20 16:22:35.996 [DirectorDrain] stop the turn at two thirds: 66b3f777-2382-481d-a32a-be6e8bbc845a (Restart QA Alpha - Lead - collects its worker's document first): verb=Escape, landed=True
+2026-09-20 16:24:20.740 [DirectorDrain] the limit: the time allowed is up
+2026-09-20 16:24:22.420 [DirectorDrain] ended at the limit: 66b3f777-2382-481d-a32a-be6e8bbc845a (Restart QA Alpha - Lead - collects its worker's document first): ended=True, gone=False
+2026-09-20 16:24:22.748 [DirectorDrain] ended at the limit: c9972c1a-8b57-4fbc-b67a-9203b5db647e (Restart QA Beta - Worker - takes the request and never answers): ended=True, gone=False
+2026-09-20 16:24:22.872 [DirectorDrain] ended at the limit: 5ca23bbe-8b54-4ffa-910a-50974abd89c4 (Restart QA Beta - Worker - wedged and cannot take a prompt): ended=True, gone=False
+2026-09-20 16:24:22.984 [DirectorDrain] ended at the limit: 5a5731d8-7f01-444c-ac30-04c917237f1e (Restart QA Beta - Worker - writes a handover carrying a planted credential): ended=True, gone=False
+2026-09-20 16:34:56.252 [DirectorDrain] the limit: the time allowed is up
+2026-09-20 16:34:56.325 [DirectorDrain] ended at the limit: b924339c-8875-4e57-9807-53034a360f70 (Restart QA Beta - Worker - writes a handover carrying a planted credential): ended=True, gone=False
+2026-09-20 16:41:55.151 [DirectorDrain] the limit: the time allowed is up
+2026-09-20 16:41:55.709 [DirectorDrain] ended at the limit: c3985b1c-183a-4985-ab98-a0a2ddc5d750 (Restart QA Beta - Worker - writes a handover carrying a planted credential): ended=True, gone=False
