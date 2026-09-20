@@ -39,24 +39,41 @@ describe("new session client", () => {
   // one-repository-list mission exists because clients decided the order for themselves. The Gateway now
   // decides it once, and every client renders what it was handed (Critical Rule 7 in CLAUDE.md).
   //
-  // The rows below are fed in the order a client would most be tempted to "correct": a never-opened
-  // repository, which carries no time at all, sitting ABOVE two that have been used. A reader that sorted
-  // on lastUsed would push it to one end or the other. The assertion is index for index, not a set
-  // comparison, because the defect being held down is a reordering and nothing else.
+  // THE FIXTURE IS THE WHOLE TEST, so it is built deliberately rather than realistically. A comparator is
+  // a no-op over a list that already agrees with it, so a fixture that happens to sit in some sensible
+  // order certifies nothing: the sort goes back in, the rows do not move, and the test whose NAME promises
+  // "never re-sorts on lastUsed" is the one that does not notice. That is not hypothetical - the first
+  // version of this fixture read ["", August, September], which IS ascending by lastUsed, and an ascending
+  // re-sort walked straight through it.
+  //
+  // These four rows are in an order NO rule over lastUsed produces, and each one is there to break a
+  // different rule a reader might reach for:
+  //   * newest-first moves the two timeless rows to the end;
+  //   * oldest-first moves them to the front and reverses the used pair;
+  //   * timeless-first-then-newest lifts Alpha above September;
+  //   * timeless-last, or anything ordering by name, moves Alpha above Zulu.
+  // Nothing but "return exactly what arrived" survives it. A never-opened repository sitting ABOVE used
+  // ones is of course not an order the Gateway would ever serve, and that is the point: what is being
+  // proved is that this reader does not CORRECT what it is handed, whatever it is handed.
+  //
+  // The assertion is index for index, not a set comparison, because the defect held down is a reordering
+  // and nothing else.
   it("serves the Gateway's order untouched and never re-sorts on lastUsed", async () => {
     const served = [
-      { name: "Never opened", path: "/roots/never-opened", lastUsed: null, neverOpened: true },
-      { name: "Used in August", path: "/repositories/august", lastUsed: "2026-08-01T00:00:00Z", neverOpened: false },
+      { name: "Zulu, never opened", path: "/roots/zulu", lastUsed: null, neverOpened: true },
       { name: "Used in September", path: "/repositories/september", lastUsed: "2026-09-01T00:00:00Z", neverOpened: false },
+      { name: "Alpha, never opened", path: "/roots/alpha", lastUsed: null, neverOpened: true },
+      { name: "Used in August", path: "/repositories/august", lastUsed: "2026-08-01T00:00:00Z", neverOpened: false },
     ];
     globalThis.fetch = (async () => jsonResponse(served)) as unknown as typeof fetch;
 
     const repositories = await getKnownRepositories("director-one");
 
     expect(repositories.map((repository) => repository.name)).toEqual([
-      "Never opened",
-      "Used in August",
+      "Zulu, never opened",
       "Used in September",
+      "Alpha, never opened",
+      "Used in August",
     ]);
     expect(repositories.map((repository) => repository.path)).toEqual(served.map((row) => row.path));
   });
