@@ -97,6 +97,24 @@ public sealed class WorkspaceDocument
     /// <summary>Why the operation was run at all, in plain words ("update to 2.0.6").</summary>
     public string? Reason { get; set; }
 
+    /// <summary>
+    /// How this record came about, when it came from the Director shutting its own sessions down: one of
+    /// <see cref="WorkspaceShutdownKinds"/>, or null on every other record - an authored workspace, a
+    /// plain capture, and a drain run the older way.
+    ///
+    /// It is a field of its own and NOT a third value of <see cref="Origin"/>, because the store branches
+    /// on "captured": a record of a smart shutdown IS a capture, and everything the store protects about
+    /// a capture has to keep protecting it. The way up finds the records it may offer by this field.
+    /// </summary>
+    public string? ShutdownKind { get; set; }
+
+    /// <summary>
+    /// When the owner cancelled the smart shutdown this record describes and kept working, or null when
+    /// he did not. One field says both that it was cancelled and when, so the two can never disagree. A
+    /// cancelled record stays in the history and is never offered on the way up.
+    /// </summary>
+    public DateTime? CancelledAtUtc { get; set; }
+
     // THERE IS NO COARSE "outcome" FIELD, and its absence is deliberate.
     //
     // The hand-written index had one, with four words, and two of them welded two independent facts into
@@ -689,6 +707,25 @@ public static class WorkspaceOrigins
 }
 
 /// <summary>
+/// How a record came about when the Director shut its own sessions down. The closed list behind
+/// <see cref="WorkspaceDocument.ShutdownKind"/>. Deliberately NOT values of <see cref="WorkspaceOrigins"/>:
+/// both of these are captures, and the store branches on that word.
+/// </summary>
+public static class WorkspaceShutdownKinds
+{
+    /// <summary>A smart shutdown: every session was asked for a handover inside a time limit. The way up
+    /// offers the seats of such a record back.</summary>
+    public const string SmartShutdown = "smart-shutdown";
+
+    /// <summary>A shut down that ignored all sessions: the record says what was closed and nothing in it
+    /// is offered back automatically.</summary>
+    public const string IgnoreAll = "ignore-all";
+
+    /// <summary>Every valid value.</summary>
+    public static readonly string[] All = { SmartShutdown, IgnoreAll };
+}
+
+/// <summary>
 /// What happened to the DIRECTOR. One of the two orthogonal facts that replaced the coarse four-word
 /// outcome the hand-written index carried.
 /// </summary>
@@ -787,7 +824,8 @@ public sealed class WorkspaceSeatOutcome
 
 }
 
-/// <summary>How far one seat got through the drain. Exactly these five, from the director-restart skill.</summary>
+/// <summary>How far one seat got through the drain. Five from the director-restart skill, and a sixth
+/// that only a smart shutdown writes.</summary>
 public static class WorkspaceDrainStates
 {
     /// <summary>It wrote a handover, somebody READ it, and it stopped.</summary>
@@ -806,8 +844,15 @@ public static class WorkspaceDrainStates
     /// <summary>It answered and refused, or its answer did not amount to a handover.</summary>
     public const string Declined = "declined";
 
+    /// <summary>The smart shutdown ended the session at the limit, turn or no turn, without an accepted
+    /// handover. Written by the smart shutdown only - the older drain never ends a session and never
+    /// writes this. The session's conversation id is already on the seat
+    /// (<see cref="WorkspaceSeat.ClaudeSessionId"/>), read by the capture, which is what lets the way up
+    /// offer the saved conversation.</summary>
+    public const string EndedAtLimit = "ended-at-limit";
+
     /// <summary>Every valid drain state.</summary>
-    public static readonly string[] All = { Drained, Blocked, Unreachable, Covered, Declined };
+    public static readonly string[] All = { Drained, Blocked, Unreachable, Covered, Declined, EndedAtLimit };
 }
 
 /// <summary>What was decided about bringing a seat back.</summary>

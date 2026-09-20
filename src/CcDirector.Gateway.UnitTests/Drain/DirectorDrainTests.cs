@@ -325,6 +325,62 @@ public class DirectorDrainTests
 
     // ================= never force =================
 
+    /// <summary>
+    /// The seam now carries an interrupt and an end, for the smart shutdown. This runs the OLDER drain over
+    /// every kind of session that could tempt it to force - one that hands over cleanly, one that says it
+    /// is blocked, one that never answers before the deadline, one whose composer will not take the words,
+    /// and one that hands over and then never goes away - and holds that it called neither verb, once.
+    ///
+    /// The fake records the CALL, not the outcome, so a call that was refused or found nothing would still
+    /// be seen here.
+    /// </summary>
+    [Fact]
+    public async Task Drain_OnTheOlderPath_NeverInterruptsAndNeverEndsASession()
+    {
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seats = new[]
+        {
+            DrainTestRig.Seat("clean", "Hands over cleanly"),
+            DrainTestRig.Seat("blocked", "Says it is blocked", order: 1),
+            DrainTestRig.Seat("silent", "Never answers", order: 2),
+            DrainTestRig.Seat("wedged", "Cannot take the words", order: 3),
+            DrainTestRig.Seat("stuck", "Hands over and never goes away", order: 4),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        sessions.RefuseSendTo.Add("wedged");
+        sessions.NeverReaped.Add("stuck");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        sessions.Handover(dir.Path, "clean", "Hands over cleanly", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "stuck", "Hands over and never goes away", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "blocked", "Says it is blocked", DrainTestRig.Block(
+            state: "blocked", restore: null, why: null,
+            blockedReason: "A release is being published; stopping now leaves a half-pushed tag."));
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(3)), dir.Path);
+
+        // The run really did meet every one of those cases - otherwise "it called neither verb" would be
+        // true of a drain that never had a reason to.
+        var byId = result.Document.Seats.ToDictionary(s => s.SessionId!, s => s.DrainState);
+        Assert.Equal(WorkspaceDrainStates.Drained, byId["clean"]);
+        Assert.Equal(WorkspaceDrainStates.Blocked, byId["blocked"]);
+        Assert.Equal(WorkspaceDrainStates.Unreachable, byId["silent"]);
+        Assert.Equal(WorkspaceDrainStates.Unreachable, byId["wedged"]);
+        Assert.Equal(WorkspaceDrainStates.Drained, byId["stuck"]);
+        Assert.False(result.ReadyToRestart);
+        Assert.NotEmpty(sessions.Sent);
+
+        Assert.Empty(sessions.Interrupted);
+        Assert.Empty(sessions.Ended);
+
+        // And the record it wrote never uses the state only a smart shutdown may write.
+        Assert.DoesNotContain(sink.Saves.SelectMany(s => s.Seats),
+            s => s.DrainState == WorkspaceDrainStates.EndedAtLimit);
+        foreach (var id in new[] { "blocked", "silent", "wedged", "stuck" })
+            Assert.Contains(id, sessions.Live);
+    }
+
     [Fact]
     public async Task Drain_ABlockedSeatIsNeverFlagged_AndTheRestartDoesNotHappen()
     {

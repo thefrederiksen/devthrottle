@@ -13,7 +13,9 @@ namespace CcDirector.Gateway.UnitTests.Drain;
 ///  - A SESSION DOES NOT DISAPPEAR WHEN IT IS FLAGGED. Marking one done is a flag, and the Director's own
 ///    reaper removes it later. This one stays present for <see cref="PollsBeforeReap"/> further checks,
 ///    which is what makes "poll until it is genuinely absent" a testable rule rather than a comment.
-///  - THERE IS NO KILL. The fake offers none, because the seam offers none.
+///  - THE OLDER DRAIN HAS NO KILL. The seam now carries an interrupt and an end for the smart shutdown,
+///    and the fake records every call to either, so a test can run the older drain and assert it made
+///    none.
 /// </summary>
 internal class FakeSessionControl : IDrainSessionControl
 {
@@ -133,6 +135,43 @@ internal class FakeSessionControl : IDrainSessionControl
         Flagged.Add(sessionId);
         _reapCountdown[sessionId] = PollsBeforeReap;
         return true;
+    }
+
+    // ---- the two smart shutdown verbs. The older drain never calls either, and a test asserts it. ----
+
+    /// <summary>Every interrupt ASKED FOR, in order, whatever came of it. The "older drain never
+    /// interrupts" assertion reads this, so it counts the call and not the outcome.</summary>
+    public List<string> Interrupted { get; } = new();
+
+    /// <summary>Every end ASKED FOR, in order: (sessionId, reason), whatever came of it.</summary>
+    public List<(string SessionId, string Reason)> Ended { get; } = new();
+
+    /// <summary>Sessions whose agent has no safe hard interrupt. The value is the reason the driver
+    /// gives.</summary>
+    public Dictionary<string, string> RefuseInterruptWithReason { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Sessions that will not die. The value is the reason the stop path gives.</summary>
+    public Dictionary<string, string> RefuseEndWithReason { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public virtual Task<DrainDelivery> InterruptAsync(string sessionId)
+    {
+        Interrupted.Add(sessionId);
+        if (!Live.Contains(sessionId)) return Task.FromResult(DrainDelivery.Gone);
+        if (RefuseInterruptWithReason.TryGetValue(sessionId, out var why))
+            return Task.FromResult(DrainDelivery.Refused(why));
+        return Task.FromResult(DrainDelivery.Ok);
+    }
+
+    /// <summary>Unlike a flag, an end is immediate: the session is absent on the very next presence
+    /// check, with no reaper and no grace window in between.</summary>
+    public virtual Task<DrainEnd> EndAsync(string sessionId, string reason)
+    {
+        Ended.Add((sessionId, reason));
+        if (!Live.Contains(sessionId)) return Task.FromResult(DrainEnd.Gone);
+        if (RefuseEndWithReason.TryGetValue(sessionId, out var why))
+            return Task.FromResult(DrainEnd.Refused(why));
+        Live.Remove(sessionId);
+        return Task.FromResult(DrainEnd.Ok);
     }
 }
 
