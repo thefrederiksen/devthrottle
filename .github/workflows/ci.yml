@@ -4,7 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # SCRATCH BRANCH ONLY, NEVER MERGED. ci/package-3-proof-base is added so that two throwaway pull
+    # requests can be opened AGAINST it, each differing from it by exactly one file. That is the only way
+    # to show both halves of the PostgreSQL path filter with real runs: a pull request against main from
+    # a branch carrying this change has the whole package in its diff, which is database-facing, so the
+    # job correctly starts on both halves and neither run discriminates.
+    branches: [main, ci/package-3-proof-base]
 
 # ONE run per branch, everywhere, and the newest commit always wins (owner's ruling, 16 September 2026).
 #
