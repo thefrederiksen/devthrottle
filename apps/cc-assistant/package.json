@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "serve": "node server/wilson.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "node ../../scripts/check-node-version.mjs && vitest run"
   },
   "dependencies": {
     "@huggingface/transformers": "4.2.0",
