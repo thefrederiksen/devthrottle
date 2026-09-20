@@ -215,9 +215,11 @@ jobs:
       # The two tests that DO want that selector run in their own process below.
       - name: Run the proofs against the rig
         env:
-          CC_TEST_REQUIRE_POSTGRES: ci
-          CC_GATEWAY_TEST_PG_CONNECTION: Host=127.0.0.1;Port=5432;Database=ccpgproof_ci;Username=postgres;Password=proof
-          CC_GATEWAY_TEST_PG_STATS_CONNECTION: Host=127.0.0.1;Port=5432;Database=ccpgstats_ci;Username=gateway_app_ci;Password=proof
+          # SCRATCH EDIT, NEVER MERGED. The three variables that point the proofs at this run's database
+          # are removed, so every one of them skips itself exactly as it does in continuous integration
+          # today. The run is expected to go RED on the verdict step. An assertion nobody has watched
+          # fire is an assertion nobody has tested.
+          CC_TEST_REQUIRE_POSTGRES: ""
         run: |
           dotnet test "$PROJECT" -c Release --no-build \
             --filter "FullyQualifiedName!~GatewayDatabaseLivePostgresProofTests&FullyQualifiedName!~HostStartupPathAppliesPostgresMigrationsTests" \
