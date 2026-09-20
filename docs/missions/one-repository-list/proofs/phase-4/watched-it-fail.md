@@ -169,3 +169,53 @@ from a one-field one.
 * **A revert proves the guard catches the defect that revert removed.** It does not prove the guard
   catches everything its name suggests - revert C's passing test and revert A's two unpredicted
   passes are both instances of exactly that, recorded above rather than tidied away.
+
+---
+
+# Addendum: revert F - the retry hint's sentence termination
+
+Prediction committed in `c610f5c75`, before this revert was run. Same discipline as the five above.
+
+**Why there is a sixth revert at all.** There is one because **the screenshot run found a real defect
+in shared code**, which is the QA report doing its job rather than decorating it. Screen 09 of this
+proof - the Director disconnected, the route answering 502 - was a photograph of malformed text:
+
+```
+Could not load repositories: Director not connected Try again.
+```
+
+Two sentences with nothing between them. The root cause is not this screen. It is `withRetryHint` in
+`packages/client-core/src/api/client.ts`, which appended `" Try again."` to whatever it was handed and
+assumed that thing already ended in terminal punctuation. The Gateway writes some reasons as SENTENCES
+("That machine is catching up.") and some as PHRASES ("Director not connected"), and every phrase
+produced this, **on every screen in both shells that shows a Gateway error**. It survived because every
+reason anyone had looked at happened to end in a full stop - including every reason in
+`errorReporting.test.ts`.
+
+It is fixed at the one place that joins the two parts, not in the dialog that happened to be pointed at
+it (`CLAUDE.md` rule 3: fix the root cause, do not add a fallback that hides it).
+
+**Result: 2 failed, 1,457 passed** in client-core; cc-assistant, cockpit and mobile untouched at 106,
+487 and 101. Exactly the two predicted, with exactly the predicted messages:
+
+```
+× terminates a reason that is a PHRASE before adding the hint, so the two do not run together
+  → expected 'Director not connected Try again.' to be 'Director not connected. Try again.'
+× does not leave a gap where the reason had trailing space
+  → expected 'Director not connected    Try again.' to be 'Director not connected. Try again.'
+```
+
+**`leaves a reason that already ends in a sentence exactly as it was` stayed green, as predicted, and
+it is the half of the pin that matters most.** The revert cannot fail it, because the old code was
+correct for that case. It exists to catch the OPPOSITE mistake - a careless fix that appends a full
+stop unconditionally and gives every already-terminated reason two of them - which no revert of this
+change can produce and which would therefore go unguarded if that test were not written separately. It
+asserts `toBe` on the whole string rather than `toContain`, for the same reason.
+
+**The two screenshots are both committed**, so the defect is answerable by looking rather than by
+trusting this document:
+
+| Shot | What it shows |
+|---|---|
+| `screens/09a-before-the-fix-the-reason-and-the-advice-ran-together.png` | The defect, as this proof first photographed it. |
+| `screens/09-the-director-is-not-connected-the-route-is-502.png` | The same failure case after the fix: *"Could not load repositories: Director not connected. Try again."* |

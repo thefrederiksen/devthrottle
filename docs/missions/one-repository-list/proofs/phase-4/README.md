@@ -146,7 +146,7 @@ ship. Revert D is that test watched failing.
 |---|---|
 | `apps/cockpit/src/sessions/NewSessionDialog.tsx` | The repository half redrawn: the machine row, the search box, the Name / Path / Last Used table with sortable headings, the first-run empty state, the path box paired with Add, and **a click that selects instead of starting a session**. |
 | `apps/cockpit/src/styles.css` | The `.newsess-*` family extended in its own idiom: the machine picker becomes a compact wrapping row, the list becomes a table on one shared column track, plus the empty state, the headings and the Last Used cell. |
-| `packages/client-core/src/api/client.ts` | **Additive only**: `addRepo` and `RepoAddResult`, in the idiom of the readers beside it (`encodeURIComponent`, `authHeaders`, `GatewayError.from`). Nothing existing was touched - phase 5 is in this file in another worktree. |
+| `packages/client-core/src/api/client.ts` | `addRepo` and `RepoAddResult`, in the idiom of the readers beside them (`encodeURIComponent`, `authHeaders`, `GatewayError.from`) - additive, so phase 5's work in this file conflicts with nothing. Plus the two-line `withRetryHint` fix in section 7a, which is the one existing thing this phase changed there and is a defect this proof found. |
 | `apps/cockpit/src/sessions/newSessionDialogOneList.test.tsx` | The screen's test file, **7 tests to 30**. The seven that were there are intact; one fixture row was RENAMED (`"Never opened"` to `"Not yet opened"`) because the product now uses those exact words in a cell and an exact text query could no longer tell the two apart. |
 | `apps/cockpit/src/fleet/FleetMapView.test.tsx`, `apps/cockpit/src/sessions/sessionsBadge.test.tsx` | `addRepo` added to the client mock beside `getKnownRepositories`. |
 
@@ -171,14 +171,16 @@ describes.
 | Command | Result |
 |---|---|
 | `npm run typecheck` | **Green.** All four workspaces. |
-| `npm test --workspaces --if-present` | **Green. 2,150 passed, 0 failed** - client-core 1,456, cc-assistant 106, cockpit 487, mobile 101. |
+| `npm test --workspaces --if-present` | **Green. 2,153 passed, 0 failed** - client-core 1,459, cc-assistant 106, cockpit 487, mobile 101. |
 | `dotnet test src/CcDirector.Gateway.UnitTests` | **Green. 0 failed, 6,547 passed, 8 skipped.** |
 | `dotnet test src/CcDirector.Core.Tests` | **Green. 0 failed, 4,485 passed, 18 skipped.** |
 | `dotnet test src/CcDirector.Avalonia.Tests` | **Green. 0 failed, 646 passed, 0 skipped.** |
 
 **Zero failures, and no baseline is quoted.** Against the Tech Lead's own measurement of this
-branch's base, the three .NET suites are identical to the digit (6,547 / 4,485 / 646) and the browser
-suites are up by the 23 tests this phase adds to the Cockpit. Nothing else moved.
+branch's base, the three .NET suites are identical to the digit (6,547 / 4,485 / 646); the Cockpit is
+up by the 23 tests this phase adds to that screen, and client-core by the 3 that pin section 7a's fix.
+Nothing else moved. **The .NET numbers were measured before section 7a**, whose change is three
+TypeScript lines and a test file; no `.cs` file is touched anywhere in this branch.
 
 **One thing that is NOT green, and it is not a test.** `npm run lint` reports three errors, all of the
 form *"Definition for rule '…' was not found"* - `@typescript-eslint/no-implied-eval` in
@@ -236,6 +238,7 @@ through the left rail, so the router does the navigating.
 |---|---|
 | `08-a-machine-with-no-repositories-yet.png` | **An empty catalogue.** The Director's own empty state - "No repositories yet", its sentence, its footnote - with **Add where the Director puts Browse**. |
 | `09-the-director-is-not-connected-the-route-is-502.png` | **The Director is gone and the route answers 502.** The screen says what the Gateway said. It does NOT show the first-run empty state, which would tell the owner his machine holds nothing when all that is known is that the Gateway could not be asked; and it draws no table at all, because a bare heading row offers to sort a list the screen does not have. |
+| `09a-before-the-fix-the-reason-and-the-advice-ran-together.png` | **The same shot before section 7a's fix**, kept deliberately: it is the photograph of the defect this proof found. |
 | `10-add-registers-the-path-and-says-what-it-then-found.png` | **Add succeeded and the row is genuinely not in the list.** Section 2. Two facts and no forecast. |
 | `11-add-refused-the-path-does-not-exist-on-that-machine.png` | **Add refused, 400.** The Gateway's own sentence inline, the list untouched, and nothing claiming a repository was added. |
 
@@ -248,6 +251,47 @@ status line naming the real order; the ladder, rung by rung and on the page; the
 than inferred; the filter over name AND path; a filter that matched nothing not being mistaken for an
 empty machine; the click selecting; Create session being the only thing that creates; the empty state;
 the absence of Browse; and the five Add outcomes.
+
+## 7a. What taking the screenshots found - a real defect in shared code
+
+**Screen 09 was, at first, a photograph of malformed text.** It read:
+
+```
+Could not load repositories: Director not connected Try again.
+```
+
+Two sentences with nothing between them. The Tech Lead refused the proof over it, correctly: a QA
+report whose screenshot shows broken text is a proof of a defect rather than of the fix.
+
+**The root cause is not this screen, and it was traced rather than guessed.** `withRetryHint` in
+`packages/client-core/src/api/client.ts` appended `" Try again."` to whatever sentence it was handed,
+assuming that sentence already ended in terminal punctuation. The Gateway writes some reasons as
+SENTENCES ("That machine is catching up.") and some as PHRASES ("Director not connected"). Every phrase
+produced this line, **on every screen in both shells that shows a Gateway error** - not only here. It
+had gone unseen because every reason anyone had looked at happened to end in a full stop, including
+every reason in `errorReporting.test.ts`.
+
+**It is fixed in `withRetryHint`, not in the dialog** - `CLAUDE.md` rule 3, fix the root cause rather
+than papering over it where it happens to show. The change is two lines: trim the reason, terminate it
+if it is not already terminated, then append.
+
+Three tests in `packages/client-core/src/api/errorReporting.test.ts` pin BOTH endings, because a
+careless fix trades one malformed line for another:
+
+| Test | What it holds |
+|---|---|
+| `terminates a reason that is a PHRASE before adding the hint...` | The defect itself: "Director not connected" becomes "Director not connected. Try again." |
+| `leaves a reason that already ends in a sentence exactly as it was` | The opposite mistake - an unconditional full stop giving an already-terminated reason two of them. Full stop, question mark and exclamation mark. |
+| `does not leave a gap where the reason had trailing space` | A reason with trailing whitespace does not leave a hole before the full stop. |
+
+**Both screenshots are committed** - `09a` is the defect as first photographed, `09` is the same
+failure case afterwards - so a reader can see it rather than take this section's word for it. Revert F
+in section 8 watches the fix fail.
+
+**This is the part of the exercise that justifies taking screenshots at all.** Thirty passing tests of
+this screen did not find it. A person looking at a picture of the failure case did, and the defect was
+in shared code that both shells have shipped for as long as the Gateway has written a reason without a
+full stop.
 
 ## 8. Watched failing
 
@@ -262,6 +306,7 @@ including the two places the prediction was wrong.
 | C - the client re-sorts by `lastUsed` | exactly 5, named | **exactly those 5** |
 | D - infer the verdict | exactly 1 | **exactly 1**, both rows wrong in opposite directions |
 | E - filter on the name only | exactly 1 | **exactly 1** |
+| F - the retry hint stops terminating the reason | exactly 2, and one named test staying green | **exactly 2**, and that test stayed green |
 
 In every one of the five, the other 55 Cockpit test files stayed green.
 
@@ -288,6 +333,11 @@ In every one of the five, the other 55 Cockpit test files stayed green.
   simply correct when the registry-to-catalogue feed lands follows from the re-read and the wording; it
   cannot be shown until that feed exists. When it does, screenshot 10's scenario should be re-run - the
   note under it should change by itself, and if it does not, that is a defect here.
+- **Section 7a's fix is proved by test and by one screenshot, not by a sweep.** `withRetryHint` is
+  shared by both browser shells and every screen that shows a Gateway error. This phase fixed it and
+  photographed ONE of those screens. **No audit was made of which other reasons the Gateway writes
+  without terminal punctuation, or of which other screens were showing the same run-together line.**
+  That is worth someone's afternoon and it is not this phase's.
 - **No browser other than Chrome, and one viewport.** 1440 by 1040 at device scale 2. Nothing here
   says what this screen does on a narrow window, and the Cockpit is desktop-first by design.
 - **Volume.** Phase 3 recorded that nothing caps this route's result and nothing measures what a
