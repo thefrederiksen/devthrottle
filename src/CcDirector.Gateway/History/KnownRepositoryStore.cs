@@ -349,6 +349,20 @@ public sealed class KnownRepositoryStore
     /// Rows with no last-used time - the DISCOVERED half - are deliberately NOT served here. Phase 2 of the
     /// one-repository-list mission STORES the root-folder scan; phase 3 owns serving the union and its
     /// order, and until it lands the phone reads exactly what it read before.
+    ///
+    /// READ THIS BEFORE MOVING THE SORT INTO THE DATABASE. The rows are materialized with ToList() and
+    /// ordered IN MEMORY, and once the last-used time is nullable that is load-bearing rather than
+    /// incidental. C# and PostgreSQL disagree about where a null goes in a descending sort:
+    ///
+    ///   OrderByDescending on a DateTime? puts null LAST  - never-opened beneath everything used, which is
+    ///                                                      what this mission's goal 2 asks for.
+    ///   PostgreSQL ORDER BY ... DESC puts NULLS FIRST    - every never-opened repository at the TOP of
+    ///                                                      every screen, the exact inversion of it.
+    ///
+    /// And the disagreement is INVISIBLE to this repository's database tests, which is the dangerous part:
+    /// SQLite sorts nulls as smallest, so its DESC puts them LAST and agrees with C#. Both were run rather
+    /// than remembered. A sort pushed into SQL would therefore pass every test here and inverted the list on
+    /// the hosted Gateway alone. If phase 3 does move it, it must say NULLS LAST explicitly.
     /// </summary>
     public IReadOnlyList<KnownRepositoryDto> ReadForMachine(TenantId tenant, string machineName)
     {

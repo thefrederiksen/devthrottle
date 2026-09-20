@@ -178,7 +178,69 @@ twelve are fixed.
 `Gateway.Tests` is a PARKED suite and is not in the mission check, so the end-to-end proof above was run
 explicitly rather than riding the gate: `Failed: 0, Passed: 4`.
 
-## 6. What this proof does NOT cover
+## 6. Two traps the Tech Lead named, and what each one cost
+
+### Write amplification on the hosted Gateway - answered in two layers
+
+The snapshot is pushed on a three-second debounce on every upsert, removal and completed scan, plus a
+ten-second reseed, and a machine can hold hundreds of repositories. A row written per push would be a few
+hundred PostgreSQL writes on a hot path that fires all day, for every Director of every account, to record
+something that changes maybe weekly. `RepoHistoryStore` calls that "pure noisy-neighbour cost" in its own
+remarks and skips its write unless an observation actually changed something. This does the same, twice
+over:
+
+1. **The observer skips the database entirely on an unchanged re-push** - not just the write, the READ. It
+   remembers, per `tenant|directorId`, a signature of everything a fold would write (the machine, every
+   normalized path key, every name) and returns without touching the database when the signature matches
+   and the last-seen stamp is not yet due. It can only ever skip work, never change what a fold does, and
+   it is lost on restart, so a cold Gateway folds the next push in full.
+2. **The store's `SaveChanges` is gated on a real change.** Every field is compared before it is assigned,
+   and nothing is saved unless something actually moved. So a fold that gets past the memo and finds
+   nothing different still writes nothing.
+
+The last-seen stamp is deliberately coarse - `KnownRepositoryStore.LastSeenFreshnessInterval`, one hour -
+because nothing reads it to the second and refreshing it on every reseed is the whole cost this section is
+about. **Steady state is therefore one write pass per Director per hour, not one per push**, and that pass
+touches only the never-opened rows of that one Director on that one machine.
+
+Proved by two tests rather than asserted:
+
+- `DiscoveredRepositoryObserverTests.ObserveSnapshot_IdenticalRePush_CostsNothingUntilTheLastSeenStampIsDue`
+  deletes the row behind the observer's back, re-pushes an identical snapshot, and proves it does **not**
+  come back - which can only be true if the fold never reached the database at all. Then it pushes once the
+  stamp is due and proves it does.
+- `DiscoveredRepositoryCatalogTests.ObserveDiscovered_UnchangedScan_RefreshesTheLastSeenStampOncePastTheInterval`
+  proves the store itself reports no change inside the interval, so the memo is a fast path and not the
+  only thing standing between a reseed and a write.
+
+And `ObserveSnapshot_ChangedScan_IsFoldedImmediatelyRatherThanWaitingForTheStamp` proves the saving is not
+bought by losing a real change: anything the fold would write defeats the skip immediately.
+
+### Null ordering - a loaded gun for phase 3, and it is INVISIBLE to the tests here
+
+**PHASE 3 SEAT: THIS IS THE ONE TO READ.** Once `LastUsedUtc` is nullable, "order by last used, descending"
+means two different things depending on where the sort runs. Both halves below were RUN, not remembered:
+
+| Where the sort runs | Where a null goes | Result on screen |
+|---|---|---|
+| C#, `OrderByDescending` on `DateTime?` | **last** | never-opened beneath everything used - what goal 2 asks for |
+| PostgreSQL, `ORDER BY ... DESC` | **first** (`NULLS FIRST` is the default for `DESC`) | every never-opened repository at the TOP - the exact inversion |
+| SQLite, `ORDER BY ... DESC` | **last** (nulls sort as smallest) | agrees with C# |
+
+`ReadForMachine` materializes with `ToList()` and orders **in memory**, so it is correct as it stands and
+phase 2 does not change that. It is also not yet reachable in phase 2, because the discovered half is
+filtered out before the ordering.
+
+**The third row of that table is why this is a trap rather than a footnote.** Every database-backed test in
+this repository runs on SQLite, and SQLite agrees with C#. A phase 3 seat that pushes the sort into SQL -
+the natural optimisation once the filter is lifted and the whole union is served - would see a fully green
+run here and invert the list on the hosted Gateway alone, where it is PostgreSQL. No test in this
+repository can catch it. If phase 3 moves the sort into the database, it must say `NULLS LAST` explicitly.
+
+The same warning is written on `KnownRepositoryStore.ReadForMachine` itself, on the lines a phase 3 seat
+would edit, because a comment at the point of the edit is read and a document is not.
+
+## 7. What this proof does NOT cover
 
 - **PostgreSQL.** The migration pair is generated from one model and the chain guards compare both sets
   operation for operation, but the PostgreSQL migration was not applied to a real PostgreSQL server here -
