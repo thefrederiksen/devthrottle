@@ -249,22 +249,64 @@ public sealed class PythonToolsInstaller
             if (!File.Exists(pythonExe))
                 return Fail(steps, $"bundled python not found at {pythonExe} after the swap.");
 
-            // 4. Create the shared venv from the freshly swapped-in python (on-target, so console-script
-            // paths are correct). Remove the managed bin shims FIRST, so that if anything below fails or is
-            // interrupted (a hung pip killed by the timeout, the wizard closed mid-run, a crash), we never
-            // leave a bin\<name>.cmd whose pyenv\Scripts\<name>.exe target the venv reset just deleted. The
-            // shim and its target exe live and die together: shims are (re)written ONLY after pip succeeds
-            // AND the venv is verified healthy. This is the atomic-shim guarantee for issue #577.
+            // 4. Rebuild the shared venv so that A FAILURE CANNOT SUBTRACT (issue #3150). The venv used to be
+            // reset in place, which meant everything from here to the end of the pip install was a window in
+            // which a machine that had working tools ended up with NONE: the reset had already deleted them
+            // and no path put them back. That is how one Mac lost every cc-* tool - and with them every
+            // session's fleet commands - to a single failed pip run.
+            //
+            // The base Python three steps above already solves this by staging beside and swapping in. The
+            // venv CANNOT be built that way: a venv bakes absolute paths into its console scripts, so one
+            // built in a sibling directory and renamed into place would leave every script pointing at a
+            // directory that no longer exists. That is why the venv is created on-target.
+            //
+            // So the old one is set aside instead of deleted, and put back if anything goes wrong. The rename
+            // is a whole-directory move on one volume, so it is atomic and cheap; if it cannot be done (on
+            // Windows, a running Director holding a file open inside it), we abort having changed NOTHING,
+            // which is strictly better than the reset that used to go ahead regardless.
+            //
+            // Shims still come off FIRST and go back on ONLY after the venv is verified, so a shim never
+            // outlives the target it points at - the atomic-shim guarantee for issue #577. On a rollback the
+            // shims are rewritten for the RESTORED venv, from the script list recorded for it, so the machine
+            // ends up exactly as it started rather than with a healthy venv nothing can reach.
             Step("creating the shared Python venv");
+            var restoreScripts = PythonToolsState.LoadScripts(_layout);
             RemoveManagedShims(manifest.Scripts);
-            ResetDir(_layout.PyenvDir);
+
+            var venvBackup = _layout.PyenvDir + ".prev-" + Guid.NewGuid().ToString("N");
+            if (!SetDirAside(_layout.PyenvDir, venvBackup, out var setAsideError))
+            {
+                // Nothing has been deleted: the live venv is still exactly where it was. Put the shims back
+                // so the tools the machine already had keep working, and report why.
+                RestoreShims(restoreScripts);
+                return Fail(steps, $"could not set the existing tools environment aside (a running Director may " +
+                                   $"be holding a file open inside it): {setAsideError}. Nothing was changed.");
+            }
+            var venvSetAside = Directory.Exists(venvBackup);
+
+            // From here on, any failure must put the previous environment back before it returns.
+            PythonToolsResult FailAndRollBack(string message)
+            {
+                if (!venvSetAside) return Fail(steps, message);
+                if (RestoreDirOver(venvBackup, _layout.PyenvDir, out var restoreError))
+                {
+                    RestoreShims(restoreScripts);
+                    return Fail(steps, $"{message} The previous tools environment was put back, so the tools that " +
+                                       $"worked before this repair still work.");
+                }
+                EngineLog.Write($"[PythonToolsInstaller] could not restore the previous tools environment from " +
+                                $"{venvBackup}: {restoreError}");
+                return Fail(steps, $"{message} The previous tools environment could NOT be put back and is at " +
+                                   $"{venvBackup}; this machine has no working cc-* tools until a repair succeeds.");
+            }
+
             var (venvExit, venvOut) = ProcessRunner.Run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"", onStdoutLine: null, VenvCreateTimeout);
-            if (venvExit != 0) return Fail(steps, $"venv creation failed ({venvExit}): {Trim(venvOut)}");
+            if (venvExit != 0) return FailAndRollBack($"venv creation failed ({venvExit}): {Trim(venvOut)}.");
             // Guard: even on a zero exit, the venv must actually have produced its python. A venv whose
             // interpreter is missing means the create silently did nothing - fail loud now rather than throw
             // a Win32 "file not found" when the pip step tries to run the missing interpreter.
             if (!File.Exists(venvPython))
-                return Fail(steps, $"venv creation reported success but produced no interpreter at {venvPython}.");
+                return FailAndRollBack($"venv creation reported success but produced no interpreter at {venvPython}.");
 
             // 5. Install every tool OFFLINE from the wheelhouse. Percent bands across the whole
             //    bundle install: download 0-20 (byte-level, above), extract 20-25, then two-phase
@@ -340,8 +382,8 @@ public sealed class PythonToolsInstaller
             // A timeout reports the sentinel exit code; surface it as the loud, bounded failure it is so the
             // user (and the log) see "pip hung and was killed" rather than a generic non-zero exit.
             if (pipExit == ProcessRunner.TimeoutExitCode)
-                return Fail(steps, $"offline pip install timed out after {PipInstallTimeout.TotalMinutes:F0} minutes and was killed: {Trim(pipOut)}");
-            if (pipExit != 0) return Fail(steps, $"offline pip install failed ({pipExit}): {Trim(pipOut)}");
+                return FailAndRollBack($"offline pip install timed out after {PipInstallTimeout.TotalMinutes:F0} minutes and was killed: {Trim(pipOut)}.");
+            if (pipExit != 0) return FailAndRollBack($"offline pip install failed ({pipExit}): {Trim(pipOut)}.");
             percent?.Report(100);
             progress?.Report($"Installed {wheelCount} packages");
 
@@ -352,8 +394,12 @@ public sealed class PythonToolsInstaller
             if (!VenvHasAllTools(manifest.Scripts))
             {
                 var missing = manifest.Scripts.Where(s => !File.Exists(ConsoleScriptPath(s))).ToList();
-                return Fail(steps, $"venv is incomplete after pip install: missing console scripts [{string.Join(", ", missing)}]. No shims written, version not recorded.");
+                return FailAndRollBack($"venv is incomplete after pip install: missing console scripts " +
+                                       $"[{string.Join(", ", missing)}]. No shims written, version not recorded.");
             }
+
+            // The new venv is proven. Only NOW is the previous one no longer needed.
+            if (venvSetAside) TryDeleteDir(venvBackup);
 
             // 7. The venv is healthy: NOW write bin\<script>.cmd shims (target exes are guaranteed present).
             Step($"writing {manifest.Scripts.Count} tool shims to bin");
@@ -657,6 +703,25 @@ public sealed class PythonToolsInstaller
     }
 
     /// <summary>
+    /// Put the bin shims back for a venv that is already on disk - used when a failed rebuild has been
+    /// rolled back (issue #3150). Only scripts whose console script is actually present get a shim, so a
+    /// rollback can never recreate the dangling shim that issue #577 exists to prevent: the restored venv
+    /// belongs to the PREVIOUS bundle and need not have every script the new one promised.
+    /// </summary>
+    private void RestoreShims(IReadOnlyList<string> scripts)
+    {
+        if (scripts is null || scripts.Count == 0) return;
+        var present = scripts.Where(s => File.Exists(ConsoleScriptPath(s))).ToList();
+        if (present.Count == 0)
+        {
+            EngineLog.Write("[PythonToolsInstaller] RestoreShims: the restored venv has no console scripts; no shims written");
+            return;
+        }
+        WriteShims(present);
+        EngineLog.Write($"[PythonToolsInstaller] RestoreShims: rewrote {present.Count} shim(s) for the restored venv");
+    }
+
+    /// <summary>
     /// Create the tool shims: bin\&lt;script&gt;.cmd (plus a bare-name bash shim) on Windows, ~/.local/bin
     /// symlinks on macOS. Public so the reconciler can reuse it to (re)create a single tool's missing shim
     /// whose venv console-script target already exists - the lightweight corrective action for shim-only
@@ -798,6 +863,66 @@ public sealed class PythonToolsInstaller
                     Directory.Move(aside, live);
             }
             catch { /* best-effort rollback; the live tree may already be restored */ }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Move <paramref name="live"/> out of the way to <paramref name="backup"/>, keeping every byte of it,
+    /// so a rebuild that fails can put it back (issue #3150). A whole-directory rename on one volume: atomic,
+    /// and it cannot half-move. A live directory that does not exist is not an error - there is simply
+    /// nothing to keep - and the caller tells the two apart by whether the backup now exists.
+    ///
+    /// Returns false ONLY when there was something to set aside and it could not be moved, which on Windows
+    /// means a process is holding a file open inside it. The caller must then abort having changed nothing,
+    /// rather than delete a tree it cannot replace.
+    /// </summary>
+    internal static bool SetDirAside(string live, string backup, out string error)
+    {
+        error = "";
+        if (!Directory.Exists(live)) return true;
+        try
+        {
+            Directory.Move(live, backup);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Put a directory set aside by <see cref="SetDirAside"/> back over <paramref name="live"/>, discarding
+    /// whatever half-built tree is there now (issue #3150). This is the rollback that makes a failed rebuild
+    /// leave the machine exactly as it started instead of with nothing.
+    ///
+    /// Returns false when the backup could not be moved back, which is a real answer the caller must report:
+    /// the machine then has no working environment and the backup is still on disk to be recovered by hand.
+    /// </summary>
+    internal static bool RestoreDirOver(string backup, string live, out string error)
+    {
+        error = "";
+        if (!Directory.Exists(backup))
+        {
+            error = $"there is no directory to restore at {backup}";
+            return false;
+        }
+        try
+        {
+            TryDeleteDir(live);
+            if (Directory.Exists(live))
+            {
+                error = $"the half-built directory at {live} could not be removed";
+                return false;
+            }
+            Directory.Move(backup, live);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
             return false;
         }
     }
