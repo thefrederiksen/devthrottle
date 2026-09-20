@@ -42,6 +42,9 @@ internal static class TurnVerdictDtoCopy
             SupersededAtUtc = v.SupersededAtUtc,
             FinishedKind = v.FinishedKind,
             Narration = v.Narration,
+            RetriesMade = v.RetriesMade,
+            NextRetryAtUtc = v.NextRetryAtUtc,
+            OptionsDroppedReason = v.OptionsDroppedReason,
         };
     }
 }

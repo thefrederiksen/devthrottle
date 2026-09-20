@@ -167,6 +167,29 @@ public sealed class TurnVerdictDto
     /// by that owner rather than by the user.
     /// </summary>
     public string? Narration { get; set; }
+
+    /// <summary>
+    /// How many SCHEDULED retries this stop has already spent, on a <see cref="Failed"/> record (mission "Wingman
+    /// error and retry", 2026-09-19). Zero after the first failure. A person pressing "Ask again" does not move
+    /// it. Carried on the stored record, so a Gateway restart does not forget where a stop is on its schedule.
+    /// </summary>
+    public int RetriesMade { get; set; }
+
+    /// <summary>
+    /// When the Gateway will ask about this failed stop again (UTC), or NULL WHEN NOTHING IS BOOKED - the schedule
+    /// is used up, or the record is not a failure. This one field is what every "a retry is coming" sentence is
+    /// rendered from, so a card can never promise an attempt that the record does not hold.
+    /// </summary>
+    public DateTime? NextRetryAtUtc { get; set; }
+
+    /// <summary>
+    /// Why this reading's buttons were dropped, in plain words, or null when they were not (mission "Wingman error
+    /// and retry", 2026-09-19). The model's option list broke a rule - exactly one option, two marked recommended,
+    /// an empty send, an over-long key - so the WHOLE list was dropped and the rest of the reading stands. It is
+    /// not a failure: <see cref="Failed"/> stays false, the reading is narrated, and no button is shown that the
+    /// model did not clearly choose. Recorded here so it is answerable by query and visible in the debug view.
+    /// </summary>
+    public string? OptionsDroppedReason { get; set; }
 }
 
 /// <summary>The picker on the screen that a "keys" answer selects from.</summary>
