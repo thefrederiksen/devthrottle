@@ -7,43 +7,54 @@ Last updated 19 September 2026 by the third Delivery Lead seat.
 
 ## Merged to main
 
-- **Phase 1, scan and report.** Pull requests 3122 and 3129. The engine project, the scanner, the
-  saved index, the report, and the `scan` and `report` commands. Three review rounds.
-- **Phase 2, rules and recommendations.** Pull request **3135**, merged 19 September. The rule
-  contract, the fold, the classifier, the `recommend` command and six Windows rules. Its review
-  record is pull request **3146**: the first review returned not approved on one blocking finding -
-  the fold accepted a rule whose every control was declared may-be-empty, and such a rule can never
-  report broken - and the fix-round review returned approved after re-running the finding's own
-  reproduction, both revert proofs, the gate and the counts itself.
+- **Phase 1, scan and report.** Pull requests 3122 and 3129.
+- **Phase 2, rules and recommendations.** Pull request 3135, review record 3146.
+- **Phase 4, the remaining Windows rules.** Pull request **3171**, merged 20 September. Reviewed and
+  approved by GLM 5.3 in Pi, which re-ran all five revert proofs; local gate green, 2,577 tests.
+- **Phase 3, removal with holding.** Pull request **3184**, merged 20 September. All ten refusals
+  proven red with the refusal deleted; reviewed and approved with no blocking findings, seven revert
+  proofs re-run by the Reviewer. Parked run on the phase tip: Core.Tests 4,461 passed,
+  Gateway.UnitTests 6,360 passed. Joined with main, Reclaim 309 green.
+- **Phase 5 part one, the Launcher hosts the background scan.** Pull request **3187**, merged 20
+  September. Approved with no blocking findings; Launcher 208, Reclaim 323, Gateway.UnitTests 6,497.
+
+**The tool is usable from main now:** `recommend`, `reclaim` (dry run by default, `--apply` moves into
+holding), and `holding list`, `holding restore`, `holding purge`.
 
 ## In flight
 
-- **Phase 3, removal with holding.** Worktree `D:/ReposFred/devthrottle-reclaim-phase3`, branch
-  `reclaim/phase3-removal-and-holding`. A Tech Lead is seated, as the mission requires for this
-  phase. Its plan is committed as `phase-3-plan.md` and accepted; my rulings on it are
-  `phase-3-rulings.md`.
+The Delivery Lead is session `cca7cc49`. Three Developers, each in a worktree cut from merged main:
 
-  **The ruling that matters:** the plan proposed finding refusal 1's protected paths by reflecting
-  over `CcStorage` for method names containing vault, credential or secret. Overruled. Checked
-  against `CcStorage` on main, that name test misses `Config()`, whose own documentation comment
-  reads "Tool settings, OAuth tokens, credentials, app state", and misses `keyvault.json` which
-  `KeyVault` assembles at `CcStorage.Root()`. Refusal 1 would have protected two paths by luck of
-  naming and left the OAuth tokens and the key vault exposed. It is instead one explicit enumeration
-  declared in `CcStorage` beside the paths it names, with a test that fails when a new storage path
-  is neither protected nor explicitly classified. **Because that changes Core, phase 3 must run
-  `-Parked`** - phase 2's reason for declining it held only because phase 2 touched no Core source.
+- **Phase 5 part two, rules as data** - session `9c1083ea`, `D:/ReposFred/devthrottle-reclaim-phase5b`,
+  branch `reclaim/phase5-rules-as-data`.
+- **Phase 6, the screen** - session `7d78e3bf`, `D:/ReposFred/devthrottle-reclaim-phase6`, branch
+  `reclaim/phase6-the-screen`. Carries one requirement from the phase 5 review: a status record that
+  says running but is older than a day reads as failed.
+- **The three review follow-ups** - session `ded5cf9f`, `D:/ReposFred/devthrottle-reclaim-followups`,
+  branch `reclaim/review-follow-ups`: a holding root inside the fixture for the one test that uses the
+  apply flag, a comment that names its guarantee, and a test that fails when the Launcher or the
+  background job names a removal type.
 
-- **Phase 4, the remaining Windows rules.** Worktree `D:/ReposFred/devthrottle-reclaim-phase4`,
-  branch `reclaim/phase4-remaining-windows-rules`. A Developer is seated. Runs beside phase 3
-  because it adds rules and touches no removal code.
+Each one is pushed without a pull request, read by a Reviewer running GLM 5.3 in Pi (Codex is out of
+usage until 22 September), gated by the Delivery Lead, then merged.
 
-## Ready to start, mandates written
+## Carried forward, for any platform that later gains rules
 
-The remaining mandates are committed on this branch, `mission/reclaim-the-disk`:
+Refusal 4 (links) stands alone where path resolution does not follow links, and the background
+scan's cross-process guard is not a guard on macOS and Linux. Both must be proven on that platform
+before any removal is offered there. This mission ships Windows rules only.
 
-- `mandate-phase-5.md` - the background scan in the Launcher, and rules as data. Two pull requests.
-  **Ends at merged**; the Gateway deploy is the owner's decision.
-- `mandate-phase-6.md` - the screen on both surfaces. Renders only; no remove button anywhere.
+## Reds that are not this mission's
+
+- **Unset `CC_DIRECTOR_ROOT` before any gate run from inside a session.** It points at the live
+  installation there, and that alone fails two `LauncherDeclaredCapabilitiesTests` and
+  `VoiceSweepBudgetTests.Cached_audio_cannot_hide_a_terminal_failure_after_a_later_user_message`.
+  All three were proven green on the same tree with it unset.
+- `RetiredMessagingWordsTests` in Core.UnitTests is red on main: it names
+  `src/CcDirector.Gateway.UnitTests/Drain/DrainMessagesSmartShutdownTests.cs` line 72, another
+  mission's file.
+- `VoiceServingLoopIsolationTests.Voice_sweep_reaches_only_the_owning_tenants_director` failed on
+  plain main before phase 3 merged. Not retried with the variable unset, so its cause is unknown.
 
 ## What done looks like
 
