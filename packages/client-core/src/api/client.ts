@@ -1764,6 +1764,51 @@ export async function getKnownRepositories(
   return list;
 }
 
+// The result of registering a repository through POST /directors/{id}/repos: whether the path was NEWLY
+// registered (the route's 201) or was already there (its 200), and the registered name and path as the
+// Director resolved them. Read, never inferred - `added` is the Director's own answer, and a caller that
+// guessed it from its own knowledge of the list would be ruling for itself.
+export interface RepoAddResult {
+  /** True when the path was newly registered; false when that machine already had it. */
+  added: boolean;
+  /** The registered display name, as the Director resolved it (the folder name when none was given). */
+  name: string;
+  /** The registered path, as the Director stored it. */
+  path: string;
+}
+
+// POST /directors/{id}/repos - register a repository path in THAT MACHINE'S OWN registry, which is what
+// its Director's New Session tab lists. This is deliberately NOT the same store as
+// GET /directors/{id}/known-repositories: that route serves the Gateway's catalogue, and this one writes
+// a Director's registry. So a caller must READ THE CATALOGUE BACK rather than assume this call put a row
+// in it, and must say what it then actually found rather than what it hoped for.
+//
+// The Gateway answers 201 when the path was newly registered and 200 when the machine already had it;
+// both are success and both carry the same body. A path that does not exist on that machine is a 400 and a
+// disconnected Director is a 502 - each arrives as a GatewayError the caller shows inline.
+export async function addRepo(
+  directorId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<RepoAddResult> {
+  const id = encodeURIComponent(directorId);
+  const res = await gatewayFetch(`/directors/${id}/repos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ path: path.trim() }),
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "add that repository to the machine");
+  }
+  const body = (await res.json()) as { added?: unknown; repo?: { name?: unknown; path?: unknown } };
+  return {
+    added: body.added === true,
+    name: String(body.repo?.name ?? ""),
+    path: String(body.repo?.path ?? ""),
+  };
+}
+
 // GET /directors/{id}/agents - a machine's configured, enabled agents (one per kind) for the New
 // Session dialog's agent picker (issue #1497). The Director already de-duplicates by kind and orders by
 // the configured order, so the list is used as-is. Entries with no type are dropped. Throws GatewayError
