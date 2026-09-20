@@ -18,16 +18,71 @@ Kept current by the Architect. If this file and a session's memory disagree, thi
 
 | Phase | What it is | State |
 |---|---|---|
-| A | The rail tells the truth about colour (items 1, 3, 6) | BUILT, pushed at 9c707d2a4. Under inspection. |
+| A | The rail tells the truth about colour (items 1, 3, 6) | BUILT and INSPECTED. **Three defects to fix before it lands** - see below. |
 | A2 | The legend gets words for the two rendering sentinels | NOT STARTED - added after Phase A, see ruling below |
 | B | Everything that comes off the cards (9, 7, 13, 2, 5, 15, then 8) | NOT STARTED |
 | C | Every card says what the session is (10, 11, 14, 4) | NOT STARTED |
 | D | The agreement test over the card field list | NOT STARTED |
 | E | The prompt queue count on the roster feed (12) | NOT STARTED |
 
-## Next Worker task
+## Next Worker task - PHASE A FIXES, before A2 or anything else
 
-**Phase A2**, once the Phase A inspection is cleared. Small, and it closes a hole Phase A found
+The independent inspection (`missions/session-cards/inspection-a.md`, Codex, a different agent
+family) found two runtime defects and one coverage defect. The builder's own suite was green for all
+three. Fix these, then A2.
+
+**FIX 1 - the legend's words run off the window (the worst one).** In
+`ColourLegendDialog.axaml.cs:157` the dot and the words column sit in a horizontal `StackPanel`,
+which measures its children with unbounded width - so `TextWrapping.Wrap` at `:149` never has a
+finite width to wrap at. Measured headless: nine of ten explanations exceed the 580-pixel viewport,
+the widest at 1570. The window exists to show the Gateway's explanations and it cuts them off.
+The existing test enumerates strings on an unmounted row, so it cannot see this.
+*Proof required:* mount the dialog and assert every explanation's measured width fits the rows
+viewport. A string-equality test does not cover this and must not be offered as if it did.
+
+**FIX 2 - the hover can contradict itself: "Working: Snoozed".** `SessionViewModel.ColourHover:483`
+passes `EffectiveColor` and `ActivityLabel` together. When the tunnel is down, `RailColor` returns a
+LOCAL colour (blue for a locally working session) while `ActivityLabel` still returns the LAST
+GATEWAY label ("Snoozed"). `SessionDotHover.For` then concatenates them. The inspector executed the
+real functions and got the string "Working: Snoozed". `SessionDotHover.cs:19` claims the hover
+"cannot disagree with the dot it is attached to"; the code does not support that claim.
+This is a row contradicting itself, which is the exact defect class this mission exists to remove -
+and Phase A introduced it by combining the two. Both halves pre-date the diff; the combination does
+not. *Do not "fix" it by changing the offline floor* - that is a separate ruling nobody has made.
+
+**FIX 3 - the legend-read test cannot tell the Gateway's words from this build's own.** The
+inspector replaced the deserialized response with `SessionColourLegend.Build()` - the vocabulary
+compiled into this Director - and **all 100 targeted tests still passed**. The test
+(`SessionColourLegendReadTests.cs:58`) builds its fake response from the same `Build()` and asserts
+only count, presence of cyan, and non-empty strings. An old build serving its own old words passes.
+The whole mission is that the words are the GATEWAY'S; this is the one test that should prove it and
+it does not. *Proof required:* wire-only wording that exists in no compiled constant, asserted to
+reach the screen exactly.
+
+**FIX 4 - two claims in the Phase A note are not true, and must be corrected rather than left.**
+(a) "a failed read says what went wrong and draws nothing" holds only before a first successful
+read: the cache deliberately keeps the previous legend (`SessionColourLegendCache.cs:150`) and the
+dialog renders it without checking `Error`, so a failed refresh is invisible on an open window.
+(b) the agreement check's "answered once" is true of the palette portion only, not of the whole
+findings list. An unproven claim in a comment is worse than no comment.
+
+**Also worth fixing while in there, both found by the inspection and neither counted as a defect:**
+the comment at `ColourLegendDialog.axaml.cs:117` says the legend swatch and the session dot match
+"by construction", which is FALSE in precisely this mission's version-gap case - the swatch uses the
+wire hex and the dot uses the neutral. And opening a cold dialog can start two reads, because
+`Current` begins a refresh and `LoadAsync` then calls `RefreshAsync` directly, bypassing the
+in-flight guard.
+
+**What the inspection cleared, so nobody re-does it:** sentinel reachability is sound (no known
+colour reaches the neutral; no connected-settled unstamped session reaches it); no colour DECISION
+changed; no log or guard was lost; the offline floor's ordinary blue/red/grey pixels are unchanged.
+One real pixel change it did find: an offline HELD session with an unrecognised frozen stamp now
+paints neutral where it painted magenta. That follows from the ruling and is correct - but the claim
+"the floor is universally unchanged" would be false, so do not write it.
+
+---
+
+## Then: Phase A2, once the Phase A inspection is cleared. Small, and it closes a hole Phase A found
 rather than created.
 
 The desktop now paints two pixels the Gateway's legend has no words for: the NEUTRAL (a colour name
