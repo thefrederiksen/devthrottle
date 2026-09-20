@@ -3820,10 +3820,19 @@ internal static class GatewayEndpoints
             return TunnelFailure(null);
         });
 
-        // The complete machine-scoped repository catalog used by mobile session creation. It is served
-        // from Gateway storage rather than through the Director tunnel, so a temporarily disconnected
-        // Director does not erase search history. The machine comes from the owned Director registration;
-        // callers cannot supply a machine name and cross that ownership boundary.
+        // THE ONE REPOSITORY LIST for one machine, already in the order every screen shows it (the
+        // one-repository-list mission, phase 3): most recently used first, with the repositories a
+        // Director found under a registered root folder and nobody ever opened beneath them, each saying
+        // so on the wire. It is ONE ROUTE deliberately - the Cockpit, the phone and the Director's own
+        // dialog all read this, so there is one list and one order and no screen can invent another.
+        //
+        // The ORDER is the Gateway's ruling and arrives as the order of the array: no client re-sorts it
+        // (Critical Rule 7). The ordering itself is decided once, in KnownRepositoryStore.OrderOneList.
+        //
+        // It is served from Gateway storage rather than through the Director tunnel, so a temporarily
+        // disconnected Director does not erase the list - which is exactly when the other screens still
+        // need it. The machine comes from the owned Director registration; callers cannot supply a
+        // machine name and cross that ownership boundary.
         app.MapGet("/directors/{id}/known-repositories", (HttpContext ctx, string id) =>
         {
             if (!TryResolveOwnedDirector(ctx, tenantBoundary, registry, id, out var director, out var error))

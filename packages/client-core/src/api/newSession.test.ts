@@ -33,6 +33,29 @@ describe("new session client", () => {
     expect(repositories.map((repository) => repository.name)).toEqual(["Newest", "Older"]);
   });
 
+  // The one-repository-list mission, phase 3: the Gateway now serves BOTH halves of the one list on this
+  // route, already ordered - most recently used first, with the repositories a Director found under a
+  // registered root folder and nobody ever opened beneath them, each carrying a null lastUsed and saying
+  // so in neverOpened. This route is the one the phone reads TODAY, so what it does with that shape is a
+  // thing to prove rather than to assume: a never-opened repository must read as an ordinary entry with no
+  // time, and it must stay at the bottom where the Gateway put it.
+  it("reads the Gateway's one ordered list, never-opened repositories and all", async () => {
+    globalThis.fetch = (async () => jsonResponse([
+      { name: "Newest", path: "/repositories/newest", lastUsed: "2026-09-01T00:00:00Z", neverOpened: false },
+      { name: "Older", path: "/repositories/older", lastUsed: "2026-08-01T00:00:00Z", neverOpened: false },
+      { name: "Kilo", path: "/roots/kilo", lastUsed: null, neverOpened: true },
+      { name: "Zulu", path: "/roots/zulu", lastUsed: null, neverOpened: true },
+    ])) as unknown as typeof fetch;
+
+    const repositories = await getKnownRepositories("director-one");
+
+    expect(repositories.map((repository) => repository.name))
+      .toEqual(["Newest", "Older", "Kilo", "Zulu"]);
+    // A missing time reads as no time - not as a crash, and not as a date nobody chose.
+    expect(repositories.map((repository) => repository.lastUsed))
+      .toEqual(["2026-09-01T00:00:00Z", "2026-08-01T00:00:00Z", "", ""]);
+  });
+
   it("surfaces a known-repository route failure instead of returning an empty list", async () => {
     globalThis.fetch = (async () => jsonResponse(
       { error: "repository storage unavailable" },

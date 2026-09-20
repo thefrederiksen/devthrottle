@@ -11,7 +11,11 @@ namespace CcDirector.Gateway.Tests;
 /// <summary>
 /// The one-repository-list mission, phase 2, proved END TO END: a repository found under a registered
 /// root folder travels the tunnel a Director already pushes on, is held durably as found-but-never-opened,
-/// survives that Director going away, and is NOT yet served by the route the phone reads.
+/// and survives that Director going away.
+///
+/// What the one route then SERVES, and in what order, is phase 3 and is proved in
+/// <see cref="OneRepositoryListTunnelProofTests"/>. These tests are about what is STORED, so they read the
+/// rows out of the Gateway's own database file.
 ///
 /// It writes through the HUB and reads through the ENDPOINT'S OWN PATH deliberately. The endpoint looks
 /// rows up by the machine name on the Director REGISTRATION, so a writer that used any other spelling
@@ -86,9 +90,9 @@ public sealed class DiscoveredRepositoryTunnelProofTests : IAsyncLifetime
     };
 
     /// <summary>
-    /// The catalog rows the real Gateway really wrote, read straight out of its own database file. The
-    /// endpoint deliberately serves only the used half in phase 2, so a read through it could not see the
-    /// rows this proof is about.
+    /// The catalog rows the real Gateway really wrote, read straight out of its own database file - the
+    /// discovered facts on the row itself (which Director reported it, and that it has no last-used time),
+    /// which no read projects.
     /// </summary>
     private static List<(string Path, string Name, string MachineName, string? LastUsedUtc, string? DiscoveredBy)> CatalogRows()
     {
@@ -149,8 +153,12 @@ public sealed class DiscoveredRepositoryTunnelProofTests : IAsyncLifetime
         var registered = await RegisteredMachineNameAsync();
         Assert.All(rows, row => Assert.Equal(registered, row.MachineName));
 
-        // PHASE 2 STORES; IT DOES NOT SERVE. The phone reads this route and is not touched until phase 5.
-        Assert.Empty(await ServedAsync());
+        // And the one route serves them (phase 3), in the Gateway's order: nothing here has ever been
+        // opened, so the whole list is the never-opened half, by name.
+        var served = await ServedAsync();
+        Assert.Equal(new[] { @"D:\Repos\alpha", @"D:\Repos\beta" }, served.Select(row => row.Path).ToArray());
+        Assert.All(served, row => Assert.True(row.NeverOpened));
+        Assert.All(served, row => Assert.Null(row.LastUsed));
     }
 
     [Fact]
@@ -209,9 +217,13 @@ public sealed class DiscoveredRepositoryTunnelProofTests : IAsyncLifetime
         var alpha = rows.Single(row => row.Path == @"D:\Repos\alpha");
         Assert.NotNull(alpha.LastUsedUtc);
         Assert.Null(alpha.DiscoveredBy);
-        var after = Assert.Single(await ServedAsync());
-        Assert.Equal(before.LastUsed, after.LastUsed);
-        Assert.Equal(@"D:\Repos\alpha", after.Path);
+        // Served as one list: alpha keeps the time it was used and stays at the top, and beta - found by
+        // the same scan and never opened - sits beneath it.
+        var served = await ServedAsync();
+        Assert.Equal(new[] { @"D:\Repos\alpha", @"D:\Repos\beta" }, served.Select(row => row.Path).ToArray());
+        Assert.Equal(before.LastUsed, served[0].LastUsed);
+        Assert.False(served[0].NeverOpened);
+        Assert.True(served[1].NeverOpened);
     }
 
     [Fact]
