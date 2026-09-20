@@ -26,6 +26,12 @@ name: Hosted image contract
 #                       without a real release.
 
 on:
+  # TEMPORARY, removed before this branch is merged: it is how this gate is rehearsed on GitHub's machines
+  # without deploying anything, since workflow_dispatch cannot start a workflow that is not yet on the
+  # default branch.
+  push:
+    branches: [ci/package-1-hosted-image-test-to-deploy]
+
   workflow_call:
     inputs:
       require_main:
@@ -153,6 +159,7 @@ jobs:
       # Run them, with a result file. This step fails the job on its own if a test fails; the verdict step
       # below is what catches the cases where a step can be GREEN without the test having run.
       - name: Run the hosted image contract test
+        id: run-tests
         run: |
           set -euo pipefail
           dotnet test src/CcDirector.Gateway.HostedImage.Tests/CcDirector.Gateway.HostedImage.Tests.csproj \
@@ -176,8 +183,11 @@ jobs:
       #
       # It runs even when the step above failed, so the record names what happened rather than stopping at
       # a red tick.
+      # Runs even when the step above FAILED, so the record names what happened rather than stopping at a
+      # red tick - but not when that step never ran at all, because then the job has already failed for
+      # some other reason and there is nothing to reconcile.
       - name: Verify every declared test actually ran and passed
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.run-tests.conclusion != 'skipped' }}
         run: |
           set -euo pipefail
           python3 .github/scripts/verify_hosted_image_contract.py \
@@ -185,7 +195,7 @@ jobs:
             --results test-results
 
       - name: Upload the test result file
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.run-tests.conclusion != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
           name: hosted-image-contract-results
