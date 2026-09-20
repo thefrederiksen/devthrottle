@@ -156,6 +156,14 @@ that document, not something to quietly correct.
 > README. **The DEFECT below is real and shipped and the fix is unchanged** - only the claim about
 > which route and which trigger produced it was wrong, and the test now quotes a reason the product
 > really sends. The predicted symptoms below are restated against that reason.
+>
+> **WHERE THE MALFORMED LINE CAME FROM: THE STAND-IN'S INVENTED REASON.** No Gateway sent it; this
+> proof's own staging did, while staging a 502 the route cannot answer. **The defect class is real, and
+> it lives on the TUNNEL-BACKED routes** - `TunnelFailure` relays Director-written reasons verbatim at
+> 502, and the Director writes PHRASES ("session not found", "invalid session id format"). That is what
+> the fix and its tests are aimed at, and they are unchanged. This is spelled out because the next seat
+> auditing which Gateway reasons lack terminal punctuation would otherwise start from an incident that
+> cannot occur.
 
 This one exists because staging a failure case and LOOKING at it found a real defect in shared code,
 which is the QA report doing its job. `withRetryHint` in `packages/client-core/src/api/client.ts`

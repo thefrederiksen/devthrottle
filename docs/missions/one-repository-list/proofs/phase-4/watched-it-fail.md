@@ -1,4 +1,4 @@
-# Phase 4 - the five reverts, run, and what actually happened
+# Phase 4 - the seven reverts, run, and what actually happened
 
 Mission: One repository list, held on the Gateway. Phase 4, the Cockpit's New Session tab.
 
@@ -158,7 +158,10 @@ from a one-field one.
 
 ---
 
-## What these five reverts do NOT prove
+## What these reverts do NOT prove
+
+*(Written after the first five; reverts F and G came later and their own sections say what each
+covers.)*
 
 * **Nothing here ran against a real Gateway.** Every Gateway call in this file is replaced by a mock.
   What is proved is what the screen does with what it is handed, which is the whole of Critical Rule
@@ -182,6 +185,14 @@ Prediction committed in `c610f5c75`, before this revert was run. Same discipline
 > the 502 was a fiction in this proof's own staging. A Reviewer caught it; see section 7a of the README.
 > **The defect below is real and shipped and the fix is unchanged**; the test now quotes a reason the
 > product really sends, and revert F was RE-RUN against it. The numbers below are that re-run.
+>
+> **WHERE THE MALFORMED LINE CAME FROM: THE STAND-IN'S INVENTED REASON.** No Gateway sent it; this
+> proof's own staging did, while staging a 502 the route cannot answer. **The defect class is real, and
+> it lives on the TUNNEL-BACKED routes** - `TunnelFailure` relays Director-written reasons verbatim at
+> 502, and the Director writes PHRASES ("session not found", "invalid session id format"). That is what
+> the fix and its tests are aimed at, and they are unchanged. This is spelled out because the next seat
+> auditing which Gateway reasons lack terminal punctuation would otherwise start from an incident that
+> cannot occur.
 
 **Why there is a sixth revert at all.** There is one because **staging a failure case and looking at
 it found a real defect in shared code**, which is the QA report doing its job rather than decorating

@@ -15,7 +15,7 @@ and the Delivery Lead before any code was written.** They are section 2 below. T
 when the mission was chartered; what the ground turned out to say is recorded here.
 
 **This is a QA report, not a success run.** Section 6 is the mission check. Section 7 is the flow AND
-the failure cases, with screenshots. Section 8 is five reverts, each predicted in writing first.
+the failure cases, with screenshots. Section 8 is seven reverts, each predicted in writing first.
 Section 9 says what none of it covers.
 
 ---
@@ -264,13 +264,34 @@ through the left rail, so the router does the navigating.
 | `06-back-to-the-gateways-order.png` | **The round trip.** After Name and then Path, clicking Last Used returns the list to the Gateway's exact array - asserted in the browser, not only in the test. |
 | `07-the-search-box-filters-on-name-or-path.png` | A search for "beacon" matching one row **by its name** and another **by its path**. |
 
+### The goal, photographed - and it is the strongest image in this phase
+
+`09-the-director-is-offline-the-list-survives-the-write-is-refused.png`
+
+**The Director is offline, and the list is still all there.** Ten repositories, in the Gateway's order,
+on a machine whose Director the Gateway cannot reach. That is not a failure case. It is **goal-level
+evidence** for the mission's central design claim - the catalogue is durable and machine-keyed
+*precisely so* the list survives the Director going away, which is exactly when the other screens still
+need something to show - and this phase is the first one able to photograph it, because it is the phase
+that moved the Cockpit onto the catalogue route.
+
+**The same frame carries the other half, which is what makes it worth one picture rather than two.**
+Add is refused, in the Gateway's own words: *"The Director is not connected right now, so the command
+was not delivered."* `GET /directors/{id}/known-repositories` is synchronous and storage-backed with no
+tunnel leg in it; `POST /directors/{id}/repos` rides the tunnel. So one image says both:
+
+> **The read survives the Director going away. The write does not.**
+
+Before this correction the proof asserted the first of those in prose and photographed its opposite.
+Both halves of this shot are what the real Gateway sends for an offline Director, read out of
+`origin/main` before being staged - see section 9 for what that does and does not prove.
+
 ### The failure cases
 
 | Shot | What it shows |
 |---|---|
 | `08-a-machine-with-no-repositories-yet.png` | **An empty catalogue.** The Director's own empty state - "No repositories yet", its sentence, its footnote - with **Add where the Director puts Browse**. |
-| `09-the-director-is-offline-the-list-survives-the-write-is-refused.png` | **THE MISSION'S CENTRAL CLAIM, PHOTOGRAPHED.** The Director is offline. The list is **still all there** - ten repositories, in the Gateway's order - because `GET /directors/{id}/known-repositories` is synchronous and storage-backed and has no tunnel leg in it at all. In the same frame, Add is refused in the Gateway's own words, *"The Director is not connected right now, so the command was not delivered."*, because `POST /directors/{id}/repos` DOES ride the tunnel. One image, both facts: **the read survives the Director going away and the write does not**. That is the whole reason this screen was moved onto the catalogue route. |
-| `09b-the-catalogue-store-is-unavailable.png` | **A real failure of the read route**, from its own code: `knownRepositories is null` answers 503 *"Known repository storage is not available."* The screen says what the Gateway said. It does NOT show the first-run empty state, which would tell the owner his machine holds nothing when all that is known is that the Gateway could not be asked; and it draws no table at all, because a bare heading row offers to sort a list the screen does not have. |
+| `09b-the-catalogue-store-is-unavailable.png` | **A failure this route can really produce**, staged from its own code: the `knownRepositories is null` branch answers 503 with *"Known repository storage is not available."* The screen says what the Gateway said. It does NOT show the first-run empty state, which would tell the owner his machine holds nothing when all that is known is that the Gateway could not be asked; and it draws no table at all, because a bare heading row offers to sort a list the screen does not have. **Why this branch and not the others:** 503 is the only one of the route's four failures that is a genuine *outage* rather than a misconfiguration - 409 ("has not reported a machine name") and 403 (no bound tenant) are states a machine gets into once and an owner never sees twice, and a 404 for an unknown Director cannot be reached from this dialog because the id comes from the machine row's own `GET /directors` answer. 503 is the one an owner can actually meet. |
 | `10-add-registers-the-path-and-says-what-it-then-found.png` | **Add succeeded and the row is genuinely not in the list.** Section 2. Two facts and no forecast. |
 | `11-add-refused-the-path-does-not-exist-on-that-machine.png` | **Add refused, 400.** The Gateway's own sentence inline, the list untouched, and nothing claiming a repository was added. |
 
@@ -328,23 +349,42 @@ code.
 
 ### The defect the exercise found, which is real and is NOT the above
 
-While staging that 502, the error line rendered as two sentences run together:
+**Where the malformed line actually came from, stated plainly: THE STAND-IN'S INVENTED REASON.** While
+staging that impossible 502, the stand-in Gateway returned the phrase this proof had made up, and the
+error line rendered as two sentences run together. **No Gateway sent that. The staging did.** It is
+said this bluntly because the next seat to audit *"which Gateway reasons lack terminal punctuation"*
+would otherwise start from an incident that cannot occur, and waste the afternoon this section exists
+to save them.
 
-```
-... not connected Try again.
-```
+**THE DEFECT CLASS IS REAL AND SHIPPED, AND IT LIVES ON THE TUNNEL-BACKED ROUTES** - the ones that
+relay a reason written somewhere else - not on this storage-backed one. Two citations, read out of
+`origin/main` rather than repeated from anybody:
 
-**The malformed-text class is real and shipped**, even though the reason this proof staged was not one
-this route sends. `withRetryHint` in `packages/client-core/src/api/client.ts` appended `" Try again."`
-to whatever it was handed, assuming it already ended in terminal punctuation. The Gateway writes some
-reasons as SENTENCES ("That machine is catching up.") and some as PHRASES. A shipped example, cited
-from the product rather than invented, since a made-up one is exactly how this was nearly
-mis-diagnosed:
+> **1. The general relay, and the one that matters most.** `TunnelFailure`'s default arm returns
+> `{ error = sr.Error }` at **502**, verbatim, for every Director-written failure, and **the Director
+> writes PHRASES**: `DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found")`
+> and `...Fail(DirectorCommandStatus.BadRequest, "invalid session id format")` appear across
+> `CatalogReadExecutor`, `DirectorUpStreamHandler`, `FleetDisplayStateExecutor` and others. 502 is
+> retryable by default in the `GatewayError` constructor, so those reached a screen as
+> *"session not found Try again."*
+>
+> **2. A second, independent one.** `SessionWsProxyEndpoints.WriteVerbJsonAsync` answers
+> `{ error = "owning director is not connected" }` at **503** when the owning Director is not
+> tunnel-connected. 503 is retryable by default too.
 
-> `SessionWsProxyEndpoints.WriteVerbJsonAsync` answers `{ error = "owning director is not connected" }`
-> at **503** when the owning Director is not tunnel-connected. 503 is retryable by default in the
-> `GatewayError` constructor, so that reason reached the screen as
-> *"owning director is not connected Try again."*
+`withRetryHint` appended `" Try again."` to whatever it was handed, assuming it already ended in
+terminal punctuation, so every one of those produced the run-together line **on every screen in both
+shells**. The fix is right whatever any single route writes, which is the whole reason it belongs in
+`withRetryHint` and not in a caller.
+
+**One string claim corrected, because a correction that is itself slightly false is worse than the
+error it replaces.** It has been said in this review that `"Director not connected"` appears nowhere in
+the product. It appears **27 times in `GatewayEndpoints.cs`**: 26 in code comments and one inside a
+`FileLog.Write` diagnostic (`LocateSessionAsync`). **None of the 27 is a server reason**, which is the
+substantive point and is why this proof's staged phrase was fiction - but "nowhere" is not accurate,
+and a later reader grepping for it will find 27 hits and wonder which of us to believe. The real
+user-facing phrases are the ones cited above, plus `"its Director is not connected"`
+(`FleetManagerHandOverEndpoints`) and `"the Director is not connected"` (`GatewayEndpoints`).
 
 **It is fixed in `withRetryHint`, not in the dialog** - `CLAUDE.md` rule 3. Two lines: trim the reason,
 terminate it if it is not already terminated, then append. Three tests in
@@ -372,13 +412,23 @@ Thirty passing tests of this screen did not find the run-together line; staging 
 looking at it did. And no test of this screen could have found the wrong-route claim either - it was
 in a caption and in prose, where only a reader who went to the route could catch it. **The Reviewer
 could not render images, so the pictorial content was the one thing it could not check, and it is
-exactly where the error was.** Both facts belong in the record.
+exactly where the error was.**
+
+**And the thing that made the error findable at all was the report saying the data was staged and
+why.** A proof that had quietly shown a photograph without declaring its staging would have read as
+evidence, and the Delivery Lead's own verdict on the earlier version was *"I would have merged that
+proof."* Staging lets you cause a failure on purpose; it also lets you cause one that cannot happen,
+and the only defence against the second is declaring the first. That is why section 7's staging
+paragraph is not boilerplate.
+
+All three facts belong in the record.
 
 ## 8. Watched failing
 
-Five reverts. **The predicted symptom of each was committed BEFORE any of them was run** -
-`predicted-symptoms.md`, commit `b45df8fd4` - and `watched-it-fail.md` records what actually happened,
-including the two places the prediction was wrong.
+Seven reverts. **The predicted symptom of each was committed BEFORE it was run** - the first five in
+`b45df8fd4`, revert F in `c610f5c75`, revert G in `aaf906726` (`d618f005a` after the rebase onto the
+Reviewer's commit) - and `watched-it-fail.md` records what actually happened, including the two places
+the prediction was wrong.
 
 | Revert | Predicted | Actual |
 |---|---|---|
@@ -390,7 +440,7 @@ including the two places the prediction was wrong.
 | F - the retry hint stops terminating the reason | exactly 2, and one named test staying green | **exactly 2**, and that test stayed green |
 | G - the Add note compares paths by a plain case fold | exactly 2, named | **exactly those 2** |
 
-In every one of the five, the other 55 Cockpit test files stayed green.
+In every one of the seven, nothing outside the tests aimed at that change went red.
 
 **The two lines worth carrying out of it:**
 
