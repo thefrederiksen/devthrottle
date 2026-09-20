@@ -135,7 +135,7 @@ await page.send("Page.navigate", { url: new URL("/mobile/new", url).toString() }
 await sleep(2500);
 
 await page.click("Select Director Sorens Mac mini");
-await page.click("Select agent Claude Code");
+await page.click("Select agent Codex");
 await sleep(1200);
 
 // An optional third argument types a search, so the searched view can be shot as well as the default.

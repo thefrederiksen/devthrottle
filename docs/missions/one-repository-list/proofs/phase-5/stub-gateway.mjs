@@ -44,8 +44,8 @@ const directors = [{
 }];
 
 const agents = [
-  { type: "ClaudeCode", displayName: "Claude Code", defaultModel: "opus", modelLabel: "Opus" },
-  { type: "Codex", displayName: "Codex", defaultModel: "gpt", modelLabel: "Configured default model" },
+  { type: "Codex", displayName: "Codex", defaultModel: "gpt-5", modelLabel: "Configured default model" },
+  { type: "RawCli", displayName: "Terminal agent", defaultModel: "", modelLabel: "Shell" },
 ];
 
 const routes = new Map([
