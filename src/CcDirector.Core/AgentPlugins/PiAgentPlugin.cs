@@ -58,7 +58,10 @@ public sealed class PiAgentPlugin : IAgentPlugin
 
     public AgentPluginHistoryMetadata History => HistoryMetadata;
 
-    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: true, SupportsStudioMode: false);
+    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: true, SupportsStudioMode: false,
+        // PiAgent.BuildLaunchSpec appends "--session-id <id>", and pi 0.80.10 recalled the first launch's
+        // conversation from that same id - one flag serves both creating and resuming.
+        CanResumeSavedConversation: true);
 
     public AgentPluginFleetMetadata Fleet { get; } = new(
         FleetPreambleStrategy.InstructionFile, FleetPreambleStatus.Wired,

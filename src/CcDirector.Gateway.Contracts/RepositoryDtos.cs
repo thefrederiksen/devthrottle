@@ -35,6 +35,31 @@ public class RepoStatusDto
     /// <summary>True when the pushing Director had not yet re-verified this entry (warm-start cache).</summary>
     public bool Provisional { get; set; }
 
+    /// <summary>
+    /// IDENTITY ONLY - this row carries a repository's path and name and NOTHING ELSE (the
+    /// one-repository-list mission, "the registry reaches the Gateway").
+    ///
+    /// The Director knows this repository exists because it is in the machine's registered repository
+    /// list, which a person built by hand. It is not under any registered root folder, so the
+    /// root-folder scan never reached it and nothing has computed a status for it. <c>Path</c>,
+    /// <c>Name</c>, <c>MachineName</c> and <c>DirectorId</c> are real; every other field on this row is
+    /// a default and describes nothing. A consumer that reads <c>Branch</c>, <c>IsClean</c>,
+    /// <c>UncommittedCount</c>, the worktree counts or the ahead/behind counts off such a row is
+    /// reading a fabricated fact, so <c>DirectorHub.PushRepoSnapshot</c> keeps these rows away from the
+    /// two consumers that exist to report status and hands them only to the catalog, which wants
+    /// identity and nothing more.
+    ///
+    /// It is NOT <see cref="Provisional"/>, and the difference matters. Provisional means "this
+    /// Director has a status for this repository but has not re-verified it yet", and it resolves
+    /// itself the moment the scan runs. This means "no status was ever computed, and none will be
+    /// until this repository comes under a watched folder". A provisional row is unverified status; an
+    /// identity-only row is verified identity.
+    ///
+    /// An older Director never sets it, and false is exactly right for those: everything an older
+    /// Director pushes came from the scan and carries a status.
+    /// </summary>
+    public bool StatusNotComputed { get; set; }
+
     public List<WorktreeDto> Worktrees { get; set; } = new();
 }
 

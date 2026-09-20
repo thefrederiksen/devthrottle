@@ -25,6 +25,13 @@ public interface IRestoreGateway
 
     /// <summary>The live roster of the whole account, with each Director's reachability.</summary>
     Task<RestoreRoster> GetRosterAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Ask the Gateway to pass one restored seat's dev reports to the session it came back as
+    /// (<c>POST /gateway/workspaces/{id}/restore/dev-reports</c>). The request names the seat only: the Gateway
+    /// reads both session ids from the stored workspace. Throws with the Gateway's reason when it refuses.
+    /// </summary>
+    Task<WorkspaceDevReportPassResult> PassDevReportsAsync(string workspaceId, WorkspaceDevReportPassRequest request, CancellationToken ct);
 }
 
 /// <summary>The real seam, over the Director's existing outbound Gateway client.</summary>
@@ -47,6 +54,10 @@ public sealed class GatewayClientRestoreGateway : IRestoreGateway
     /// <inheritdoc />
     public Task<SessionDto> SpawnOnThisDirectorAsync(NewSessionRequest request, CancellationToken ct)
         => _client.SpawnOnThisDirectorAsync(request, ct);
+
+    /// <inheritdoc />
+    public Task<WorkspaceDevReportPassResult> PassDevReportsAsync(string workspaceId, WorkspaceDevReportPassRequest request, CancellationToken ct)
+        => _client.PassDevReportsAsync(workspaceId, request, ct);
 
     /// <inheritdoc />
     public async Task<RestoreRoster> GetRosterAsync(CancellationToken ct)
@@ -111,8 +122,10 @@ public sealed class RestoreRoster
 /// <param name="RestoredSessionId">The new session's id, or null when the seat did not come back.</param>
 /// <param name="OwnerSessionId">The owner the new session was started under, or null for the user.</param>
 /// <param name="Failure">Why it did not come back, or null.</param>
+/// <param name="DevReports">What became of the seat's dev reports, in plain words, or null when the seat did not
+/// come back and so nothing was asked.</param>
 public sealed record SeatRestoreOutcome(
-    string SessionId, string Name, string? RestoredSessionId, string? OwnerSessionId, string? Failure);
+    string SessionId, string Name, string? RestoredSessionId, string? OwnerSessionId, string? Failure, string? DevReports = null);
 
 /// <summary>The finished restore: one outcome per seat that was asked for, in the order they were attempted.</summary>
 public sealed record DirectorRestoreResult(string WorkspaceId, IReadOnlyList<SeatRestoreOutcome> Seats);
@@ -142,6 +155,8 @@ public sealed record DirectorRestoreResult(string WorkspaceId, IReadOnlyList<Sea
 ///  - the owner is a seat here and came back in this run: its new id;
 ///  - the owner is a seat here that came back in an earlier run: that id, if it is still running;
 ///  - the owner is a seat here that BLOCKED the drain and was never closed: its current id, if it is still running;
+///  - the record is a CANCELLED smart shutdown and the owner is a seat here that was never closed: its current
+///    id, if it is still running;
 ///  - otherwise (it failed, was decided "close", has not come back, or is not running): this seat FAILS with that
 ///    reason. It is not started unowned and not started under a dead id - either would be a guess about who
 ///    collects its work.
@@ -310,6 +325,15 @@ public sealed class DirectorRestore
                   ?? throw new InvalidOperationException($"there is no workspace '{order.WorkspaceId}' to restore from.");
         var targets = SelectTargets(doc, order.Seats);
 
+        // A SEAT THAT CAME BACK IN AN EARLIER RUN IS ASKED FOR AGAIN. That run may have died between the create and
+        // its own ask, and nothing else would ever ask for that seat: it is no longer owed, so no run selects it.
+        // Asking twice is safe - the second time the old session has nothing left to pass.
+        // THE ANSWER IS KEPT ONLY IN THE DIRECTOR LOG, deliberately. This seat is not one this run brings back, so it
+        // has no outcome row, and giving it one would say this run restored a seat it never touched. Review 1 finding 1,
+        // answered in docs/missions/smart-director-restart-2026-09-19/review-phase-4-1-answers.md.
+        foreach (var back in doc.Seats.Where(s => !string.IsNullOrWhiteSpace(s.SessionId) && !string.IsNullOrWhiteSpace(s.RestoredSessionId)))
+            await PassDevReportsAsync(order.WorkspaceId, back.SessionId!, ct).ConfigureAwait(false);
+
         var failedHere = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var backHere = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var outcomes = new List<SeatRestoreOutcome>();
@@ -331,13 +355,15 @@ public sealed class DirectorRestore
             if (failure is null && !string.IsNullOrWhiteSpace(seat.RestoredSessionId))
             {
                 // Recorded since this run read the workspace - by the Gateway, from an earlier start's token.
+                // Its reports are asked for here too: the run that started it may have died before it could ask.
                 backHere.Add(sid);
-                outcomes.Add(new SeatRestoreOutcome(sid, seat.Name, seat.RestoredSessionId, null, null));
+                var passedEarlier = await PassDevReportsAsync(order.WorkspaceId, sid, ct).ConfigureAwait(false);
+                outcomes.Add(new SeatRestoreOutcome(sid, seat.Name, seat.RestoredSessionId, null, null, passedEarlier));
                 continue;
             }
             failure ??= EarlierStartUnresolved(seat, roster, forced.Contains(sid));
             if (failure is null)
-                (owner, failure) = ResolveOwner(seat, byId, failedHere, backHere, roster);
+                (owner, failure) = ResolveOwner(seat, byId, failedHere, backHere, roster, doc.CancelledAtUtc is not null);
 
             NewSessionRequest? request = null;
             if (failure is null)
@@ -422,10 +448,46 @@ public sealed class DirectorRestore
                 FileLog.Write($"[DirectorRestore] seat {DrainPaths.ShortId(sid)} \"{seat.Name}\" NOT restored: {failure}");
             }
             doc = await _gateway.RecordMarkAsync(order.WorkspaceId, mark, ct).ConfigureAwait(false);
-            outcomes.Add(new SeatRestoreOutcome(sid, seat.Name, newId, failure is null ? owner : null, failure));
+
+            // ONLY AFTER THE RECORD SAYS WHAT THE SEAT CAME BACK AS. The Gateway reads both session ids from that
+            // record, so asking before the mark is written would be asking about a seat that has not come back.
+            var devReports = failure is null
+                ? await PassDevReportsAsync(order.WorkspaceId, sid, ct).ConfigureAwait(false)
+                : null;
+            outcomes.Add(new SeatRestoreOutcome(sid, seat.Name, newId, failure is null ? owner : null, failure, devReports));
         }
 
         return new DirectorRestoreResult(doc.Id, outcomes);
+    }
+
+    /// <summary>
+    /// Ask the Gateway to pass a restored seat's dev reports to the session it came back as, and say what happened in
+    /// plain words (the Smart Director Restart mission, section 5.3 item 13). A refusal or a failed call is always
+    /// logged, and is reported on the seat's outcome when the seat is one this run brings back - a seat already back
+    /// when the run read the workspace has no outcome row, so for it the log is the whole record. It is never thrown:
+    /// the seat HAS come back, and calling the seat failed because
+    /// its reports did not pass would be a lie about the seat. Asking again is safe, and the next restore run of this
+    /// workspace that has a seat left to bring back asks again for every seat it finds already back. A workspace
+    /// with NO seat left is refused before it runs, so a pass lost on the last seat of a workspace is not retried.
+    /// </summary>
+    private async Task<string> PassDevReportsAsync(string workspaceId, string seatSessionId, CancellationToken ct)
+    {
+        try
+        {
+            var result = await _gateway.PassDevReportsAsync(workspaceId,
+                new WorkspaceDevReportPassRequest { DirectorId = _directorId, SeatSessionId = seatSessionId }, ct).ConfigureAwait(false);
+            var kept = result.KeptBecauseTheNewSessionAlreadyHasTheKey.Count;
+            var said = $"{result.Passed} dev report(s) passed to {result.ToSessionId}" +
+                       (kept == 0 ? "." : $"; {kept} stayed with the old session because the new one had already published the same file.");
+            FileLog.Write($"[DirectorRestore] seat {DrainPaths.ShortId(seatSessionId)}: {said}");
+            return said;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            var said = $"its dev reports did NOT pass to the restored session, so their links stay frozen: {ex.Message}";
+            FileLog.Write($"[DirectorRestore] seat {DrainPaths.ShortId(seatSessionId)}: PassDevReportsAsync FAILED: {said}");
+            return said;
+        }
     }
 
     /// <summary>The failure recorded when the spawn call timed out rather than being answered.</summary>
@@ -561,7 +623,7 @@ public sealed class DirectorRestore
     /// </summary>
     internal static (string? Owner, string? Failure) ResolveOwner(
         WorkspaceSeat seat, IReadOnlyDictionary<string, WorkspaceSeat> byId, IReadOnlyDictionary<string, string> failedHere,
-        IReadOnlySet<string> backHere, RestoreRoster roster)
+        IReadOnlySet<string> backHere, RestoreRoster roster, bool shutdownWasCancelled = false)
     {
         var reportsTo = seat.ReportsTo?.Trim();
         if (string.IsNullOrEmpty(reportsTo)) return (null, null);
@@ -590,6 +652,15 @@ public sealed class DirectorRestore
             return roster.IsReachable(reportsTo)
                 ? (reportsTo, null)
                 : (null, NotRunning(reportsTo, $"{bossName}, which blocked the drain,"));
+
+        // A CANCELLED SMART SHUTDOWN LEAVES OWNERS RUNNING. Sessions are closed leaf first, so the usual cancel
+        // is exactly this: the session under a lead was already closed and the lead was not. That lead was told
+        // the restart is off and is still running under the id it had. Only on a record marked cancelled, and
+        // only when the roster says the owner is running now; on any other record the rules below stand.
+        if (shutdownWasCancelled && boss.ClosedAtUtc is null)
+            return roster.IsReachable(reportsTo)
+                ? (reportsTo, null)
+                : (null, NotRunning(reportsTo, $"{bossName}, which the cancelled shutdown never closed,"));
         if (failedHere.TryGetValue(reportsTo, out var why))
             return (null, $"its owner {bossName} was restarted in the same drain and could not be brought back ({why}), " +
                           "so there is no session to own it. Restore the owner, then this seat.");

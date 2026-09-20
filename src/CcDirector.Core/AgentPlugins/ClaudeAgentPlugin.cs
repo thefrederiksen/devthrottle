@@ -62,7 +62,9 @@ public sealed class ClaudeAgentPlugin : IAgentPlugin
 
     public AgentPluginHistoryMetadata History => HistoryMetadata;
 
-    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: true, SupportsStudioMode: true);
+    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: true, SupportsStudioMode: true,
+        // ClaudeAgent.BuildLaunchSpec appends "--resume <id>".
+        CanResumeSavedConversation: true);
 
     public AgentPluginFleetMetadata Fleet { get; } = new(
         FleetPreambleStrategy.NativeHook, FleetPreambleStatus.Wired,

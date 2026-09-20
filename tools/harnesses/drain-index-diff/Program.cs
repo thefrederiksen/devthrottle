@@ -736,6 +736,10 @@ internal sealed class HarnessSessions : IDrainSessionControl
     public Task<DrainEnd> EndAsync(string sessionId, string reason)
         => throw new InvalidOperationException(
             $"The older drain ended session {sessionId} ({reason}). It never forces; only the smart shutdown may.");
+
+    public bool CancelDeletion(string sessionId)
+        => throw new InvalidOperationException(
+            $"The older drain took back the close of session {sessionId}. It has no cancel; only the smart shutdown may.");
 }
 
 /// <summary>The seeded Gateway: hands back the capture, keeps every save.</summary>

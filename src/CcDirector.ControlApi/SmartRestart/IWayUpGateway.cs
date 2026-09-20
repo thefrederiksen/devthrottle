@@ -1,0 +1,156 @@
+using CcDirector.ControlApi.Drain;
+using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
+
+namespace CcDirector.ControlApi.SmartRestart;
+
+/// <summary>
+/// Everything the way up needs from the Gateway, behind a seam so its rules are provable without one - the
+/// same arrangement <see cref="IRestoreGateway"/> makes for the restore.
+///
+/// Every method THROWS when the Gateway cannot be reached. That is deliberate and it is the whole reason
+/// the seam is shaped this way: the engine turns the throw into a refusal carrying the reason, and an
+/// empty list is never used to mean "the Gateway did not answer".
+/// </summary>
+public interface IWayUpGateway
+{
+    /// <summary>Every workspace this Gateway holds, enough of each to choose without fetching documents.</summary>
+    /// <param name="ct">Cancellation.</param>
+    Task<IReadOnlyList<WorkspaceSummaryDto>> ListWorkspacesAsync(CancellationToken ct);
+
+    /// <summary>One workspace document, or null when the Gateway no longer has it.</summary>
+    /// <param name="id">The workspace slug.</param>
+    /// <param name="ct">Cancellation.</param>
+    Task<WorkspaceDocument?> GetWorkspaceAsync(string id, CancellationToken ct);
+
+    /// <summary>
+    /// Start one session on THIS Director, on this Director's own credential - the same door the restore
+    /// uses. Used only to reopen a seat that ended without a handover; everything else goes through the
+    /// restore.
+    /// </summary>
+    /// <param name="request">The session to start.</param>
+    /// <param name="ct">Cancellation.</param>
+    Task<SessionDto> StartSessionAsync(NewSessionRequest request, CancellationToken ct);
+
+    /// <summary>
+    /// The live roster of the whole account, with each Director's reachability - THE SAME QUESTION
+    /// <see cref="IRestoreGateway.GetRosterAsync"/> asks, so that the reopen can refuse a seat that may
+    /// still be running by the product's own rule rather than a second one written here.
+    ///
+    /// IT IS ASKED ONLY WHEN A SESSION IS ABOUT TO BE STARTED. The start-up check is a check on the RECORD
+    /// and never on what is running, and it does not call this.
+    /// </summary>
+    /// <param name="ct">Cancellation.</param>
+    Task<RestoreRoster> GetRosterAsync(CancellationToken ct);
+}
+
+/// <summary>
+/// The restore, behind a seam. ONE method, because the way up does not re-implement any part of a restore:
+/// it builds the order and hands it over.
+/// </summary>
+public interface IWayUpRestore
+{
+    /// <summary>
+    /// Check the order and run it. Throws <see cref="InvalidOperationException"/> with the reason when the
+    /// restore cannot start at all - another restore is running, the record has no seat left to bring back,
+    /// a named seat is still running - so the caller can say so plainly instead of starting nothing and
+    /// reporting success.
+    /// </summary>
+    /// <param name="order">The seats to bring back, and their seed files.</param>
+    /// <param name="ct">Cancellation.</param>
+    Task<DirectorRestoreResult> RestoreAsync(WorkspaceRestoreOrder order, CancellationToken ct);
+}
+
+/// <summary>
+/// The real Gateway seam, over the Director's existing outbound client.
+///
+/// THE CLIENT IS READ AT THE MOMENT OF EACH CALL, through a function rather than held: a settings change
+/// replaces the host's client, and an engine holding the old one would be answering from a connection that
+/// no longer exists. Phase 1 made the same arrangement for the same reason.
+/// </summary>
+public sealed class GatewayClientWayUp : IWayUpGateway
+{
+    /// <summary>What is said when this Director has no Gateway client at all.</summary>
+    public const string NotConnected =
+        "this Director is not connected to a Gateway, and the records of what it shut down are kept there " +
+        "rather than on this machine";
+
+    private readonly Func<GatewayClient?> _client;
+
+    /// <summary>Create the seam.</summary>
+    /// <param name="client">Reads the host's CURRENT Gateway client, or null when there is none.</param>
+    public GatewayClientWayUp(Func<GatewayClient?> client)
+        => _client = client ?? throw new ArgumentNullException(nameof(client));
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<WorkspaceSummaryDto>> ListWorkspacesAsync(CancellationToken ct)
+        => await Required().ListWorkspacesAsync(ct).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public Task<WorkspaceDocument?> GetWorkspaceAsync(string id, CancellationToken ct)
+        => Required().GetWorkspaceAsync(id, ct);
+
+    /// <inheritdoc />
+    public Task<SessionDto> StartSessionAsync(NewSessionRequest request, CancellationToken ct)
+        => Required().SpawnOnThisDirectorAsync(request, ct);
+
+    /// <inheritdoc />
+    public async Task<RestoreRoster> GetRosterAsync(CancellationToken ct)
+    {
+        // The envelope, not the plain list: the plain list says nothing about which Directors it could not
+        // reach, and "not on the list" is exactly the fact this check acts on. Word for word what
+        // GatewayClientRestoreGateway does, for the same reason.
+        var (sessions, directors) = await Required().ListFleetSessionsWithReachabilityAsync(ct).ConfigureAwait(false);
+        return new RestoreRoster(sessions, directors);
+    }
+
+    private GatewayClient Required()
+        => _client() ?? throw new InvalidOperationException(NotConnected);
+}
+
+/// <summary>
+/// The real restore seam, over <see cref="DirectorRestore"/>. It does what the tunnel's own restore does,
+/// in the same order and for the same reasons: claim the Director's one-at-a-time gate before anything is
+/// promised, check the order, give the gate back when the check refuses, and only then run.
+/// </summary>
+public sealed class DirectorRestoreWayUp : IWayUpRestore
+{
+    private readonly Func<GatewayClient?> _client;
+    private readonly string _directorId;
+
+    /// <summary>Create the seam.</summary>
+    /// <param name="client">Reads the host's CURRENT Gateway client, or null when there is none.</param>
+    /// <param name="directorId">This Director's id, which the restore records against every seat.</param>
+    public DirectorRestoreWayUp(Func<GatewayClient?> client, string directorId)
+    {
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _directorId = string.IsNullOrWhiteSpace(directorId)
+            ? throw new ArgumentException("directorId is required", nameof(directorId))
+            : directorId;
+    }
+
+    /// <inheritdoc />
+    public async Task<DirectorRestoreResult> RestoreAsync(WorkspaceRestoreOrder order, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+        var client = _client() ?? throw new InvalidOperationException(GatewayClientWayUp.NotConnected);
+        var restore = new DirectorRestore(new GatewayClientRestoreGateway(client), _directorId);
+        if (!restore.TryClaim())
+            throw new InvalidOperationException(
+                $"a restore is already running on this Director (workspace '{DirectorRestore.Running?.Order?.WorkspaceId}'); " +
+                "a second is refused before it starts anything.");
+
+        try
+        {
+            var seats = await restore.PrepareAsync(order, ct).ConfigureAwait(false);
+            FileLog.Write($"[DirectorRestoreWayUp] RestoreAsync: {seats.Count} seat(s) from workspace {order.WorkspaceId}");
+        }
+        catch
+        {
+            restore.Release();
+            throw;
+        }
+
+        return await restore.RunAsync(order, ct).ConfigureAwait(false);
+    }
+}

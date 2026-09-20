@@ -149,6 +149,42 @@ public sealed class WorkspaceRestoreMark
 }
 
 /// <summary>
+/// THE RESTORE ASKS FOR A SEAT'S DEV REPORTS TO PASS TO THE SESSION IT CAME BACK AS (the Smart Director Restart
+/// mission, section 5.3 item 13), through <c>POST /gateway/workspaces/{id}/restore/dev-reports</c>, on the
+/// Director's own credential, while it holds the workspace's restore lease.
+///
+/// IT NAMES A SEAT AND NOTHING ELSE. The old session id and the new one are both read by the Gateway from the
+/// stored seat (<see cref="WorkspaceSeat.SessionId"/> and <see cref="WorkspaceSeat.RestoredSessionId"/>), which
+/// only a capture and a token-checked restore mark can write. A caller that could name either id could hand any
+/// session's reports to any other, so there is deliberately no field for them.
+/// </summary>
+public sealed class WorkspaceDevReportPassRequest
+{
+    /// <summary>The Director asking. It must hold the workspace's restore lease.</summary>
+    public string DirectorId { get; set; } = "";
+
+    /// <summary>The seat (captured session id) whose reports pass to the session it was restored as.</summary>
+    public string SeatSessionId { get; set; } = "";
+}
+
+/// <summary>What a dev report pass did (<c>POST /gateway/workspaces/{id}/restore/dev-reports</c>).</summary>
+public sealed class WorkspaceDevReportPassResult
+{
+    /// <summary>The session the reports belonged to - the seat's captured session.</summary>
+    public string FromSessionId { get; set; } = "";
+
+    /// <summary>The session they belong to now - what the seat was restored as.</summary>
+    public string ToSessionId { get; set; } = "";
+
+    /// <summary>How many reports passed. Zero when the old session had none, or when this was already asked.</summary>
+    public int Passed { get; set; }
+
+    /// <summary>The keys of reports that did NOT pass, because the restored session had already published a report
+    /// under the same key before this was asked. Those stay with the old session, frozen, exactly as before.</summary>
+    public List<string> KeptBecauseTheNewSessionAlreadyHasTheKey { get; set; } = new();
+}
+
+/// <summary>
 /// Carried on a restore's create (<see cref="NewSessionRequest.RestoreClaim"/>): which workspace seat this
 /// session is, and the token the Director stored on that seat before sending it. The Gateway that performs the
 /// create writes the new session id onto the seat when the token matches, so the record does not depend on the

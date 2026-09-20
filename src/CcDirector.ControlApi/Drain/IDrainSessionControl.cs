@@ -163,6 +163,18 @@ public interface IDrainSessionControl
     /// <param name="sessionId">The session id.</param>
     /// <param name="reason">Why, for the log.</param>
     Task<DrainEnd> EndAsync(string sessionId, string reason);
+
+    /// <summary>
+    /// Take back a <see cref="MarkForDeletion"/> that the reaper has not acted on yet, through the
+    /// session's existing way of cancelling a pending deletion. SMART SHUTDOWN ONLY, and only for "Cancel
+    /// and keep working": a session that handed over and was flagged is still open until the reaper
+    /// removes it, and a cancel that left the flag standing would watch it be closed a minute after the
+    /// owner was told the restart is off. The older drain never calls this.
+    /// </summary>
+    /// <param name="sessionId">The session id.</param>
+    /// <returns>True when the session is here and is no longer flagged. False when it is not here any
+    /// more: the reaper got to it first, and it is then one of the sessions to bring back.</returns>
+    bool CancelDeletion(string sessionId);
 }
 
 /// <summary>
@@ -262,6 +274,19 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
         var session = _sessions.GetSession(id);
         if (session is null) return false;
         session.MarkForDeletion(reason);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public bool CancelDeletion(string sessionId)
+    {
+        if (!Guid.TryParse(sessionId, out var id) || _sessions.GetSession(id) is not { } session)
+        {
+            FileLog.Write($"[DrainSessionControl] CancelDeletion: session={sessionId} is not here");
+            return false;
+        }
+        session.CancelDeletion();
+        FileLog.Write($"[DrainSessionControl] CancelDeletion: session={sessionId} is no longer flagged");
         return true;
     }
 

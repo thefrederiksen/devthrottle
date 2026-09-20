@@ -55,7 +55,9 @@ public sealed class CopilotAgentPlugin : IAgentPlugin
 
     public AgentPluginHistoryMetadata History => HistoryMetadata;
 
-    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: true, SupportsStudioMode: false);
+    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: true, SupportsStudioMode: false,
+        // CopilotAgent.BuildLaunchSpec appends "--resume <id>".
+        CanResumeSavedConversation: true);
 
     public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 
