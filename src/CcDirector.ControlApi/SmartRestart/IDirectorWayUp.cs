@@ -65,9 +65,15 @@ public interface IDirectorWayUp
     /// is still listed in the history as ended without a handover.
     ///
     /// IT REFUSES A SEAT THAT MAY STILL BE RUNNING, by the same rule the restore uses, and it reopens each
-    /// seat ONCE while this Director is up. Because nothing is written onto the record, that once-only
-    /// guard does NOT survive a Director restart: across one, the same seat can still be reopened twice.
-    /// Closing that needs a new mark on the record, which is a Gateway change and a Delivery Lead decision.
+    /// seat ONCE while this Director is up. That once-only claim is held by the PROCESS, so it holds
+    /// however many engines a caller builds. Because nothing is written onto the record, it does NOT
+    /// survive a Director restart: across one, the same seat can still be reopened twice. Closing that
+    /// needs a new mark on the record, which is a Gateway change and a Delivery Lead decision.
+    ///
+    /// A REOPEN WHOSE START FAILS KEEPS ITS CLAIM, and that is deliberate rather than a bug to report: a
+    /// start whose answer never came back may have happened anyway, so the seat is refused from then until
+    /// this Director restarts. A button that goes dead after one failure is doing what it was built to do,
+    /// and the refusal says to look in the session list.
     /// </summary>
     /// <param name="request">The record and the seat.</param>
     /// <param name="ct">Cancellation.</param>

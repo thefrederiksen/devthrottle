@@ -13,6 +13,7 @@ namespace CcDirector.Gateway.UnitTests.Restart;
 /// running may still hold a record worth offering, and a Director with none may hold nothing - so these
 /// tests never set up a session, because the engine has no way to ask about one.
 /// </summary>
+[Collection(DirectorGatesCollection.Name)]
 public class DirectorWayUpOfferTests
 {
     private static readonly DateTime Shutdown = new(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc);
@@ -54,6 +55,10 @@ public class DirectorWayUpOfferTests
 
         Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
         Assert.Null(offer.Record);
+
+        // NOTHING WAITING IS ALSO A PROMISE ABOUT THE RECORD. The offered path asserts this too; a path
+        // that answers "nothing" after asking what is running would be the same race by the other door.
+        Assert.Equal(0, rig.Gateway.RosterAsked);
     }
 
     /// <summary>The owner cancelled and kept working, so the sessions never stopped. Offering it back would
@@ -89,9 +94,15 @@ public class DirectorWayUpOfferTests
     }
 
     /// <summary>
-    /// ONE OWED SEAT IS ENOUGH, and nothing is asked about what is running. The engine's Gateway seam
-    /// carries no question about sessions at all - listing records, reading one, and starting one to reopen
-    /// it are all it can do - so the check cannot be a session count even by accident.
+    /// ONE OWED SEAT IS ENOUGH, and nothing is asked about what is running.
+    ///
+    /// READ THIS BEFORE YOU BELIEVE THE SEAM CANNOT ASK: it can. The engine's Gateway seam has a fourth
+    /// method, <c>GetRosterAsync</c>, because the REOPEN needs it to refuse a seat that may still be
+    /// alive. So what keeps the start-up check a promise about the RECORD rather than a race with whatever
+    /// happens to be running is no longer the seam's shape - it is the count asserted at the end of this
+    /// test, and the same count asserted on the nothing-waiting path here, on the history and on the bring
+    /// back. Only <c>ReopenAsync</c> may ask. If you are adding a roster call to another path, those four
+    /// assertions are what you are about to break, and breaking them is the point of them.
     /// </summary>
     [Fact]
     public async Task A_record_with_one_owed_seat_is_offered_and_nothing_is_asked_about_running_sessions()

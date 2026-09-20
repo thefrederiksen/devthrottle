@@ -22,6 +22,21 @@ public sealed class AgentPluginLaunchMetadataTests
     /// <summary>A conversation id no argument could hold by accident.</summary>
     private const string KnownConversationId = "11111111-2222-3333-4444-555555555555";
 
+    /// <summary>
+    /// IF YOU ARE READING THIS BECAUSE THIS TEST IS FAILING ON AN AGENT YOU JUST ADDED, DO NOT FLIP THE
+    /// FLAG TO MATCH THE ARGUMENTS. Widen what the walk looks at instead.
+    ///
+    /// The walk's proxy for "this agent resumes" is that the conversation id reaches the launch arguments.
+    /// For all eight agents today that proxy is exact. It can lie in ONE direction: an agent that carries
+    /// the id in its arguments for some OTHER purpose - a log file name, a working folder, a report - is
+    /// not resuming anything, and forcing its flag true would word the offer "your conversation comes
+    /// back" for a session that arrives blank. That is the one direction the safe-side rule exists to
+    /// prevent, which is why it is worth the failing test rather than a quiet true.
+    ///
+    /// The fix for such an agent is to make the walk read what the driver MEANS rather than what it spells
+    /// - for example by naming the argument that carries the id for resuming - and to leave the flag
+    /// saying what the agent really does.
+    /// </summary>
     [Fact]
     public void Every_registered_agent_resume_flag_matches_what_its_launch_spec_really_builds()
     {

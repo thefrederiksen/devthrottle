@@ -13,6 +13,7 @@ namespace CcDirector.Gateway.UnitTests.Restart;
 /// that still owes seats carries the SAME offer the start-up check makes - one rule, not two that can
 /// drift apart.
 /// </summary>
+[Collection(DirectorGatesCollection.Name)]
 public class DirectorWayUpHistoryTests
 {
     private static readonly DateTime Shutdown = new(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc);
@@ -42,6 +43,10 @@ public class DirectorWayUpHistoryTests
         Assert.Equal("Smart shutdown - every session was asked to hand over.", history.Entries[0].KindLabel);
         Assert.Equal("Shut down ignoring all sessions - nothing from it is offered back.", history.Entries[2].KindLabel);
         Assert.Contains("Cancelled on", history.Entries[1].OutcomeLabel);
+
+        // THE HISTORY IS A READ OF THE RECORDS AND NOTHING ELSE. The seam CAN ask what is running, because
+        // the reopen needs it, so only a count keeps every other path out of it. Only ReopenAsync may ask.
+        Assert.Equal(0, rig.Gateway.RosterAsked);
     }
 
     /// <summary>Another Director's records on this machine are not this Director's history.</summary>
@@ -305,6 +310,12 @@ public class DirectorWayUpHistoryTests
     /// history open on two screens, must not start two agents in one saved conversation. The second attempt
     /// is refused in words of the ENGINE, so no window has to invent the sentence.
     ///
+    /// IT USES TWO SEPARATE ENGINES ON PURPOSE, because that is what the real windows do: the factory
+    /// builds a new engine on every call, and the start-up window and the history window each hold one of
+    /// their own. An earlier version of this test held ONE engine in a local, so it would have passed just
+    /// as happily with the claim on the instance - where it guarded nothing the moment a caller built a
+    /// second engine. Two engines is the test that proves the claim belongs to the process.
+    ///
     /// WHAT THIS DOES NOT COVER: across a Director restart the same seat CAN still be reopened twice,
     /// because nothing is written onto the record. That is stated in the answer file and on the code.
     /// </summary>
@@ -316,10 +327,9 @@ public class DirectorWayUpHistoryTests
         {
             WayUpTestRig.Ended("ended", "A busy worker"),
         }));
-        var wayUp = rig.WayUp();
 
-        var first = await wayUp.ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
-        var second = await wayUp.ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+        var first = await rig.WayUp().ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+        var second = await rig.WayUp().ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
 
         Assert.True(first.Started);
         Assert.False(second.Started);

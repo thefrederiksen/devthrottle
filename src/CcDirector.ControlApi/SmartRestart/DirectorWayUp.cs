@@ -40,13 +40,29 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// each acting on the other's half-written work - which is worse than a duplicate blank session,
     /// because both believe they are the same session.
     ///
+    /// THE CLAIM BELONGS TO THE PROCESS, NOT TO THIS OBJECT, and that is the whole point of it being
+    /// static. There is exactly ONE Director per process, and this rule is the DIRECTOR'S: a seat is
+    /// reopened once, however many engines happen to exist. <see cref="Drain.DirectorRestore"/> holds its
+    /// own one-at-a-time rule in a static field under a static lock for precisely the same reason. Held on
+    /// the instance instead, the guarantee would depend on the CALLER keeping one engine for the
+    /// Director's lifetime - and the factory hands out a new engine on every call, while the start-up
+    /// window and the history window each want one of their own. A guard whose promise is the next
+    /// caller's to keep is a tripwire that caller cannot see, so the promise is kept here.
+    ///
+    /// AND THE STILL-RUNNING CHECK DOES NOT CATCH WHAT THIS MISSES: a reopened session comes back under a
+    /// NEW session id, so moments after a reopen the roster still says nothing at all about the seat's
+    /// CAPTURED id, and a second reopen would sail straight through it.
+    ///
     /// WHAT THIS DOES NOT COVER, said plainly rather than hidden: ACROSS A DIRECTOR RESTART THE SAME SEAT
     /// CAN STILL BE REOPENED TWICE, because nothing is written onto the record. Marking a seat needs the
     /// restore lease and a workspace write, and a new mark kind would change
     /// <c>CcDirector.Gateway.Contracts</c> and need a Gateway deploy - a Delivery Lead decision, not this
     /// engine's. This guard covers one run of one Director and no more.
     /// </summary>
-    private readonly HashSet<string> _reopened = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> Reopened = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The lock over <see cref="Reopened"/>. Its own lock, taken by nothing else.</summary>
+    private static readonly object ReopenGate = new();
 
     /// <summary>Create the engine.</summary>
     /// <param name="gateway">The Gateway seam. Throws when the Gateway cannot be reached, which becomes a
@@ -668,15 +684,33 @@ public sealed class DirectorWayUp : IDirectorWayUp
 
     /// <summary>
     /// Claim the one reopen this seat gets while this Director is up, or answer false because it is already
-    /// taken. See the comment on <c>_reopened</c> for what this covers and what it does not.
+    /// taken. STATIC, because the claim belongs to the process and not to whoever built this engine: see
+    /// the comment on <see cref="Reopened"/> for what this covers and what it does not.
     /// </summary>
     /// <param name="workspaceId">The record.</param>
     /// <param name="seatSessionId">The seat's captured session id.</param>
-    private bool ClaimReopen(string workspaceId, string seatSessionId)
+    private static bool ClaimReopen(string workspaceId, string seatSessionId)
     {
-        lock (_reopened)
+        lock (ReopenGate)
         {
-            return _reopened.Add(workspaceId + "\n" + seatSessionId);
+            return Reopened.Add(workspaceId + "\n" + seatSessionId);
+        }
+    }
+
+    /// <summary>
+    /// FOR TESTS ONLY: forget every reopen claim taken in this process, so a test starts clean.
+    ///
+    /// A test process is not a Director. The product runs one Director per process and never wants this;
+    /// a test run holds many records named alike in one process, and a claim left behind by an earlier
+    /// test would refuse a later one for a reason that is about the test runner and not about the product.
+    /// The way up test classes sit in <c>DirectorGatesCollection</c> so they never run side by side, and
+    /// each test's rig calls this as it is built.
+    /// </summary>
+    internal static void ForgetReopenClaims()
+    {
+        lock (ReopenGate)
+        {
+            Reopened.Clear();
         }
     }
 

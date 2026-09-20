@@ -13,9 +13,21 @@ namespace CcDirector.Gateway.UnitTests.Restart;
 ///
 /// The fakes COUNT what they were asked, because several of these rules are about what the way up does NOT
 /// do: it never asks how many sessions are running, and it never starts a session except to reopen one.
+///
+/// THE RIG IS NOT THE OWNER OF THE ONCE-ONLY REOPEN CLAIM, and cannot be: that claim belongs to the
+/// PROCESS, because there is one Director per process and the rule is the Director's. So building a rig
+/// forgets the claims this process has taken, and every way up test class sits in
+/// <see cref="DirectorGatesCollection"/> so no two of them are in that process state at once.
 /// </summary>
 public sealed class WayUpTestRig
 {
+    /// <summary>
+    /// Start this test clean of every reopen claim an earlier test took. Several tests use the same record
+    /// slug and the same seat id, so without this the second of them would be refused for a reason that is
+    /// about the test runner and not about the product.
+    /// </summary>
+    public WayUpTestRig() => DirectorWayUp.ForgetReopenClaims();
+
     /// <summary>The machine every record in this rig was captured on.</summary>
     public const string ThisMachine = "SOREN_NORTH";
 

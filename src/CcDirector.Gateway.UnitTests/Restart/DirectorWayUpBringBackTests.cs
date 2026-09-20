@@ -16,6 +16,7 @@ namespace CcDirector.Gateway.UnitTests.Restart;
 /// written that way on purpose: a test that only checked some banned phrase was absent would pass for a
 /// file holding a different rule of conduct nobody thought to ban.
 /// </summary>
+[Collection(DirectorGatesCollection.Name)]
 public sealed class DirectorWayUpBringBackTests : IDisposable
 {
     private static readonly DateTime Shutdown = new(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc);
@@ -60,6 +61,11 @@ public sealed class DirectorWayUpBringBackTests : IDisposable
         Assert.True(result.Started);
         Assert.Equal(4, result.Seats.Count);
         Assert.Equal("4 sessions came back.", result.Message);
+
+        // THE BRING BACK ASKS NOTHING ABOUT WHAT IS RUNNING EITHER. It re-implements no part of a restore,
+        // and the restore refuses a seat that is still alive by its own rule, on its own roster read. The
+        // seam CAN ask - the reopen needs it - so only this count keeps a second such question out of here.
+        Assert.Equal(0, rig.Gateway.RosterAsked);
     }
 
     /// <summary>A row left unticked is left alone: its seats are not named, so the restore never touches them.</summary>
