@@ -140,3 +140,43 @@ failures and their real messages against the predictions above, confirm nothing 
 tests went red, restore, and confirm green again. The results go in `watched-it-fail.md` beside this,
 including any place my prediction was wrong - a prediction that was wrong is the most useful line in
 that document, not something to quietly correct.
+
+---
+
+# Addendum: revert F - the retry hint's sentence termination
+
+**Written and committed AFTER the five above, and again BEFORE the revert it describes was run.**
+
+This one exists because the screenshot run found a real defect in shared code, which is the QA report
+doing its job. `withRetryHint` in `packages/client-core/src/api/client.ts` appended " Try again." to
+whatever sentence it was handed, and the Gateway's 502 reason for a disconnected Director is the
+PHRASE "Director not connected" - so screen 09 of this proof was a photograph of
+`Could not load repositories: Director not connected Try again.`
+
+**The change being removed by revert F.** The two lines that terminate the reason before appending:
+
+```ts
+const trimmed = sentence.trimEnd();
+const terminated = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+```
+
+**I predict exactly one test fails** in `packages/client-core/src/api/errorReporting.test.ts`:
+
+| Test | Predicted symptom |
+|---|---|
+| `terminates a reason that is a PHRASE before adding the hint, so the two do not run together` | `expected 'Director not connected Try again.' to be 'Director not connected. Try again.'` |
+
+**And I predict a second one fails too** - `does not leave a gap where the reason had trailing space` -
+because the revert removes the `trimEnd` as well: `expected 'Director not connected    Try again.' to
+be 'Director not connected. Try again.'`. So **exactly two**.
+
+**I predict `leaves a reason that already ends in a sentence exactly as it was` STAYS GREEN**, and
+that is the half of the pin that matters most. It is the test a careless fix breaks: append a full
+stop unconditionally and every already-terminated reason gains a second one. The revert cannot fail
+it, because the old code was correct for that case - which is precisely why that test has to exist
+separately from the one above, and why it is asserted with `toBe` on the whole string rather than
+`toContain`.
+
+**I predict nothing else in the workspace moves.** `withRetryHint` has two callers, both inside
+`gatewayErrorMessage`, and the existing tests of it all use reasons that already end in a full stop -
+which is exactly why this survived until somebody photographed it.
