@@ -174,6 +174,11 @@ public class RecycleBinRuleTests
     /// A volume with no bin folder is a volume that has never held a deleted item or has recycling
     /// switched off: a real answer, offered nothing, not called broken.
     /// </summary>
+    /// <summary>
+    /// A volume with no bin folder is a volume that has never held a deleted item or has recycling
+    /// switched off: a real answer, offered nothing, not called broken. The absence is established
+    /// by the listing refusing with not-found, never by an existence question - see the test below.
+    /// </summary>
     [Fact]
     public void Examine_AVolumeWithNoBinFolder_IsOkAndOffersNothing()
     {
@@ -189,6 +194,35 @@ public class RecycleBinRuleTests
         Assert.Equal(RuleVerdict.Ok, finding.Verdict);
         Assert.Empty(finding.Candidates);
         Assert.Equal(0, Control(finding, "bins-found"));
+    }
+
+    /// <summary>
+    /// The Delivery Lead's finding, fixed before review. An existence question answers false for a
+    /// folder that is not there AND for one that cannot be told, with the reason swallowed, and
+    /// "could not tell" must never be reported as "nothing to remove" - the bin tree on this very
+    /// machine holds a folder that refuses its listing. The rule probes the bin by attempting its
+    /// listing: not-found stays the honest absent answer above, and every other failure says the
+    /// rule could not do its work.
+    /// </summary>
+    [Fact]
+    public void Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove()
+    {
+        using var tree = new FixtureTree(nameof(Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove));
+        tree.Folder("bin");
+        tree.DenyListing("bin");
+
+        var rule = new RecycleBinRule(Path.Combine(tree.Root, "bin"));
+        var finding = RuleFold.Fold(rule, rule.Examine(new RuleContext
+        {
+            ScanRootPath = Path.GetTempPath(),
+            NowUtc = DateTimeOffset.UtcNow
+        }));
+
+        Assert.Equal(RuleVerdict.Broken, finding.Verdict);
+        Assert.Empty(finding.Candidates);
+        Assert.Contains("would not be listed", finding.BrokenReason!, StringComparison.Ordinal);
+        Assert.Contains("could not do its work", finding.BrokenReason!, StringComparison.Ordinal);
+        Assert.Contains("verdict: broken", finding.Lines);
     }
 
     /// <summary>

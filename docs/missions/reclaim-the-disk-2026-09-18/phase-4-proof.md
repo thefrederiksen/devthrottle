@@ -12,8 +12,9 @@ never raises itself to - so it never ran here either.
 
 ## 1. The suite
 
-`dotnet test src\CcDirector.Reclaim.Tests` - **239 passed, 0 failed, 0 skipped**, on a build the
-run made itself. Phase 2 left 193; phase 4 adds 46.
+`dotnet test src\CcDirector.Reclaim.Tests` - **240 passed, 0 failed, 0 skipped**, on a build the
+run made itself. Phase 2 left 193; phase 4 adds 47, one of them answering the Delivery Lead's
+finding in section 3 below.
 
 | File | Tests | What they hold |
 |---|---|---|
@@ -21,14 +22,15 @@ run made itself. Phase 2 left 193; phase 4 adds 46.
 | `DismComponentStoreAnalysisTests` | 8 | The command machinery proven with a harmless command the tests supply; the parser; the not-elevated decision, with the test supplying the answer so nothing real ever starts |
 | `DiskCleanupRuleTests` | 6 | The registry list counted and separated by administrator; the deliberate non-offer; the empty list as BROKEN; one rule per volume |
 | `CrashDumpsAndErrorReportsRuleTests` | 10 | Old dumps offered one by one; the archive offered whole and the queue never offered; the fresh store declined; the no-places BROKEN case; the refused machine folder declined, not broken |
-| `RecycleBinRuleTests` | 12 | Real deletion records in the system's own binary format: pairs offered per account bin, everything else counted and survived, and every refusal named |
+| `RecycleBinRuleTests` | 13 | Real deletion records in the system's own binary format: pairs offered per account bin, everything else counted and survived, and every refusal named, including the bin folder itself |
 | `MachineRulesDeclineTests` | 4 | The categories the mission only reports: no rule looks inside them, no candidate-producing rule covers them, no rule is named for them; and the machine's rule ids are distinct |
 
-Every fixture tree is built by the test and destroyed by it. **No test points at anything on the
-real machine** - not at the registry, not at any real bin or report store, and no test starts the
-real analysis command at any elevation. The local gate
-(`.\scripts\test-local.ps1`) is green with `CcDirector.Reclaim.Tests` in its default list: all
-nine suites completed, 2,575 tests, zero failures.
+`dotnet test src\CcDirector.Reclaim.Tests` - **240 passed, 0 failed, 0 skipped** on the final
+build. Every fixture tree is built by the test and destroyed by it. **No test points at anything
+on the real machine** - not at the registry, not at any real bin or report store, and no test
+starts the real analysis command at any elevation. The local gate (`.\scripts\test-local.ps1`)
+is green with `CcDirector.Reclaim.Tests` in its default list: all nine suites completed, zero
+failures, run twice - once before and once after the Delivery Lead's finding was fixed.
 
 ## 2. The BROKEN case for each new rule
 
@@ -47,6 +49,12 @@ Each new rule has a test that proves its own way of arriving there:
 - `Examine_ABinWhereEveryAccountRefusedItsListing_ReportsBrokenRatherThanNothingToRemove` - the
   recycle bin rule when the bin folder exists, holds account bins, and every one refused its
   listing.
+- `Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove` - the recycle
+  bin rule when the bin FOLDER itself cannot be told from absent. The Delivery Lead's finding: an
+  existence question answers false for both, with the reason swallowed, so "could not tell" was
+  on its way to being reported as "nothing to remove". The bin folder is now probed by
+  attempting its listing, and only a listing that fails with not-found is the honest absent
+  answer.
 
 ## 3. The revert proofs
 
@@ -79,9 +87,16 @@ bins found rather than bins listed - the rule claiming it listed a bin that refu
 `Examine_ABinWhereEveryAccountRefusedItsListing_ReportsBrokenRatherThanNothingToRemove` **red,
 alone**. Restored, rebuilt: green.
 
+**Five: the recycle bin rule's could-not-tell gate, after the Delivery Lead's finding.** The
+branch that reports BROKEN when the bin folder refuses its listing was made to answer the absent
+answer instead - the exact regression the finding was about, "could not tell" read as "nothing to
+remove". Whole suite:
+`Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove` **red, alone**
+(239 passed). Restored, rebuilt: green.
+
 One red each, exactly the test named for that check, and no other test moved: each check guards
 its own rule and nothing else. After the last restore the whole suite ran on a fresh build:
-**239 passed, 0 failed**, and `git diff HEAD` is empty.
+**240 passed, 0 failed**, and `git diff HEAD` is empty.
 
 ## 4. The read-only run on the owner's machine
 

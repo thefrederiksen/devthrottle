@@ -124,7 +124,33 @@ The candidate granularity is the bin, not the pair, because the mandate says to 
 per-volume bins as what they are; the per-pair detail rides in the controls and the candidate's
 own words.
 
-## 7. The categories the mission reports only are held by a test, not by a feature
+## 7. The Delivery Lead's finding in the first review of this phase, accepted and fixed
+
+The Lead read the built code before the Reviewer seat and found the one fail-open path this phase
+had left: the recycle bin rule's top-level gate asked `Directory.Exists`, which answers false for a
+folder that is not there AND for one that cannot be told, with the reason swallowed - and on the
+absent path the only must-not-be-empty control was the constant `bins-looked-for`, which can never
+alarm. So "could not tell" would have been reported as "nothing to remove", which is the failure
+the whole mission exists to prevent. The Lead's evidence was this machine's own bin tree, where a
+folder refusing its listing is normal, not an edge case.
+
+The fix, as the Lead scoped it: the bin folder is now probed by ATTEMPTING ITS LISTING, never by an
+existence question. A listing that fails with not-found is the honest absent answer, still
+`verdict: ok` with nothing offered; a listing that fails for any other reason reports the rule
+BROKEN with the reason named. `Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove`
+holds it, and it has its own revert proof (the fifth), run against the whole suite: with the fix
+taken out the test is red alone, and green again when it is restored.
+
+The same existence-question shape was checked in the crash dumps rule, where places are gated with
+`File.Exists` and `Directory.Exists` before they are listed. There it is not the fail-open case the
+Lead's finding describes: a place whose existence cannot be determined is skipped before it is
+counted as found, no code path offers anything from it, and a machine where every place cannot be
+told lands on `places-found` nought and reports BROKEN. All seven places sit under parents an
+ordinary account can list, so the swallow is not reachable there in practice. The recycle bin
+rule's gate was the one where the swallow could answer a whole question alone, and that is why it
+was the one fixed.
+
+## 8. The categories the mission reports only are held by a test, not by a feature
 
 Nothing was built for the reported-never-offered categories (DevThrottle's own session logs and
 history, recordings, `ProgramData\mindzie`, Hugging Face models, Playwright browsers, Docker and
@@ -136,7 +162,7 @@ them, and that no rule is named for one. The list of places is typed in the test
 is the mission's own list held as an alarm, not product logic read at runtime. A future rule added
 for one of these places fails that test, and the mission has to be reopened first.
 
-## 8. Age gates
+## 9. Age gates
 
 The mission's rulings set thirty days for installer orphans and seven for test scratch folders and
 left the rest to this phase. Every new gate is thirty days: a crash dump or a sent report nobody
@@ -145,7 +171,7 @@ the mission gave the installer orphans. The two owner-command rules (component s
 Cleanup) carry no gate, like the package caches before them: Windows' own command decides what it
 takes, and no age this tool could read makes that decision safer.
 
-## 9. What this phase deliberately does not contain
+## 10. What this phase deliberately does not contain
 
 No removal code of any kind, and no change to anything phase 3 owns. No cleanup command is run
 anywhere, in the product or in a test - the only command anything runs is the read-only component
