@@ -143,6 +143,16 @@ function StopDebug({
         {stop.failed && stop.failureReason && (
           <p className="wingman-note wingman-debug-refusal">Refused: {stop.failureReason}</p>
         )}
+        {/* A bad button list costs the buttons, not the reading: the answer was kept, and this is why it has none. */}
+        {stop.optionsDroppedReason && (
+          <p className="wingman-note wingman-debug-refusal">Buttons dropped: {stop.optionsDroppedReason}</p>
+        )}
+        {stop.failed && (
+          <p className="wingman-note">
+            Retries made: {String(stop.retriesMade ?? 0)}.{" "}
+            {stop.nextRetryAtUtc ? `Next retry booked for ${stop.nextRetryAtUtc}.` : "No retry is booked."}
+          </p>
+        )}
       </div>
 
       <div className="wingman-blocks">

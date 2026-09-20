@@ -59,7 +59,7 @@ public sealed class VoiceRowStampTests
     [Theory]
     [InlineData("nothing-to-narrate", "nothingToNarrate")]
     [InlineData("director-too-old", "directorTooOld")]
-    [InlineData("narration-abandoned", "notNarrated")]
+    [InlineData("speech-error", "wingmanError")]
     public void Each_reason_reaches_the_parameter_it_belongs_to(string fact, string expectedKind)
     {
         var row = Row();
@@ -67,7 +67,9 @@ public sealed class VoiceRowStampTests
         VoiceRowStamp.Apply(row, new VoiceRowStamp.VoiceFacts(
             NothingToNarrate: _ => fact == "nothing-to-narrate",
             DirectorCannotSendConversation: _ => fact == "director-too-old",
-            NarrationAbandoned: _ => fact == "narration-abandoned"));
+            SpeechError: _ => fact == "speech-error"
+                ? CcDirector.Gateway.Wingman.WingmanErrorFold.ForSchedule(CcDirector.Gateway.Wingman.WingmanErrorFold.SpeechFailedReason, 0, DateTime.UtcNow.AddMinutes(1))
+                : null));
 
         Assert.Equal(expectedKind, row.VoiceDisplay!.Kind);
     }

@@ -99,7 +99,7 @@ internal static class GatewayEndpoints
         /// <summary>Issue #2676: this turn's narration was abandoned - the model did not answer and the voice
         /// path's bounded re-attempts are spent, so nothing further is scheduled. Feeds the folded
         /// VoiceDisplay so the screen stops promising audio nobody is making.</summary>
-        Func<TenantId, string, bool>? narrationAbandonedFor = null,
+        Func<TenantId, string, WingmanErrorDisplay?>? speechErrorFor = null,
         Func<TenantId, string, bool>? servedViaFallbackFor = null,
         /// <summary>Issue #2576: stamps and returns SessionDto.VoiceWaitingSince - when this session's wait
         /// for voice began, or null when it is not waiting. Null delegate leaves the field unset, so a caller
@@ -1488,7 +1488,7 @@ internal static class GatewayEndpoints
                     Unavailable: voiceUnavailableFor is null ? null : sid => voiceUnavailableFor(reqTenant.Value, sid),
                     NothingToNarrate: nothingToNarrateFor is null ? null : sid => nothingToNarrateFor(reqTenant.Value, sid),
                     DirectorCannotSendConversation: directorCannotSendConversationFor is null ? null : sid => directorCannotSendConversationFor(reqTenant.Value, sid),
-                    NarrationAbandoned: narrationAbandonedFor is null ? null : sid => narrationAbandonedFor(reqTenant.Value, sid),
+                    SpeechError: speechErrorFor is null ? null : sid => speechErrorFor(reqTenant.Value, sid),
                     ServedViaFallback: servedViaFallbackFor is null ? null : sid => servedViaFallbackFor(reqTenant.Value, sid),
                     WaitingStamp: voiceWaitingStampFor is null ? null : (sid, waiting) => voiceWaitingStampFor(reqTenant.Value, sid, waiting));
                 foreach (var s in sessions)
@@ -3136,7 +3136,7 @@ internal static class GatewayEndpoints
                     Unavailable: voiceUnavailableFor is null ? null : s => voiceUnavailableFor(tenant, s),
                     NothingToNarrate: nothingToNarrateFor is null ? null : s => nothingToNarrateFor(tenant, s),
                     DirectorCannotSendConversation: directorCannotSendConversationFor is null ? null : s => directorCannotSendConversationFor(tenant, s),
-                    NarrationAbandoned: narrationAbandonedFor is null ? null : s => narrationAbandonedFor(tenant, s),
+                    SpeechError: speechErrorFor is null ? null : s => speechErrorFor(tenant, s),
                     ServedViaFallback: servedViaFallbackFor is null ? null : s => servedViaFallbackFor(tenant, s),
                     WaitingStamp: voiceWaitingStampFor is null ? null : (s, waiting) => voiceWaitingStampFor(tenant, s, waiting)),
                 startedByScheduleFor));
@@ -5600,6 +5600,13 @@ internal static class GatewayEndpoints
         // snapshot of the account's verdicts for the whole fold, and no read at all while the account's colour
         // switch is off - see TurnVerdictRowStamp.
         var verdictsOnTheWire = Wingman.TurnVerdictRowStamp.Stamp(all, turnVerdictRows, tenant);
+
+        // THE VOICE SCREEN SAYS THE SAME THING THE CARD SAYS about a reading that failed. Applied here for the same
+        // ordering reason the held card is applied above: the voice verdict was folded before the readings reached
+        // the rows, so this is the first moment the answer exists. A held session keeps its held card.
+        foreach (var s in all)
+            if (s is { VoiceDisplay: { } voiceVerdict, HasLiveSupervisor: not true })
+                s.VoiceDisplay = Wingman.VoiceDisplayFold.WithReadingError(voiceVerdict, s.WingmanError);
 
         // A SNOOZE EXPIRY RE-JUDGES (slice F, ruling 10), stamped after the verdicts because its decision reads
         // them, and before the loop because the loop's colour and label read its answer. It takes the SAME snooze

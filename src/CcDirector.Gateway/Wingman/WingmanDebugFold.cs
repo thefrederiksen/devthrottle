@@ -79,6 +79,9 @@ public static class WingmanDebugFold
             Narration = verdict?.Narration,
             Failed = verdict?.Failed ?? false,
             FailureReason = verdict?.FailureReason,
+            OptionsDroppedReason = verdict?.OptionsDroppedReason,
+            RetriesMade = verdict?.RetriesMade ?? 0,
+            NextRetryAtUtc = verdict?.NextRetryAtUtc,
             RowColour = trace.RowColour,
             RowLabel = trace.RowLabel,
 
@@ -141,6 +144,16 @@ public sealed class WingmanDebugStop
     public string? Narration { get; set; }
     public bool Failed { get; set; }
     public string? FailureReason { get; set; }
+
+    /// <summary>Why this reading's buttons were dropped while the reading itself was kept, or null.</summary>
+    public string? OptionsDroppedReason { get; set; }
+
+    /// <summary>On a failed reading: how many scheduled retries the stop had spent when this was stored.</summary>
+    public int RetriesMade { get; set; }
+
+    /// <summary>On a failed reading: when the next retry was booked for, or null when nothing was booked.</summary>
+    public DateTime? NextRetryAtUtc { get; set; }
+
     public string? RowColour { get; set; }
     public string? RowLabel { get; set; }
 

@@ -165,9 +165,9 @@ public enum TurnVerdictTrigger
     /// the judge switch applies (except for a voice session), and the ceiling applies.</summary>
     TurnEnd,
 
-    /// <summary>A voice session's own narration, including its booked re-attempts. Held and exited sessions
-    /// are skipped; the judge switch and the ceiling do not apply, because somebody is listening. A booked
-    /// re-attempt only ever reuses a stored verdict and never asks the judge.</summary>
+    /// <summary>A voice session's own narration. Held and exited sessions are skipped; the judge switch and the
+    /// ceiling do not apply, because somebody is listening. It reuses a stored reading of an unchanged screen,
+    /// failed or not: a failed reading is asked again only by <see cref="Retry"/>, on its booked time.</summary>
     Voice,
 
     /// <summary>The idle voice sweep. Like <see cref="Voice"/>, but capped, and it never re-asks the judge
@@ -184,6 +184,15 @@ public enum TurnVerdictTrigger
     /// long since stopped repainting.
     /// </summary>
     SnoozeExpiry,
+
+    /// <summary>
+    /// A FAILED READING'S BOOKED RETRY HAS COME DUE (mission "Wingman error and retry", 2026-09-19). It re-does
+    /// the turn end's reading, so it takes the turn end's rules - held for judging, the judge switch, the
+    /// ceiling - without the settle delay, because the stop is at least a minute old. It is the ONLY automatic
+    /// trigger that asks again about a failed record on an unchanged screen, and only when that record's own
+    /// <see cref="TurnVerdictDto.NextRetryAtUtc"/> has passed. See <see cref="WingmanRetrySchedule"/>.
+    /// </summary>
+    Retry,
 }
 
 /// <summary>
@@ -206,8 +215,7 @@ public enum TurnVerdictOutcomeKind
     /// <summary>The screen was unchanged, so the stored verdict was returned and nobody was asked.</summary>
     Reused,
     /// <summary>A check stood the request down before the judge was asked. NOT necessarily before anything was
-    /// read: the re-attempt refusal comes after the screen read, and the provider deadline and the account ceiling
-    /// come after the screen AND the conversation. Which check costs what is the boundary block above JudgeAsync.
+    /// read: the account ceiling comes after the screen AND the conversation. Which check costs what is the boundary block above JudgeAsync.
     /// (This summary used to say "before anything was read or asked", which was true of only some of them.)</summary>
     Skipped,
     /// <summary>No usable verdict came back - the judge failed, or the request met an exception it did not
@@ -374,11 +382,6 @@ public sealed class TurnVerdictService : IDisposable
         private readonly object _decisionGate = new();
         private bool _askedOnDemand;
         private bool _attemptsDecided;
-        private bool _reattemptedForPerson;
-
-        /// <summary>True only when the attempt loop actually made its re-attempt while a person had asked. A decision
-        /// against a re-attempt - a rate limit, a readable refusal, an answer - never sets it.</summary>
-        public bool ReattemptedForPerson { get { lock (_decisionGate) return _reattemptedForPerson; } }
 
         /// <summary>Whether a person had asked about this flight when its attempt loop decided, or has asked so far.</summary>
         public bool AskedOnDemand { get { lock (_decisionGate) return _askedOnDemand; } }
@@ -408,10 +411,7 @@ public sealed class TurnVerdictService : IDisposable
             lock (_decisionGate)
             {
                 if (mayReattempt && (_askedOnDemand || isVoiceSession()))
-                {
-                    if (_askedOnDemand) _reattemptedForPerson = true;
                     return true;
-                }
                 _attemptsDecided = true;
                 return false;
             }
@@ -753,7 +753,7 @@ public sealed class TurnVerdictService : IDisposable
 
         var state = firstState;
         return Task.Run(() => RunFlightAsync(key, flight, signal.DirectorId, signal.ObservedAtUtc,
-            TurnVerdictTrigger.TurnEnd, screenReader: null, providerHold: null, mayAskJudge: true, firstState: state));
+            TurnVerdictTrigger.TurnEnd, screenReader: null, firstState: state));
     }
 
     /// <summary>
@@ -823,8 +823,7 @@ public sealed class TurnVerdictService : IDisposable
         var observedAt = _lastObserved.TryGetValue(key, out var seen) ? seen : _env.NowUtc();
         var state = firstState;
         var judgement = Task.Run(() => RunFlightAsync(key, flight, directorId, observedAt,
-            TurnVerdictTrigger.SnoozeExpiry, screenReader: null, providerHold: null, mayAskJudge: true,
-            firstState: state));
+            TurnVerdictTrigger.SnoozeExpiry, screenReader: null, firstState: state));
         // The fold does not wait for the judgement, but a fault must not go unread: the flight answers every
         // ordinary failure with a stored record, so anything reaching here is the boundary itself failing.
         _ = judgement.ContinueWith(
@@ -845,21 +844,13 @@ public sealed class TurnVerdictService : IDisposable
     /// </summary>
     /// <param name="screenReader">The caller's own screen read, when it already holds the route (the voice
     /// path) or has already read the screen (the sweep). Null uses the environment's tunnel read.</param>
-    /// <param name="providerHold">Given the screen hash and the source text of THIS stop, how long the provider
-    /// asked this caller to wait before asking again, or null. Consulted after the screen and the source are
-    /// known and before the judge is asked, so a new stop is never held back by an earlier stop's wait.</param>
-    /// <param name="mayAskJudge">False for a voice narration's speech re-attempt, which never asks the judge. When
-    /// the stored verdict cannot be reused - including every unreadable screen, which is never reused outside the
-    /// sweep - the request is skipped under <see cref="ActivityCauses.ReattemptNeverJudges"/> instead of judged.</param>
     public async Task<TurnVerdictOutcome> VerdictForCurrentScreenAsync(
         TenantId tenant,
         string directorId,
         string sessionId,
         TurnVerdictTrigger trigger,
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader = null,
-        CancellationToken ct = default,
-        Func<string, string?, TimeSpan?>? providerHold = null,
-        bool mayAskJudge = true)
+        CancellationToken ct = default)
     {
         if (!tenant.IsValid) throw new ArgumentException("A verdict needs a valid tenant.", nameof(tenant));
         if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("A session id is required.", nameof(sessionId));
@@ -893,10 +884,9 @@ public sealed class TurnVerdictService : IDisposable
                         continue;
                     }
                     // A turn-end judgement that stood down for a reason that binds only the turn-end path - this
-                    // account's ceiling, or its judge switch - is not an answer for somebody who is listening. Nor is a
-                    // speech re-attempt that stood down because it may not ask the judge: that binds the re-attempt only.
+                    // account's ceiling, or its judge switch - is not an answer for somebody who is listening.
                     if (!(joined.Kind == TurnVerdictOutcomeKind.Skipped
-                          && joined.SkipCause is ActivityCauses.InFlightCap or ActivityCauses.JudgeSwitchOff or ActivityCauses.ReattemptNeverJudges))
+                          && joined.SkipCause is ActivityCauses.InFlightCap or ActivityCauses.JudgeSwitchOff))
                         return joined;
                     continue;
                 }
@@ -910,7 +900,7 @@ public sealed class TurnVerdictService : IDisposable
             }
 
             var observedAt = _lastObserved.TryGetValue(key, out var seen) ? seen : _env.NowUtc();
-            return await RunFlightAsync(key, flight, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge, firstState: null).ConfigureAwait(false);
+            return await RunFlightAsync(key, flight, directorId, observedAt, trigger, screenReader, firstState: null).ConfigureAwait(false);
         }
 
         throw new InvalidOperationException(
@@ -942,7 +932,6 @@ public sealed class TurnVerdictService : IDisposable
 
         _reading.TryRemove(key, out _);
         ClearRateLimitHold(key);
-        _askedOnDemandFailures.TryRemove(key, out _);
         // The last observed stop is over too. A verdict request that starts before the detector observes the NEXT
         // stop carries the moment it started, and takes the observed moment when the detector catches up.
         _lastObserved.TryRemove(key, out _);
@@ -960,8 +949,6 @@ public sealed class TurnVerdictService : IDisposable
         DateTime observedAt,
         TurnVerdictTrigger trigger,
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader,
-        Func<string, string?, TimeSpan?>? providerHold,
-        bool mayAskJudge,
         TurnVerdictSessionState? firstState)
     {
         // THE EPOCH THIS FLIGHT STANDS ON, captured before anything is read - before the roster, the screen and
@@ -974,7 +961,7 @@ public sealed class TurnVerdictService : IDisposable
         {
             try
             {
-                outcome = await JudgeAsync(key, flight, epoch, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge, firstState).ConfigureAwait(false);
+                outcome = await JudgeAsync(key, flight, epoch, directorId, observedAt, trigger, screenReader, firstState).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (flight.Cts.IsCancellationRequested)
             {
@@ -1046,6 +1033,8 @@ public sealed class TurnVerdictService : IDisposable
         {
             record.JudgedAtUtc = _env.NowUtc();
             record.Model = _env.JudgeModel(tenant);
+            record.FailureKind = WingmanFailureKinds.Unavailable;
+            StampRetrySchedule(record, _env.Latest(tenant, sid), trigger, providerWait: null);
             if (!StoreIfCurrent(key, epoch, record))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked before the failed record could be stored", flight);
         }
@@ -1092,8 +1081,6 @@ public sealed class TurnVerdictService : IDisposable
         DateTime observedAt,
         TurnVerdictTrigger trigger,
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader,
-        Func<string, string?, TimeSpan?>? providerHold,
-        bool mayAskJudge,
         TurnVerdictSessionState? firstState)
     {
         var (tenant, sid) = key;
@@ -1116,14 +1103,12 @@ public sealed class TurnVerdictService : IDisposable
         //    while one is held for the session, this check reads the stored conversation as well, to tell
         //    whether the reply is still the stop the wait was named for, and a stop answered by that wait
         //    has read both.
-        // 4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
-        //    conversation is read. A stop refused here costs ONE read.
-        // 5. The conversation read.
-        // 6. The provider deadline, then the account ceiling. A stop refused by either costs TWO reads.
-        // 7. The model call.
+        // 4. The conversation read.
+        // 5. The account ceiling. A stop refused here costs TWO reads.
+        // 6. The model call.
         //
         // The line above used to read "the free checks: nothing is read and nothing is paid for until every one of
-        // them passes". That was false - steps 3, 4 and 6 all come after the screen read - and it is recorded here
+        // them passes". That was false - steps 3 and 5 both come after the screen read - and it is recorded here
         // because the charter and the specification had copied it. The same block, word for word, is in
         // docs/wingman/WINGMAN.md section 3b and docs/architecture/wingman/TURN_VERDICT.md section 6.
         //
@@ -1140,7 +1125,7 @@ public sealed class TurnVerdictService : IDisposable
         // THE JUDGE SWITCH binds the two triggers nobody is waiting on: the detector's turn end, and a snooze
         // expiry with a stop nothing has judged. A voice session is the standing exception - somebody is
         // listening to it - and a person's own request is not automatic at all.
-        if (trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry
+        if (trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry or TurnVerdictTrigger.Retry
             && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
             return Skip(tenant, directorId, sid, trigger, ActivityCauses.JudgeSwitchOff, settings, observedAt);
 
@@ -1172,30 +1157,14 @@ public sealed class TurnVerdictService : IDisposable
                 () => WingmanNarrationSource.Select(_env.ReadConversation(tenant, sid)?.Widgets, rows)?.Content))
             return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid);
 
-        // A SPEECH RE-ATTEMPT NEVER ASKS THE JUDGE. No automatic path costs two model calls for one stop, so a caller
-        // that may not ask stops here, after the reuse check and before anything else is read or paid for. On an
-        // unreadable screen this is always the answer, because an unreadable screen is never reused outside the sweep.
-        if (!mayAskJudge)
-        {
-            FileLog.Write($"[TurnVerdictService] sid={sid}: no reusable verdict for this {(hash.Length == 0 ? "unreadable" : "readable")} screen, and this caller may not ask the judge - skipped");
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.ReattemptNeverJudges, settings, observedAt);
-        }
-
         // The source this stop is judged from, chosen ONCE, over this one screen read.
         var conversation = _env.ReadConversation(tenant, sid)
                            ?? new StoredConversation(false, Array.Empty<TurnWidgetDto>());
         var source = WingmanNarrationSource.Select(conversation.Widgets, rows);
 
-        // THE PROVIDER'S OWN DEADLINE. A caller the provider told to wait - the voice path, after a rate limit on
-        // this stop - is not asked about again for this stop until the wait has passed.
-        if (providerHold?.Invoke(hash, source?.Content) is { } wait)
-        {
-            FileLog.Write($"[TurnVerdictService] sid={sid}: not asking the judge for {wait.TotalSeconds:F0}s more - the provider asked this caller to wait");
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.RateLimited, settings, observedAt);
-        }
-
         // ---- the account's ceiling ----
-        var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep or TurnVerdictTrigger.SnoozeExpiry;
+        var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep or TurnVerdictTrigger.SnoozeExpiry
+            or TurnVerdictTrigger.Retry;
         var load = _tenantLoad.GetOrAdd(tenant, _ => new StrongBox<int>());
         if (capped && Interlocked.Increment(ref load.Value) > settings.MaxInFlight)
         {
@@ -1343,6 +1312,20 @@ public sealed class TurnVerdictService : IDisposable
                 record.Spoken = words;
             }
 
+            // A NARRATION THAT WAS OWED AND DID NOT COME IS A FAILED READING TO THE PERSON LOOKING AT IT. The judge's
+            // answer stands - the row keeps its colour and its label - and the record says the words are missing, so it
+            // shows the same tag and goes on the same schedule as any other failure. A narration that was never owed
+            // (a session another live session owns) carries no failure detail and is not one.
+            if (!record.Failed && narration.Spoken is not { Length: > 0 } && narration.FailureDetail is { Length: > 0 } noWords)
+                record.NarrationFailureReason = noWords;
+            record.FailureKind = record.Failed ? FailureKindWord(failure)
+                : record.NarrationFailureReason is not null ? WingmanFailureKinds.NarrationFailed
+                : null;
+
+            // WHERE THIS STOP IS ON ITS RETRY SCHEDULE is written on the failed record itself, before it is stored, so
+            // the record a card is rendered from and the record the sweep retries from are one record.
+            if (WingmanRetrySchedule.NeedsRetry(record)) StampRetrySchedule(record, latest, trigger, retryAfter);
+
             if (!StoreIfCurrent(key, epoch, record))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked between the read and the store; the answer describes a screen that is gone", flight);
 
@@ -1369,9 +1352,6 @@ public sealed class TurnVerdictService : IDisposable
             {
                 if (failure == TurnVerdictFailureKind.RateLimited && retryAfter is { } namedWait)
                     WriteRateLimitHoldIfCurrent(key, flight, (record.VerdictId, _env.NowUtc() + namedWait, source?.Content));
-                // The explain-already-asked marker: set only when this flight's loop made its re-attempt for a person.
-                if (flight.ReattemptedForPerson)
-                    _askedOnDemandFailures[key] = record.VerdictId;
                 // The refused answer's own decision, for a narration call about this record - now or on a later reuse.
                 var narrationDecision = failure == TurnVerdictFailureKind.Refused
                     ? TurnVerdictContract.SalvageNarrationDecision(rawReply)
@@ -1492,9 +1472,11 @@ public sealed class TurnVerdictService : IDisposable
                 Verdict = verdict,
                 Failure = holdLeft is null ? TurnVerdictFailureKind.Refused : TurnVerdictFailureKind.RateLimited,
                 RetryAfter = holdLeft,
-                FailureDetail = holdLeft is null
-                    ? "the last answer about this unchanged screen failed, and it is not asked again"
-                    : "the judge was rate limited about this unchanged screen, and it is not asked again inside the wait it named",
+                FailureDetail = holdLeft is not null
+                    ? "the judge was rate limited about this unchanged screen, and it is not asked again inside the wait it named"
+                    : verdict.NextRetryAtUtc is { } nextRetry
+                        ? $"the last answer about this unchanged screen failed; retry {verdict.RetriesMade + 1} of {WingmanRetrySchedule.Total} is booked for {nextRetry:u}, and it is not asked before then"
+                        : "the last answer about this unchanged screen failed, the retry schedule is used up, and nothing more is scheduled",
                 ScreenHash = hash,
                 SourceText = source?.Content,
                 NarrationPackage = narrationPackage,
@@ -1588,9 +1570,8 @@ public sealed class TurnVerdictService : IDisposable
     /// already-published record, and that second call is the seam this ruling removes. It now finds the words
     /// already on the record and speaks them.
     ///
-    /// IT GETS ONE IMMEDIATE SECOND ATTEMPT, and the reason is that this call changed meaning under it. The judge
-    /// leg has had a ladder for months - three re-attempts at ten, thirty and ninety seconds - and this leg had
-    /// none, deliberately: the idle sweep comes past every forty-five seconds, and spending a model call to
+    /// IT GETS ONE IMMEDIATE SECOND ATTEMPT, and the reason is that this call changed meaning under it. This leg
+    /// had no second attempt at all, deliberately: the idle sweep comes past every forty-five seconds, and spending a model call to
     /// improve on words the reader ALREADY HAD was not worth it. Contract v3 cut the judge's own prose, so these
     /// are now the only words a reading has, and "no automatic re-attempt" silently stopped meaning "you keep the
     /// short version" and started meaning silence.
@@ -1699,8 +1680,9 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
-    /// One narration call has finished, however it ended. The claim STAYS - an automatic path never re-attempts a
-    /// stop, which is what keeps a stop that fails from spending a paid model call on every sweep pass - but it stops
+    /// One narration call has finished, however it ended. The claim STAYS - no automatic path narrates this same
+    /// record again, which is what keeps a stop that fails from spending a paid model call on every sweep pass (the
+    /// booked retry makes a NEW reading, with its own record, at most eight times) - but it stops
     /// being a RUNNING call, which is what lets a PERSON ask again. See <see cref="ReleaseNarrationClaimForRequest"/>.
     /// </summary>
     internal void NarrationCallFinished(TenantId tenant, string sid, string verdictId)
@@ -1735,9 +1717,10 @@ public sealed class TurnVerdictService : IDisposable
     ///
     /// ONLY A PERSON RELEASES IT, deliberately. The automatic paths - the turn end and the idle sweep - keep the older
     /// restraint that <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins: a stop whose
-    /// narration failed is not retried by itself, because the sweep comes past every forty-five seconds and a stop
-    /// that keeps failing would keep costing a call. A person asking is bounded by the person, and is the one action
-    /// left on that screen that can still produce this turn's audio.
+    /// narration failed is not narrated again on every pass, because the sweep comes past every forty-five seconds
+    /// and a stop that keeps failing would keep costing a call. What asks again by itself is the booked retry
+    /// (<see cref="StartDueRetries"/>), eight times at most and as a new reading; a person asking is bounded by the
+    /// person.
     /// </summary>
     internal bool ReleaseNarrationClaimForRequest(TenantId tenant, string sid, string verdictId)
     {
@@ -1773,6 +1756,14 @@ public sealed class TurnVerdictService : IDisposable
             }
             var updated = Copy(latest);
             updated.Narration = narration;
+            // THE WORDS ARRIVED, so this reading is no longer one with no words: the tag clears and nothing stays booked.
+            if (updated.NarrationFailureReason is not null)
+            {
+                updated.NarrationFailureReason = null;
+                updated.FailureKind = null;
+                updated.RetriesMade = 0;
+                updated.NextRetryAtUtc = null;
+            }
             _env.Store(tenant, sid, updated);
             FileLog.Write($"[TurnVerdictService] SaveNarration: sid={sid} verdict={verdictId} saved, length={narration.Length}");
             return true;
@@ -1804,10 +1795,6 @@ public sealed class TurnVerdictService : IDisposable
     // THE DECISION A REFUSED BUT READABLE ANSWER HELD, per session, keyed by the refused record's verdict id: the narration
     // call's input only (slice J). One per session - a newer refused record replaces it - and never read for the row.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string VerdictId, TurnVerdictDto Decision)> _refusedNarrationDecisions = new();
-
-    // THE FAILED RECORD A PERSON'S OWN ASK PRODUCED, per session. Explain may ask again about a failed record once;
-    // a failure that explain itself asked for is reused by the next explain rather than asked again.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), string> _askedOnDemandFailures = new();
 
     // THE HOLD GENERATION, per session: every clear (a new turn, a Working event) moves it on, under _holdGate, and a
     // flight writes its hold only when the generation is still the one it captured at start. Without it a flight that
@@ -1887,7 +1874,12 @@ public sealed class TurnVerdictService : IDisposable
             return true;
         if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
         if (hash.Length == 0 && trigger != TurnVerdictTrigger.Sweep) return false;
-        if (!latest.Failed) return true;
+        // A READING WITH NO WORDS is asked again by its booked retry exactly as a failed one is. Every other trigger
+        // reuses it: the judge's answer on it is good, and a person asking buys the narration call alone.
+        if (!latest.Failed)
+            return !(trigger == TurnVerdictTrigger.Retry
+                     && latest.NarrationFailureReason is not null
+                     && WingmanRetrySchedule.IsDue(latest.NextRetryAtUtc, _env.NowUtc()));
         return trigger switch
         {
             // The sweep and a voice session's refresh reuse EVERY failed record, with or without words: a refused
@@ -1895,12 +1887,117 @@ public sealed class TurnVerdictService : IDisposable
             // listened-to re-attempt). Asking again from here would make the number of calls depend on whether the
             // refresh arrived before or after the turn end's judgement ended (inspection of slice I, finding 1).
             TurnVerdictTrigger.Sweep or TurnVerdictTrigger.Voice => true,
-            // A person pressing explain may ask again about a failed record ONCE - never about a failure whose flight already
-            // made its re-attempt for a person. (Inside a rate limit's wait the check above has already answered.)
-            TurnVerdictTrigger.OnDemand => _askedOnDemandFailures.TryGetValue(key, out var asked)
-                                           && string.Equals(asked, latest.VerdictId, StringComparison.Ordinal),
+            // THE ONE AUTOMATIC PATH THAT ASKS AGAIN, and only when the failed record's own booked retry has come due
+            // (mission "Wingman error and retry"). Before that moment it reuses the failure like every other path.
+            TurnVerdictTrigger.Retry => !WingmanRetrySchedule.IsDue(latest.NextRetryAtUtc, _env.NowUtc()),
+            // A PERSON ASKING ALWAYS MAKES ONE ATTEMPT (owner ruling, 2026-09-19: "a press makes one attempt at once").
+            // It is bounded by the person, and it neither resets nor consumes the schedule - see StampRetrySchedule.
+            // (Inside a rate limit's wait the check above has already answered.)
+            TurnVerdictTrigger.OnDemand => false,
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// Write where a failed stop is on its retry schedule onto the failed record (<see cref="WingmanRetrySchedule"/>).
+    ///
+    /// THE SCHEDULE IS PER STOP. A turn end is a new stop and starts it again, and so does a failure with no failed
+    /// record before it (a Working edge invalidates the store, so "the latest record is a failure" means "this same
+    /// stop failed before"). Every other automatic attempt after a failure spends one retry and books the next, or
+    /// books nothing when the eight are spent.
+    ///
+    /// A PERSON ASKING NEITHER RESETS NOR CONSUMES IT (owner ruling, 2026-09-19): the press made one attempt now, and
+    /// the failed record it leaves carries the schedule exactly as it stood - the same count, the same booked time.
+    /// </summary>
+    private void StampRetrySchedule(TurnVerdictDto failed, TurnVerdictDto? previous, TurnVerdictTrigger trigger, TimeSpan? providerWait)
+    {
+        var now = _env.NowUtc();
+        var sameStop = previous is not null && WingmanRetrySchedule.NeedsRetry(previous) && trigger != TurnVerdictTrigger.TurnEnd;
+        if (sameStop && trigger == TurnVerdictTrigger.OnDemand)
+        {
+            failed.RetriesMade = previous!.RetriesMade;
+            failed.NextRetryAtUtc = previous.NextRetryAtUtc;
+            // A provider that named a wait on the person's own attempt is still honoured: a booked retry moves later,
+            // never earlier, and a schedule with nothing booked stays with nothing booked.
+            if (providerWait is { } named && failed.NextRetryAtUtc is { } booked && booked < now + named)
+                failed.NextRetryAtUtc = now + named;
+            return;
+        }
+        failed.RetriesMade = sameStop ? Math.Min(previous!.RetriesMade + 1, WingmanRetrySchedule.Total) : 0;
+        failed.NextRetryAtUtc = WingmanRetrySchedule.NextRetryAtUtc(failed.RetriesMade, now, providerWait);
+    }
+
+    /// <summary>
+    /// THE IDLE SWEEP'S QUESTION, "IS A RETRY DUE", for one account (mission "Wingman error and retry"). Every
+    /// stored FAILED reading whose booked retry has come due is asked about again, under <see cref="TurnVerdictTrigger.Retry"/>.
+    /// Returns how many retries were started.
+    ///
+    /// NOTHING IS HELD IN MEMORY BETWEEN PASSES. The schedule is on the stored record, so a Gateway restart forgets no
+    /// booked retry, and a record with nothing booked is never touched here at all.
+    ///
+    /// FIRE AND FORGET, like the snooze expiry: the sweep waits for no model call. The flight takes the session's one
+    /// gate, so a retry that comes due while a judgement is already running joins it instead of paying twice. A
+    /// session that cannot be read right now - held, not live, exited, working, the ceiling reached - is left with its
+    /// retry still due, and the next pass asks again; nothing is spent and nothing is rebooked.
+    ///
+    /// THE ONE RECORD IT REWRITES: a due retry on an account whose judge switch has since been turned off, for a
+    /// session nobody is listening to. No retry will ever run for it, so the booking is withdrawn rather than left on
+    /// the card as a promise - goal 6 of the mission: no card says an attempt is coming when none is booked.
+    /// </summary>
+    public int StartDueRetries(TenantId tenant)
+    {
+        if (_disposed || !tenant.IsValid) return 0;
+        var now = _env.NowUtc();
+        var settings = _env.Settings(tenant);
+        var started = 0;
+        foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
+        {
+            if (!WingmanRetrySchedule.NeedsRetry(snapshot) || !WingmanRetrySchedule.IsDue(snapshot.NextRetryAtUtc, now)) continue;
+
+            if (!settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
+            {
+                WithdrawBookedRetry(tenant, sid, snapshot);
+                continue;
+            }
+
+            var state = _env.ReadSessionState(tenant, sid);
+            if (SessionStateSkipCause(state, TurnVerdictTrigger.Retry) is { } skipCause)
+            {
+                // Still booked and still due: the next pass asks again. Said out loud, because a due retry that
+                // never runs and never says why is exactly the silence this schedule exists to end.
+                FileLog.Write($"[TurnVerdictService] StartDueRetries: sid={sid} tenant={tenant.ToLogString()} a retry is due and was not started this pass ({skipCause}); it stays due");
+                continue;
+            }
+
+            var directorId = state.Facts?.DirectorId ?? "";
+            var retryNumber = snapshot.RetriesMade + 1;
+            FileLog.Write($"[TurnVerdictService] StartDueRetries: sid={sid} tenant={tenant.ToLogString()} retry {retryNumber} of {WingmanRetrySchedule.Total} is due (failed record {snapshot.VerdictId}) - asking again");
+            started++;
+            var retry = Task.Run(() => VerdictForCurrentScreenAsync(tenant, directorId, sid, TurnVerdictTrigger.Retry));
+            _ = retry.ContinueWith(
+                t => FileLog.Write($"[TurnVerdictService] retry {retryNumber} FAULTED: sid={sid}: " +
+                                   $"{t.Exception?.GetBaseException().GetType().FullName}: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+        }
+        return started;
+    }
+
+    /// <summary>Take the booked retry off a failed record that no retry will ever run for. Stored only while that
+    /// record is still the session's latest, under the same gate a Working edge invalidates under.</summary>
+    private void WithdrawBookedRetry(TenantId tenant, string sid, TurnVerdictDto snapshot)
+    {
+        lock (_storeGate)
+        {
+            var current = _env.Latest(tenant, sid);
+            if (current is null
+                || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal)
+                || current.NextRetryAtUtc is null)
+                return;
+            var withdrawn = Copy(current);
+            withdrawn.NextRetryAtUtc = null;
+            _env.Store(tenant, sid, withdrawn);
+        }
+        FileLog.Write($"[TurnVerdictService] WithdrawBookedRetry: sid={sid} tenant={tenant.ToLogString()} - the judge switch is off and nobody is listening, so no retry will run; the booking on {snapshot.VerdictId} is withdrawn");
     }
 
     private bool StoreIfCurrent((TenantId Tenant, string SessionId) key, long epoch, TurnVerdictDto record)
@@ -2425,7 +2522,7 @@ public sealed class TurnVerdictService : IDisposable
     private static string? SessionStateSkipCause(TurnVerdictSessionState state, TurnVerdictTrigger trigger)
     {
         var automatic = trigger != TurnVerdictTrigger.OnDemand;
-        var held = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry
+        var held = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry or TurnVerdictTrigger.Retry
             ? state.HeldForJudging
             : state.Held;
         if (automatic && held) return ActivityCauses.Held;
@@ -2461,6 +2558,15 @@ public sealed class TurnVerdictService : IDisposable
 
     private static bool IsWorking(SessionDto s)
         => string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The closed word stored on a failed record for the card's plain reason.</summary>
+    private static string FailureKindWord(TurnVerdictFailureKind failure) => failure switch
+    {
+        TurnVerdictFailureKind.DidNotAnswer => WingmanFailureKinds.DidNotAnswer,
+        TurnVerdictFailureKind.RateLimited => WingmanFailureKinds.RateLimited,
+        TurnVerdictFailureKind.Refused => WingmanFailureKinds.Refused,
+        _ => WingmanFailureKinds.Unavailable,
+    };
 
     private static string FailureCause(TurnVerdictFailureKind failure) => failure switch
     {
@@ -2536,6 +2642,7 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictTrigger.TurnEnd => "turn-end",
         TurnVerdictTrigger.Voice => "voice",
         TurnVerdictTrigger.Sweep => "sweep",
+        TurnVerdictTrigger.Retry => "retry",
         TurnVerdictTrigger.SnoozeExpiry => "snooze-expiry",
         _ => "on-demand",
     };

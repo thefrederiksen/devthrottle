@@ -311,7 +311,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     {
         var svc = ServiceAt(NewBaseDir());
         svc.BeginGenerating(TenantA, "s1");
-        svc.NoteRetrying(TenantA, "s1");
+        svc.NoteUnavailableForTest(TenantA, "s1", CcDirector.Core.HostedAi.HostedAiState.Retrying);
         svc.SetNothingToNarrate(TenantA, "s1", true);
 
         Assert.True(svc.IsGenerating(TenantA, "s1"));              // control

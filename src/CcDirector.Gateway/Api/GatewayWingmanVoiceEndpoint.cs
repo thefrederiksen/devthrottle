@@ -788,6 +788,39 @@ internal static class GatewayWingmanVoiceEndpoint
             });
         });
 
+        // "ASK AGAIN" ON A WINGMAN ERROR (mission "Wingman error and retry", 2026-09-19): one attempt at the reading,
+        // now. It is the owner's button, on the session card from the first failure, and it neither resets nor
+        // consumes the retry schedule. It always answers with one plain sentence, because a button that reports
+        // nothing reads as broken - and an attempt that fails again is a 200 with failed=true, not an error: the
+        // press worked, the model did not.
+        app.MapPost("/sessions/{sid}/wingman/ask-again", async (string sid, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[GatewayWingmanVoice] ask-again sid={sid}");
+            var reqTenant = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
+            if (reqTenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+            if (!Guid.TryParse(sid, out _))
+                return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
+
+            var route = await ResolveRouteAsync(reqTenant.Value, sid);
+            if (route is null && conversationReader?.Invoke(reqTenant.Value, sid) is null)
+                return Results.Json(new { error = "session not found on any director" }, statusCode: StatusCodes.Status404NotFound);
+
+            try
+            {
+                // The GATEWAY owns this work, not the page: it runs on CancellationToken.None so the attempt
+                // completes and is stored even if the person navigates away before the model answers.
+                var result = await voice.AskAgainAsync(reqTenant.Value, sid, route, CancellationToken.None);
+                FileLog.Write($"[GatewayWingmanVoice] ask-again sid={sid}: failed={result.Failed}");
+                return Results.Json(new { failed = result.Failed, message = result.Message });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayWingmanVoice] ask-again sid={sid} FAILED: {ex.GetType().Name}: {ex.Message}");
+                return Results.Json(new { error = "the Wingman could not be asked again" }, statusCode: StatusCodes.Status502BadGateway);
+            }
+        });
+
         app.MapPost("/wingman/ask-direct", async (WingmanVoiceTurnRequest? req, HttpContext ctx, CancellationToken ct) =>
         {
             FileLog.Write($"[GatewayWingmanVoice] ask-direct textLen={req?.Text?.Length ?? 0}");

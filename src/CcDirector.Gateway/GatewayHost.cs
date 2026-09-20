@@ -2575,6 +2575,14 @@ public sealed class GatewayHost : IAsyncDisposable
             await _tenantPass.ForEachTenantAsync(async () =>
             {
                 if (_tenantPass.Current is not { } tenant) return;   // deny: no scope in effect -> sweep nothing
+                // "IS A RETRY DUE" (mission "Wingman error and retry"): this pass is the clock for the one retry
+                // schedule the Wingman has. Every failed reading of this account whose booked retry has come due is
+                // asked about again - EVERY session, not only the ones in voice mode, because a reading that failed
+                // is an error whether or not anybody is listening. Fire and forget; the account's own ceiling
+                // bounds it, and a session that cannot be read right now is simply still due on the next pass.
+                // EnsureTurnVerdictService, not the field: the seat is built lazily, and a retry booked before a
+                // restart must still run when no stop has been seen by this process yet.
+                EnsureTurnVerdictService().StartDueRetries(tenant);
                 var attempted = 0;                                   // this account's own, never shared
                 foreach (var sid in vs.VoiceSessionIds(tenant))
                 {
@@ -3864,7 +3872,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // The model leg did not answer and the voice path's bounded re-attempts for this turn are spent,
             // so nothing further is scheduled. Feeds the folded VoiceDisplay so the screen reports a turn that
             // was not narrated instead of an arrival nobody is working on (issue #2676).
-            narrationAbandonedFor: (tenant, sid) => _voiceService?.NarrationAbandonedFor(tenant, sid) == true,
+            speechErrorFor: (tenant, sid) => _voiceService?.SpeechErrorFor(tenant, sid),
             // TTS fallback: this session's ready clip was made by the backup voice provider (the primary
             // was overloaded and the cloud proxy failed over). Feeds the folded VoiceDisplay so the screen
             // shows the generic backup-voice notice. A success-with-a-note, never an outage state.
@@ -5149,7 +5157,7 @@ public sealed class GatewayHost : IAsyncDisposable
         Func<string, Core.HostedAi.HostedAiState?>? voiceUnavailableFor = null,
         Func<string, bool>? nothingToNarrateFor = null,
         Func<string, bool>? directorCannotSendConversationFor = null,
-        Func<string, bool>? narrationAbandonedFor = null,
+        Func<string, WingmanErrorDisplay?>? speechErrorFor = null,
         Func<string, bool, DateTime?>? voiceWaitingStampFor = null,
         // The Wingman-on-every-turn mission, slice D: the same verdict source the roster folds from, so the colour
         // and the label pushed to the desktop are the ones every browser gets.
@@ -5184,7 +5192,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 Unavailable: voiceUnavailableFor,
                 NothingToNarrate: nothingToNarrateFor,
                 DirectorCannotSendConversation: directorCannotSendConversationFor,
-                NarrationAbandoned: narrationAbandonedFor,
+                SpeechError: speechErrorFor,
                 WaitingStamp: voiceWaitingStampFor));
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,

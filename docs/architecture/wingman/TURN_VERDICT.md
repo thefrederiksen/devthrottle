@@ -301,11 +301,9 @@ conversation; the pushed roster and the verdict store are consulted as well and 
    while one is held for the session, this check reads the stored conversation as well, to tell
    whether the reply is still the stop the wait was named for, and a stop answered by that wait
    has read both.
-4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
-   conversation is read. A stop refused here costs ONE read.
-5. The conversation read.
-6. The provider deadline, then the account ceiling. A stop refused by either costs TWO reads.
-7. The model call.
+4. The conversation read.
+5. The account ceiling. A stop refused here costs TWO reads.
+6. The model call.
 ```
 
 ### Where each step is
@@ -323,22 +321,32 @@ changes, and a stale line number is visibly stale where a wrong sentence about a
 | 1 | The held, live, brand-new, exited and working checks again, for an automatic request - not the switch | 818-819 |
 | 2 | The screen read | 825 |
 | 3 | The reuse check | 830 |
-| 4 | The speech re-attempt refusal | 844 |
-| 5 | The conversation read | 851 |
-| 6 | The provider deadline | 857 |
-| 6 | The account ceiling | 866 |
-| 7 | The model call | 898 |
+| 4 | The conversation read | 851 |
+| 5 | The account ceiling | 866 |
+| 6 | The model call | 898 |
 | - | The switch's one later use: whether the inspector's trace is written, after the store | 953 |
+
+### Two steps left this boundary on 19 September 2026
+
+They left with the mission "Wingman error and retry". The
+speech re-attempt refusal and the provider deadline both existed for the voice path's own retry ledger - a
+ladder of booked re-attempts beside the judgement. That ledger was replaced by one retry schedule written on
+the stored reading itself (`TurnVerdictDto.RetriesMade`, `NextRetryAtUtc`) and carried by the idle sweep
+(`TurnVerdictService.StartDueRetries`), so nothing reaches this boundary that may not ask the judge, and a
+provider's named wait is honoured by booking the retry later rather than by a check here. A failed reading is
+asked again ONLY by that booked retry, under the `Retry` trigger, and only once its booked time has passed;
+every other automatic trigger still reuses a failed record, so an unchanged screen is never paid for twice
+outside the schedule.
 
 ### Three earlier versions of this section were wrong
 
-The first said "nothing is read and nothing is paid for until every check passes". Steps 3, 4 and 6
-all come after the screen read, so a reader who believed it would have concluded that a stop refused
+The first said "nothing is read and nothing is paid for until every check passes". Steps 3 and 5
+both come after the screen read, so a reader who believed it would have concluded that a stop refused
 by the account ceiling had read nothing. It had read the screen and the conversation.
 
-The second fixed that and then filed the speech re-attempt refusal with the checks that come after
-BOTH reads, at a cost of two. It comes before the conversation is read and costs one - the table
-above shows it at line 827, before the conversation read at line 834.
+The second fixed that and then filed a step that has since been removed - the speech re-attempt
+refusal - with the checks that come after BOTH reads, at a cost of two. It came before the conversation
+was read and cost one.
 
 The third put the order and the costs right, and then said "the same checks again" after a list that
 included the judge switch. The switch is not checked again. It is checked once, before the settle
@@ -351,8 +359,8 @@ was written from a description of the code rather than from the code.
 
 ### Why the boundary is where it is
 
-**The real boundary is step 6.** A stop refused there has cost two reads and no model call. That is
-the deliberate shape: the expensive, rate-limited, chargeable thing is the model, and step 6 is what
+**The real boundary is step 5.** A stop refused there has cost two reads and no model call. That is
+the deliberate shape: the expensive, rate-limited, chargeable thing is the model, and step 5 is what
 stands in front of it. The reads are cheap, local to the Gateway and its tunnel, and the screen read
 pays for itself through the reuse.
 
@@ -385,22 +393,17 @@ Notes on individual steps, which add reasons and do not change the order or the 
   is stored, and it reads that same early copy.
 - **The screen is read before the reuse check because the reuse check needs it**: it compares the hash
   of this screen to the hash a stored verdict was formed on, and has no answer without it. A screen
-  read placed after step 6 would buy nothing and would cost every reusable stop a model call. An
+  read placed after step 5 would buy nothing and would cost every reusable stop a model call. An
   unreadable screen hashes to the empty string and is never reused outside the idle sweep, because
   otherwise two different stops on an unreachable Director would look like one screen and the second
   would be played the first one's words.
-- **The speech re-attempt refusal** exists because no automatic path may cost two model calls for one
-  stop. The reuse check is the only thing a re-attempt is entitled to, which is why it stops
-  immediately after it and before anything else is read.
 - **The conversation** is read only once the reuse check has found no match, and
   `WingmanNarrationSource.Select` uses it to choose the package kind.
-- **The provider deadline** applies to a caller the provider told to wait - the voice path, after a
-  rate limit on this stop - which is not asked about again for this stop until the wait has passed.
-- **The account ceiling** is eight judgements in flight, and it binds the turn end, the idle sweep and
-  the snooze expiry. A stop over it is not judged; it stays exactly as the detector left it, because
+- **The account ceiling** is eight judgements in flight, and it binds the turn end, the idle sweep, the
+  snooze expiry and a failed reading's booked retry. A stop over it is not judged; it stays exactly as the detector left it, because
   the alternative is a queue whose answers arrive about screens that have moved on.
 
-Only after step 6 is the package built, the prompt rendered and the judge asked.
+Only after step 5 is the package built, the prompt rendered and the judge asked.
 
 ## 7. What the verdict does to a row
 

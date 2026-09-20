@@ -31,6 +31,11 @@ export interface WingmanDebugStop {
   narration?: string | null;
   failed: boolean;
   failureReason?: string | null;
+  /** Why the whole button list was dropped from an answer that was otherwise kept. Null when it was not. */
+  optionsDroppedReason?: string | null;
+  /** The retry schedule as it stands on this record: how many retries were made, and when the next is booked. */
+  retriesMade?: number | string | null;
+  nextRetryAtUtc?: string | null;
   rowColour?: string | null;
   rowLabel?: string | null;
 

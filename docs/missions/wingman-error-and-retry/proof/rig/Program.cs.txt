@@ -1,0 +1,222 @@
+using System.Diagnostics;
+using System.Text.Json;
+using CcDirector.Core;
+using CcDirector.Core.Configuration;
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Contracts;
+
+namespace CcDirector.Gateway.Tests;
+
+/// <summary>
+/// THE PROOF RIG for the mission "Wingman error and retry". Not part of any gate: it is copied into this project
+/// to take the screenshots under docs/missions/wingman-error-and-retry/proof and removed again.
+///
+/// It boots the REAL Gateway host, serving the real built Cockpit and phone bundles, with a stand-in Director on
+/// the real tunnel. The judge is made to fail the honest way: the key store of the rig holds a key the model
+/// service rejects, so the production call really is made and really fails. The real key makes it succeed.
+/// </summary>
+public sealed class WingmanErrorProofRig
+{
+    private const string Token = "wingman-error-proof-token";
+    private sealed class Out { public void WriteLine(string s) { Console.WriteLine(s); Console.Out.Flush(); } }
+    private readonly Out _out = new();
+    public static async Task<int> Main() { await new WingmanErrorProofRig().TakeTheScreenshots(); return 0; }
+
+    private static readonly TenantId Tenant = TenantId.Local;
+
+    public async Task TakeTheScreenshots()
+    {
+        var outDir = Environment.GetEnvironmentVariable("WINGMAN_PROOF_OUT")
+                     ?? throw new InvalidOperationException("Set WINGMAN_PROOF_OUT to the folder the screenshots go in.");
+        var shotScript = Environment.GetEnvironmentVariable("WINGMAN_PROOF_SHOT")
+                     ?? throw new InvalidOperationException("Set WINGMAN_PROOF_SHOT to the path of shot.js.");
+        Directory.CreateDirectory(outDir);
+
+        var root = Path.Combine(Path.GetTempPath(), "wingman-proof-" + Guid.NewGuid().ToString("N"));
+        var instances = Path.Combine(root, "instances");
+        Directory.CreateDirectory(root);
+        var priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        // The real key is read from the key store named by WINGMAN_PROOF_KEYVAULT and is never printed.
+        var realVaultPath = Environment.GetEnvironmentVariable("WINGMAN_PROOF_KEYVAULT")
+                     ?? throw new InvalidOperationException("Set WINGMAN_PROOF_KEYVAULT to the key store holding the real model service key.");
+        var realKey = new KeyVault(realVaultPath).Get(TranscriptionEndpointResolver.DevThrottleKeyName)
+                      ?? throw new InvalidOperationException("That key store has no model service key; the success shot cannot be taken.");
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
+
+        var vaultPath = Path.Combine(root, "keyvault.json");
+        var vault = new KeyVault(vaultPath);
+        vault.Set(TranscriptionEndpointResolver.DevThrottleKeyName, "dt_live_this_key_is_rejected_on_purpose");
+
+        CcDirector.Core.Utilities.FileLog.UseUniqueInstanceId(Path.Combine(Path.GetTempPath(), "wingman-proof-logs"));
+        CcDirector.Core.Utilities.FileLog.Start();
+        var gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
+            instancesDirectory: instances, keyVaultPath: vaultPath,
+            workListsPath: Path.Combine(instances, "worklists", "worklists.json"), streamMode: true);
+        await gateway.StartAsync();
+        var baseUrl = $"http://127.0.0.1:{gateway.Port}";
+        _out.WriteLine("Gateway up at " + baseUrl);
+        _out.WriteLine("log: " + CcDirector.Core.Utilities.FileLog.CurrentLogPath);
+        try
+        {
+            gateway.TenantSettingsResolver.SetTurnVerdictJudgeEnabled(Tenant, true, DateTime.UtcNow);
+            gateway.TenantSettingsResolver.SetTurnVerdictColourEnabled(Tenant, true, DateTime.UtcNow);
+
+            var sidA = Guid.NewGuid().ToString();   // fails, is pressed, then runs out of retries
+            var sidB = Guid.NewGuid().ToString();   // fails, then its retry succeeds
+            var sidC = Guid.NewGuid().ToString();   // a picker, read once the real key is in
+            var screens = new Dictionary<string, string[]>
+            {
+                [sidA] = new[] { "I have removed the second pass of the retention sweep and the tests are green.", "Shall I open the pull request?", "", "> " },
+                [sidB] = new[] { "The importer now rejects a file with no header row. All 212 tests pass.", "", "> " },
+                [sidC] = new[] { "Do you want to apply the migration to the local database?", "  1. Yes, apply it", "  2. No, leave it", "" },
+            };
+            await using var director = await FakeTunnelDirector.StartAsync(gateway, Token, "proof-director", machineName: "PROOF-MACHINE",
+                dispatch: cmd =>
+                {
+                    if (cmd.Verb != "screen-grid") return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unexpected verb {cmd.Verb}");
+                    var sid = screens.Keys.FirstOrDefault(k => JsonSerializer.Serialize(cmd).Contains(k)) ?? sidA;
+                    var rows = screens[sid];
+                    return FakeTunnelDirector.Ok(new ScreenGridResponse
+                    {
+                        SessionId = sid, Rows = rows.ToList(), CursorRow = rows.Length - 1, CursorCol = 2,
+                        CursorVisible = true, IsAlternateScreen = false, HasGrid = true,
+                    });
+                });
+
+            SessionDto Session(string sid, string name, string state) => new()
+            {
+                SessionId = sid, Name = name, Status = state, ActivityState = state, RepoPath = @"D:\repos\example",
+                Agent = "ClaudeCode",
+            };
+            var names = new Dictionary<string, string>
+            {
+                [sidA] = "Retention - Developer - remove the second pass",
+                [sidB] = "Importer - Developer - reject a file with no header",
+                [sidC] = "Schema - Developer - the local migration",
+            };
+            foreach (var (sid, rows) in screens)
+                gateway.SeedStoredConversationForTest(Tenant, director.DirectorId, sid,
+                    new[] { ("User", "carry on with the task"), ("Assistant", string.Join("\n", rows).Trim()) });
+
+            // Every session is working, then A and B stop: the delta is what raises the turn end.
+            var states = screens.Keys.ToDictionary(s => s, _ => "Working");
+            await director.PushSnapshotAsync(screens.Keys.Select(s => Session(s, names[s], states[s])).ToArray());
+            await Task.Delay(1500);
+            states[sidA] = "WaitingForInput"; states[sidB] = "WaitingForInput";
+            await director.PushDeltaAsync(Session(sidA, names[sidA], "WaitingForInput"));
+            await director.PushDeltaAsync(Session(sidB, names[sidB], "WaitingForInput"));
+            // A real Director keeps pushing; a roster older than twenty seconds counts as not live. So does this one.
+            using var heartbeatStop = new CancellationTokenSource();
+            var pushGate = new SemaphoreSlim(1, 1);
+            var heartbeat = Task.Run(async () =>
+            {
+                while (!heartbeatStop.IsCancellationRequested)
+                {
+                    await Task.Delay(5000);
+                    await pushGate.WaitAsync();
+                    try { await director.PushSnapshotAsync(screens.Keys.Select(s => Session(s, names[s], states[s])).ToArray()); }
+                    catch (Exception) when (heartbeatStop.IsCancellationRequested) { }
+                    finally { pushGate.Release(); }
+                }
+            });
+
+            TurnVerdictDto? Latest(string sid) => gateway.TurnVerdicts.Latest(Tenant, sid);
+            async Task WaitFor(string what, Func<bool> done, int seconds)
+            {
+                var sw = Stopwatch.StartNew();
+                while (!done())
+                {
+                    if (sw.Elapsed.TotalSeconds > seconds) throw new TimeoutException($"Waited {seconds}s for: {what}");
+                    await Task.Delay(1000);
+                }
+                _out.WriteLine($"[{DateTime.Now:HH:mm:ss}] {what} (after {sw.Elapsed.TotalSeconds:F0}s)");
+            }
+            void Describe(string sid)
+            {
+                var l = Latest(sid);
+                _out.WriteLine($"    {names[sid]}: failed={l?.Failed} kind={l?.FailureKind} retriesMade={l?.RetriesMade} next={l?.NextRetryAtUtc:HH:mm:ss} reason={l?.FailureReason}");
+            }
+
+            await WaitFor("both readings failed for real and a retry is booked",
+                () => Latest(sidA) is { Failed: true, NextRetryAtUtc: not null } && Latest(sidB) is { Failed: true, NextRetryAtUtc: not null }, 120);
+            Describe(sidA); Describe(sidB);
+
+            // 1. A failure with the retry line counting down.
+            Shot(shotScript, baseUrl, outDir, "1-failed-counting-down");
+
+            // 2. A button press: one attempt now, which fails again, and the schedule is as it was.
+            var beforePress = Latest(sidA)!;
+            Shot(shotScript, baseUrl, outDir, "2-ask-again-pressed", "press");
+            Describe(sidA);
+            _out.WriteLine($"    the press left the schedule alone: retriesMade {beforePress.RetriesMade} -> {Latest(sidA)!.RetriesMade}");
+
+            // 3. A used-up schedule. Waiting out all eight retries takes 78 minutes, so the record of A is moved to
+            //    its LAST step - seven made, the eighth due now - and the real sweep makes the real eighth attempt.
+            var lastStep = JsonSerializer.Deserialize<TurnVerdictDto>(JsonSerializer.Serialize(Latest(sidA)!))!;
+            lastStep.RetriesMade = 7;
+            lastStep.NextRetryAtUtc = DateTime.UtcNow.AddSeconds(2);
+            gateway.TurnVerdicts.Store(Tenant, sidA, lastStep);
+            Describe(sidA);
+            await WaitFor("the eighth retry ran, failed, and nothing more is booked",
+                () => Latest(sidA) is { Failed: true, RetriesMade: 8, NextRetryAtUtc: null }, 150);
+            Describe(sidA); Describe(sidB);
+            Shot(shotScript, baseUrl, outDir, "3-schedule-used-up");
+
+            // 4. The real key goes in; the next booked retry of B succeeds and the tag clears by itself.
+            vault.Set(TranscriptionEndpointResolver.DevThrottleKeyName, realKey);
+            await WaitFor("the booked retry succeeded and cleared the error", () => Latest(sidB) is { Failed: false }, 400);
+            Describe(sidB);
+            Shot(shotScript, baseUrl, outDir, "4-retry-succeeded-tag-cleared");
+
+            // 5. A picker, read with the real key; whatever the model answers is what is shown.
+            await pushGate.WaitAsync();
+            try { await director.PushDeltaAsync(Session(sidC, names[sidC], "WaitingForInput")); states[sidC] = "WaitingForInput"; } finally { pushGate.Release(); }
+            await WaitFor("the picker was read", () => Latest(sidC) is not null, 180);
+            var c = Latest(sidC)!;
+            _out.WriteLine($"    picker: failed={c.Failed} verdict={c.Verdict} options={c.Options.Count} dropped={c.OptionsDroppedReason}");
+            Shot(shotScript, baseUrl, outDir, "5-picker-as-the-model-read-it");
+
+            // 6. A bad button list. The real model read the picker correctly, so it cannot be made to show this.
+            //    The real reading of the picker is copied onto a fourth session and changed the way the contract
+            //    check changes an answer that offers ONE option: the whole list goes, the reading stays, and the
+            //    reason is recorded in the contract's own words. THIS RECORD IS SEATED, NOT PRODUCED BY A MODEL CALL.
+            var sidD = Guid.NewGuid().ToString();
+            names[sidD] = "Schema - Developer - the same picker, one button offered";
+            screens[sidD] = screens[sidC];
+            await pushGate.WaitAsync();
+            try { states[sidD] = "WaitingForInput"; await director.PushSnapshotAsync(screens.Keys.Select(s => Session(s, names[s], states[s])).ToArray()); }
+            finally { pushGate.Release(); }
+            var dropped = JsonSerializer.Deserialize<TurnVerdictDto>(JsonSerializer.Serialize(c))!;
+            dropped.VerdictId = Guid.NewGuid().ToString("N");
+            dropped.JudgedAtUtc = DateTime.UtcNow;
+            dropped.TurnEndObservedAtUtc = DateTime.UtcNow.AddSeconds(-5);
+            dropped.Options = new List<TurnVerdictOptionDto>();
+            dropped.Menu = null;
+            dropped.AnswerVia = "reply";
+            dropped.OptionsDroppedReason = "exactly one option was offered; one option is not a choice, and a button that is the only "
+                + "thing on offer hides whatever else the person could have done";
+            gateway.TurnVerdicts.Store(Tenant, sidD, dropped);
+            await Task.Delay(3000);
+            Shot(shotScript, baseUrl, outDir, "6-bad-button-list-no-buttons-no-error");
+            heartbeatStop.Cancel();
+        }
+        finally
+        {
+            await gateway.StopAsync();
+            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", priorRoot);
+            try { Directory.Delete(root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private void Shot(string script, string baseUrl, string outDir, string name, string action = "")
+    {
+        var psi = new ProcessStartInfo("node", $"\"{script}\" {baseUrl} {Token} \"{outDir}\" {name} {action}")
+        { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        using var p = Process.Start(psi)!;
+        var stdout = p.StandardOutput.ReadToEnd();
+        var stderr = p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        _out.WriteLine(stdout.Trim());
+        if (p.ExitCode != 0) throw new InvalidOperationException($"screenshot {name} failed: {stdout} {stderr}");
+    }
+}

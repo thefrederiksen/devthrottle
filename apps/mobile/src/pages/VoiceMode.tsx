@@ -9,6 +9,8 @@ import { DictationStatusStrip } from "@devthrottle/client-core/dictation/Dictati
 import { SessionAppBar } from "../components/SessionAppBar";
 import { useSessionManage } from "../components/useSessionManage";
 import { ViewTabs } from "../components/ViewTabs";
+import { WingmanRetryCountdown } from "@devthrottle/client-core/sessions/WingmanErrorLine";
+import type { WingmanErrorDisplay } from "@devthrottle/client-core/sessions/wingmanError";
 
 // Session Voice mode (issue #850): the hands-free Wingman narration screen, the third session view
 // alongside Terminal (#817) and Chat (#811). This component is a THIN view - all of its state, the
@@ -418,6 +420,8 @@ export function VoiceMode() {
             <div className="voice-narr">
               <div className="voice-narr-body">{vd.message}</div>
             </div>
+            {/* A Wingman error says WHEN the booked retry runs - the shared countdown, the same as on the card. */}
+            <WingmanRetryCountdown error={(vd as { wingmanError?: WingmanErrorDisplay | null }).wingmanError} />
             {vd.canGenerate && (
               <button
                 type="button"

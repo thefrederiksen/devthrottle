@@ -58,14 +58,12 @@ public sealed class WingmanVerdictBoundaryAuditTests
     private static readonly Step SettleWait = new("settle wait", "DelayAsync(", "settle wait");
     private static readonly Step ScreenRead = new("screen read", "ReadScreenAsync(", "screen read");
     private static readonly Step ReuseCheck = new("reuse check", "_env.Latest(", "reuse check");
-    private static readonly Step ReattemptRefusal = new("speech re-attempt refusal", "!mayAskJudge", "re-attempt refusal");
     // The conversation read is located by its ASSIGNMENT, because JudgeAsync reads the conversation in two places: this
     // one, step 5, and a lazy read inside the reuse check that runs only while a rate limit's named wait is held (the
     // Wingman-on-every-turn mission, slice I). The second is not left uncounted: the fact below pins it to the reuse
     // check and requires the charter to say so.
     private const string AnyConversationReadMarker = "_env.ReadConversation(";
     private static readonly Step ConversationRead = new("conversation read", "var conversation = _env.ReadConversation(", "conversation read");
-    private static readonly Step ProviderDeadline = new("provider deadline", "providerHold?.Invoke(", "provider deadline");
     private static readonly Step AccountCeiling = new("account ceiling", ".MaxInFlight", "account ceiling");
     private static readonly Step ModelCall = new("model call", "AskJudgeAsync(", "model call");
 
@@ -76,7 +74,7 @@ public sealed class WingmanVerdictBoundaryAuditTests
 
     private static readonly Step[] UniqueSteps =
     {
-        SettleWait, ScreenRead, ReuseCheck, ReattemptRefusal, ConversationRead, ProviderDeadline, AccountCeiling, ModelCall,
+        SettleWait, ScreenRead, ReuseCheck, ConversationRead, AccountCeiling, ModelCall,
     };
 
     // ------------------------------------------------------------------------------------------------ the facts
@@ -116,15 +114,16 @@ public sealed class WingmanVerdictBoundaryAuditTests
         var code = JudgeAsyncCode();
         var main = LocateOnce(code, ConversationRead.CodeMarker, ConversationRead.Name);
         var reuse = LocateOnce(code, ReuseCheck.CodeMarker, ReuseCheck.Name);
-        var refusal = LocateOnce(code, ReattemptRefusal.CodeMarker, ReattemptRefusal.Name);
         var others = code.Where(l => l.Text.Contains(AnyConversationReadMarker, StringComparison.Ordinal) && l.Number != main)
             .Select(l => l.Number).ToList();
 
         Assert.True(others.Count == 1,
             $"JudgeAsync reads the conversation outside step 5 {others.Count} times (lines {string.Join(", ", others)}); the charter " +
             "names exactly one such read, inside the reuse check. A new read is a boundary change: say it in the charter first.");
-        Assert.True(others[0] > reuse && others[0] < refusal,
-            $"The second conversation read (line {others[0]}) is not inside the reuse check (between lines {reuse} and {refusal}), " +
+        // The reuse check ends where step 4, the conversation read, begins: the speech re-attempt refusal that used
+        // to sit between them left with the voice path's retry ledger (mission "Wingman error and retry").
+        Assert.True(others[0] > reuse && others[0] < main,
+            $"The second conversation read (line {others[0]}) is not inside the reuse check (between lines {reuse} and {main}), " +
             "which is the only place the charter says it happens.");
 
         var step3 = CharterSteps(CharterBlock()).Single(s => s.Number == 3).Text;
@@ -172,9 +171,9 @@ public sealed class WingmanVerdictBoundaryAuditTests
             checkedSteps++;
         }
 
-        Assert.True(checkedSteps >= 4,
-            $"Only {checkedSteps} read count(s) were found in the charter's boundary block; expected the four it states " +
-            "(NO for the first checks, ONE for the reuse check, ONE for the re-attempt refusal, TWO for the deadline and ceiling). " +
+        Assert.True(checkedSteps >= 3,
+            $"Only {checkedSteps} read count(s) were found in the charter's boundary block; expected the three it states " +
+            "(NO for the first checks, ONE for the reuse check, TWO for the ceiling). " +
             "A block that stopped stating costs would otherwise pass this test by saying nothing.");
     }
 

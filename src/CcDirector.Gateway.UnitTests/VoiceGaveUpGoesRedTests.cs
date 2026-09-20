@@ -51,7 +51,7 @@ public class VoiceGaveUpGoesRedTests
     [Fact]
     public void AnAbandonedNarration_IsRed_NotYellow()
     {
-        var s = VoiceRow(VoiceDisplayKinds.NotNarrated, "Turn not narrated");
+        var s = VoiceRow(VoiceDisplayKinds.WingmanError, "Turn not narrated");
 
         Assert.False(SessionOrdering.IsVoicePreparing(s));
         Assert.Equal("red", SessionOrdering.EffectiveColor(s));

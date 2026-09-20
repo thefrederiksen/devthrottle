@@ -82,6 +82,14 @@ public sealed class VoiceDisplay
     /// <c>ready</c> verdict, never a red/unavailable one.
     /// </summary>
     public string? VoiceFallbackNotice { get; set; }
+
+    /// <summary>
+    /// The Wingman error this verdict is reporting, when <see cref="Kind"/> is <c>wingmanError</c>: the reading
+    /// failed, or its audio could not be made. The same finished object the session card carries
+    /// (<see cref="SessionDto.WingmanError"/>), so the voice screen draws the retry line with the same shared
+    /// component and the two can never word one failure two ways. Null for every other kind.
+    /// </summary>
+    public WingmanErrorDisplay? WingmanError { get; set; }
 }
 
 /// <summary>
@@ -97,8 +105,11 @@ public static class VoiceDisplayKinds
     /// <summary>Nothing arrived inside the give-up window. Automatic attempts continue; the PROMISE is over.</summary>
     public const string GaveUp = "gaveUp";
 
-    /// <summary>The narration was abandoned: the model leg did not answer and nothing further is scheduled.</summary>
-    public const string NotNarrated = "notNarrated";
+    /// <summary>The Wingman could not read this stop, or could not make its audio. The retry schedule - which retry
+    /// is next, when, or that nothing more is scheduled - rides beside it in <see cref="VoiceDisplay.WingmanError"/>.
+    /// It replaced "notNarrated", which said "nothing further is scheduled" from a flag in memory; this says it from
+    /// the booked time itself.</summary>
+    public const string WingmanError = "wingmanError";
 
     /// <summary>A live session owns this one, so it is read by that owner and never narrated to the user. The
     /// client renders the card and offers NOTHING - no play, no generate, and no "switch to voice mode".</summary>
