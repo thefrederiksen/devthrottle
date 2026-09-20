@@ -588,6 +588,18 @@ describe("the Cockpit New Session dialog draws the desktop tab's repository tabl
     expect(addRepoMock).not.toHaveBeenCalled();
   });
 
+  it("draws no table at all when the read failed, rather than a heading row over nothing", async () => {
+    getKnownRepositoriesMock.mockRejectedValue(new Error("Director not connected"));
+    renderDialog();
+
+    await screen.findByText(/Could not load repositories: .*Director not connected/);
+    // No rows, no first-run empty state, and no sortable headings offering to order a list this
+    // screen does not have.
+    expect(document.querySelector(".newsess-repotable")).toBeNull();
+    expect(screen.queryByText("No repositories yet")).toBeNull();
+    expect(renderedPaths()).toEqual([]);
+  });
+
   it("says what the Gateway said when the add fails, rather than looking as though it worked", async () => {
     addRepoMock.mockRejectedValue(new Error("directory not found: /nowhere"));
     renderDialog();

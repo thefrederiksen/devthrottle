@@ -677,8 +677,27 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  max-height: 230px;
+  max-height: 264px;
   overflow-y: auto;
+}
+
+/* A thin scrollbar on the two scrolling regions of this dialog. The platform's full-width bar sits
+   on top of the Last Used column and reads as a piece of the table. */
+.newsess-list::-webkit-scrollbar,
+.newsess-machines::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.newsess-list::-webkit-scrollbar-thumb,
+.newsess-machines::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.newsess-list::-webkit-scrollbar-track,
+.newsess-machines::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* The machine row (the one-repository-list mission, phase 4). The desktop New Session tab has no
@@ -710,9 +729,13 @@ body {
   padding: 2px 0;
   min-width: 0;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
+  /* Two rows of chips at most, then it scrolls. A machine must never be clipped off the end of the
+     row - the one thing this control exists to say is WHICH machine, and a half-drawn chip does not
+     say it - so the chips wrap rather than run off the side. */
+  max-height: 68px;
+  overflow-y: auto;
 }
 
 .newsess-machine {

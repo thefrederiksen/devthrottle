@@ -639,6 +639,11 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
               onChange={(e) => setRepoFilter(e.target.value)}
             />
 
+            {/* The table is drawn only when it has something to put in it - rows, or the first-run
+                empty state. A read that FAILED gets neither: a bare heading row over nothing offers
+                to sort a list the screen does not have, and the status line above has already said
+                what went wrong. */}
+            {(showTable || showEmptyState) && (
             <div className="newsess-repotable">
               <div className="newsess-repohead">
                 {REPO_COLUMNS.map((c) => {
@@ -714,6 +719,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
                 <div className="newsess-nomatch">No repository here matches that.</div>
               )}
             </div>
+            )}
 
             <label className="newsess-manual-label" htmlFor="newsess-path">
               Or enter a path
