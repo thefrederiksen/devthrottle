@@ -46,8 +46,9 @@ def test_hold_says_another_agents_message_does_not_end_it():
     assert "repainting, no longer un-holds it" not in text
 
 
-def test_report_says_it_is_queued_and_rung():
-    text = _help_text("session", "report")
+def test_handback_says_it_is_queued_and_rung():
+    # 'session report' became 'session handback' (#3247); the words live on the verb that does it.
+    text = _help_text("session", "handback")
     assert "QUEUED in their inbox, never typed into them" in text
     assert "doorbell line tells them to run 'cc-devthrottle message inbox'" in text
 
