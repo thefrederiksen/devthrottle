@@ -65,3 +65,28 @@ and zero findings - which proves the sweep can fire, and proves nothing about it
 planted credential. The second run puts the credential into a handover document by a route that
 cannot decline.
 
+### 5. The floor, run by the Tech Lead itself on this worktree at `2d4d90a38`
+
+| Check | Passed | Failed | Skipped |
+|---|---|---|---|
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Drain\|FullyQualifiedName~Restart"` | 686 | 0 | 0 |
+| `dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~SmartRestart"` | 159 | 0 | 0 |
+
+The window count matches the Delivery Lead's own run exactly. The engine count is 686 against the 624
+phase 4 measured at `d8fdaafed`; the difference is the tests the four merges brought with them, and
+it is expected rather than a surprise. Neither number says anything about the rig.
+
+---
+
+## 20 September 2026 - the run is opened
+
+Developer A (`a3a2080a`, "Director Restart - Developer - phase 5 run A rig and main flow") is open on
+worktree `D:/ReposFred/devthrottle-p5-run-a`, branch `smart-restart/p5-run-a`. Its mandate is that
+worktree's `START-HERE.md`. It rebuilds the rig from a tree that HAS the four merges, ports the
+harness from the stopped attempt without the window-clicking script, runs the main flow through
+`cc-devthrottle director smart-restart`, produces the before-and-after handover comparison, and gets
+the planted-password case to actually plant something this time.
+
+Developer B follows on the same rig with the way-up cases - offered once, a used record, a cleared
+record, one over seven days old, another Director's record, and the history that still holds all of
+them. They run one after another because the rig is one Director and one Gateway.
