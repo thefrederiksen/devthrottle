@@ -27,10 +27,21 @@ name: Deploy hosted Gateway
 # (colorama cp1252 cannot encode the U+2713 the build prints); on Linux it streams cleanly and
 # `az acr build` blocks until the remote build finishes, so no polling workaround is needed here.
 #
-# TWO JOBS, ON PURPOSE. `deploy` does everything that CHANGES Azure and holds the serialisation group
-# for that long (plus the few seconds it takes to hand its poll record over); `watch` is the ten-minute
-# post-swap observation and holds nothing. See the
-# comment on the group below - the split is what lets an emergency rollback start while the watch runs.
+# THREE JOBS, ON PURPOSE. `postgres-proofs` runs every test in the repository that needs a real
+# PostgreSQL server, against a database it builds and throws away, on the exact commit about to ship, and
+# NOTHING GOES ANY FURTHER UNTIL IT PASSES. `deploy` does everything that CHANGES Azure and holds the
+# serialisation group for that long (plus the few seconds it takes to hand its poll record over); `watch`
+# is the ten-minute post-swap observation and holds nothing. See the comment on the group below - the
+# split is what lets an emergency rollback start while the watch runs.
+#
+# WHY THE PROOFS ARE HERE AND NOT LEFT TO CONTINUOUS INTEGRATION. Those tests prove our own migrations,
+# the hosted statistics schema, and what the restricted database role this service logs in as can and
+# cannot do. The hosted Gateway is the ONLY thing they protect, so this is the one place they must not be
+# optional. In continuous integration they are started by paths, which means a commit that changed
+# nothing database-facing carries no such check at all - and the gate below refuses a check that FAILED,
+# never a check that is absent. An absent check passes that gate. Running the proofs here turns that
+# absence into a presence: they are not looked up, they are executed, on this commit, before anything
+# touches Azure.
 
 on:
   # Manual only. A human (or an agent) starts a release deliberately - from the Actions UI or via
@@ -53,8 +64,25 @@ env:
   STAGING_URL: https://devthrottle-gw-staging.azurewebsites.net
 
 jobs:
+  # THE PROOFS THIS SERVICE EXISTS TO CARRY, RUN BEFORE ANYTHING IS BUILT OR SWAPPED.
+  #
+  # The body is shared with continuous integration - one file, two callers - because two copies of a job
+  # this consequential would drift and the copy that drifted would be the one guarding production.
+  #
+  # It runs BEFORE the serialisation group is taken, so a run that is going to be refused anyway costs
+  # nobody else their turn, and the group is never held while tests are executing.
+  #
+  # The commit is passed explicitly rather than left to default. A proof of a different commit is not a
+  # proof of this one, and the record of the run should say out loud which commit it proved.
+  postgres-proofs:
+    name: PostgreSQL proofs
+    uses: ./.github/workflows/postgres-proofs.yml
+    with:
+      ref: ${{ github.sha }}
+
   deploy:
     name: Build image and deploy via warmed slot swap
+    needs: postgres-proofs
     runs-on: ubuntu-latest
     environment: hosted-gateway-production
 
@@ -136,10 +164,13 @@ jobs:
         id: short
         run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      # ---- THE TWO GATES ON WHAT MAY REACH PRODUCTION ------------------------------------------
+      # ---- THE GATES ON WHAT MAY REACH PRODUCTION -----------------------------------------------
       # This workflow is the ONLY supported way to update the live Gateway, so the conditions on what
-      # it will ship are the conditions on what can reach production at all. Both refusals are here,
-      # BEFORE the Azure login and the build, so a refused deploy costs seconds and touches nothing.
+      # it will ship are the conditions on what can reach production at all. Both refusals below are
+      # here, BEFORE the Azure login and the build, so a refused deploy costs seconds and touches
+      # nothing. The third gate is the `postgres-proofs` job above: this job does not start until every
+      # PostgreSQL proof in the repository has RUN and PASSED on this commit. That one is a presence -
+      # tests that executed - rather than the absence the check-run gate below settles for.
       #
       # 1. MAIN ONLY. workflow_dispatch will happily run against any branch or tag the caller picks,
       #    which meant an unreviewed branch could be built and swapped into production without ever
