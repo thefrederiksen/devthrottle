@@ -857,16 +857,6 @@ public sealed class WingmanVoiceService
     }
 
     /// <summary>
-    /// Record that a model/translation call did not answer in time (a bounded timeout or a transport
-    /// failure), so this session shows the calm "voice on its way" retrying state rather than a silent
-    /// failure or a false "this session's computer is offline". The on-demand explain path uses this
-    /// when its translation times out; the auto path sets the same state inline. Cleared on the next
-    /// successful generation, on the Working transition, and when voice is turned off - exactly like the
-    /// speech-leg unavailable state.
-    /// </summary>
-    public void NoteRetrying(TenantId tenant, string sid) => StateFor(tenant).Unavailable[sid] = HostedAiState.Retrying;
-
-    /// <summary>
     /// The speech leg's place on the retry schedule for this session's current stop, as the card draws it, or
     /// null when the speech has not failed. Fed to <see cref="VoiceDisplayFold"/>. Every sentence about a coming
     /// retry is rendered from <see cref="TenantVoiceState.SpeechRetry.NextRetryAtUtc"/>, so nothing on the screen
@@ -882,19 +872,26 @@ public sealed class WingmanVoiceService
     /// booked retry has come due. False while a retry is booked for later, and false for good once the schedule is
     /// used up - then only a person asking makes another attempt.
     /// </summary>
-    private static bool SpeechAttemptAllowed(TenantVoiceState state, string sid, string verdictId)
+    private bool SpeechAttemptAllowed(TenantVoiceState state, string sid, string verdictId)
         => !state.SpeechRetries.TryGetValue(sid, out var retry)
            || !string.Equals(retry.VerdictId, verdictId, StringComparison.Ordinal)
-           || WingmanRetrySchedule.IsDue(retry.NextRetryAtUtc, DateTime.UtcNow);
+           || WingmanRetrySchedule.IsDue(retry.NextRetryAtUtc, _utcNow());
+
+    /// <summary>The clock the speech retry schedule reads. A field so a test can move time instead of waiting a
+    /// minute, five minutes and half an hour for it.</summary>
+    private Func<DateTime> _utcNow = () => DateTime.UtcNow;
+
+    /// <summary>Test seam: the speech retry schedule's clock. Same code path, a clock a test can move.</summary>
+    internal void UseClockForTest(Func<DateTime> utcNow) => _utcNow = utcNow ?? throw new ArgumentNullException(nameof(utcNow));
 
     /// <summary>
     /// The speech for this reading failed: spend one retry when this attempt WAS a retry, and book the next, or
     /// book nothing when the eight are spent. The provider's own named wait is honoured - the retry is the later
     /// of the schedule and that wait.
     /// </summary>
-    private static void NoteSpeechFailed(TenantVoiceState state, string sid, string verdictId, TimeSpan? providerWait)
+    private void NoteSpeechFailed(TenantVoiceState state, string sid, string verdictId, TimeSpan? providerWait)
     {
-        var now = DateTime.UtcNow;
+        var now = _utcNow();
         var next = state.SpeechRetries.AddOrUpdate(sid,
             _ => new TenantVoiceState.SpeechRetry(verdictId, 0, WingmanRetrySchedule.NextRetryAtUtc(0, now, providerWait)),
             (_, held) =>
@@ -1645,8 +1642,8 @@ public sealed class WingmanVoiceService
     internal const string NothingYetLine =
         "This session has not produced anything to summarize yet. Ask it something and I will read the answer back to you.";
 
-    /// <summary>The line played while the judge has not answered.</summary>
-    internal const string RetryingLine = "Voice is taking a moment - it will keep trying.";
+    /// <summary>The line played when a person asked and the judge did not answer. It promises nothing.</summary>
+    internal const string RetryingLine = "The Wingman could not read this stop just now.";
 
     /// <summary>The line played when the session went back to work while its verdict was being formed.</summary>
     internal const string WorkingAgainLine = "This session started working again, so there is nothing settled to read yet.";
@@ -1755,10 +1752,12 @@ public sealed class WingmanVoiceService
                     break;
 
                 case TurnVerdictOutcomeKind.Failed when outcome.Failure is TurnVerdictFailureKind.DidNotAnswer or TurnVerdictFailureKind.RateLimited:
-                    // The absence of an answer, not evidence the session's computer is offline: the calm Retrying
-                    // state and a benign line, never the 502 the phone used to mislabel as an offline computer.
-                    NoteRetrying(tenant, sid);
-                    FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: the judge did not answer ({outcome.FailureDetail}) - Retrying");
+                    // The absence of an answer, not evidence the session's computer is offline: a benign line, never
+                    // the 502 the phone used to mislabel as an offline computer. NOTHING IS RECORDED HERE about the
+                    // failure - the stored failed record is the one account of it, with its booked retry, and the
+                    // card and the voice screen are both rendered from that record. The line spoken claims no retry,
+                    // because this path cannot know whether one is booked.
+                    FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: the judge did not answer ({outcome.FailureDetail})");
                     return new StopNarration("", RetryingLine, 0, Retrying: true, NothingYet: false, Error: null,
                         VerdictId: outcome.Verdict?.VerdictId, PackageKind: outcome.Verdict?.PackageKind);
 

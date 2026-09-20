@@ -84,7 +84,7 @@ public sealed class AFailedNarrationOutranksAQuietSnoozeTests
 
     [Theory]
     [InlineData(VoiceDisplayKinds.GaveUp)]
-    [InlineData(VoiceDisplayKinds.NotNarrated)]
+    [InlineData(VoiceDisplayKinds.WingmanError)]
     public void BothTerminalVoiceVerdicts_OutrankTheSnoozeArm(string kind)
     {
         // Both of the verdicts that mean "nothing is coming", not just the one that was found.

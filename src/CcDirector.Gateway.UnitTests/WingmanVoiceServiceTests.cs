@@ -405,13 +405,12 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GenerateAsync_WhenModelLegTimesOut_RecordsRetrying_NoAudio_NoSilentFailure()
+    public async Task GenerateAsync_WhenModelLegTimesOut_NoAudio_AndTheVoiceServiceClaimsNoRetryOfItsOwn()
     {
-        // The MODEL leg (translation) stalling used to hang the whole generation for 180s and then die as
-        // a bare FAILED - the session sat red "needs you" with no audio and NO reason, so "half the fleet
-        // is stuck and generate does nothing". The model leg now mirrors the speech leg: a non-answer is
-        // Retrying (calm "voice on its way", the sweep retries), never a silent failure and never
-        // ServiceDown. Nothing plays, but the phone knows why - and it is one session's state, nobody else's.
+        // The MODEL leg stalling leaves no audio. This service used to record a calm Retrying ("voice on its
+        // way, retrying automatically") for it, beside the failed record the verdict service had already stored -
+        // two accounts of one failure, and the calm one was said with nothing booked. It now records NOTHING: the
+        // failed record carries the booked retry, and the card and the voice screen are rendered from that.
         var director = new TunnelStub();
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-modeltimeout-" + Guid.NewGuid().ToString("N"));
@@ -427,22 +426,11 @@ public sealed class WingmanVoiceServiceTests : IDisposable
             // with the wider deadline (slice I). Both stalled, so the rest of this test is unchanged.
             Assert.Equal(TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, brain.AskCount);
             Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));                                      // nothing to play
-            Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));   // and it says WHY, calmly
-            Assert.NotEqual(HostedAiState.ServiceDown, svc.VoiceUnavailableFor(TenantId.Local, "sid-1")); // a non-answer is not "down"
+            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));                            // no second account of the failure
+            Assert.Null(svc.SpeechErrorFor(TenantId.Local, "sid-1"));                                 // and it is not a speech failure
             Assert.False(svc.IsGenerating(TenantId.Local, "sid-1"));                                  // the yellow window closed
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort cleanup */ } }
-    }
-
-    [Fact]
-    public void NoteRetrying_RecordsRetryingState_ForTheExplainPath()
-    {
-        // The on-demand "generate" (explain) path calls this when its translation times out, so the phone
-        // shows "voice on its way" instead of the old false 502 "this session's computer is offline".
-        var svc = NewService();
-        Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-        svc.NoteRetrying(TenantId.Local, "sid-1");
-        Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
     }
 
     // ---------- "Nothing to narrate": the session is waiting on a prompt, no text reply to read ----------
@@ -1424,849 +1412,14 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         return svc;
     }
 
-    // ---------- The model leg's OWN bounded retry, and the end of the promise (issue #2676) ----------
-
-    /// <summary>
-    /// A brain that does not answer for its first <c>failures</c> asks and answers normally after that -
-    /// the shape of a model stall that clears, which is what a bounded retry is for. Counts its asks so a
-    /// test can prove a SECOND attempt was made rather than inferring it from the audio.
-    /// </summary>
-    private sealed class StallsThenAnswersBrain : IAgentBrain
-    {
-        private readonly int _failures;
-        private int _askCount;
-        public StallsThenAnswersBrain(int failures) => _failures = failures;
-        public int AskCount => _askCount;
-        public string? SessionId => "stalls-then-answers-brain";
-        public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
-        {
-            var n = Interlocked.Increment(ref _askCount);
-            if (n <= _failures) throw new TimeoutException("The wingman model call did not answer within 60 seconds.");
-            var wrapped = FakeTurnVerdictEnvironment.CannotTell("narrated spoken text");
-            return Task.FromResult(new AskResult { Text = wrapped, ReplySeconds = 0.1 });
-        }
-        public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<ClearResult> ClearAsync(CancellationToken ct = default) => Task.FromResult(new ClearResult());
-        public Task RestartAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task KillAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<BrainHealth> GetHealthAsync(CancellationToken ct = default) => Task.FromResult(new BrainHealth { IsAlive = true });
-        public void Dispose() { }
-    }
-
-    /// <summary>Poll a condition rather than sleeping a fixed time: the re-attempt runs on the thread pool
-    /// after its backoff, so a fixed wait would be either flaky or slow. Returns the condition's final value
-    /// on the deadline so the caller's own assertion reports what was actually missing.</summary>
-    private static async Task<bool> Eventually(Func<bool> condition, int seconds = 20)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(seconds);
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition()) return true;
-            await Task.Delay(25);
-        }
-        return condition();
-    }
-
-    /// <summary>
-    /// A JUDGE THAT DOES NOT ANSWER IS NOT ASKED AGAIN FOR THE SAME STOP ONCE ITS ONE RE-ATTEMPT IS SPENT. This test used
-    /// to prove the opposite - that the voice path booked its own re-attempt ladder and a later ask narrated the turn.
-    /// Slice I (owner ruling, 2026-09-16) gives a stop somebody is listening to exactly ONE re-attempt, inside the
-    /// verdict flight itself, with the sixty second deadline, and nothing is booked afterwards. So the failed verdict
-    /// stands after two stalls, nothing is booked, and the screen says at once that the turn was not narrated.
-    ///
-    /// The brain answers on its THIRD ask, so a further re-attempt, had one been booked, would have produced audio: the
-    /// absence below is the absence of a call that would have succeeded. The positive control at the end asks
-    /// once more by hand and sees exactly one more call and the audio, so the machinery was alive throughout.
-    /// </summary>
-    [Fact]
-    public async Task WhenTheModelDoesNotAnswer_NothingIsBooked_TheJudgeIsNotAskedAgain_AndTheScreenSaysNotNarrated()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelretry-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var brain = new StallsThenAnswersBrain(failures: TurnVerdictService.MaxJudgeAttemptsWhenListenedTo);
-            var svc = ServiceWithBrainAndTts(brain, new byte[] { 5, 5, 5 }, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.Equal(TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, brain.AskCount);
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-            Assert.Null(svc.LastBookedRetryDelayForTest);                      // nothing was booked
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // and the screen is told so at once
-            Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-
-            // Ten times the rung the old code booked, so a re-attempt would have run by now.
-            await Task.Delay(500);
-            Assert.Equal(TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, brain.AskCount);
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-
-            var display = VoiceDisplayFold.Fold(
-                voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: svc.VoiceUnavailableFor(TenantId.Local, "sid-1"),
-                nothingToNarrate: false,
-                narrationAbandoned: svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Equal("notNarrated", display.Kind);
-            Assert.Equal("Turn not narrated", display.Label);
-
-            // POSITIVE CONTROL: a person asking again is one more call, and this time the judge answers.
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-            Assert.Equal(TurnVerdictService.MaxJudgeAttemptsWhenListenedTo + 1, brain.AskCount);
-            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// The budget belongs to the TURN, not to the session. A new turn arriving after an abandoned one must
-    /// start with a full set of re-attempts and a clean screen - otherwise one stalled turn would spend the
-    /// next turn's retries, and "not narrated" would sit on a narration nobody had tried yet.
-    ///
-    /// DRIVEN THROUGH THE SPEECH LEG, which is the only leg with re-attempts: a judge that does not answer is
-    /// never asked again for the same stop. Each narration attempt that reaches the speech provider is exactly one
-    /// call on the rate-limited handler, so the handler's count is the attempt count.
-    /// </summary>
-    [Fact]
-    public async Task ANewTurn_ClearsTheAbandonedVerdict_AndGivesTheTurnItsOwnRetryBudget()
-    {
-        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
-        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
-        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelreset-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsRateLimitedHandler(refusals: int.MaxValue);
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(30));   // one rung
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.True(await Eventually(() => svc.NarrationAbandonedFor(TenantId.Local, "sid-1")));   // control
-            var callsBefore = handler.Calls;
-            Assert.Equal(2, callsBefore);   // control: one attempt and its one re-attempt
-
-            svc.OnSessionWorking(TenantId.Local, "sid-1");   // the agent starts a new turn
-
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-
-            // The new turn gets its own attempt AND its own re-attempt - the budget was genuinely reset,
-            // not merely hidden from the screen. Pinned EXACTLY rather than as a lower bound: ">= 2 more"
-            // is also satisfied by a ladder that has stopped respecting its cap (found in review).
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.True(await Eventually(() => handler.Calls >= callsBefore + 2),
-                "the new turn did not get its own re-attempt - the old turn's spent budget carried over");
-            await Task.Delay(500);
-            Assert.Equal(callsBefore + 2, handler.Calls);   // one attempt, one re-attempt, and no more
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A SPEECH RE-ATTEMPT NEVER ASKS THE JUDGE. The screen here cannot be read, and an unreadable screen is never
-    /// reused outside the idle sweep, so the re-attempt finds no verdict it may reuse. It gives up for that stop:
-    /// zero judge calls, no speech call, and the screen reports a stop that was not narrated.
-    ///
-    /// The speech provider refuses only its FIRST call, so a re-attempt that asked the judge again would have gone
-    /// on to produce audio - the count below is the absence of a second model call that would have succeeded. The
-    /// positive control is the first narration of the stop, which made its one judge call and booked the re-attempt.
-    /// </summary>
-    [Fact]
-    public async Task ASpeechReattempt_OnAnUnreadableScreen_MakesZeroJudgeCalls_AndGivesUpForTheStop()
-    {
-        var director = new TunnelStub();   // no screen grid: the screen cannot be read
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-reattempt-nojudge-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var brain = new RecordingBrain();
-            var handler = new TtsRateLimitedHandler(refusals: 1);
-            var svc = ServiceWithBrainAndTtsHandler(brain, handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(30));   // one rung
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            // POSITIVE CONTROL: the first narration made its one judge call, reached the speech provider, and booked
-            // the speech re-attempt.
-            Assert.Equal(1, brain.AskCount);
-            Assert.Equal(1, handler.Calls);
-            Assert.NotNull(svc.LastBookedRetryDelayForTest);
-
-            // Wait for the re-attempt to finish either way: it gives up, or it asks the judge again.
-            Assert.True(await Eventually(() => svc.NarrationAbandonedFor(TenantId.Local, "sid-1") || brain.AskCount > 1),
-                "the booked speech re-attempt never finished");
-            await Task.Delay(300);
-
-            Assert.Equal(1, brain.AskCount);   // ZERO judge calls on the re-attempt
-            Assert.Equal(1, handler.Calls);    // and it never reached the speech provider
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>Switching voice off must not leave a re-attempt booked against a session nobody wants
-    /// narrated, and must not leave "not narrated" standing on it either.</summary>
-    [Fact]
-    public async Task Unmark_ClearsTheAbandonedVerdict()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelunmark-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var svc = ServiceWithBrainAndTts(new TimingOutBrain(), new byte[] { 5 }, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest();   // no re-attempts at all: the first non-answer is the last
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // control: with no budget, immediate
-
-            svc.Unmark(TenantId.Local, "sid-1");
-
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A re-attempt booked for the PREVIOUS turn must stand down, not narrate.
-    ///
-    /// Found in review, and the harm is specific rather than theoretical. A retry that woke up during the
-    /// next turn could win the per-session coalescing race against that turn's own narration, make it return
-    /// having done nothing, and then store the OLD turn's clip. The session would then HAVE audio, so the
-    /// sweep - which skips any session with audio - would never come back to it, and the phone would play a
-    /// stale narration of the wrong turn for as long as the session lived.
-    ///
-    /// DRIVEN THROUGH THE SPEECH LEG, which is the only leg with re-attempts: a judge that does not answer is
-    /// never asked again for the same stop. Each narration attempt that reaches the speech provider is exactly one
-    /// call on the rate-limited handler, so the handler's count is the attempt count.
-    /// </summary>
-    [Fact]
-    public async Task AReattemptBookedForASupersededTurn_StandsDown_InsteadOfNarratingTheOldTurn()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelsuperseded-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsRateLimitedHandler(refusals: int.MaxValue);
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(400));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.Equal(1, handler.Calls);                                    // control: the attempt happened
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));  // control: a re-attempt is booked
-
-            // A new turn starts while that re-attempt is still waiting out its backoff.
-            svc.OnSessionWorking(TenantId.Local, "sid-1");
-
-            // It must never run. Waited well past its backoff so this is a real absence, not an early read.
-            await Task.Delay(900);
-            Assert.Equal(1, handler.Calls);
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));               // no stale clip was stored
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));  // and no verdict about the old turn
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A re-attempt never turns voice back ON by attempting. It wakes up as much as a minute and a half
-    /// after it was booked, and voice may have been switched off in between; every other caller of
-    /// GenerateAsync marks the session as a side effect, which for a retry would mean the Gateway resuming a
-    /// narration for a session whose owner had just stopped one (found in review).
-    ///
-    /// WHAT THIS DOES NOT CLAIM, stated because the narrower truth is the useful one. A retry that goes on
-    /// to SUCCEED still marks the session, because StoreSpokenAsync marks on the success path for every
-    /// caller - that is shared, pre-existing behaviour, identical for an ordinary turn-end narration, and
-    /// its window is the length of one generation rather than the length of a backoff. What is closed here
-    /// is the wide window: the ninety seconds a booked re-attempt spends waiting, during which it must be
-    /// able to wake up and do nothing at all.
-    /// </summary>
-    [Fact]
-    public async Task GenerateAsync_OnTheRetryPath_DoesNotMakeASessionAVoiceSessionByAttempting()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelnomark-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            // A brain that never answers, so this is purely about the ATTEMPT: no synthesis, no store, and
-            // therefore nothing but the entry-point marking under test.
-            var svc = ServiceWithBrainAndTts(new TimingOutBrain(), new byte[] { 5 }, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest();   // no rungs, so the attempt does not book more work
-            Assert.False(svc.IsVoiceSession(TenantId.Local, "sid-1"));   // control: it is not one to start with
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None,
-                showReadingWindow: false, markAsVoiceSession: false);
-
-            Assert.False(svc.IsVoiceSession(TenantId.Local, "sid-1"));   // still not one
-
-            // POSITIVE CONTROL: the ordinary path DOES mark on the very same failing attempt, so the
-            // assertion above is about the flag and not about a call that quietly did nothing.
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-            Assert.True(svc.IsVoiceSession(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A CONCURRENT FAILURE SPENDS NOTHING AND CLAIMS NOTHING while a re-attempt is booked.
-    ///
-    /// A concurrent attempt - the background sweep, or a person pressing Generate - can fail while a booked
-    /// re-attempt is still waiting out its backoff. Two things must not happen: it must not push the count
-    /// past the cap and declare the turn abandoned while a task genuinely exists, and it must not book a
-    /// SECOND rung on top of the one already pending, which would spend the turn's ladder at twice the rate
-    /// and orphan the first timer.
-    ///
-    /// THE LADDER HAS TWO RUNGS ON PURPOSE. The first version of this test used one, so the concurrent
-    /// failure landed on the abandoning path - where a second guard (the pending check inside the
-    /// abandonment itself) already held the line. The mutation audit caught it: removing the stand-aside
-    /// killed no test at all. With two rungs the concurrent failure lands on the BOOKING path, which is the
-    /// behaviour the stand-aside is actually for, and the attempt count tells the two apart - four calls
-    /// when each rung is spent once, three when the concurrent failure took a rung it did not own.
-    ///
-    /// DRIVEN THROUGH THE SPEECH LEG, which is the only leg with re-attempts: a judge that does not answer is
-    /// never asked again for the same stop. Each narration attempt that reaches the speech provider is exactly one
-    /// call on the rate-limited handler, so the handler's count is the attempt count.
-    /// </summary>
-    [Fact]
-    public async Task AConcurrentFailure_WhileAReattemptIsBooked_SpendsNothingAndClaimsNothing()
-    {
-        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
-        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
-        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelpending-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsRateLimitedHandler(refusals: int.MaxValue);
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.Equal(1, handler.Calls);
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // control: rung one is booked
-
-            // The sweep comes past and fails too, while that rung is still pending.
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-
-            Assert.Equal(2, handler.Calls);                                     // it really did attempt
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // and it claimed nothing
-            Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-
-            // POSITIVE CONTROL: the verdict is not simply unreachable - once both booked rungs have run and
-            // failed, nothing is pending and the turn IS abandoned.
-            Assert.True(await Eventually(() => svc.NarrationAbandonedFor(TenantId.Local, "sid-1")),
-                "the abandoned verdict never arrived, so the assertions above proved nothing");
-
-            // AND THE LADDER WAS SPENT ONE RUNG AT A TIME: two direct attempts plus the two booked
-            // re-attempts. Three would mean the concurrent failure had taken a rung that was not its own,
-            // orphaning the first timer and burning the turn's budget at twice the rate.
-            await Task.Delay(500);
-            Assert.Equal(4, handler.Calls);
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A NEW REPLY GETS ITS OWN BUDGET EVEN WHEN THE WORKING TRANSITION IS MISSED.
-    ///
-    /// Resetting the ladder on the Working edge alone would have been the same mistake issue #1322 already
-    /// taught this file about the narration cache: that edge is observed on a racy sampled boundary and a
-    /// quick turn can be missed entirely. A turn whose edge was missed would then inherit the previous
-    /// turn's exhausted budget and be denied its first re-attempt - silent for exactly the reason the change
-    /// exists to prevent (found in review). The budget is keyed on the stop - the screen and the reply - so
-    /// this test never calls OnSessionWorking.
-    ///
-    /// DRIVEN THROUGH THE SPEECH LEG, which is the only leg with re-attempts: a judge that does not answer is
-    /// never asked again for the same stop. Each narration attempt that reaches the speech provider is exactly one
-    /// call on the rate-limited handler, so the handler's count is the attempt count.
-    /// </summary>
-    [Fact]
-    public async Task ANewReply_GetsItsOwnRetryBudget_EvenWithoutTheWorkingTransition()
-    {
-        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
-        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
-        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the FIRST reply") };
-        var conversation = StoredConversationStub.Of(("Text", "the FIRST reply"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelreplykey-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsRateLimitedHandler(refusals: int.MaxValue);
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(40));   // one rung
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.True(await Eventually(() => svc.NarrationAbandonedFor(TenantId.Local, "sid-1")));   // control
-            var callsBefore = handler.Calls;
-
-            // The agent answered again. NO OnSessionWorking - this is the missed edge.
-            conversation.Store(("Text", "the SECOND reply"));
-            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the SECOND reply");   // and the screen shows it
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            // The new reply was attempted AND given its own re-attempt, rather than inheriting an exhausted
-            // ladder and being abandoned on its first failure.
-            Assert.True(await Eventually(() => handler.Calls >= callsBefore + 2),
-                "the new reply inherited the previous reply's spent budget and was denied its re-attempt");
-            await Task.Delay(400);
-            Assert.Equal(callsBefore + 2, handler.Calls);   // its own ladder, and the cap still holds
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    // ---------- The rate-limit arm: an answered "not now" gets the same bounded ladder ----------
-
-    /// <summary>
-    /// A brain that is rate limited for its first <c>refusals</c> asks and answers normally after that -
-    /// the shape of a provider throttling us briefly, which is the case a bounded retry is for. The
-    /// Retry-After it reports is the provider's own hint, or null for a 429 that sent no header.
-    /// </summary>
-    private sealed class RateLimitedThenAnswersBrain : IAgentBrain
-    {
-        private readonly int _refusals;
-        private readonly TimeSpan? _retryAfter;
-        private int _askCount;
-        public RateLimitedThenAnswersBrain(int refusals, TimeSpan? retryAfter = null)
-        {
-            _refusals = refusals;
-            _retryAfter = retryAfter;
-        }
-        public int AskCount => _askCount;
-        public string? SessionId => "rate-limited-brain";
-        public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
-        {
-            var n = Interlocked.Increment(ref _askCount);
-            if (n <= _refusals)
-                throw new WingmanModelRateLimitedException(
-                    "The wingman model call failed: 429 TooManyRequests.", _retryAfter);
-            var wrapped = FakeTurnVerdictEnvironment.CannotTell("narrated spoken text");
-            return Task.FromResult(new AskResult { Text = wrapped, ReplySeconds = 0.1 });
-        }
-        public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<ClearResult> ClearAsync(CancellationToken ct = default) => Task.FromResult(new ClearResult());
-        public Task RestartAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task KillAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<BrainHealth> GetHealthAsync(CancellationToken ct = default) => Task.FromResult(new BrainHealth { IsAlive = true });
-        public void Dispose() { }
-    }
-
-    /// <summary>
-    /// A JUDGE THAT IS RATE LIMITED IS NOT ASKED AGAIN FOR THE SAME STOP. This test used to prove the opposite - that the
-    /// voice path booked its own re-attempt and the second ask narrated the turn - and that second ask was a
-    /// second model call for one stop, which the design forbids in every slice. Now the failed verdict stands,
-    /// nothing is booked, and the screen says at once that the turn was not narrated instead of promising audio.
-    ///
-    /// The brain answers on its SECOND ask, so a re-attempt, had one been booked, would have produced audio: the
-    /// absence below is the absence of a call that would have succeeded. The positive control at the end asks
-    /// once more by hand and sees exactly one more call and the audio, so the machinery was alive throughout.
-    /// </summary>
-    [Fact]
-    public async Task WhenTheModelIsRateLimited_NothingIsBooked_TheJudgeIsNotAskedAgain_AndTheScreenSaysNotNarrated()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-429retry-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var brain = new RateLimitedThenAnswersBrain(refusals: 1);
-            var svc = ServiceWithBrainAndTts(brain, new byte[] { 6, 6, 6 }, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.Equal(1, brain.AskCount);
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-            Assert.Null(svc.LastBookedRetryDelayForTest);                      // nothing was booked
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // and the screen is told so at once
-            Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-
-            // Ten times the rung the old code booked, so a re-attempt would have run by now.
-            await Task.Delay(500);
-            Assert.Equal(1, brain.AskCount);
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-
-            var display = VoiceDisplayFold.Fold(
-                voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: svc.VoiceUnavailableFor(TenantId.Local, "sid-1"),
-                nothingToNarrate: false,
-                narrationAbandoned: svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Equal("notNarrated", display.Kind);
-            Assert.Equal("Turn not narrated", display.Label);
-
-            // POSITIVE CONTROL: a person asking again is one more call, and this time the judge answers.
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-            Assert.Equal(2, brain.AskCount);
-            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A provider's Retry-After is NOT honoured below the rung. A provider answering "retry in one second" is
-    /// describing its own window, not licensing us to re-enter a ladder we back off on purpose - calling again a
-    /// second after a 429 is how a rate limit becomes a storm.
-    ///
-    /// DRIVEN THROUGH THE SPEECH LEG, which is the only leg with re-attempts: a judge that does not answer is
-    /// never asked again for the same stop. Each narration attempt that reaches the speech provider is exactly one
-    /// call on the rate-limited handler, so the handler's count is the attempt count.
-    /// </summary>
-    [Fact]
-    public async Task AProvidersRetryAfter_DoesNotShortenTheRung_WhenItAsksForLess()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-429short-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsRateLimitedHandler(refusals: 5, retryAfter: TimeSpan.FromMilliseconds(10));
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(300));   // rung 300ms, provider wants 10ms
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.Equal(TimeSpan.FromMilliseconds(300), svc.LastBookedRetryDelayForTest);
-            await Task.Delay(600);   // let the one booked re-attempt run, so nothing outlives the test
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A DELAY WE WILL NOT WAIT OUT IS NOT A RETRY. A provider is free to ask for an hour, and booking that
-    /// would leave "Voice on its way" on a screen for an hour while the service was perfectly satisfied it
-    /// had told the truth - which is the exact sentence this whole area exists to stop. Past the ceiling
-    /// nothing is booked and the screen reports a turn that was not narrated.
-    ///
-    /// Note what is NOT claimed: the session is not given up on. The background sweep still comes back to
-    /// it, so this is a refusal to PROMISE, never a refusal to try again.
-    ///
-    /// DRIVEN THROUGH THE SPEECH LEG, which is the only leg with re-attempts: a judge that does not answer is
-    /// never asked again for the same stop. Each narration attempt that reaches the speech provider is exactly one
-    /// call on the rate-limited handler, so the handler's count is the attempt count.
-    /// On the judge leg this test would pass for the wrong reason, because nothing is ever booked there.
-    /// </summary>
-    [Fact]
-    public async Task ARetryAfterBeyondTheCeiling_IsNotBooked_AndTheScreenStopsPromisingAudio()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-429huge-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsRateLimitedHandler(refusals: 5, retryAfter: TimeSpan.FromHours(1));
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.Null(svc.LastBookedRetryDelayForTest);                      // nothing was booked
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // and the screen says so
-
-            // Nothing runs later either - waited many times the (tiny) rung so this is a real absence.
-            await Task.Delay(400);
-            Assert.Equal(1, handler.Calls);
-
-            // AND THE SENTENCE IS TRUE OF THIS PATH. Asserted as the WHOLE message, not as the absence of
-            // two phrases: an absence check passes on an empty message and passed on the wrong message this
-            // very test was written to catch - it said "the re-attempts for it are used up", which is false
-            // here because the rung is deliberately put back (found in review).
-            var display = VoiceDisplayFold.Fold(
-                voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: svc.VoiceUnavailableFor(TenantId.Local, "sid-1"),
-                nothingToNarrate: false,
-                narrationAbandoned: svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Equal("notNarrated", display.Kind);
-            Assert.Equal("This turn has no narration, and nothing further is scheduled to make one. "
-                       + "Read the turn, or ask for the narration again.", display.Message);
-            Assert.Equal("Turn not narrated", display.Label);
-            Assert.True(display.CanGenerate);   // the one action left that can still work
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A refused rung is PUT BACK, not silently spent. The ceiling declines to book THIS re-attempt; it does
-    /// not shorten the turn's ladder, so a later attempt - the sweep's, or a person pressing Generate - can
-    /// still use the rung if the provider has stopped asking for an unreasonable wait by then.
-    ///
-    /// DRIVEN THROUGH THE SPEECH LEG, which is the only leg with re-attempts: a judge that does not answer is
-    /// never asked again for the same stop. Each narration attempt that reaches the speech provider is exactly one
-    /// call on the rate-limited handler, so the handler's count is the attempt count.
-    /// </summary>
-    [Fact]
-    public async Task ARungRefusedByTheCeiling_IsStillAvailableToALaterAttempt()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-429rung-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            // Just over the ceiling, and short enough that the not-before hold it arms expires inside the test -
-            // the hold is what stops the sweep calling the provider again before its own deadline, so a test
-            // that ignored it would be measuring a world that no longer exists.
-            TimeSpan? asked = TimeSpan.FromMilliseconds(2500);
-            var handler = new TtsSwitchableRateLimitHandler(() => asked);
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(50));   // ONE rung
-            svc.UseMaxSingleRetryWaitForTest(TimeSpan.FromSeconds(1));        // ...and a ceiling below the ask
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // control: refused, nothing booked
-            Assert.Null(svc.LastBookedRetryDelayForTest);
-            Assert.Equal(1, handler.Calls);
-
-            // WHILE THE HOLD LASTS the provider is not called again at all, however often the sweep comes past.
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-            Assert.Equal(1, handler.Calls);
-            Assert.Null(svc.LastBookedRetryDelayForTest);
-
-            // Once the provider's own deadline passes, and with it now asking for something reasonable, the
-            // rung is STILL there to spend - the refusal withdrew a promise, it did not shorten the ladder.
-            await Task.Delay(2700);
-            asked = TimeSpan.FromMilliseconds(10);
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-
-            Assert.Equal(2, handler.Calls);
-            Assert.Equal(TimeSpan.FromMilliseconds(50), svc.LastBookedRetryDelayForTest);   // rung 50ms beats the 10ms ask
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            await Task.Delay(300);   // let it run, so nothing outlives the test
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>A speech provider that is always rate limited, with a Retry-After the test can change between
-    /// calls, counting its calls.</summary>
-    private sealed class TtsSwitchableRateLimitHandler : HttpMessageHandler
-    {
-        private readonly Func<TimeSpan?> _retryAfter;
-        private int _calls;
-        public int Calls => _calls;
-        public TtsSwitchableRateLimitHandler(Func<TimeSpan?> retryAfter) => _retryAfter = retryAfter;
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            Interlocked.Increment(ref _calls);
-            var resp = new HttpResponseMessage((HttpStatusCode)429)
-            {
-                Content = new StringContent("{\"error\":\"rate limited\"}", Encoding.UTF8, "application/json"),
-            };
-            if (_retryAfter() is { } ra)
-                resp.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(ra);
-            return Task.FromResult(resp);
-        }
-    }
-
-    /// <summary>A brain that is always rate limited, with a Retry-After the test can change between
-    /// attempts.</summary>
-    private sealed class SwitchableRateLimitBrain : IAgentBrain
-    {
-        private readonly Func<TimeSpan?> _retryAfter;
-        private int _askCount;
-        public SwitchableRateLimitBrain(Func<TimeSpan?> retryAfter) => _retryAfter = retryAfter;
-        public int AskCount => _askCount;
-        public string? SessionId => "switchable-rate-limit-brain";
-        public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
-        {
-            Interlocked.Increment(ref _askCount);
-            throw new WingmanModelRateLimitedException(
-                "The wingman model call failed: 429 TooManyRequests.", _retryAfter());
-        }
-        public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<ClearResult> ClearAsync(CancellationToken ct = default) => Task.FromResult(new ClearResult());
-        public Task RestartAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task KillAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<BrainHealth> GetHealthAsync(CancellationToken ct = default) => Task.FromResult(new BrainHealth { IsAlive = true });
-        public void Dispose() { }
-    }
-
-    /// <summary>
-    /// A JUDGE RATE LIMIT DOES NOT ENTITLE US TO KEEP CALLING. The judge leg books no re-attempt, but the
-    /// background sweep and the voice refresh still come past, and a provider that named its own deadline must
-    /// not be asked about the same stop again before it passes - that is exactly what Retry-After exists to
-    /// prevent, and how a rate limit becomes a storm.
-    /// </summary>
-    [Fact]
-    public async Task AfterTheJudgeIsRateLimited_ItIsNotAskedAgainForThatStopUntilTheProvidersDeadlinePasses()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-429hold-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var brain = new SwitchableRateLimitBrain(() => TimeSpan.FromSeconds(30));
-            var svc = ServiceWithBrainAndTts(brain, new byte[] { 6 }, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.Equal(1, brain.AskCount);                                   // control: it was called once
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // control: nothing booked
-
-            // Five sweeps' worth of attempts, all inside the provider's 30-second window.
-            for (var i = 0; i < 5; i++)
-                await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-
-            Assert.Equal(1, brain.AskCount);   // the provider was not called again, once
-            Assert.Null(svc.LastBookedRetryDelayForTest);
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// THE HOLD BELONGS TO THE TURN, so a NEW reply is never held back by the previous turn's refusal. The
-    /// per-session cooldowns this file used to have were removed because one condition silenced work that
-    /// had nothing to do with it; this must not reintroduce that in miniature.
-    /// </summary>
-    [Fact]
-    public async Task TheProvidersHold_DoesNotDelayANewTurnsNarration()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the FIRST reply"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-429holdturn-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var refuse = true;
-            var brain = new RefusesThenNarratesBrain(() => refuse);
-            var svc = ServiceWithBrainAndTts(brain, new byte[] { 6, 6 }, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(20));
-            svc.UseMaxSingleRetryWaitForTest(TimeSpan.FromSeconds(1));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // control: held off for 10 minutes
-
-            // The agent answers again. The hold was armed against the OLD reply, so this one is narrated at
-            // once - no waiting out somebody else's deadline.
-            refuse = false;
-            conversation.Store(("Text", "the SECOND reply"));
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>A brain that is rate limited with a very long Retry-After while the flag says so, and
-    /// narrates normally once it does not.</summary>
-    private sealed class RefusesThenNarratesBrain : IAgentBrain
-    {
-        private readonly Func<bool> _refuse;
-        private int _askCount;
-        public RefusesThenNarratesBrain(Func<bool> refuse) => _refuse = refuse;
-        public int AskCount => _askCount;
-        public string? SessionId => "refuses-then-narrates-brain";
-        public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
-        {
-            Interlocked.Increment(ref _askCount);
-            if (_refuse())
-                throw new WingmanModelRateLimitedException(
-                    "The wingman model call failed: 429 TooManyRequests.", TimeSpan.FromMinutes(10));
-            var wrapped = FakeTurnVerdictEnvironment.CannotTell("narrated spoken text");
-            return Task.FromResult(new AskResult { Text = wrapped, ReplySeconds = 0.1 });
-        }
-        public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<ClearResult> ClearAsync(CancellationToken ct = default) => Task.FromResult(new ClearResult());
-        public Task RestartAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task KillAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<BrainHealth> GetHealthAsync(CancellationToken ct = default) => Task.FromResult(new BrainHealth { IsAlive = true });
-        public void Dispose() { }
-    }
-
-    /// <summary>A brain that blocks inside the model call until the test releases it, then fails - so a
-    /// test can hold an attempt open and change the world underneath it, which is the only way to drive the
-    /// interleaving the ownership guards exist for.</summary>
-    private sealed class BlockingThenFailingBrain : IAgentBrain
-    {
-        private readonly SemaphoreSlim _release = new(0);
-        private readonly SemaphoreSlim _entered = new(0);
-        private int _askCount;
-        public int AskCount => _askCount;
-        public string? SessionId => "blocking-brain";
-        /// <summary>Waits until the model call has actually started.</summary>
-        public Task EnteredAsync() => _entered.WaitAsync(TimeSpan.FromSeconds(20));
-        /// <summary>Lets the blocked model call fail.</summary>
-        public void Release() => _release.Release();
-        public async Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
-        {
-            Interlocked.Increment(ref _askCount);
-            _entered.Release();
-            await _release.WaitAsync(TimeSpan.FromSeconds(20), ct);
-            throw new TimeoutException("The wingman model call did not answer within 60 seconds.");
-        }
-        public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<ClearResult> ClearAsync(CancellationToken ct = default) => Task.FromResult(new ClearResult());
-        public Task RestartAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task KillAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<BrainHealth> GetHealthAsync(CancellationToken ct = default) => Task.FromResult(new BrainHealth { IsAlive = true });
-        public void Dispose() { }
-    }
-
-    /// <summary>
-    /// THE HONESTY INVARIANT, DRIVEN THROUGH THE RACE IT EXISTS FOR. An attempt that is still inside the
-    /// model when a NEW TURN starts must say nothing at all when it finally fails - not "not narrated", not
-    /// a booked re-attempt against a turn that is over.
-    ///
-    /// Found in review, and worth spelling out because the first version of the guard did not catch it. The
-    /// ledger cannot answer "is this mine?" on its own: a cleared entry and a never-created one are the same
-    /// absence, so a late attempt simply created a fresh entry, found nothing pending against it, and
-    /// stamped the terminal sentence onto a turn that had just begun. The reply key does not settle it
-    /// either, because the next turn may carry the same text. A turn epoch does.
-    ///
-    /// The ladder is set to ZERO rungs so the late attempt lands squarely on the abandoning path - the one
-    /// that publishes a verdict, and therefore the one that must be silenced.
-    /// </summary>
-    [Fact]
-    public async Task AnAttemptThatFinishesAfterANewTurnStarted_SaysNothingAtAll()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-epoch-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var brain = new BlockingThenFailingBrain();
-            var svc = ServiceWithBrainAndTts(brain, new byte[] { 6 }, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest();   // no rungs: a failure lands on the abandoning path
-
-            var attempt = svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            await brain.EnteredAsync();          // the model call is running and holding
-
-            // A new turn starts while that attempt is still inside the model.
-            svc.OnSessionWorking(TenantId.Local, "sid-1");
-
-            brain.Release();                     // ...and only now does the old attempt fail
-            await attempt;
-
-            // It reported NOTHING about the turn that has already moved on.
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-
-            // POSITIVE CONTROL: the same failure DOES speak when no turn has superseded it, so the assertion
-            // above is about the epoch and not about a path that records nothing anyway.
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            brain.Release();
-            Assert.True(await Eventually(() => svc.NarrationAbandonedFor(TenantId.Local, "sid-1")),
-                "the control failed: this path records no verdict even without a superseding turn");
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    // ---------- The SPEECH leg: the third place that said "retries on its own" ----------
+    // ---------- The speech leg on the ONE retry schedule (mission "Wingman error and retry", 2026-09-19) ----------
+    //
+    // This region used to hold about twenty-five tests of the voice path's own retry ledger: a ten, thirty and
+    // ninety second ladder of booked tasks, an "abandoned" flag, a reservation counter and a provider hold. That
+    // ledger is gone - the mission's design says a second retry mechanism beside the schedule means the mission is
+    // not done - and those tests went with the thing they described. What replaced it is small enough to be tested
+    // whole below: the reading's failure is the verdict service's to retry and the voice service records nothing
+    // about it, and a SPEECH failure goes on the same 1, 1, 1, 5, 5, 5, 30, 30 schedule, carried by the sweep.
 
     /// <summary>
     /// A speech provider that refuses with 429 for its first <c>refusals</c> calls and returns audio after
@@ -2306,397 +1459,261 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     private sealed class TtsAlwaysFailsHandler : HttpMessageHandler
     {
         private readonly HttpStatusCode _status;
+        private readonly string _body;
         private int _calls;
         public int Calls => _calls;
-        public TtsAlwaysFailsHandler(HttpStatusCode status) => _status = status;
+        public TtsAlwaysFailsHandler(HttpStatusCode status, string body = "{\"error\":\"upstream\"}")
+        {
+            _status = status;
+            _body = body;
+        }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Interlocked.Increment(ref _calls);
             return Task.FromResult(new HttpResponseMessage(_status)
             {
-                Content = new StringContent("{\"error\":\"upstream\"}", Encoding.UTF8, "application/json"),
+                Content = new StringContent(_body, Encoding.UTF8, "application/json"),
             });
         }
     }
 
-    /// <summary>A service whose MODEL answers normally and whose SPEECH leg is the handler under test - the
-    /// shape every narration-path speech test needs, and the one the existing helpers do not build.</summary>
+    /// <summary>A clock a test moves by hand, so the schedule's minutes cost nothing to wait out.</summary>
+    private sealed class MovableClock
+    {
+        public DateTime Now { get; set; } = new(2026, 9, 19, 12, 0, 0, DateTimeKind.Utc);
+        public void Advance(TimeSpan by) => Now += by;
+    }
+
+    /// <summary>A service whose MODEL answers normally and whose SPEECH leg is the handler under test, on a clock
+    /// the test moves.</summary>
     private WingmanVoiceService ServiceWithBrainAndTtsHandler(IAgentBrain brain, HttpMessageHandler handler, string persistPath,
+        MovableClock clock,
         Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?>? conversationReader = null)
     {
-        // The vault lives beside the persist file, INSIDE the directory the test deletes - the older helpers
-        // drop theirs loose in the machine temp directory and never remove it (found in review).
+        // The vault lives beside the persist file, INSIDE the directory the test deletes.
         var vaultPath = Path.Combine(Path.GetDirectoryName(persistPath)!, "test.vault");
         Directory.CreateDirectory(Path.GetDirectoryName(persistPath)!);
         var vault = new KeyVault(vaultPath);
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
-        return new WingmanVoiceService((_, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
+        var svc = new WingmanVoiceService((_, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
             ttsHttpClient: new HttpClient(handler), conversationReader: conversationReader,
             turnVerdicts: VerdictsOver(brain, conversationReader));
+        svc.UseClockForTest(() => clock.Now);
+        return svc;
+    }
+
+    /// <summary>One pass of the idle sweep over one session, exactly as GatewayHost runs it: prepare, then generate
+    /// with the prepared input. Returns whether the pass reached a provider.</summary>
+    private static async Task<bool> SweepOnceAsync(WingmanVoiceService svc, TunnelStub director)
+    {
+        var route = RouteFor(director);
+        var input = await svc.PrepareSweepGenerationAsync(TenantId.Local, "sid-1", route);
+        var reached = false;
+        await svc.GenerateAsync(TenantId.Local, "sid-1", route, CancellationToken.None, showReadingWindow: false,
+            onProviderReached: () => reached = true, sweepInput: input);
+        return reached;
     }
 
     /// <summary>
-    /// THE THIRD FALSE PROMISE, and the one whose SCREEN lied too. The speech leg said "this session retries
-    /// on its own" in three places and scheduled nothing in any of them; two of the three recorded
-    /// ServiceDown, so their screens at least showed a specific red verdict, but the NON-ANSWER arm records
-    /// Retrying - which the fold renders as the calm "Voice is taking a moment, retrying automatically. It
-    /// should come through shortly". A turn with a perfectly good narration text and no audio sat behind
-    /// that sentence with nothing making audio.
-    ///
-    /// The model leg's ladder now covers this leg too. Proved end to end: a speech stall that clears
-    /// produces AUDIO, with no sweep, no new turn, and nobody pressing anything.
+    /// A speech failure books retry 1 of 8 one minute out, the sweep does not call the provider before that, and
+    /// when it is due the sweep's next pass makes the audio with nobody pressing anything. This is goal 2 of the
+    /// mission on the speech leg, and the "not asked before it is due" half is what keeps a failing provider from
+    /// being called on every 45 second pass.
     /// </summary>
     [Fact]
-    public async Task WhenTheSpeechLegDoesNotAnswer_TheVoicePathBooksItsOwnReattempt_AndTheTurnIsNarrated()
+    public async Task ASpeechFailure_BooksRetryOneOfEight_IsNotAttemptedBeforeItIsDue_AndTheSweepMakesTheAudioWhenItIs()
     {
-        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
-        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
         var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-ttsretry-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-speechretry-" + Guid.NewGuid().ToString("N"));
         try
         {
-            // TtsSynthesis makes its own bounded attempts inside one call, so the handler must refuse
-            // enough times to exhaust those before the call itself fails - which is exactly the failure
-            // this test is about, the whole speech CALL not answering.
-            var handler = new TtsTimeoutHandler(timeouts: 2);
-            var brain = new RecordingBrain();
-            var svc = ServiceWithBrainAndTtsHandler(brain, handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            // CONTROL, and the exact state the old code stopped at: the model answered, the speech leg did
-            // not, no audio, and the calm sentence on the screen.
-            Assert.Equal(1, brain.AskCount);
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-            Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // honest: an attempt IS booked
-
-            // THE THING THAT DID NOT EXIST.
-            Assert.True(await Eventually(() => svc.HasVoice(TenantId.Local, "sid-1")),
-                "the speech-leg stall never led to another attempt - the turn stayed silent behind 'voice on its way'");
-            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>A speech 429 is transient by definition, so it gets the same ladder - and the same end to
-    /// end proof, audio arriving with nobody pressing anything.</summary>
-    [Fact]
-    public async Task WhenTheSpeechLegIsRateLimited_TheVoicePathBooksItsOwnReattempt_AndTheTurnIsNarrated()
-    {
-        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
-        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
-        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-tts429-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
+            var clock = new MovableClock();
             var handler = new TtsRateLimitedHandler(refusals: 1);
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
+            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, Path.Combine(dir, "voice-sessions.json"), clock, conversation.Reader);
 
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.Equal(1, handler.Calls);                       // control: refused once
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
+            Assert.Equal(1, handler.Calls);                       // control: the speech provider really was called
+            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));  // and refused
+            var error = svc.SpeechErrorFor(TenantId.Local, "sid-1");
+            Assert.NotNull(error);
+            Assert.Equal("retry 1 of 8", error!.RetryLabel);
+            Assert.Equal(clock.Now + TimeSpan.FromMinutes(1), error.NextRetryAtUtc);
+            Assert.False(error.Exhausted);
 
-            Assert.True(await Eventually(() => svc.HasVoice(TenantId.Local, "sid-1")),
-                "the speech 429 never led to another attempt - the turn stayed silent");
-            Assert.Equal(2, handler.Calls);                       // and exactly one re-attempt made the audio
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// The speech provider's Retry-After is honoured exactly, the same as the model leg's. It was parsed
-    /// into a log line and dropped.
-    /// </summary>
-    [Fact]
-    public async Task ASpeechProvidersRetryAfter_IsHonoured_WhenItAsksForLongerThanTheRung()
-    {
-        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
-        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
-        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-tts429after-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsRateLimitedHandler(refusals: 5, retryAfter: TimeSpan.FromMilliseconds(800));
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(20));   // rung 20ms, provider wants 800ms
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.Equal(TimeSpan.FromMilliseconds(800), svc.LastBookedRetryDelayForTest);
+            // NOT BEFORE IT IS DUE: fifty-nine seconds on, a sweep pass spends nothing.
+            clock.Advance(TimeSpan.FromSeconds(59));
+            Assert.False(await SweepOnceAsync(svc, director));
             Assert.Equal(1, handler.Calls);
 
-            // THE SEAM RECORDS WHAT WE DECIDED; THE HANDLER SHOWS WHAT WE DID. Found in review: asserting
-            // the recorded delay alone passes if the task is dropped, fires immediately, or fires at the
-            // wrong time. So the wait itself is observed - still one call well past the RUNG, and a second
-            // call after the PROVIDER'S number.
-            await Task.Delay(300);
-            Assert.Equal(1, handler.Calls);   // 15x the rung has passed and it has not called again
-
-            Assert.True(await Eventually(() => handler.Calls >= 2),
-                "the booked re-attempt never ran at all - the recorded delay described work nobody did");
+            // DUE: the next pass makes the audio, and the error is gone with it.
+            clock.Advance(TimeSpan.FromSeconds(2));
+            Assert.True(await SweepOnceAsync(svc, director));
+            Assert.Equal(2, handler.Calls);
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
+            Assert.Null(svc.SpeechErrorFor(TenantId.Local, "sid-1"));
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
 
     /// <summary>
-    /// WHERE THE LADDER RUNS OUT, THE SPEECH LEG'S SCREEN STOPS PROMISING TOO. This is the assertion the
-    /// whole change is for: the non-answer arm records Retrying, which renders as the calm "retrying
-    /// automatically, it should come through shortly", and before this that sentence stood for ever with
-    /// nothing making audio.
+    /// The speech leg walks the schedule exactly - one, one, one, five, five, five, thirty, thirty minutes - and
+    /// after the eighth retry fails nothing is booked, the display says so, and no later sweep pass calls the
+    /// provider again however long it waits. "Nothing more is scheduled" is true because the booked time is null,
+    /// and the booked time is the only thing the sweep reads.
     /// </summary>
     [Fact]
-    public async Task WhenEverySpeechReattemptIsSpent_TheScreenStopsPromisingAudio()
+    public async Task TheSpeechSchedule_IsExactlyOneOneOneFiveFiveFiveThirtyThirty_AndThenNothingIsBooked()
     {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-ttsgiveup-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsTimeoutHandler(timeouts: int.MaxValue);   // never answers
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(30), TimeSpan.FromMilliseconds(30));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.True(await Eventually(() => svc.NarrationAbandonedFor(TenantId.Local, "sid-1")),
-                "the speech ladder never ran out, so nothing ever told the reader the turn was not narrated");
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-
-            // The WHOLE sentence, not the absence of a phrase.
-            var display = VoiceDisplayFold.Fold(
-                voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: svc.VoiceUnavailableFor(TenantId.Local, "sid-1"),
-                nothingToNarrate: false,
-                narrationAbandoned: svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Equal("notNarrated", display.Kind);
-            Assert.Equal("Turn not narrated", display.Label);
-            Assert.Equal("This turn has no narration, and nothing further is scheduled to make one. "
-                       + "Read the turn, or ask for the narration again.", display.Message);
-
-            // NEGATIVE CONTROL: the same facts WITHOUT the abandoned fact are the calm sentence this
-            // change exists to end - so the assertion above is about the fix and not about a state that
-            // renders that way regardless.
-            var promising = VoiceDisplayFold.Fold(
-                voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: svc.VoiceUnavailableFor(TenantId.Local, "sid-1"),
-                nothingToNarrate: false, narrationAbandoned: false);
-            Assert.Equal("retrying", promising.Kind);
-            Assert.Equal("Voice on its way", promising.Label);
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// AN ANSWERED 5xx IS NOT RETRIED, and the screen it produces is unchanged. The service told us it is
-    /// failing - a claim the red "Voice service down" panel is right to make, and one a second call seconds
-    /// later has no reason to change. Only its LOG was wrong, and a log is not assertable here; what is
-    /// assertable is that no re-attempt is booked and the verdict is the one it always was.
-    /// </summary>
-    [Theory]
-    [InlineData(500)]
-    [InlineData(502)]
-    [InlineData(503)]
-    public async Task AnAnsweredSpeechFailure_BooksNoReattempt_AndKeepsItsOwnVerdict(int status)
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-tts5xx-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new TtsAlwaysFailsHandler((HttpStatusCode)status);
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20));
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.Equal(1, handler.Calls);   // control: it was called once
-            await Task.Delay(400);            // many times the rung, so this is a real absence
-            Assert.Equal(1, handler.Calls);   // and never again
-
-            Assert.Null(svc.LastBookedRetryDelayForTest);
-            Assert.Equal(HostedAiState.ServiceDown, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-            var display = VoiceDisplayFold.Fold(
-                voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: svc.VoiceUnavailableFor(TenantId.Local, "sid-1"),
-                nothingToNarrate: false,
-                narrationAbandoned: svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Equal("serviceDown", display.Kind);
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// THE ON-DEMAND PATH IS UNCHANGED, asserted rather than assumed. StoreSpokenAsync now hands back what
-    /// the speech leg did, and the narration path acts on it - but a caller that does not book must still
-    /// record exactly the state it recorded before, or this change would have quietly turned a specific red
-    /// verdict into a calm wait on the one path that has no re-attempt behind it.
-    /// </summary>
-    [Fact]
-    public async Task TheOnDemandPath_StillRecordsTheSameVerdict_AndBooksNothing()
-    {
-        var handler = new TtsRateLimitedHandler(refusals: int.MaxValue, retryAfter: TimeSpan.FromSeconds(30));
-        var svc = ServiceWithHandler(handler);
-
-        var attempt = await svc.StoreSpokenAsync(TenantId.Local, "sid-429", "spoken", "reply");
-
-        // The verdict the phone reads is the one it always was for an answered refusal.
-        Assert.Equal(HostedAiState.ServiceDown, svc.VoiceUnavailableFor(TenantId.Local, "sid-429"));
-        Assert.False(svc.HasVoice(TenantId.Local, "sid-429"));
-        Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-429"));
-
-        // ...and the outcome it hands back carries what a booking caller would need, which is the whole
-        // point of the return value: the provider's number, and that this one is worth another go.
-        Assert.False(attempt.ProducedAudio);
-        Assert.True(attempt.WorthAnotherAttempt);
-        Assert.Equal(TimeSpan.FromSeconds(30), attempt.RetryAfter);
-
-        // Nothing was booked by this path - one call, and no more.
-        Assert.Equal(1, handler.Calls);
-        await Task.Delay(300);
-        Assert.Equal(1, handler.Calls);
-        Assert.Null(svc.LastBookedRetryDelayForTest);
-    }
-
-    /// <summary>
-    /// AN OLD TIMER CANNOT STEAL A NEWLY BOOKED RE-ATTEMPT.
-    ///
-    /// Found in review, and then found again by the mutation audit: removing the RESERVATION from the
-    /// waking timer's ownership check killed no test at all, so the guard was standing on nothing. The
-    /// reply key cannot answer this, which is the whole point - a turn can be cleared and the next attempt
-    /// carry the SAME reply text, so an old timer matching on text alone believes the new reservation is
-    /// its own, takes the pending marker off it, and runs. The screen is then promising audio behind a
-    /// task that will stand down when it fires.
-    ///
-    /// The window is made wide on purpose. The first re-attempt is booked at t=0 to fire at t=3s; the turn
-    /// is cleared at t=0.05s; a second attempt at t=1.5s books its OWN reservation to fire at t=4.5s. At
-    /// t=3s the first timer wakes into a ledger that matches on reply text and is pending - and must
-    /// recognise that it is not its own.
-    ///
-    /// DRIVEN THROUGH THE SPEECH LEG, which is the only leg with re-attempts: a judge that does not answer is
-    /// never asked again for the same stop. Each narration attempt that reaches the speech provider is exactly one
-    /// call on the rate-limited handler, so the handler's count is the attempt count.
-    /// </summary>
-    [Fact]
-    public async Task AnOldTimer_CannotStealAReattemptBookedByALaterAttempt()
-    {
-        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
-        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
         var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-reservation-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-speechschedule-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var handler = new TtsRateLimitedHandler(refusals: int.MaxValue);
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+            var clock = new MovableClock();
+            var handler = new TtsAlwaysFailsHandler(HttpStatusCode.InternalServerError);
+            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, Path.Combine(dir, "voice-sessions.json"), clock, conversation.Reader);
 
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.Equal(1, handler.Calls);   // control: the first attempt ran and booked reservation one
 
-            await Task.Delay(50);
-            svc.OnSessionWorking(TenantId.Local, "sid-1");   // the turn is cleared; that reservation is orphaned
+            var minutes = new[] { 1, 1, 1, 5, 5, 5, 30, 30 };
+            for (var retry = 1; retry <= minutes.Length; retry++)
+            {
+                var error = svc.SpeechErrorFor(TenantId.Local, "sid-1");
+                Assert.NotNull(error);
+                Assert.Equal($"retry {retry} of 8", error!.RetryLabel);
+                Assert.Equal(clock.Now + TimeSpan.FromMinutes(minutes[retry - 1]), error.NextRetryAtUtc);
+                Assert.Equal(8 - retry + 1, error.RetriesRemaining);
 
-            await Task.Delay(1450);
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.Equal(2, handler.Calls);   // control: the second attempt ran and booked reservation TWO
+                clock.Advance(TimeSpan.FromMinutes(minutes[retry - 1]));
+                Assert.True(await SweepOnceAsync(svc, director), $"retry {retry} was due and the sweep did not make it");
+            }
 
-            // Past the first timer's deadline and well before the second's. The orphaned timer has woken by
-            // now; if it took the newer reservation for its own it would have run a third attempt here.
-            await Task.Delay(2000);
-            Assert.Equal(2, handler.Calls);
+            Assert.Equal(9, handler.Calls);   // the first attempt and exactly eight retries
+            var spent = svc.SpeechErrorFor(TenantId.Local, "sid-1");
+            Assert.NotNull(spent);
+            Assert.True(spent!.Exhausted);
+            Assert.Null(spent.NextRetryAtUtc);
+            Assert.Equal(WingmanErrorFold.ExhaustedLine, spent.ExhaustedText);
 
-            // AND THE PRESENCE THAT MAKES THAT ABSENCE MEAN SOMETHING. Found in review: "still two" is also
-            // what a machine too busy to run either timer would report, so on its own it certifies nothing.
-            // The SECOND reservation must still fire - which proves the timers were alive, that the window
-            // the assertion above measured was real, and that standing the orphan down did not cost the turn
-            // its re-attempt. A stall long enough to fake the assertion above would fail this one.
-            Assert.True(await Eventually(() => handler.Calls >= 3),
-                "the live reservation never fired either - the machinery was asleep, so the count above proved nothing");
-            Assert.Equal(3, handler.Calls);
-
-            svc.Unmark(TenantId.Local, "sid-1");   // retire the ladder so the next rung's timer stands down
-            await Task.Delay(50);
+            // AND THEN IT STOPS. A day later the sweep still spends nothing on this stop.
+            clock.Advance(TimeSpan.FromDays(1));
+            Assert.False(await SweepOnceAsync(svc, director));
+            Assert.Equal(9, handler.Calls);
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
 
-    /// <summary>A speech provider that answers 200 with an EMPTY body - no audio, and no failure status to
-    /// classify it by. The outcome nobody enumerated.</summary>
-    private sealed class TtsEmptyBodyHandler : HttpMessageHandler
+    /// <summary>A rate limit that names its own wait is honoured: the retry is the later of the schedule and the
+    /// wait the provider named, so a provider that asked for ten minutes is not called again in one.</summary>
+    [Fact]
+    public async Task ASpeechProvidersNamedWait_LongerThanTheSchedule_MovesTheRetryLater()
     {
-        private int _calls;
-        public int Calls => _calls;
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
+        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-speechwait-" + Guid.NewGuid().ToString("N"));
+        try
         {
-            Interlocked.Increment(ref _calls);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new ByteArrayContent(Array.Empty<byte>()),
-            });
+            var clock = new MovableClock();
+            var handler = new TtsRateLimitedHandler(refusals: 1, retryAfter: TimeSpan.FromMinutes(10));
+            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, Path.Combine(dir, "voice-sessions.json"), clock, conversation.Reader);
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+
+            Assert.Equal(clock.Now + TimeSpan.FromMinutes(10), svc.SpeechErrorFor(TenantId.Local, "sid-1")!.NextRetryAtUtc);
+            clock.Advance(TimeSpan.FromMinutes(9));
+            Assert.False(await SweepOnceAsync(svc, director));
+            Assert.Equal(1, handler.Calls);
         }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    /// <summary>An account's own condition - out of credits - is the member's to fix and is not retried: it books
+    /// nothing, and the screen keeps its specific add-credit sentence instead of a retry line.</summary>
+    [Fact]
+    public async Task AnAccountCondition_BooksNoSpeechRetry_AndKeepsItsOwnSentence()
+    {
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
+        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-speechaccount-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var handler = new TtsAlwaysFailsHandler(HttpStatusCode.PaymentRequired, "{\"error\":{\"code\":\"insufficient_credits\"}}");
+            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, Path.Combine(dir, "voice-sessions.json"), new MovableClock(), conversation.Reader);
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+
+            Assert.Equal(1, handler.Calls);
+            Assert.Equal(HostedAiState.NeedsCredits, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
+            Assert.Null(svc.SpeechErrorFor(TenantId.Local, "sid-1"));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    /// <summary>A new turn ends the old stop's speech schedule: the session going back to work clears it, so the
+    /// next stop starts at its own first attempt and is never held back by the last one.</summary>
+    [Fact]
+    public async Task ANewTurn_EndsTheSpeechRetrySchedule()
+    {
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
+        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-speechnewturn-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var handler = new TtsAlwaysFailsHandler(HttpStatusCode.InternalServerError);
+            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, Path.Combine(dir, "voice-sessions.json"), new MovableClock(), conversation.Reader);
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+            Assert.NotNull(svc.SpeechErrorFor(TenantId.Local, "sid-1"));   // control: there was a schedule to end
+
+            svc.OnSessionWorking(TenantId.Local, "sid-1");
+
+            Assert.Null(svc.SpeechErrorFor(TenantId.Local, "sid-1"));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
 
     /// <summary>
-    /// NO AUDIO AND NOTHING BOOKED IS THE ABANDONED CASE, WHATEVER PRODUCED IT.
-    ///
-    /// Found in review. The speech leg can return no audio and record NO state at all - a 200 carrying an
-    /// empty body is the reachable one - and that outcome is not any of the three failures the
-    /// classification names. With an earlier attempt having left the calm Retrying standing, the screen went
-    /// back to promising audio with nothing behind it: this change's own defect, arriving through the one
-    /// door its own enumeration did not cover.
-    ///
-    /// The sequence is the one that makes it visible: a first attempt that DOES leave Retrying and a booked
-    /// rung, then an empty-bodied answer once the ladder is spent.
+    /// A FAILED READING IS NOT THE VOICE SERVICE'S TO ACCOUNT FOR. It used to record a Retrying state and an
+    /// abandoned flag of its own beside the failed record, and two accounts of one failure is how a card said an
+    /// attempt was coming with none booked. Now the failed record is the only account: it carries the booked
+    /// retry, and the voice service holds nothing about it.
     /// </summary>
     [Fact]
-    public async Task ASpeechAnswerWithNoAudioAndNoFailureState_StillStopsThePromise()
+    public async Task AFailedReading_LeavesNothingInTheVoiceService_AndTheBookedRetryIsOnTheStoredRecord()
     {
-        var director = new TunnelStub();
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-ttsempty-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-failedreading-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var handler = new TtsEmptyBodyHandler();
-            var svc = ServiceWithBrainAndTtsHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-            svc.UseModelRetryBackoffForTest();   // no rungs, so this attempt books nothing
-
-            // Seed the calm promise an earlier attempt would have left behind.
-            svc.NoteRetrying(TenantId.Local, "sid-1");
-            Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
+            var brain = new TimingOutBrain();
+            var verdicts = VerdictsOver(brain, conversation.Reader);
+            var vaultPath = Path.Combine(dir, "test.vault");
+            Directory.CreateDirectory(dir);
+            var vault = new KeyVault(vaultPath);
+            vault.Set("OPENAI_API_KEY", "sk-test");
+            vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
+            var handler = new TtsAlwaysFailsHandler(HttpStatusCode.InternalServerError);
+            var svc = new WingmanVoiceService((_, _, _) => Task.FromResult<IAgentBrain>(brain), vault, Settings,
+                Path.Combine(dir, "voice-sessions.json"), ttsHttpClient: new HttpClient(handler),
+                conversationReader: conversation.Reader, turnVerdicts: verdicts);
 
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.Equal(1, handler.Calls);                       // control: the speech leg really was called
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));  // and produced nothing
+            Assert.True(brain.AskCount >= 1);                     // control: the judge really was asked
+            Assert.Equal(0, handler.Calls);                       // and no speech was attempted for a failed reading
+            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
+            Assert.Null(svc.SpeechErrorFor(TenantId.Local, "sid-1"));
 
-            // The promise is withdrawn, so the screen reports the turn rather than an arrival.
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            var display = VoiceDisplayFold.Fold(
-                voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: svc.VoiceUnavailableFor(TenantId.Local, "sid-1"),
-                nothingToNarrate: false,
-                narrationAbandoned: svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Equal("notNarrated", display.Kind);
-            Assert.Equal("This turn has no narration, and nothing further is scheduled to make one. "
-                       + "Read the turn, or ask for the narration again.", display.Message);
+            var stored = verdicts.Latest(TenantId.Local, "sid-1");
+            Assert.NotNull(stored);
+            Assert.True(stored!.Failed);
+            Assert.Equal(0, stored.RetriesMade);
+            Assert.NotNull(stored.NextRetryAtUtc);
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
-
 }

@@ -33,9 +33,12 @@ public sealed class VoiceGaveUpFoldTests
         Assert.Equal("Voice did not arrive after 48m", v.Label);
         Assert.Equal("48m", v.WaitedLabel);
         Assert.False(v.CanPlay);
-        // No Generate button: it would re-run the same thing that has already failed for 48 minutes, and a
-        // button that cannot succeed invites the reader to keep pressing and blame themselves.
-        Assert.False(v.CanGenerate);
+        // THE BUTTON IS OFFERED NOW (mission "Wingman error and retry", 2026-09-19). It was withheld on the ground that
+        // "automatic attempts continue, so a button would only duplicate them" - and this fold is not told what is
+        // booked, so it could not know that, and for seven sessions it was false. Asking is the one action on this
+        // card that can still produce the turn's audio.
+        Assert.True(v.CanGenerate);
+        Assert.DoesNotContain("still trying", v.Message);
     }
 
     [Fact]

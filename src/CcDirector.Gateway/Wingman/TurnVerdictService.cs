@@ -1104,14 +1104,12 @@ public sealed class TurnVerdictService : IDisposable
         //    while one is held for the session, this check reads the stored conversation as well, to tell
         //    whether the reply is still the stop the wait was named for, and a stop answered by that wait
         //    has read both.
-        // 4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
-        //    conversation is read. A stop refused here costs ONE read.
-        // 5. The conversation read.
-        // 6. The provider deadline, then the account ceiling. A stop refused by either costs TWO reads.
-        // 7. The model call.
+        // 4. The conversation read.
+        // 5. The account ceiling. A stop refused here costs TWO reads.
+        // 6. The model call.
         //
         // The line above used to read "the free checks: nothing is read and nothing is paid for until every one of
-        // them passes". That was false - steps 3, 4 and 6 all come after the screen read - and it is recorded here
+        // them passes". That was false - steps 3 and 5 both come after the screen read - and it is recorded here
         // because the charter and the specification had copied it. The same block, word for word, is in
         // docs/wingman/WINGMAN.md section 3b and docs/architecture/wingman/TURN_VERDICT.md section 6.
         //
