@@ -278,24 +278,32 @@ public sealed class DirectorDrainRestartStepTests
             firstDir.Path);
         await parked.Task;
 
-        var sessions = new FakeSessionControl();
-        sessions.Live.Add("solo");
-        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(DrainTestRig.Seat("solo", "Standalone")) };
-        var gateway = new DirectorRestartCycleTests.Gateway();
+        // THE FIRST DRAIN IS ALWAYS LET GO, whatever the assertions below do. It holds a gate that is
+        // process-wide, so a failure that left it parked would refuse every drain in every test after
+        // this one, and one red test would read as sixty.
+        try
+        {
+            var sessions = new FakeSessionControl();
+            sessions.Live.Add("solo");
+            var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(DrainTestRig.Seat("solo", "Standalone")) };
+            var gateway = new DirectorRestartCycleTests.Gateway();
 
-        var final = await Cycle(Step(sessions, sink, secondDir.Path), gateway).RunAsync();
+            var final = await Cycle(Step(sessions, sink, secondDir.Path), gateway).RunAsync();
 
-        Assert.Equal(DirectorRestartRequestState.Abandoned, final);
-        Assert.Contains("already running", gateway.Last.Progress);
-        Assert.Contains("the-first-drain", gateway.Last.Progress);
-        Assert.Null(gateway.Last.WorkspaceId);
-        Assert.Equal(0, gateway.LauncherAsks);
-        Assert.Equal(0, gateway.CapabilityChecks);
-        Assert.Empty(sessions.Sent);
-        Assert.Null(sink.CaptureRequest);
-
-        release.SetResult();
-        await firstRun;
+            Assert.Equal(DirectorRestartRequestState.Abandoned, final);
+            Assert.Contains("already running", gateway.Last.Progress);
+            Assert.Contains("the-first-drain", gateway.Last.Progress);
+            Assert.Null(gateway.Last.WorkspaceId);
+            Assert.Equal(0, gateway.LauncherAsks);
+            Assert.Equal(0, gateway.CapabilityChecks);
+            Assert.Empty(sessions.Sent);
+            Assert.Null(sink.CaptureRequest);
+        }
+        finally
+        {
+            release.SetResult();
+            await firstRun;
+        }
         Assert.Null(DirectorDrain.Running);
     }
 
