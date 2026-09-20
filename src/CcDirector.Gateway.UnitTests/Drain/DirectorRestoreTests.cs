@@ -1,7 +1,9 @@
 using System.Text.Json;
 using CcDirector.ControlApi;
 using CcDirector.ControlApi.Drain;
+using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.DevReports;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Workspaces;
 using Xunit;
@@ -119,6 +121,31 @@ public sealed class DirectorRestoreTests : IDisposable
                 Live.ToList(),
                 DirectorStates.Select(kv => new DirectorReachabilityDto { DirectorId = kv.Key, State = kv.Value }).ToList()));
 
+        /// <summary>The REAL dev report store, over the same database as the workspace.</summary>
+        public required DevReportStore Reports { get; init; }
+
+        /// <summary>Every dev report pass the restore asked for, as it arrived.</summary>
+        public List<WorkspaceDevReportPassRequest> PassRequests { get; } = new();
+
+        /// <summary>When set, the Gateway refuses every dev report pass with this reason.</summary>
+        public string? RefuseThePassWith { get; set; }
+
+        public Task<WorkspaceDevReportPassResult> PassDevReportsAsync(string workspaceId, WorkspaceDevReportPassRequest request, CancellationToken ct)
+        {
+            // Through JSON, as the route reads it, and then through the REAL rule over the REAL stored workspace.
+            var wire = JsonSerializer.Deserialize<WorkspaceDevReportPassRequest>(JsonSerializer.Serialize(request, Json), Json)!;
+            PassRequests.Add(wire);
+            if (RefuseThePassWith is { } why) throw new InvalidOperationException(why);
+            try
+            {
+                return Task.FromResult(DevReportInheritance.Pass(Store.Get(workspaceId)!, wire, Reports, TenantId.Local, StoreNow));
+            }
+            catch (Exception ex) when (ex is WorkspaceConflictException or WorkspaceValidationException)
+            {
+                throw new InvalidOperationException(ex.Message);
+            }
+        }
+
         public Task<SessionDto> SpawnOnThisDirectorAsync(NewSessionRequest request, CancellationToken ct)
         {
             Spawns.Add(JsonSerializer.Deserialize<NewSessionRequest>(JsonSerializer.Serialize(request, Json), Json)!);
@@ -179,7 +206,14 @@ public sealed class DirectorRestoreTests : IDisposable
         RestoreAfterRestart = seats.Where(s => s.Restore!.Decision == WorkspaceRestoreDecisions.Restore).Select(s => s.SessionId!).ToList(),
     };
 
-    private FakeGateway Gateway(params WorkspaceSeat[] seats) => new(new WorkspaceStore(_h.Open()), Doc(seats));
+    private FakeGateway Gateway(params WorkspaceSeat[] seats) => Gateway(Doc(seats));
+
+    /// <summary>One database under both stores, as on a Gateway: the workspace and the dev reports it names.</summary>
+    private FakeGateway Gateway(WorkspaceDocument doc)
+    {
+        var db = _h.Open();
+        return new FakeGateway(new WorkspaceStore(db), doc) { Reports = new DevReportStore(db) };
+    }
 
     /// <summary>A restore as the route starts one: the lease is granted to this Director first.</summary>
     private static DirectorRestore NewRestore(FakeGateway gw, DateTime? clock = null)
@@ -738,6 +772,9 @@ public sealed class DirectorRestoreTests : IDisposable
 
         public Task<RestoreRoster> GetRosterAsync(CancellationToken ct)
             => Task.FromResult(new RestoreRoster(Array.Empty<SessionDto>(), Array.Empty<DirectorReachabilityDto>()));
+
+        public Task<WorkspaceDevReportPassResult> PassDevReportsAsync(string workspaceId, WorkspaceDevReportPassRequest request, CancellationToken ct)
+            => throw new InvalidOperationException("not reached");
     }
 
     [Fact]
@@ -747,7 +784,7 @@ public sealed class DirectorRestoreTests : IDisposable
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => NewRestore(gw).PrepareAsync(Order()));
         Assert.Contains("no seat left", ex.Message);
 
-        var gw2 = new FakeGateway(new WorkspaceStore(_h.Open()), WithId(Doc(Seat("a", "Alpha"), Seat("b", "Bravo")), "drain-2"));
+        var gw2 = Gateway(WithId(Doc(Seat("a", "Alpha"), Seat("b", "Bravo")), "drain-2"));
         gw2.Lease();
         var restore2 = new DirectorRestore(gw2, ThisDirector, () => Now);
         Assert.Equal(new[] { "a", "b" }, await restore2.PrepareAsync(new WorkspaceRestoreOrder { WorkspaceId = "drain-2" }));
@@ -786,5 +823,88 @@ public sealed class DirectorRestoreTests : IDisposable
         {
             first.Release();
         }
+    }
+
+    // ================= restored sessions inherit dev reports (Smart Director Restart, section 5.3 item 13) =================
+
+    private const string ReportFile = @"D:\repo\docs\report.html";
+
+    private static DevReportEntityRef Publish(FakeGateway gw, string sessionId, string key = ReportFile)
+    {
+        var (report, created) = gw.Reports.Publish(TenantId.Local, sessionId, key, "<p>html</p>", "waiting-on-you", "Report", Now);
+        return new DevReportEntityRef(report.Id, report.Version, created);
+    }
+
+    /// <summary>What a publish answered: the report's id IS its link.</summary>
+    private sealed record DevReportEntityRef(Guid Id, int Version, bool Created);
+
+    [Fact]
+    public async Task RunAsync_ARestoredSeatRepublishingTheSameFile_UpdatesTheSameReportAtTheSameLink()
+    {
+        var gw = Gateway(Seat("manager", "Manager"));
+        var before = Publish(gw, "manager");
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        // The restored session is "new-1". It publishes the same file, as a restored agent does.
+        var after = Publish(gw, "new-1");
+        Assert.False(after.Created);
+        Assert.Equal(before.Id, after.Id);
+        Assert.Equal(2, after.Version);
+        Assert.Equal("manager", Assert.Single(gw.PassRequests).SeatSessionId);
+        Assert.Equal(ThisDirector, gw.PassRequests[0].DirectorId);
+        Assert.Contains("1 dev report(s) passed to new-1", Assert.Single(result.Seats).DevReports);
+    }
+
+    [Fact]
+    public async Task RunAsync_ASeatThatIsNotBroughtBack_KeepsItsReportsFrozen_AndNothingIsAskedForIt()
+    {
+        var gw = Gateway(Seat("a", "Alpha"));
+        gw.RefuseByName["Alpha"] = "the repository is gone";
+        var before = Publish(gw, "a");
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        Assert.NotNull(Assert.Single(result.Seats).Failure);
+        Assert.Null(result.Seats[0].DevReports);
+        Assert.Empty(gw.PassRequests);
+        Assert.Equal(before.Id, Assert.Single(gw.Reports.List(TenantId.Local, "a")).Id);
+    }
+
+    [Fact]
+    public async Task RunAsync_TheGatewayRefusesThePass_TheSeatStillComesBack_AndItsOutcomeSaysTheLinksStayFrozen()
+    {
+        var gw = Gateway(Seat("a", "Alpha"));
+        gw.RefuseThePassWith = "HTTP 404: this Gateway has no such route";
+        Publish(gw, "a");
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        var seat = Assert.Single(result.Seats);
+        Assert.Null(seat.Failure);
+        Assert.Equal("new-1", seat.RestoredSessionId);
+        Assert.Contains("did NOT pass", seat.DevReports);
+        Assert.Contains("HTTP 404", seat.DevReports);
+        Assert.Equal("new-1", gw.Stored.Seats.Single().RestoredSessionId);
+    }
+
+    [Fact]
+    public async Task RunAsync_ADirectorThatDiedBeforeItCouldAsk_TheNextRunAsksForTheSeatThatIsAlreadyBack()
+    {
+        var gw = Gateway(Seat("a", "Alpha", order: 0), Seat("b", "Bravo", order: 1));
+        gw.CreateThenDieByName.Add("Alpha");
+        var before = Publish(gw, "a");
+
+        await Assert.ThrowsAsync<DirectorDied>(() => NewRestore(gw).RunAsync(Order()));
+        Assert.Empty(gw.PassRequests);
+        gw.CreateThenDieByName.Clear();
+        gw.Revive();
+
+        await NewRestore(gw).RunAsync(Order());
+
+        Assert.Contains(gw.PassRequests, p => p.SeatSessionId == "a");
+        var after = Publish(gw, "new-1");
+        Assert.False(after.Created);
+        Assert.Equal(before.Id, after.Id);
     }
 }

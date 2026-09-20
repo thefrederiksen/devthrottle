@@ -115,6 +115,57 @@ internal sealed class DevReportStore
         return (report, created);
     }
 
+    /// <summary>
+    /// Pass every report of <paramref name="fromSessionId"/> to <paramref name="toSessionId"/>, with its notes and
+    /// answers, so that the new session publishing the same key writes a new version of the SAME report, at the same
+    /// link. The report ids, versions, items and replies are untouched - only who they belong to changes.
+    ///
+    /// THIS STORE DOES NOT DECIDE WHO MAY ASK. <see cref="DevReportInheritance"/> does, and it is the only caller.
+    ///
+    /// A report whose key the new session has ALREADY published is left where it is and named in the answer: the
+    /// natural key (session, key) is unique, and the report the new session is publishing to now is the one it will
+    /// keep publishing to. Asking again is safe - the second time the old session has nothing left to pass.
+    /// </summary>
+    public (int Passed, IReadOnlyList<string> KeptKeys) PassToSession(TenantId tenant, string fromSessionId, string toSessionId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(fromSessionId);
+        ArgumentException.ThrowIfNullOrEmpty(toSessionId);
+        if (string.Equals(fromSessionId, toSessionId, StringComparison.Ordinal))
+            throw new ArgumentException("a session's reports cannot pass to itself.", nameof(toSessionId));
+        FileLog.Write($"[DevReportStore] PassToSession: tenant={tenant.ToLogString()} from={fromSessionId} to={toSessionId}");
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            using var tx = ctx.Database.BeginTransaction();
+            var alreadyThere = ctx.DevReports.AsNoTracking().Where(r => r.SessionId == toSessionId).Select(r => r.Key).ToList()
+                .ToHashSet(StringComparer.Ordinal);
+            var passing = new List<Guid>();
+            var kept = new List<string>();
+            foreach (var report in ctx.DevReports.Where(r => r.SessionId == fromSessionId).ToList())
+            {
+                if (alreadyThere.Contains(report.Key))
+                {
+                    kept.Add(report.Key);
+                    continue;
+                }
+                report.SessionId = toSessionId;
+                passing.Add(report.Id);
+            }
+            ctx.SaveChanges();
+
+            // The items carry the session too: a turn end drains what is held for ONE session across its reports, so a
+            // note the owner wrote before the restart is delivered to the session that holds the report now.
+            var items = passing.Count == 0
+                ? 0
+                : ctx.DevReportItems.Where(i => passing.Contains(i.ReportId))
+                    .ExecuteUpdate(set => set.SetProperty(i => i.SessionId, toSessionId));
+            tx.Commit();
+            FileLog.Write($"[DevReportStore] PassToSession: from={fromSessionId} to={toSessionId} passed={passing.Count} items={items} kept={kept.Count}");
+            return (passing.Count, kept);
+        }
+    }
+
     /// <summary>A session's reports, newest update first. A null session lists the whole account.</summary>
     public IReadOnlyList<DevReportEntity> List(TenantId tenant, string? sessionId)
     {
