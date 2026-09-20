@@ -438,6 +438,20 @@ public class RunnerTests
         using var empty = new FixtureTree("empty");
         using var home = new FixtureTree("index-home");
 
+        // This is the one test that hands the REAL rule set the apply flag, so where it would hold is
+        // not left to which rules happen to match a fixture. The request names a holding root inside
+        // the fixture tree, and both answers are made to say so before they are read for anything
+        // else: a run that fell through to the default would name the root of a real volume here.
+        var reclaimDryRun = Runner.Run(ReclaimRequest(tree.Root, apply: false));
+        var reclaimApply = Runner.Run(ReclaimRequest(tree.Root, apply: true));
+        foreach (var reclaim in new[] { reclaimDryRun, reclaimApply })
+        {
+            var holdingRoot = Assert.IsType<ReclaimJson>(reclaim.JsonPayload).HoldingRootPath;
+            Assert.True(
+                RuleSelection.IsInside(holdingRoot, tree.Root),
+                $"the holding root {holdingRoot} is not inside the fixture tree {tree.Root}");
+        }
+
         Answer[] answers =
         [
             Runner.Run(Request(CommandName.Help, null, home.Root)),
@@ -446,8 +460,8 @@ public class RunnerTests
             Runner.Run(Request(CommandName.Scan, empty.Root, home.Root)),
             Runner.Run(Request(CommandName.Report, tree.Root, home.Root)),
             Runner.Run(Request(CommandName.SavedScans, null, home.Root)),
-            Runner.Run(ReclaimRequest(tree.Root, apply: false)),
-            Runner.Run(ReclaimRequest(tree.Root, apply: true)),
+            reclaimDryRun,
+            reclaimApply,
             Runner.Run(HoldingRequest(CommandName.HoldingList, home.Root, folder: tree.Root)),
             Runner.Run(HoldingRequest(
                 CommandName.HoldingRestore, home.Root, folder: tree.Root, entryId: "2026-09-19-3f2a1b9c")),
@@ -859,6 +873,10 @@ public class RunnerTests
         Assert.True(Directory.Exists(Path.Combine(holdingRoot, held.EntryId)));
     }
 
+    // The holding root is always named, and always inside the folder the test handed over, which is
+    // a fixture tree. Left null the tool works out its per-volume default - a folder at the root of
+    // the real volume - and these requests run the REAL rule set, sometimes with the apply flag. No
+    // request built here can hold anywhere but inside the fixture, whatever the rules select.
     private static Request ReclaimRequest(string folder, bool apply, string? ruleId = null) => new()
     {
         Command = CommandName.Reclaim,
@@ -869,7 +887,7 @@ public class RunnerTests
         FolderDepth = 2,
         RuleId = ruleId,
         Apply = apply,
-        HoldingRootPath = null,
+        HoldingRootPath = Path.Combine(folder, "holding"),
         EntryId = null,
         Days = null,
         CommandWord = "reclaim"
