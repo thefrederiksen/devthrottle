@@ -1,0 +1,47 @@
+THE LAUNCHER REFUSED A RESTART OF A DIRECTOR IT HAD JUST EMPTIED.
+Every line below is quoted from /c/Users/soren/AppData/Local/cc-director-restart-qa-rig/instances/default/logs/director/director-2026-09-20-41076.log
+
+-- the drain says the Director is empty:
+3168:2026-09-20 16:24:23.001 [DirectorDrain] emptied=True, left=0
+4352:2026-09-20 16:34:56.330 [DirectorDrain] emptied=True, left=0
+5214:2026-09-20 16:41:55.874 [DirectorDrain] emptied=True, left=0
+5827:2026-09-20 16:49:22.129 [DirectorDrain] emptied=True, left=0
+
+-- the restart is asked for:
+3200:2026-09-20 16:24:23.156 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: POST /machines/SOREN_NORTH/director/restart onlyIfEmpty=true exePath=C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\app\cc-director.exe
+4359:2026-09-20 16:34:56.334 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: POST /machines/SOREN_NORTH/director/restart onlyIfEmpty=true exePath=C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\app\cc-director.exe
+5222:2026-09-20 16:41:55.878 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: POST /machines/SOREN_NORTH/director/restart onlyIfEmpty=true exePath=C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\app\cc-director.exe
+5834:2026-09-20 16:49:22.182 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: POST /machines/SOREN_NORTH/director/restart onlyIfEmpty=true exePath=C:\Users\soren\AppData\Local\cc-director-restart-qa-rig\app\cc-director.exe
+
+-- the roster the launcher reads is written AFTER the ask, by a debounced save:
+510:2026-09-20 16:15:24.436 [MainWindow] PersistSessionStateCore
+813:2026-09-20 16:15:33.102 [MainWindow] PersistSessionStateCore
+938:2026-09-20 16:15:35.930 [MainWindow] PersistSessionStateCore
+2014:2026-09-20 16:19:48.731 [MainWindow] PersistSessionStateCore
+2268:2026-09-20 16:20:48.685 [MainWindow] PersistSessionStateCore
+2492:2026-09-20 16:21:48.708 [MainWindow] PersistSessionStateCore
+2961:2026-09-20 16:23:48.685 [MainWindow] PersistSessionStateCore
+3082:2026-09-20 16:24:22.672 [MainWindow] PersistSessionStateCore
+3201:2026-09-20 16:24:23.250 [MainWindow] PersistSessionStateCore
+3202:2026-09-20 16:24:23.250 [CcDirector] [SaveCurrentState] Total sessions in manager: 0
+3204:2026-09-20 16:24:23.251 [SessionStateStore] Save: saved 0 session(s)
+3707:2026-09-20 16:29:42.690 [MainWindow] PersistSessionStateCore
+
+-- the refusal:
+3206:2026-09-20 16:24:23.253 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: HTTP 409
+3207:2026-09-20 16:24:23.254 [DirectorLauncherRestartStep] RunAsync: the launcher refused, HTTP 409
+4360:2026-09-20 16:34:56.338 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: HTTP 409
+4361:2026-09-20 16:34:56.338 [DirectorLauncherRestartStep] RunAsync: the launcher refused, HTTP 409
+5223:2026-09-20 16:41:55.887 [GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: HTTP 409
+5224:2026-09-20 16:41:55.887 [DirectorLauncherRestartStep] RunAsync: the launcher refused, HTTP 409
+
+-- the crash journal the guard reads, as it stands now (0 sessions, written 20:24:23.2512032Z):
+{
+  "DirectorId": "3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe",
+  "Pid": 67748,
+  "MachineName": "SOREN_NORTH",
+  "User": "soren",
+  "StartedAtUtc": "2026-09-20T20:49:27.1948789+00:00",
+  "LastUpdatedUtc": "2026-09-20T20:49:27.1968847+00:00",
+  "Sessions": []
+}

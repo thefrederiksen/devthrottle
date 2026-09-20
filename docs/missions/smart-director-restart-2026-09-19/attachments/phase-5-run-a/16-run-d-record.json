@@ -1,0 +1,85 @@
+{
+    "schemaVersion":  1,
+    "id":  "restart-20260920-1648-sorennorth",
+    "name":  "SOREN_NORTH smart shutdown 2026-09-20 16:48",
+    "description":  "Captured by a smart shutdown of this Director.",
+    "origin":  "captured",
+    "machine":  "SOREN_NORTH",
+    "directorId":  "3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe",
+    "directorName":  "SOREN_NORTH",
+    "directorVersionBefore":  "2.8.1",
+    "startedAtUtc":  "2026-09-20T20:48:40.7647427Z",
+    "completedAtUtc":  "2026-09-20T20:49:22.1558494Z",
+    "drivenByNote":  "Run by the Director\u0027s own smart shutdown; no session drove it.",
+    "reason":  "phase 5 run A: the planted credential, caught by the sweep",
+    "shutdownKind":  "smart-shutdown",
+    "directorOutcome":  "not-restarted",
+    "seats":  [
+                  {
+                      "sessionId":  "2bbdf72f-1227-4610-82e2-af3dd05e6007",
+                      "name":  "Restart QA Beta - Worker - writes a handover carrying a planted credential",
+                      "agent":  "RawCli",
+                      "repoPath":  "C:\\Users\\soren\\AppData\\Local\\Temp\\restart-qa-seats-run-a4\\beta-secret",
+                      "mission":  {
+                                      "id":  "bd041b2e-d55d-4928-911b-7b4b17e57442",
+                                      "name":  "Restart QA Beta"
+                                  },
+                      "role":  "Worker",
+                      "workflowRunId":  "9e078427-9421-4c3e-b408-05a6e3e4128c",
+                      "sortOrder":  0,
+                      "stateAtDrain":  {
+                                           "status":  "Running",
+                                           "activityState":  "WaitingForInput",
+                                           "stateLabel":  "Ready",
+                                           "triageBucket":  "active",
+                                           "turnCount":  0
+                                       },
+                      "createdAt":  "2026-09-20T20:48:27.5539735Z",
+                      "handoverPath":  "C:\\Users\\soren\\AppData\\Local\\cc-director\\vault\\handovers\\director-restart\\2026-09-20T164840-4de91c-SOREN_NORTH\\2bbdf72f - Restart QA Beta - Worker - writes a handover carrying a planted credential.md",
+                      "drainState":  "drained",
+                      "restore":  {
+                                      "decision":  "restore",
+                                      "why":  "The staging row count was interrupted and is named above as the next action.",
+                                      "command":  "cc-devthrottle director restore \"restart-20260920-1648-sorennorth\" --director \"\u003cthe NEW director id\u003e\" --seat 2bbdf72f-1227-4610-82e2-af3dd05e6007"
+                                  },
+                      "closedAtUtc":  "2026-09-20T20:49:22.122254Z"
+                  }
+              ],
+    "ownerQuestions":  [
+
+                       ],
+    "restoreAfterRestart":  [
+                                "2bbdf72f-1227-4610-82e2-af3dd05e6007"
+                            ],
+    "restartCommand":  {
+                           "method":  "POST",
+                           "url":  "{gateway}/machines/SOREN_NORTH/director/restart",
+                           "confirmProtected":  true,
+                           "note":  "Needs a key with admission scope. An agent\u0027s session key is refused here - 403 session_key_out_of_scope - because this is the admission surface, which is a deliberate product decision and not an oversight."
+                       },
+    "integrity":  {
+                      "checkedAtUtc":  "2026-09-20T20:49:22.1293951Z",
+                      "documentsSwept":  1,
+                      "sweepPatternsProved":  10,
+                      "sweepPatternsTotal":  10,
+                      "sweepProofFailures":  [
+
+                                             ],
+                      "secretFindings":  [
+                                             {
+                                                 "seatSessionId":  "2bbdf72f-1227-4610-82e2-af3dd05e6007",
+                                                 "file":  "C:\\Users\\soren\\AppData\\Local\\cc-director\\vault\\handovers\\director-restart\\2026-09-20T164840-4de91c-SOREN_NORTH\\2bbdf72f - Restart QA Beta - Worker - writes a handover carrying a planted credential.md",
+                                                 "line":  9,
+                                                 "pattern":  "assigned-password",
+                                                 "redactedExcerpt":  "password: [REDACTED 9 chars] 19 chars]"
+                                             }
+                                         ],
+                      "problems":  [
+
+                                   ],
+                      "readyToRestart":  false,
+                      "notReadyReason":  "1 possible secret(s) are in the handover documents; they are on this machine\u0027s disk and the record is on the Gateway. Clear them first."
+                  },
+    "createdUtc":  "2026-09-20T20:48:40.7647873Z",
+    "updatedUtc":  "2026-09-20T20:49:22.1720524Z"
+}

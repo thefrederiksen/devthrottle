@@ -1,0 +1,29 @@
+records on http://127.0.0.1:7911: 8 on machine 'SOREN_NORTH'
+director '3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe' is matched on each full record, not on the listing, which carries no Director
+
+==============================================================================
+record        : restart-20260920-1648-sorennorth
+name          : SOREN_NORTH smart shutdown 2026-09-20 16:48
+machine       : SOREN_NORTH   director: SOREN_NORTH (3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe)
+origin        : captured    shutdownKind: smart-shutdown
+reason        : phase 5 run A: the planted credential, caught by the sweep
+created       : 2026-09-20T20:48:40.7647873Z   started: 2026-09-20T20:48:40.7647427Z
+completed     : 2026-09-20T20:49:22.1558494Z   cancelled:    updated: 2026-09-20T20:49:22.1720524Z
+versions      : before 2.8.1   after 
+restoreAfterRestart: 2bbdf72f-1227-4610-82e2-af3dd05e6007
+seats         : 1
+
+seat                                   agent      drainState         restore   handover / conversation
+-------------------------------------- ---------- ------------------ --------- ------------------------------
+Restart QA Beta - Worker - writes a ha RawCli     drained            restore   handover: 2bbdf72f - Restart QA Beta - Worker - writes a handover carrying a planted credential.md
+
+the secret sweep:
+  documents swept    : 1
+  patterns proved    : 10 of 10
+  findings           : 1
+    - assigned-password in 2bbdf72f - Restart QA Beta - Worker - writes a handover carrying a planted credential.md (line 9): password: [REDACTED 9 chars] 19 chars]
+  ready to restart   : False
+  not ready because  : 1 possible secret(s) are in the handover documents; they are on this machine's disk and the record is on the Gateway. Clear them first.
+  swept at           : 2026-09-20T20:49:22.1293951Z
+
+  2bbdf72f-1227-4610-82e2-af3dd05e6007: mission 'Restart QA Beta'; role 'Worker'; restore why: The staging row count was interrupted and is named above as the next action.; closed 2026-09-20T20:49:22.122254Z

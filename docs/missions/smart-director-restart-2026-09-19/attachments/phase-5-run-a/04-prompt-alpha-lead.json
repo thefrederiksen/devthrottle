@@ -1,0 +1,15 @@
+{
+    "sentAtUtc":  "2026-09-20T20:16:01Z",
+    "promptName":  "leadWork",
+    "promptLength":  302,
+    "results":  [
+                    {
+                        "key":  "alpha-lead",
+                        "sessionId":  "66b3f777-2382-481d-a32a-be6e8bbc845a",
+                        "name":  "Restart QA Alpha - Lead - collects its worker\u0027s document first",
+                        "landed":  true,
+                        "detail":  "{\"accepted\":true,\"sentAt\":\"2026-09-20T20:15:56.6172587Z\",\"bufferCursor\":4727,\"activityState\":\"Working\",\"output\":null,\"waitStatus\":null,\"error\":null,\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "Working"
+                    }
+                ]
+}

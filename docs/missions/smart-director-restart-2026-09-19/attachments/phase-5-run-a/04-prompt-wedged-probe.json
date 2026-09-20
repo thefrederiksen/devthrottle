@@ -1,0 +1,15 @@
+{
+    "sentAtUtc":  "2026-09-20T20:16:47Z",
+    "promptName":  "",
+    "promptLength":  100,
+    "results":  [
+                    {
+                        "key":  "beta-wedged",
+                        "sessionId":  "5ca23bbe-8b54-4ffa-910a-50974abd89c4",
+                        "name":  "Restart QA Beta - Worker - wedged and cannot take a prompt",
+                        "landed":  false,
+                        "detail":  "POST /sessions/5ca23bbe-8b54-4ffa-910a-50974abd89c4/prompt failed: The remote server returned an error: (502) Bad Gateway. - {\"accepted\":false,\"sentAt\":\"0001-01-01T00:00:00\",\"bufferCursor\":0,\"activityState\":\"WaitingForInput\",\"output\":null,\"waitStatus\":null,\"error\":\"director returned Error: [RawCli] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=81, tailNeedle=\\\"withthewordREADY\\\", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail=\\\"\\\", screen=\u003cthe snapshot could not be read\u003e Readable buffer tail: \",\"blockedByMenu\":false,\"blockedSpoken\":null,\"blockedSpokenLanguage\":null,\"refusedBusy\":false,\"refusedFor\":null,\"idleChecked\":false}",
+                        "activityStateAfter":  "WaitingForInput"
+                    }
+                ]
+}

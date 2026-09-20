@@ -1,0 +1,22 @@
+THE CHECK, run in this worktree on 20 September 2026, base commit
+8d0ba4a4f010506879c7497ec6f34e7168a2f3f8.
+
+No file under src/ or tools/ differs from that commit - this branch adds only scripts under
+scripts/restart-qa/ and documents under docs/ - so both counts below are that commit's own counts
+and not a measurement of anything this branch changed. Verified with:
+
+    git status --porcelain | grep -E "^.. (src/|tools/)"     (no output)
+
+    dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Drain|FullyQualifiedName~Restart"
+    Passed!  - Failed: 0, Passed: 686, Skipped: 0, Total: 686, Duration: 32 s
+
+    dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~SmartRestart"
+    Passed!  - Failed: 0, Passed: 159, Skipped: 0, Total: 159, Duration: 15 s
+
+The window check is 159 passed, 0 failed, which is exactly the Delivery Lead's own run at 2d4d90a38
+quoted in the mandate.
+
+The Gateway filter is 686. The mandate quoted no baseline for it. The nearest earlier measurement is
+phase 4's proof document, 624 at origin/main = d8fdaafed. Four merges landed between d8fdaafed and
+8d0ba4a4f (3241, 3245, 3248 and the offer-once work), and they brought tests this filter matches.
+The 62 are theirs, not this branch's: this branch compiles nothing.

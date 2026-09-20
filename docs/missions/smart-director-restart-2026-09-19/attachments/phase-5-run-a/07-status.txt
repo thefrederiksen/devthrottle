@@ -1,0 +1,19 @@
+Finished
+  8 of 8 shut down
+  Restart QA Alpha - Lead - collects its worker's document first: Ended when time was up
+    It was still working at two thirds of the time allowed.
+  Restart QA Alpha - Worker - the seat under the lead: Shut down
+    it went away by itself and wrote no handover
+  Restart QA Alpha - Worker - a long turn that can be interrupted: Shut down
+  Restart QA Beta - Worker - a long turn on an agent that refuses an interrupt: Shut down
+  Restart QA Beta - Worker - a question box open for the owner: Shut down
+    Asked again at two thirds of the time allowed.
+  Restart QA Beta - Worker - takes the request and never answers: Ended when time was up
+    Asked again at two thirds of the time allowed.
+  Restart QA Beta - Worker - wedged and cannot take a prompt: Ended when time was up
+    The request to hand over now did not reach it: [RawCli] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=33, tailNeedle="01622424wjpybtxt", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screen=<the snapshot could not be read> Readable buffer tail: .
+  Restart QA Beta - Worker - writes a handover carrying a planted credential: Ended when time was up
+    The request to hand over now did not reach it: [SubmitVerifier] 'RawCli: @.temp/input_20260920_162250_cq1cqp.txt' never started a turn within 8 beats (8 nudge(s) sent): the agent produced under 2048 bytes, so the prompt is parked in the composer unsubmitted. The TUI swallowed the Enter (an autocomplete popup, a startup window that drops Enter, or a composer repaint)..
+help[2]:
+  cc-devthrottle director restart-history --director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe
+  cc-devthrottle director list

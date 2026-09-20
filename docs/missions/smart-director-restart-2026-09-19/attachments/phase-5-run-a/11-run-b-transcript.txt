@@ -1,0 +1,30 @@
+STARTED smart restart of Director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe
+  The smart restart of SOREN_NORTH has started. Every session is asked to hand over; anything still running after 5 minutes is shut down for it, and the Director is then restarted through its launcher.
+
+Writing the record of what is running - 0 of 0 shut down
+Waiting for handovers and closing sessions as they finish - 0 of 1 shut down
+  Restart QA Beta - Worker - writes a handover carrying a planted credential: Asked to hand over
+Interrupting sessions that are still working and asking again - 0 of 1 shut down
+  Restart QA Beta - Worker - writes a handover carrying a planted credential: Asked to hand over
+    Asked again at two thirds of the time allowed.
+Waiting for handovers and closing sessions as they finish - 0 of 1 shut down
+Finished - 1 of 1 shut down
+  Restart QA Beta - Worker - writes a handover carrying a planted credential: Ended when time was up
+    Asked again at two thirds of the time allowed.
+
+python.exe : Error: RestartRefused Director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe: The Director was emptied, but the 
+launcher did not accept the guarded restart (HTTP 409): 
+{"machine":"SOREN_NORTH","verb":"restart","relayStatus":409,"payload":"{\"error\":\"refusing to restart the Director 
+3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe (pid 41076) on SOREN_NORTH: it is holding 1 live session. Drain it first - every 
+session writes a handover and is closed - then ask again.\",\"via\":\"stream\"}"} Every session is shut down and 
+recorded in workspace 'restart-20260920-1629-sorennorth'; it is offered when the Director is next started. Record: 
+workspace restart-20260920-1629-sorennorth
+At line:12 char:1
++ & $py -m cc_devthrottle.cli director smart-restart --director $rigDir ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Error: RestartR...1629-sorennorth:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+help[2]:
+  cc-devthrottle director restart-history --director 3be6c633-c4c1-41a7-8f45-ff49e4d2e8fe
+  cc-devthrottle director list
