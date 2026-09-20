@@ -145,9 +145,69 @@ reports the .NET suite up 23.2 per cent and the web suite up 40.8 per cent in si
 territory - and reports the budget broken by a wide margin, which it will raise daily until
 packages 1, 2 and 3 land. Both are the keeper working.
 
+## The measurement - 41 minutes 44 seconds, and only 16 of them explained
+
+Two runs at the **same base commit**, `736d9afe2`, so this is like-for-like rather than a comparison
+against the frozen baseline.
+
+| | `Build & Test (.NET)` | `CcDirector.Gateway.Tests` | Tests in that suite |
+|---|---|---|---|
+| main, run 35478491468 | 100 minutes 30 seconds | 95 minutes 13 seconds | 2,678 |
+| pull request 3161, run 35484228243 | 58 minutes 46 seconds | 55 minutes 8 seconds | 2,677 |
+
+The predicted saving was the removed test's own time, 16 minutes 32 seconds. The measured difference
+is 41 minutes 44 seconds. **Only the test's own time is accounted for; the remaining twenty-five
+minutes are not explained and are not claimed.** One run each is not a distribution and variation
+between GitHub's machines has not been measured. The saving is at least the test's own time; the
+rest needs more runs before anyone relies on it. This is recorded here rather than quietly rounded
+up, because a number nobody can explain is not a result.
+
+## Main is red, and the redness moves - a defect in the tests
+
+Run 35484228243 on pull request 3161 is red, and so is run 35478491468 on main at that pull
+request's own base commit. Seven failures each, all inside `CcDirector.Gateway.Tests`, none in
+anything package 1 built. Four are the same on both sides:
+
+- `HostedDirectorTunnelGovernanceTests.A_tunnel_push_reaches_the_ledger_and_the_morning_report`
+- `VoiceServingLoopIsolationTests.Voice_sweep_reaches_only_the_owning_tenants_director`
+- `VoiceSweepBudgetTests.Cached_audio_cannot_hide_a_terminal_failure_after_a_later_user_message`
+- `WingmanMenuGuardProofTests.Prompt_WithoutMenuGuard_MenuOnScreen_ForwardsAndNeverReadsTheScreen`
+
+Three fail only on main - `SessionSupervisorLiveWiringTests.AParkedSessionThatDiedOnAConnectionFault_IsSentContinueOverTheTunnel`,
+`TunnelExplicitRouteProofTests.RecapGenerate_ridesTheTunnel_andPreservesThe201AndModel`,
+`TunnelExplicitRouteProofTests.RequestDeletion_ridesTheTunnel_andSynthesizesPendingDeletionTrue` -
+and three only on the pull request -
+`StreamCommandTests.GatewayPromptEndpoint_RoutesDownTheStream_NotHttp`,
+`TunnelExplicitRouteProofTests.RecapRead_ridesTheTunnel`,
+`TunnelExplicitRouteProofTests.Summary_ridesTheTunnel`. `TunnelExplicitRouteProofTests` contributes
+two different tests to each side.
+
+**That shift is the finding, and it is a defect in the tests rather than in the product.** The only
+difference between the two runs is which tests ran and in what order: package 1 removes one class
+from a suite that runs strictly one test at a time. Tests whose result depends on what ran before
+them are what the brief predicted would surface when this suite is disturbed, and the brief's
+instruction is that they are fixed, not hidden. Nothing here is unexplained in its cause - it is
+shared state or ordering inside `CcDirector.Gateway.Tests` - but which tests it takes down has to be
+named one by one.
+
+Main has been red since at least 00:20 on 20 September. That is the blind spot this mission exists
+to close, and it is the condition package 4's keeper raises by design.
+
+## The deadlock this creates, raised to the owner
+
+The brief holds package 2 until main is seen green on a finished run. Main cannot go green until
+these order-dependent tests are fixed, and the brief assigns that fixing to package 2 itself
+("Tests that only pass because of what ran before them will surface here; they are fixed, not
+hidden"). The two conditions cannot both be satisfied in the order the brief sets.
+
+Raised to the owner on 20 September with this recommendation: make the order-dependent tests a
+package of their own, taken before package 2, because package 2's six-way split disturbs ordering
+far more violently than removing one class did, and going into it on a suite that already fails
+differently depending on what ran before would make its own presence check unreadable.
+
 ## Open
 
 - Package 3 still building.
-- The measured .NET job time from pull request 3161's first run, to replace the predicted saving.
 - All three branches are based on `736d9afe2`; main has since moved on. Each is merged by the
   Architect, which rebases or lets the merge carry it.
+- The unexplained twenty-five minutes of the measured saving.
