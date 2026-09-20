@@ -242,6 +242,36 @@ public sealed class ControlApiHost : IAsyncDisposable
             InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
     }
 
+    /// <summary>
+    /// THE WAY UP (mission "Smart Director Restart", phase 3): the engine that finds the record of what
+    /// this Director last shut down, offers it back, reads the restart history, and brings the sessions
+    /// back through the restore.
+    ///
+    /// NEVER NULL, for the same reason <see cref="CreateSmartShutdown"/> is never null: a Director with no
+    /// Gateway says so in plain words through the engine's own answers, because an empty list would read as
+    /// "you have no records" and that is a lie.
+    ///
+    /// The engine holds NO Gateway client and NO display name of its own. Both are read at the moment of
+    /// each call: a settings change replaces the client, and a rename lands fleet-wide without a restart,
+    /// so an engine holding either would answer from a fact that has moved on.
+    /// </summary>
+    public SmartRestart.IDirectorWayUp CreateDirectorWayUp()
+    {
+        FileLog.Write($"[ControlApiHost] CreateDirectorWayUp: gatewayClient={(_gatewayClient is null ? "none" : "present")}");
+        return new SmartRestart.DirectorWayUp(
+            new SmartRestart.GatewayClientWayUp(() => _gatewayClient),
+            new SmartRestart.DirectorRestoreWayUp(() => _gatewayClient, DirectorId),
+            Environment.MachineName,
+
+            // The SAME name the Gateway stamps on a record: the one this Director tells it on every reseed,
+            // read from the named-instance registry rather than from the start-once static, so a Director
+            // renamed since it started still finds its own records.
+            () => NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName
+                  ?? InstanceContext.DisplayName
+                  ?? InstanceContext.Slug
+                  ?? Environment.MachineName);
+    }
+
     /// <summary>Create a workspace, refusing if the id is taken. See <see cref="ListWorkspacesAsync"/>
     /// for the null case.</summary>
     /// <param name="doc">The workspace to create.</param>
