@@ -171,6 +171,47 @@ public class RecycleBinRuleTests
     }
 
     /// <summary>
+    /// The one test that can tell the two implementations apart, and the reason the rule does not ask
+    /// an existence question.
+    ///
+    /// Here something that is NOT a folder stands where the bin folder should be. An existence
+    /// question answers that with a plain false - the same false it gives for a volume that has never
+    /// held a deleted item - and the absent answer it leads to carries no control capable of alarming,
+    /// because there is genuinely nothing to count. So the fold could not catch it either, and the
+    /// rule would report "nothing to remove" about a bin it never looked at and could not have looked
+    /// at.
+    ///
+    /// Attempting the listing separates the two: a folder that is not there says not-found, which is
+    /// the honest absent answer, and this says something else entirely and reports the rule broken.
+    ///
+    /// Put the existence question back in front of the listing and only this test goes red.
+    /// </summary>
+    [Fact]
+    public void Examine_SomethingThatIsNotAFolderWhereTheBinShouldBe_ReportsBrokenRatherThanNothingToRemove()
+    {
+        using var tree = new FixtureTree(nameof(Examine_SomethingThatIsNotAFolderWhereTheBinShouldBe_ReportsBrokenRatherThanNothingToRemove));
+        var binPath = Path.Combine(tree.Root, "bin");
+        System.IO.File.WriteAllText(binPath, "not a folder");
+
+        // The precondition this test rests on, asserted rather than assumed: an existence question
+        // really does answer false here, which is what makes the two implementations differ.
+        Assert.False(Directory.Exists(binPath));
+        Assert.True(System.IO.File.Exists(binPath));
+
+        var rule = new RecycleBinRule(binPath);
+        var finding = RuleFold.Fold(rule, rule.Examine(new RuleContext
+        {
+            ScanRootPath = Path.GetTempPath(),
+            NowUtc = DateTimeOffset.UtcNow
+        }));
+
+        Assert.Equal(RuleVerdict.Broken, finding.Verdict);
+        Assert.Empty(finding.Candidates);
+        Assert.Contains("could not do its work", finding.BrokenReason!, StringComparison.Ordinal);
+        Assert.Contains("verdict: broken", finding.Lines);
+    }
+
+    /// <summary>
     /// A volume with no bin folder is a volume that has never held a deleted item or has recycling
     /// switched off: a real answer, offered nothing, not called broken. The absence is established
     /// by the listing refusing with not-found, never by an existence question - see the test below.
