@@ -33,6 +33,8 @@ public sealed class MorningReportBuilder
     private readonly GatewayDatabase _db;
     private readonly Streaming.PushedSessionStore? _pushedSessions;
     private readonly RepoStateStore? _repoState;
+    private readonly Func<TenantId, IReadOnlyCollection<DirectorDto>>? _directors;
+    private readonly Func<string?>? _newestRelease;
     private readonly TimeSpan _streamStale;
     private readonly Func<DateTime> _utcNow;
 
@@ -81,13 +83,20 @@ public sealed class MorningReportBuilder
     /// those two labels - the waiting fact itself comes from the durable ledger.</param>
     /// <param name="streamStale">How old a Director's pushed roster may be and still be believed.</param>
     /// <param name="utcNow">Clock seam for tests.</param>
+    /// <param name="directors">One tenant's Directors, for the out-of-date row. Null means no such row.</param>
+    /// <param name="newestRelease">The newest published release as this Gateway last read it, or null while
+    /// it has not been read. Null - the function or its answer - means nobody is called behind.</param>
     public MorningReportBuilder(
         GatewayDatabase db,
         Streaming.PushedSessionStore? pushedSessions = null,
         TimeSpan? streamStale = null,
         Func<DateTime>? utcNow = null,
-        RepoStateStore? repoState = null)
+        RepoStateStore? repoState = null,
+        Func<TenantId, IReadOnlyCollection<DirectorDto>>? directors = null,
+        Func<string?>? newestRelease = null)
     {
+        _directors = directors;
+        _newestRelease = newestRelease;
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _pushedSessions = pushedSessions;
         _repoState = repoState;
@@ -127,6 +136,9 @@ public sealed class MorningReportBuilder
         // has been measured.
         report.Attention.AddRange(HygieneItems(tenant, now));
 
+        if (OutdatedDirectors(tenant, now) is { } outdated)
+            report.Attention.Add(outdated);
+
         // NO YESTERDAY-STATS, BY OWNER RULING (2026-09-20, issue #3124): "telling me how much shit I did
         // yesterday is not going to help me today." The daily report answers WHAT NEEDS YOU TODAY; the
         // scoreboard - sessions run, work accepted, spend - is weekly-report material. There is nothing
@@ -135,6 +147,53 @@ public sealed class MorningReportBuilder
         FileLog.Write($"[MorningReportBuilder] Build: tenant={tenant.ToLogString()} window={window.StartUtc:o}..{window.EndUtc:o} " +
                       $"attention={report.Attention.Count}");
         return report;
+    }
+
+    /// <summary>How recently a Director must have been heard from to be named in the out-of-date row. The
+    /// email goes out at seven in the morning, when a laptop is often still shut, so "connected right now"
+    /// would hide exactly the machines it is for; a day covers last night's work and nothing older.</summary>
+    public static readonly TimeSpan DirectorSeenWithin = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// The out-of-date Directors row (#3124), or NULL. The comparison is the Cockpit fleet view's own
+    /// (<see cref="Api.FleetMachinesFold.CompareToNewest"/>), so the email and the Machines page can never
+    /// disagree about what "behind" means.
+    ///
+    /// THE HONESTY RULE: no registry, no release watch, or a newest release that has not been read yet
+    /// means NO row - "we do not know the newest release" is not "you are up to date", and it is certainly
+    /// not "you are behind". A Director whose version cannot be parsed is likewise never called behind.
+    /// A Director that was stopped, or not heard from in a day, is not nagged about.
+    /// </summary>
+    private OutdatedDirectorsAttentionDto? OutdatedDirectors(TenantId tenant, DateTime now)
+    {
+        if (_directors is null || _newestRelease is null)
+            return null;
+
+        var newest = _newestRelease();
+        if (string.IsNullOrWhiteSpace(newest))
+        {
+            FileLog.Write("[MorningReportBuilder] OutdatedDirectors: the newest release has not been read yet - " +
+                          "the row is OMITTED, nothing is called behind or current");
+            return null;
+        }
+
+        var behind = _directors(tenant)
+            .Where(d => d.StoppedAtUtc is null)
+            .Where(d => d.LastSeen is { } seen && now - seen <= DirectorSeenWithin)
+            .Where(d => Api.FleetMachinesFold.CompareToNewest(d.Version, newest).Behind)
+            .Select(d => new OutdatedDirectorDto
+            {
+                Machine = string.IsNullOrWhiteSpace(d.MachineName) ? d.DirectorId : d.MachineName,
+                Version = d.Version,
+            })
+            .OrderBy(d => d.Machine, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(d => d.Version, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (behind.Count == 0)
+            return null;
+
+        return new OutdatedDirectorsAttentionDto { Newest = newest, Directors = behind };
     }
 
     /// <summary>
