@@ -242,7 +242,34 @@ a pyenv inventory and a worktree reaper test needing an enforced file lock.
 **The new tests all RAN, measured by name**: **51** in the three Core classes and **49** in the four
 Gateway unit classes, both filtered runs exit 0 with **0 skipped**, plus the parked suite's six in section 5.
 
-PARKED_FULL_RUN
+### The PARKED suite, run explicitly
+
+`CcDirector.Gateway.Tests` is PARKED: it is not in the mission check and `scripts/test-local.ps1` does
+not run it by default. This work's end-to-end proof lives in it, so it was run explicitly rather than
+left to ride a gate that never looks at it - **and it was run beside every other end-to-end proof this
+mission owns**, because a change to the store they all read could break one of theirs as easily as one
+of mine.
+
+```
+dotnet test src/CcDirector.Gateway.Tests --filter "...TunnelProof...|KnownRepositoryEndpointTests"
+exit=0
+Passed!  - Failed: 0, Passed: 31, Skipped: 0, Total: 31, Duration: 25 s
+```
+
+**31 of 31, and ZERO SKIPPED** - stated as loudly as the passed count, because a skipped test reads
+exactly like a passing one in every report we produce. That is this work's six, the catalogue-forgets
+seven, phase 2's, phase 3's, the registry work's and the endpoint fold's. No `aborted`, `crashed`,
+`test host` or `was canceled` anywhere in the log.
+
+**WHAT I DID NOT DO, said plainly: I did not complete a run of the WHOLE parked suite.** One was started
+and abandoned after about thirty minutes having reached roughly a fifth of the way; at that point it had
+**29 failures, none of them in anything this work touches** - Wingman verbs riding the tunnel, the voice
+sweep, spawn lineage, hosted route refusals, the skills register, and the suite's own exclusive-lock
+tests. Those are the families `OUTCOME.md` already hands up as **red on `main` on macOS**, in a parked
+suite nothing in the working loop runs. They are not mine, I have not fixed them, and I am not quoting
+them as a baseline for anything: what I am claiming is the filtered run above, and the limit of that
+claim is that the rest of the suite was not exercised on this branch.
+
 
 ## 7. The rows more than one level below a root - a RECOMMENDATION, not a build
 
