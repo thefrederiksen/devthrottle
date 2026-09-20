@@ -8,9 +8,9 @@ using CcDirector.Reclaim.Indexing;
 // failure travel: a helper that swallowed one would turn a disk this tool could not read into a disk
 // this tool said was empty, which is the single worst answer it could give.
 //
-// Nothing here deletes, moves or changes a single file. This tool reads a disk and writes one small
-// record of what it saw. The code to remove anything does not exist yet, which is what makes it safe
-// to put on a machine today.
+// This tool moves nothing without the explicit apply flag, and what it moves goes into a holding
+// folder that can put it back. Nothing here ever deletes outright, elevates itself, or runs
+// unattended.
 
 FileLog.UseUniqueInstanceId(CcStorage.ToolLogs("cc-cleanup-storage"));
 FileLog.Start();

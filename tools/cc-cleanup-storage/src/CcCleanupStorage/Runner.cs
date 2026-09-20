@@ -1,6 +1,8 @@
 using System.Globalization;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Reclaim.Indexing;
+using CcDirector.Reclaim.Removal;
 using CcDirector.Reclaim.Reporting;
 using CcDirector.Reclaim.Rules;
 using CcDirector.Reclaim.Scanning;
@@ -33,6 +35,10 @@ public static class Runner
             CommandName.Scan => Scan(request),
             CommandName.Report => Report(request),
             CommandName.Recommend => Recommend(request),
+            CommandName.Reclaim => Reclaim(request),
+            CommandName.HoldingList => HoldingList(request),
+            CommandName.HoldingRestore => HoldingRestore(request),
+            CommandName.HoldingPurge => HoldingPurge(request),
             _ => throw new InvalidOperationException($"There is no command {request.Command}.")
         };
 
@@ -209,6 +215,349 @@ public static class Runner
             ToRecommendJson(report, indexPath, index.WrittenUtc));
     }
 
+    private static Answer Reclaim(Request request)
+    {
+        var folder = request.FolderPath
+            ?? throw new InvalidOperationException("A reclaim was asked for with no folder, which the command line refuses.");
+
+        // The command line is the one place the per-volume holding default is computed. The engine
+        // takes the root as a parameter and holds no default of its own, which is what lets every
+        // test keep its holding inside a fixture tree it built, so no test ever creates a folder at
+        // the root of a real volume.
+        var holdingRoot = request.HoldingRootPath ?? DefaultHoldingRootFor(folder);
+
+        var result = ReclaimRunner.Run(new ReclaimRunRequest
+        {
+            Rules = MachineRules.ForThisMachine(),
+            RootPath = Path.GetFullPath(folder),
+            HoldingRootPath = holdingRoot,
+            ProtectedPaths = CcStorage.ProtectedPaths(),
+            UserFolders = TheUsersOwnFolders(),
+            Apply = request.Apply,
+            NowUtc = DateTimeOffset.UtcNow,
+            RuleId = request.RuleId
+        });
+
+        // A rule id that is not among the rules that look inside the folder asked about is an error
+        // naming the rules that do, never a quiet empty answer.
+        if (result.RuleFilterError is not null)
+        {
+            return Failure(request.CommandWord, "no-such-rule-here", result.RuleFilterError, ExitCodes.Usage);
+        }
+
+        if (result.BrokenReason is not null)
+        {
+            var brokenLines = new List<string>(result.Lines);
+            brokenLines.AddRange(AxiOutput.Help([$"cc-cleanup-storage recommend \"{folder}\" --json"]));
+            return new Answer(ExitCodes.Failed, brokenLines, ToReclaimJson(result));
+        }
+
+        var lines = new List<string>(result.Lines) { string.Empty };
+        lines.AddRange(result.Apply
+            ? AxiOutput.Help(
+            [
+                $"cc-cleanup-storage holding list \"{folder}\"",
+                $"cc-cleanup-storage holding purge --holding-root \"{result.HoldingRootPath}\"",
+                "cc-cleanup-storage --help"
+            ])
+            : AxiOutput.Help(
+            [
+                $"cc-cleanup-storage reclaim \"{folder}\" --apply",
+                "cc-cleanup-storage --help"
+            ]));
+
+        return new Answer(ExitCodes.Ok, lines, ToReclaimJson(result));
+    }
+
+    /// <summary>
+    /// The per-volume default holding root: a folder named cc-reclaim-holding at the root of the
+    /// volume the reclaimed folder sits on. Visible in a directory listing on purpose - a folder
+    /// holding thirty days of the owner's disk is not something to hide.
+    /// </summary>
+    private static string DefaultHoldingRootFor(string folder)
+    {
+        var volumeRoot = Path.GetPathRoot(Path.GetFullPath(folder))
+            ?? throw new InvalidOperationException($"The folder {folder} sits on no volume.");
+        return Path.Combine(volumeRoot, "cc-reclaim-holding");
+    }
+
+    /// <summary>
+    /// The user's own folders, read from the system's own resolver so any folder redirection the
+    /// machine has is followed, plus the OneDrive folder when the machine has one. The absence of
+    /// the OneDrive variable means no OneDrive folder is configured, not that the check is off.
+    /// </summary>
+    private static IReadOnlyList<string> TheUsersOwnFolders()
+    {
+        var folders = new List<string>
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+        };
+
+        var oneDrive = Environment.GetEnvironmentVariable("OneDrive");
+        if (!string.IsNullOrWhiteSpace(oneDrive)) folders.Add(oneDrive);
+
+        return folders.Where(folder => !string.IsNullOrWhiteSpace(folder)).ToList();
+    }
+
+    internal static ReclaimJson ToReclaimJson(ReclaimRunResult result) => new()
+    {
+        Command = "reclaim",
+        Ok = result.BrokenReason is null,
+        Apply = result.Apply,
+        RootPath = result.RootPath,
+        HoldingRootPath = result.HoldingRootPath,
+        RuleId = result.RuleFilter,
+        BrokenReason = result.BrokenReason,
+        Rules = result.Findings.Select(ToRuleJson).ToList(),
+        RulesNotRun = result.RulesNotRun
+            .Select(rule => new RuleNotRunJson(rule.RuleId, rule.RuleName, rule.LooksIn))
+            .ToList(),
+        Items = result.Items.Select(item => new ReclaimItemJson
+        {
+            Path = item.Path,
+            RuleId = item.RuleId,
+            Proof = item.Proof.ToString(),
+            RecommendedBytes = item.RecommendedBytes,
+            Eligible = item.Gate.Eligible,
+            FiredCheck = item.Gate.FiredCheck is null ? null : (int)item.Gate.FiredCheck,
+            Reason = item.Gate.Reason,
+            ConfigurationReason = item.Gate.ConfigurationReason,
+            Checks = item.Gate.Checks.Select(check => new CheckResultJson(
+                (int)check.Check,
+                GateOutcome.WordsFor(check.Check),
+                check.Outcome == CheckOutcome.Passed ? "passed"
+                    : check.Outcome == CheckOutcome.Refused ? "refused"
+                    : "not-reached",
+                check.Reason)).ToList(),
+            Moved = item.Moved,
+            HoldingEntryId = item.HoldingEntryId,
+            OwnersCommandRan = item.OwnersCommandRan,
+            OwnersCommandExitCode = item.OwnersCommandExitCode,
+            OutcomeReason = item.OutcomeReason
+        }).ToList(),
+        CandidateBytesBefore = result.CandidateBytesBefore,
+        CandidateBytesAfter = result.CandidateBytesAfter,
+        BytesMoved = result.BytesMoved,
+        VolumeBefore = result.VolumeBefore,
+        VolumeAfter = result.VolumeAfter,
+        Lines = result.Lines
+    };
+
+    private static Answer HoldingList(Request request)
+    {
+        var folder = request.FolderPath
+            ?? throw new InvalidOperationException("A holding list was asked for with no folder or volume, which the command line refuses.");
+
+        var holdingRoot = request.HoldingRootPath ?? DefaultHoldingRootFor(folder);
+        var listing = new HoldingStore(holdingRoot).List();
+
+        // A holding root that exists but cannot be read is an error naming why, never an empty list.
+        if (listing.UnreadableReason is not null)
+        {
+            return Failure(request.CommandWord, "holding-unreadable", listing.UnreadableReason, ExitCodes.Failed);
+        }
+
+        var lines = new List<string>
+        {
+            $"holding-root: {holdingRoot}",
+            listing.RootExists
+                ? $"count: {listing.Complete.Count.ToString(CultureInfo.InvariantCulture)}"
+                : $"count: 0 (there is no holding root at {holdingRoot}, which is an honest empty answer)"
+        };
+
+        lines.AddRange(AxiOutput.List(
+            "held",
+            ["entry", "from", "bytes", "moved", "purgeable-from"],
+            listing.Complete.Select(ToHoldingRow).ToList()));
+
+        if (listing.Incomplete.Count > 0)
+        {
+            lines.AddRange(AxiOutput.List(
+                "incomplete",
+                ["entry"],
+                listing.Incomplete.Select(entry => (IReadOnlyList<string>)
+                [
+                    AxiOutput.Value(entry.EntryId)
+                ]).ToList()));
+            lines.Add(
+                "incomplete entries are never purged; restore resolves them, and a record that cannot " +
+                "be read is a refusal, not an assumption");
+        }
+
+        var offers = new List<string>
+        {
+            $"cc-cleanup-storage holding restore <entry-id> --holding-root \"{holdingRoot}\"",
+            $"cc-cleanup-storage holding purge --holding-root \"{holdingRoot}\"",
+            "cc-cleanup-storage --help"
+        };
+        lines.AddRange(AxiOutput.Help(offers));
+
+        return new Answer(ExitCodes.Ok, lines, ToHoldingListJson(holdingRoot, listing));
+    }
+
+    private static IReadOnlyList<string> ToHoldingRow(HoldingEntry entry) =>
+    [
+        AxiOutput.Value(entry.EntryId),
+        AxiOutput.Value(entry.Record.OriginalPath),
+        AxiOutput.Value(entry.Record.Bytes),
+        AxiOutput.Value(Moment(entry.Record.MovedAtUtc)),
+        AxiOutput.Value(Moment(entry.Record.PurgeNotBeforeUtc))
+    ];
+
+    private static Answer HoldingRestore(Request request)
+    {
+        var entryId = request.EntryId
+            ?? throw new InvalidOperationException("A restore was asked for with no entry id, which the command line refuses.");
+        var holdingRoot = request.HoldingRootPath
+            ?? throw new InvalidOperationException("A restore was asked for with no holding folder, which the command line refuses.");
+
+        var outcome = new HoldingStore(holdingRoot).Restore(entryId);
+
+        var lines = new List<string>
+        {
+            $"entry: {outcome.EntryId}",
+            outcome.OriginalPath is null ? "from: unknown, the record could not be read" : $"from: {outcome.OriginalPath}"
+        };
+
+        if (outcome.Restored)
+        {
+            lines.Add($"restored: yes, the item is back at {outcome.OriginalPath}");
+        }
+        else if (outcome.AlreadyHome)
+        {
+            lines.Add("restored: the move never happened and the item is already home; the entry is cleared");
+        }
+        else
+        {
+            lines.Add($"refused: {outcome.RefusalReason}");
+        }
+
+        var volumeRoot = Path.GetPathRoot(Path.GetFullPath(holdingRoot)) ?? holdingRoot;
+        lines.AddRange(AxiOutput.Help(
+        [
+            $"cc-cleanup-storage holding list \"{volumeRoot}\"",
+            "cc-cleanup-storage --help"
+        ]));
+
+        return new Answer(
+            outcome.Restored || outcome.AlreadyHome ? ExitCodes.Ok : ExitCodes.Failed,
+            lines,
+            new HoldingRestoreJson
+            {
+                Command = "holding-restore",
+                Ok = outcome.Restored || outcome.AlreadyHome,
+                EntryId = outcome.EntryId,
+                OriginalPath = outcome.OriginalPath,
+                Restored = outcome.Restored,
+                AlreadyHome = outcome.AlreadyHome,
+                RefusalReason = outcome.RefusalReason
+            });
+    }
+
+    private static Answer HoldingPurge(Request request)
+    {
+        var holdingRoot = request.HoldingRootPath
+            ?? throw new InvalidOperationException("A purge was asked for with no holding folder, which the command line refuses.");
+
+        var outcome = new HoldingStore(holdingRoot).Purge(DateTimeOffset.UtcNow, request.Apply, request.Days);
+
+        var lines = new List<string>
+        {
+            $"holding-root: {holdingRoot}",
+            request.Apply
+                ? "apply: yes, entries past their period are removed"
+                : "apply: no - this is a dry run, nothing is removed"
+        };
+
+        lines.AddRange(AxiOutput.List(
+            "purgeable",
+            ["entry", "from", "bytes", "moved"],
+            outcome.Purgeable.Select(entry => (IReadOnlyList<string>)
+            [
+                AxiOutput.Value(entry.EntryId),
+                AxiOutput.Value(entry.Record.OriginalPath),
+                AxiOutput.Value(entry.Record.Bytes),
+                AxiOutput.Value(Moment(entry.Record.MovedAtUtc))
+            ]).ToList()));
+
+        if (outcome.NotYetPurgeable.Count > 0)
+        {
+            lines.Add(
+                $"not-yet-purgeable: {outcome.NotYetPurgeable.Count.ToString(CultureInfo.InvariantCulture)} entries");
+        }
+
+        if (outcome.Incomplete.Count > 0)
+        {
+            lines.Add(
+                $"incomplete: {outcome.Incomplete.Count.ToString(CultureInfo.InvariantCulture)} entries, " +
+                "which a purge always refuses");
+        }
+
+        foreach (var kept in outcome.Kept)
+            lines.Add($"kept: {kept.Entry.EntryId}, {kept.Reason}");
+
+        if (outcome.Applied)
+        {
+            lines.Add(
+                $"purged: {outcome.PurgedEntryIds.Count.ToString(CultureInfo.InvariantCulture)} entries removed, " +
+                "and their space is freed");
+        }
+
+        lines.Add(
+            "space: purging is the only step that frees space. Until it runs, a held item occupies " +
+            "exactly what it always did");
+
+        lines.AddRange(AxiOutput.Help(request.Apply
+            ?
+            [
+                $"cc-cleanup-storage holding list \"{Path.GetPathRoot(Path.GetFullPath(holdingRoot)) ?? holdingRoot}\"",
+                "cc-cleanup-storage --help"
+            ]
+            :
+            [
+                $"cc-cleanup-storage holding purge --holding-root \"{holdingRoot}\" --apply",
+                "cc-cleanup-storage --help"
+            ]));
+
+        return new Answer(ExitCodes.Ok, lines, new HoldingPurgeJson
+        {
+            Command = "holding-purge",
+            Ok = true,
+            Applied = outcome.Applied,
+            HoldingRootPath = holdingRoot,
+            Purgeable = outcome.Purgeable.Select(ToHoldingEntryJson).ToList(),
+            NotYetPurgeable = outcome.NotYetPurgeable.Select(ToHoldingEntryJson).ToList(),
+            Incomplete = outcome.Incomplete.Select(ToHoldingEntryJson).ToList(),
+            Kept = outcome.Kept.Select(kept => new KeptEntryJson(kept.Entry.EntryId, kept.Reason)).ToList(),
+            PurgedCount = outcome.PurgedEntryIds.Count
+        });
+    }
+
+    private static HoldingEntryJson ToHoldingEntryJson(HoldingEntry entry) => new(
+        entry.EntryId,
+        entry.Record.OriginalPath,
+        entry.Record.Name,
+        entry.Record.Bytes,
+        entry.Record.Rule,
+        entry.Record.MovedAtUtc,
+        entry.Record.PurgeNotBeforeUtc,
+        HoldingRecord.StateWords(entry.Record.State));
+
+    private static HoldingListJson ToHoldingListJson(string holdingRoot, HoldingListing listing) => new()
+    {
+        Command = "holding-list",
+        Ok = listing.UnreadableReason is null,
+        RootExists = listing.RootExists,
+        HoldingRootPath = holdingRoot,
+        UnreadableReason = listing.UnreadableReason,
+        Count = listing.Complete.Count,
+        Entries = listing.Complete.Select(ToHoldingEntryJson).ToList(),
+        Incomplete = listing.Incomplete.Select(ToHoldingEntryJson).ToList()
+    };
+
     private static Answer SavedScans(Request request)
     {
         var listing = ScanIndexStore.List(request.IndexDirectory);
@@ -298,7 +647,31 @@ public static class Runner
                 "recommend",
                 "cc-cleanup-storage recommend \"<folder>\" [flags]",
                 "say what is provably safe to remove, and why",
-                CommandLine.RecommendFlags)
+                CommandLine.RecommendFlags),
+            new(
+                "reclaim",
+                "reclaim",
+                "cc-cleanup-storage reclaim \"<folder>\" [flags]",
+                "report what would move into holding, or move it with --apply",
+                CommandLine.ReclaimFlags),
+            new(
+                "holding-list",
+                "holding list",
+                "cc-cleanup-storage holding list \"<folder-or-volume>\" [flags]",
+                "every entry in one volume's holding folder",
+                CommandLine.HoldingListFlags),
+            new(
+                "holding-restore",
+                "holding restore",
+                "cc-cleanup-storage holding restore <entry-id> --holding-root \"<folder>\" [flags]",
+                "put one held item back where it came from",
+                CommandLine.HoldingRestoreFlags),
+            new(
+                "holding-purge",
+                "holding purge",
+                "cc-cleanup-storage holding purge --holding-root \"<folder>\" [flags]",
+                "remove the holding entries whose period has passed",
+                CommandLine.HoldingPurgeFlags)
         };
 
         var flags = new List<HelpFlagJson>
@@ -307,6 +680,10 @@ public static class Runner
             new("--index-directory <folder>", "where saved scans live"),
             new("--top <number>", "how many of the largest folders to name, 1 to 1000"),
             new("--folder-depth <number>", "how deep a scan records folder totals, 1 to 10 (scan only)"),
+            new("--rule <id>", "narrow a reclaim to one rule (reclaim only)"),
+            new("--apply", "move what every refusal check passes (reclaim, and holding purge)"),
+            new("--holding-root <folder>", "the holding folder (holding restore and purge)"),
+            new("--days <number>", "a holding period for this purge call only, 0 to 36500"),
             new("--help", "this page"),
             new("-h", "this page, the short spelling"),
             new("--version", "the version of this tool (no command word only)")
@@ -338,8 +715,18 @@ public static class Runner
             "  and offers nothing, never that there is nothing to remove. Anything no rule matched",
             "  is reported as unclassified and is never offered.",
             "",
+            "what a reclaim does:",
+            "  removal is a move into a holding folder on the same volume, never a deletion. A dry",
+            "  run is the default and runs every refusal check for real, so --apply moves exactly",
+            "  what the dry run said it would. Ten refusals are checked for every item, and each",
+            "  one has a numbered test. A move to holding frees no space; space is freed only when",
+            "  holding is purged, which is its own explicit command.",
+            "",
             "what this tool does not do:",
-            "  it never deletes, moves or changes anything. It reads."
+            "  it never deletes outright - a move into holding can be restored until it is purged.",
+            "  It never raises itself to administrator, never removes anything unattended or on a",
+            "  schedule, and never touches what it cannot positively classify. An item cleared by",
+            "  its owner's own cleanup command is not held and has no way back; the rule said so."
         };
 
         var lines = new List<string>

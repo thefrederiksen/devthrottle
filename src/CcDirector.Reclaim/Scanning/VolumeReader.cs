@@ -57,6 +57,52 @@ public static class VolumeReader
         }
     }
 
+
+    /// <summary>
+    /// The volume a path sits on, as the path itself names it, without asking the volume anything.
+    ///
+    /// This is the pure half of the two questions this class answers: <see cref="Read"/> asks the
+    /// volume about itself, and this asks the path which volume it belongs to. Removal is a move on
+    /// the same volume, and holding must sit on the volume the item sits on, so the refusal gate
+    /// compares these two names - and it compares them without touching either volume, which is what
+    /// makes the comparison answerable on any machine.
+    /// </summary>
+    /// <param name="path">Any path.</param>
+    /// <exception cref="IOException">The path names no volume.</exception>
+    public static string VolumeRootOf(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("A path cannot be blank.", nameof(path));
+
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(path));
+            if (string.IsNullOrEmpty(root))
+                throw new IOException($"the path {path} names no volume");
+            return root;
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            throw new IOException($"the path {path} would not resolve, so it names no volume");
+        }
+    }
+
+    /// <summary>
+    /// True when two paths sit on the same volume, compared by the volume roots their paths name.
+    /// Compared without regard to letter case, which is how Windows and a default macOS volume
+    /// compare two names.
+    /// </summary>
+    /// <param name="path">One path.</param>
+    /// <param name="otherPath">The other path.</param>
+    public static bool SameVolume(string path, string otherPath)
+    {
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return string.Equals(VolumeRootOf(path), VolumeRootOf(otherPath), comparison);
+    }
+
     /// <summary>True when a path is the root of its own volume.</summary>
     /// <param name="path">The path to test.</param>
     public static bool IsVolumeRoot(string path)

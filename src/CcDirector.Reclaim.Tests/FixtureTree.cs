@@ -132,6 +132,55 @@ public sealed class FixtureTree : IDisposable
         return full;
     }
 
+
+    /// <summary>
+    /// The Windows short (8.3) form of a folder's name in this tree: DOCUME~1 and its kin. The final
+    /// path check must refuse a path spelled this way, because Path.GetFullPath leaves short names
+    /// alone while the operating system acts on the long name.
+    /// </summary>
+    /// <param name="relativePath">The folder, below the root.</param>
+    /// <exception cref="PlatformNotSupportedException">This platform does not keep short names.</exception>
+    public string WindowsShortPath(string relativePath)
+    {
+        var full = Path.Combine(Root, relativePath);
+        if (!Directory.Exists(full))
+            throw new InvalidOperationException($"The fixture cannot shorten {full}; there is no folder there.");
+
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException(
+                "This fixture needs a file system that keeps 8.3 short names, which is where a path spelled " +
+                "one way resolves to another. This platform does not keep them, so the proof that a short name " +
+                "is refused cannot be built here.");
+        }
+
+        var shortPath = ShortPathName(full);
+        if (shortPath.Length == 0)
+            throw new InvalidOperationException($"The fixture could not ask Windows for the short form of {full}.");
+        if (!shortPath.Contains('~') || !Path.GetFullPath(shortPath).Equals(Path.GetFullPath(full), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Windows returned {shortPath} as the short form of {full}, which is not a short name of the " +
+                "same folder. A test built on it would be proving nothing.");
+        }
+
+        return shortPath;
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern unsafe uint GetShortPathNameW(string longPath, char* buffer, uint bufferLength);
+
+    private static unsafe string ShortPathName(string longPath)
+    {
+        var buffer = new char[1024];
+        fixed (char* pinned = buffer)
+        {
+            return GetShortPathNameW(longPath, pinned, (uint)buffer.Length) == 0
+                ? string.Empty
+                : new string(pinned);
+        }
+    }
+
     /// <summary>
     /// Take away this account's permission to list a folder, and prove the folder now refuses. The
     /// scan must count it and name it rather than walk past it.
