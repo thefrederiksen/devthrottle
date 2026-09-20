@@ -125,11 +125,13 @@ reach; each finding was answered by a Developer, never by the Reviewer.
 | Review | Findings | Answered in |
 |---|---|---|
 | `review-phase-1-1.md` (task 1) | 1: the short hand-over-now message left out the lines that let a session leave a question for the owner or say it is blocked, and for some sessions it is the only message they ever see | `review-phase-1-1-answers.md` - accepted, fixed, 2 tests |
-| `review-phase-1-2.md` (task 2) | none within its scope | - |
+| `review-phase-1-2.md` (task 2) | none within its scope; it recorded two candidates it had weighed and rejected | `review-phase-1-2-answers.md` - both declined with the reason, by the Tech Lead, because the Developer was gone |
 | `review-phase-1-3.md` (task 3) | 2: the engine kept the Gateway client it was made with, so it could refuse a smart shutdown the Director could in fact perform; and a screen handler that blocks stalls the whole run, with nothing saying it must not | `review-phase-1-3-answers.md` - both accepted; the first fixed with a test that watches the host, the second written into the contract as a rule phase 2 must keep |
 | `review-phase-1-4.md` (task 4) | 2: a session that appears during an ignore-all is in neither the record nor the end list; and a Gateway failure at the launcher ask ends a finished run as `Failed` instead of the `RestartRefused` the contract defines for it | `review-phase-1-4-answers.md` - both accepted and fixed, 4 tests, a revert proof each |
 
-Six findings in four reviews, all narrow, none about safety, all answered. Two of them changed the
+Six findings in four reviews, all narrow, none about safety, all answered. Review 2 returned none and is
+answered all the same, because it recorded two candidates it had weighed and rejected and they are worth
+an answer rather than a rediscovery. Two of them changed the
 contract phase 2 builds against, which is why `phase-1-interface.md` carries amendments.
 
 ## What the phase could NOT reach
