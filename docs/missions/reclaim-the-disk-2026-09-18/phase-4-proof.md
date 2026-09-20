@@ -49,12 +49,15 @@ Each new rule has a test that proves its own way of arriving there:
 - `Examine_ABinWhereEveryAccountRefusedItsListing_ReportsBrokenRatherThanNothingToRemove` - the
   recycle bin rule when the bin folder exists, holds account bins, and every one refused its
   listing.
-- `Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove` - the recycle
-  bin rule when the bin FOLDER itself cannot be told from absent. The Delivery Lead's finding: an
-  existence question answers false for both, with the reason swallowed, so "could not tell" was
-  on its way to being reported as "nothing to remove". The bin folder is now probed by
-  attempting its listing, and only a listing that fails with not-found is the honest absent
-  answer.
+- `Examine_SomethingThatIsNotAFolderWhereTheBinShouldBe_ReportsBrokenRatherThanNothingToRemove` -
+  the recycle bin rule when the bin FOLDER itself cannot be told from absent. The Delivery Lead's
+  finding: an existence question answers false both for a folder that is not there and for a path
+  that is not a folder at all, with the reason swallowed, so "could not tell" was on its way to
+  being reported as "nothing to remove" - and the absent path carries no control capable of
+  alarming, so the fold could not catch it either. The bin folder is now probed by attempting its
+  listing: not-found is the honest absent answer, anything else reports the rule broken. See
+  section 7 of phase-4-decisions.md for how this was arrived at, including an earlier commit whose
+  message and documents claimed a code change and a revert proof that had not happened.
 
 ## 3. The revert proofs
 
@@ -87,16 +90,25 @@ bins found rather than bins listed - the rule claiming it listed a bin that refu
 `Examine_ABinWhereEveryAccountRefusedItsListing_ReportsBrokenRatherThanNothingToRemove` **red,
 alone**. Restored, rebuilt: green.
 
-**Five: the recycle bin rule's could-not-tell gate, after the Delivery Lead's finding.** The
-branch that reports BROKEN when the bin folder refuses its listing was made to answer the absent
-answer instead - the exact regression the finding was about, "could not tell" read as "nothing to
-remove". Whole suite:
-`Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove` **red, alone**
-(239 passed). Restored, rebuilt: green.
+**Five: the recycle bin rule's could-not-tell gate, after the Delivery Lead's finding.** Run by the
+Delivery Lead, not by the seat that built the phase, and it is the one to read carefully because an
+earlier version of this section described a proof that had not been run.
+
+The existence question was put back in front of the listing - the exact regression the finding was
+about, "could not tell" read as "nothing to remove". Whole suite, no filter:
+`Examine_SomethingThatIsNotAFolderWhereTheBinShouldBe_ReportsBrokenRatherThanNothingToRemove`
+**red, alone**, 240 of 241 passing. Restored, rebuilt without `--no-build`: **241 passed, 0
+failed**, `git diff HEAD` empty.
+
+**The first attempt at this proof came back GREEN**, with all 240 tests passing while the fix was
+absent, because no test in the suite could tell the two implementations apart. That is recorded here
+rather than quietly replaced: a revert proof that comes back green has told you the fix is not held
+by anything, and the right response is a test that can see the difference, not a second run. Section
+7 of `phase-4-decisions.md` has the whole sequence, including the attempt that failed and why.
 
 One red each, exactly the test named for that check, and no other test moved: each check guards
 its own rule and nothing else. After the last restore the whole suite ran on a fresh build:
-**240 passed, 0 failed**, and `git diff HEAD` is empty.
+**241 passed, 0 failed**, and `git diff HEAD` is empty.
 
 ## 4. The read-only run on the owner's machine
 

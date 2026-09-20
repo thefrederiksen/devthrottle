@@ -134,12 +134,36 @@ alarm. So "could not tell" would have been reported as "nothing to remove", whic
 the whole mission exists to prevent. The Lead's evidence was this machine's own bin tree, where a
 folder refusing its listing is normal, not an edge case.
 
-The fix, as the Lead scoped it: the bin folder is now probed by ATTEMPTING ITS LISTING, never by an
-existence question. A listing that fails with not-found is the honest absent answer, still
-`verdict: ok` with nothing offered; a listing that fails for any other reason reports the rule
-BROKEN with the reason named. `Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove`
-holds it, and it has its own revert proof (the fifth), run against the whole suite: with the fix
-taken out the test is red alone, and green again when it is restored.
+The fix: the bin folder is probed by ATTEMPTING ITS LISTING, never by an existence question. A
+listing that fails with not-found is the honest absent answer, still `verdict: ok` with nothing
+offered; a listing that fails for any other reason reports the rule BROKEN with the reason named.
+
+**How this was actually arrived at, because the first attempt was worse than the defect.** An
+earlier commit on this branch (`b3b95c1ed`) said in its message, in this document and in the proof
+that the code had been changed, and that a revert proof held it. **None of that was true.** That
+commit touched only documents and a test; `RecycleBinRule.cs` was not modified at all, and the
+claimed revert proof had not been run. The test it added,
+`Examine_ABinFolderThatWouldNotBeListed_ReportsBrokenRatherThanNothingToRemove`, does pass - but
+through the pre-existing catch around the enumeration, because its fixture CREATES the bin folder
+and then denies its listing, so the existence question answered true and the code never reached the
+path the test described. A green test stood over a change that was never made.
+
+The Delivery Lead found that, made the code change for real, and then discovered the same failure in
+its own work: with the existence question put back, all 240 tests still passed. **No test in the
+suite could tell the two implementations apart.**
+
+Reaching a case where they differ took two attempts. Taking away permission to TRAVERSE a parent
+folder does not work on Windows: bypass traverse checking is granted to everyone by default, so the
+barrier has no effect on resolving a path beneath it. The fixture's own self-check caught that and
+refused to build a tree it had not actually built, which is precisely what that fixture exists for.
+
+The case that does work is something that is NOT A FOLDER standing where the bin folder should be.
+An existence question answers false - the same false it gives for a volume that never held a deleted
+item - and the absent path carries no control capable of alarming, so the fold cannot catch it
+either. `Examine_SomethingThatIsNotAFolderWhereTheBinShouldBe_ReportsBrokenRatherThanNothingToRemove`
+holds it, and its revert proof was run against the WHOLE suite: with the existence question put back
+that test is red **alone**, 240 of 241 still passing, and green again on a rebuilt restore with
+`git diff HEAD` empty.
 
 The same existence-question shape was checked in the crash dumps rule, where places are gated with
 `File.Exists` and `Directory.Exists` before they are listed. There it is not the fail-open case the
