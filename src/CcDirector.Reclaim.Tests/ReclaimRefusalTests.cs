@@ -3,6 +3,7 @@ using CcDirector.Reclaim.Removal;
 using CcDirector.Reclaim.Rules;
 using CcDirector.Reclaim.Windows;
 using Xunit;
+using Xunit.Abstractions;
 using static CcDirector.Reclaim.Tests.ReclaimRefusalTests;
 
 namespace CcDirector.Reclaim.Tests;
@@ -16,11 +17,20 @@ namespace CcDirector.Reclaim.Tests;
 /// fixture tree carrying the real sentences from CcStorage.ProtectedPaths, the user folders are
 /// stand-ins, and the holding root always sits inside the tree.
 ///
-/// Each refusal test triggers exactly its own refusal and nothing else, and every one of them has
-/// been proven to fail with its refusal taken out - a refusal with a green test that stays green when
-/// the refusal is deleted is not a refusal, it is a comment.
+/// Each refusal test triggers exactly its own refusal and nothing else. On 19 September 2026 each
+/// refusal was taken out by hand, one at a time, and the whole project run: every numbered test went
+/// red with its own refusal deleted - a refusal with a green test that stays green when the refusal
+/// is deleted is not a refusal, it is a comment. They did not all go red the same way, and the
+/// difference matters. For refusals 1, 2, 3, 6, 8, 9 and 10 the item became eligible or moved. For
+/// refusals 4, 5 and 7 the numbered test went red only on the NAME of the refusal, because a later
+/// check still refused the item: the final-path check (10) catches a junction on Windows, and the
+/// changed-since-recommendation check (8) catches an item its rule no longer offers. Refusal 5 has a
+/// second test below in which it is the only check that refuses. Refusals 4 and 7 have none, and
+/// cannot on Windows: a link always has a different final path, and the fold empties a broken
+/// rule's offer, so check 10 or check 8 always stands behind them. The mutations, the tests that went
+/// red and what each said are in docs/missions/reclaim-the-disk-2026-09-18/phase-3-proof.md.
 /// </summary>
-public sealed class ReclaimRefusalTests
+public sealed class ReclaimRefusalTests(ITestOutputHelper output)
 {
     // -- The ten, in the mandate's numbered order --
 
@@ -513,6 +523,174 @@ public sealed class ReclaimRefusalTests
         Assert.Equal(dryRefused, applyRefused);
     }
 
+    // -- The check made again at the moment of the move, seen through the runner itself --
+    //
+    // The ten numbered tests hand the gate or the runner one moment in time, so none of them can see
+    // whether the apply loop checks an item AGAIN before its own move. Proven on 19 September 2026:
+    // with the second check replaced by the report pass's answer, all 253 tests stayed green. The two
+    // tests below change the disk between the report pass and a move, inside one apply run.
+
+    [Fact]
+    public void Reclaim_AnItemWrittenToBetweenTheReportPassAndItsOwnMove_IsRefusedAtTheMoveAndStaysWhereItWas()
+    {
+        using var tree = new FixtureTree(nameof(Reclaim_AnItemWrittenToBetweenTheReportPassAndItsOwnMove_IsRefusedAtTheMoveAndStaysWhereItWas));
+        var first = tree.Folder("first-temp");
+        var firstItem = Path.Combine(first, "cc-director-tests");
+        Directory.CreateDirectory(firstItem);
+        File.WriteAllBytes(Path.Combine(firstItem, "scratch.txt"), new byte[700]);
+
+        var second = tree.Folder("second-temp");
+        var secondItem = Path.Combine(second, "cc-director-tests");
+        Directory.CreateDirectory(secondItem);
+        File.WriteAllBytes(Path.Combine(secondItem, "scratch.txt"), new byte[300]);
+
+        // The order of one apply run over two rules: both examine for the recommendation, then the
+        // report pass checks the first item and then the second, then the first item is checked again
+        // and moved, then the second. The second rule's SECOND examination is therefore the report
+        // pass's check of the second item - after the report pass has already called the first item
+        // eligible, and before the first item's own move. That is the moment something else writes
+        // to the first item.
+        var secondRule = new InterferingRule(new TestScratchFoldersRule(second), examination =>
+        {
+            if (examination == 2)
+                File.WriteAllBytes(Path.Combine(firstItem, "scratch.txt"), new byte[800]);
+        });
+
+        var holdingRoot = Path.Combine(tree.Root, "holding");
+        var apply = ReclaimRunner.Run(new ReclaimRunRequest
+        {
+            Rules = [new TestScratchFoldersRule(first), secondRule],
+            RootPath = tree.Root,
+            HoldingRootPath = holdingRoot,
+            ProtectedPaths = [],
+            UserFolders = [],
+            Apply = true,
+            NowUtc = DateTimeOffset.UtcNow.AddDays(400)
+        });
+
+        // The premise, pinned: the write happened, and it happened once.
+        Assert.Equal(3, secondRule.Examinations);
+
+        var firstOutcome = Assert.Single(apply.Items, itemResult => itemResult.Path == firstItem);
+        Assert.False(firstOutcome.Moved, "an item that changed after the report pass must not move on the report pass's answer");
+        Assert.False(firstOutcome.Gate.Eligible);
+        Assert.Equal(RefusalCheck.ChangedSinceRecommendation, firstOutcome.Gate.FiredCheck);
+        Assert.Contains("700", firstOutcome.Gate.Reason);
+        Assert.Contains("800", firstOutcome.Gate.Reason);
+
+        // It stays where it was, with what was written to it.
+        Assert.Equal(800, new FileInfo(Path.Combine(firstItem, "scratch.txt")).Length);
+
+        // The second item was untouched by any of this and moved, and it is the only thing in holding.
+        var secondOutcome = Assert.Single(apply.Items, itemResult => itemResult.Path == secondItem);
+        Assert.True(secondOutcome.Moved, secondOutcome.OutcomeReason ?? secondOutcome.Gate.Reason);
+        var held = Assert.Single(new HoldingStore(holdingRoot).List().Complete);
+        Assert.Equal(Path.GetFullPath(secondItem), held.Record.OriginalPath);
+        Assert.Equal(300, apply.BytesMoved);
+    }
+
+    [Fact]
+    public void Reclaim_AnItemInsideAnItemThatJustMovedInTheSameRun_IsCheckedAgainstTheDiskAsItIsNow()
+    {
+        using var tree = new FixtureTree(nameof(Reclaim_AnItemInsideAnItemThatJustMovedInTheSameRun_IsCheckedAgainstTheDiskAsItIsNow));
+        var temp = tree.Folder("temp");
+        var outer = Path.Combine(temp, "cc-director-tests");
+        var inner = Path.Combine(outer, "inner");
+        Directory.CreateDirectory(inner);
+        File.WriteAllBytes(Path.Combine(inner, "scratch.txt"), new byte[64]);
+
+        // Two offers, the second inside the first. The report pass finds both eligible, because both
+        // are there. By the time the second is about to move, the first has moved and taken it along.
+        var moment = DateTimeOffset.UtcNow;
+        var outerRule = new OfferingRule(temp, new ReclaimCandidate(outer, 64, moment, "the outer folder"));
+        var innerRule = new OfferingRule(temp, new ReclaimCandidate(inner, 64, moment, "the folder inside it"));
+
+        var holdingRoot = Path.Combine(tree.Root, "holding");
+        var apply = ReclaimRunner.Run(new ReclaimRunRequest
+        {
+            Rules = [outerRule, innerRule],
+            RootPath = tree.Root,
+            HoldingRootPath = holdingRoot,
+            ProtectedPaths = [],
+            UserFolders = [],
+            Apply = true,
+            NowUtc = moment.AddDays(400)
+        });
+
+        var outerOutcome = Assert.Single(apply.Items, itemResult => itemResult.Path == outer);
+        Assert.True(outerOutcome.Moved, outerOutcome.OutcomeReason ?? outerOutcome.Gate.Reason);
+
+        // The second item carries the answer of the check made at ITS move, against the disk as it
+        // was then: the path no longer resolves, and nothing was attempted on the strength of an
+        // answer given before the first move.
+        var innerOutcome = Assert.Single(apply.Items, itemResult => itemResult.Path == inner);
+        Assert.False(innerOutcome.Gate.Eligible);
+        Assert.Equal(RefusalCheck.NotCanonical, innerOutcome.Gate.FiredCheck);
+        Assert.Contains("would not resolve", innerOutcome.Gate.Reason);
+        Assert.False(innerOutcome.Moved);
+        Assert.Null(innerOutcome.HoldingEntryId);
+        Assert.Null(innerOutcome.OutcomeReason);
+
+        // One entry in holding, and the inner folder went along inside it, whole.
+        var held = Assert.Single(new HoldingStore(holdingRoot).List().Complete);
+        Assert.Empty(new HoldingStore(holdingRoot).List().Incomplete);
+        Assert.Equal(64, new FileInfo(Path.Combine(held.EntryPath, "cc-director-tests", "inner", "scratch.txt")).Length);
+    }
+
+    // -- Refusals 5 and 8 where no other check stands behind them --
+
+    [Fact]
+    public void Reclaim_AnItemARuleOffersInsideItsOwnAgeGate_IsRefusedByTheGateWhenNoOtherCheckWould()
+    {
+        // The numbered test for refusal 5 uses a rule that stops offering a young item, so with
+        // refusal 5 deleted the item is still refused, by refusal 8, and that test goes red only on
+        // the name. Here the rule goes on offering the item, unchanged, three days after its newest
+        // write: a rule that does not keep its own age gate. Refusal 5 is the only thing in the way.
+        using var tree = new FixtureTree(nameof(Reclaim_AnItemARuleOffersInsideItsOwnAgeGate_IsRefusedByTheGateWhenNoOtherCheckWould));
+        var temp = tree.Folder("temp");
+        var item = Path.Combine(temp, "cc-director-tests");
+        Directory.CreateDirectory(item);
+        File.WriteAllBytes(Path.Combine(item, "scratch.txt"), new byte[64]);
+
+        var now = DateTimeOffset.UtcNow;
+        var rule = new OfferingRule(temp, new ReclaimCandidate(
+            item, 64, now.AddDays(-3), "offered by a rule that does not keep its own seven day age gate"));
+
+        var result = DryRun(tree, [rule], nowUtc: now);
+
+        var outcome = Assert.Single(result.Items);
+        Assert.False(outcome.Gate.Eligible, "an item three days old must not be eligible under a seven day age gate");
+        Assert.Equal(RefusalCheck.AgeGate, outcome.Gate.FiredCheck);
+        Assert.Contains("age gate of 7 days", outcome.Gate.Reason);
+    }
+
+    [Fact]
+    public void Reclaim_AnItemWrittenToWithoutChangingItsSize_IsRefusedAsChanged()
+    {
+        // The numbered test for refusal 8 changes the bytes. A write that leaves the size alone is
+        // the other way an item changes, and it has its own branch in the check.
+        using var tree = new FixtureTree(nameof(Reclaim_AnItemWrittenToWithoutChangingItsSize_IsRefusedAsChanged));
+        var temp = tree.Folder("temp");
+        var item = Path.Combine(temp, "cc-director-tests");
+        Directory.CreateDirectory(item);
+        var file = Path.Combine(item, "scratch.txt");
+        File.WriteAllBytes(file, new byte[700]);
+
+        var rule = new TestScratchFoldersRule(temp);
+        var now = DateTimeOffset.UtcNow.AddDays(400);
+        var recommendation = RuleFold.Fold(rule, rule.Examine(new RuleContext { ScanRootPath = tree.Root, NowUtc = now }));
+        var recommended = Assert.Single(recommendation.Candidates);
+
+        // The same seven hundred bytes, written again an hour later.
+        File.SetLastWriteTimeUtc(file, recommended.LastWrittenUtc.UtcDateTime.AddHours(1));
+
+        var outcome = new RefusalGate(GateOptions(tree, apply: false, nowUtc: now)).Check(recommended, rule);
+
+        Assert.False(outcome.Eligible);
+        Assert.Equal(RefusalCheck.ChangedSinceRecommendation, outcome.FiredCheck);
+        Assert.Contains("the newest write inside it moved", outcome.Reason);
+    }
+
     // -- The whole flow on a fixture tree, with measured bytes at each step --
 
     [Fact]
@@ -579,69 +757,179 @@ public sealed class ReclaimRefusalTests
     [Fact]
     public void Reclaim_TheWholeHoldingFlow_ListsRestoresAndPurgesWithMeasuredBytesAtEachStep()
     {
+        // Recommend, dry run, apply, holding list, holding restore, holding purge - on a tree this test
+        // builds and destroys. After EVERY step three things are measured by this test's own
+        // instrument, which walks the disk and adds up file lengths and owes nothing to the code under
+        // test: every file outside holding with its size, the bytes inside holding, and the bytes of
+        // the whole tree. Each is asserted as an exact number, and each is written to the test's
+        // output, so the proof document quotes a run rather than an intention.
+        //
+        // The volume's own free space is written out as a measurement and never asserted: the volume
+        // these tests run on is a live one, and other processes write to it between two readings.
         using var tree = new FixtureTree(nameof(Reclaim_TheWholeHoldingFlow_ListsRestoresAndPurgesWithMeasuredBytesAtEachStep));
         var temp = tree.Folder("temp");
         var item = Path.Combine(temp, "cc-director-tests");
         Directory.CreateDirectory(item);
         File.WriteAllBytes(Path.Combine(item, "scratch.txt"), new byte[4096]);
 
+        // The bystanders: a folder beside the item that nobody here made, and a file elsewhere in the
+        // tree. Nothing in the flow may touch either.
+        tree.File(Path.Combine("temp", "somebody-elses-folder", "theirs.txt"), 2048);
+        tree.File(Path.Combine("elsewhere", "keep.bin"), 1000);
+
+        var holdingRoot = Path.Combine(tree.Root, "holding");
         var now = DateTimeOffset.UtcNow.AddDays(400);
         var rule = new TestScratchFoldersRule(temp);
 
-        // Recommend, dry run, apply.
+        var itemFile = Path.Combine("temp", "cc-director-tests", "scratch.txt");
+        var withTheItem = new SortedDictionary<string, long>(StringComparer.Ordinal)
+        {
+            [Path.Combine("elsewhere", "keep.bin")] = 1000,
+            [itemFile] = 4096,
+            [Path.Combine("temp", "somebody-elses-folder", "theirs.txt")] = 2048
+        };
+        var withoutTheItem = new SortedDictionary<string, long>(withTheItem, StringComparer.Ordinal);
+        withoutTheItem.Remove(itemFile);
+
+        void Measured(string step, SortedDictionary<string, long> expectedOutsideHolding, long expectedHoldingBytes)
+        {
+            var outside = FilesOutsideHolding(tree.Root, holdingRoot);
+            var holdingBytes = BytesUnder(holdingRoot);
+            var treeBytes = BytesUnder(tree.Root);
+            output.WriteLine(
+                $"{step}: outside-holding-bytes={outside.Values.Sum()}, holding-bytes={holdingBytes}, " +
+                $"whole-tree-bytes={treeBytes}, files-outside-holding={outside.Count}");
+
+            Assert.Equal(expectedOutsideHolding, outside);
+            Assert.Equal(expectedHoldingBytes, holdingBytes);
+            Assert.Equal(expectedOutsideHolding.Values.Sum() + expectedHoldingBytes, treeBytes);
+        }
+
+        Measured("0 built", withTheItem, 0);
+
+        // 1. Recommend.
+        var recommendation = RuleFold.Fold(rule, rule.Examine(new RuleContext { ScanRootPath = tree.Root, NowUtc = now }));
+        var recommended = Assert.Single(recommendation.Candidates);
+        Assert.Equal(item, recommended.Path);
+        Assert.Equal(4096, recommended.Bytes);
+        output.WriteLine($"1 recommend: offered={recommended.Path}, bytes={recommended.Bytes}");
+        Measured("1 recommend", withTheItem, 0);
+
+        // 2. Dry run: says what would move, measures, and moves nothing. No holding root is created.
         var dryRun = DryRun(tree, [rule], nowUtc: now);
-        Assert.Single(dryRun.Items, itemResult => itemResult.Gate.Eligible);
-        var apply = ReclaimRunner.Run(new ReclaimRunRequest
+        var wouldMove = Assert.Single(dryRun.Items);
+        Assert.True(wouldMove.Gate.Eligible, wouldMove.Gate.Reason);
+        Assert.False(wouldMove.Moved);
+        Assert.Equal(4096, dryRun.CandidateBytesBefore);
+        Assert.Equal(4096, dryRun.CandidateBytesAfter);
+        Assert.Equal(0, dryRun.BytesMoved);
+        Assert.False(Directory.Exists(holdingRoot));
+        output.WriteLine(
+            $"2 dry run: candidate-bytes-before={dryRun.CandidateBytesBefore}, candidate-bytes-after={dryRun.CandidateBytesAfter}, " +
+            $"bytes-moved={dryRun.BytesMoved}, volume-free-before={dryRun.VolumeBefore.FreeBytes}, volume-free-after={dryRun.VolumeAfter.FreeBytes}");
+        Measured("2 dry run", withTheItem, 0);
+
+        // 3. Apply: the item, and only the item, moves into holding. The bytes do not leave the tree:
+        // a move to holding frees no space, and the whole tree grows by exactly the record.
+        ReclaimRunResult Apply() => ReclaimRunner.Run(new ReclaimRunRequest
         {
             Rules = [rule],
             RootPath = tree.Root,
-            HoldingRootPath = tree.Folder("holding"),
+            HoldingRootPath = holdingRoot,
             ProtectedPaths = [],
             UserFolders = [],
             Apply = true,
             NowUtc = now
         });
-        var moved = Assert.Single(apply.Items, itemResult => itemResult.Moved);
 
-        // Holding list: the entry is named with its original path and its bytes.
-        var holding = new HoldingStore(tree.Folder("holding"));
+        var apply = Apply();
+        var moved = Assert.Single(apply.Items);
+        Assert.True(moved.Moved, moved.OutcomeReason ?? moved.Gate.Reason);
+        Assert.Equal(4096, apply.CandidateBytesBefore);
+        Assert.Equal(0, apply.CandidateBytesAfter);
+        Assert.Equal(4096, apply.BytesMoved);
+        Assert.Contains(apply.Lines, line => line.StartsWith("space: a move to holding frees no space", StringComparison.Ordinal));
+        var entryPath = Path.Combine(holdingRoot, moved.HoldingEntryId!);
+        var recordBytes = new FileInfo(Path.Combine(entryPath, "record.json")).Length;
+        Assert.Equal(4096, new FileInfo(Path.Combine(entryPath, "cc-director-tests", "scratch.txt")).Length);
+        output.WriteLine(
+            $"3 apply: candidate-bytes-before={apply.CandidateBytesBefore}, candidate-bytes-after={apply.CandidateBytesAfter}, " +
+            $"bytes-moved={apply.BytesMoved}, record-bytes={recordBytes}, " +
+            $"volume-free-before={apply.VolumeBefore.FreeBytes}, volume-free-after={apply.VolumeAfter.FreeBytes}");
+        Measured("3 apply", withoutTheItem, 4096 + recordBytes);
+
+        // 4. Holding list: the entry is named with its original path and its bytes. Listing changes nothing.
+        var holding = new HoldingStore(holdingRoot);
         var listing = holding.List();
         var entry = Assert.Single(listing.Complete);
+        Assert.Empty(listing.Incomplete);
         Assert.Equal(moved.HoldingEntryId, entry.EntryId);
         Assert.Equal(Path.GetFullPath(item), entry.Record.OriginalPath);
         Assert.Equal(4096, entry.Record.Bytes);
+        output.WriteLine($"4 holding list: entries={listing.Complete.Count}, entry-bytes={entry.Record.Bytes}, from={entry.Record.OriginalPath}");
+        Measured("4 holding list", withoutTheItem, 4096 + recordBytes);
 
-        // Restore: the item returns, byte for byte, and the entry is gone.
+        // 5. Restore: the item returns, byte for byte, the entry is gone, and the tree is exactly the
+        // tree the test built.
         var restored = holding.Restore(entry.EntryId);
         Assert.True(restored.Restored, restored.RefusalReason);
-        Assert.True(File.Exists(Path.Combine(item, "scratch.txt")));
-        Assert.Equal(4096, new FileInfo(Path.Combine(item, "scratch.txt")).Length);
-        Assert.False(Directory.Exists(Path.Combine(holding.Root, entry.EntryId)));
+        Assert.False(Directory.Exists(entryPath));
+        output.WriteLine($"5 holding restore: restored={restored.Restored}, to={restored.OriginalPath}");
+        Measured("5 holding restore", withTheItem, 0);
 
-        // The whole flow again, to have an entry to purge.
-        apply = ReclaimRunner.Run(new ReclaimRunRequest
-        {
-            Rules = [rule],
-            RootPath = tree.Root,
-            HoldingRootPath = tree.Folder("holding"),
-            ProtectedPaths = [],
-            UserFolders = [],
-            Apply = true,
-            NowUtc = now
-        });
-        moved = Assert.Single(apply.Items, itemResult => itemResult.Moved);
+        // 6. The item moves again, to have an entry to purge.
+        apply = Apply();
+        moved = Assert.Single(apply.Items);
+        Assert.True(moved.Moved, moved.OutcomeReason ?? moved.Gate.Reason);
+        recordBytes = new FileInfo(Path.Combine(holdingRoot, moved.HoldingEntryId!, "record.json")).Length;
+        Measured("6 apply again", withoutTheItem, 4096 + recordBytes);
 
-        // A purge dry run names the entry as not yet purgeable.
-        var purgeDry = holding.Purge(now, apply: false);
-        Assert.Empty(purgeDry.Purgeable);
-        Assert.Single(purgeDry.NotYetPurgeable);
+        // 7. A purge WITH the apply flag, inside the holding period, removes nothing.
+        var purgeTooEarly = holding.Purge(now, apply: true);
+        Assert.Empty(purgeTooEarly.PurgedEntryIds);
+        Assert.Single(purgeTooEarly.NotYetPurgeable);
+        Measured("7 purge with the apply flag inside the holding period", withoutTheItem, 4096 + recordBytes);
 
-        // After the holding period, and with the apply flag, the entry is gone and the space it held
-        // is freed. The holding period is a parameter, so the test does not wait thirty days.
-        var purge = holding.Purge(now.AddDays(HoldingStore.DefaultHoldingPeriodDays + 1), apply: true);
+        // 8. A purge dry run, after the holding period, names the entry and removes nothing.
+        var afterThePeriod = now.AddDays(HoldingStore.DefaultHoldingPeriodDays + 1);
+        var purgeDryRun = holding.Purge(afterThePeriod, apply: false);
+        Assert.Single(purgeDryRun.Purgeable);
+        Assert.Empty(purgeDryRun.PurgedEntryIds);
+        Measured("8 purge dry run after the holding period", withoutTheItem, 4096 + recordBytes);
+
+        // 9. The purge with the apply flag is the one step that frees space: the entry is gone, the
+        // whole tree is smaller by exactly the item and its record, and the bystanders are untouched.
+        var treeBytesBeforePurge = BytesUnder(tree.Root);
+        var purge = holding.Purge(afterThePeriod, apply: true);
         Assert.Equal(moved.HoldingEntryId, Assert.Single(purge.PurgedEntryIds));
-        Assert.False(Directory.Exists(Path.Combine(holding.Root, moved.HoldingEntryId!)));
+        Assert.False(Directory.Exists(Path.Combine(holdingRoot, moved.HoldingEntryId!)));
         Assert.False(Directory.Exists(item));
+        var freed = treeBytesBeforePurge - BytesUnder(tree.Root);
+        Assert.Equal(4096 + recordBytes, freed);
+        output.WriteLine($"9 holding purge: purged={purge.PurgedEntryIds.Count}, bytes-freed-from-the-tree={freed}");
+        Measured("9 holding purge", withoutTheItem, 0);
+    }
+
+    /// <summary>
+    /// This suite's own instrument: every file under a folder, added up. It walks the disk with the
+    /// framework's own enumeration and owes nothing to the measuring code under test.
+    /// </summary>
+    private static long BytesUnder(string folder) =>
+        Directory.Exists(folder)
+            ? Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length)
+            : 0;
+
+    /// <summary>Every file in the tree that is not inside holding, by its path below the root, with its size.</summary>
+    private static SortedDictionary<string, long> FilesOutsideHolding(string root, string holdingRoot)
+    {
+        var files = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            if (file.StartsWith(holdingRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+            files[Path.GetRelativePath(root, file)] = new FileInfo(file).Length;
+        }
+
+        return files;
     }
 
     [Fact]
@@ -728,6 +1016,39 @@ public sealed class ReclaimRefusalTests
         Apply = apply,
         NowUtc = nowUtc
     };
+}
+
+/// <summary>
+/// A real rule with something else happening on the disk while it works. It answers exactly as the
+/// rule inside it answers; before each examination it tells the test which examination this is, so
+/// the test can change the disk at a known moment INSIDE one run - the only way a test can stand
+/// between the report pass and a move.
+/// </summary>
+/// <param name="inner">The rule that does the examining.</param>
+/// <param name="beforeExamination">Called with the number of the examination about to be made, from one.</param>
+file sealed class InterferingRule(IReclaimRule inner, Action<int> beforeExamination) : IReclaimRule
+{
+    /// <summary>How many times the rule has been asked to examine.</summary>
+    public int Examinations { get; private set; }
+
+    public string Id => inner.Id;
+    public string Name => inner.Name;
+    public ProofKind Proof => inner.Proof;
+    public string WhatItRemoves => inner.WhatItRemoves;
+    public string WhyItIsSafe => inner.WhyItIsSafe;
+    public string WhatIsLost => inner.WhatIsLost;
+    public string HowToGetItBack => inner.HowToGetItBack;
+    public int AgeGateDays => inner.AgeGateDays;
+    public bool NeedsAdministrator => inner.NeedsAdministrator;
+    public string? CommandToRun => inner.CommandToRun;
+    public string LooksIn => inner.LooksIn;
+
+    public RuleAnswer Examine(RuleContext context)
+    {
+        Examinations++;
+        beforeExamination(Examinations);
+        return inner.Examine(context);
+    }
 }
 
 /// <summary>
