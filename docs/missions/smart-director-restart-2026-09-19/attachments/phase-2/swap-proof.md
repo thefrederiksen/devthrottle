@@ -3,6 +3,13 @@
 Developer seat on branch `smart-restart-p2-swap`, 20 September 2026. Issues: mission #3167; this closes
 defect #3168 (the old Drain window threw on opening - that window no longer exists).
 
+**Updated after the review (`review-phase-2-4.md`), by a second Developer seat, 20 September 2026.** The
+branch now holds `origin/main` at `f20bbd33b` (merge commit `abb232669`; the engine landed on main as a
+squash, pull request 3193, so the engine files on this branch are main's). `git diff origin/main --stat`
+shows only the swap's own files. Review finding 1 is fixed in `da62648b0`: decision 6 below is
+REPLACED, and the counts, the tests and the revert proofs are brought up to date. The answers to both
+findings are in `docs/missions/smart-director-restart-2026-09-19/review-phase-2-4-answers.md`.
+
 ## What was built
 
 - **`SmartShutdownCoordinator`** (`src/CcDirector.Avalonia/SmartRestart/`), the whole flow in one class.
@@ -42,7 +49,19 @@ defect #3168 (the old Drain window threw on opening - that window no longer exis
 | `dotnet build src/CcDirector.Avalonia --no-incremental` | | **0 warnings, 0 errors** |
 | `dotnet build cc-director.sln` | | **0 warnings, 0 errors** |
 
-41 new tests, all in `SmartShutdownCoordinatorTests.cs`. Every one of the 46 earlier tests is unchanged
+After the review, on main at `f20bbd33b` plus finding 1 (each with a full build, in the foreground):
+
+| Command | Before the review | After |
+|---|---|---|
+| `dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~SmartRestart"` | 87 | **95 passed, 0 failed, 0 skipped** |
+| `dotnet test src/CcDirector.Avalonia.Tests` | 686 | **694 passed, 0 failed, 0 skipped** |
+| `dotnet build cc-director.sln` | | **0 warnings, 0 errors** |
+
+How 87 became 95: one test came in with main (a session reader test, pull request 3195); the one old
+no-engine test was taken out, because it asserted the silent carry-on the review found; eight no-engine
+tests were added (seven methods, one of them with two cases).
+
+41 new tests in the first round, all in `SmartShutdownCoordinatorTests.cs`. Every one of the 46 earlier tests is unchanged
 and green (one comment in `SmartShutdownDialogTests.cs` was reworded, no code).
 
 ## What each new test proves, in plain words
@@ -93,7 +112,15 @@ builds a choice or a result and hands it to the coordinator.
   close carries on. The same when the engine throws. When the engine never answers, the wait is given up
   at the limit (200 milliseconds in the test, five seconds in the product) and the token it was handed
   can be cancelled.
-- **No engine:** the close carries on; the menu says the control service did not start.
+- **No engine (the control service did not start), replaced after the review.** With one idle session
+  the window close is cancelled and the SAME real dialog opens: "Smart shutdown", "1 session is running",
+  no "checking" line (nothing is being asked), the confirm dead, and the amber panel with the sentence
+  "This Director's control service did not start, so a smart shutdown cannot run. The log has the
+  reason." "Shut down and ignore all sessions" and Cancel are live. Pressing ignore-all closes the
+  application exactly once, the close that comes back through the window's closing carries on with no
+  second dialog, and no call of any kind was written down on the engine. Cancel, Escape and the dialog's
+  own close close nothing, and the next close asks again. Enter takes nothing. With no sessions the close
+  carries on with no dialog. The File menu keeps its one sentence and opens nothing.
 - **The main window's source** names none of `DrainDirectorDialog`, `CloseDialog`, "Drain this
   Director", and does name both calls into the coordinator and the "Smart Restart" menu item. A second
   test (three cases) proves the finder finds each old name when it is there.
@@ -110,6 +137,16 @@ the whole `SmartRestart` filter each time so nothing unnamed could hide, restore
 | B. `HandleWindowClosing`: the old narrower rule put back (only Working or WaitingForInput reach the reader) | **1 failed, 86 passed** | `HandleWindowClosing_OneIdleSession_CancelsTheCloseAndTheDialogCountsThatSession` |
 | C. A comment naming `CloseDialog` added to `MainWindow.axaml.cs` | **1 failed, 86 passed** | `MainWindowSource_NamesNeitherOldWindow_AndCallsTheCoordinatorFromBothDoors` |
 | Restored, full build | **87 passed, 0 failed** | none |
+
+After the review, committed first (`da62648b0`), the same way:
+
+| Mutation | Result | Tests that went red |
+|---|---|---|
+| D. `HandleWindowClosing`: the old silent carry-on put back (no engine: `return false`) | **6 failed, 89 passed** | `HandleWindowClosing_NoEngineAndOneIdleSession_OpensTheDialogWithTheSmartChoiceDeadAndTheReasonShown`, `Dialog_IgnoreAllClickedWithNoEngine_...`, `Dialog_CancelClickedWithNoEngine_...`, `Dialog_EscapeOrItsOwnCloseWithNoEngine_...` (both cases), `Dialog_EnterPressedWithNoEngine_TakesNothing` |
+| Restored with `git checkout`, `git status` clean, full build | **95 passed, 0 failed** | none |
+
+The first of those is the one the mandate asked to see fail. The other five went red with it because
+each needs the dialog to have opened.
 
 ## The pictures (each one looked at)
 
@@ -144,8 +181,15 @@ Drawn by Skia under the headless platform in a bare window, not by the running a
    for is never written, and cancelling that close would hold up the machine's shutdown. The engine's
    call runs on a pool thread so the wait cannot deadlock. This is the one place the flow blocks.
 5. **With no sessions, the operating system shutdown records nothing** - same list, same rule.
-6. **No engine (the control service did not start): the close carries on, logged; the menu says why.**
-   Cancelling a close with no way to finish it would trap the owner in the window.
+6. **REPLACED after the review; the ruling is the Tech Lead's, not mine.** It used to read: no engine,
+   the close carries on, logged. Now: with sessions running and no engine the window close opens the same
+   dialog. The smart choice is dead and the dialog says why. "Shut down and ignore all sessions" has no
+   engine to call, so it lets the close carry on through the main window's own close path, which ends the
+   sessions; the owner was asked exactly once. Cancel, Escape and the dialog's own close do nothing. So
+   the owner is asked AND is never trapped in the window, which was the worry behind the old decision.
+   No record is written on that path, because the record is the engine's and there is no engine; the log
+   says so. No "Ending your sessions..." state is shown there: the close follows at once, on the same
+   path the application has always closed by. The File menu keeps its sentence.
 7. **An unexpected failure inside `HandleWindowClosing` cancels the close and shows the message**, rather
    than closing over sessions nobody was asked about.
 8. **After RestartAccepted the doors work again.** If the launcher never stops the process, the owner can
@@ -161,7 +205,9 @@ Drawn by Skia under the headless platform in a bare window, not by the running a
 
 ## What the engine could not give me
 
-Read in `DirectorSmartShutdown.cs` on this branch (engine merged at `55870f183`):
+Read in `DirectorSmartShutdown.cs` on this branch (engine merged at `55870f183`), and read again after
+the review in main's copy at `f20bbd33b`: all three refusals below are still there, word for word. That
+is review finding 2, and it holds this branch back from merging; see the answers file.
 
 - `Start` with purpose **Restart** throws `NotSupportedException` ("not built yet"). So File, Smart
   Restart, confirmed, today shows that sentence in the notification bar and changes nothing.
