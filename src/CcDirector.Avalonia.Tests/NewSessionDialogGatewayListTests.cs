@@ -347,6 +347,34 @@ public class NewSessionDialogGatewayListTests
     }
 
     /// <summary>
+    /// A Gateway that is not answering takes as long as its timeout, and the user is entitled to close
+    /// the dialog in the meantime. When the answer finally arrives, it arrives to a window that is gone
+    /// and is dropped rather than applied.
+    /// </summary>
+    [AvaloniaFact]
+    public void WhenTheDialogIsClosedBeforeTheAnswerArrives_TheAnswerIsDropped()
+    {
+        using var machine = new MachineOfItsOwn();
+        var stillWaiting = new TaskCompletionSource<KnownRepositoryListResult>();
+        var dialog = Open(machine.Registry, _ => stillWaiting.Task);
+
+        // Nothing has answered yet: the machine's own list is up and the screen says it is waiting.
+        Assert.Equal(2, RowsOnScreen(dialog).Count);
+        Assert.Equal(NewSessionRepositoryList.CheckingNotice, NoticeOnScreen(dialog).Text);
+
+        dialog.Dispose();
+
+        // The Gateway answers after the window has gone.
+        stillWaiting.SetResult(KnownRepositoryListResult.Served(TheGatewaysList()));
+        for (var pump = 0; pump < 10; pump++)
+            Dispatcher.UIThread.RunJobs();
+
+        // The late answer was not applied to the closed window.
+        Assert.Equal(2, RowsOnScreen(dialog).Count);
+        Assert.Equal(NewSessionRepositoryList.CheckingNotice, NoticeOnScreen(dialog).Text);
+    }
+
+    /// <summary>
     /// The search box reaches the whole served list, including a repository nobody has ever opened, and
     /// filtering does not re-order what is left.
     /// </summary>

@@ -499,6 +499,12 @@ public partial class NewSessionDialog : Window
     /// </summary>
     private readonly Func<CancellationToken, Task<KnownRepositoryListResult>> _gatewayRepositories;
 
+    /// <summary>
+    /// Cancelled when the dialog closes, so an ask still in flight does not come back to a window that
+    /// is gone. The user can close this dialog long before a Gateway that is not answering gives up.
+    /// </summary>
+    private readonly CancellationTokenSource _closing = new();
+
     public string? SelectedPath { get; private set; }
     public string? SelectedResumeSessionId { get; private set; }
     public string? SelectedHandoverPath { get; private set; }
@@ -628,6 +634,25 @@ public partial class NewSessionDialog : Window
     public NewSessionDialog() : this(null, null) { }
 
     /// <summary>
+    /// Stop waiting on the Gateway when the dialog goes. A Gateway that is not answering takes as long
+    /// as its timeout, and the user is entitled to close this window in the meantime.
+    /// </summary>
+    /// <param name="e">The close event.</param>
+    protected override void OnClosed(EventArgs e)
+    {
+        try
+        {
+            _closing.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Closed twice. There is nothing left to cancel.
+        }
+
+        base.OnClosed(e);
+    }
+
+    /// <summary>
     /// The repositories this dialog offers: the ones you have USED, in their recency order, then every
     /// other repository under your registered root folders, alphabetically, deduplicated by path.
     ///
@@ -730,7 +755,13 @@ public partial class NewSessionDialog : Window
     {
         try
         {
-            var answer = await _gatewayRepositories(CancellationToken.None);
+            var answer = await _gatewayRepositories(_closing.Token);
+            if (_closing.IsCancellationRequested)
+            {
+                FileLog.Write("[NewSessionDialog] LoadGatewayRepositoriesAsync: the dialog closed before the answer arrived");
+                return;
+            }
+
             FileLog.Write($"[NewSessionDialog] LoadGatewayRepositoriesAsync: outcome={answer.Outcome}, "
                           + $"repositories={answer.Repositories.Count}, reason={answer.Reason ?? "(none)"}");
 
@@ -765,6 +796,9 @@ public partial class NewSessionDialog : Window
     private void ShowRepositories(List<RepositoryConfig> repositories, bool isTheGatewaysOrder)
     {
         var chosen = SelectedPath;
+
+        FileLog.Write($"[NewSessionDialog] ShowRepositories: count={repositories.Count}, "
+                      + $"source={(isTheGatewaysOrder ? "the Gateway's one list" : "this machine's own list")}");
 
         _sourceRepos = repositories;
         _sourceIsTheGatewaysOrder = isTheGatewaysOrder;
