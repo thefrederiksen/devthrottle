@@ -83,3 +83,15 @@ The Delivery Lead polls this file. Newest entry last.
   its two files. Proof: `attachments/phase-2/swap-proof.md` on that branch. Developer 7329db2c ended by me.
   Sent to a Reviewer on Pi with GLM 5.3 (`mandate-phase-2-reviewer-4.md`, worktree `-p2-review4`); the
   review lands as `review-phase-2-4.md`. STILL BLOCKED for merging on the engine landing on main.
+- The fourth review landed (`review-phase-2-4.md`, GLM 5.3 in Pi; its own run: filter 87, whole 686). Two
+  findings, both accepted by me. Reviewer 3367a36e ended.
+  - Finding 1: with no engine (the control service failed to start) the window closed with live sessions
+    and no question. Ruling: the same dialog opens, the smart choice dead with the reason, ignore-all
+    carries the close on. A fresh Developer is opened on `mandate-phase-2-developer-swap-findings.md`; it
+    also merges main (the engine landed as pull request 3193) into the swap branch.
+  - Finding 2, FOR THE DELIVERY LEAD, THIS IS THE BLOCK ON PHASE 2: I checked `origin/main` myself.
+    `DirectorSmartShutdown.cs` still throws "not built yet" for the purpose Restart (line 132), for
+    `ShutDownIgnoringAllAsync` (line 173) and for `RecordAndLetEndAsync` (line 182). The headless tests
+    are green because they fake the engine, so the gate in mission section 8 would let the swap merge
+    with the File menu door and the ignore-all choice dead ends. I HOLD the swap until phase 1 lands all
+    three on main. Everything else of phase 2 is done or in its last fix.
