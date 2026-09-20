@@ -21,6 +21,15 @@ namespace CcDirector.Core.Tests;
 ///     it can be called in 64 KB chunks without timing issues, modelling the
 ///     chunked dispatch that TerminalControl performs in practice.
 ///
+/// A NOTE ON WHAT THESE FOUR TESTS MEASURE. Three of them read a stopwatch, and
+/// on a machine running other work a stopwatch reads the machine as much as the
+/// parser. The chunked test was re-stated for that reason and carries the whole
+/// argument on itself; tests 1 and 4 keep their elapsed-time bars, which are
+/// loose enough (10 seconds for a parse measured at about 2, and a shape
+/// comparison rather than an absolute) that contention has not been observed to
+/// reach them. If either of them ever goes red on a busy machine, it is the same
+/// defect and wants the same repair -- not a wider bar.
+///
 /// Threshold rationale:
 ///   The 10 s / 10 MB bar is the Phase-1 gate from the issue. If real claude
 ///   bursts grow larger, the fixture size and threshold should be raised
@@ -149,86 +158,126 @@ public class TerminalThroughputTests
     }
 
     // -------------------------------------------------------------------------
-    // Test 2: 64 KB chunk model -- each chunk returns well within 100 ms
-    // This models TerminalControl's dispatch loop (one Parse call per
-    // buffer read), ensuring no single chunk blocks the UI thread.
+    // Test 2: the 64 KB chunk model -- what the parser COSTS per chunk, measured
+    // so that a busy machine cannot change the answer.
     // -------------------------------------------------------------------------
 
+    /// <summary>
+    /// THE PARSER MUST NOT COST THE USER INTERFACE THREAD MORE THAN ITS BUDGET, AND THIS TEST MUST SAY SO
+    /// WHETHER OR NOT THE MACHINE IT RUNS ON IS BUSY.
+    ///
+    /// <c>TerminalControl</c> calls <see cref="AnsiParser.Parse"/> once per buffer read on the user interface
+    /// thread, so a 64 KB chunk that takes longer than 100 milliseconds freezes the screen (the responsive
+    /// interface mandate in CLAUDE.md). That is the property worth guarding.
+    ///
+    /// WHAT THIS TEST USED TO DO, AND WHY IT WAS A DEFECT. It timed every chunk with a stopwatch and failed
+    /// when more than 5 percent of them exceeded 100 milliseconds, or when any one exceeded 1000. Elapsed
+    /// wall-clock is not a property of the parser: it is the parser's own work PLUS however long the
+    /// operating system left this thread off a processor. Measured on this Mac, the same binary at the same
+    /// commit FAILED at a load average of 11.93 and PASSED at 2.99 minutes later - it was reporting how busy
+    /// the machine was. This is a fleet machine that routinely runs a dozen agent sessions at once, so the
+    /// test went red at random; a performance check that cries wolf is worse than none, because it is
+    /// dismissed as noise on the day the parser genuinely does get slower. The wrong repair would have been
+    /// to widen the budget until the machine stopped failing it, which throws away the only thing the test
+    /// is for. The measurement is recorded in
+    /// docs/missions/one-repository-list/proofs/throughput-test-measures-the-machine.md.
+    ///
+    /// WHAT IT ASSERTS NOW. Two things, neither of which a busy machine can push the wrong way:
+    ///
+    /// 1. THE WORK PER BYTE, as bytes allocated on this thread per byte parsed. Allocation is deterministic -
+    ///    the same input over the same code allocates the same amount however contended the box is - it is
+    ///    read per THREAD so nothing else in the test run is counted, and it is where a managed parser's
+    ///    regressions actually appear (a string built per cell, a LINQ query in the hot loop, a boxed struct).
+    ///    It is also the direct cause of the pauses this test exists to prevent: allocation is garbage
+    ///    collector pressure, and the collector is what stops the user interface thread. Measured here at
+    ///    34.47 bytes per byte parsed, repeatable to five significant figures across runs; the budget leaves
+    ///    room for ordinary drift and still catches any regression that changes the order of the work.
+    ///
+    /// 2. THE COST OF A CHUNK, taken from the FASTEST whole chunk of the run rather than the median or the
+    ///    worst. Scheduler contention is one-sided: being descheduled can only ADD elapsed time to a chunk,
+    ///    never remove it. So the fastest of 160 samples is the closest this suite can get to the parser's
+    ///    own cost, and a figure that is only ever inflated by load cannot produce a false RED. It can
+    ///    produce a false green on a machine so contended that every one of the 160 chunks was interrupted,
+    ///    which is why the strong assertion is the first one and this is the catastrophe guard it was always
+    ///    really serving as.
+    ///
+    /// WHAT IT NO LONGER ASSERTS, DELIBERATELY: the median, the worst chunk, and the share of chunks over
+    /// budget. All three are printed, because a human reading a run wants to see them, and none is a verdict,
+    /// because on a shared machine all three are verdicts on the machine. A truly load-independent TIMING
+    /// claim needs processor time for this thread rather than elapsed time, and .NET exposes no portable way
+    /// to read it - it would take a platform call per operating system (<c>clock_gettime</c> with
+    /// <c>CLOCK_THREAD_CPUTIME_ID</c>, <c>GetThreadTimes</c>) whose constants nobody here can check on
+    /// Windows, or a dedicated benchmark run on a machine reserved for it. Neither belongs in this suite.
+    /// </summary>
     [Fact]
     public void Parse10MbInChunks_TypicalChunkStaysWithinUiBudget()
     {
-        const int TargetBytes = 10 * 1024 * 1024; // 10 MB
-        const int ChunkSize = 64 * 1024;           // 64 KB per chunk -- matches typical read buffer
-        const double MaxChunkMs = 100.0;           // responsive-UI mandate (CLAUDE.md)
+        const int ChunkSize = 64 * 1024;            // 64 KB per chunk -- matches the typical read buffer
+        const int Chunks = 160;                     // 160 x 64 KB = exactly 10 MB, no short chunk to skew the sample
+        const int TargetBytes = Chunks * ChunkSize;
+        const double MaxChunkMs = 100.0;            // responsive-interface mandate (CLAUDE.md)
 
-        // Issue #870: this is a WALL-CLOCK measurement, so a chunk occasionally spikes past the budget
-        // from GC / OS-scheduler jitter (especially on a loaded CI runner) even though the parser keeps
-        // up - the median chunk is a small fraction of the budget. Asserting that EVERY chunk stays
-        // under 100 ms made the test flaky (a single jitter spike failed the run). Instead we assert the
-        // signals that actually separate a responsive parser from a regression: the TYPICAL (median)
-        // chunk is within the UI budget, only a small fraction of chunks may exceed it (jitter), and no
-        // single chunk catastrophically blocks the UI thread. A real slowdown moves the median and/or
-        // pushes far more than the jitter budget of chunks over the limit.
-        const double MaxOverBudgetFraction = 0.05;  // <= 5% of chunks may blow the budget (jitter)
-        const double CatastropheMs = 1000.0;        // no single chunk may block the UI this long
+        // Bytes allocated per byte parsed. Measured on macOS at 34.474, and 34.474 again on two further runs
+        // minutes apart under a load average above 12 - allocation does not move with the machine. The budget
+        // above it is head-room for ordinary drift (a cell struct gaining a field, a runtime upgrade), not a
+        // licence: a regression that allocates per character rather than per row lands many times over it.
+        // Re-baseline it against a measurement, in a commit that says what changed, never to quiet a red run.
+        const double MaxAllocatedBytesPerByte = 40.0;
 
         byte[] stream = BuildSyntheticStream(TargetBytes);
+        var chunks = new byte[Chunks][];
+        for (int i = 0; i < Chunks; i++)
+            chunks[i] = stream.AsSpan(i * ChunkSize, ChunkSize).ToArray();
+
         var (parser, _, _) = CreateParser(cols: 120, rows: 30, maxScrollback: 5000);
-
-        var perChunkMs = new List<double>();
-        double totalSec = 0.0;
-        var offenders = new List<string>();
-
+        var perChunkMs = new double[Chunks];
         var sw = new Stopwatch();
-        int pos = 0;
-        int chunks = 0;
-        while (pos < stream.Length)
+
+        // Read the allocation counter around the parse loop only: the chunk copies above are the test's own
+        // allocations, not the parser's.
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < Chunks; i++)
         {
-            int n = Math.Min(ChunkSize, stream.Length - pos);
-            var chunk = stream.AsSpan(pos, n).ToArray();
-
             sw.Restart();
-            parser.Parse(chunk);
+            parser.Parse(chunks[i]);
             sw.Stop();
-
-            double ms = sw.Elapsed.TotalMilliseconds;
-            totalSec += sw.Elapsed.TotalSeconds;
-            perChunkMs.Add(ms);
-            if (ms > MaxChunkMs)
-                offenders.Add($"chunk {chunks}: {ms:F1} ms ({n} bytes at offset {pos})");
-
-            pos += n;
-            chunks++;
+            perChunkMs[i] = sw.Elapsed.TotalMilliseconds;
         }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
-        perChunkMs.Sort();
-        double median = perChunkMs[perChunkMs.Count / 2];
-        double maxObserved = perChunkMs[^1];
-        int overBudget = offenders.Count;
-        double overBudgetFraction = (double)overBudget / chunks;
+        long bytesParsed = (long)Chunks * ChunkSize;
+        double allocatedPerByte = (double)allocated / bytesParsed;
 
-        _output.WriteLine($"Chunks      : {chunks} x {ChunkSize / 1024} KB");
-        _output.WriteLine($"Total time  : {totalSec:F3} s");
-        _output.WriteLine($"Median chunk: {median:F2} ms (budget = {MaxChunkMs} ms)");
-        _output.WriteLine($"Max chunk   : {maxObserved:F2} ms (catastrophe = {CatastropheMs} ms)");
-        _output.WriteLine($"Over budget : {overBudget}/{chunks} ({overBudgetFraction:P1}, allowed <= {MaxOverBudgetFraction:P0})");
+        var sorted = (double[])perChunkMs.Clone();
+        Array.Sort(sorted);
+        double fastest = sorted[0];
+        double median = sorted[sorted.Length / 2];
+        double slowest = sorted[^1];
+        int overBudget = sorted.Count(ms => ms > MaxChunkMs);
 
-        // The typical chunk must keep the UI responsive (the real regression signal; jitter-robust).
+        _output.WriteLine($"Chunks        : {Chunks} x {ChunkSize / 1024} KB ({bytesParsed / 1024 / 1024} MB)");
+        _output.WriteLine($"Allocated     : {allocated} bytes, {allocatedPerByte:F3} per byte parsed "
+                          + $"(budget {MaxAllocatedBytesPerByte:F1}) -- THE ASSERTION");
+        _output.WriteLine($"Fastest chunk : {fastest:F2} ms (budget {MaxChunkMs} ms) -- THE ASSERTION");
+        _output.WriteLine($"Median chunk  : {median:F2} ms -- reported only, a busy machine moves this");
+        _output.WriteLine($"Slowest chunk : {slowest:F2} ms -- reported only, a busy machine moves this");
+        _output.WriteLine($"Over budget   : {overBudget}/{Chunks} chunks -- reported only, a busy machine moves this");
+
+        // 1. The work per byte. Deterministic, per-thread, and unmoved by anything else running.
         Assert.True(
-            median <= MaxChunkMs,
-            $"median chunk {median:F1} ms exceeded the {MaxChunkMs} ms UI budget - parser regression");
+            allocatedPerByte <= MaxAllocatedBytesPerByte,
+            $"the parser allocated {allocatedPerByte:F3} bytes per byte parsed ({allocated} bytes for "
+            + $"{bytesParsed}), over the {MaxAllocatedBytesPerByte:F1} budget - work per byte has grown, and "
+            + "allocation is what pauses the user interface thread. This number does not move with machine "
+            + "load, so a busy box is not the explanation.");
 
-        // Only a small fraction may exceed the budget (rare GC/scheduler jitter); a systemic slowdown
-        // pushes far more chunks over.
+        // 2. The cost of a chunk, from the sample least interfered with. Contention only ever inflates this,
+        //    so exceeding the budget here means the parser really is over it.
         Assert.True(
-            overBudgetFraction <= MaxOverBudgetFraction,
-            $"{overBudget}/{chunks} chunks ({overBudgetFraction:P1}) exceeded {MaxChunkMs} ms, over the "
-            + $"{MaxOverBudgetFraction:P0} jitter budget:\n" + string.Join("\n", offenders.Take(10)));
-
-        // And no single chunk may catastrophically block the UI thread (a true per-chunk regression).
-        Assert.True(
-            maxObserved <= CatastropheMs,
-            $"a chunk took {maxObserved:F1} ms (> {CatastropheMs} ms) - catastrophic UI block");
+            fastest <= MaxChunkMs,
+            $"the fastest of {Chunks} chunks took {fastest:F1} ms, over the {MaxChunkMs} ms user-interface "
+            + $"budget (median {median:F1} ms, slowest {slowest:F1} ms). Scheduler contention can only add to "
+            + "an elapsed time, so even on a loaded machine this says the parser itself is too slow.");
     }
 
     // -------------------------------------------------------------------------
