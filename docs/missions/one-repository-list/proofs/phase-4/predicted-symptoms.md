@@ -147,11 +147,24 @@ that document, not something to quietly correct.
 
 **Written and committed AFTER the five above, and again BEFORE the revert it describes was run.**
 
-This one exists because the screenshot run found a real defect in shared code, which is the QA report
-doing its job. `withRetryHint` in `packages/client-core/src/api/client.ts` appended " Try again." to
-whatever sentence it was handed, and the Gateway's 502 reason for a disconnected Director is the
-PHRASE "Director not connected" - so screen 09 of this proof was a photograph of
-`Could not load repositories: Director not connected Try again.`
+> **CORRECTED AFTER THE REVIEW, with the original claim quoted rather than deleted.** This paragraph
+> first said *"the Gateway's 502 reason for a disconnected Director is the PHRASE 'Director not
+> connected' - so screen 09 of this proof was a photograph of `Could not load repositories: Director
+> not connected Try again.`"* **That route cannot answer 502.**
+> `GET /directors/{id}/known-repositories` is synchronous and storage-backed with no tunnel leg in it;
+> the 502 was a fiction in this proof's own staging and a Reviewer caught it. See section 7a of the
+> README. **The DEFECT below is real and shipped and the fix is unchanged** - only the claim about
+> which route and which trigger produced it was wrong, and the test now quotes a reason the product
+> really sends. The predicted symptoms below are restated against that reason.
+
+This one exists because staging a failure case and LOOKING at it found a real defect in shared code,
+which is the QA report doing its job. `withRetryHint` in `packages/client-core/src/api/client.ts`
+appended " Try again." to whatever sentence it was handed, assuming it already ended in terminal
+punctuation. The Gateway writes some reasons as sentences and some as PHRASES. The shipped example the
+test now uses, quoted from the product rather than invented:
+`SessionWsProxyEndpoints.WriteVerbJsonAsync` answers `{ error = "owning director is not connected" }`
+at 503, and 503 is retryable by default - so it reached the screen as
+`owning director is not connected Try again.`
 
 **The change being removed by revert F.** The two lines that terminate the reason before appending:
 
@@ -164,11 +177,10 @@ const terminated = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 
 | Test | Predicted symptom |
 |---|---|
-| `terminates a reason that is a PHRASE before adding the hint, so the two do not run together` | `expected 'Director not connected Try again.' to be 'Director not connected. Try again.'` |
+| `terminates a reason that is a PHRASE before adding the hint, so the two do not run together` | `expected 'owning director is not connected Try again.' to be 'owning director is not connected. Try again.'` |
 
 **And I predict a second one fails too** - `does not leave a gap where the reason had trailing space` -
-because the revert removes the `trimEnd` as well: `expected 'Director not connected    Try again.' to
-be 'Director not connected. Try again.'`. So **exactly two**.
+because the revert removes the `trimEnd` as well, with the same pair of strings. So **exactly two**.
 
 **I predict `leaves a reason that already ends in a sentence exactly as it was` STAYS GREEN**, and
 that is the half of the pin that matters most. It is the test a careless fix breaks: append a full
@@ -180,3 +192,39 @@ separately from the one above, and why it is asserted with `toBe` on the whole s
 **I predict nothing else in the workspace moves.** `withRetryHint` has two callers, both inside
 `gatewayErrorMessage`, and the existing tests of it all use reasons that already end in a full stop -
 which is exactly why this survived until somebody photographed it.
+
+
+---
+
+# Addendum: revert G - the Add note's path comparison
+
+**Written and committed BEFORE the revert it describes was run**, like every other one here.
+
+**Why there is a seventh.** A Reviewer found that the Add note's "is it in the list?" check folded CASE
+ONLY, while both stores this mission joins compare paths by `KnownRepositoryStore.NormalizePathKey`,
+which also normalizes separators and trailing slashes. That is this mission's own first defect -
+deciding path identity by a rule that is not the path's own shape - arriving in this phase's code.
+`repositoryPathKey` now mirrors that rule clause for clause and no wider.
+
+**The change being removed by revert G.** `repositoryPathKey` reduced to what the comparison was before:
+
+```ts
+export function repositoryPathKey(path: string): string {
+  return path.trim().toLowerCase();
+}
+```
+
+**I predict exactly two tests fail** in `apps/cockpit/src/sessions/newSessionDialogOneList.test.tsx`:
+
+| Test | Predicted symptom |
+|---|---|
+| `decides path identity by the Gateway's own rule, and takes case from the path's own shape` | The first assertion it reaches fails - `same("/work/atlas", "/work/atlas/")` - because a trailing slash is no longer stripped: `expected false to be true`. |
+| `matches the added path against the list by that rule, not by how it happens to be spelled` | The defect itself, on the page: the note reads *"... the list above is the one the Gateway serves, and it does not show this path"* while `c:/repos/atlas` is sitting in the rendered list. It fails as a `findByText` timeout on the "It is in the list above." sentence. |
+
+**I predict every OTHER Add test stays green, and that is the line worth writing in advance.** All of
+them use a path spelled identically on both sides, so a case-only fold is a no-op over them - including
+`says a repository the machine already had was already there...`, whose path is byte-identical in the
+Add result and in the list. **The two tests above are the only thing between this screen and the
+defect**, and both had to be built with paths spelled DIFFERENTLY on the two sides. That is the
+ordering fixture's lesson in a different costume: a fixture where the two rules agree cannot tell them
+apart.
