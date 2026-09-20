@@ -1,3 +1,6 @@
+// Scratch edit, for the path-filter proof only. This branch changes a file that is .NET code and
+// is NOT database-facing, to show that the PostgreSQL proofs job stays out of it while the .NET
+// job still runs. It is never merged.
 using System;
 using System.Diagnostics;
 using System.IO;
