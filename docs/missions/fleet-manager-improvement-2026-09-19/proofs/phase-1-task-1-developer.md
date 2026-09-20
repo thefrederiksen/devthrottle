@@ -63,6 +63,34 @@ What was mine in that run, and what I did:
 `CcDirector.Core.Tests`. Main's five commits since touched `GatewayEndpoints.cs` and `GatewayHost.cs`; the
 rebase was clean, but a clean rebase is not a test run.
 
+## Run 3 - after the review, on the commit that carries the skill fix (all in the foreground)
+
+Added 20 September 2026 by the Developer seat that fixed the review's finding 1. The change since run
+2 is two rows of one shipped skill file and two new mission documents - no code. The three suites
+below are the ones that can decide that change, and they ran on this worktree with the fix in the
+working tree, each built from source, each watched from start to end.
+
+| Command | Result |
+| --- | --- |
+| `dotnet test src\CcDirector.Core.UnitTests --filter "FullyQualifiedName~Skills|FullyQualifiedName~RetiredMessagingWords"` | 11 passed, 0 failed, 4 seconds. The eleven are named below. |
+| `dotnet test src\CcDirector.Gateway.UnitTests` (the whole parked suite, with a build) | 6,626 passed, 0 failed, 8 skipped, 5 minutes 22 seconds |
+| `dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~RaisedSessionHostTests"` | 19 passed, 0 failed, 40 seconds |
+
+The eleven guard tests, listed because the point of running them is WHICH ones ran, not the count:
+`BuiltInSkillsHaveOneSourceTests` (both - the repository copy equals the shipped body, and a copy
+still carries its frontmatter), `RetiredMessagingWordsTests` (all five - the typing-command sweep
+over every text an agent reads, the tree scan, the named surfaces and the exemptions, and the inbox
+wording), and `ShippedSkillsTeachOwnershipTests` (all four, including both of its cases for the Fleet
+Manager - the skill and the workflow conduct). `BuiltInSkillsHaveOneSourceTests` is the one the
+one-source rule names: there is no `.claude/skills/fleet-manager/SKILL.md` in this repository, so it
+passes by there being nothing to disagree with the shipped file, which is the state that rule prefers.
+
+**What run 3 does NOT cover, and it is the same gap run 2 left.** This is not
+`.\scripts\test-local.ps1 -Parked`. The roughly 2,550 remaining Gateway host tests and the whole Core
+suite have still not run against the five main commits this branch was rebased onto. That is the
+review's finding 2, it is unpaid, and it is carried as a work item by the Delivery Lead - see
+`reviews/phase-1-task-1-answers.md`.
+
 ### Red that is not this change
 
 - **`LauncherDeclaredCapabilitiesTests`, two tests, every run.** The branch has zero difference from main
