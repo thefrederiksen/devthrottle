@@ -7,7 +7,7 @@ ACCEPTED, and both were already answered in code by the seat before me, in commi
 not take that commit's message as evidence: I read it against each finding myself, ran the check, and
 ran a revert proof on each answer to show the new tests can fail.
 
-Branch `smart-restart/p1-cancel-ignore-restart`, merged with `origin/main` at `217b79f63` (no rebase,
+Pull request 3212. Branch `smart-restart/p1-cancel-ignore-restart`, merged with `origin/main` at `217b79f63` (no rebase,
 no force push). The merge had one conflict and one thing the compiler found; both are recorded at the
 end of this file.
 

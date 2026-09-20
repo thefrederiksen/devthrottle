@@ -81,7 +81,7 @@ engine, so a new state is one edit here and no new branch in a window. Whether t
 asked of the live session list at the end, never summed from rows that each looked closed.
 
 **Task 4 - cancel and keep working, shut down and ignore all, the operating system record, the restart
-purpose** (this pull request). "Cancel and keep working" stops the closing, takes back the close of any
+purpose** (pull request 3212). "Cancel and keep working" stops the closing, takes back the close of any
 session the reaper has not yet taken, tells every session still open that the restart is off, marks the
 record cancelled and saves it, and only then brings every already-closed session back through the one
 existing restore, leads first, against the same Director. "Shut down and ignore all sessions" writes the
@@ -177,6 +177,6 @@ This is the part that matters most to whoever comes next.
 | 3181 | task 2: the restart cycle drains through the real drain (defect #3169) |
 | 3182 | task 1: the contract types, the record marks, the two session verbs, the new request text |
 | 3193 | task 3: the run - the time allowed, two stages, the limit, Shut down now, progress per session |
-| this one | task 4: cancel and keep working, ignore all, the operating system record, the restart purpose, and the answers to its review |
+| 3212 | task 4: cancel and keep working, ignore all, the operating system record, the restart purpose, the answers to its review, and this proof |
 
 Phase 1's own mandate is `mandate-phase-1.md`; the mission document is `mission.md`.
