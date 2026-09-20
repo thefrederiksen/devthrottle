@@ -1,3 +1,5 @@
+// Scratch edit, for the path-filter proof only. This branch exists to show that a change to a
+// migration STARTS the PostgreSQL proofs job. It is never merged.
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
