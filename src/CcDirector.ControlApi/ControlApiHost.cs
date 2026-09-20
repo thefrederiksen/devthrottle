@@ -1144,8 +1144,18 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// the Gateway-initiated REMOTE stop (<c>DELETE /directors/{id}</c>) taking the same in-process self-shutdown
     /// path, fired-and-forgotten (like the REST route) so the Ok result flushes before Kestrel and the stream tear down.
     /// </summary>
-    private Task<DirectorCommandResult> DispatchTunnelCommandAsync(DirectorCommand cmd)
+    internal Task<DirectorCommandResult> DispatchTunnelCommandAsync(DirectorCommand cmd)
     {
+        // The command line door onto the smart shutdown (mission "Smart Director Restart", section 5.3
+        // item 12). Host-level for the same reason the restart cycle's verbs are: they are about THIS
+        // PROCESS, not about one session. Each one hands straight to the engine that already exists.
+        if (string.Equals(cmd.Verb, Gateway.Contracts.SmartRestartVerbs.Start, StringComparison.Ordinal))
+            return StartSmartRestartAsync(cmd);
+        if (string.Equals(cmd.Verb, Gateway.Contracts.SmartRestartVerbs.Progress, StringComparison.Ordinal))
+            return Task.FromResult(AnswerSmartRestartProgress(cmd));
+        if (string.Equals(cmd.Verb, Gateway.Contracts.SmartRestartVerbs.History, StringComparison.Ordinal))
+            return AnswerSmartRestartHistoryAsync(cmd);
+
         // Issue #2725 (restart epic, Phase 6): the two host-level verbs of the restart cycle. Host-level
         // for the same reason shutdown is - they are about THIS PROCESS, not a session - and answered here
         // rather than in the session executor.
@@ -1350,6 +1360,159 @@ public sealed class ControlApiHost : IAsyncDisposable
         var ok = DirectorCommandResult.Success(System.Text.Json.JsonSerializer.Serialize(
             new Gateway.Contracts.WorkspaceRestoreAccepted { Taken = true, WorkspaceId = order.WorkspaceId, DirectorId = DirectorId, Seats = seats.ToList() },
             new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        ok.CommandId = cmd.CommandId;
+        return ok;
+    }
+
+    /// <summary>The Director as a person names it, read the way every other smart shutdown caller reads it.</summary>
+    private string SmartRestartDirectorName()
+        => InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName;
+
+    private static readonly System.Text.Json.JsonSerializerOptions SmartRestartJson =
+        new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// START A SMART SHUTDOWN WITH THE RESTART PURPOSE, asked from the command line (mission "Smart
+    /// Director Restart", section 5.3 item 12): the same engine File, Smart Restart starts, through the
+    /// same call, so one broken window can never leave a Director impossible to empty.
+    ///
+    /// ANSWERED AS SOON AS THE RUN IS TAKEN, like the restart cycle and the restore beside it. The run
+    /// closes sessions for as long as the owner allowed - up to an hour - and a command that waited for it
+    /// would be cut off by the Gateway's own bound long before it ended. Where it got to is read back with
+    /// <see cref="Gateway.Contracts.SmartRestartVerbs.Progress"/>.
+    ///
+    /// REFUSED BEFORE ANYTHING IS TOUCHED, IN THE ENGINE'S OWN WORDS. The availability question the dialog
+    /// asks is asked here too, and its refusal is passed through unchanged - a Director with no Gateway, or
+    /// one whose launcher would not restart it, is told exactly what a person at the screen would be told.
+    /// </summary>
+    private async Task<DirectorCommandResult> StartSmartRestartAsync(DirectorCommand cmd)
+    {
+        DirectorCommandResult Refuse(DirectorCommandStatus status, string why)
+        {
+            FileLog.Write($"[ControlApiHost] tunnel '{cmd.Verb}' REFUSED: {why}");
+            var fail = DirectorCommandResult.Fail(status, why);
+            fail.CommandId = cmd.CommandId;
+            return fail;
+        }
+
+        Gateway.Contracts.SmartRestartStartOrder? order = null;
+        try
+        {
+            order = System.Text.Json.JsonSerializer.Deserialize<Gateway.Contracts.SmartRestartStartOrder>(
+                cmd.PayloadJson ?? "", SmartRestartJson);
+        }
+        catch (System.Text.Json.JsonException) { /* refused below as an unreadable order */ }
+        if (order is null)
+            return Refuse(DirectorCommandStatus.BadRequest,
+                "the smart restart order could not be read; nothing has been touched.");
+
+        // THE TIME IS CHECKED HERE so a bad one is a refusal a person reads rather than an exception out of
+        // the request's own constructor, and the sentence is the engine's, not a second one written here.
+        var timeAllowed = TimeSpan.FromMinutes(order.Minutes);
+        if (!SmartRestart.SmartShutdownTimes.Allowed.Contains(timeAllowed))
+            return Refuse(DirectorCommandStatus.BadRequest,
+                SmartRestart.SmartShutdownTimes.RefusalFor(timeAllowed) + " Nothing has been touched.");
+
+        var engine = CreateSmartShutdown();
+        var availability = await engine.CheckAsync(SmartRestart.SmartShutdownPurpose.Restart, CancellationToken.None)
+            .ConfigureAwait(false);
+        if (!availability.CanSmartShutdown)
+            return Refuse(DirectorCommandStatus.Conflict,
+                availability.SmartShutdownRefusal ?? "this Director cannot do a smart shutdown, and nothing said why.");
+        if (!availability.CanRestart)
+            return Refuse(DirectorCommandStatus.Conflict,
+                availability.RestartRefusal ?? "this Director cannot be restarted through its launcher, and nothing said why.");
+
+        SmartRestart.ISmartShutdownRun run;
+        try
+        {
+            run = engine.Start(new SmartRestart.SmartShutdownRequest(
+                SmartRestart.SmartShutdownPurpose.Restart, timeAllowed, order.Reason));
+        }
+        catch (InvalidOperationException ex)
+        {
+            // A run or a drain is already under way on this Director, or the launcher would not restart it.
+            // The engine's message says which, and it has touched nothing.
+            return Refuse(DirectorCommandStatus.Conflict, ex.Message);
+        }
+
+        FileLog.Write(
+            $"[ControlApiHost] tunnel '{cmd.Verb}': taking a smart restart of {SmartRestartDirectorName()}, " +
+            $"{order.Minutes} minute(s) allowed, reason={order.Reason ?? "-"}");
+
+        var accepted = new Gateway.Contracts.SmartRestartStartAccepted
+        {
+            Taken = true,
+            DirectorId = DirectorId,
+            Minutes = order.Minutes,
+            Detail =
+                $"The smart restart of {SmartRestartDirectorName()} has started. Every session is asked to hand " +
+                $"over; anything still running after {order.Minutes} minutes is shut down for it, and the " +
+                "Director is then restarted through its launcher.",
+        };
+        // The run's first snapshot exists the moment Start returns, so the caller's first reading of the
+        // progress can never arrive before there is one.
+        _ = run.Current;
+
+        var ok = DirectorCommandResult.Success(
+            System.Text.Json.JsonSerializer.Serialize(accepted, SmartRestartJson));
+        ok.CommandId = cmd.CommandId;
+        return ok;
+    }
+
+    /// <summary>
+    /// WHERE THE RUN STANDS, as one complete snapshot. A read: it changes nothing and it starts nothing.
+    ///
+    /// It reports the LAST run on this Director whoever started it - the command line, the File menu or the
+    /// close hook - because there is one run at a time per process, so there is exactly one thing "the run"
+    /// can mean. A Director on which none has been started says so in plain words; it does not answer an
+    /// empty run, which would read as a run that had found nothing to do.
+    /// </summary>
+    private DirectorCommandResult AnswerSmartRestartProgress(DirectorCommand cmd)
+    {
+        var run = SmartRestart.DirectorSmartShutdown.Latest;
+        Gateway.Contracts.SmartRestartProgressDto answer;
+        if (run is null)
+        {
+            answer = SmartRestart.SmartRestartWire.NothingStarted(SmartRestartDirectorName());
+        }
+        else
+        {
+            SmartRestart.SmartShutdownResult? result = null;
+            string? endedWithoutResult = null;
+            if (run.Completion.IsCompletedSuccessfully) result = run.Completion.Result;
+            else if (run.Completion.IsCompleted)
+                endedWithoutResult =
+                    "The smart restart ended without a result, which its engine says cannot happen. " +
+                    "The Director's log holds what the run was doing when it stopped.";
+            answer = SmartRestart.SmartRestartWire.Progress(run.Current, result, endedWithoutResult);
+        }
+
+        FileLog.Write(
+            $"[ControlApiHost] tunnel '{cmd.Verb}': started={answer.Started}, running={answer.Running}, " +
+            $"phase={answer.Phase}, outcome={answer.Outcome ?? "-"}");
+        var ok = DirectorCommandResult.Success(
+            System.Text.Json.JsonSerializer.Serialize(answer, SmartRestartJson));
+        ok.CommandId = cmd.CommandId;
+        return ok;
+    }
+
+    /// <summary>
+    /// EVERY RESTART RECORD THIS DIRECTOR WROTE, newest first, with what came back and what did not
+    /// (mission "Smart Director Restart", section 5.3 item 11). A read: it changes nothing.
+    ///
+    /// It is the way up's own history, the very answer the history window shows, so the command line and
+    /// the window can never disagree about what a record says. A Gateway that cannot be read comes back as
+    /// a refusal carrying the reason, never as an empty list.
+    /// </summary>
+    private async Task<DirectorCommandResult> AnswerSmartRestartHistoryAsync(DirectorCommand cmd)
+    {
+        var history = await CreateDirectorWayUp().ReadHistoryAsync(CancellationToken.None).ConfigureAwait(false);
+        var answer = SmartRestart.SmartRestartWire.History(history);
+        FileLog.Write(
+            $"[ControlApiHost] tunnel '{cmd.Verb}': refused={answer.Refused}, records={answer.Entries.Count}");
+        var ok = DirectorCommandResult.Success(
+            System.Text.Json.JsonSerializer.Serialize(answer, SmartRestartJson));
         ok.CommandId = cmd.CommandId;
         return ok;
     }

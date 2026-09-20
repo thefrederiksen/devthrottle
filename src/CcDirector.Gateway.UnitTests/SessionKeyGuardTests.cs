@@ -313,6 +313,39 @@ public sealed class SessionKeyGuardTests
         Assert.False(SessionKeyGuard.Check("POST", "/machines/SOREN_NORTH/director/restart").Allowed);
     }
 
+    // THE COMMAND LINE DOOR onto the smart shutdown (mission "Smart Director Restart", 5.3 item 12).
+    // Emptying a Director of every session is the same act as restarting its machine, so it draws the same
+    // line: the start is the owner's, and the refusal NAMES the request command a session may run instead -
+    // an agent told only "no" goes looking for a way round.
+    [Fact]
+    public void Starting_a_smart_restart_is_refused_to_a_session_key_and_names_what_to_do_instead()
+    {
+        var verdict = SessionKeyGuard.Check("POST", "/directors/11112222-3333-4444-5555-666677778888/smart-restart");
+
+        Assert.False(verdict.Allowed);
+        Assert.Contains("may not empty and restart a Director", verdict.Reason);
+        Assert.Contains("cc-devthrottle machine restart-request", verdict.Reason);
+    }
+
+    // The other half of that line, and the same one restart-capability already draws: ASKING how an
+    // emptying is going, or what was emptied before, is not asking to empty anything. Both read records
+    // this key may already read at /gateway/workspaces.
+    [Theory]
+    [InlineData("GET", "/directors/11112222-3333-4444-5555-666677778888/smart-restart")]
+    [InlineData("GET", "/directors/11112222-3333-4444-5555-666677778888/restart-history")]
+    public void Reading_a_smart_restart_and_the_restart_history_are_allowed_to_a_session_key(string method, string path)
+        => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be allowed to a session key");
+
+    // An allow list that widens by pattern stops being an allow list. Only the two literal read shapes are
+    // in, and only the one literal start shape carries the named refusal.
+    [Theory]
+    [InlineData("POST", "/directors/11112222-3333-4444-5555-666677778888/smart-restart/now")]
+    [InlineData("DELETE", "/directors/11112222-3333-4444-5555-666677778888/smart-restart")]
+    [InlineData("POST", "/directors/11112222-3333-4444-5555-666677778888/restart-history")]
+    [InlineData("GET", "/directors/11112222-3333-4444-5555-666677778888/restart-history/restart-2026-09-20")]
+    public void Other_shapes_on_the_smart_restart_surface_are_refused_to_a_session_key(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be refused to a session key");
+
     [Fact]
     public void Turning_a_fleet_wide_capability_off_is_still_the_owners_call()
     {

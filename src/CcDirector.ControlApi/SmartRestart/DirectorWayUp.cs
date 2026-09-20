@@ -103,7 +103,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
         FileLog.Write($"[DirectorWayUp] FindOfferAsync: machine={_machine}");
         try
         {
-            var candidates = await CandidatesAsync(ct).ConfigureAwait(false);
+            var candidates = (await CandidatesAsync(ct).ConfigureAwait(false)).Read;
             foreach (var summary in candidates)
             {
                 var doc = await _gateway.GetWorkspaceAsync(summary.Id, ct).ConfigureAwait(false);
@@ -139,17 +139,22 @@ public sealed class DirectorWayUp : IDirectorWayUp
         {
             var candidates = await CandidatesAsync(ct).ConfigureAwait(false);
             var entries = new List<WayUpHistoryEntry>();
-            foreach (var summary in candidates)
+            foreach (var summary in candidates.Read)
             {
                 var doc = await _gateway.GetWorkspaceAsync(summary.Id, ct).ConfigureAwait(false);
                 if (doc is null) continue;
                 entries.Add(BuildHistoryEntry(doc));
             }
 
-            FileLog.Write($"[DirectorWayUp] ReadHistoryAsync: {entries.Count} record(s)");
+            // How many are NOT being read, so the sentence can say so. Only the cap is counted here: a record
+            // that was listed and has since been deleted is not an older record still sitting on the Gateway.
+            var olderNotRead = Math.Max(0, candidates.Matched - MostRecentRecordsRead);
+            FileLog.Write($"[DirectorWayUp] ReadHistoryAsync: {entries.Count} record(s), {olderNotRead} older not read");
             return new WayUpHistory(
                 Refused: false,
-                Message: entries.Count == 0 ? WayUpWords.NoHistory : WayUpWords.HistoryRead(entries.Count),
+                Message: entries.Count == 0
+                    ? WayUpWords.NoHistory
+                    : WayUpWords.HistoryRead(entries.Count, olderNotRead),
                 Entries: entries);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -286,19 +291,33 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// display name - never this identifier, which a restart changes. Newest first, capped.
     /// </summary>
     /// <param name="ct">Cancellation.</param>
-    private async Task<IReadOnlyList<WorkspaceSummaryDto>> CandidatesAsync(CancellationToken ct)
+    private async Task<Candidates> CandidatesAsync(CancellationToken ct)
     {
         var directorName = DirectorName();
         var all = await _gateway.ListWorkspacesAsync(ct).ConfigureAwait(false);
-        return all
+        var matched = all
             .Where(w => string.Equals(w.Origin, WorkspaceOrigins.Captured, StringComparison.Ordinal)
                         && string.Equals(w.Machine, _machine, StringComparison.OrdinalIgnoreCase)
                         && string.Equals(w.DirectorName, directorName, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(w => w.UpdatedUtc)
             .ThenByDescending(w => w.CreatedUtc)
-            .Take(MostRecentRecordsRead)
             .ToList();
+        return new Candidates(matched.Take(MostRecentRecordsRead).ToList(), matched.Count);
     }
+
+    /// <summary>
+    /// The records that were READ, and how many this Director actually has on the Gateway.
+    /// </summary>
+    /// <param name="Read">The newest <see cref="MostRecentRecordsRead"/>, newest first.</param>
+    /// <param name="Matched">How many records matched before the cap was applied.</param>
+    /// <remarks>
+    /// THE CAP IS CARRIED, NOT HIDDEN. The start-up read only ever wants the newest, so the cap costs it
+    /// nothing. The history is read by a person asking what this Director has shut down, and a cap that
+    /// silently trimmed the answer let the history say "This Director has 25 restart records" to a Director
+    /// that had two hundred - an absence presented as a complete answer. So the count that was MATCHED
+    /// travels beside the records that were read, and the history's own sentence says when older ones exist.
+    /// </remarks>
+    private sealed record Candidates(IReadOnlyList<WorkspaceSummaryDto> Read, int Matched);
 
     /// <summary>
     /// May this record be offered at start-up? A PRESENCE check on the record and never a count of running

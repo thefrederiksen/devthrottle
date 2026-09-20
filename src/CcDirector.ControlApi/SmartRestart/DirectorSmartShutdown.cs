@@ -102,6 +102,44 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         get { lock (Gate) return _active is { Completion.IsCompleted: false } ? _active : null; }
     }
 
+    /// <summary>
+    /// The most recent run on this Director whether or not it has finished, or null when none has been
+    /// started since this process came up. For a reader that must report HOW A RUN ENDED and not only
+    /// whether one is going - the command line door polls the run it started and has to be able to read
+    /// its outcome after it is over, which <see cref="Active"/> deliberately hides.
+    ///
+    /// It is the same field <see cref="Active"/> reads, so it is the last run whoever started it: the
+    /// window, the command line, or the close hook. One run at a time per process means there is exactly
+    /// one thing this can mean.
+    /// </summary>
+    public static ISmartShutdownRun? Latest
+    {
+        get { lock (Gate) return _active; }
+    }
+
+    /// <summary>
+    /// FOR TESTS ONLY: forget the run this process last held, so a test starts on a Director that has
+    /// started none.
+    ///
+    /// A test process is not a Director. The product runs one Director per process and never wants this:
+    /// there, the last run IS the last run and reading it after it ended is the point of
+    /// <see cref="Latest"/>. A test run holds many runs in one process, and one left behind by an earlier
+    /// test would make "this Director has started none" untestable - which is exactly the answer a reader
+    /// must be able to trust. It refuses to forget a run still going, because that would hide a leak
+    /// between tests rather than clear one.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A run is still under way in this process.</exception>
+    internal static void ForgetLatestRun()
+    {
+        lock (Gate)
+        {
+            if (_active is { Completion.IsCompleted: false })
+                throw new InvalidOperationException(
+                    "a smart shutdown is still running in this process; forgetting it would hide a leak between tests.");
+            _active = null;
+        }
+    }
+
     /// <inheritdoc />
     public async Task<SmartShutdownAvailability> CheckAsync(SmartShutdownPurpose purpose, CancellationToken ct)
     {
