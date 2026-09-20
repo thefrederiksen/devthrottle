@@ -144,6 +144,24 @@ public sealed class ControlApiHost : IAsyncDisposable
         => _gatewayClient?.GetLatestTurnBriefAsync(sessionId, ct) ?? Task.FromResult<Gateway.Contracts.TurnBriefDto?>(null);
 
     /// <summary>
+    /// THE ONE REPOSITORY LIST for this Director's machine, read from the Gateway (the
+    /// one-repository-list mission, phase 6). The desktop New Session dialog's source.
+    ///
+    /// It never returns null, because "there is no Gateway" is one of the answers the caller has to be able
+    /// to tell apart from the others: the dialog may show its own local scan instead for a Gateway that
+    /// could not answer, and may NOT show it for a Gateway that answered. The four outcomes are on
+    /// <see cref="KnownRepositoryListOutcome"/>.
+    ///
+    /// The list arrives already ordered and is passed on untouched - the order is the Gateway's ruling
+    /// (Critical Rule 7), and this Director is one of three screens rendering it.
+    /// </summary>
+    /// <param name="ct">Cancellation.</param>
+    public Task<KnownRepositoryListResult> GetKnownRepositoriesAsync(CancellationToken ct = default)
+        => _gatewayClient?.GetKnownRepositoriesAsync(ct)
+           ?? Task.FromResult(KnownRepositoryListResult.NotConfigured(
+               "no Gateway is configured on this Director"));
+
+    /// <summary>
     /// Issue #1627: the FLEET-WIDE session roster - every session on every machine - as the desktop fleet
     /// map's source. Backed by the live <see cref="GatewayClient"/>, which already holds the resolved
     /// Gateway address and fleet token, so it reuses the Director's existing outbound Gateway connection.
