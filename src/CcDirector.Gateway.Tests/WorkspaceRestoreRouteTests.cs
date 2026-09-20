@@ -331,6 +331,93 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
     }
 
     // =========================================================================================
+    // Smart Director Restart, section 5.3 item 13: restored sessions inherit dev reports
+    // =========================================================================================
+
+    private const string ReportFile = @"D:\repo\docs\report.html";
+
+    private const string ReportHtml =
+        "<header data-dev-report=\"header\" data-dev-report-status=\"waiting-on-you\"><h1>Gateway failures</h1></header>" +
+        "<section data-dev-report=\"summary\"><p>The failures doubled.</p></section>" +
+        "<section data-dev-report=\"questions\">" +
+        "<div data-dev-report-question=\"deploy-window\" data-dev-report-question-text=\"When should we deploy?\">" +
+        "<label><input type=\"radio\" name=\"deploy-window\" value=\"tonight\" data-recommended> Tonight</label>" +
+        "<label><input type=\"radio\" name=\"deploy-window\" value=\"monday\"> Monday</label></div></section>" +
+        "<section data-dev-report=\"detail\"><p>Detail.</p></section>";
+
+    /// <summary>Publish the report file as a session does, through the real session route, and read the answer.</summary>
+    private async Task<(string Id, bool Created, int Version)> PublishAsSessionAsync(string sid)
+    {
+        using var http = Client(SessionKey(sid));
+        using var resp = await http.PostAsJsonAsync($"sessions/{sid}/dev-reports", new { key = ReportFile, html = ReportHtml });
+        var text = await resp.Content.ReadAsStringAsync();
+        Assert.True(resp.StatusCode == HttpStatusCode.OK, $"publish as {sid} answered {(int)resp.StatusCode}: {text}");
+        var body = JsonDocument.Parse(text).RootElement;
+        var report = body.GetProperty("report");
+        return (report.GetProperty("id").GetString()!, body.GetProperty("created").GetBoolean(), report.GetProperty("version").GetInt32());
+    }
+
+    private Task<HttpResponseMessage> AskPass(HttpClient who, string seat, string directorId = DirectorId)
+        => who.PostAsJsonAsync($"gateway/workspaces/{WorkspaceId}/restore/dev-reports",
+            new WorkspaceDevReportPassRequest { DirectorId = directorId, SeatSessionId = seat });
+
+    [Fact]
+    public async Task A_restored_session_republishing_the_same_file_updates_the_same_report_at_the_same_link()
+    {
+        var before = await PublishAsSessionAsync(_manager);
+        Assert.True(before.Created);
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        using var client = DirectorClient();
+
+        var result = await new DirectorRestore(new GatewayClientRestoreGateway(client), DirectorId)
+            .RunAsync(new WorkspaceRestoreOrder { WorkspaceId = WorkspaceId, RequestedBySessionId = _restoringSession });
+
+        var managerOutcome = result.Seats.Single(s => s.SessionId == _manager);
+        Assert.Null(managerOutcome.Failure);
+        Assert.Contains("1 dev report(s) passed", managerOutcome.DevReports);
+        var newManager = managerOutcome.RestoredSessionId!;
+
+        // The restored session publishes the same file. It is a new session with a new key - and it gets the SAME report.
+        var after = await PublishAsSessionAsync(newManager);
+        Assert.False(after.Created);
+        Assert.Equal(before.Id, after.Id);
+        Assert.Equal(2, after.Version);
+
+        // The link the owner had open still answers, and now names the restored session.
+        var detail = await _asOwner.GetFromJsonAsync<JsonElement>($"dev-reports/{before.Id}");
+        Assert.Equal(Guid.Parse(newManager).ToString("D"), detail.GetProperty("report").GetProperty("sessionId").GetString());
+    }
+
+    [Fact]
+    public async Task The_dev_report_pass_is_refused_to_a_session_to_the_owners_browser_to_another_workstation_and_to_a_Director_without_the_lease()
+    {
+        var before = await PublishAsSessionAsync(_manager);
+        using var other = Client(_otherWorkstationKey);
+
+        var asSession = await AskPass(_asRestoringSession, _manager);
+        var asOwner = await AskPass(_asOwner, _manager);
+        var asOtherWorkstation = await AskPass(other, _manager);
+        var asDirectorWithoutLease = await AskPass(_asDirector, _manager);
+
+        Assert.Equal(HttpStatusCode.Forbidden, asSession.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, asOwner.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, asOtherWorkstation.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, asDirectorWithoutLease.StatusCode);
+        Assert.Contains("restore lease", await asDirectorWithoutLease.Content.ReadAsStringAsync());
+
+        // With the lease, a seat that has NOT come back is still refused: holding the lease is not the join.
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        var notBack = await AskPass(_asDirector, _manager);
+        Assert.Equal(HttpStatusCode.Conflict, notBack.StatusCode);
+        Assert.Contains("has not come back", await notBack.Content.ReadAsStringAsync());
+
+        var detail = await _asOwner.GetFromJsonAsync<JsonElement>($"dev-reports/{before.Id}");
+        Assert.Equal(Guid.Parse(_manager).ToString("D"), detail.GetProperty("report").GetProperty("sessionId").GetString());
+    }
+
+    // =========================================================================================
     // Inspection 11, ruling 1: a mark comes only from the Director that holds the lease, on its own credential
     // =========================================================================================
 
