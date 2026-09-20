@@ -3,6 +3,12 @@
 Branch `mission/session-cards`, cut from `origin/main` at v2.8.0. Two commits, both pushed. No pull
 request - the Delivery Lead lands the work.
 
+**This note describes Phase A AS FIRST BUILT. It was then inspected by a different agent family
+(`missions/session-cards/inspection-a.md`), which found two runtime defects and one coverage defect,
+and those were fixed - see `missions/session-cards/phase-a-fixes-note.md`. Where this note's text is
+superseded it says so, in place, rather than being quietly rewritten: a record that edits itself is
+not a record.**
+
 ---
 
 ## What was built
@@ -47,8 +53,16 @@ must not do.
 desktop's `HexFor` against the canonical `HexFor` for whatever name a live Gateway sent. With the
 two now answering an unknown name with DIFFERENT sentinels on purpose, it reported *"the desktop
 StatusPalette paints 'chartreuse' #E5E7EB, the canonical map #FF00FF ... the desktop palette has
-drifted"* - a lie about a build that is simply older than its Gateway. A name no palette knows is
-now answered once, as `palette-missing`, naming what each surface paints.
+drifted"* - a lie about a build that is simply older than its Gateway. A name no palette knows now
+produces a `palette-missing` finding naming what each surface paints, in place of the drift
+accusation.
+
+**Corrected 19 September 2026, on the independent inspection's evidence.** This said the name was
+"answered once", which reads as a claim that such a session produces exactly ONE finding. Nothing
+proves that: the guard emits `palette-missing` and CONTINUES, so other checks in the same run may add
+findings of their own, and its test asserts a single MATCHING `palette-missing` finding rather than a
+one-element findings list (`AgreementCheckFaultInjectionTests`). The proved claim is the narrower one
+written above, about the palette comparison alone.
 
 ### 2. "What the colours mean" on the desktop
 
@@ -58,8 +72,16 @@ the same words the Cockpit and the phone show, from `GET /gateway/session-colour
 It reads the ROUTE and does not compile the words in, even though `SessionColourLegend` is in this
 same solution. That is the point: a legend baked into an old Director explains the colours THAT
 build knows instead of the ones its Gateway is sending, which is the version gap this whole mission
-exists to close. There is no built-in copy to fall back on - a failed read says what went wrong and
-draws nothing.
+exists to close. There is no built-in copy to fall back on.
+
+**Corrected 19 September 2026, on the independent inspection's evidence.** This paragraph used to end
+"a failed read says what went wrong and draws nothing", and that holds only of a FIRST read. Once a
+read has succeeded the cache keeps the previous legend on purpose - it catches, records `Error` and
+leaves `Current` alone - and the window renders a non-null cached legend without looking at `Error`.
+So a failed REFRESH is invisible on an open window, which goes on showing the last-known words. That
+is the last-known-answer behaviour this same note describes two sentences below; the sentence above
+simply overstated it into a guarantee nothing proves. What holds without qualification: a failure
+never becomes invented words.
 
 New pieces: `IGatewayColourLegend` (the seam), `GatewayClient.GetSessionColourLegendAsync` (the
 read), `SessionColourLegendCache` (last-known copy, warmed when the Gateway goes green, never blocks
@@ -75,6 +97,13 @@ The hover is now the legend's name for the colour plus the Gateway's stamped lab
 `SessionDotHover`, the same rule and the same shape as the web client's `dotTitle`. Nothing is lost
 by dropping the two hard-coded sentences: the fold already stamps "Snoozed" and the dictation state
 into the label the hover renders.
+
+**Superseded 19 September 2026 by the fix for the inspection's second finding.** "Plus the Gateway's
+stamped label" was unconditional, and that was the defect: with the tunnel down the rail paints a LIVE
+local colour while the stamped label stays FROZEN on the Gateway's last word, so the two were joined
+into "Working: Snoozed" - a row contradicting itself. The label is now appended only when the dot is
+showing the Gateway's own stamp; a pixel the rail chose for itself hovers the legend's name for that
+colour and nothing after it. The gateway-offline floor is unchanged.
 
 ### The sweep
 
@@ -140,6 +169,11 @@ staying green, and the fix restored. The tree is clean and the suite is back to 
 7. **The window and the hover were proved through their pieces, not through a mounted window.** The
    rows are asserted string for string against the Gateway's own legend; nobody has opened the
    window. The `?` button's placement in the rail header has not been rendered.
+
+   **This was the hole, and the inspection went through it.** Every string was the Gateway's and none
+   of them FITTED: the words were measured at up to 1970 pixels in a 580-pixel viewport. The window is
+   now mounted and its bounds measured (`phase-a-fixes-note.md`). The `?` button's placement in the
+   rail header is still not rendered by any test.
 8. **The rail repaints when the legend lands** through a new `SessionColourLegendCache.Changed`
    subscription in `MainWindow`. The event is proved; the subscription is not - it is wiring inside
    `TryAttachGatewayMonitor`, which no test drives.
