@@ -102,8 +102,26 @@ public static class WorkspaceRestoreMarkKinds
     /// <summary>The run is over: the lease is given back.</summary>
     public const string Finished = "finished";
 
+    /// <summary>
+    /// THE SEAT'S SAVED CONVERSATION WAS REOPENED (the Smart Director Restart mission, product issue 3230).
+    /// Written onto <see cref="WorkspaceSeatRestore.ReopenedAtUtc"/> and its two companions, so a seat that
+    /// ended without a handover is never offered twice - across a Director restart as well as within one run.
+    ///
+    /// IT IS THE ONE KIND THAT NEEDS NO RESTORE LEASE, and that is deliberate rather than an omission.
+    /// Reopening a saved conversation is not a restore: it starts one session, reads no ordering, and there is
+    /// nothing for two Directors to interleave - while the lease is only ever granted by asking for a restore,
+    /// so a reopen that needed one could not be recorded at all. What it must not do is cut across a restore
+    /// that IS running, so a reopened mark is refused while ANOTHER Director holds a live lease; it never
+    /// grants, renews or releases one.
+    ///
+    /// AN OLDER GATEWAY DOES NOT KNOW IT and refuses it by name (HTTP 400, "kind must be one of: ..."), which
+    /// is the answer we want: the reopen is claimed on the record before anything is started, so a Gateway
+    /// that cannot record the claim starts nothing and says so.
+    /// </summary>
+    public const string Reopened = "reopened";
+
     /// <summary>Every kind.</summary>
-    public static readonly IReadOnlyList<string> All = new[] { Started, Restored, Failed, Finished };
+    public static readonly IReadOnlyList<string> All = new[] { Started, Restored, Failed, Finished, Reopened };
 }
 
 /// <summary>
@@ -132,6 +150,10 @@ public sealed class WorkspaceRestoreMark
 
     /// <summary>"restored": the new session's id.</summary>
     public string? RestoredSessionId { get; set; }
+
+    /// <summary>"reopened": the session the saved conversation was reopened as, when it is known. Left null on
+    /// the mark that CLAIMS the reopen before the create is sent; the same Director fills it in afterwards.</summary>
+    public string? ReopenedSessionId { get; set; }
 
     /// <summary>"restored": the seed file the new session was pointed at, if one was given.</summary>
     public string? SeedFile { get; set; }

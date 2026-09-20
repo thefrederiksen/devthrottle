@@ -368,11 +368,20 @@ public sealed class WorkspaceStore
         seat.Restore.StartedToken = stored?.StartedToken;
         seat.Restore.StartedAtUtc = stored?.StartedAtUtc;
         seat.Restore.StartedByDirectorId = stored?.StartedByDirectorId;
+
+        // The reopen claim is provenance like the rest of this list: a writer who could set it would make a
+        // session vanish from the way up's offer, and a writer who could clear it would put a dealt-with
+        // session back into it (product issue 3230).
+        seat.Restore.ReopenedAtUtc = stored?.ReopenedAtUtc;
+        seat.Restore.ReopenedSessionId = stored?.ReopenedSessionId;
+        seat.Restore.ReopenedByDirectorId = stored?.ReopenedByDirectorId;
     }
 
     private static bool HasMarks(WorkspaceSeatRestore r)
         => r.Failure is not null || r.AttemptedAtUtc is not null || r.StartedToken is not null
-           || r.StartedAtUtc is not null || r.StartedByDirectorId is not null;
+           || r.StartedAtUtc is not null || r.StartedByDirectorId is not null
+           || r.ReopenedAtUtc is not null || r.ReopenedSessionId is not null
+           || r.ReopenedByDirectorId is not null;
 
     // ===================================================================================================
     // THE RESTORE'S OWN WRITES (the Message Load mission, inspection 7, rulings 1, 3 and 4). Each one reads
@@ -456,8 +465,22 @@ public sealed class WorkspaceStore
         var result = MutateStored(id, at, doc =>
         {
             var lease = doc.RestoreLease;
-            if (lease is null || !lease.IsLiveAt(at)
-                || !string.Equals(lease.DirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
+
+            // A REOPEN IS NOT A RESTORE, so it neither needs the lease nor touches it - see
+            // WorkspaceRestoreMarkKinds.Reopened for why it cannot have one. What it must not do is cut across
+            // a restore another Director is running, so that is the one thing checked.
+            var reopen = string.Equals(mark.Kind, WorkspaceRestoreMarkKinds.Reopened, StringComparison.Ordinal);
+            if (reopen)
+            {
+                if (lease is not null && lease.IsLiveAt(at)
+                    && !string.Equals(lease.DirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
+                    throw new WorkspaceConflictException(
+                        $"Director '{lease.DirectorId}' is restoring workspace \"{doc.Id}\" (since " +
+                        $"{lease.GrantedAtUtc:u}), so Director '{mark.DirectorId}' does not reopen one of its " +
+                        "seats underneath it. Ask again when that restore has finished.");
+            }
+            else if (lease is null || !lease.IsLiveAt(at)
+                     || !string.Equals(lease.DirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
                 throw new WorkspaceConflictException(
                     $"Director '{mark.DirectorId}' does not hold the restore lease on workspace \"{doc.Id}\" " +
                     (lease is null ? "(nobody does)" : $"('{lease.DirectorId}' {(lease.IsLiveAt(at) ? "does" : "did, and it has expired")})") +
@@ -468,7 +491,7 @@ public sealed class WorkspaceStore
                 doc.RestoreLease = null;
                 return true;
             }
-            lease.RenewedAtUtc = at;
+            if (!reopen) lease!.RenewedAtUtc = at;
 
             var seat = doc.Seats.FirstOrDefault(x => string.Equals(x.SessionId, mark.SeatSessionId, StringComparison.OrdinalIgnoreCase))
                 ?? throw new WorkspaceValidationException($"workspace \"{doc.Id}\" has no seat '{mark.SeatSessionId}'.");
@@ -540,6 +563,38 @@ public sealed class WorkspaceStore
                         restore.StartedByDirectorId = null;
                     }
                     break;
+
+                case WorkspaceRestoreMarkKinds.Reopened:
+                    // THE FIRST MARK CLAIMS IT, and the claim is what stops the seat being offered again. It is
+                    // written before the create is sent, so a start whose answer never came back leaves the
+                    // claim standing rather than the seat offered for ever (product issue 3230).
+                    if (restore.ReopenedAtUtc is null)
+                    {
+                        restore.ReopenedAtUtc = at;
+                        restore.ReopenedByDirectorId = mark.DirectorId;
+                        restore.ReopenedSessionId = string.IsNullOrWhiteSpace(mark.ReopenedSessionId)
+                            ? null
+                            : mark.ReopenedSessionId;
+                        break;
+                    }
+
+                    // The SAME Director filling in the session id of the claim it already holds. Nothing else
+                    // may write here: a second reopen is exactly what the claim exists to refuse, and two agents
+                    // in one saved conversation would interleave their turns into one transcript.
+                    if (string.IsNullOrWhiteSpace(restore.ReopenedSessionId)
+                        && !string.IsNullOrWhiteSpace(mark.ReopenedSessionId)
+                        && string.Equals(restore.ReopenedByDirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        restore.ReopenedSessionId = mark.ReopenedSessionId;
+                        break;
+                    }
+
+                    throw new WorkspaceConflictException(
+                        $"seat '{seat.SessionId}' of workspace \"{doc.Id}\" had its saved conversation reopened on " +
+                        $"{restore.ReopenedAtUtc:u}" +
+                        (string.IsNullOrWhiteSpace(restore.ReopenedSessionId) ? "" : $" as {restore.ReopenedSessionId}") +
+                        ", so it is not reopened again. Two agents in one saved conversation would interleave " +
+                        "their turns into one transcript.");
             }
             return true;
         });

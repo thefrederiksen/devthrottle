@@ -175,8 +175,9 @@ public sealed class SmartRestartHistoryEntryDto
     /// <summary>What kind of shutdown wrote it, in plain words.</summary>
     public string KindLabel { get; set; } = "";
 
-    /// <summary>The reason in plain words, including when there was none.</summary>
-    public string ReasonLabel { get; set; } = "";
+    /// <summary>The reason in plain words, or null when none was given - a reader shows nothing for a null
+    /// rather than a line saying there was no reason.</summary>
+    public string? ReasonLabel { get; set; }
 
     /// <summary>What became of it, in plain words.</summary>
     public string OutcomeLabel { get; set; } = "";
@@ -187,6 +188,12 @@ public sealed class SmartRestartHistoryEntryDto
     /// not bringing anything back: the command line does not restore, and this sentence is what tells the
     /// owner a record is still worth opening.</summary>
     public string? SeatsLabel { get; set; }
+
+    /// <summary>Why this record has stopped being offered when the Director starts although it still holds
+    /// something to act on: it is older than the Director offers a record for. Null when it is still offered.
+    /// It is here because the restart history is where nothing is hidden - a record that simply stopped
+    /// appearing, with no sentence anywhere saying why, is the same confusion in the other direction.</summary>
+    public string? NotOfferedAtStartUpLabel { get; set; }
 
     /// <summary>What became of each seat.</summary>
     public List<SmartRestartHistorySeatDto> Seats { get; set; } = new();

@@ -14,20 +14,13 @@ namespace CcDirector.Gateway.UnitTests.Restart;
 /// The fakes COUNT what they were asked, because several of these rules are about what the way up does NOT
 /// do: it never asks how many sessions are running, and it never starts a session except to reopen one.
 ///
-/// THE RIG IS NOT THE OWNER OF THE ONCE-ONLY REOPEN CLAIM, and cannot be: that claim belongs to the
-/// PROCESS, because there is one Director per process and the rule is the Director's. So building a rig
-/// forgets the claims this process has taken, and every way up test class sits in
-/// <see cref="DirectorGatesCollection"/> so no two of them are in that process state at once.
+/// THE ONCE-ONLY REOPEN CLAIM IS ON THE RECORD, so the rig holds no process state to reset. It used to be
+/// a static set inside the engine, which every rig had to clear (product issue 3230): a claim a restart
+/// forgets is no claim at all, so it moved onto the workspace, and <see cref="FakeWayUpGateway"/> keeps it
+/// exactly where the real Gateway's store does - on the seat.
 /// </summary>
 public sealed class WayUpTestRig
 {
-    /// <summary>
-    /// Start this test clean of every reopen claim an earlier test took. Several tests use the same record
-    /// slug and the same seat id, so without this the second of them would be refused for a reason that is
-    /// about the test runner and not about the product.
-    /// </summary>
-    public WayUpTestRig() => DirectorWayUp.ForgetReopenClaims();
-
     /// <summary>The machine every record in this rig was captured on.</summary>
     public const string ThisMachine = "SOREN_NORTH";
 
@@ -43,9 +36,18 @@ public sealed class WayUpTestRig
     /// <summary>The restore seam.</summary>
     public FakeWayUpRestore Restore { get; } = new();
 
+    /// <summary>
+    /// A moment every record in this rig is dated against, so an age rule is measured rather than raced. Every
+    /// record built by <see cref="Record"/> defaults to being shut down at exactly this moment.
+    /// </summary>
+    public static readonly DateTime Now = new(2026, 9, 20, 12, 36, 0, DateTimeKind.Utc);
+
     /// <summary>The engine under test, reading this Director's own name.</summary>
-    public IDirectorWayUp WayUp(string? directorName = ThisDirector)
-        => new DirectorWayUp(Gateway, Restore, ThisMachine, () => directorName);
+    /// <param name="directorName">The display name this Director answers with.</param>
+    /// <param name="nowUtc">The moment the engine reads as now. <see cref="Now"/> by default, which is when
+    /// every record in this rig was shut down, so nothing is too old unless a test says so.</param>
+    public IDirectorWayUp WayUp(string? directorName = ThisDirector, DateTime? nowUtc = null)
+        => new DirectorWayUp(Gateway, Restore, ThisMachine, () => directorName, () => nowUtc ?? Now);
 
     /// <summary>A record of a smart shutdown belonging to this Director on this machine.</summary>
     /// <param name="id">The workspace slug.</param>
@@ -138,6 +140,26 @@ public sealed class WayUpTestRig
     {
         var seat = Owed(id, name);
         seat.RestoredSessionId = restoredAs;
+        return seat;
+    }
+
+    /// <summary>
+    /// A seat that ended without a handover and HAS ALREADY BEEN DEALT WITH: its saved conversation was
+    /// reopened, and the record says so. This is the state that stops it being offered again after a restart
+    /// (product issue 3230).
+    /// </summary>
+    /// <param name="id">Its captured session id.</param>
+    /// <param name="name">Its name.</param>
+    /// <param name="reopenedAs">The session the conversation was reopened as, or null when only the claim was
+    /// ever recorded - which is what a start whose answer never came back leaves behind.</param>
+    /// <param name="atUtc">When it was reopened.</param>
+    public static WorkspaceSeat AlreadyReopened(
+        string id, string name, string? reopenedAs = "77778888-9999", DateTime? atUtc = null)
+    {
+        var seat = Ended(id, name);
+        seat.Restore!.ReopenedAtUtc = atUtc ?? Now.AddMinutes(-5);
+        seat.Restore.ReopenedByDirectorId = "director-after-the-restart";
+        seat.Restore.ReopenedSessionId = reopenedAs;
         return seat;
     }
 }
@@ -239,6 +261,64 @@ public sealed class FakeWayUpGateway : IWayUpGateway
         RosterAsked++;
         return Task.FromResult(new RestoreRoster(RosterSessions, RosterDirectors));
     }
+
+    /// <summary>Every reopen mark this fake was asked to write, in order: the seat, and the session id if the
+    /// mark carried one. The engine claims first with no id and fills the id in afterwards, so a test reads
+    /// the ORDER here to prove the claim went in before anything was started.</summary>
+    public List<(string Seat, string? SessionId)> ReopenMarks { get; } = new();
+
+    /// <summary>
+    /// When set, every reopen mark is refused with this reason instead of being written - which is what a
+    /// Gateway too old to know the mark does (it answers HTTP 400 naming the kinds it knows).
+    /// </summary>
+    public string? RefuseReopenMarks { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// IT KEEPS THE CLAIM WHERE THE REAL STORE KEEPS IT - on the seat - rather than in a set of its own, so a
+    /// test that marks a seat and then asks for the offer again is reading the same fact the product reads.
+    /// The rules are the store's: the first mark claims it, the Director that claimed it may fill in the
+    /// session id, and anything else is refused as already dealt with.
+    /// </remarks>
+    public Task<WayUpMarkOutcome> MarkReopenedAsync(
+        string workspaceId, string seatSessionId, string? reopenedSessionId, CancellationToken ct)
+    {
+        if (Unreachable is not null) throw new HttpRequestException(Unreachable);
+        ReopenMarks.Add((seatSessionId, reopenedSessionId));
+
+        if (RefuseReopenMarks is not null)
+            return Task.FromResult(new WayUpMarkOutcome(WayUpMarkState.Refused, RefuseReopenMarks));
+
+        var doc = _records.FirstOrDefault(d => string.Equals(d.Id, workspaceId, StringComparison.OrdinalIgnoreCase));
+        var seat = doc?.Seats.FirstOrDefault(x => string.Equals(x.SessionId, seatSessionId, StringComparison.OrdinalIgnoreCase));
+        if (seat is null)
+            return Task.FromResult(new WayUpMarkOutcome(
+                WayUpMarkState.Refused, $"workspace \"{workspaceId}\" has no seat '{seatSessionId}'."));
+
+        var restore = seat.Restore ??= new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided };
+        if (restore.ReopenedAtUtc is null)
+        {
+            restore.ReopenedAtUtc = WayUpTestRig.Now;
+            restore.ReopenedByDirectorId = MarkingDirectorId;
+            restore.ReopenedSessionId = reopenedSessionId;
+            return Task.FromResult(new WayUpMarkOutcome(WayUpMarkState.Marked, null));
+        }
+
+        if (string.IsNullOrWhiteSpace(restore.ReopenedSessionId) && !string.IsNullOrWhiteSpace(reopenedSessionId)
+            && string.Equals(restore.ReopenedByDirectorId, MarkingDirectorId, StringComparison.OrdinalIgnoreCase))
+        {
+            restore.ReopenedSessionId = reopenedSessionId;
+            return Task.FromResult(new WayUpMarkOutcome(WayUpMarkState.Marked, null));
+        }
+
+        return Task.FromResult(new WayUpMarkOutcome(
+            WayUpMarkState.AlreadyDealtWith,
+            $"seat '{seatSessionId}' had its saved conversation reopened on {restore.ReopenedAtUtc:u}."));
+    }
+
+    /// <summary>The Director this fake stamps a reopen claim with. The real seam reads it from the Director
+    /// itself, which is why the engine never supplies it.</summary>
+    public string MarkingDirectorId { get; set; } = "director-after-the-restart";
 }
 
 /// <summary>The restore seam, faked. It records the order it was handed and answers what the test sets.</summary>

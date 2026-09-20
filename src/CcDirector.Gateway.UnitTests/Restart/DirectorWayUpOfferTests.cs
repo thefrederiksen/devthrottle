@@ -481,13 +481,17 @@ public class DirectorWayUpOfferTests
         var record = Assert.IsType<WayUpRecord>(offer.Record);
         Assert.Equal("restart-os-shutdown", record.WorkspaceId);
 
-        // THE COUNTS ARE STILL TRUE: nothing handed over, and both rows on screen are counted.
+        // THE COUNTS ARE STILL TRUE, and each line now counts one thing: the main list holds nothing, and
+        // both rows on screen are counted by the section they sit behind.
         Assert.Equal(0, record.SeatsOwed);
         Assert.Equal(2, record.SeatsEndedWithoutHandover);
-        Assert.Equal(
-            "No session is waiting to be brought back. 2 sessions ended without a handover. They are " +
-            "listed below, unticked, and nothing comes back unless you ask for it.",
-            record.SeatsLabel);
+        Assert.False(record.CanBringBackAnything);
+        Assert.Equal("No session handed over, so there is nothing to bring back.", record.SeatsLabel);
+        Assert.Equal("2 sessions ended without a handover.", record.EndedSectionLabel);
+
+        // OPEN FROM THE START, because it is the whole window. An empty main list above a shut section is
+        // the "nothing here" reading the owner must never get.
+        Assert.True(record.EndedSectionStartsOpen);
 
         // Every row is one ended seat, unticked, carrying its own button - and there is no bring back row.
         Assert.Equal(2, record.Rows.Count);
@@ -505,12 +509,16 @@ public class DirectorWayUpOfferTests
     }
 
     /// <summary>
-    /// THE LABEL NAMES BOTH KINDS WHEN A RECORD HOLDS BOTH. A line saying only how many are waiting to come
-    /// back would leave the unticked rows under it unexplained; a line saying only how many ended would
-    /// hide what pressing bring back is about to do.
+    /// EACH LINE COUNTS EXACTLY THE ROWS UNDER IT (the owner's reading, 20 September 2026). He saw "One
+    /// session is waiting to be brought back" above seven rows, six of them greyed, and could not read it:
+    /// "It's really confusing with all of those on the screen."
+    ///
+    /// So the line above the main list counts the main list, the line the ended sessions sit behind counts
+    /// those, and this asserts both against the rows the engine built - a person counting rows gets the same
+    /// number either place.
     /// </summary>
     [Fact]
-    public async Task The_label_names_both_what_is_waiting_and_what_ended_without_a_handover()
+    public async Task Each_count_names_exactly_the_rows_it_sits_above()
     {
         var rig = new WayUpTestRig();
         rig.Gateway.With(WayUpTestRig.Record("restart-both", Shutdown, new[]
@@ -523,10 +531,40 @@ public class DirectorWayUpOfferTests
 
         Assert.Equal(1, record.SeatsOwed);
         Assert.Equal(1, record.SeatsEndedWithoutHandover);
+        Assert.Equal("One session is waiting to be brought back.", record.SeatsLabel);
+        Assert.Equal("One session ended without a handover.", record.EndedSectionLabel);
         Assert.Equal(
-            "One session is waiting to be brought back. One session ended without a handover. It is listed " +
-            "below, unticked, and nothing comes back unless you ask for it.",
-            record.SeatsLabel);
+            "None of them comes back unless you ask; each one can have its saved conversation reopened.",
+            record.EndedSectionDetail);
+        Assert.True(record.CanBringBackAnything);
+
+        // SHUT FROM THE START when there is something to bring back, because drowning that row is the
+        // complaint.
+        Assert.False(record.EndedSectionStartsOpen);
+
+        // And the counts are the rows: one bring back row holding one seat, one ended row.
+        Assert.Equal(
+            1, record.Rows.Count(r => r.Kind == WayUpRowKind.BringBack && r.Seats.Count == record.SeatsOwed));
+        Assert.Equal(
+            record.SeatsEndedWithoutHandover,
+            record.Rows.Count(r => r.Kind == WayUpRowKind.EndedWithoutHandover));
+    }
+
+    /// <summary>
+    /// A SHUTDOWN WITH NO REASON SAYS NOTHING AT ALL, rather than "No reason was given." - a line of text
+    /// that tells the reader what he already knows, on the window he called confusing.
+    /// </summary>
+    [Fact]
+    public async Task A_record_with_no_reason_carries_no_reason_line()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record(
+            "restart-no-reason", Shutdown, new[] { WayUpTestRig.Owed("lead", "A lead") }, reason: null));
+
+        var record = Assert.IsType<WayUpRecord>((await rig.WayUp().FindOfferAsync(CancellationToken.None)).Record);
+
+        Assert.Null(record.Reason);
+        Assert.Null(record.ReasonLabel);
     }
 
     /// <summary>

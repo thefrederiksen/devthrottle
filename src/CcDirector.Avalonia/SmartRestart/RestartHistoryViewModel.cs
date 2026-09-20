@@ -136,8 +136,20 @@ public sealed class RestartHistoryEntryViewModel
     /// <summary>What kind of shutdown it was, in the engine's words.</summary>
     public string KindLabel => Entry.KindLabel;
 
-    /// <summary>The owner's reason, in the engine's words, including when there was none.</summary>
-    public string ReasonLabel => Entry.ReasonLabel;
+    /// <summary>The owner's reason, in the engine's words, or empty when there was none.</summary>
+    public string ReasonLabel => Entry.ReasonLabel ?? "";
+
+    /// <summary>Whether there is a reason line to draw. Nothing is drawn when the shutdown carried no
+    /// reason: the engine answers null, and "No reason was given." tells the reader nothing.</summary>
+    public bool HasReason => !string.IsNullOrWhiteSpace(Entry.ReasonLabel);
+
+    /// <summary>Why this record has stopped appearing when the Director starts, in the engine's words, or
+    /// empty when it is still offered. The history is where nothing is hidden, so the sentence lives here
+    /// rather than nowhere.</summary>
+    public string NotOfferedAtStartUpLabel => Entry.NotOfferedAtStartUpLabel ?? "";
+
+    /// <summary>Whether there is such a sentence to draw.</summary>
+    public bool HasNotOfferedAtStartUpLabel => !string.IsNullOrWhiteSpace(Entry.NotOfferedAtStartUpLabel);
 
     /// <summary>What became of the record, in the engine's words.</summary>
     public string OutcomeLabel => Entry.OutcomeLabel;

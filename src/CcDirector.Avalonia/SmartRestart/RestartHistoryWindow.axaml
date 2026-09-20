@@ -61,6 +61,7 @@
                                                TextWrapping="Wrap"
                                                Margin="0,3,0,0" />
                                     <TextBlock Text="{Binding ReasonLabel}"
+                                               IsVisible="{Binding HasReason}"
                                                Foreground="#888888"
                                                FontSize="12"
                                                TextWrapping="Wrap"
@@ -70,6 +71,15 @@
                                                FontSize="12"
                                                TextWrapping="Wrap"
                                                Margin="0,6,0,0" />
+
+                                    <!-- Why the Director has stopped offering this record by itself. It
+                                         still carries its offer here, which is what the history is for. -->
+                                    <TextBlock Text="{Binding NotOfferedAtStartUpLabel}"
+                                               IsVisible="{Binding HasNotOfferedAtStartUpLabel}"
+                                               Foreground="#888888"
+                                               FontSize="11"
+                                               TextWrapping="Wrap"
+                                               Margin="0,4,0,0" />
                                     <ItemsControl ItemsSource="{Binding Seats}"
                                                   IsVisible="{Binding HasSeats}"
                                                   Margin="0,6,0,0">

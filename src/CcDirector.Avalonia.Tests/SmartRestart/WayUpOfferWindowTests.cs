@@ -93,7 +93,7 @@ public class WayUpOfferWindowTests
         "Shut down on 19 September 2026 at 17:50.",
         "Reason: the machine was shutting down.",
         0,
-        "No session is waiting to be brought back. 2 sessions ended without a handover. They are listed below, unticked, and nothing comes back unless you ask for it.",
+        "No session handed over, so there is nothing to bring back.",
         WayUp.EndedRow(
             "s-voice", "Voice - Developer - the wake word - ended without a handover",
             "It was still running when time ran out and was shut down for it. It is not brought back with the rest, because there is no handover for it to read.",
@@ -122,6 +122,17 @@ public class WayUpOfferWindowTests
     private static void Click(Button button)
     {
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>
+    /// OPEN THE SECTION THE SESSIONS THAT ENDED WITHOUT A HANDOVER SIT BEHIND, through the real disclosure
+    /// control and its real two-way binding - not by setting the view model. A test that set the view model
+    /// would pass with the control wired to nothing.
+    /// </summary>
+    internal static void OpenTheEndedSection(WayUpOfferWindow window)
+    {
+        window.EndedToggle.IsChecked = true;
         Dispatcher.UIThread.RunJobs();
     }
 
@@ -162,6 +173,12 @@ public class WayUpOfferWindowTests
         Assert.NotNull(window.TxtReason);
         Assert.NotNull(window.TxtSeats);
         Assert.NotNull(window.RowList);
+        Assert.NotNull(window.EndedSection);
+        Assert.NotNull(window.EndedToggle);
+        Assert.NotNull(window.TxtEndedSection);
+        Assert.NotNull(window.TxtEndedCaret);
+        Assert.NotNull(window.TxtEndedDetail);
+        Assert.NotNull(window.EndedRowList);
         Assert.NotNull(window.ResultPanel);
         Assert.NotNull(window.TxtResult);
         Assert.NotNull(window.SeatResultList);
@@ -244,10 +261,10 @@ public class WayUpOfferWindowTests
     {
         var window = Open(AllEndedWithoutAHandover(), new FakeWayUp());
 
-        Assert.Equal(
-            "No session is waiting to be brought back. 2 sessions ended without a handover. They are " +
-            "listed below, unticked, and nothing comes back unless you ask for it.",
-            window.TxtSeats.Text);
+        // NOT OPENED BY THIS TEST. The engine said the section starts open, because it is the whole window.
+        Assert.Equal("No session handed over, so there is nothing to bring back.", window.TxtSeats.Text);
+        Assert.Equal("2 sessions ended without a handover.", window.TxtEndedSection.Text);
+        Assert.True(window.EndedRowList.IsEffectivelyVisible);
 
         var tickBoxes = TickBoxes(window);
         Assert.Equal(2, tickBoxes.Count);
@@ -326,6 +343,7 @@ public class WayUpOfferWindowTests
     public void Show_ASeatThatEndedWithoutAHandover_IsItsOwnUntickedRowBesideTheOthers()
     {
         var window = Open(WithAnEndedSeat(), new FakeWayUp());
+        OpenTheEndedSection(window);
 
         var tickBoxes = TickBoxes(window);
         Assert.Equal(3, tickBoxes.Count);
@@ -347,6 +365,7 @@ public class WayUpOfferWindowTests
     public void Show_ASeatThatEndedWithoutAHandover_IsColouredApartFromTheRowsThatComeBack()
     {
         var window = Open(WithAnEndedSeat(), new FakeWayUp());
+        OpenTheEndedSection(window);
         var tickBoxes = TickBoxes(window);
 
         Assert.Equal(WayUpRowViewModel.BringBackBrush, tickBoxes[0].Foreground);
@@ -360,6 +379,7 @@ public class WayUpOfferWindowTests
     public void Show_ASeatWithASavedConversation_HasItsOwnButtonInTheEnginesWords()
     {
         var window = Open(WithAnEndedSeat(), new FakeWayUp());
+        OpenTheEndedSection(window);
 
         var buttons = RowButtons(window);
         var reopen = Assert.Single(buttons);
@@ -378,6 +398,7 @@ public class WayUpOfferWindowTests
     public void Show_ASeatWithNoConversation_ShowsTheEnginesSentenceAndNoButton()
     {
         var window = Open(WithAnEndedSeat(), new FakeWayUp());
+        OpenTheEndedSection(window);
 
         Assert.Contains(
             "No conversation was recorded for this session, so there is nothing to reopen. Start it again " +
@@ -609,12 +630,150 @@ public class WayUpOfferWindowTests
     {
         var engine = new FakeWayUp();
         var window = Open(WithAnEndedSeat(), engine);
+        OpenTheEndedSection(window);
 
         Click(Assert.Single(RowButtons(window)));
         await window.WorkTheLastPressStarted;
 
         var request = Assert.Single(engine.ReopenRequests);
         Assert.Equal("s-voice", request.SeatSessionId);
+    }
+
+    // ===== The screen reads correctly: what the owner could not read on 20 September 2026 =====
+
+    /// <summary>
+    /// THE MAIN LIST HOLDS ONLY WHAT CAN BE BROUGHT BACK, AND THE LINE ABOVE IT COUNTS THOSE ROWS.
+    ///
+    /// This is the owner's own complaint, turned into a test. He saw "One session is waiting to be brought
+    /// back" above SEVEN rows, six of them greyed, and could not read it: "why are there multiple sessions
+    /// ... It's really confusing with all of those on the screen." Here the record holds one bring back row
+    /// and two that ended without a handover, and what is on screen under the count is the one row.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_ARecordHoldingBoth_TheMainListHoldsOnlyTheRowsThatComeBack()
+    {
+        var window = Open(WithAnEndedSeat(), new FakeWayUp());
+
+        var mainList = Assert.IsType<ItemsControl>(window.RowList);
+        Assert.True(mainList.IsEffectivelyVisible);
+        Assert.Equal(
+            new[] { "s-billing-lead" },
+            window.ViewModel.BringBackRows.Select(r => r.RowId).ToArray());
+
+        // The rows that ended without a handover are NOT in it, and are not drawn at all until asked for.
+        Assert.False(window.EndedRowList.IsEffectivelyVisible);
+        Assert.Empty(RowButtons(window));
+        Assert.DoesNotContain(
+            "Voice - Developer - the wake word - ended without a handover",
+            DrawnTexts(window));
+
+        // And they are behind one line that says how many there are, with the shut caret beside it.
+        Assert.True(window.EndedSection.IsEffectivelyVisible);
+        Assert.Equal("2 sessions ended without a handover.", window.TxtEndedSection.Text);
+        Assert.Equal(WayUpOfferViewModel.ShutCaret, window.TxtEndedCaret.Text);
+    }
+
+    /// <summary>
+    /// OPENING THAT LINE BRINGS THEM BACK ON SCREEN, WHOLE. Ruling 10.3 is not weakened by moving them: each
+    /// is still listed, still unticked, and still carries its own reopen button. The caret turns over too, so
+    /// the header says which way it is.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_OpeningTheEndedSection_RevealsEveryRowUntickedWithItsOwnButton()
+    {
+        var window = Open(WithAnEndedSeat(), new FakeWayUp());
+
+        OpenTheEndedSection(window);
+
+        Assert.True(window.EndedRowList.IsEffectivelyVisible);
+        Assert.Equal(WayUpOfferViewModel.OpenCaret, window.TxtEndedCaret.Text);
+        Assert.Contains(
+            "Voice - Developer - the wake word - ended without a handover",
+            TickBoxes(window).Select(b => (string?)b.Content));
+        Assert.All(
+            TickBoxes(window).Where(b => b.Content is string c && c.EndsWith("ended without a handover")),
+            box =>
+            {
+                Assert.False(box.IsChecked);
+                Assert.False(box.IsEnabled);
+            });
+        Assert.Single(RowButtons(window));
+
+        // And shutting it again hides them, without changing a single word.
+        window.EndedToggle.IsChecked = false;
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(window.EndedRowList.IsEffectivelyVisible);
+        Assert.Equal("2 sessions ended without a handover.", window.TxtEndedSection.Text);
+    }
+
+    /// <summary>
+    /// WHEN THE SHUTDOWN WAS, WHERE THE EYE LANDS. The date and time were on the window before and the owner
+    /// read it without seeing them - "we're totally missing a date and time when that was saved" - because
+    /// they were secondary grey on the third line. They are now primary text directly under the headline, and
+    /// this pins that: a change back to a dimmer colour or a smaller size turns it red.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_TheDateAndTime_AreDrawnInPrimaryTextRightUnderTheHeadline()
+    {
+        var window = Open(ThreeMissions(), new FakeWayUp());
+
+        Assert.Equal("Shut down on 19 September 2026 at 17:50.", window.TxtWhen.Text);
+        Assert.Equal(Color.Parse("#CCCCCC"), Assert.IsType<ISolidColorBrush>(window.TxtWhen.Foreground, exactMatch: false).Color);
+        Assert.True(window.TxtWhen.FontSize >= 14);
+        Assert.Equal(FontWeight.SemiBold, window.TxtWhen.FontWeight);
+
+        // Directly under the headline: nothing the window draws comes between them.
+        var drawn = DrawnTexts(window);
+        Assert.Equal(drawn.IndexOf("A restart is available") + 1, drawn.IndexOf("Shut down on 19 September 2026 at 17:50."));
+    }
+
+    /// <summary>
+    /// A SHUTDOWN WITH NO REASON DRAWS NO REASON LINE. The engine answers null, and the window shows nothing
+    /// at all rather than "No reason was given." - a line that tells the reader what he already knows, on the
+    /// window he called confusing.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_ARecordWithNoReason_DrawsNoReasonLineAtAll()
+    {
+        var window = Open(
+            WayUp.Record(
+                "ws-no-reason",
+                "A restart is available",
+                "Shut down on 19 September 2026 at 17:50.",
+                null,
+                1,
+                "One session is waiting to be brought back.",
+                WayUp.BringBackRow("s-solo", "Docs: the install page", "Brings back one session.")),
+            new FakeWayUp());
+
+        Assert.False(window.TxtReason.IsEffectivelyVisible);
+        Assert.DoesNotContain("No reason was given.", DrawnTexts(window));
+
+        // The reason line was the only thing between the date and the count; the count follows it directly.
+        var drawn = DrawnTexts(window);
+        Assert.Equal(
+            drawn.IndexOf("Shut down on 19 September 2026 at 17:50.") + 1,
+            drawn.IndexOf("One session is waiting to be brought back."));
+    }
+
+    /// <summary>
+    /// A RECORD WITH NOTHING TO BRING BACK DRAWS NO BRING BACK ANSWER, and the keyboard goes to the answer
+    /// there is. The only thing that button could ever do on such a record is collect the engine's refusal
+    /// "no row was ticked", and a button whose every press is a refusal reads as broken.
+    /// </summary>
+    [AvaloniaFact]
+    public void Show_ARecordWithNothingToBringBack_DrawsNoBringBackAnswer()
+    {
+        var window = Open(AllEndedWithoutAHandover(), new FakeWayUp());
+
+        Assert.False(window.BtnBringBack.IsEffectivelyVisible);
+        Assert.True(window.BtnNotNow.IsEffectivelyVisible);
+        Assert.False(window.ViewModel.ShowBringBack);
+        Assert.True(window.ViewModel.ShowAnswers);
+
+        // And the record that HAS something to bring back still draws it.
+        var withSomething = Open(ThreeMissions(), new FakeWayUp());
+        Assert.True(withSomething.BtnBringBack.IsEffectivelyVisible);
     }
 
     // ===== The view model refuses what the window must never show =====

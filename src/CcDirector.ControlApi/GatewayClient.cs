@@ -526,6 +526,61 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IDisposa
     }
 
     /// <summary>
+    /// Write a REOPEN mark through the same route the restore's marks go down
+    /// (<c>POST /gateway/workspaces/{id}/restore/marks</c>), and ANSWER THE STATUS INSTEAD OF THROWING.
+    ///
+    /// It is the one mark whose caller has to tell three answers apart rather than just "it failed":
+    /// recorded, this seat was already dealt with (409 - an ordinary outcome, not an error), and anything
+    /// else - which on a Gateway too old to know the kind is a 400 naming the kinds it does know. The way up
+    /// words all three differently, and a thrown exception carrying only a sentence cannot be told apart
+    /// without reading that sentence, which is guesswork.
+    /// </summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="mark">The mark, of kind <see cref="WorkspaceRestoreMarkKinds.Reopened"/>.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <returns>The status the Gateway answered, and its own reason when it refused.</returns>
+    public async Task<(int Status, string? Error)> RecordReopenMarkAsync(
+        string workspaceId, WorkspaceRestoreMark mark, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(mark);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot record a reopen.");
+
+        var route = $"POST /gateway/workspaces/{workspaceId}/restore/marks";
+        using var resp = await _http.PostAsJsonAsync(
+            $"gateway/workspaces/{Uri.EscapeDataString(workspaceId)}/restore/marks", mark, ct);
+        var status = (int)resp.StatusCode;
+        if (resp.IsSuccessStatusCode)
+        {
+            FileLog.Write($"[GatewayClient] RecordReopenMarkAsync: {route}, seat={mark.SeatSessionId ?? "-"}, HTTP {status}");
+            return (status, null);
+        }
+
+        string? error = null;
+        try
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("error", out var err)
+                    && err.ValueKind == JsonValueKind.String)
+                {
+                    error = err.GetString();
+                }
+            }
+        }
+        catch (JsonException) { /* not JSON - the status line below is the only fact available */ }
+
+        error = string.IsNullOrWhiteSpace(error)
+            ? $"Gateway {route} returned HTTP {status} {resp.ReasonPhrase}".TrimEnd()
+            : error;
+        FileLog.Write($"[GatewayClient] RecordReopenMarkAsync REFUSED: {route}, HTTP {status}: {error}");
+        return (status, error);
+    }
+
+    /// <summary>
     /// Ask the Gateway to restore seats of a workspace onto a Director, through
     /// <c>POST /gateway/workspaces/{id}/restore</c> - the ONE door a restore starts at. The Gateway grants
     /// the restore lease and relays the order to the named Director, which runs its existing restore. A

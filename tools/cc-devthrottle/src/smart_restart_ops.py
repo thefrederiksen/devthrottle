@@ -416,7 +416,7 @@ def _print_entry(entry: Dict[str, Any]) -> None:
     console.print(
         f"{axi_cli.shown(gateway.field(entry, 'whenLabel', 'WhenLabel'))} - workspace {axi_cli.shown(workspace)}"
     )
-    for key in ("kindLabel", "reasonLabel", "outcomeLabel", "seatsLabel"):
+    for key in ("kindLabel", "reasonLabel", "outcomeLabel", "seatsLabel", "notOfferedAtStartUpLabel"):
         value = gateway.field(entry, key)
         if value:
             console.print(f"  {axi_cli.shown(value)}")

@@ -65,15 +65,19 @@ public interface IDirectorWayUp
     /// is still listed in the history as ended without a handover.
     ///
     /// IT REFUSES A SEAT THAT MAY STILL BE RUNNING, by the same rule the restore uses, and it reopens each
-    /// seat ONCE while this Director is up. That once-only claim is held by the PROCESS, so it holds
-    /// however many engines a caller builds. Because nothing is written onto the record, it does NOT
-    /// survive a Director restart: across one, the same seat can still be reopened twice. Closing that
-    /// needs a new mark on the record, which is a Gateway change and a Delivery Lead decision.
+    /// seat ONCE - for ever, not just while this Director is up. The claim is WRITTEN ONTO THE RECORD before
+    /// the create is sent (<see cref="WorkspaceRestoreMarkKinds.Reopened"/>), so it survives a restart and the
+    /// seat stops being offered at all. That is product issue 3230: the claim used to be a set held in this
+    /// process, which a restart emptied, so every morning offered the same dead sessions again.
+    ///
+    /// A GATEWAY THAT CANNOT RECORD THE CLAIM STARTS NOTHING. An older Gateway does not know the mark and
+    /// refuses it; this answers with that refusal, in plain words, and reopens nothing - because a reopen the
+    /// record cannot carry is a session offered back for ever. There is no fallback that starts it anyway.
     ///
     /// A REOPEN WHOSE START FAILS KEEPS ITS CLAIM, and that is deliberate rather than a bug to report: a
-    /// start whose answer never came back may have happened anyway, so the seat is refused from then until
-    /// this Director restarts. A button that goes dead after one failure is doing what it was built to do,
-    /// and the refusal says to look in the session list.
+    /// start whose answer never came back may have happened anyway, so the seat is refused from then on. A
+    /// button that goes dead after one failure is doing what it was built to do, and the refusal says to look
+    /// in the session list.
     /// </summary>
     /// <param name="request">The record and the seat.</param>
     /// <param name="ct">Cancellation.</param>
@@ -111,14 +115,27 @@ public sealed record WayUpOffer(WayUpOfferState State, string Message, WayUpReco
 /// <param name="Headline">"A restart is available", in plain words.</param>
 /// <param name="WhenLabel">When it was, in plain words.</param>
 /// <param name="Reason">The owner's own reason from the record, or null when none was given.</param>
-/// <param name="ReasonLabel">The reason in plain words, including when there was none.</param>
-/// <param name="SeatsOwed">How many seats are waiting to be brought back.</param>
-/// <param name="SeatsEndedWithoutHandover">How many seats ended without a handover and are listed here,
-/// unticked, each with its own offer. A record may be offered for these alone, with nothing to bring back
-/// at all - the operating system shutting down writes exactly such a record (ruling 10.5).</param>
-/// <param name="SeatsLabel">BOTH counts in plain words, which is why it is not named after either of them.
-/// A label saying only how many are waiting to come back would read "0 sessions are waiting to be brought
-/// back" over a window full of rows.</param>
+/// <param name="ReasonLabel">The reason in plain words, or NULL when there was none - then a window shows
+/// nothing at all rather than a line saying so. See <see cref="WayUpWords.ReasonLabel"/>.</param>
+/// <param name="SeatsOwed">How many seats are waiting to be brought back. It is the number of BringBack rows'
+/// seats, which is what the main list holds.</param>
+/// <param name="SeatsEndedWithoutHandover">How many seats ended without a handover and have not been dealt
+/// with. They sit behind one line of their own, unticked, each with its own offer. A record may be offered for
+/// these alone, with nothing to bring back at all - the operating system shutting down writes exactly such a
+/// record (ruling 10.5).</param>
+/// <param name="SeatsLabel">What the MAIN LIST holds, in plain words, and only that - so a person reading this
+/// line and counting the rows under it gets the same number. It used to name both counts, over a list holding
+/// both kinds of row, and the owner could not read it.</param>
+/// <param name="CanBringBackAnything">Whether there is anything for "Bring back" to do. False on a record
+/// offered only for its saved conversations, where the window draws no bring back answer at all: a button whose
+/// only possible answer is a refusal reads as broken.</param>
+/// <param name="EndedSectionLabel">The one line the sessions that ended without a handover sit behind, or null
+/// when there are none. Ruling 10.3 still holds in full: they are moved, not dropped.</param>
+/// <param name="EndedSectionDetail">What those sessions are, said once for the section. Null when there are
+/// none. True whether the section is open or shut.</param>
+/// <param name="EndedSectionStartsOpen">Whether that section is open when the window appears. True only when
+/// there is nothing to bring back, so it is the whole window; shut otherwise, because drowning the one row the
+/// owner can act on is what he complained of.</param>
 /// <param name="Rows">One row per mission head, leads first, then one row for each seat that ended without
 /// a handover. Either group may be empty; both are never empty at once, because such a record is not
 /// offered.</param>
@@ -129,10 +146,14 @@ public sealed record WayUpRecord(
     string Headline,
     string WhenLabel,
     string? Reason,
-    string ReasonLabel,
+    string? ReasonLabel,
     int SeatsOwed,
     int SeatsEndedWithoutHandover,
     string SeatsLabel,
+    bool CanBringBackAnything,
+    string? EndedSectionLabel,
+    string? EndedSectionDetail,
+    bool EndedSectionStartsOpen,
     IReadOnlyList<WayUpRow> Rows);
 
 /// <summary>What a row offers.</summary>
@@ -208,11 +229,16 @@ public sealed record WayUpHistory(bool Refused, string Message, IReadOnlyList<Wa
 /// <param name="WhenLabel">When it was, in plain words.</param>
 /// <param name="KindLabel">What kind of shutdown it was, in plain words.</param>
 /// <param name="Reason">The owner's own reason, or null.</param>
-/// <param name="ReasonLabel">The reason in plain words, including when there was none.</param>
+/// <param name="ReasonLabel">The reason in plain words, or null when there was none.</param>
 /// <param name="OutcomeLabel">What became of it, in plain words.</param>
 /// <param name="Seats">What happened to each seat, in plain words.</param>
-/// <param name="Offer">The same offer the start-up check makes, when this record still owes seats; null
-/// when there is nothing left to bring back from it.</param>
+/// <param name="Offer">The same offer the start-up check makes, when this record still holds a seat to act on;
+/// null when there is nothing left to act on. Its AGE is not part of this: an old record still carries its
+/// offer here, which is what the history is for.</param>
+/// <param name="NotOfferedAtStartUpLabel">Why this record has stopped appearing when the Director starts
+/// although it still holds something to act on - it is older than
+/// <see cref="DirectorWayUp.OfferedForDays"/> days. Null when it is still offered, or when it holds nothing to
+/// act on and so has its own reason already in <paramref name="OutcomeLabel"/>.</param>
 public sealed record WayUpHistoryEntry(
     string WorkspaceId,
     DateTime AtUtc,
@@ -220,10 +246,11 @@ public sealed record WayUpHistoryEntry(
     string WhenLabel,
     string KindLabel,
     string? Reason,
-    string ReasonLabel,
+    string? ReasonLabel,
     string OutcomeLabel,
     IReadOnlyList<WayUpHistorySeat> Seats,
-    WayUpRecord? Offer);
+    WayUpRecord? Offer,
+    string? NotOfferedAtStartUpLabel);
 
 /// <summary>What became of one seat, for the history.</summary>
 /// <param name="SessionId">The captured session id.</param>

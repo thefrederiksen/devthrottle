@@ -35,8 +35,16 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
     /// <summary>What closes the window once a bring back has answered.</summary>
     public const string CloseButtonText = "Close";
 
+    /// <summary>The caret drawn on the ended section's header when it is open. The house disclosure's own
+    /// character, as GatewayConnectionPanel draws it.</summary>
+    public const string OpenCaret = "v";
+
+    /// <summary>The caret drawn when the section is shut.</summary>
+    public const string ShutCaret = ">";
+
     private readonly IDirectorWayUp _engine;
     private bool _isBusy;
+    private bool _endedSectionOpen;
     private string _resultText = "";
     private IReadOnlyList<string> _seatResults = Array.Empty<string>();
 
@@ -49,8 +57,17 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
         Record = record;
         _engine = engine;
         Rows = record.Rows.Select(row => new WayUpRowViewModel(row, record.WorkspaceId, engine)).ToList();
+
+        // TWO GROUPS, BY THE ENGINE'S OWN ROW KIND. The main list holds only what can be brought back; the
+        // sessions that ended without a handover sit behind their own line. Splitting on a kind the engine
+        // stamped is layout, not a verdict: no sentence is chosen here and no row is dropped.
+        BringBackRows = Rows.Where(r => r.Kind == WayUpRowKind.BringBack).ToList();
+        EndedRows = Rows.Where(r => r.Kind == WayUpRowKind.EndedWithoutHandover).ToList();
+        _endedSectionOpen = record.EndedSectionStartsOpen;
+
         FileLog.Write($"[WayUpOfferViewModel] Created: workspace={record.WorkspaceId}, owed={record.SeatsOwed}, " +
-                      $"endedWithoutHandover={record.SeatsEndedWithoutHandover}, rows={Rows.Count}");
+                      $"endedWithoutHandover={record.SeatsEndedWithoutHandover}, bringBackRows={BringBackRows.Count}, " +
+                      $"endedRows={EndedRows.Count}, endedSectionOpen={_endedSectionOpen}");
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -64,8 +81,13 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
     /// <summary>When the shutdown was, in the engine's words.</summary>
     public string WhenLabel => Record.WhenLabel;
 
-    /// <summary>The owner's reason, in the engine's words, including when there was none.</summary>
-    public string ReasonLabel => Record.ReasonLabel;
+    /// <summary>The owner's reason, in the engine's words, or empty when there was none.</summary>
+    public string ReasonLabel => Record.ReasonLabel ?? "";
+
+    /// <summary>Whether there is a reason line to draw at all. The engine answers null when the shutdown
+    /// carried no reason, and then nothing is drawn - it used to say "No reason was given.", which is a line
+    /// of text telling the reader what he already knows on a window the owner called confusing.</summary>
+    public bool HasReason => !string.IsNullOrWhiteSpace(Record.ReasonLabel);
 
     /// <summary>What the record holds - seats waiting to come back, seats that ended without a handover,
     /// or both - in the engine's words. It is SHOWN AS GIVEN and is never rebuilt from the rows: a label
@@ -73,9 +95,51 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
     /// renders.</summary>
     public string SeatsLabel => Record.SeatsLabel;
 
-    /// <summary>The rows, in the engine's order: mission heads first, then the seats that ended without
-    /// a handover.</summary>
+    /// <summary>Every row, in the engine's order: mission heads first, then the seats that ended without
+    /// a handover. What is TICKED is read from here, so a row is never counted twice.</summary>
     public IReadOnlyList<WayUpRowViewModel> Rows { get; }
+
+    /// <summary>The main list: the rows that bring sessions back. Exactly what <see cref="SeatsLabel"/>
+    /// counts.</summary>
+    public IReadOnlyList<WayUpRowViewModel> BringBackRows { get; }
+
+    /// <summary>The rows for the sessions that ended without a handover, drawn behind
+    /// <see cref="EndedSectionLabel"/> and revealed when it is opened. Still listed, still unticked, still each
+    /// carrying their one reopen button (ruling 10.3).</summary>
+    public IReadOnlyList<WayUpRowViewModel> EndedRows { get; }
+
+    /// <summary>Whether the main list has anything in it.</summary>
+    public bool HasBringBackRows => BringBackRows.Count > 0;
+
+    /// <summary>Whether there is an ended-without-a-handover section at all. The engine answers null for its
+    /// line when there is nothing behind it.</summary>
+    public bool HasEndedSection => !string.IsNullOrWhiteSpace(Record.EndedSectionLabel);
+
+    /// <summary>The section's line, in the engine's words: how many sessions ended without a handover.</summary>
+    public string EndedSectionLabel => Record.EndedSectionLabel ?? "";
+
+    /// <summary>What those sessions are, in the engine's words. Said once for the section.</summary>
+    public string EndedSectionDetail => Record.EndedSectionDetail ?? "";
+
+    /// <summary>
+    /// Whether that section is open. It STARTS where the engine put it - open only when there is nothing to
+    /// bring back, so the section is the whole window - and the person moves it from there.
+    /// </summary>
+    public bool EndedSectionOpen
+    {
+        get => _endedSectionOpen;
+        set
+        {
+            if (_endedSectionOpen == value) return;
+            _endedSectionOpen = value;
+            FileLog.Write($"[WayUpOfferViewModel] EndedSectionOpen: workspace={Record.WorkspaceId}, open={value}");
+            Raise(nameof(EndedSectionOpen));
+            Raise(nameof(EndedCaret));
+        }
+    }
+
+    /// <summary>The caret on the section's header. A character, never a sentence.</summary>
+    public string EndedCaret => _endedSectionOpen ? OpenCaret : ShutCaret;
 
     /// <summary>Whether a call to the engine is in flight. Both answers are dead while it is.</summary>
     public bool IsBusy
@@ -100,6 +164,14 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
     /// back has already run.</summary>
     public bool ShowAnswers => !HasResult;
 
+    /// <summary>
+    /// Whether the bring back answer is drawn. The ENGINE says whether this record has anything to bring back
+    /// (<see cref="WayUpRecord.CanBringBackAnything"/>); a record offered only for its saved conversations has
+    /// not, and then the button is not drawn at all. Its only possible answer there is the engine's refusal
+    /// "no row was ticked", and a button whose every press is a refusal reads as broken.
+    /// </summary>
+    public bool ShowBringBack => Record.CanBringBackAnything && ShowAnswers;
+
     /// <summary>The bring back answer's own words. A constant, never chosen by a state.</summary>
     public string BringBackText => BringBackButtonText;
 
@@ -121,6 +193,7 @@ public sealed class WayUpOfferViewModel : INotifyPropertyChanged
             Raise(nameof(HasResult));
             Raise(nameof(CanAnswer));
             Raise(nameof(ShowAnswers));
+            Raise(nameof(ShowBringBack));
         }
     }
 

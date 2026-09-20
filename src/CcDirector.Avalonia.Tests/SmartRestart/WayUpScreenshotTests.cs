@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media.Imaging;
@@ -8,6 +9,7 @@ using Avalonia.VisualTree;
 using Avalonia.Threading;
 using CcDirector.Avalonia.SmartRestart;
 using CcDirector.ControlApi.SmartRestart;
+using CcDirector.Gateway.Contracts;
 using Xunit;
 
 namespace CcDirector.Avalonia.Tests.SmartRestart;
@@ -56,6 +58,178 @@ public class WayUpScreenshotTests
         AssertTheReopenButtonIsReallyDrawn(historyWithAReopenButton);
         Capture(historyWithAReopenButton, folder,
             "way-up-8-history-a-seat-that-ended-without-a-handover.png");
+
+        // ===== The owner's own case, and the states he will ask about (product issue 3230) =====
+        // EVERY WORD IN THESE FIVE IS THE REAL ENGINE'S, not this test's: each one builds a stored record
+        // and asks DirectorWayUp to word it. The owner reads these pictures, so what is in them has to be
+        // what the product would put in front of him.
+        var ownersCase = OpenOffer(TheOwnersOwnCase());
+        Capture(ownersCase, folder, "way-up-9-offer-one-to-bring-back-and-six-that-ended.png");
+
+        var ownersCaseOpened = OpenOffer(TheOwnersOwnCase());
+        WayUpOfferWindowTests.OpenTheEndedSection((WayUpOfferWindow)ownersCaseOpened);
+        AssertTheSixEndedRowsAreReallyDrawn(ownersCaseOpened);
+        Capture(ownersCaseOpened, folder, "way-up-10-offer-the-six-opened.png");
+
+        Capture(OpenOffer(NothingToBringBack()), folder, "way-up-11-offer-nothing-to-bring-back.png");
+
+        Capture(await HistoryARecordAlreadyDealtWithAsync(), folder,
+            "way-up-12-history-a-record-already-dealt-with-is-not-offered.png");
+
+        Capture(await HistoryARecordOlderThanSevenDaysAsync(), folder,
+            "way-up-13-history-older-than-seven-days-is-not-offered-at-start-up.png");
+    }
+
+    // ===== The owner's own case, worded by the real engine =====
+
+    /// <summary>
+    /// WHAT HE PHOTOGRAPHED, AS IT READS NOW. One session handed over and can be brought back; six ended
+    /// without a handover. Before this change the headline said "One session is waiting to be brought back"
+    /// over all seven rows at once, and he could not read it.
+    ///
+    /// The record is a STORED record and the words are <see cref="DirectorWayUp"/>'s own.
+    /// </summary>
+    private static WayUpRecord TheOwnersOwnCase() => DirectorWayUp.BuildRecord(Stored(
+        "restart-20-september",
+        "updating the Director to 2.8.2",
+        Owed("s-billing-lead", "Billing - Delivery Lead - invoices", "Billing", "Delivery Lead"),
+        Ended("s-voice", "Voice - Developer - the wake word"),
+        Ended("s-fleet", "Fleet - Tech Lead - the restart"),
+        Ended("s-docs", "Docs - Developer - the install page"),
+        Ended("s-totals", "Billing - Developer - the totals"),
+        Ended("s-export", "Billing - Developer - the export"),
+        Ended("s-review", "Docs - Reviewer - the install page", conversationId: null)));
+
+    /// <summary>
+    /// THE RECORD THE OPERATING SYSTEM'S OWN SHUTDOWN WRITES (ruling 10.5): nothing handed over at all. The
+    /// section is open from the start, because it is the whole window, and no bring back answer is drawn.
+    /// </summary>
+    private static WayUpRecord NothingToBringBack() => DirectorWayUp.BuildRecord(Stored(
+        "restart-machine-rebooted",
+        null,
+        Ended("s-voice", "Voice - Developer - the wake word"),
+        Ended("s-fleet", "Fleet - Tech Lead - the restart"),
+        Ended("s-docs", "Docs - Developer - the install page")));
+
+    /// <summary>
+    /// A RECORD EVERY SEAT OF WHICH HAS BEEN DEALT WITH IS NOT OFFERED AND IS STILL READ HERE - the owner's
+    /// "Once you restart a session, it shouldn't be there anymore." One seat came back through the restore and
+    /// two had their saved conversations reopened, so the entry carries NO offer and no bring back button, and
+    /// each seat says what became of it.
+    /// </summary>
+    private static Task<Window> HistoryARecordAlreadyDealtWithAsync()
+    {
+        var doc = Stored(
+            "restart-already-answered",
+            "updating the Director to 2.8.2",
+            Owed("s-billing-lead", "Billing - Delivery Lead - invoices", "Billing", "Delivery Lead"),
+            Ended("s-voice", "Voice - Developer - the wake word"),
+            Ended("s-fleet", "Fleet - Tech Lead - the restart"));
+        doc.Seats[0].RestoredSessionId = "a1b2c3d4-e5f6";
+        Reopened(doc.Seats[1], "b2c3d4e5-f6a1");
+        Reopened(doc.Seats[2], null);
+
+        return OpenHistoryAsync(new WayUpHistory(
+            false,
+            WayUpWords.HistoryRead(1),
+            [DirectorWayUp.BuildHistoryEntry(doc, Now)]));
+    }
+
+    /// <summary>
+    /// A RECORD OLDER THAN THE DIRECTOR OFFERS ONE FOR - "or they should timeout", in the owner's words. It has
+    /// stopped appearing when the Director starts, it says so here in the engine's own sentence, and it still
+    /// carries its offer: his reason for having a history at all is restarting something later.
+    /// </summary>
+    private static Task<Window> HistoryARecordOlderThanSevenDaysAsync()
+    {
+        var doc = Stored(
+            "restart-nine-days-ago",
+            "trying the new launcher",
+            Owed("s-billing-lead", "Billing - Delivery Lead - invoices", "Billing", "Delivery Lead"),
+            Ended("s-voice", "Voice - Developer - the wake word"));
+        doc.CompletedAtUtc = Now.AddDays(-9);
+        doc.StartedAtUtc = Now.AddDays(-9).AddMinutes(-10);
+        doc.CreatedUtc = doc.StartedAtUtc.Value;
+        doc.UpdatedUtc = Now.AddDays(-9);
+
+        return OpenHistoryAsync(new WayUpHistory(
+            false,
+            WayUpWords.HistoryRead(1),
+            [DirectorWayUp.BuildHistoryEntry(doc, Now)]));
+    }
+
+    /// <summary>The moment these pictures are taken at, so a picture of an age rule is not a picture of
+    /// whatever day the suite happens to run on.</summary>
+    private static readonly DateTime Now = new(2026, 9, 20, 16, 36, 0, DateTimeKind.Utc);
+
+    /// <summary>A stored record of a smart shutdown, as the Gateway holds one.</summary>
+    private static WorkspaceDocument Stored(string id, string? reason, params WorkspaceSeat[] seats) => new()
+    {
+        Id = id,
+        Name = id,
+        Origin = WorkspaceOrigins.Captured,
+        Machine = "SOREN_NORTH",
+        DirectorId = "the-director-before-the-restart",
+        DirectorName = "DevThrottle_1",
+        ShutdownKind = WorkspaceShutdownKinds.SmartShutdown,
+        Reason = reason,
+        StartedAtUtc = new DateTime(2026, 9, 20, 16, 26, 0, DateTimeKind.Utc),
+        CompletedAtUtc = new DateTime(2026, 9, 20, 16, 36, 0, DateTimeKind.Utc),
+        CreatedUtc = new DateTime(2026, 9, 20, 16, 26, 0, DateTimeKind.Utc),
+        UpdatedUtc = new DateTime(2026, 9, 20, 16, 36, 0, DateTimeKind.Utc),
+        Seats = seats.ToList(),
+    };
+
+    private static WorkspaceSeat Owed(string id, string name, string? mission, string? role) => new()
+    {
+        SessionId = id,
+        Name = name,
+        Agent = "ClaudeCode",
+        RepoPath = @"D:\ReposFred\devthrottle",
+        Role = role,
+        Mission = mission is null ? null : new WorkspaceMissionRef { Name = mission },
+        HandoverPath = @"C:\handovers\lead.md",
+        DrainState = WorkspaceDrainStates.Drained,
+        ClaudeSessionId = $"conversation-of-{id}",
+        Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Restore, Why = "it was mid-task" },
+    };
+
+    private static WorkspaceSeat Ended(string id, string name, string? conversationId = "the-saved-conversation") => new()
+    {
+        SessionId = id,
+        Name = name,
+        Agent = "ClaudeCode",
+        RepoPath = @"D:\ReposFred\devthrottle",
+        DrainState = WorkspaceDrainStates.EndedAtLimit,
+        ClaudeSessionId = conversationId,
+        Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided },
+    };
+
+    private static void Reopened(WorkspaceSeat seat, string? reopenedAs)
+    {
+        seat.Restore!.ReopenedAtUtc = new DateTime(2026, 9, 20, 16, 50, 0, DateTimeKind.Utc);
+        seat.Restore.ReopenedByDirectorId = "the-director-after-the-restart";
+        seat.Restore.ReopenedSessionId = reopenedAs;
+    }
+
+    /// <summary>
+    /// The tenth picture is only worth anything if the SIX rows are really in it, and "more than a hundred
+    /// colours" cannot say that. Five of them carry a reopen button and the sixth, whose conversation was
+    /// never recorded, carries the engine's sentence saying there is nothing to reopen and no button at all.
+    /// </summary>
+    private static void AssertTheSixEndedRowsAreReallyDrawn(Window window)
+    {
+        var rows = window.GetVisualDescendants().OfType<CheckBox>()
+            .Where(b => b.IsEffectivelyVisible && b.Content is string c && c.EndsWith("ended without a handover"))
+            .ToList();
+        Assert.Equal(6, rows.Count);
+        Assert.All(rows, box => Assert.False(box.IsChecked));
+
+        var buttons = window.GetVisualDescendants().OfType<Button>()
+            .Where(b => b is not ToggleButton && b.IsEffectivelyVisible && b.Name is null)
+            .ToList();
+        Assert.Equal(5, buttons.Count);
+        Assert.All(buttons, b => Assert.Equal("Reopen its saved conversation", b.Content));
     }
 
     /// <summary>

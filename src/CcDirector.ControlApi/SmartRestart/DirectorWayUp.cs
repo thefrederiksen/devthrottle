@@ -29,40 +29,29 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// </summary>
     public const int MostRecentRecordsRead = 25;
 
+    /// <summary>
+    /// HOW LONG A RECORD IS OFFERED AT START-UP FOR: seven days (product issue 3230).
+    ///
+    /// The owner asked for it in as many words - "there should be a way to remove old [ones]. Once you restart
+    /// a session, it shouldn't be there anymore, I think, or they should timeout" - and the number is the
+    /// Delivery Lead's, not his. Seven days is a working week plus a weekend: long enough that a restart put
+    /// off over a weekend is still offered on the Monday, which is the owner's own reason for having a history
+    /// at all, and short enough that a record nobody ever acted on stops appearing.
+    ///
+    /// IT GATES THE START-UP OFFER AND NOTHING ELSE. In the restart history an old record still carries its
+    /// offer, with <see cref="WayUpWords.TooOldToOfferLabel"/> saying why it stopped appearing by itself: the
+    /// owner's reason for the history is that "it could be that I accidentally don't restart it right away and
+    /// I want to restart it later", and a cut-off that also took the button away would defeat that on day
+    /// eight. One rule decides whether there is anything to ACT ON (<see cref="HasSomethingToActOn"/>) and both
+    /// surfaces read it; the age is a separate, named rule about interrupting the owner at start-up.
+    /// </summary>
+    public const int OfferedForDays = 7;
+
     private readonly IWayUpGateway _gateway;
     private readonly IWayUpRestore _restore;
     private readonly string _machine;
     private readonly Func<string?> _directorName;
-
-    /// <summary>
-    /// ONE REOPEN PER SEAT WHILE THIS DIRECTOR IS UP, keyed on the record and the seat. A double click, or
-    /// the history open on two screens, would otherwise start two live agents in ONE saved conversation,
-    /// each acting on the other's half-written work - which is worse than a duplicate blank session,
-    /// because both believe they are the same session.
-    ///
-    /// THE CLAIM BELONGS TO THE PROCESS, NOT TO THIS OBJECT, and that is the whole point of it being
-    /// static. There is exactly ONE Director per process, and this rule is the DIRECTOR'S: a seat is
-    /// reopened once, however many engines happen to exist. <see cref="Drain.DirectorRestore"/> holds its
-    /// own one-at-a-time rule in a static field under a static lock for precisely the same reason. Held on
-    /// the instance instead, the guarantee would depend on the CALLER keeping one engine for the
-    /// Director's lifetime - and the factory hands out a new engine on every call, while the start-up
-    /// window and the history window each want one of their own. A guard whose promise is the next
-    /// caller's to keep is a tripwire that caller cannot see, so the promise is kept here.
-    ///
-    /// AND THE STILL-RUNNING CHECK DOES NOT CATCH WHAT THIS MISSES: a reopened session comes back under a
-    /// NEW session id, so moments after a reopen the roster still says nothing at all about the seat's
-    /// CAPTURED id, and a second reopen would sail straight through it.
-    ///
-    /// WHAT THIS DOES NOT COVER, said plainly rather than hidden: ACROSS A DIRECTOR RESTART THE SAME SEAT
-    /// CAN STILL BE REOPENED TWICE, because nothing is written onto the record. Marking a seat needs the
-    /// restore lease and a workspace write, and a new mark kind would change
-    /// <c>CcDirector.Gateway.Contracts</c> and need a Gateway deploy - a Delivery Lead decision, not this
-    /// engine's. This guard covers one run of one Director and no more.
-    /// </summary>
-    private static readonly HashSet<string> Reopened = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>The lock over <see cref="Reopened"/>. Its own lock, taken by nothing else.</summary>
-    private static readonly object ReopenGate = new();
+    private readonly Func<DateTime> _nowUtc;
 
     /// <summary>Create the engine.</summary>
     /// <param name="gateway">The Gateway seam. Throws when the Gateway cannot be reached, which becomes a
@@ -73,7 +62,15 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// by. A FUNCTION rather than a value, because the name the Gateway stamps on a record is the one this
     /// Director last told it, and a rename lands without a restart - an engine holding the old name would
     /// look for records under a name nothing is written under any more.</param>
-    public DirectorWayUp(IWayUpGateway gateway, IWayUpRestore restore, string machine, Func<string?> directorName)
+    /// <param name="nowUtc">Reads the time now, in universal time. A seam rather than a call to the clock,
+    /// because <see cref="OfferedForDays"/> is a rule about age and a rule about age is only provable against
+    /// a clock a test can set. Defaults to the real clock.</param>
+    public DirectorWayUp(
+        IWayUpGateway gateway,
+        IWayUpRestore restore,
+        string machine,
+        Func<string?> directorName,
+        Func<DateTime>? nowUtc = null)
     {
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
         _restore = restore ?? throw new ArgumentNullException(nameof(restore));
@@ -81,6 +78,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             ? throw new ArgumentException("machine is required", nameof(machine))
             : machine;
         _directorName = directorName ?? throw new ArgumentNullException(nameof(directorName));
+        _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
     }
 
     /// <summary>
@@ -114,7 +112,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
                     FileLog.Write($"[DirectorWayUp] FindOfferAsync: record {summary.Id} was listed and is no longer there");
                     continue;
                 }
-                if (!IsOfferable(doc)) continue;
+                if (!IsOfferedAtStartUp(doc, _nowUtc())) continue;
 
                 var record = BuildRecord(doc);
                 FileLog.Write($"[DirectorWayUp] FindOfferAsync: offering {doc.Id}, owed={record.SeatsOwed}, rows={record.Rows.Count}");
@@ -143,7 +141,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             {
                 var doc = await _gateway.GetWorkspaceAsync(summary.Id, ct).ConfigureAwait(false);
                 if (doc is null) continue;
-                entries.Add(BuildHistoryEntry(doc));
+                entries.Add(BuildHistoryEntry(doc, _nowUtc()));
             }
 
             // How many are NOT being read, so the sentence can say so. Only the cap is counted here: a record
@@ -260,20 +258,47 @@ public sealed class DirectorWayUp : IDirectorWayUp
                     $"Nothing was reopened: {running} Two agents in one saved conversation would interleave " +
                     "their turns into one transcript.");
 
-            if (!ClaimReopen(doc.Id, SeatId(seat)))
-                return new WayUpReopenResult(false, null,
-                    $"'{seat.Name}' has already been reopened from this record since this Director started, so it " +
-                    "is not opened again - a second agent in the same saved conversation would interleave its " +
-                    "turns with the first one's. Find it in the session list.");
+            // THE CLAIM IS WRITTEN ON THE RECORD BEFORE THE START LEAVES, and it is NOT given back when the
+            // start fails, for the reason DirectorRestore.TimedOut gives: a start whose answer never came back
+            // may have happened anyway, and asking again is exactly the second agent this guard exists to
+            // prevent. It is on the RECORD and not in this process because a claim a restart forgets is no
+            // claim at all - that was product issue 3230, and the owner met it as six dead sessions offered
+            // back to him every morning.
+            var claim = await _gateway.MarkReopenedAsync(doc.Id, SeatId(seat), null, ct).ConfigureAwait(false);
+            switch (claim.State)
+            {
+                case WayUpMarkState.AlreadyDealtWith:
+                    return new WayUpReopenResult(false, null,
+                        $"'{seat.Name}' has already had its saved conversation reopened from this record, so it is " +
+                        "not opened again - a second agent in the same saved conversation would interleave its " +
+                        $"turns with the first one's. Find it in the session list. ({claim.Reason})");
 
-            // THE CLAIM IS TAKEN BEFORE THE START LEAVES, and it is NOT given back when the start fails, for
-            // the reason DirectorRestore.TimedOut gives: a start whose answer never came back may have
-            // happened anyway, and asking again is exactly the second agent this guard exists to prevent.
+                case WayUpMarkState.Refused:
+                    // LOUD AND SAFE. Nothing is started, because a reopen the record cannot carry is a session
+                    // this Director would offer again after every restart. There is deliberately no fallback
+                    // that starts it anyway and hopes (CLAUDE.md: no fallback programming).
+                    FileLog.Write($"[DirectorWayUp] ReopenAsync: the record could not be marked, so nothing was started: {claim.Reason}");
+                    return new WayUpReopenResult(false, null,
+                        $"Nothing was reopened: '{seat.Name}' could not be marked as dealt with on the record " +
+                        $"({claim.Reason}). Until it can be, reopening it would leave this session offered back " +
+                        "to you after every restart, so it is not started. A Gateway older than this Director " +
+                        "does not know the mark; it accepts it once it is up to date.");
+            }
+
             var created = await _gateway.StartSessionAsync(BuildReopen(doc, seat), ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(created.SessionId))
                 return new WayUpReopenResult(false, null,
                     "The Gateway answered without a session id, so nothing can be said to have been reopened. " +
                     "Check the session list before asking again.");
+
+            // WHICH SESSION TOOK IT, for the history to read. The claim above is what stops a second reopen, so
+            // this write failing costs the record one session id and nothing else - and the history says as much
+            // rather than leaving a blank (WayUpWords.SeatOutcome).
+            var recorded = await _gateway.MarkReopenedAsync(doc.Id, SeatId(seat), created.SessionId, ct)
+                .ConfigureAwait(false);
+            if (recorded.State != WayUpMarkState.Marked)
+                FileLog.Write($"[DirectorWayUp] ReopenAsync: seat={seat.SessionId} started as {created.SessionId}, " +
+                              $"but which session took it could not be recorded: {recorded.Reason}");
 
             FileLog.Write($"[DirectorWayUp] ReopenAsync: seat={seat.SessionId} reopened as {created.SessionId}");
             return new WayUpReopenResult(true, created.SessionId,
@@ -320,10 +345,41 @@ public sealed class DirectorWayUp : IDirectorWayUp
     private sealed record Candidates(IReadOnlyList<WorkspaceSummaryDto> Read, int Matched);
 
     /// <summary>
-    /// May this record be offered at start-up? A PRESENCE check on the record and never a count of running
-    /// sessions: it came from a smart shutdown, it was not cancelled, and it holds at least one seat that
-    /// can still be acted on. A record from an ignore-all, a cancelled record and a record with nothing left
-    /// to act on are all silently not offered, and all three stay readable in the history.
+    /// MAY THIS RECORD INTERRUPT THE OWNER AT START-UP? The actionability rule below, and the age.
+    ///
+    /// Both halves come from what the owner said on 20 September 2026: "Once you restart a session, it
+    /// shouldn't be there anymore, I think, or they should timeout." The first half is
+    /// <see cref="HasSomethingToActOn"/> - a record every seat of which has been dealt with holds nothing to
+    /// offer, so it stops appearing. The second is <see cref="OfferedForDays"/>.
+    ///
+    /// THIS IS THE ONLY RULE WITH AN AGE IN IT, and only the start-up read asks it. The history asks
+    /// <see cref="HasSomethingToActOn"/> directly, so the question "is there anything to act on" has exactly
+    /// one answer for both surfaces.
+    /// </summary>
+    /// <param name="doc">The record.</param>
+    /// <param name="nowUtc">The time now, in universal time.</param>
+    internal static bool IsOfferedAtStartUp(WorkspaceDocument doc, DateTime nowUtc)
+        => HasSomethingToActOn(doc) && !IsTooOldToOffer(doc, nowUtc);
+
+    /// <summary>
+    /// Is this record older than the Director offers a record for? Measured from when the shutdown was, which
+    /// is what the window shows the owner, so the sentence and the cut-off count the same moment.
+    /// </summary>
+    /// <param name="doc">The record.</param>
+    /// <param name="nowUtc">The time now, in universal time.</param>
+    internal static bool IsTooOldToOffer(WorkspaceDocument doc, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        return nowUtc.ToUniversalTime() - DateTime.SpecifyKind(ShutdownAtUtc(doc), DateTimeKind.Utc)
+               > TimeSpan.FromDays(OfferedForDays);
+    }
+
+    /// <summary>
+    /// IS THERE ANYTHING LEFT TO ACT ON? A PRESENCE check on the record and never a count of running sessions:
+    /// a Director with sessions running may still hold a record worth offering, and a Director with none may
+    /// hold nothing. It came from a smart shutdown, it was not cancelled, and it holds at least one seat that
+    /// can still be acted on. A record from an ignore-all, a cancelled record and a record every seat of which
+    /// has been dealt with are all silently not offered, and all three stay readable in the history.
     ///
     /// A SEAT THAT CAN STILL BE ACTED ON IS ONE OF TWO THINGS, and the second is why this check is wider
     /// than the sentence in mission document 5.3 item 10 (the mission's own
@@ -343,9 +399,14 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// WIDENING WHAT IS OFFERED IS NOT WIDENING WHAT COMES BACK. Such a seat is still unticked
     /// (<see cref="BuildRows"/>), the drain still wrote it "undecided" so the restore still refuses it, and
     /// its only offer is still the one button ruling 10.3 gives it. Nothing is brought back by itself.
+    ///
+    /// AND "DEALT WITH" IS WRITTEN ON THE RECORD, not remembered in this process: a seat brought back carries
+    /// its restored session id, and a seat whose conversation was reopened carries its reopen claim. That is
+    /// what closes product issue 3230 - before it, that fact survived a restart for the restore and did not
+    /// for a reopen, so the same dead sessions were offered every morning.
     /// </summary>
     /// <param name="doc">The record.</param>
-    internal static bool IsOfferable(WorkspaceDocument doc)
+    internal static bool HasSomethingToActOn(WorkspaceDocument doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
         return string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.SmartShutdown, StringComparison.Ordinal)
@@ -419,13 +480,27 @@ public sealed class DirectorWayUp : IDirectorWayUp
             ReasonLabel: WayUpWords.ReasonLabel(doc.Reason),
             SeatsOwed: owed.Count,
             SeatsEndedWithoutHandover: ended,
-            SeatsLabel: WayUpWords.SeatsLabel(owed.Count, ended),
+
+            // COUNTS THE MAIN LIST AND NOTHING ELSE, so the line and the rows under it agree. The sessions that
+            // ended without a handover are counted on their own section instead.
+            SeatsLabel: WayUpWords.SeatsLabel(owed.Count),
+            CanBringBackAnything: owed.Count > 0,
+            EndedSectionLabel: WayUpWords.EndedSectionLabel(ended),
+            EndedSectionDetail: WayUpWords.EndedSectionDetail(ended),
+
+            // OPEN FROM THE START ONLY WHEN IT IS THE WHOLE WINDOW. A record with nothing to bring back - the
+            // record the operating system's own shutdown writes (ruling 10.5) - would otherwise show an empty
+            // main list above a shut section, which is the "nothing here" reading the owner must never get.
+            // Shut by default otherwise, because drowning the one row he can act on is what he complained of.
+            EndedSectionStartsOpen: owed.Count == 0 && ended > 0,
             Rows: BuildRows(doc, owed));
     }
 
     /// <summary>One record in the history, whatever kind it is and whether or not it was cancelled.</summary>
     /// <param name="doc">The record.</param>
-    internal static WayUpHistoryEntry BuildHistoryEntry(WorkspaceDocument doc)
+    /// <param name="nowUtc">The time now, so the entry can say when a record has aged out of the start-up
+    /// offer. The history shows every record whatever its age; this only words it.</param>
+    internal static WayUpHistoryEntry BuildHistoryEntry(WorkspaceDocument doc, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(doc);
         var at = ShutdownAtUtc(doc);
@@ -459,11 +534,19 @@ public sealed class DirectorWayUp : IDirectorWayUp
                     EndedWithoutHandover(s) ? WayUpWords.ReopenOffer(s.Agent, s.ClaudeSessionId) : null))
                 .ToList(),
 
-            // The same rule the start-up check uses, so a record is offered from the history exactly when it
-            // would be offered at start-up - one rule, never two that can drift apart. A record whose seats
-            // ALL ended without a handover now carries one too, and what it offers is what the start-up
-            // window offers: those seats, unticked, each with its own button.
-            Offer: IsOfferable(doc) ? BuildRecord(doc) : null);
+            // The SAME actionability rule the start-up check uses, so what a record offers is decided in one
+            // place and never in two that can drift apart. A record whose seats ALL ended without a handover
+            // carries one too, and what it offers is what the start-up window offers: those seats, unticked,
+            // each with its own button.
+            //
+            // AGE IS NOT PART OF IT, and that is the one deliberate difference between the two surfaces. A
+            // record too old to interrupt the owner with at start-up still carries its offer HERE, because the
+            // owner's reason for the history is restarting something later; NotOfferedAtStartUpLabel says why
+            // it stopped appearing by itself. See OfferedForDays.
+            Offer: HasSomethingToActOn(doc) ? BuildRecord(doc) : null,
+            NotOfferedAtStartUpLabel: HasSomethingToActOn(doc) && IsTooOldToOffer(doc, nowUtc)
+                ? WayUpWords.TooOldToOfferLabel(OfferedForDays)
+                : null);
     }
 
     /// <summary>
@@ -549,14 +632,19 @@ public sealed class DirectorWayUp : IDirectorWayUp
     }
 
     /// <summary>
-    /// A seat that ended without a handover: the smart shutdown ended it when time was up, or it never
-    /// answered at all. A seat that is owed is not one of these - it handed over - and neither is one that
-    /// has already come back.
+    /// A seat that ended without a handover AND HAS NOT BEEN DEALT WITH: the smart shutdown ended it when time
+    /// was up, or it never answered at all. A seat that is owed is not one of these - it handed over - and
+    /// neither is one that has already come back or had its saved conversation reopened.
     /// </summary>
     /// <param name="seat">The seat.</param>
     private static bool EndedWithoutHandover(WorkspaceSeat seat)
         => !string.IsNullOrWhiteSpace(seat.SessionId)
            && string.IsNullOrWhiteSpace(seat.RestoredSessionId)
+
+           // ALREADY DEALT WITH, so it is not offered again (product issue 3230). The owner's own words: "Once
+           // you restart a session, it shouldn't be there anymore." It stays in the history, where
+           // WayUpWords.SeatOutcome says when its conversation was reopened and by what session.
+           && seat.Restore?.ReopenedAtUtc is null
            && seat.Restore is not { Decision: WorkspaceRestoreDecisions.Restore }
            && (string.Equals(seat.DrainState, WorkspaceDrainStates.EndedAtLimit, StringComparison.Ordinal)
                || string.Equals(seat.DrainState, WorkspaceDrainStates.Unreachable, StringComparison.Ordinal));
@@ -757,38 +845,6 @@ public sealed class DirectorWayUp : IDirectorWayUp
             return $"the record '{doc.Id}' belongs to Director '{doc.DirectorName}', not to '{directorName}', so " +
                    "this Director will not act on it.";
         return null;
-    }
-
-    /// <summary>
-    /// Claim the one reopen this seat gets while this Director is up, or answer false because it is already
-    /// taken. STATIC, because the claim belongs to the process and not to whoever built this engine: see
-    /// the comment on <see cref="Reopened"/> for what this covers and what it does not.
-    /// </summary>
-    /// <param name="workspaceId">The record.</param>
-    /// <param name="seatSessionId">The seat's captured session id.</param>
-    private static bool ClaimReopen(string workspaceId, string seatSessionId)
-    {
-        lock (ReopenGate)
-        {
-            return Reopened.Add(workspaceId + "\n" + seatSessionId);
-        }
-    }
-
-    /// <summary>
-    /// FOR TESTS ONLY: forget every reopen claim taken in this process, so a test starts clean.
-    ///
-    /// A test process is not a Director. The product runs one Director per process and never wants this;
-    /// a test run holds many records named alike in one process, and a claim left behind by an earlier
-    /// test would refuse a later one for a reason that is about the test runner and not about the product.
-    /// The way up test classes sit in <c>DirectorGatesCollection</c> so they never run side by side, and
-    /// each test's rig calls this as it is built.
-    /// </summary>
-    internal static void ForgetReopenClaims()
-    {
-        lock (ReopenGate)
-        {
-            Reopened.Clear();
-        }
     }
 
     /// <summary>A bring back that started nothing, with the reason in plain words.</summary>

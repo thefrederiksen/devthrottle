@@ -348,18 +348,20 @@ public class DirectorWayUpHistoryTests
     }
 
     /// <summary>
-    /// ONE REOPEN PER SEAT WHILE THIS DIRECTOR IS UP (review finding 1, part two). A double click, or the
-    /// history open on two screens, must not start two agents in one saved conversation. The second attempt
-    /// is refused in words of the ENGINE, so no window has to invent the sentence.
+    /// ONE REOPEN PER SEAT, EVER. A double click, or the history open on two screens, must not start two
+    /// agents in one saved conversation. The second attempt is refused in words of the ENGINE, so no window
+    /// has to invent the sentence.
     ///
     /// IT USES TWO SEPARATE ENGINES ON PURPOSE, because that is what the real windows do: the factory
     /// builds a new engine on every call, and the start-up window and the history window each hold one of
     /// their own. An earlier version of this test held ONE engine in a local, so it would have passed just
     /// as happily with the claim on the instance - where it guarded nothing the moment a caller built a
-    /// second engine. Two engines is the test that proves the claim belongs to the process.
+    /// second engine.
     ///
-    /// WHAT THIS DOES NOT COVER: across a Director restart the same seat CAN still be reopened twice,
-    /// because nothing is written onto the record. That is stated in the answer file and on the code.
+    /// AND IT NOW COVERS A RESTART, which is the whole of product issue 3230: the claim is read from the
+    /// RECORD, so the second engine is refused because of what is stored and not because of anything either
+    /// engine remembers. <see cref="Reopening_a_seat_dealt_with_before_the_restart_is_refused_from_the_record"/>
+    /// proves the same thing with no first reopen in this process at all.
     /// </summary>
     [Fact]
     public async Task Reopening_the_same_seat_twice_starts_only_one_session()
@@ -377,7 +379,196 @@ public class DirectorWayUpHistoryTests
         Assert.False(second.Started);
         Assert.Null(second.NewSessionId);
         Assert.Single(rig.Gateway.Started);
-        Assert.Contains("has already been reopened from this record", second.Message);
+        Assert.Contains("has already had its saved conversation reopened", second.Message);
+    }
+
+    /// <summary>
+    /// THE CLAIM SURVIVES A DIRECTOR RESTART, which is product issue 3230 itself. Nothing in this test
+    /// reopens anything: the record ARRIVES already carrying the reopen, exactly as it would after the
+    /// Director has been shut down and started again, and the reopen is refused from that alone.
+    ///
+    /// Under the old guard - a set held inside the engine's own process - this seat would have been reopened
+    /// a second time without a murmur, and a second live agent would have been typing into the same saved
+    /// transcript as the first.
+    /// </summary>
+    [Fact]
+    public async Task Reopening_a_seat_dealt_with_before_the_restart_is_refused_from_the_record()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.AlreadyReopened("ended", "A busy worker", reopenedAs: "aaaabbbb-cccc"),
+        }));
+
+        var result = await rig.WayUp().ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+
+        Assert.False(result.Started);
+        Assert.Empty(rig.Gateway.Started);
+        Assert.Contains("has already had its saved conversation reopened", result.Message);
+    }
+
+    /// <summary>
+    /// A GATEWAY THAT CANNOT RECORD THE REOPEN STARTS NOTHING, AND SAYS SO. The hosted Gateway checks the
+    /// mark name against a closed list, so one older than this Director answers HTTP 400 naming the kinds it
+    /// knows. Reopening anyway would leave the session offered back after every restart, which is the defect
+    /// this mark exists to end - so it is refused, loudly, and there is deliberately no fallback that starts
+    /// it and hopes.
+    /// </summary>
+    [Fact]
+    public async Task A_reopen_the_record_cannot_be_marked_with_starts_nothing_and_says_why()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended", "A busy worker"),
+        }));
+        rig.Gateway.RefuseReopenMarks = "kind must be one of: started, restored, failed, finished.";
+
+        var result = await rig.WayUp().ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+
+        Assert.False(result.Started);
+        Assert.Null(result.NewSessionId);
+        Assert.Empty(rig.Gateway.Started);
+        Assert.Contains("could not be marked as dealt with on the record", result.Message);
+        Assert.Contains("kind must be one of: started, restored, failed, finished.", result.Message);
+        Assert.Contains("offered back", result.Message);
+    }
+
+    /// <summary>
+    /// THE CLAIM GOES IN BEFORE THE SESSION IS STARTED, and which session took it is written afterwards. The
+    /// order is the point: a claim written after a successful start would be missing for exactly the start
+    /// whose answer never came back, which is the case the claim exists for.
+    /// </summary>
+    [Fact]
+    public async Task The_reopen_is_claimed_on_the_record_before_any_session_is_started()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.Ended("ended", "A busy worker"),
+        }));
+        rig.Gateway.NextSessionId = "dddd1111-2222";
+
+        var result = await rig.WayUp().ReopenAsync(new WayUpReopenRequest("restart-1", "ended"), CancellationToken.None);
+
+        Assert.True(result.Started);
+        Assert.Equal(
+            new[] { ("ended", (string?)null), ("ended", "dddd1111-2222") },
+            rig.Gateway.ReopenMarks.ToArray());
+    }
+
+    /// <summary>
+    /// A SEAT DEALT WITH IS OFF THE OFFER, AND STILL IN THE HISTORY - the owner's own words: "Once you restart
+    /// a session, it shouldn't be there anymore." The record here holds one seat waiting to come back and one
+    /// whose conversation has been reopened, so it is still offered; what it must not do is list the reopened
+    /// one again.
+    /// </summary>
+    [Fact]
+    public async Task A_reopened_seat_is_off_the_offer_and_its_reopen_is_readable_in_the_history()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.Owed("lead", "A lead"),
+            WayUpTestRig.AlreadyReopened("ended", "A busy worker", reopenedAs: "aaaabbbb-cccc"),
+        }));
+
+        var record = Assert.IsType<WayUpRecord>((await rig.WayUp().FindOfferAsync(CancellationToken.None)).Record);
+        Assert.Equal(0, record.SeatsEndedWithoutHandover);
+        Assert.Null(record.EndedSectionLabel);
+        Assert.Equal(new[] { "lead" }, record.Rows.Select(r => r.RowId).ToArray());
+
+        var history = await rig.WayUp().ReadHistoryAsync(CancellationToken.None);
+        var seat = Assert.Single(Assert.Single(history.Entries).Seats, x => x.SessionId == "ended");
+        Assert.Contains("Its saved conversation was reopened on", seat.Outcome);
+        Assert.Contains("aaaabbbb", seat.Outcome);
+    }
+
+    /// <summary>
+    /// A RECORD EVERY SEAT OF WHICH HAS BEEN DEALT WITH IS NOT OFFERED, AND IS STILL READ IN THE HISTORY.
+    /// This is the other half of what the owner asked for: the record he had already answered kept coming
+    /// back. One seat here came back through the restore and one had its conversation reopened, so there is
+    /// nothing left to act on - and the history still shows what became of both.
+    /// </summary>
+    [Fact]
+    public async Task A_record_every_seat_of_which_is_dealt_with_is_not_offered_but_is_still_in_the_history()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        {
+            WayUpTestRig.AlreadyBack("lead", "A lead", restoredAs: "eeee1111-2222"),
+            WayUpTestRig.AlreadyReopened("ended", "A busy worker", reopenedAs: "aaaabbbb-cccc"),
+        }));
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+        Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
+        Assert.Null(offer.Record);
+
+        var entry = Assert.Single((await rig.WayUp().ReadHistoryAsync(CancellationToken.None)).Entries);
+        Assert.Null(entry.Offer);
+        Assert.Null(entry.NotOfferedAtStartUpLabel);
+        Assert.Equal(2, entry.Seats.Count);
+    }
+
+    /// <summary>
+    /// A RECORD OLDER THAN THE DIRECTOR OFFERS ONE FOR STOPS APPEARING AT START-UP - "or they should
+    /// timeout", in the owner's words - AND KEEPS ITS OFFER IN THE HISTORY, with a sentence saying why it
+    /// stopped appearing.
+    ///
+    /// The two halves are the point. Taking the button away as well would defeat the owner's own reason for
+    /// having a history: "it could be that I accidentally don't restart it right away and I want to restart
+    /// it later." And a record that simply vanished from start-up with no sentence anywhere would be the same
+    /// confusion in the other direction.
+    /// </summary>
+    [Fact]
+    public async Task A_record_older_than_seven_days_is_not_offered_at_start_up_and_says_so_in_the_history()
+    {
+        var rig = new WayUpTestRig();
+        var eightDaysAgo = WayUpTestRig.Now.AddDays(-8);
+        rig.Gateway.With(WayUpTestRig.Record("restart-old", eightDaysAgo, new[]
+        {
+            WayUpTestRig.Owed("lead", "A lead"),
+        }));
+
+        var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
+        Assert.Equal(WayUpOfferState.NothingWaiting, offer.State);
+
+        var entry = Assert.Single((await rig.WayUp().ReadHistoryAsync(CancellationToken.None)).Entries);
+        Assert.NotNull(entry.Offer);
+        Assert.Equal(
+            "More than 7 days old, so the Director no longer offers it when it starts. Nothing has been " +
+            "deleted: what it holds can still be brought back from here.",
+            entry.NotOfferedAtStartUpLabel);
+    }
+
+    /// <summary>
+    /// SEVEN DAYS EXACTLY IS STILL OFFERED, and the day after is not. The boundary is asserted from both
+    /// sides, because a cut-off tested only well inside one side of it would pass with the comparison the
+    /// wrong way round or the unit wrong.
+    /// </summary>
+    [Fact]
+    public async Task The_seven_day_cut_off_is_counted_from_when_the_shutdown_was()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-day-seven", WayUpTestRig.Now.AddDays(-7), new[]
+        {
+            WayUpTestRig.Owed("lead", "A lead"),
+        }));
+
+        Assert.Equal(
+            WayUpOfferState.Offered,
+            (await rig.WayUp().FindOfferAsync(CancellationToken.None)).State);
+
+        var rigJustOver = new WayUpTestRig();
+        rigJustOver.Gateway.With(WayUpTestRig.Record(
+            "restart-past-day-seven", WayUpTestRig.Now.AddDays(-7).AddMinutes(-1), new[]
+            {
+                WayUpTestRig.Owed("lead", "A lead"),
+            }));
+
+        Assert.Equal(
+            WayUpOfferState.NothingWaiting,
+            (await rigJustOver.WayUp().FindOfferAsync(CancellationToken.None)).State);
     }
 
     /// <summary>

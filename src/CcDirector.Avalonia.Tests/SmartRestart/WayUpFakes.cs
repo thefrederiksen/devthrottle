@@ -32,19 +32,66 @@ internal static class WayUp
     /// A record as the engine would hand one over. How many seats ended without a handover is COUNTED OFF
     /// THE ROWS rather than taken as an argument, so every caller that already names its rows keeps saying
     /// what it said - and a test that wants the two to disagree says so through the rows it passes.
+    ///
+    /// The section line, its detail, whether it starts open and whether there is anything to bring back are
+    /// DERIVED the way the engine derives them, in the test's own words. A test about any of those four says
+    /// so with <see cref="RecordWith"/> instead.
     /// </summary>
     internal static WayUpRecord Record(
         string workspaceId,
         string headline,
         string whenLabel,
-        string reasonLabel,
+        string? reasonLabel,
         int seatsOwed,
         string seatsLabel,
         params WayUpRow[] rows) =>
-        new(workspaceId, new DateTime(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc),
+        RecordWith(workspaceId, headline, whenLabel, reasonLabel, seatsOwed, seatsLabel, rows);
+
+    /// <summary>
+    /// The same record with the four things the window lays out by explicitly named, for a test that is about
+    /// one of them. Anything left null is derived exactly as <see cref="Record"/> derives it.
+    /// </summary>
+    /// <param name="endedSectionLabel">The line the ended sessions sit behind.</param>
+    /// <param name="endedSectionDetail">What those sessions are.</param>
+    /// <param name="endedSectionStartsOpen">Whether that section starts open.</param>
+    /// <param name="canBringBackAnything">Whether the bring back answer is drawn at all.</param>
+    internal static WayUpRecord RecordWith(
+        string workspaceId,
+        string headline,
+        string whenLabel,
+        string? reasonLabel,
+        int seatsOwed,
+        string seatsLabel,
+        WayUpRow[] rows,
+        string? endedSectionLabel = null,
+        string? endedSectionDetail = null,
+        bool? endedSectionStartsOpen = null,
+        bool? canBringBackAnything = null)
+    {
+        var ended = rows.Count(r => r.Kind == WayUpRowKind.EndedWithoutHandover);
+        return new WayUpRecord(
+            workspaceId,
+            new DateTime(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc),
             new DateTime(2026, 9, 19, 17, 50, 0, DateTimeKind.Local),
-            headline, whenLabel, null, reasonLabel, seatsOwed,
-            rows.Count(r => r.Kind == WayUpRowKind.EndedWithoutHandover), seatsLabel, rows);
+            headline,
+            whenLabel,
+            null,
+            reasonLabel,
+            seatsOwed,
+            ended,
+            seatsLabel,
+            canBringBackAnything ?? seatsOwed > 0,
+            endedSectionLabel ?? (ended == 0
+                ? null
+                : ended == 1
+                    ? "One session ended without a handover."
+                    : $"{ended} sessions ended without a handover."),
+            endedSectionDetail ?? (ended == 0
+                ? null
+                : "None of them comes back unless you ask; each one can have its saved conversation reopened."),
+            endedSectionStartsOpen ?? (seatsOwed == 0 && ended > 0),
+            rows);
+    }
 
     /// <summary>A seat in the history that carries NO reopen offer: it handed over, or it came back.</summary>
     internal static WayUpHistorySeat HistorySeat(string sessionId, string name, string outcome) =>
@@ -65,13 +112,32 @@ internal static class WayUp
         string workspaceId,
         string whenLabel,
         string kindLabel,
-        string reasonLabel,
+        string? reasonLabel,
         string outcomeLabel,
         WayUpRecord? offer = null,
         params WayUpHistorySeat[] seats) =>
         new(workspaceId, new DateTime(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc),
             new DateTime(2026, 9, 19, 17, 50, 0, DateTimeKind.Local),
-            whenLabel, kindLabel, null, reasonLabel, outcomeLabel, seats, offer);
+            whenLabel, kindLabel, null, reasonLabel, outcomeLabel, seats, offer, null);
+
+    /// <summary>
+    /// A record in the history that the Director has STOPPED OFFERING BY ITSELF because of its age, and which
+    /// still carries its offer here. Both halves are the point: it stopped interrupting him at start-up, and
+    /// he can still bring it back.
+    /// </summary>
+    /// <param name="notOfferedAtStartUpLabel">Why it stopped appearing, in words the window shows as given.</param>
+    internal static WayUpHistoryEntry HistoryEntryNotOfferedAtStartUp(
+        string workspaceId,
+        string whenLabel,
+        string kindLabel,
+        string? reasonLabel,
+        string outcomeLabel,
+        string notOfferedAtStartUpLabel,
+        WayUpRecord? offer,
+        params WayUpHistorySeat[] seats) =>
+        new(workspaceId, new DateTime(2026, 9, 19, 21, 50, 0, DateTimeKind.Utc),
+            new DateTime(2026, 9, 19, 17, 50, 0, DateTimeKind.Local),
+            whenLabel, kindLabel, null, reasonLabel, outcomeLabel, seats, offer, notOfferedAtStartUpLabel);
 }
 
 /// <summary>
