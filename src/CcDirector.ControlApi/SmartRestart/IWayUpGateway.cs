@@ -42,7 +42,45 @@ public interface IWayUpGateway
     /// </summary>
     /// <param name="ct">Cancellation.</param>
     Task<RestoreRoster> GetRosterAsync(CancellationToken ct);
+
+    /// <summary>
+    /// WRITE THE REOPEN ONTO THE RECORD (product issue 3230): this seat's saved conversation is being reopened,
+    /// so it is never offered again - after the next Director restart as much as during this run.
+    ///
+    /// It ANSWERS rather than throwing, because its three answers are three different things to say to the
+    /// person: recorded, already dealt with, or the record could not be marked at all. See
+    /// <see cref="WayUpMarkState"/>.
+    /// </summary>
+    /// <param name="workspaceId">The record.</param>
+    /// <param name="seatSessionId">The seat's captured session id.</param>
+    /// <param name="reopenedSessionId">The session it was reopened as, or null on the mark that CLAIMS the
+    /// reopen before the create is sent.</param>
+    /// <param name="ct">Cancellation.</param>
+    Task<WayUpMarkOutcome> MarkReopenedAsync(
+        string workspaceId, string seatSessionId, string? reopenedSessionId, CancellationToken ct);
 }
+
+/// <summary>What became of a write of the reopen mark. Three states, kept apart because they are three
+/// different sentences: an ordinary refusal that the person has already dealt with this seat, and a record
+/// that could not be marked at all, must never read as each other.</summary>
+public enum WayUpMarkState
+{
+    /// <summary>The record now carries the reopen.</summary>
+    Marked,
+
+    /// <summary>This seat's conversation was already reopened, so it is not reopened again. An ordinary
+    /// outcome and not a failure - it is the guarantee working.</summary>
+    AlreadyDealtWith,
+
+    /// <summary>The record could not be marked. <see cref="WayUpMarkOutcome.Reason"/> holds the Gateway's own
+    /// words, which on a Gateway too old to know the mark name those it does know.</summary>
+    Refused,
+}
+
+/// <summary>The answer to a reopen mark.</summary>
+/// <param name="State">Marked, already dealt with, or refused.</param>
+/// <param name="Reason">The Gateway's own reason, on either refusing state. Null when it was marked.</param>
+public sealed record WayUpMarkOutcome(WayUpMarkState State, string? Reason);
 
 /// <summary>
 /// The restore, behind a seam. ONE method, because the way up does not re-implement any part of a restore:
@@ -76,11 +114,20 @@ public sealed class GatewayClientWayUp : IWayUpGateway
         "rather than on this machine";
 
     private readonly Func<GatewayClient?> _client;
+    private readonly string _directorId;
 
     /// <summary>Create the seam.</summary>
     /// <param name="client">Reads the host's CURRENT Gateway client, or null when there is none.</param>
-    public GatewayClientWayUp(Func<GatewayClient?> client)
-        => _client = client ?? throw new ArgumentNullException(nameof(client));
+    /// <param name="directorId">THIS Director's id, which every mark it writes is stamped with. The Gateway
+    /// refuses a mark whose Director is not the one the credential is connected on, so it is not the engine's
+    /// to choose and is not read from anything a caller supplies.</param>
+    public GatewayClientWayUp(Func<GatewayClient?> client, string directorId)
+    {
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _directorId = string.IsNullOrWhiteSpace(directorId)
+            ? throw new ArgumentException("directorId is required", nameof(directorId))
+            : directorId;
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<WorkspaceSummaryDto>> ListWorkspacesAsync(CancellationToken ct)
@@ -102,6 +149,29 @@ public sealed class GatewayClientWayUp : IWayUpGateway
         // GatewayClientRestoreGateway does, for the same reason.
         var (sessions, directors) = await Required().ListFleetSessionsWithReachabilityAsync(ct).ConfigureAwait(false);
         return new RestoreRoster(sessions, directors);
+    }
+
+    /// <inheritdoc />
+    public async Task<WayUpMarkOutcome> MarkReopenedAsync(
+        string workspaceId, string seatSessionId, string? reopenedSessionId, CancellationToken ct)
+    {
+        var mark = new WorkspaceRestoreMark
+        {
+            DirectorId = _directorId,
+            Kind = WorkspaceRestoreMarkKinds.Reopened,
+            SeatSessionId = seatSessionId,
+            ReopenedSessionId = reopenedSessionId,
+        };
+
+        var (status, error) = await Required().RecordReopenMarkAsync(workspaceId, mark, ct).ConfigureAwait(false);
+        if (status is >= 200 and < 300) return new WayUpMarkOutcome(WayUpMarkState.Marked, null);
+
+        // 409 is the store saying this seat was already reopened, which is the guarantee doing its job. Every
+        // other status - including the 400 a Gateway too old to know this mark answers with - is a record that
+        // could not be marked, and is never softened into "it worked".
+        return status == 409
+            ? new WayUpMarkOutcome(WayUpMarkState.AlreadyDealtWith, error)
+            : new WayUpMarkOutcome(WayUpMarkState.Refused, error);
     }
 
     private GatewayClient Required()

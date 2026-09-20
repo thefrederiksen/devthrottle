@@ -28,7 +28,9 @@ public partial class WayUpOfferWindow : Window
             new WayUpRecord(
                 "sample", DateTime.UtcNow, DateTime.Now,
                 WayUpWords.Headline, WayUpWords.WhenLabel(DateTime.Now), null, WayUpWords.ReasonLabel(null),
-                0, 0, WayUpWords.SeatsLabel(0, 0), Array.Empty<WayUpRow>()),
+                0, 0, WayUpWords.SeatsLabel(0), false,
+                WayUpWords.EndedSectionLabel(0), WayUpWords.EndedSectionDetail(0), false,
+                Array.Empty<WayUpRow>()),
             new DesignerWayUp()))
     {
     }
@@ -44,7 +46,14 @@ public partial class WayUpOfferWindow : Window
 
         // Bring back is the default, so Enter takes it wherever the focus is, and the focus starts on
         // it so Space takes it too. Not now is the cancel, so Escape and the window's own X take it.
-        Opened += (_, _) => BtnBringBack.Focus();
+        //
+        // A RECORD WITH NOTHING TO BRING BACK DRAWS NO SUCH BUTTON, and the focus goes to the only
+        // answer there is. Focusing a button that is not drawn would leave the keyboard nowhere.
+        Opened += (_, _) =>
+        {
+            if (ViewModel.ShowBringBack) BtnBringBack.Focus();
+            else BtnNotNow.Focus();
+        };
 
         FileLog.Write($"[WayUpOfferWindow] Created: workspace={viewModel.Record.WorkspaceId}, rows={viewModel.Rows.Count}");
     }

@@ -20,8 +20,8 @@ public static class WayUpWords
 
     /// <summary>What is said when the Gateway answered and there is nothing waiting.</summary>
     public const string NothingWaiting =
-        "There is nothing waiting to come back. This Director holds no record of a smart shutdown with " +
-        "sessions still owed.";
+        "There is nothing waiting to come back. No smart shutdown of this Director in the last " +
+        "seven days still has a session to bring back or a saved conversation to reopen.";
 
     /// <summary>What is said when the history is empty, which is not the same as unreadable.</summary>
     public const string NoHistory =
@@ -71,10 +71,19 @@ public static class WayUpWords
     /// <param name="local">The moment, in local time.</param>
     public static string WhenLabel(DateTime local) => $"Shut down on {When(local)}.";
 
-    /// <summary>The reason the shutdown was run, in plain words, including when there was none.</summary>
+    /// <summary>
+    /// The reason the shutdown was run, in plain words, or NULL when there was none - and a window shows
+    /// nothing at all for a null.
+    ///
+    /// IT USED TO SAY "No reason was given." That is a line of text that tells the reader nothing he did not
+    /// already know, on the one window the owner called confusing: "It's really confusing with all of those on
+    /// the screen" (20 September 2026). Saying nothing when there is nothing to say is the fix, and it is the
+    /// engine's to decide rather than each window's - a window that hid a sentence it did not like would be
+    /// deciding what a state means (critical rule 7 in CLAUDE.md).
+    /// </summary>
     /// <param name="reason">The record's own reason, or null.</param>
-    public static string ReasonLabel(string? reason) =>
-        string.IsNullOrWhiteSpace(reason) ? "No reason was given." : $"Reason: {reason.Trim()}";
+    public static string? ReasonLabel(string? reason) =>
+        string.IsNullOrWhiteSpace(reason) ? null : $"Reason: {reason.Trim()}";
 
     /// <summary>How many seats are waiting to come back.</summary>
     /// <param name="owed">The count.</param>
@@ -84,34 +93,60 @@ public static class WayUpWords
             : $"{owed} sessions are waiting to be brought back.";
 
     /// <summary>
-    /// WHAT AN OFFERED RECORD HOLDS, IN ONE LINE - both counts, because a record can be offered for either
-    /// of them.
+    /// WHAT THE MAIN LIST HOLDS, AND ONLY THAT (the owner's reading, 20 September 2026).
     ///
-    /// A record whose every session ended at the limit is offered for those seats alone (ruling 10.5), and
-    /// under a line that said only how many are waiting to come back it would read "0 sessions are waiting
-    /// to be brought back" over a window full of rows. That is a true number and a false sentence, so the
-    /// line names both things and the window shows it as it is.
+    /// It used to name BOTH counts in one line, above a list that then held both kinds of row. What the owner
+    /// saw was "One session is waiting to be brought back" over seven rows, six of them greyed, and he could
+    /// not read it: "I don't understand because when the restart comes back, why are there multiple sessions
+    /// ... It's really confusing with all of those on the screen."
     ///
-    /// IT PROMISES NOTHING ABOUT WHAT CAN BE REOPENED, because the count includes a seat whose conversation
-    /// was never recorded - such a seat is listed, and its own offer says it has nothing to reopen. The
-    /// line says what the rows ARE; each row says what can be done with it.
+    /// So the two kinds are now two places: this line counts exactly the rows in the main list, and the
+    /// sessions that ended without a handover are counted by <see cref="EndedSectionLabel"/> on their own
+    /// section. A person reading this line and counting the rows under it gets the same number.
     /// </summary>
     /// <param name="owed">How many seats handed over and are waiting to be brought back.</param>
-    /// <param name="endedWithoutHandover">How many seats ended without a handover and are listed unticked.</param>
-    public static string SeatsLabel(int owed, int endedWithoutHandover)
+    public static string SeatsLabel(int owed) =>
+        owed == 0
+            ? "No session handed over, so there is nothing to bring back."
+            : SeatsOwedLabel(owed);
+
+    /// <summary>
+    /// THE ONE LINE THE SESSIONS THAT ENDED WITHOUT A HANDOVER SIT BEHIND, or null when there are none.
+    ///
+    /// Ruling 10.3 still holds in full: those sessions are still listed, still unticked, and still each carry
+    /// their one reopen button. They are MOVED, not dropped - behind a line that says how many there are and
+    /// opens them when asked. The owner's complaint was never that they were there; it was that they drowned
+    /// the one row he could act on and the date he needed.
+    /// </summary>
+    /// <param name="endedWithoutHandover">How many seats ended without a handover.</param>
+    public static string? EndedSectionLabel(int endedWithoutHandover) => endedWithoutHandover switch
     {
-        if (endedWithoutHandover <= 0) return SeatsOwedLabel(owed);
+        <= 0 => null,
+        1 => "One session ended without a handover.",
+        _ => $"{endedWithoutHandover} sessions ended without a handover.",
+    };
 
-        var ended = endedWithoutHandover == 1
-            ? "One session ended without a handover. It is listed below, unticked, and nothing comes back " +
-              "unless you ask for it."
-            : $"{endedWithoutHandover} sessions ended without a handover. They are listed below, unticked, " +
-              "and nothing comes back unless you ask for it.";
+    /// <summary>What those sessions are, said once for the section rather than repeated on every row. Null when
+    /// there are none. It is true whether the section is open or shut, so opening it changes no words.</summary>
+    /// <param name="endedWithoutHandover">How many seats ended without a handover.</param>
+    public static string? EndedSectionDetail(int endedWithoutHandover) =>
+        endedWithoutHandover <= 0
+            ? null
+            : "None of them comes back unless you ask; each one can have its saved conversation reopened.";
 
-        return owed == 0
-            ? "No session is waiting to be brought back. " + ended
-            : SeatsOwedLabel(owed) + " " + ended;
-    }
+    /// <summary>
+    /// WHY A RECORD HAS STOPPED APPEARING AT START-UP although it still holds something to act on: it is older
+    /// than the <paramref name="days"/> the Director offers a record for. Shown in the restart history, which
+    /// is where nothing is ever hidden.
+    ///
+    /// The owner asked for both halves of this: "there should be a way to remove old [ones]. Once you restart
+    /// a session, it shouldn't be there anymore, I think, or they should timeout." A record that simply stopped
+    /// appearing with no sentence anywhere would be the same confusion in the other direction.
+    /// </summary>
+    /// <param name="days">How many days a record is offered at start-up for.</param>
+    public static string TooOldToOfferLabel(int days) =>
+        $"More than {days} days old, so the Director no longer offers it when it starts. Nothing has been " +
+        "deleted: what it holds can still be brought back from here.";
 
     /// <summary>The name of a bring back row: the mission head, and its mission when it has one.</summary>
     /// <param name="seat">The mission head.</param>
@@ -332,6 +367,16 @@ public static class WayUpWords
         ArgumentNullException.ThrowIfNull(seat);
         if (!string.IsNullOrWhiteSpace(seat.RestoredSessionId))
             return $"Came back as {DrainPaths.ShortId(seat.RestoredSessionId)}.";
+
+        // DEALT WITH BY A REOPEN, which is the other way a seat leaves the offer (product issue 3230). A claim
+        // with no session id is said as it is: one reopen was started and what came of it was never recorded.
+        if (seat.Restore?.ReopenedAtUtc is { } reopenedAt)
+        {
+            var when = When(DateTime.SpecifyKind(reopenedAt, DateTimeKind.Utc).ToLocalTime());
+            return string.IsNullOrWhiteSpace(seat.Restore.ReopenedSessionId)
+                ? $"Its saved conversation was reopened on {when}. Which session took it was never recorded."
+                : $"Its saved conversation was reopened on {when} as {DrainPaths.ShortId(seat.Restore.ReopenedSessionId)}.";
+        }
         if (string.Equals(seat.DrainState, WorkspaceDrainStates.EndedAtLimit, StringComparison.Ordinal))
             return "Ended when time was up, without a handover. Its saved conversation can be reopened.";
         if (string.Equals(seat.DrainState, WorkspaceDrainStates.Unreachable, StringComparison.Ordinal))

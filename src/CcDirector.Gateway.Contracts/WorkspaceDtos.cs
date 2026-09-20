@@ -447,6 +447,37 @@ public sealed class WorkspaceSeatRestore
 
     /// <summary>The Director that wrote <see cref="StartedToken"/>.</summary>
     public string? StartedByDirectorId { get; set; }
+
+    /// <summary>
+    /// WHEN THIS SEAT'S SAVED CONVERSATION WAS REOPENED, or null when it never was (the Smart Director
+    /// Restart mission, product issue 3230).
+    ///
+    /// A seat that ended without a handover is never brought back by a restore - it has no handover to read -
+    /// so <see cref="WorkspaceSeat.RestoredSessionId"/> stays empty for it for ever, and nothing on the record
+    /// used to say it had been dealt with. The way up therefore offered the same dead session again after
+    /// every restart, which is what the owner saw on 20 September 2026: seven rows, six of them already
+    /// answered. This field is what "dealt with" means for such a seat.
+    ///
+    /// It is PROVENANCE, written only by a restore mark of kind
+    /// <see cref="WorkspaceRestoreMarkKinds.Reopened"/>, for the same reason
+    /// <see cref="WorkspaceSeat.RestoredSessionId"/> is: a field any writer could set would let any writer
+    /// make a session vanish from the offer, or bring a dealt-with one back into it.
+    /// </summary>
+    public DateTime? ReopenedAtUtc { get; set; }
+
+    /// <summary>
+    /// The session this seat's saved conversation was reopened as, or null when the reopen was claimed and no
+    /// session id was ever recorded for it. Claiming happens BEFORE the create is sent, exactly as
+    /// <see cref="StartedToken"/> does and for the same reason: a start whose answer never came back may have
+    /// happened, so the claim must already be on the record. A claim with no id means one attempt was made
+    /// and what came of it is unknown - which is a fact worth reading, not a gap to fill in.
+    /// </summary>
+    public string? ReopenedSessionId { get; set; }
+
+    /// <summary>The Director that claimed the reopen. Only that Director may fill in
+    /// <see cref="ReopenedSessionId"/> afterwards.</summary>
+    public string? ReopenedByDirectorId { get; set; }
+
     /// <summary>Anything in this object this build does not know a field for, kept verbatim.
     /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
     /// </summary>

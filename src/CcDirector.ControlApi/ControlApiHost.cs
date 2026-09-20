@@ -293,7 +293,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     {
         FileLog.Write($"[ControlApiHost] CreateDirectorWayUp: gatewayClient={(_gatewayClient is null ? "none" : "present")}");
         return new SmartRestart.DirectorWayUp(
-            new SmartRestart.GatewayClientWayUp(() => _gatewayClient),
+            new SmartRestart.GatewayClientWayUp(() => _gatewayClient, DirectorId),
             new SmartRestart.DirectorRestoreWayUp(() => _gatewayClient, DirectorId),
             Environment.MachineName,
 
