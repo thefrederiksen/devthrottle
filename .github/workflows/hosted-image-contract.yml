@@ -26,13 +26,6 @@ name: Hosted image contract
 #                       without a real release.
 
 on:
-  # TEMPORARY, and removed before this branch is merged: it is how this gate is REHEARSED on GitHub's
-  # machines without deploying anything. workflow_dispatch cannot start a workflow that is not yet on the
-  # default branch, so the only way to see this job actually run before it is merged is to let a push to
-  # this one branch start it. The run it produces is the evidence; this trigger then goes.
-  push:
-    branches: [ci/package-1-hosted-image-test-to-deploy]
-
   workflow_call:
     inputs:
       require_main:
