@@ -175,6 +175,23 @@ public sealed class SmartShutdownViewModel : INotifyPropertyChanged
         RaiseCheckChanged();
     }
 
+    /// <summary>What the dialog says when this Director has no engine to run a smart shutdown.</summary>
+    public const string NoEngineReason =
+        "This Director's control service did not start, so a smart shutdown cannot run. The log has the reason.";
+
+    /// <summary>
+    /// This Director has no engine (its control service did not start). The confirm is dead from the
+    /// start and the dialog says why; the other two choices still work.
+    /// </summary>
+    public void ApplyNoEngine()
+    {
+        FileLog.Write($"[SmartShutdownViewModel] ApplyNoEngine: door={Door}");
+        IsChecking = false;
+        CanConfirm = false;
+        SmartShutdownRefusalText = NoEngineReason;
+        RaiseCheckChanged();
+    }
+
     // The engine promises a reason with every refusal. A refusal without one is a defect in the engine
     // and is reported as one, not papered over with words made up here.
     private static string RequireReason(string? reason, string name)

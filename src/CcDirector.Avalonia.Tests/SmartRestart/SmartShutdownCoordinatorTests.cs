@@ -609,18 +609,165 @@ public class SmartShutdownCoordinatorTests
 
     // ===== A Director with no engine to give =====
 
+    // The control service did not start, so the factory hands the coordinator nothing. The owner said:
+    // if any sessions are running, show the number and ask. So the window close still asks.
+
+    /// <summary>
+    /// No engine and one idle session: the close is cancelled and the SAME dialog opens, with the count,
+    /// the smart choice dead from the start (nothing is being checked), and the reason in plain words.
+    /// The other two choices are live.
+    /// </summary>
     [AvaloniaFact]
-    public void BothDoors_NoEngine_TheCloseCarriesOnAndTheMenuSaysWhy()
+    public void HandleWindowClosing_NoEngineAndOneIdleSession_OpensTheDialogWithTheSmartChoiceDeadAndTheReasonShown()
+    {
+        var rig = new CoordinatorRig(withEngine: false);
+        rig.AddSession(ActivityState.Idle, "idle one");
+
+        var cancelled = rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing);
+        CoordinatorRig.Settle();
+
+        Assert.True(cancelled);
+        Assert.Equal(1, rig.DialogsOpened);
+        var dialog = rig.Dialog!;
+        Assert.True(dialog.IsVisible);
+        Assert.Equal("Smart shutdown", dialog.Title);
+        Assert.Equal("1 session is running", dialog.TxtSessionCount.Text);
+        Assert.False(dialog.TxtChecking.IsVisible);
+        Assert.False(dialog.BtnSmart.IsEffectivelyEnabled);
+        Assert.True(dialog.RefusalPanel.IsEffectivelyVisible);
+        Assert.True(dialog.TxtSmartShutdownRefusal.IsEffectivelyVisible);
+        Assert.Equal(
+            "This Director's control service did not start, so a smart shutdown cannot run. The log has the reason.",
+            dialog.TxtSmartShutdownRefusal.Text);
+        Assert.True(dialog.BtnIgnore.IsEffectivelyEnabled);
+        Assert.True(dialog.BtnCancel.IsEffectivelyEnabled);
+        Assert.Equal(0, rig.ApplicationCloses);
+        Assert.Empty(rig.Messages);
+    }
+
+    /// <summary>
+    /// Ignore all with no engine: there is nothing to call, so the close the owner asked for carries on
+    /// through the main window's own path, once, and the close that comes back is not asked about again.
+    /// </summary>
+    [AvaloniaFact]
+    public void Dialog_IgnoreAllClickedWithNoEngine_ClosesTheApplicationExactlyOnceAndCallsNoEngine()
+    {
+        var rig = new CoordinatorRig(withEngine: false);
+        rig.AddSession(ActivityState.Idle, "idle one");
+        rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing);
+        CoordinatorRig.Settle();
+
+        var dialog = rig.Dialog!;
+        CoordinatorRig.Click(dialog.BtnIgnore);
+
+        Assert.Equal(1, rig.ApplicationCloses);
+        Assert.False(dialog.IsVisible);
+        // The close the flow asked for comes back through the window's closing: it carries on, unasked.
+        Assert.False(rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing));
+        CoordinatorRig.Settle();
+        Assert.Equal(1, rig.ApplicationCloses);
+        Assert.Equal(1, rig.DialogsOpened);
+        AssertTheEngineWasNeverCalled(rig);
+        Assert.Empty(rig.Messages);
+    }
+
+    /// <summary>Cancel with no engine: nothing is closed, the session view stays, and the next close asks again.</summary>
+    [AvaloniaFact]
+    public void Dialog_CancelClickedWithNoEngine_ClosesNothingAndTheNextCloseAsksAgain()
+    {
+        var rig = new CoordinatorRig(withEngine: false);
+        rig.AddSession(ActivityState.Idle, "idle one");
+        rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing);
+        CoordinatorRig.Settle();
+
+        CoordinatorRig.Click(rig.Dialog!.BtnCancel);
+
+        Assert.Equal(0, rig.ApplicationCloses);
+        Assert.True(rig.SessionViewIsShown);
+        Assert.Empty(rig.Messages);
+        AssertTheEngineWasNeverCalled(rig);
+        Assert.True(rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing));
+        CoordinatorRig.Settle();
+        Assert.Equal(2, rig.DialogsOpened);
+        Assert.Equal(0, rig.ApplicationCloses);
+    }
+
+    /// <summary>Escape and the dialog's own close with no engine: the same nothing.</summary>
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Dialog_EscapeOrItsOwnCloseWithNoEngine_ClosesNothing(bool escape)
+    {
+        var rig = new CoordinatorRig(withEngine: false);
+        rig.AddSession(ActivityState.Working, "builder");
+        rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing);
+        CoordinatorRig.Settle();
+
+        if (escape)
+            rig.Dialog!.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        else
+            rig.Dialog!.Close();
+        CoordinatorRig.Settle();
+
+        Assert.Equal(0, rig.ApplicationCloses);
+        Assert.True(rig.SessionViewIsShown);
+        AssertTheEngineWasNeverCalled(rig);
+    }
+
+    /// <summary>The smart choice is dead with no engine: Enter, the confirm's key, takes nothing.</summary>
+    [AvaloniaFact]
+    public void Dialog_EnterPressedWithNoEngine_TakesNothing()
+    {
+        var rig = new CoordinatorRig(withEngine: false);
+        rig.AddSession(ActivityState.Working, "builder");
+        rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing);
+        CoordinatorRig.Settle();
+
+        var dialog = rig.Dialog!;
+        dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        CoordinatorRig.Settle();
+
+        Assert.True(dialog.IsVisible);
+        Assert.Equal(0, rig.ApplicationCloses);
+        Assert.True(rig.SessionViewIsShown);
+    }
+
+    /// <summary>No engine and nothing running: the close still carries on with no dialog.</summary>
+    [AvaloniaFact]
+    public void HandleWindowClosing_NoEngineAndNoSessions_OpensNoDialogAndTheCloseCarriesOn()
+    {
+        var rig = new CoordinatorRig(withEngine: false);
+
+        var cancelled = rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing);
+        CoordinatorRig.Settle();
+
+        Assert.False(cancelled);
+        Assert.Equal(0, rig.DialogsOpened);
+        Assert.Equal(0, rig.ApplicationCloses);
+    }
+
+    /// <summary>The File menu with no engine keeps its one sentence and opens nothing.</summary>
+    [AvaloniaFact]
+    public void OpenFromFileMenuAsync_NoEngine_OpensNoDialogAndSaysWhy()
     {
         var rig = new CoordinatorRig(withEngine: false);
         rig.AddSession(ActivityState.Working, "builder");
 
-        Assert.False(rig.Coordinator.HandleWindowClosing(WindowCloseReason.WindowClosing));
         _ = rig.Coordinator.OpenFromFileMenuAsync();
         CoordinatorRig.Settle();
 
         Assert.Equal(0, rig.DialogsOpened);
         Assert.Contains("control service did not start", Assert.Single(rig.Messages));
+    }
+
+    // The rig always holds a fake engine; with no engine the coordinator is never handed it, so any
+    // call written down on it is a call that should not have been possible.
+    private static void AssertTheEngineWasNeverCalled(CoordinatorRig rig)
+    {
+        Assert.Empty(rig.Engine.Checks);
+        Assert.Empty(rig.Engine.Starts);
+        Assert.Empty(rig.Engine.IgnoreAlls);
+        Assert.Equal(0, rig.Engine.Records);
     }
 
     // ===== The main window's source =====

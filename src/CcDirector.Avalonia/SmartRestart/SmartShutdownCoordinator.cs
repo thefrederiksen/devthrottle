@@ -173,12 +173,12 @@ public sealed class SmartShutdownCoordinator
                 return false;
             }
 
+            // NO ENGINE IS NOT A REASON TO CLOSE UNASKED (mission 4.4: if any sessions are running, show
+            // the number and ask). The same dialog opens with the smart choice dead and the reason said;
+            // "Shut down and ignore all sessions" lets this close carry on, and Cancel keeps the window.
             var engine = _engine();
             if (engine is null)
-            {
-                FileLog.Write($"[SmartShutdownCoordinator] HandleWindowClosing: no engine (the control service did not start), carry on; sessions={sessions.Count}");
-                return false;
-            }
+                FileLog.Write($"[SmartShutdownCoordinator] HandleWindowClosing: no engine (the control service did not start), asking all the same; sessions={sessions.Count}");
 
             Flow = RunDoorAsync(engine, SmartShutdownDoor.WindowClose, sessions);
             return true;
@@ -193,7 +193,8 @@ public sealed class SmartShutdownCoordinator
 
     // One door, from the dialog opening to the choice acted on. It runs on the interface thread up to
     // its first await, so the stage is Asking before the caller gets control back.
-    private async Task RunDoorAsync(ISmartShutdown engine, SmartShutdownDoor door, IReadOnlyList<SmartShutdownSession> sessions)
+    // The engine is null only from the window close of a Director whose control service did not start.
+    private async Task RunDoorAsync(ISmartShutdown? engine, SmartShutdownDoor door, IReadOnlyList<SmartShutdownSession> sessions)
     {
         var purpose = door == SmartShutdownDoor.FileMenu ? SmartShutdownPurpose.Restart : SmartShutdownPurpose.Close;
         var surfaceShown = false;
@@ -205,12 +206,22 @@ public sealed class SmartShutdownCoordinator
             // THE DIALOG OPENS AT ONCE AND THE ENGINE IS ASKED AFTER. The check may take a second or
             // two; until it answers the confirm is dead and the dialog says it is checking.
             var viewModel = new SmartShutdownViewModel(sessions, door);
-            viewModel.BeginChecking();
             // Cancelled when the dialog closes and never disposed: the check may still be holding its
             // token then, and a source with no timer and no wait handle holds nothing to let go of.
             var stopChecking = new CancellationTokenSource();
-            var choosing = _showDialog(viewModel);
-            _ = CheckIntoAsync(engine, purpose, viewModel, stopChecking.Token);
+            Task<SmartShutdownChoice> choosing;
+            if (engine is null)
+            {
+                // Nothing to ask: the smart choice is dead from the start, and the dialog says why.
+                viewModel.ApplyNoEngine();
+                choosing = _showDialog(viewModel);
+            }
+            else
+            {
+                viewModel.BeginChecking();
+                choosing = _showDialog(viewModel);
+                _ = CheckIntoAsync(engine, purpose, viewModel, stopChecking.Token);
+            }
 
             var choice = await choosing;
             stopChecking.Cancel();
@@ -224,6 +235,9 @@ public sealed class SmartShutdownCoordinator
 
                 case SmartShutdownChoiceKind.SmartShutdown:
                 {
+                    if (engine is null)
+                        throw new InvalidOperationException("The dialog chose a smart shutdown on a Director with no engine to run one.");
+
                     var timeAllowed = choice.TimeAllowed
                         ?? throw new InvalidOperationException("The dialog chose a smart shutdown without a time allowed.");
 
@@ -243,6 +257,16 @@ public sealed class SmartShutdownCoordinator
 
                 case SmartShutdownChoiceKind.IgnoreAllSessions:
                 {
+                    if (engine is null)
+                    {
+                        // No engine to call and so no record to write: the close the owner asked for
+                        // carries on through the main window's own path, which ends the sessions.
+                        FileLog.Write($"[SmartShutdownCoordinator] RunDoorAsync: ignore all with no engine, the close carries on; sessions={sessions.Count}");
+                        _stage = Stage.Idle;
+                        CloseTheApplication();
+                        return;
+                    }
+
                     var surface = new SmartShutdownSurface();
                     surface.ShowEnding();
                     _showInPlaceOfSessionView(surface);
