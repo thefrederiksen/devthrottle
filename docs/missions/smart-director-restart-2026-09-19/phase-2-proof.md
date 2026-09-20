@@ -4,7 +4,8 @@ Written by the phase 2 Tech Lead, second seat (session c6c50eeb), on 20 Septembe
 (session number 120) opened the first two Developers and wrote the baseline below; it was ended while
 waiting, because on this Director a waiting session is never woken (product issue 3186).
 
-DRAFT until task 3 is merged; the word DRAFT leaves this line only then.
+DRAFT until task 3 is merged; the word DRAFT leaves this line only then. Task 3 is built, reviewed and
+HELD: see "The hold on task 3" below.
 
 ## The check
 
@@ -25,6 +26,8 @@ Developer's report.
 | The dialog after its review finding, rebased on `912340ed8` | `70b56e819` | 25 passed | 624 passed, 0 failed (main alone: 599) |
 | The rebuilt progress screen, trial merge into `642482c46` | tree `cc44f3307` | 46 passed (25 + 21) | 645 passed, 0 failed |
 | `origin/main` after both merges | `8b296fe48`, the SAME tree `cc44f3307` | 46 | 645 |
+| Task 3, the swap, as first pushed (engine branch merged in) | `52c5c2b54` | 87 passed | 686 passed, 0 failed |
+| Task 3 after its review finding, main merged in | `43ac8c3e8` | 95 passed | 694 passed, 0 failed |
 
 The last two rows are one run: the squash merge of pull request 3191 produced exactly the tree the check
 had been run on, compared by tree identifier.
@@ -42,7 +45,20 @@ see it.
 |---|---|---|
 | 3189 | The Smart shutdown dialog, a window nobody calls yet | `642482c46` |
 | 3191 | The shutdown progress screen, a view nobody calls yet | `8b296fe48` |
-| TASK 3 | The swap of the two doors, the operating system shutting down, the two old windows removed | not yet |
+| none yet | Task 3: the swap of the two doors, the operating system shutting down, the two old windows removed. Branch `smart-restart-p2-swap` at `43ac8c3e8`, pushed | HELD, see below |
+
+## The hold on task 3
+
+The swap is built, checked by the Tech Lead and reviewed, and it is NOT merged, on purpose. The fourth
+review found, and the Tech Lead confirmed by reading `origin/main`, that the engine on main still answers
+"not built yet" for three things the two doors need: the purpose Restart (`DirectorSmartShutdown.cs`
+line 132), `ShutDownIgnoringAllAsync` (line 173) and `RecordAndLetEndAsync` (line 182). The headless
+tests are green because they fake the engine, so the gate in mission section 8 would let the swap merge
+with the File menu door and the ignore-all choice as dead ends, in place of a close dialog that works
+today. The swap merges when phase 1 has landed all three: then `git merge origin/main` into the branch,
+the check again, a pull request, a squash merge. What the swap's tests prove, its revert proofs, its four
+pictures and its decisions are in `attachments/phase-2/swap-proof.md` on that branch; its change to the
+main window is 26 lines added and 39 removed over the two files.
 
 ## What each new test proves, in plain words
 
@@ -112,6 +128,7 @@ had hit its usage limit until 22 September; both Codex seats were ended before t
 | `review-phase-2-1.md` | the dialog at `277498f16` | one: its result type had the same name as the engine's. Accepted; renamed `SmartShutdownChoice` | `review-phase-2-1-answers.md` |
 | `review-phase-2-2.md` | the progress screen at `e3e66e110` | two: it never let go of the run; its invented interface could not carry the engine's words, permissions, three of its states or the end of a run. Both accepted; the screen was rebuilt on the real `ISmartShutdownRun` | `review-phase-2-2-answers.md` |
 | `review-phase-2-3.md` | the rebuilt screen, as a trial merge into main | none | - |
+| `review-phase-2-4.md` | the swap at `52c5c2b54` | two: with no engine the window closed with live sessions and no question (accepted; the same dialog now opens with the smart choice dead and the reason, and ignore-all carries the close on); and the engine on main is not finished (accepted as the hold above) | `review-phase-2-4-answers.md` on the swap branch |
 
 One correction to `review-phase-2-2.md`: it says the phase 1 types had not landed. They had (pull
 request 3182); the engine behind them had not.

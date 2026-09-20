@@ -95,3 +95,10 @@ The Delivery Lead polls this file. Newest entry last.
     are green because they fake the engine, so the gate in mission section 8 would let the swap merge
     with the File menu door and the ignore-all choice dead ends. I HOLD the swap until phase 1 lands all
     three on main. Everything else of phase 2 is done or in its last fix.
+- Finding 1 of the fourth review is fixed and pushed: `smart-restart-p2-swap` at `43ac8c3e8`, with main
+  merged in (the branch now differs from main only in the swap's own files). My own run: the filter 95
+  passed, the whole project 694 passed, 0 failed. Developer f9e9f4ae ended by me. The fix is on the live
+  close path, so it went to a short review (`mandate-phase-2-reviewer-5.md`). The first Reviewer's
+  provider call hung (token counters frozen for three minutes under "Working"); ended, a fresh one opened.
+- The engine on main was checked again: the three "not built yet" throws are still there. THE SWAP IS HELD.
+  `phase-2-proof.md` is up to date and says so.
