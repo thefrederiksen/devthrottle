@@ -1,0 +1,20 @@
+[project]
+name = "cc-continuous-integration-keeper"
+version = "0.1.0"
+description = "Reads a repository's own continuous integration run records every day and raises a report when the budget is broken, a suite has grown, a test is repeatedly red, or a job that should have run was skipped"
+requires-python = ">=3.11"
+dependencies = ["cc-shared"]
+
+[project.scripts]
+cc-continuous-integration-keeper = "cc_continuous_integration_keeper.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cc_continuous_integration_keeper"]
+package-dir = {"cc_continuous_integration_keeper" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

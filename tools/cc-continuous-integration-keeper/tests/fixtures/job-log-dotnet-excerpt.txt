@@ -1,0 +1,20 @@
+2026-09-16T22:21:37.5440389Z   Failed CcDirector.Gateway.Tests.Api.AdminTurnVerdictFeedbackEndpointScopeTests.Half_a_cursor_is_refused(half: "after_verdict=tv-1") [301 ms]
+2026-09-16T22:21:37.5817028Z   Failed CcDirector.Gateway.Tests.Api.AdminTurnVerdictFeedbackEndpointScopeTests.Half_a_cursor_is_refused(half: "after=2026-09-15T20:00:00Z") [305 ms]
+2026-09-19T03:29:11.3205323Z CHECK RESULTS, over 1 live session(s):
+2026-09-19T03:29:11.3345542Z   the stamp is present........................ FAIL (1)
+2026-09-19T03:29:11.3901211Z   the stamped answer IS the shared fold's..... pass on 0 of 1 - NOT GRADED on 1
+2026-09-19T03:29:11.4119751Z     actual:   [100, 103, 108, 112]
+2026-09-19T03:29:11.4120164Z   FAIL (1) - the C# fold and the shared answers differ.
+2026-09-19T03:29:11.4120807Z   The TypeScript half of this agreement is asserted by tree.agreement.test.ts against the
+2026-09-19T03:29:11.4129826Z   the desktop's fold == the Gateway's......... PASS
+2026-09-19T03:29:11.4130389Z   the ownership tree, C# versus the shared file FAIL (1) over 16 fixture case(s)
+2026-09-19T03:29:11.4131113Z NOT MEASURED, and not to be claimed: the desktop's own SessionRole copy is not externally
+2026-09-19T04:40:00.9986681Z   Failed CcDirector.Gateway.Tests.FleetManagerRoutesHostTests.The_session_list_pins_the_Fleet_Manager_and_offers_each_row_its_change_of_owner [24 ms]
+2026-09-19T04:40:00.9987696Z   Error Message:
+2026-09-19T04:45:42.5961772Z 
+2026-09-19T04:45:42.6019771Z Test Run Failed.
+2026-09-19T04:45:42.6020584Z Total tests: 2678
+2026-09-19T04:45:42.6020844Z      Passed: 2621
+2026-09-19T04:45:42.6021059Z      Failed: 1
+2026-09-19T04:45:42.6021277Z     Skipped: 56
+2026-09-19T04:45:42.6022527Z  Total time: 1.2924 Hours
