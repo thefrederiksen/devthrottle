@@ -57,7 +57,9 @@ public sealed class OpenCodeAgentPlugin : IAgentPlugin
 
     public AgentPluginHistoryMetadata History => HistoryMetadata;
 
-    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: false);
+    public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: false,
+        // OpenCodeAgent.BuildLaunchSpec LOGS that it is ignoring the id and builds no flag from it.
+        CanResumeSavedConversation: false);
 
     public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 
