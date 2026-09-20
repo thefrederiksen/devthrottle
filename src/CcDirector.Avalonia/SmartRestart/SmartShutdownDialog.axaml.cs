@@ -35,6 +35,14 @@ public partial class SmartShutdownDialog : Window
         // is, and the focus starts on it so Space takes it too.
         Opened += (_, _) => BtnSmart.Focus();
 
+        // The confirm is dead while the engine is asked, and a dead button cannot hold the focus. When
+        // the answer makes it live the focus goes back to it, so Space still takes the default.
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SmartShutdownViewModel.CanConfirm) && viewModel.CanConfirm)
+                BtnSmart.Focus();
+        };
+
         FileLog.Write($"[SmartShutdownDialog] Created: door={viewModel.Door}");
     }
 

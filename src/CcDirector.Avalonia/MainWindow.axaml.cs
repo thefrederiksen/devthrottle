@@ -4602,17 +4602,8 @@ public partial class MainWindow : Window
             if (_sessions.Count == 0) return;
             await CloseAllSessionsAsync();
         }));
-        // THE DRAIN (issue #2723). Deliberately beside the workspace items rather than under a restart
-        // menu: a drain PRODUCES a workspace, and the restart itself is not done from here - the drain
-        // hands over the command for it and stops.
-        file.Menu.Items.Add(Item("Drain this Director for restart...", async () =>
-        {
-            FileLog.Write("[MainWindow] Menu: Drain this Director");
-            var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
-            var dialog = new DrainDirectorDialog(
-                host, InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
-            await dialog.ShowDialog(this);
-        }));
+        // SMART RESTART (issue #3167). The whole flow is SmartRestart.SmartShutdownCoordinator's.
+        file.Menu.Items.Add(Item("Smart Restart", () => { _ = SmartShutdown.OpenFromFileMenuAsync(); }));
         file.Menu.Items.Add(new NativeMenuItemSeparator());
         file.Menu.Items.Add(Item("Open Logs", () =>
         {
@@ -6608,9 +6599,21 @@ public partial class MainWindow : Window
 
     // ==================== WINDOW CLOSING ====================
 
-    private bool _closeConfirmed;
+    // The two doors of the smart shutdown (issue #3167): File, Smart Restart and the close below. The
+    // flow lives in the coordinator; this window only hands it what it needs.
+    private SmartRestart.SmartShutdownCoordinator? _smartShutdown;
 
-    protected override async void OnClosing(WindowClosingEventArgs e)
+    private SmartRestart.SmartShutdownCoordinator SmartShutdown => _smartShutdown ??= new(
+        () => (global::Avalonia.Application.Current as App)?.ControlApiHost?.CreateSmartShutdown(),
+        () => _sessions.Select(vm => vm.Session).ToList(),
+        viewModel => new SmartRestart.SmartShutdownDialog(viewModel).ShowForResultAsync(this),
+        surface => { SmartShutdownHost.Content = surface; SmartShutdownHost.IsVisible = true; SessionViewGrid.IsVisible = false; },
+        () => { SessionViewGrid.IsVisible = true; SmartShutdownHost.IsVisible = false; SmartShutdownHost.Content = null; },
+        Close,
+        ShowNotification,
+        TimeProvider.System);
+
+    protected override void OnClosing(WindowClosingEventArgs e)
     {
         // Log WHY the window is closing (issue #212 L1). The 2026-06-06 post-mortem
         // could not tell an OS shutdown from a user "End task" from a programmatic close
@@ -6618,32 +6621,12 @@ public partial class MainWindow : Window
         // WindowClosing (user X/Alt+F4), OSShutdown, ApplicationShutdown, OwnerWindowClosing.
         FileLog.Write($"[MainWindow] OnClosing: reason={e.CloseReason}, programmatic={e.IsProgrammatic}, sessions={_sessions.Count}");
 
-        // Check for working sessions and show close dialog
-        if (!_closeConfirmed)
+        // Sessions running: the smart shutdown dialog, and this close is cancelled. None, the close the
+        // flow itself asked for, or the operating system shutting down: carry on below.
+        if (SmartShutdown.HandleWindowClosing(e.CloseReason))
         {
-            var workingSessions = _sessions
-                .Where(vm => vm.Session.ActivityState is ActivityState.Working or ActivityState.WaitingForInput)
-                .ToList();
-
-            if (workingSessions.Count > 0)
-            {
-                e.Cancel = true;
-
-                var sessionNames = workingSessions
-                    .Select(vm => vm.DisplayName)
-                    .ToList();
-
-                var dialog = new CloseDialog(_sessionManager, sessionNames);
-                var result = await dialog.ShowDialog<bool?>(this);
-
-                if (result == true)
-                {
-                    _closeConfirmed = true;
-                    Close();
-                }
-
-                return;
-            }
+            e.Cancel = true;
+            return;
         }
 
         // Unsubscribe from active session events

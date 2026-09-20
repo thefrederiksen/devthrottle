@@ -1,0 +1,55 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CcDirector.Avalonia.SmartRestart.SmartShutdownSurface"
+             Background="#1E1E1E">
+
+    <!-- What stands in place of the session view while the Director is on its way down. It holds one
+         of two things: the progress screen of a smart shutdown, or the plain ending state of "shut down
+         and ignore all sessions". Under a run that ended badly it also offers the way back, so the
+         engine's reason stays on the screen until the owner has read it. -->
+    <Grid RowDefinitions="*,Auto">
+
+        <ContentControl Grid.Row="0"
+                        x:Name="ProgressHost"
+                        IsVisible="False"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch" />
+
+        <!-- The plain ending state: no rows, no buttons. This is NOT the progress screen. -->
+        <TextBlock Grid.Row="0"
+                   x:Name="TxtEnding"
+                   Text="Ending your sessions..."
+                   IsVisible="False"
+                   Foreground="#CCCCCC"
+                   FontSize="18"
+                   FontWeight="SemiBold"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center" />
+
+        <Border Grid.Row="1"
+                x:Name="BackPanel"
+                IsVisible="False"
+                Background="#252526"
+                BorderBrush="#3C3C3C" BorderThickness="0,1,0,0"
+                Padding="20,10">
+            <Grid ColumnDefinitions="*,Auto" MaxWidth="760">
+                <TextBlock Grid.Column="0"
+                           x:Name="TxtBackHint"
+                           Text="The shutdown has stopped and the reason is above. Nothing more will be done."
+                           Foreground="#AAAAAA"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        x:Name="BtnBackToSessions"
+                        Content="Back to your sessions"
+                        Click="BtnBackToSessions_Click"
+                        Width="180" Height="30"
+                        HorizontalContentAlignment="Center"
+                        Background="#007ACC" Foreground="White"
+                        BorderThickness="0" Cursor="Hand"
+                        Margin="12,0,0,0" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
