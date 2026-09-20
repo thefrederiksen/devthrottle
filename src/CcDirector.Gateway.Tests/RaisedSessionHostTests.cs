@@ -97,6 +97,10 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
             Session(_workerId, "Another session of the account", now.AddHours(-1)),
             Session(_strangerId, "A session related to nobody", now.AddMinutes(-30)));
         Push(_tenantB, DirectorIdB, Session(_sessionInB, "Another account's session", now));
+
+        // The judged-stop answer route keeps a second wall of its own: while an account's verdict colours are off,
+        // no session key may answer one. That wall is not what these tests are about, so the colours are on.
+        _gateway.TenantSettingsResolver.SetTurnVerdictColourEnabled(_tenantA, true, DateTime.UtcNow);
     }
 
     public async Task DisposeAsync()
@@ -157,6 +161,13 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
 
     private static JsonElement Root(string body) => JsonDocument.Parse(body).RootElement.Clone();
 
+    /// <summary>The <c>code</c> a route put on its answer, or "" when the answer carries none.</summary>
+    private static string CodeOf(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body) || body.TrimStart()[0] != '{') return "";
+        return Root(body).TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String ? code.GetString()! : "";
+    }
+
     private async Task Raise(string sessionId)
     {
         var (status, body) = await Send(_ownerA, "POST", $"sessions/{sessionId}/raise");
@@ -179,14 +190,46 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
         return Root(body).GetProperty("events").EnumerateArray().ToList();
     }
 
-    /// <summary>The five ways of typing into a session, each as (verb, path, body).</summary>
+    /// <summary>A live judged stop on <paramref name="sessionId"/>, stored fresh so no earlier attempt has touched it.</summary>
+    private string FreshVerdict(string sessionId)
+    {
+        var verdictId = "tv-raised-" + Guid.NewGuid().ToString("N")[..8];
+        _gateway.TurnVerdicts.Store(_tenantA, sessionId, new TurnVerdictDto
+        {
+            VerdictId = verdictId,
+            JudgedAtUtc = DateTime.UtcNow,
+            TurnEndObservedAtUtc = DateTime.UtcNow.AddSeconds(-12),
+            ScreenHash = "screen-hash-raised",
+            Model = "devthrottle/wingman-fast",
+            ContractVersion = "v2",
+            PackageKind = "agent-reply",
+            Verdict = Core.Wingman.TurnVerdictVocabulary.NeededYou,
+            Confidence = "high",
+            Evidence = "Apply the migration now?",
+            Label = "Apply the migration now?",
+            Summary = "The session is asking whether to apply the migration.",
+            AnswerVia = "keys",
+            Menu = new TurnVerdictMenuDto { Question = "Apply the migration now?", SelectionMode = "single", Submit = "" },
+            Options = new List<TurnVerdictOptionDto>
+            {
+                new() { Key = "Yes", Send = "1", Recommended = true, Note = "Applies it." },
+                new() { Key = "No", Send = "2", Recommended = false, Note = "Leaves it." },
+            },
+            Risk = "none",
+            Spoken = "The session asks whether to apply the migration.",
+        });
+        return verdictId;
+    }
+
+    /// <summary>The five ways of typing into a session, each as (verb, path, body). Building the list stores a fresh
+    /// judged stop on the target, so each caller answers one nobody has touched.</summary>
     private (string Name, string Verb, string Path, object? Body)[] AgentInput(string target) => new (string, string, string, object?)[]
     {
         ("prompt", "POST", $"sessions/{target}/prompt", new { text = "carry on" }),
         ("interrupt", "POST", $"sessions/{target}/interrupt", null),
         ("escape", "POST", $"sessions/{target}/escape", null),
         ("fan-out", "POST", "fanout", new { sessionIds = new[] { target }, text = "carry on", waitForIdle = false }),
-        ("answering a judged stop", "POST", $"sessions/{target}/turn-verdict/answer", new { verdictId = "tv-none", optionIndexes = new[] { 0 } }),
+        ("answering a judged stop", "POST", $"sessions/{target}/turn-verdict/answer", new { verdictId = FreshVerdict(target), optionIndexes = new[] { 0 } }),
     };
 
     /// <summary>The Fleet Manager routes that are otherwise the owner's alone and that a raised session is granted.</summary>
@@ -214,7 +257,7 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
 
         // The roster the clients read carries the finished values for both rows (critical rule 7).
         var (_, roster) = await Send(_ownerA, "GET", "sessions");
-        var rows = Root(roster).GetProperty("sessions").EnumerateArray().ToList();
+        var rows = Root(roster).EnumerateArray().ToList();
         var raisedRow = rows.Single(r => r.GetProperty("sessionId").GetString() == _raisedId).GetProperty("raise");
         var otherRow = rows.Single(r => r.GetProperty("sessionId").GetString() == _unraisedId).GetProperty("raise");
         Assert.True(raisedRow.GetProperty("raised").GetBoolean());
@@ -296,16 +339,22 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
     {
         await Raise(_raisedId);
 
-        foreach (var (name, verb, path, body) in AgentInput(_workerId))
+        var count = AgentInput(_workerId).Length;
+        for (var i = 0; i < count; i++)
         {
-            var owner = await Send(_ownerA, verb, path, body);
-            var raised = await Send(_raised, verb, path, body);
-            var unraised = await Send(_unraised, verb, path, body);
+            // The list is built once per caller, so each answers a judged stop nobody has touched.
+            var (name, verb, path, _) = AgentInput(_workerId)[i];
+            var owner = await Send(_ownerA, verb, path, AgentInput(_workerId)[i].Body);
+            var raised = await Send(_raised, verb, path, AgentInput(_workerId)[i].Body);
+            var unraised = await Send(_unraised, verb, path, AgentInput(_workerId)[i].Body);
 
             // The owner's own answer is the control: it comes from the route, never from the guard.
             Assert.NotEqual(HttpStatusCode.Forbidden, owner.Status);
             Assert.NotEqual(HttpStatusCode.Unauthorized, owner.Status);
             Assert.True(raised.Status == owner.Status, $"{name}: a raised key answered {raised.Status}, the owner's device {owner.Status}");
+            // Where the route names its answer with a code, the raised key got the very same one - so it went as far
+            // down the route as the owner's own device did.
+            Assert.Equal(CodeOf(owner.Body), CodeOf(raised.Body));
 
             AssertRefusedByTheGuard(unraised);
             Assert.Equal(Util.AgentInputRefusal.Typing, Root(unraised.Body).GetProperty("error").GetString());
@@ -537,13 +586,13 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
         {
             var sent = await Send(_raised, "POST", $"sessions/{_strangerId}/message", new { text = $"note {i} from the raised session" });
             Assert.Equal(HttpStatusCode.OK, sent.Status);
-            Assert.Equal("queued", Root(sent.Body).GetProperty("outcome").GetString());
+            Assert.Equal("queued", Root(sent.Body).GetProperty("status").GetString());
         }
 
         // The duplicate rule stays: the recipient has not read "note 8", so the same words again are dropped.
         var again = await Send(_raised, "POST", $"sessions/{_strangerId}/message", new { text = "note 8 from the raised session" });
         Assert.Equal(HttpStatusCode.OK, again.Status);
-        Assert.Equal("duplicate-dropped", Root(again.Body).GetProperty("outcome").GetString());
+        Assert.Equal("duplicate", Root(again.Body).GetProperty("status").GetString());
 
         // Every message the waiver let through is on the record, naming the sender.
         var records = await Records(GovernanceAuditEventType.RaisedAction, _raisedId);
@@ -558,7 +607,8 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
         var (status, body) = await Send(_unraised, "POST", $"sessions/{_strangerId}/message", new { text = "a note from a session nobody raised" });
 
         Assert.Equal(HttpStatusCode.Forbidden, status);
-        Assert.Equal("not-related", Root(body).GetProperty("outcome").GetString());
+        Assert.Equal("refused", Root(body).GetProperty("status").GetString());
+        Assert.StartsWith("You may message only the session that started you and the sessions you started.", Root(body).GetProperty("error").GetString());
         Assert.Empty(await Records(GovernanceAuditEventType.RaisedAction, _unraisedId));
     }
 
