@@ -339,16 +339,19 @@ public sealed class TheCatalogueForgetsTunnelProofTests : IAsyncLifetime
         var monitor = MonitorOver(stays);
         await monitor.RescanAsync(new[] { WatchedRoot });
         var push = await DirectorPushAsync(monitor, WatchedRoot, Path.Combine(_root, "unplugged"));
+        await director.PushRepoSnapshotAsync(push);
 
-        // The unreadable root is not in the listing at all - it is not there with no children.
+        // THE CONSEQUENCE FIRST, deliberately. A year of last-access times under an unplugged drive is
+        // what is at stake, and a test that reported the listing's shape before the damage would say
+        // "one listing, expected two" when what actually happened is that a row was deleted.
+        Assert.Equal(new[] { onTheMissingRoot, stays },
+            (await ServedAsync()).Select(row => row.Path).OrderBy(path => path, StringComparer.Ordinal).ToArray());
+
+        // And then the mechanism: the unreadable root is not in the listing at all, rather than being
+        // there with no children.
         Assert.Equal(new[] { WatchedRoot },
             Assert.IsType<List<RootFolderListingDto>>(push[0].RootFolders)
                 .Select(listing => listing.Path).ToArray());
-
-        await director.PushRepoSnapshotAsync(push);
-
-        Assert.Equal(new[] { onTheMissingRoot, stays },
-            (await ServedAsync()).Select(row => row.Path).OrderBy(path => path, StringComparer.Ordinal).ToArray());
     }
 
     /// <summary>
