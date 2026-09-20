@@ -165,8 +165,12 @@ Run by me on this worktree, after the reverts were restored.
 | `npm run typecheck` | **green**, all four workspaces |
 | `npm test --workspaces --if-present` | **2,126 passed, 0 failed** - client-core 1,456, cc-assistant 106, cockpit 457, mobile 107 |
 | `dotnet test src/CcDirector.Gateway.UnitTests` | **6,600 passed, 0 failed, 8 skipped** |
-| `dotnet test src/CcDirector.Core.Tests` | **4,491 passed, 0 failed, 18 skipped** |
+| `dotnet test src/CcDirector.Core.Tests` | **4,491 passed, 0 failed, 18 skipped** - see section 3b |
 | `dotnet test src/CcDirector.Avalonia.Tests` | **677 passed, 0 failed, 0 skipped** |
+
+The Gateway and Avalonia figures are from runs at the branch head with the EXIT CODE captured (both
+exit 0, neither log containing the word aborted or crashed), because a summary line alone is not a
+pass in this repository - `an-aborted-run-reports-passed.md` is why.
 
 **Zero failures, and the skipped counts are stated rather than buried:** 8 in the Gateway unit tests and
 18 in Core, both pre-existing and neither in anything this phase touched. No baseline of known-red tests
@@ -239,35 +243,45 @@ as section 3.
 
 ---
 
-## 3b. Core.Tests failed twice in one run, and it is reported rather than buried
+## 3b. Core.Tests failed twice in one run - chased, reproduced and named
 
 **One run of `CcDirector.Core.Tests` reported `Failed: 2, Passed: 4489, Skipped: 18, Total: 4509`.** It
-is recorded here because the alternative - noticing it, re-running until green and publishing the green
-one - is precisely what this mission wrote `an-aborted-run-reports-passed.md` about.
+is recorded because the alternative - noticing it, re-running until green and publishing the green one -
+is precisely what this mission wrote `an-aborted-run-reports-passed.md` about.
 
-What is known, and what is not:
+It was a COMPLETE run, not an aborted one: the total is the suite's full count, so the failure mode in
+that record does not explain this one. **I lost the two test names**, because the command was piped
+through a summary filter. That was my mistake and it is why a hunt was needed rather than an answer.
 
-- **It was a complete run, not an aborted one.** The total was 4,509, the suite's full count, so the
-  failure mode in that record does not explain this one. Two tests genuinely failed.
-- **I do not know which two.** The command piped its output through a summary filter, so the names were
-  never captured. That is my mistake and it is the reason this cannot be named as a defect in a test or
-  in the product, which is what the rule requires.
-- **It has not reproduced.** Core.Tests has since run green {GREEN_RUNS} more times on the same code, at
-  4,491 passed each time, including a deliberate repeat of the exact sequence it failed in - the Gateway
-  unit tests immediately followed by Core - and a run of the three classes that touch the one Core file
-  this phase changed (`RepositoryConfig`), which pass in 4 seconds.
-- **This machine is shared.** Several other sessions were running their own test suites throughout;
-  `uptime` during this work showed load averages between 3 and 8 with eight or more `dotnet` processes
-  competing. `RepositoryRegistryConcurrencyTests` contains ten-second waits on threads, which is the
-  shape of test that fails under contention - but that is a suspicion and it is NOT evidence, and it is
-  written here as a suspicion.
+**It was then reproduced, and it is named.** Core.Tests ran green six more times before a repeat-run
+hunt caught it:
 
-**This is handed to the Delivery Lead rather than closed.** It belongs to the same family as the two
-sightings already recorded in this mission's proofs folder (`the-parked-suite-nobody-runs.md` and
-`an-aborted-run-reports-passed.md`), it is not caused by anything in this phase - the one Core file this
-phase touches is exercised by 27 tests that pass in isolation and in every full run - and the honest
-statement is the one at the top of this section: it happened once, I lost the names, and it has not
-happened again.
+| Hunt run | Duration | Result |
+|---|---|---|
+| 1 | 5 m 11 s | 4,491 passed, **0 failed** |
+| 2 | 10 m 2 s | 4,484 passed, **7 failed** |
+
+Same commit, same binary, minutes apart, and **the failing run took twice as long** - other sessions on
+this Mac were running their own suites throughout. All seven failures spawn a real child process and
+assert against a wall-clock timeout: five in `Setup.FleetToolReachabilityTests`, failing at exactly the
+30 seconds the test itself chooses, with the product's own `timed out after 30s` in the message; two in
+`Settings.ToolDetectionServiceTests`, failing at exactly the 8 seconds of
+`ToolDetectionService.DefaultTimeout`.
+
+**Which it is: the TESTS.** They report how busy the machine is. It is the third sighting of that family
+in this mission, after `throughput-test-measures-the-machine.md` and `the-parked-suite-nobody-runs.md`.
+The full diagnosis, the seven names, the evidence and what should change are in
+`../seven-tool-tests-measure-the-machine.md`.
+
+**It is not phase 6's.** The one `CcDirector.Core` file this phase changes is `RepositoryConfig`, whose
+27 tests pass in four seconds in isolation and in every full run including the red ones. No failure is
+in a file this mission has touched. Not fixed here: it is two other missions' files, and half of it is a
+product change rather than a test change.
+
+**What I cannot prove, said plainly:** that the original two failures were among these seven. Their
+names were lost. Same suite, same machine, same conditions, and nothing else in 4,509 tests failed
+across eight runs - so reading them as members of this family is the overwhelming reading, but it is a
+reading and not a fact.
 
 ---
 
