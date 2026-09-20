@@ -104,6 +104,7 @@ public sealed class DiscoveredRepositoryObserver
         }
 
         var found = new List<DiscoveredRepository>(repositories.Count);
+        var worktrees = new List<WorktreeOfRepository>();
         var sawProvisional = false;
         List<RootFolderListingDto>? listings = null;
         foreach (var repository in repositories)
@@ -129,6 +130,22 @@ public sealed class DiscoveredRepositoryObserver
             if (string.IsNullOrWhiteSpace(repository.Path))
                 continue; // the path IS the identity - a pathless row cannot be keyed
             found.Add(new DiscoveredRepository(repository.Path, repository.Name ?? ""));
+
+            // A WORKTREE IS NOT A REPOSITORY (the one-repository-list mission). The Director's scan
+            // already computes every scanned repository's worktrees with git, on the machine that holds
+            // the disk, and they already ride this push - so the statement "that folder is a worktree of
+            // this repository" is here for the taking, and the catalogue can fold the worktree's row
+            // into the repository's. No new field, no new push, no new endpoint and no new tunnel verb:
+            // one feed, as every piece of this mission since phase 2.
+            //
+            // Taken only from a row that is NOT provisional - the filter above has already dropped those
+            // - because a warm-start row's worktree list is whatever was last cached rather than what git
+            // says now, and this is a destructive operation.
+            foreach (var worktree in repository.Worktrees ?? new List<WorktreeDto>())
+            {
+                if (!string.IsNullOrWhiteSpace(worktree.Path))
+                    worktrees.Add(new WorktreeOfRepository(worktree.Path, repository.Path));
+            }
         }
 
         var rootFolders = (listings ?? new List<RootFolderListingDto>())
@@ -155,13 +172,13 @@ public sealed class DiscoveredRepositoryObserver
         // this fold writes - the machine, every path, and every name - so a push that would change a row
         // can never match it.
         var key = $"{tenant.Value}|{directorId}";
-        var signature = Signature(machine, found, rootFolders);
+        var signature = Signature(machine, found, rootFolders, worktrees);
         if (_folded.TryGetValue(key, out var last)
             && string.Equals(last.Signature, signature, StringComparison.Ordinal)
             && seen - last.AtUtc < KnownRepositoryStore.LastSeenFreshnessInterval)
             return;
 
-        _catalog.ObserveDiscovered(tenant, machine, directorId, found, rootFolders, seen, reconcile);
+        _catalog.ObserveDiscovered(tenant, machine, directorId, found, rootFolders, worktrees, seen, reconcile);
         _folded[key] = new FoldedSnapshot(signature, seen);
     }
 
@@ -173,10 +190,14 @@ public sealed class DiscoveredRepositoryObserver
     ///
     /// The root folders are in here because they now decide REMOVALS: a folder deleted under a watched
     /// root changes nothing about the pushed repositories - the scan never reported it - so a signature
-    /// that covered only the repositories would skip the very push that was supposed to forget it.
+    /// that covered only the repositories would skip the very push that was supposed to forget it. The
+    /// worktrees are in here for the same reason and with the same limit stated plainly: a worktree
+    /// APPEARING or DISAPPEARING defeats the skip, but a row that only the CATALOGUE gained - a session
+    /// started by a Director too old to resolve its own worktree - changes nothing in the push, so its
+    /// collapse waits for the next push that differs, or for the reseed a reconnect brings.
     /// </summary>
     private static string Signature(string machine, IReadOnlyList<DiscoveredRepository> found,
-        IReadOnlyList<WatchedRootFolder> rootFolders)
+        IReadOnlyList<WatchedRootFolder> rootFolders, IReadOnlyList<WorktreeOfRepository> worktrees)
         => string.Join('\n', found
             .Select(repository => (Key: KnownRepositoryStore.NormalizePathKey(repository.Path), repository.Name))
             .OrderBy(entry => entry.Key, StringComparer.Ordinal)
@@ -187,5 +208,12 @@ public sealed class DiscoveredRepositoryObserver
                     .OrderBy(child => child, StringComparer.Ordinal)
                     .Prepend(KnownRepositoryStore.NormalizePathKey(root.Path))))
                 .OrderBy(line => line, StringComparer.Ordinal))
+            .Concat(worktrees
+                .Select(worktree => NormalizePair(worktree))
+                .OrderBy(line => line, StringComparer.Ordinal))
             .Prepend(machine));
+
+    private static string NormalizePair(WorktreeOfRepository worktree)
+        => KnownRepositoryStore.NormalizePathKey(worktree.Path) + '\u0001'
+           + KnownRepositoryStore.NormalizePathKey(worktree.RepositoryPath);
 }

@@ -23,6 +23,19 @@ public readonly record struct DiscoveredRepository(string Path, string Name);
 public readonly record struct WatchedRootFolder(string Path, IReadOnlyList<string> ChildPaths);
 
 /// <summary>
+/// ONE POSITIVE STATEMENT BY A DIRECTOR: the folder at <paramref name="Path"/> is a linked git WORKTREE
+/// of the repository at <paramref name="RepositoryPath"/>, on the machine that holds the disk (the
+/// one-repository-list mission, "a worktree is not a repository").
+///
+/// It is what lets the catalogue COLLAPSE a worktree's row into its repository's. Only the Director can
+/// say it - the answer is written inside the folder, and the Gateway is a Linux container holding paths
+/// pushed up by Windows and macOS Directors and is never the machine a path describes. It comes from the
+/// Director's own root-folder scan, which computes every scanned repository's worktrees with git, and
+/// rides the repository push that already carries them.
+/// </summary>
+public readonly record struct WorktreeOfRepository(string Path, string RepositoryPath);
+
+/// <summary>
 /// The durable catalog of repositories the Gateway knows about, grouped by tenant and machine. Session
 /// history is intentionally retained for only ninety days; this catalog is not part of that sweep.
 ///
@@ -228,6 +241,33 @@ public sealed class KnownRepositoryStore
     /// lost, because the row holds no other fact a screen reads. That is the accepted cost of a list that
     /// describes the disk.</para>
     ///
+    /// <para><b>AND A WORKTREE IS NOT A REPOSITORY: ITS ROW IS COLLAPSED INTO ITS REPOSITORY'S</b> (the
+    /// one-repository-list mission, "a worktree is not a repository"). Every agent session on this fleet
+    /// runs in a git worktree, so every worktree that ever hosted one became its own row: measured
+    /// against the live Gateway on 20 September 2026, one Windows machine's list served 559 repositories,
+    /// of which 110 were live worktrees of four repositories, and thirteen of its top twenty rows - the
+    /// part a person reads - were worktrees. The owner, reading it: "here you are showing the work trees.
+    /// We should only be showing the repos."</para>
+    /// <para><b>THE SAFETY PROPERTY, in the words it was ruled in: the Gateway collapses a row only on a
+    /// POSITIVE OBSERVATION FROM THE DIRECTOR that the folder is a worktree of a named parent; SILENCE IS
+    /// NEVER PERMISSION.</b> <paramref name="worktrees"/> carries those statements and nothing else. A
+    /// folder the Director said nothing about is not touched, whatever its name, wherever it sits and
+    /// however long it has been in the catalogue - so an unresolvable worktree, a folder that is gone, a
+    /// bare repository's worktree, a git submodule (which IS a repository) and a plain folder are all
+    /// left exactly as they are. It is the same direction the forgetting rule above fails in: act only on
+    /// what can positively be proved, and enumerate what to CHANGE rather than what to skip.</para>
+    /// <para>Three further conditions hold it shut: it runs only on a real observation
+    /// (<paramref name="reconcile"/>), so never on an empty push, never on an all-provisional one and
+    /// never from a Director that has gone quiet; the named repository must itself be in THIS push's
+    /// snapshot, so a statement about a repository the Director is not currently reporting collapses
+    /// nothing; and it is scoped to this machine like everything else here.</para>
+    /// <para><b>What it does, and it is the one place a discovered observation moves a last-used
+    /// time.</b> The repository's row takes the NEWER of its own last-used time and the worktree's, and
+    /// the worktree's row is deleted. That is not an exception to invariant 2 so much as the meaning of
+    /// the rule: using a worktree of a repository IS using the repository, so the repository's most
+    /// recent use is the true answer. Nothing else moves - the worktree's row holds no other fact a
+    /// screen reads - and, as with the forgetting rule, there is no undo and no tombstone.</para>
+    ///
     /// Every path here goes through <see cref="NormalizePathKey"/>, which decides Windows-ness from the
     /// PATH'S OWN SHAPE. The Gateway is a Linux container holding paths written by Windows and macOS
     /// machines and is never the machine a path describes, so nothing here may ask the host what a path
@@ -236,7 +276,7 @@ public sealed class KnownRepositoryStore
     /// </summary>
     public bool ObserveDiscovered(TenantId tenant, string machineName, string directorId,
         IReadOnlyList<DiscoveredRepository> found, IReadOnlyList<WatchedRootFolder>? rootFolders,
-        DateTime seenUtc, bool reconcile)
+        IReadOnlyList<WorktreeOfRepository>? worktrees, DateTime seenUtc, bool reconcile)
     {
         if (!tenant.IsValid)
             throw new ArgumentException("A valid tenant is required.", nameof(tenant));
@@ -298,6 +338,7 @@ public sealed class KnownRepositoryStore
         var inserted = 0;
         var removed = 0;
         var forgotten = 0;
+        var collapsed = 0;
         lock (_gate)
         {
             using var context = _db.CreateContext(tenant);
@@ -314,12 +355,14 @@ public sealed class KnownRepositoryStore
             var existingByPath = rows
                 .GroupBy(row => NormalizePathKey(row.Path), StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
+            var insertedByPath = new Dictionary<string, KnownRepositoryEntity>(StringComparer.Ordinal);
+            var collapsedAway = new HashSet<KnownRepositoryEntity>();
 
             foreach (var (pathKey, repository) in snapshot)
             {
                 if (!existingByPath.TryGetValue(pathKey, out var matches))
                 {
-                    context.KnownRepositories.Add(new KnownRepositoryEntity
+                    var added = new KnownRepositoryEntity
                     {
                         TenantId = tenant.Value,
                         MachineKey = machineKey,
@@ -330,7 +373,12 @@ public sealed class KnownRepositoryStore
                         LastUsedUtc = null,
                         DiscoveredByDirectorId = reporter,
                         LastSeenUtc = seen,
-                    });
+                    };
+                    context.KnownRepositories.Add(added);
+                    // Remembered so the collapse below can find a repository that was inserted moments
+                    // ago: a worktree's row must be able to fold into a repository this very push is the
+                    // first to report.
+                    insertedByPath[pathKey] = added;
                     changed = true;
                     inserted++;
                     continue;
@@ -380,12 +428,71 @@ public sealed class KnownRepositoryStore
                 }
             }
 
+            // A WORKTREE IS NOT A REPOSITORY: ITS ROW FOLDS INTO ITS REPOSITORY'S, keeping the newer of
+            // the two last-used times. Everything that makes this safe is in the remarks above; the one
+            // that lives here is that ONLY a path the Director positively named as a worktree of a named
+            // repository is touched, and that the repository must be in THIS push's snapshot - silence
+            // is never permission.
+            //
+            // IT RUNS BEFORE THE FORGETTING BELOW, on purpose. A worktree folder that has gone could be
+            // reached by both rules, and they do different things with it: this one MOVES its last-used
+            // time onto the repository, the other DELETES it and the time with it. Doing this first means
+            // a row that can be accounted for is accounted for, and only what nobody claims is forgotten.
+            // That is the keep-leaning order.
+            if (reconcile && worktrees is { Count: > 0 })
+            {
+                foreach (var worktree in worktrees)
+                {
+                    if (string.IsNullOrWhiteSpace(worktree.Path) || string.IsNullOrWhiteSpace(worktree.RepositoryPath))
+                        continue;
+                    var childKey = NormalizePathKey(worktree.Path.Trim());
+                    var repositoryKey = NormalizePathKey(worktree.RepositoryPath.Trim());
+                    if (string.Equals(childKey, repositoryKey, StringComparison.Ordinal))
+                        continue; // a repository is not a worktree of itself
+
+                    // The named repository must be one this push reports. A statement about a repository
+                    // the Director is not currently reporting has nothing to fold into, and inventing a
+                    // row for it here would be the Gateway deciding something it cannot see.
+                    if (!snapshot.ContainsKey(repositoryKey))
+                        continue;
+
+                    var children = existingByPath.TryGetValue(childKey, out var childRows) ? childRows : null;
+                    if (children is null || children.Count == 0)
+                        continue; // nothing in the catalogue for this worktree - nothing to collapse
+
+                    var repositoryRow = existingByPath.TryGetValue(repositoryKey, out var repositoryRows)
+                        ? repositoryRows.OrderByDescending(row => row.LastUsedUtc).First()
+                        : insertedByPath.GetValueOrDefault(repositoryKey);
+                    if (repositoryRow is null || collapsedAway.Contains(repositoryRow))
+                        continue;
+
+                    var newest = children.Max(row => row.LastUsedUtc);
+                    if (newest is { } used && (repositoryRow.LastUsedUtc is not { } already || used > already))
+                    {
+                        repositoryRow.LastUsedUtc = used;
+                        changed = true;
+                    }
+
+                    foreach (var child in children)
+                    {
+                        if (!collapsedAway.Add(child))
+                            continue;
+                        context.KnownRepositories.Remove(child);
+                        changed = true;
+                        collapsed++;
+                        FileLog.Write($"[KnownRepositoryStore] ObserveDiscovered: collapsing {child.Path} into "
+                                      + $"{repositoryRow.Path} - {reporter} reports it is a worktree of it");
+                    }
+                }
+            }
+
             // Removing a root folder takes effect HERE, and nowhere else. Scoped to (this tenant, this
             // machine, this Director, no last-used time), so a used repository and another Director's
             // findings both survive it.
             if (reconcile)
             {
                 var stale = rows
+                    .Where(row => !collapsedAway.Contains(row))
                     .Where(row => row.LastUsedUtc is null
                                   && string.Equals(row.DiscoveredByDirectorId, reporter, StringComparison.OrdinalIgnoreCase)
                                   && !snapshot.ContainsKey(NormalizePathKey(row.Path)))
@@ -411,6 +518,7 @@ public sealed class KnownRepositoryStore
                 // and this root may not speak for it. If that ever changes, this under-claims and keeps a
                 // row that could have gone, which is the direction to fail in.
                 var gone = rows
+                    .Where(row => !collapsedAway.Contains(row))
                     .Where(row => row.LastUsedUtc is not null)
                     .Where(row =>
                     {
@@ -436,8 +544,8 @@ public sealed class KnownRepositoryStore
 
         FileLog.Write($"[KnownRepositoryStore] ObserveDiscovered: tenant={tenant.ToLogString()} machine={machine} "
                       + $"director={reporter} found={snapshot.Count} inserted={inserted} removed={removed} "
-                      + $"forgotten={forgotten} roots={coveredRootKeys.Count} "
-                      + $"reconcile={reconcile} changed={changed}");
+                      + $"forgotten={forgotten} collapsed={collapsed} roots={coveredRootKeys.Count} "
+                      + $"worktrees={worktrees?.Count ?? 0} reconcile={reconcile} changed={changed}");
         return changed;
     }
 

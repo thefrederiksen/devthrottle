@@ -69,7 +69,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/still-here", "still-here") },
             new[] { Root("/roots/work", "/roots/work/still-here") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Equal(new[] { "/roots/work/still-here" }, Paths());
     }
@@ -90,7 +90,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
             // The scan reports the clone and nothing else. The listing reports both folders.
             new[] { Found("/roots/work/the-clone", "the-clone") },
             new[] { Root("/roots/work", "/roots/work/the-clone", "/roots/work/a-live-worktree") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Equal(new[] { "/roots/work/a-live-worktree", "/roots/work/the-clone" }, Paths());
     }
@@ -111,7 +111,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/elsewhere/kept", "kept") },
             new[] { Root("/roots/work"), Root("/roots/elsewhere", "/roots/elsewhere/kept") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Equal(new[] { "/roots/elsewhere/kept" }, Paths());
     }
@@ -134,7 +134,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
             new[] { Found("/roots/work/still-here", "still-here") },
             // /mnt/unplugged is registered but could not be read, so it is not here at all.
             new[] { Root("/roots/work", "/roots/work/still-here") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Equal(new[] { "/mnt/unplugged/alpha", "/roots/work/still-here" }, Paths());
     }
@@ -152,7 +152,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             Array.Empty<DiscoveredRepository>(),
             new[] { Root("/roots/work") },
-            _now, reconcile: false);
+            worktrees: null, _now, reconcile: false);
 
         Assert.Equal(new[] { "/roots/work/alpha" }, Paths());
     }
@@ -171,7 +171,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/beta", "beta") },
             new[] { Root("/roots/work", "/roots/work/beta") },
-            _now, reconcile: false);
+            worktrees: null, _now, reconcile: false);
 
         Assert.Contains("/roots/work/alpha", Paths());
     }
@@ -190,7 +190,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/still-here", "still-here") },
             rootFolders: null,
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Equal(new[] { "/roots/work/gone", "/roots/work/still-here" }, Paths());
     }
@@ -209,7 +209,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/alpha", "alpha") },
             new[] { Root("/roots/work", "/roots/work/alpha") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Contains("/somewhere/else/entirely", Paths());
     }
@@ -230,7 +230,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorTwo,
             new[] { Found("/roots/beta/three", "three") },
             new[] { Root("/roots/beta", "/roots/beta/three") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Equal(new[] { "/roots/alpha/one", "/roots/beta/three" }, Paths());
     }
@@ -249,7 +249,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/alpha", "alpha") },
             new[] { Root("/roots/work", "/roots/work/alpha") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         // No further push, ever, and a Gateway that has restarted since.
         var afterRestart = new KnownRepositoryStore(_harness.Open());
@@ -273,7 +273,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/alpha", "alpha") },
             new[] { Root("/roots/work", "/roots/work/alpha") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Contains("/roots/work/team/nested", Paths());
     }
@@ -293,7 +293,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found(@"D:\Roots\Work\beta", "beta") },
             new[] { Root("d:/roots/work", "d:/roots/work/alpha", @"D:\Roots\Work\beta") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Contains(@"D:\Roots\Work\Alpha", Paths());
     }
@@ -312,7 +312,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/alpha", "alpha") },
             new[] { Root("/roots/work") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Contains("/roots/work/alpha", Paths());
     }
@@ -328,12 +328,12 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/alpha", "alpha"), Found("/roots/work/beta", "beta") },
-            rootFolders: null, _now, reconcile: true);
+            rootFolders: null, worktrees: null, _now, reconcile: true);
         Assert.Equal(2, AllRows().Count);
 
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found("/roots/work/alpha", "alpha") },
-            rootFolders: null, _now.AddHours(2), reconcile: true);
+            rootFolders: null, worktrees: null, _now.AddHours(2), reconcile: true);
 
         Assert.Equal(new[] { "/roots/work/alpha" }, Paths());
     }
@@ -371,7 +371,7 @@ public sealed class TheCatalogueForgetsTests : IDisposable
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
             new[] { Found(@"D:\still-here", "still-here") },
             new[] { Root(@"D:\", @"D:\still-here") },
-            _now, reconcile: true);
+            worktrees: null, _now, reconcile: true);
 
         Assert.Equal(new[] { @"D:\still-here" }, Paths());
     }
