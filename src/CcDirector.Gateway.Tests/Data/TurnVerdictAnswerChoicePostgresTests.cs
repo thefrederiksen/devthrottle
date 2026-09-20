@@ -71,7 +71,11 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             // The Wingman narration call trace (pull request 3105) landed after this proof was written and the
             // pin below moved with it, so the migration under test is third from the end rather than second.
             Assert.Equal("20260918181205_AddWingmanNarrationCallTrace", all[index + 2]);
-            Assert.Equal(index + 3, all.Count);
+            // The repository catalog's discovered columns and the raised sessions table landed after that, and the
+            // pins below moved with them.
+            Assert.Equal("20260920021806_AddDiscoveredRepositories", all[index + 3]);
+            Assert.Equal("20260920053001_AddRaisedSessions", all[index + 4]);
+            Assert.Equal(index + 5, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
