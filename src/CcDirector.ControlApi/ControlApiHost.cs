@@ -221,18 +221,23 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// NEVER NULL, unlike <see cref="CreateDrain"/>. A Director that cannot do a smart shutdown - it has
     /// no Gateway client, or the Gateway does not answer - says why through the engine's own check, so a
     /// dialog always has something to ask and a sentence to show.
+    ///
+    /// The engine holds NO Gateway client of its own. A settings change replaces the host's client
+    /// (<see cref="ReapplyGatewayAsync()"/> disposes the old one), so both of the engine's questions -
+    /// "can a drain be built" and "does the Gateway answer" - read the host's CURRENT client each time
+    /// they are asked. One engine never holds two ages of one fact, and a screen may keep the engine
+    /// across a settings change.
     /// </summary>
     public SmartRestart.ISmartShutdown CreateSmartShutdown()
     {
         FileLog.Write($"[ControlApiHost] CreateSmartShutdown: gatewayClient={(_gatewayClient is null ? "none" : "present")}");
-        var client = _gatewayClient;
         return new SmartRestart.DirectorSmartShutdown(
             () => CreateDrain(),
             // The harmless question: list the workspaces, which is the very store the record goes into.
-            // It throws when the Gateway cannot be reached, and that is the answer wanted.
-            ct => client is null
-                ? throw new InvalidOperationException("this Director is not connected to a Gateway.")
-                : client.ListWorkspacesAsync(ct),
+            // It throws when the Gateway cannot be reached, and that is the answer wanted. It goes
+            // through the host's own wrapper, which reads the client at the moment of the call.
+            ct => ListWorkspacesAsync(ct)
+                ?? throw new InvalidOperationException("this Director is not connected to a Gateway."),
             JudgeRestartEligibility,
             InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
     }
@@ -1473,8 +1478,18 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// endpoint / token takes effect without restarting the app. Serialized so two concurrent
     /// settings writes can't leave two heartbeat timers running.
     /// </summary>
-    public async Task ReapplyGatewayAsync()
+    public Task ReapplyGatewayAsync() => ReapplyGatewayAsync(GatewayConfig.Load);
+
+    /// <summary>
+    /// The same replacement with the configuration read supplied. Production always passes
+    /// <see cref="GatewayConfig.Load"/>, which reads this machine's real config.json; a test passes its
+    /// own, so it can watch the host replace its client without dialling the owner's real Gateway.
+    /// </summary>
+    /// <param name="loadConfig">Reads the Gateway configuration. Called after the old client is gone,
+    /// exactly where the file has always been read.</param>
+    internal async Task ReapplyGatewayAsync(Func<GatewayConfig> loadConfig)
     {
+        ArgumentNullException.ThrowIfNull(loadConfig);
         await _gatewayReapplyLock.WaitAsync();
         try
         {
@@ -1498,7 +1513,7 @@ public sealed class ControlApiHost : IAsyncDisposable
                 _streamClient = null;
             }
 
-            var gatewayConfig = GatewayConfig.Load();
+            var gatewayConfig = loadConfig();
 
             _gatewayClient = BuildGatewayClient(gatewayConfig);
             _gatewayClient.Start();

@@ -1140,7 +1140,10 @@ public sealed class DirectorDrain
             // Only a seat that reached a clean stop AND SAID SO is even ASKED to close. Blocked,
             // declined and unreachable seats are never flagged, so the reaper never touches them: they
             // keep running, and because the leaf-first gate below waits on them, their seniors stay open
-            // too. That is the mechanical shape of never forcing - not a rule, a missing verb.
+            // too. That is the mechanical shape of never forcing, and it holds for the flagging on BOTH
+            // paths: flagging only ever asks the reaper, and the reaper never cuts a turn. It is no longer
+            // true that the class holds no stronger verb. The smart shutdown does hold one, EndAsync, and
+            // uses it only at the limit (EndEverySessionStillPresentAsync), never here.
             //
             // A seat that wrote a document and declared nothing has NO drain state at all, so it is not
             // eligible here either - the file proves it wrote something, not that it finished.

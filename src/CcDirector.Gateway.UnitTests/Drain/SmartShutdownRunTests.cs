@@ -877,4 +877,41 @@ public sealed class SmartShutdownRunTests
             await host.DisposeAsync();
         }
     }
+
+    // Shows: an engine made while the HOST had no Gateway client answers from the client the host has NOW.
+    // The host is driven through its own replacement path (the one a settings change takes), handed a
+    // configuration with no Gateway address so nothing is dialled. Only a Gateway client says "Gateway is
+    // not configured", so that sentence in the refusal proves the engine asked the host's current client.
+    // An engine that kept the client it was made with (none) would say "not connected to a Gateway" for ever.
+    [Fact]
+    public async Task CreateSmartShutdown_AnEngineMadeBeforeTheHostHadAClient_AnswersFromTheClientTheHostHasNow()
+    {
+        using var sessions = new SessionManager(new AgentOptions());
+        using var dir = new TempDir();
+        var host = new ControlApiHost(sessions, "1.0.0-test", () => Task.CompletedTask,
+            directorId: Guid.NewGuid().ToString(), instancesDirectory: dir.Path);
+        try
+        {
+            var engine = host.CreateSmartShutdown();
+            var before = await engine.CheckAsync(SmartShutdownPurpose.Close, CancellationToken.None);
+            Assert.False(before.CanSmartShutdown);
+            Assert.Contains("not connected to a Gateway", before.SmartShutdownRefusal);
+            Assert.Null(host.CreateDrain());
+
+            await host.ReapplyGatewayAsync(() => new GatewayConfig());
+
+            // The host has a client now: the drain half of the engine sees it...
+            Assert.NotNull(host.CreateDrain());
+            // ...and so must the reachability half of the SAME engine, made before the client existed.
+            var after = await engine.CheckAsync(SmartShutdownPurpose.Close, CancellationToken.None);
+            Assert.False(after.CanSmartShutdown);
+            Assert.Contains("the Gateway could not be reached", after.SmartShutdownRefusal);
+            Assert.Contains("Gateway is not configured", after.SmartShutdownRefusal);
+            Assert.DoesNotContain("not connected to a Gateway", after.SmartShutdownRefusal);
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
+    }
 }

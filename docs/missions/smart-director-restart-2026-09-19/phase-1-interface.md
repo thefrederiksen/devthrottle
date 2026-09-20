@@ -72,6 +72,10 @@ not hand back nothing.
 - `Changed` is raised on every change of any session's state or of the phase, and at least once per
   poll (ten seconds). It is raised on an ENGINE thread: the screen dispatches to the UI thread itself.
   Each snapshot is complete and immutable; the screen replaces what it shows, it never merges.
+  The handler must return at once. It dispatches to the user interface thread ASYNCHRONOUSLY (a
+  post, never a synchronous invoke). A handler that blocks stalls the run, the two thirds stage, the
+  limit and the "Shut down now" button, and holds the one-run gate so that no later smart shutdown
+  can start.
 - `Current` is valid from the moment `Start` returns (phase `Starting`, no rows yet is possible).
 - The time left is the screen's own clock against `LimitUtc`; the engine does not tick every second.
 - `ShutDownNow` and `CancelAndKeepWorking` return at once and never throw. Each is honoured only while
