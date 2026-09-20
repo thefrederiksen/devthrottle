@@ -167,6 +167,46 @@ public sealed class TurnVerdictDto
     /// by that owner rather than by the user.
     /// </summary>
     public string? Narration { get; set; }
+
+    /// <summary>
+    /// WHICH KIND OF FAILURE THIS IS, as one of <see cref="WingmanFailureKinds"/>, or null on a reading that did not
+    /// fail (mission "Wingman error and retry", 2026-09-19). It exists so the card's short plain reason is chosen
+    /// from a closed word rather than by matching text inside <see cref="FailureReason"/>, which quotes exception
+    /// messages and was never meant to be read by a person on a session card.
+    /// </summary>
+    public string? FailureKind { get; set; }
+
+    /// <summary>
+    /// Why this reading has NO WORDS although the judge's answer was accepted, or null (mission "Wingman error and
+    /// retry", 2026-09-19). A reading is both calls, and this is the second one failing: the row keeps the judge's
+    /// colour and label, <see cref="Failed"/> stays false, and there is nothing to read or hear. That is a failed
+    /// reading to the person looking at it, so it shows the same tag and goes on the same retry schedule. Null when
+    /// no narration was owed at all - a session another live session owns.
+    /// </summary>
+    public string? NarrationFailureReason { get; set; }
+
+    /// <summary>
+    /// How many SCHEDULED retries this stop has already spent, on a <see cref="Failed"/> record (mission "Wingman
+    /// error and retry", 2026-09-19). Zero after the first failure. A person pressing "Ask again" does not move
+    /// it. Carried on the stored record, so a Gateway restart does not forget where a stop is on its schedule.
+    /// </summary>
+    public int RetriesMade { get; set; }
+
+    /// <summary>
+    /// When the Gateway will ask about this failed stop again (UTC), or NULL WHEN NOTHING IS BOOKED - the schedule
+    /// is used up, or the record is not a failure. This one field is what every "a retry is coming" sentence is
+    /// rendered from, so a card can never promise an attempt that the record does not hold.
+    /// </summary>
+    public DateTime? NextRetryAtUtc { get; set; }
+
+    /// <summary>
+    /// Why this reading's buttons were dropped, in plain words, or null when they were not (mission "Wingman error
+    /// and retry", 2026-09-19). The model's option list broke a rule - exactly one option, two marked recommended,
+    /// an empty send, an over-long key - so the WHOLE list was dropped and the rest of the reading stands. It is
+    /// not a failure: <see cref="Failed"/> stays false, the reading is narrated, and no button is shown that the
+    /// model did not clearly choose. Recorded here so it is answerable by query and visible in the debug view.
+    /// </summary>
+    public string? OptionsDroppedReason { get; set; }
 }
 
 /// <summary>The picker on the screen that a "keys" answer selects from.</summary>
@@ -211,4 +251,23 @@ public sealed class TurnVerdictOptionDto
 
     /// <summary>The consequence and the risk of choosing this one.</summary>
     public string Note { get; set; } = "";
+}
+
+/// <summary>The closed words of <see cref="TurnVerdictDto.FailureKind"/>.</summary>
+public static class WingmanFailureKinds
+{
+    /// <summary>The model gave no answer inside its deadline, or the call never reached it.</summary>
+    public const string DidNotAnswer = "did-not-answer";
+
+    /// <summary>The model's provider refused the call and asked for a wait.</summary>
+    public const string RateLimited = "rate-limited";
+
+    /// <summary>The model could not be asked at all, or the reading broke before it could be stored.</summary>
+    public const string Unavailable = "unavailable";
+
+    /// <summary>The model answered, and the answer could not be used.</summary>
+    public const string Refused = "refused";
+
+    /// <summary>The judge's answer was accepted and the narration call that follows it produced no words.</summary>
+    public const string NarrationFailed = "narration-failed";
 }

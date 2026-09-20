@@ -101,12 +101,12 @@ public static class VoiceDisplayFold
     /// running a build that cannot send its conversation, so the Gateway will never hold words to narrate
     /// for it. A SPECIFIC, ACTIONABLE reason with a one-line remedy - which is why it outranks every
     /// "be patient" verdict below it. See <see cref="DirectorTooOldText"/>.</param>
-    /// <param name="narrationAbandoned">The model leg did not answer, every re-attempt in the voice path's
-    /// bounded budget has been spent, and NOTHING further is scheduled for this turn (issue #2676). The one
-    /// input here that reports a stopped effort rather than a slow one, which is why it displaces the calm
-    /// retrying sentence: "retrying automatically, it should come through shortly" is not a description of a
-    /// turn nobody is working on any more. See <see cref="WingmanVoiceService.NarrationAbandonedFor"/>.</param>
-    public static VoiceDisplay Fold(bool voiceMode, bool agentWorking, bool hasAudio, bool generating, HostedAiState? unavailable, bool nothingToNarrate, bool servedViaFallback = false, DateTime? waitingSince = null, DateTime? utcNow = null, bool directorCannotSendConversation = false, bool narrationAbandoned = false)
+    /// <param name="speechError">This stop's reading succeeded and making its AUDIO failed: where that is on the
+    /// retry schedule, as the card draws it (<see cref="WingmanVoiceService.SpeechErrorFor"/>), or null. It
+    /// displaces the calm retrying sentence, because it says exactly which retry is booked and when, or that none
+    /// is. A FAILED READING is not an input here: it is known only after this fold has run, and is applied by
+    /// <see cref="WithReadingError"/>.</param>
+    public static VoiceDisplay Fold(bool voiceMode, bool agentWorking, bool hasAudio, bool generating, HostedAiState? unavailable, bool nothingToNarrate, bool servedViaFallback = false, DateTime? waitingSince = null, DateTime? utcNow = null, bool directorCannotSendConversation = false, WingmanErrorDisplay? speechError = null)
     {
         // Computed once, up front, because more than one verdict below carries it: the calm "on its way"
         // wants it so a healthy wait can be seen climbing, and the give-up verdict wants it in its own
@@ -193,12 +193,10 @@ public static class VoiceDisplayFold
         switch (unavailable)
         {
             case HostedAiState.Retrying:
-                // NOTHING IS SCHEDULED, so nothing is on its way. Checked before the elapsed-time give-up
-                // because the two say different things and this one is the stronger claim: gaveUp is "it has
-                // not arrived in three minutes, and we are still trying", while this is "we have stopped
-                // trying". A reader who is told the Gateway is still working on it waits; one who is told the
-                // turn was not narrated goes and reads it.
-                if (narrationAbandoned) return NotNarratedDisplay(waited);
+                // THE SPEECH FAILED AND ITS RETRY SCHEDULE IS KNOWN, so say that instead of "on its way": which
+                // retry is booked and when, or that nothing more is. Checked before the elapsed-time give-up
+                // because it is the stronger and more exact claim.
+                if (speechError is not null) return WingmanErrorDisplayFor(speechError, waited);
                 // "Voice on its way" is true for a minute and a lie at forty-eight. Past the threshold the
                 // retry stops being news and becomes the thing being reported.
                 if (gaveUp) return GaveUpDisplay(waited);
@@ -210,6 +208,9 @@ public static class VoiceDisplayFold
                     Message = HostedAiMessages.For(HostedAiState.Retrying).Text,
                 };
             case HostedAiState.ServiceDown:
+                // An answered failure is retried on the same schedule as every other kind (owner ruling,
+                // 2026-09-19: one schedule for every kind of failure), so the card says which retry is next.
+                if (speechError is not null) return WingmanErrorDisplayFor(speechError, waited);
                 return new VoiceDisplay
                 {
                     Kind = "serviceDown",
@@ -263,16 +264,11 @@ public static class VoiceDisplayFold
                 // other machine, and the message names it.
             };
 
-        // THE NARRATION WAS ABANDONED, reached here when the cause was never written into the hosted-AI slot
-        // above (it is cleared on a new turn, and the two are set by different paths). Below the actionable
-        // account conditions and below "update that computer", for the same reason gaveUp is: a remedy the
-        // reader can carry out beats a report of what did not happen. Above nothingToNarrate because the two
-        // describe the same session from different evidence and this one has more - "nothing to read aloud"
-        // is a claim about a conversation, while this was recorded after a reply WAS read and handed to the
-        // model. In practice they never collide (the narration path clears nothingToNarrate before it calls
-        // the model), and the ordering is here because a defence that relies on another file's clearing
-        // discipline is not a defence.
-        if (narrationAbandoned) return NotNarratedDisplay(waited);
+        // THE SPEECH FAILED, reached here when the cause was never written into the hosted-AI slot above (an empty
+        // body, or a slot a new turn cleared). Below the actionable account conditions and below "update that
+        // computer", for the same reason gaveUp is: a remedy the reader can carry out beats a report of what did
+        // not happen.
+        if (speechError is not null) return WingmanErrorDisplayFor(speechError, waited);
 
         // Nothing to read aloud: the session needs the user, but on a prompt / menu, not a text reply. This
         // is the honest state that replaces the old "red badge next to a Generate button that can never
@@ -352,47 +348,61 @@ public static class VoiceDisplayFold
                 + "if that session finishes or exits.",
     };
 
-    /// <summary>The terminal verdict, in one place so the two arms that reach it cannot word it differently.</summary>
+    /// <summary>
+    /// THE READING FAILED, applied AFTER the fold because it is known after it: both callers fold the voice verdict
+    /// before the account's stored readings are stamped onto the rows, exactly as <see cref="HeldDisplay"/> is
+    /// applied after the fold for the same ordering reason. Returns the verdict to show.
+    ///
+    /// It replaces only the verdicts whose whole content is "there is no audio for this turn yet" - not ready,
+    /// retrying, gave up. Everything more specific stands: voice off, the agent working, a playable clip, a reading
+    /// in progress, a held session, and every account or computer condition the reader can act on.
+    /// </summary>
+    public static VoiceDisplay WithReadingError(VoiceDisplay current, WingmanErrorDisplay? readingError)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        if (readingError is null) return current;
+        return current.Kind is "notReady" or "retrying" or VoiceDisplayKinds.GaveUp or "nothingToNarrate"
+            ? WingmanErrorDisplayFor(readingError, current.WaitedLabel)
+            : current;
+    }
+
+    /// <summary>
+    /// The voice screen's card for a Wingman error - a failed reading, or a reading whose audio failed.
+    ///
+    /// THE SENTENCE ABOUT WHAT HAPPENS NEXT IS CHOSEN BY THE BOOKED TIME AND BY NOTHING ELSE. "The Gateway will try
+    /// again by itself" is said only while a retry is booked; "nothing more is scheduled" only when none is. This
+    /// card replaced two - "Voice did not arrive ... the Gateway is still trying" and "Turn not narrated" - that
+    /// differed mainly in that sentence, chose it from flags held in memory, and on 19 September 2026 had it wrong
+    /// on seven sessions at once.
+    ///
+    /// The button is offered from the first failure: a person asking makes one attempt now, and neither resets nor
+    /// consumes the schedule.
+    /// </summary>
+    private static VoiceDisplay WingmanErrorDisplayFor(WingmanErrorDisplay error, string? waited) => new()
+    {
+        Kind = VoiceDisplayKinds.WingmanError,
+        Tone = "red",
+        Label = error.Tag,
+        Message = error.Exhausted
+            ? error.Reason + " Nothing more is scheduled. Read the turn, or ask again."
+            : error.Reason + " The Gateway will try again by itself, and you can ask again now.",
+        CanGenerate = true,
+        WaitedLabel = waited,
+        WingmanError = error,
+    };
+
+    /// <summary>
+    /// Nothing has arrived inside the give-up window and nothing is known to have failed. It used to add "The
+    /// Gateway is still trying", which nothing here can know - this fold is not told what is booked - and which was
+    /// false for seven sessions on 19 September 2026. It now says only what is true, and offers the one action that
+    /// can still produce this turn's audio.
+    /// </summary>
     private static VoiceDisplay GaveUpDisplay(string? waited) => new()
     {
         Kind = VoiceDisplayKinds.GaveUp,
         Tone = "red",
         Label = waited is null ? "Voice did not arrive" : $"Voice did not arrive after {waited}",
-        Message = "This turn's narration has not been produced. The Gateway is still trying, "
-                + "and you can read the turn instead.",
-        // No Generate button: it would re-run exactly what has already not worked for the whole wait.
-        WaitedLabel = waited,
-    };
-
-    /// <summary>
-    /// The verdict for a turn whose narration was ABANDONED (issue #2685): the model leg failed and NO
-    /// further attempt is scheduled for this turn.
-    ///
-    /// THE SENTENCE NAMES NEITHER A CAUSE NOR A COUNT, and both omissions were forced by getting it wrong
-    /// once each. It said "the wingman model did not answer", which became false the day a rate limit -
-    /// an ANSWERED refusal - started arriving here. It then said "the re-attempts for it are used up",
-    /// which is false on the path where a provider asked for a longer wait than this service will hold a
-    /// promise across: that turn's ladder is deliberately left INTACT for a later attempt, and only the
-    /// promise is withdrawn (found in review).
-    ///
-    /// What is true of every path that reaches here, and all the reader needs, is that nothing is coming
-    /// unless they ask. The precise cause is in the log, where the person who can act on it looks.
-    ///
-    /// Two things separate it from <see cref="GaveUpDisplay"/>, which it sits next to and must not be merged
-    /// with. It makes NO claim that anything is still being tried - that sentence is what turned a stalled
-    /// narration into a permanent calm wait. And it DOES offer the Generate button, which gaveUp deliberately
-    /// withholds: gaveUp is said while automatic attempts continue, so a button would only duplicate them,
-    /// whereas here the automatic attempts have stopped and a person asking for one is the only thing left
-    /// that can produce this turn's audio. A model non-answer is transient by definition, so the button is
-    /// not a dead end - it is the one action on this screen that can still work.
-    /// </summary>
-    private static VoiceDisplay NotNarratedDisplay(string? waited) => new()
-    {
-        Kind = VoiceDisplayKinds.NotNarrated,
-        Tone = "red",
-        Label = "Turn not narrated",
-        Message = "This turn has no narration, and nothing further is scheduled to make one. "
-                + "Read the turn, or ask for the narration again.",
+        Message = "This turn's narration has not been produced. Read the turn, or ask for the narration again.",
         CanGenerate = true,
         WaitedLabel = waited,
     };

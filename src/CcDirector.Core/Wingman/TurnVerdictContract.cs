@@ -325,25 +325,39 @@ public static class TurnVerdictContract
             label = CapAtWordBoundary(label, MaxLabelChars);
 
             // ---- the options and the menu -----------------------------------------------------
+            // A BAD BUTTON LIST COSTS THE BUTTONS, NOT THE READING (owner ruling, 2026-09-19). Every rule about the
+            // buttons - exactly one option, two marked recommended, an empty or over-long part, too many, a menu
+            // that cannot be performed - used to refuse the WHOLE answer, and measured on the live fleet that was
+            // one reading in six thrown away, with its state, its label and its narration, over a list nobody had
+            // pressed. A refused reading is never narrated, so every one of them was silence on a red session.
+            //
+            // Now each of those rules drops the WHOLE list - the menu and the options both become none - and the
+            // rest of the answer stands. NOTHING IS REPAIRED AND NOTHING IS GUESSED: no single option is kept, no
+            // extra recommended flag is cleared, no over-long key is cut. The rules are exactly as strict as they
+            // were about what may be SHOWN; what changed is only what breaking one costs. The reason is recorded
+            // on the reading (OptionsDroppedReason), so it is answerable by query and shown in the debug view.
             var optionsResult = ReadOptions(root);
-            if (optionsResult.Reason is not null)
-                return RefuseReadable(optionsResult.Reason);
-            var options = optionsResult.Options;
-
             var menuResult = ReadMenu(root);
-            if (menuResult.Reason is not null)
-                return RefuseReadable(menuResult.Reason);
+            var options = optionsResult.Options;
+            var menu = menuResult.Menu;
+            var optionsDroppedReason = optionsResult.Reason ?? menuResult.Reason;
+
+            // ---- CAN THE ROUTE ACTUALLY PERFORM THIS, EXACTLY ONCE? --------------------------
+            // A button that cannot be performed is a button fault like the others, and costs the same.
+            optionsDroppedReason ??= ValidateExecutable(package, menu is null ? AnswerViaReply : AnswerViaKeys, menu, options);
+
+            if (optionsDroppedReason is not null)
+            {
+                options = new List<TurnVerdictOptionDto>();
+                menu = null;
+            }
 
             // HOW THE PERSON ANSWERS IS DERIVED, NOT ASKED (contract v3). It was a word of its own, and the judge
             // could contradict itself with it - "keys" with no menu, "reply" with one - and either way the answer
             // was refused. There was never a third possibility: a picker was drawn on the screen or it was not, and
             // the menu is what says so. So the route reads the menu, and one field cannot disagree with another.
-            var answerVia = menuResult.Menu is null ? AnswerViaReply : AnswerViaKeys;
-
-            // ---- CAN THE ROUTE ACTUALLY PERFORM THIS, EXACTLY ONCE? --------------------------
-            var executableFault = ValidateExecutable(package, answerVia, menuResult.Menu, options);
-            if (executableFault is not null)
-                return RefuseReadable(executableFault);
+            // With the buttons dropped there is no menu, so the person answers in words, in the terminal or by voice.
+            var answerVia = menu is null ? AnswerViaReply : AnswerViaKeys;
 
             // Null or absent means the agent recommended nothing. The shape pass has already refused
             // every other kind of value, so an object here can no longer become a silence.
@@ -365,8 +379,9 @@ public static class TurnVerdictContract
                 Label = label,
                 AgentRecommends = agentRecommends.Length == 0 ? null : agentRecommends,
                 AnswerVia = answerVia,
-                Menu = menuResult.Menu,
+                Menu = menu,
                 Options = options,
+                OptionsDroppedReason = optionsDroppedReason,
             };
         }
     }

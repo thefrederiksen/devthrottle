@@ -37,6 +37,7 @@ public sealed class TurnVerdictDtoCopyTests
     {
         if (type == typeof(string)) return "value-of-" + name;
         if (type == typeof(bool)) return true;
+        if (type == typeof(int)) return 3 + name.Length;
         if (type == typeof(DateTime) || type == typeof(DateTime?)) return new DateTime(2026, 9, 15, 10, name.Length % 60, 0, DateTimeKind.Utc);
         if (type == typeof(TurnVerdictMenuDto)) return new TurnVerdictMenuDto { Question = "a question" };
         if (type == typeof(List<TurnVerdictOptionDto>)) return new List<TurnVerdictOptionDto> { new() { Key = "an option" } };

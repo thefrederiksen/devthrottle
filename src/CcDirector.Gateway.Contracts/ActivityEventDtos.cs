@@ -363,8 +363,9 @@ public static class ActivityCauses
     /// nothing of its own.</summary>
     public const string AlreadyJudging = "already-judging";
 
-    /// <summary>A voice narration's speech re-attempt found no verdict it could reuse. A re-attempt never asks the
-    /// judge, so it gives up for that stop instead of making a second model call for it.</summary>
+    /// <summary>RETIRED on 19 September 2026 and no longer written: the voice path's own retry ledger, whose
+    /// re-attempt never asked the judge, was replaced by the one retry schedule on the stored reading. The word is
+    /// kept because stored activity rows still carry it and the debug view must still be able to read them.</summary>
     public const string ReattemptNeverJudges = "reattempt-never-judges";
 
     /// <summary>A stop was waiting for this session's judgement when the Gateway began shutting down, so it was never

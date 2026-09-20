@@ -34,6 +34,7 @@ import { modelChipOf } from "@devthrottle/client-core/sessions/model";
 import { machinePortLabel } from "@devthrottle/client-core/fleet/directorEndpoint";
 import { isDataStale } from "@devthrottle/client-core/fleet/directorPresentation";
 import { useNow, waitingLabel } from "@devthrottle/client-core/sessions/waiting";
+import { WingmanErrorLine } from "@devthrottle/client-core/sessions/WingmanErrorLine";
 import { useNow as useSharedNow } from "@devthrottle/client-core/polling/useNow";
 import { ColourLegendButton, useSessionColourLegend } from "@devthrottle/client-core/sessions/ColourLegend";
 import { dotTitle } from "@devthrottle/client-core/sessions/sessionColours";
@@ -563,6 +564,10 @@ function RosterRow({
           {isParent && !expanded && <CrewLine root={session} tree={tree} />}
         </span>
       </Link>
+      {/* The Wingman could not read this stop: the tag, which retry is booked and when, and "Ask again". The one
+          shared component, the same on the phone. It sits OUTSIDE the Link so pressing the button asks again
+          rather than opening the session, and it renders nothing unless the Gateway stamped an error. */}
+      <WingmanErrorLine session={session} />
       {/* The same session menu as the session page (issue #1214), pinned to the card's top-right. It
           sits OUTSIDE the Link so opening the menu never navigates into the session. */}
       <SessionMenu session={session} variant="rail" />

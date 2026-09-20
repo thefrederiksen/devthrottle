@@ -100,7 +100,7 @@ internal sealed class DisplayFold
             voiceUnavailableFor: sid => voice?.VoiceUnavailableFor(tenant, sid),
             nothingToNarrateFor: sid => voice?.NothingToNarrateFor(tenant, sid) == true,
             directorCannotSendConversationFor: sid => voice?.DirectorCannotSendConversationFor(tenant, sid) == true,
-            narrationAbandonedFor: sid => voice?.NarrationAbandonedFor(tenant, sid) == true,
+            speechErrorFor: sid => voice?.SpeechErrorFor(tenant, sid),
             voiceWaitingStampFor: ambientTenant is null
                 ? null
                 : writes

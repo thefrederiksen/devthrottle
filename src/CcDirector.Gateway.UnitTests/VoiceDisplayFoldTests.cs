@@ -298,95 +298,128 @@ public sealed class VoiceDisplayFoldTests
     }
 
     // ------------------------------------------------------------------------------------------------
-    // THE NARRATION WAS ABANDONED (issue #2676). The model leg did not answer, the voice path's bounded
-    // re-attempts for this turn are spent, and NOTHING further is scheduled. Before this arm the same
-    // session rendered the calm "Voice is taking a moment - retrying automatically. It should come through
-    // shortly", which described work nobody was doing. These pin the SENTENCE, because the sentence is
-    // what was wrong.
+    // THE WINGMAN ERROR ON THE VOICE SCREEN (mission "Wingman error and retry", 2026-09-19). It replaced the
+    // "Turn not narrated" card, which said "nothing further is scheduled" from a flag held in memory, and it
+    // fixed the "Voice did not arrive" card, which said "the Gateway is still trying" without being told what
+    // was booked - false on seven sessions at once on 19 September. These pin the SENTENCES, and above all the
+    // one rule: a card says an attempt is coming only while one is booked.
     // ------------------------------------------------------------------------------------------------
 
-    [Fact]
-    public void NarrationAbandoned_ReplacesTheRetryingPromise_THE_2026_09_04_DEFECT()
-    {
-        // NEGATIVE CONTROL: while re-attempts remain, the calm sentence is TRUE and must still be said.
-        var stillTrying = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-            unavailable: HostedAiState.Retrying, nothingToNarrate: false, narrationAbandoned: false);
-        Assert.Equal("retrying", stillTrying.Kind);
-        Assert.Equal("Voice on its way", stillTrying.Label);
+    private static readonly DateTime Booked = new(2026, 9, 19, 20, 0, 0, DateTimeKind.Utc);
 
-        // ...and once they are spent it must stop.
-        var abandoned = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-            unavailable: HostedAiState.Retrying, nothingToNarrate: false, narrationAbandoned: true);
-        Assert.Equal("notNarrated", abandoned.Kind);
-        Assert.Equal("red", abandoned.Tone);
-        Assert.Equal("Turn not narrated", abandoned.Label);
-        Assert.DoesNotContain("on its way", abandoned.Label, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("shortly", abandoned.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("retrying automatically", abandoned.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.False(abandoned.CanPlay);
-        // The one action left that can still work: the automatic attempts have stopped, and a model
-        // non-answer is transient, so asking for one by hand is not a dead end.
-        Assert.True(abandoned.CanGenerate);
+    private static WingmanErrorDisplay BookedSpeechError(int retriesMade = 1)
+        => WingmanErrorFold.ForSchedule(WingmanErrorFold.SpeechFailedReason, retriesMade, Booked);
+
+    private static WingmanErrorDisplay SpentSpeechError()
+        => WingmanErrorFold.ForSchedule(WingmanErrorFold.SpeechFailedReason, WingmanRetrySchedule.Total, null);
+
+    [Fact]
+    public void ASpeechError_ReplacesTheCalmRetryingSentence_WithWhichRetryIsBooked()
+    {
+        // NEGATIVE CONTROL: with no speech error known, Retrying still says what it always said.
+        var calm = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
+            unavailable: HostedAiState.Retrying, nothingToNarrate: false);
+        Assert.Equal("retrying", calm.Kind);
+
+        var error = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
+            unavailable: HostedAiState.Retrying, nothingToNarrate: false, speechError: BookedSpeechError());
+        Assert.Equal(VoiceDisplayKinds.WingmanError, error.Kind);
+        Assert.Equal("red", error.Tone);
+        Assert.Equal("Wingman error", error.Label);
+        Assert.Contains("will try again by itself", error.Message);
+        Assert.DoesNotContain("Nothing more is scheduled", error.Message);
+        Assert.Equal("retry 2 of 8", error.WingmanError!.RetryLabel);
+        Assert.Equal(Booked, error.WingmanError.NextRetryAtUtc);
+        // The button is there from the first failure: a person asking makes one attempt now.
+        Assert.True(error.CanGenerate);
+        Assert.False(error.CanPlay);
     }
 
     [Fact]
-    public void NarrationAbandoned_ReplacesTheGaveUpSentence_BecauseNothingIsStillTrying()
+    public void AUsedUpSchedule_SaysNothingMoreIsScheduled_AndNeverThatAnAttemptIsComing()
     {
-        // gaveUp is said WHILE the work continues ("The Gateway is still trying"). When the retries are
-        // spent that clause is false, and it is the clause that keeps a reader waiting.
+        var spent = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
+            unavailable: HostedAiState.Retrying, nothingToNarrate: false, speechError: SpentSpeechError());
+        Assert.Equal(VoiceDisplayKinds.WingmanError, spent.Kind);
+        Assert.Contains("Nothing more is scheduled", spent.Message);
+        Assert.DoesNotContain("try again by itself", spent.Message);
+        Assert.True(spent.WingmanError!.Exhausted);
+        Assert.Null(spent.WingmanError.NextRetryAtUtc);
+        Assert.True(spent.CanGenerate);   // asking is the one thing left that can still work
+    }
+
+    [Fact]
+    public void GaveUp_NoLongerClaimsTheGatewayIsStillTrying_AndOffersTheButton()
+    {
+        // This fold is not told what is booked, so it may not say anything is. It said "The Gateway is still
+        // trying" for seven sessions that had nothing booked.
         var waitingSince = new DateTime(2026, 9, 4, 19, 45, 0, DateTimeKind.Utc);
-        var now = waitingSince.AddMinutes(18);
-
-        var before = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
+        var gaveUp = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
             unavailable: HostedAiState.Retrying, nothingToNarrate: false,
-            waitingSince: waitingSince, utcNow: now, narrationAbandoned: false);
-        Assert.Equal("gaveUp", before.Kind);                       // NEGATIVE CONTROL: what it used to say
-        Assert.Contains("still trying", before.Message);
-
-        var after = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-            unavailable: HostedAiState.Retrying, nothingToNarrate: false,
-            waitingSince: waitingSince, utcNow: now, narrationAbandoned: true);
-        Assert.Equal("notNarrated", after.Kind);
-        Assert.DoesNotContain("still trying", after.Message);
-        Assert.Equal("18m", after.WaitedLabel);                    // the wait is still reported, just not sold as progress
+            waitingSince: waitingSince, utcNow: waitingSince.AddMinutes(18));
+        Assert.Equal("gaveUp", gaveUp.Kind);
+        Assert.DoesNotContain("still trying", gaveUp.Message);
+        Assert.True(gaveUp.CanGenerate);
+        Assert.Equal("18m", gaveUp.WaitedLabel);
     }
 
     [Fact]
-    public void NarrationAbandoned_NeverHidesAnActionableAccountCondition()
+    public void ASpeechError_NeverHidesAnActionableAccountCondition()
     {
-        // The same rule every other reason arm follows: a member who has to add credit must be told that,
-        // not handed a report of a symptom. An account condition is written into the same slot, so this
-        // pins that the abandoned fact riding alongside it does not displace it.
         foreach (var state in new[] { HostedAiState.NeedsCredits, HostedAiState.CapReached, HostedAiState.NeedsKey })
         {
             var d = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: state, nothingToNarrate: false, narrationAbandoned: true);
+                unavailable: state, nothingToNarrate: false, speechError: BookedSpeechError());
             Assert.Equal("blocked", d.Kind);
         }
 
-        // And the same for the one machine-specific remedy, which has a one-line fix the reader can carry out.
         var tooOld = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-            unavailable: null, nothingToNarrate: false, directorCannotSendConversation: true, narrationAbandoned: true);
+            unavailable: null, nothingToNarrate: false, directorCannotSendConversation: true, speechError: BookedSpeechError());
         Assert.Equal("directorTooOld", tooOld.Kind);
     }
 
     [Fact]
-    public void NarrationAbandoned_NeverHidesPlayableAudioOrALiveAttempt()
+    public void ASpeechError_NeverHidesPlayableAudioOrALiveAttempt()
     {
-        // Audio that exists, and a generation running right now, both outrank every reason arm. A stale
-        // abandoned marker must never take a clip away from somebody in the middle of playing it.
         var ready = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: true, generating: false,
-            unavailable: HostedAiState.Retrying, nothingToNarrate: false, narrationAbandoned: true);
+            unavailable: HostedAiState.Retrying, nothingToNarrate: false, speechError: BookedSpeechError());
         Assert.Equal("ready", ready.Kind);
         Assert.True(ready.CanPlay);
 
         var generating = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: false, hasAudio: false, generating: true,
-            unavailable: HostedAiState.Retrying, nothingToNarrate: false, narrationAbandoned: true);
+            unavailable: HostedAiState.Retrying, nothingToNarrate: false, speechError: BookedSpeechError());
         Assert.Equal("preparing", generating.Kind);
 
         var working = VoiceDisplayFold.Fold(voiceMode: true, agentWorking: true, hasAudio: false, generating: false,
-            unavailable: HostedAiState.Retrying, nothingToNarrate: false, narrationAbandoned: true);
+            unavailable: HostedAiState.Retrying, nothingToNarrate: false, speechError: BookedSpeechError());
         Assert.Equal("working", working.Kind);
     }
 
+    [Theory]
+    [InlineData("notReady", true)]
+    [InlineData("retrying", true)]
+    [InlineData("gaveUp", true)]
+    [InlineData("nothingToNarrate", true)]
+    [InlineData("off", false)]
+    [InlineData("working", false)]
+    [InlineData("ready", false)]
+    [InlineData("preparing", false)]
+    [InlineData("held", false)]
+    [InlineData("blocked", false)]
+    [InlineData("serviceDown", false)]
+    [InlineData("directorTooOld", false)]
+    public void AFailedReading_ReplacesOnlyTheVerdictsThatSayThereIsNoAudioYet(string kind, bool replaced)
+    {
+        // The reading's failure is known after the voice fold has run, so it is applied afterwards - and only
+        // over the verdicts whose whole content is "no audio for this turn yet". Everything more specific stands.
+        var current = new VoiceDisplay { Kind = kind, Label = "before" };
+        var readingError = WingmanErrorFold.ForSchedule("The model did not answer in time.", 0, Booked);
+
+        var shown = VoiceDisplayFold.WithReadingError(current, readingError);
+
+        Assert.Equal(replaced ? VoiceDisplayKinds.WingmanError : kind, shown.Kind);
+        if (replaced) Assert.StartsWith("The model did not answer in time.", shown.Message);
+        // And with no error at all nothing is replaced.
+        Assert.Same(current, VoiceDisplayFold.WithReadingError(current, null));
+    }
 }

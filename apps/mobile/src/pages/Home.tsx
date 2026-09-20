@@ -24,6 +24,7 @@ import { splitPinned } from "@devthrottle/client-core/sessions/pinning";
 import { applyFilter, filterIsActive, filterSummary, machineName, pruneFilter } from "@devthrottle/client-core/sessions/filter";
 import { useDictationStatusFor } from "@devthrottle/client-core/dictation/status";
 import { useNow, waitingLabel } from "@devthrottle/client-core/sessions/waiting";
+import { WingmanErrorLine } from "@devthrottle/client-core/sessions/WingmanErrorLine";
 import { supervisionStats } from "@devthrottle/client-core/sessions/supervision";
 import { useNow as useSharedNow } from "@devthrottle/client-core/polling/useNow";
 import { playClip, playingSid, rowVoiceInputs, stopPlayback, syncVoiceSessions, useVoiceClips } from "@devthrottle/client-core/voice/clips";
@@ -869,6 +870,10 @@ export function SessionRow({
             this will speak", and that promise holds whenever the tunnel is up. */}
         <VoiceIndicator session={session} reachable={actionable} />
       </Link>
+      {/* The Wingman could not read this stop: the tag, which retry is booked and when, and "Ask again". The one
+          shared component, the same in the Cockpit. It sits OUTSIDE the Link so pressing the button asks again
+          rather than opening the session, and it renders nothing unless the Gateway stamped an error. */}
+      <WingmanErrorLine session={session} />
       {isParent && (
         <button
           type="button"
@@ -955,6 +960,8 @@ function CrewKidRow({ session, depth, elsewhere, mark }: { session: SessionDto; 
         {elsewhere && machine && <span className="crew-kid-machine">{machine}</span>}
         <span className="crew-kid-state">{contextLine(session)}</span>
       </Link>
+      {/* A session under another one fails the same way, and gets the same shared error block. */}
+      <WingmanErrorLine session={session} />
     </li>
   );
 }

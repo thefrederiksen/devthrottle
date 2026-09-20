@@ -509,7 +509,7 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task AnExplainAfterAFailedTurnEnd_AsksAgainOnce_AndASecondExplainReusesTheFailureItAskedFor()
+    public async Task AnExplainAfterAFailedTurnEnd_AsksAgain_AndSoDoesEveryLaterPress()
     {
         var env = ServiceEnv();
         env.VoiceSession = _ => false;
@@ -522,8 +522,10 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
         await verdicts.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.OnDemand);
         Assert.Equal(1 + TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, env.JudgeCalls);   // the person's own ask
 
+        // A SECOND PRESS ASKS AGAIN TOO (owner ruling, 2026-09-19: "a press makes one attempt at once"). It used to
+        // reuse the failure the first press produced, so the button did nothing the second time it was pressed.
         var second = await verdicts.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.OnDemand);
-        Assert.Equal(1 + TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, env.JudgeCalls);
+        Assert.Equal(1 + 2 * TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, env.JudgeCalls);
         Assert.Equal(TurnVerdictOutcomeKind.Failed, second.Kind);
     }
 

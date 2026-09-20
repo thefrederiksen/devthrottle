@@ -179,6 +179,7 @@ public static class WingmanStopsFold
         ActivityCauses.SessionExit => "The session had exited",
         ActivityCauses.WorkingObservation => "The session was working",
         ActivityCauses.JudgeSwitchOff => "Judging is switched off for this account",
+        // Retired on 19 September 2026 and no longer written; kept so an older stored row still reads in plain words.
         ActivityCauses.ReattemptNeverJudges => "A narration retry found no verdict to reuse, and a retry never asks the judge",
         ActivityCauses.RateLimited => "The judge was rate limited",
         ActivityCauses.InFlightCap => "This account already had as many judgements running as it allows",

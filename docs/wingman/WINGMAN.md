@@ -319,21 +319,29 @@ conversation; the pushed roster and the verdict store are consulted as well and 
    while one is held for the session, this check reads the stored conversation as well, to tell
    whether the reply is still the stop the wait was named for, and a stop answered by that wait
    has read both.
-4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
-   conversation is read. A stop refused here costs ONE read.
-5. The conversation read.
-6. The provider deadline, then the account ceiling. A stop refused by either costs TWO reads.
-7. The model call.
+4. The conversation read.
+5. The account ceiling. A stop refused here costs TWO reads.
+6. The model call.
 ```
 
+**Two steps left this boundary on 19 September 2026**, with the mission "Wingman error and retry". The
+speech re-attempt refusal and the provider deadline both existed for the voice path's own retry ledger - a
+ladder of booked re-attempts beside the judgement. That ledger was replaced by one retry schedule written on
+the stored reading itself (`TurnVerdictDto.RetriesMade`, `NextRetryAtUtc`) and carried by the idle sweep
+(`TurnVerdictService.StartDueRetries`), so nothing reaches this boundary that may not ask the judge, and a
+provider's named wait is honoured by booking the retry later rather than by a check here. A failed reading is
+asked again ONLY by that booked retry, under the `Retry` trigger, and only once its booked time has passed;
+every other automatic trigger still reuses a failed record, so an unchanged screen is never paid for twice
+outside the schedule.
+
 **Three earlier versions of this section were wrong.** The first said nothing was read until every
-check passed. The second grouped the speech re-attempt refusal with the checks after BOTH reads, when
-it comes before the conversation is read and costs one. The third said the judge switch was checked
+check passed. The second grouped a step that has since been removed (the speech re-attempt refusal) with the checks
+after BOTH reads, when it came before the conversation was read and cost one. The third said the judge switch was checked
 again after the settle wait; it is checked once, before it, so a switch turned off during a flight
 does not stop that flight. The code was right all three times.
 
-**The real boundary is step 6.** A stop refused there has cost two reads and no model call, and that
-is deliberate: the expensive, rate-limited, chargeable thing is the model, and step 6 is what stands in
+**The real boundary is step 5.** A stop refused there has cost two reads and no model call, and that
+is deliberate: the expensive, rate-limited, chargeable thing is the model, and step 5 is what stands in
 front of it.
 
 Notes on individual steps, which add reasons and do not change the order or the costs above:
@@ -356,12 +364,10 @@ Notes on individual steps, which add reasons and do not change the order or the 
   when the flight starts and is not looked at again, so turning it off stops the NEXT flight, not one
   already waiting or reading.
 - **The screen is read before the reuse check because the reuse check needs it**: it compares the hash
-  of this screen to the hash a stored verdict was formed on. A screen read placed after step 6 would
+  of this screen to the hash a stored verdict was formed on. A screen read placed after step 5 would
   buy nothing and would cost every reusable stop a model call. An unreadable screen hashes to the empty
   string and is never reused outside the idle sweep, because otherwise two different stops on an
   unreachable Director would look like one screen.
-- **The speech re-attempt refusal** exists because no automatic path may cost two model calls for one
-  stop; the reuse check is the only thing a re-attempt is entitled to.
 - **The account ceiling** is eight judgements in flight. A stop over it is not judged and stays exactly
   as the detector left it, because the alternative is a queue whose answers arrive about screens that
   have moved on.

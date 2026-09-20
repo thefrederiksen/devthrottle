@@ -466,7 +466,7 @@ public sealed class TurnVerdictContractTests
     // of it, and none of these tests changed either.
 
     [Fact]
-    public void ParseAndValidate_ExactlyOneOption_Rejected()
+    public void ParseAndValidate_ExactlyOneOption_DropsTheButtonsAndKeepsTheReading()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Decide on the guard",
@@ -477,12 +477,11 @@ public sealed class TurnVerdictContractTests
                 }),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("one option is not a choice", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "one option is not a choice");
     }
 
     [Fact]
-    public void ParseAndValidate_MoreThanOneRecommended_RejectedRatherThanQuietlyRepaired()
+    public void ParseAndValidate_MoreThanOneRecommended_DropsTheButtonsRatherThanQuietlyRepairing()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Decide on the guard",
@@ -494,12 +493,11 @@ public sealed class TurnVerdictContractTests
                 }),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("recommended", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "recommended");
     }
 
     [Fact]
-    public void ParseAndValidate_RecommendedAsAString_Rejected()
+    public void ParseAndValidate_RecommendedAsAString_DropsTheButtonsAndKeepsTheReading()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Decide on the guard",
@@ -511,15 +509,14 @@ public sealed class TurnVerdictContractTests
                 }),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("recommended", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "recommended");
     }
 
     [Theory]
     [InlineData("key")]
     [InlineData("send")]
     [InlineData("note")]
-    public void ParseAndValidate_OptionMissingAnyOfItsParts_Rejected(string missing)
+    public void ParseAndValidate_OptionMissingAnyOfItsParts_DropsTheButtonsAndKeepsTheReading(string missing)
     {
         var first = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -540,12 +537,11 @@ public sealed class TurnVerdictContractTests
                 }),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains(missing, result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, missing);
     }
 
     [Fact]
-    public void ParseAndValidate_SendOfNothingButSpaces_Rejected()
+    public void ParseAndValidate_SendOfNothingButSpaces_DropsTheButtonsAndKeepsTheReading()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Decide on the guard",
@@ -557,7 +553,7 @@ public sealed class TurnVerdictContractTests
                 }),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
+        AssertButtonsDroppedAndReadingKept(result, "send");
     }
 
     [Fact]
@@ -580,7 +576,7 @@ public sealed class TurnVerdictContractTests
     [Theory]
     [InlineData("\r")]
     [InlineData("\n")]
-    public void ParseAndValidate_OptionCarryingALineEnding_Rejected(string ending)
+    public void ParseAndValidate_OptionCarryingALineEnding_DropsTheButtonsAndKeepsTheReading(string ending)
     {
         // A reply has one Enter appended by the route, and a picker is confirmed by the menu's submit. A line
         // ending inside a send is either sent twice or confirms before the person has finished choosing.
@@ -593,12 +589,11 @@ public sealed class TurnVerdictContractTests
                 }),
             ReportStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("carriage return", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "carriage return");
     }
 
     [Fact]
-    public void ParseAndValidate_OverLongOptionKey_RejectedRatherThanCut()
+    public void ParseAndValidate_OverLongOptionKey_DropsTheButtonsRatherThanCutting()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Answer the question",
@@ -609,12 +604,11 @@ public sealed class TurnVerdictContractTests
                 }),
             ReportStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("a different action", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "a different action");
     }
 
     [Fact]
-    public void ParseAndValidate_OverLongOptionNote_RejectedRatherThanCut()
+    public void ParseAndValidate_OverLongOptionNote_DropsTheButtonsRatherThanCutting()
     {
         // A shortened consequence is a different promise, and an option is pressed once and cannot be asked
         // what the rest of it said.
@@ -627,8 +621,7 @@ public sealed class TurnVerdictContractTests
                 }),
             ReportStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("a different promise", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "a different promise");
     }
 
     [Fact]
@@ -715,31 +708,29 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_MenuWithNoQuestion_Rejected()
+    public void ParseAndValidate_MenuWithNoQuestion_DropsTheButtonsAndKeepsTheReading()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Decide on the guard",
                 menu: new { selectionMode = "single", submit = "" }, options: TwoOptions),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("question", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "question");
     }
 
     [Fact]
-    public void ParseAndValidate_MenuWithNoSelectionMode_Rejected()
+    public void ParseAndValidate_MenuWithNoSelectionMode_DropsTheButtonsAndKeepsTheReading()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Decide on the guard",
                 menu: new { question = "Push the deploy guard to main?", submit = "" }, options: TwoOptions),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("selectionMode", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "selectionMode");
     }
 
     [Fact]
-    public void ParseAndValidate_MultipleSelectWhoseSubmitIsNotACarriageReturn_Rejected()
+    public void ParseAndValidate_MultipleSelectWhoseSubmitIsNotACarriageReturn_DropsTheButtonsAndKeepsTheReading()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Pick the sweeps to run",
@@ -747,8 +738,7 @@ public sealed class TurnVerdictContractTests
                 options: TwoOptions),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("submit", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "submit");
     }
 
     [Fact]
@@ -766,7 +756,7 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_KeysWithAMenuAndNothingToSelectAndNothingToConfirm_Rejected()
+    public void ParseAndValidate_KeysWithAMenuAndNothingToSelectAndNothingToConfirm_DropsTheButtonsAndKeepsTheReading()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Decide on the guard",
@@ -774,12 +764,11 @@ public sealed class TurnVerdictContractTests
                 options: Array.Empty<object>()),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("nothing to confirm", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "nothing to confirm");
     }
 
     [Fact]
-    public void ParseAndValidate_NoOptionsAndSelectionModeMultiple_Rejected()
+    public void ParseAndValidate_NoOptionsAndSelectionModeMultiple_DropsTheButtonsAndKeepsTheReading()
     {
         var result = TurnVerdictContract.ParseAndValidate(
             Answer(state: TurnVerdictStates.NeedsYou, label: "Send the reply already typed",
@@ -787,8 +776,7 @@ public sealed class TurnVerdictContractTests
                 options: Array.Empty<object>()),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("nothing to pick", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "nothing to pick");
     }
 
     [Fact]
@@ -808,7 +796,7 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_OneTapConfirmWhoseQuestionIsNotOnTheScreen_Rejected()
+    public void ParseAndValidate_OneTapConfirmWhoseQuestionIsNotOnTheScreen_DropsTheButtonsAndKeepsTheReading()
     {
         // Without this leg a judge could offer a one-tap Enter under any question at all, and the owner would
         // confirm a send he cannot see.
@@ -818,8 +806,7 @@ public sealed class TurnVerdictContractTests
                 options: Array.Empty<object>()),
             MenuStop(), Model, ObservedAt);
 
-        Assert.True(result.Failed);
-        Assert.Contains("not on the screen", result.FailureReason);
+        AssertButtonsDroppedAndReadingKept(result, "not on the screen");
     }
 
     // ================================================================= the vocabulary pin
@@ -1059,5 +1046,25 @@ public sealed class TurnVerdictContractTests
         foreach (var name in omit ?? Array.Empty<string>()) fields.Remove(name);
 
         return JsonSerializer.Serialize(fields);
+    }
+
+    /// <summary>
+    /// A BAD BUTTON LIST COSTS THE BUTTONS, NOT THE READING (owner ruling, 2026-09-19). Every rule about the buttons
+    /// used to refuse the whole answer; each now drops the WHOLE list - menu and options both - keeps the state and
+    /// the label, and records why. Nothing is repaired: no option survives, so no button is shown that the model
+    /// did not clearly choose. It is not a failure, so the reading is narrated and no Wingman error is shown.
+    /// </summary>
+    private static void AssertButtonsDroppedAndReadingKept(TurnVerdictDto result, string reasonContains)
+    {
+        Assert.False(result.Failed);
+        Assert.Null(result.FailureReason);
+        Assert.NotNull(result.OptionsDroppedReason);
+        Assert.Contains(reasonContains, result.OptionsDroppedReason);
+        Assert.Empty(result.Options);
+        Assert.Null(result.Menu);
+        Assert.Equal(TurnVerdictContract.AnswerViaReply, result.AnswerVia);
+        // The rest of the answer stands: the state word and the label are the judge's, untouched.
+        Assert.False(string.IsNullOrEmpty(result.Verdict));
+        Assert.False(string.IsNullOrEmpty(result.Label));
     }
 }

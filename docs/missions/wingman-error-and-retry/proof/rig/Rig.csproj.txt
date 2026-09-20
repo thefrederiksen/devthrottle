@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CcDirector.Gateway.Tests</AssemblyName>
+    <RootNamespace>CcDirector.Gateway.Tests</RootNamespace>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.9" />
+    <ProjectReference Include="<the worktree>\src\CcDirector.Gateway\CcDirector.Gateway.csproj" />
+    <Compile Include="<the worktree>\src\CcDirector.Gateway.Tests\FakeTunnelDirector.cs" Link="FakeTunnelDirector.cs" />
+    <Compile Include="<the worktree>\src\CcDirector.Gateway.Tests\DeadPortReservation.cs" Link="DeadPortReservation.cs" />
+  </ItemGroup>
+</Project>
