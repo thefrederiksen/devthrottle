@@ -70,6 +70,22 @@ Deploy the Gateway, release the Director, delete data, send anything outward. No
 any commit, pull request, issue, comment or document - no trailer, no footer. Plain English, no
 abbreviations. Use the fleet's words: session, agent, owner, snooze.
 
+## Never end a turn while this phase has no seat working
+
+Added 20 September 2026, after the first Tech Lead on this phase wrote both mandates, committed them,
+and ended its turn without seating the Developer. The phase then sat idle and nobody was told; a
+queued message did not wake it, so it had to be reaped and replaced. A seat that stops is not asleep
+waiting to be nudged - it is finished, and the work stops with it.
+
+So before your turn ends, one of these must be true, and you say which in your last line:
+
+- a Developer or Reviewer you seated is confirmed WORKING (you read its screen, not just its id), or
+- the phase is merged and you have reported it, or
+- you have raised a hand on something genuinely undecidable inside this mandate.
+
+Writing a document, committing it, or planning the next step is not an end state. If you find
+yourself about to stop with none of the three true, seat the next seat instead.
+
 ## What you owe me
 
 The phase's proof committed on this worktree's branch (`fleet-manager-improvement/p1-record`) under
