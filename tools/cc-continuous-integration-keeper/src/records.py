@@ -77,6 +77,9 @@ class JobRecord:
     def from_json(raw: Any, where: str) -> "JobRecord":
         if not isinstance(raw, dict):
             raise KeeperError(f"{where} must be an object")
+        for key in ("name", "conclusion", "log"):
+            if key not in raw:
+                raise KeeperError(f"{where} is missing {key}")
         log = raw.get("log")
         if log not in LOG_STATES:
             raise KeeperError(f"{where}.log must be one of {', '.join(LOG_STATES)}, not {log!r}")
@@ -168,6 +171,17 @@ class RunRecord:
                 raise KeeperError(f"{where} is missing {key}")
         if not isinstance(raw["jobs_read"], bool):
             raise KeeperError(f"{where}.jobs_read must be true or false")
+        # A run that reached a conclusion has an end. Without one its length cannot be measured, and
+        # a run of unknown length inside the budget's own pool would be read as no length at all.
+        if (
+            raw.get("status") == "completed"
+            and raw.get("conclusion") in FINISHED_CONCLUSIONS
+            and not raw.get("finished_at")
+        ):
+            raise KeeperError(
+                f"{where} concluded {raw['conclusion']} and has no finished_at, so how long it took "
+                "cannot be read"
+            )
         jobs = raw.get("jobs", [])
         if not isinstance(jobs, list):
             raise KeeperError(f"{where}.jobs must be a list")

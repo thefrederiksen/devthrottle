@@ -62,6 +62,9 @@ keeper says so and ends with an error, rather than reporting a clean week it nev
 The budget lives in ONE file, so a person changes what "fast enough" means without touching code.
 The repository is an input, not a constant: point the keeper at any repository you can read.
 
+--condition narrows the report to one condition AND narrows the exit code with it, so a run
+filtered to one condition says nothing about the other three.
+
 Exit codes:
   0  every condition measured, nothing raised
   1  error, including a condition the keeper could not measure

@@ -125,6 +125,17 @@ def test_the_green_run_on_main_has_every_log_read_so_its_tests_can_be_counted():
     assert run.jobs[0].tests_reported == 2678
 
 
+def test_the_run_list_is_asked_for_a_day_further_out_at_each_end():
+    """The interface filters on when a run was created; the keeper's window is on when it started.
+    A run created at 23:58 and started after midnight would be missing from a request that asked
+    for the window's own days, and a missing run reads exactly like a quiet night."""
+    fake = FakeGitHub()
+    _collect(fake)
+    listed = [path for path in fake.asked if "/actions/runs?" in path]
+    assert len(listed) == 1
+    assert "created=2026-09-15..2026-09-21" in listed[0]
+
+
 def test_the_collector_says_what_it_did():
     fake = FakeGitHub()
     source, _ = _collect(fake)

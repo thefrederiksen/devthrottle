@@ -25,7 +25,7 @@ import json
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import runnerlogs
 from errors import KeeperError
@@ -120,7 +120,14 @@ class GitHubRecordSource:
         return str(self._api_json_objects(f"repos/{self.repository}")[0]["default_branch"])
 
     def list_runs(self, window_from: datetime, window_to: datetime, workflow: str) -> list[dict]:
-        created = f"{window_from.date().isoformat()}..{window_to.date().isoformat()}"
+        # The interface filters on when a run was CREATED and the window is on when it STARTED, so
+        # the request reaches a day further out at each end and the window below is what decides.
+        # Without the extra day a run created at 23:58 and started after midnight would never be
+        # listed, and a missing run reads exactly like a quiet night.
+        created = (
+            f"{(window_from - timedelta(days=1)).date().isoformat()}.."
+            f"{(window_to + timedelta(days=1)).date().isoformat()}"
+        )
         pages = self._api_json_objects(
             f"repos/{self.repository}/actions/runs?per_page=100&created={created}", paginate=True
         )
@@ -217,9 +224,10 @@ def collect(
     # log for every green run: the logs are large and nothing else reads them.
     count_these = {raw["id"] for raw in (green_on_default[:1] + green_on_default[-1:])}
 
+    finished_ids = {raw["id"] for raw in finished}
     runs: list[RunRecord] = []
     for raw in raw_runs:
-        is_finished = raw in finished
+        is_finished = raw["id"] in finished_ids
         if not is_finished:
             runs.append(_run_record(raw, (), jobs_read=False, workflow=workflow))
             continue
