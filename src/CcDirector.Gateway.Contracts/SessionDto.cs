@@ -44,6 +44,28 @@ public sealed class SessionDto
     /// </summary>
     public PooledWorktreeRef? PooledWorktree { get; set; }
 
+    /// <summary>
+    /// THE REPOSITORY <see cref="RepoPath"/> IS A LINKED WORKTREE OF, resolved by the owning Director on
+    /// the machine that holds the disk - or null, which is every session started in a repository proper,
+    /// every session whose worktree could not be resolved to a repository that exists, and every session
+    /// from a Director that predates this field (the one-repository-list mission, "a worktree is not a
+    /// repository").
+    ///
+    /// <para><b>It does not move the session.</b> <see cref="RepoPath"/> is still where the session is,
+    /// which is what every reader of it means. This answers a different question - which repository a
+    /// person was USING - because using a worktree of <c>devthrottle</c> is using <c>devthrottle</c>, and
+    /// a list that says otherwise fills up with throwaway folders: one Windows machine's list served 559
+    /// repositories, of which 110 were live worktrees of four repositories.</para>
+    ///
+    /// <para><b>THE GATEWAY MUST NEVER INFER THIS, and that is why it is on the wire at all.</b> The
+    /// answer is written inside the folder, so only the machine holding the disk can read it; the Gateway
+    /// is a Linux container holding paths pushed up by Windows and macOS Directors and is never the
+    /// machine a path describes. It is read through
+    /// <c>CcDirector.Core.Configuration.RepositoryUsage.StartedIn</c>, the one rule both repository
+    /// catalogues resolve a session through, and nowhere else.</para>
+    /// </summary>
+    public string? PrimaryRepoPath { get; set; }
+
     /// <summary>Process lifecycle status: Starting / Running / Exiting / Exited / Failed.</summary>
     public string Status { get; set; } = "";
 

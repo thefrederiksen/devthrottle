@@ -33,8 +33,15 @@ public sealed class KnownRepositoryObservationTests : IDisposable
         return (recorder, repositories);
     }
 
-    private static SessionDto Session(string id, string repoPath, PooledWorktreeRef? pooled = null) => new()
+    private static SessionDto Session(string id, string repoPath, PooledWorktreeRef? pooled = null,
+        string? primaryRepoPath = null) => new()
     {
+        // The repository the DIRECTOR resolved this session's folder to when the folder is a linked
+        // worktree - null for a session in a repository proper, and null from every Director that
+        // predates the field. The Gateway never works this out for itself: it is a Linux container
+        // holding paths written by Windows and macOS machines and is never the machine a path
+        // describes.
+        PrimaryRepoPath = primaryRepoPath,
         SessionId = id,
         Name = "Build the thing",
         Number = 200,
@@ -89,6 +96,81 @@ public sealed class KnownRepositoryObservationTests : IDisposable
         };
 
         recorder.Observe(TenantId.Local, "dir-1", Session("s1", "/repos/devthrottle", pooled));
+
+        var row = Assert.Single(repositories.ReadForMachine(TenantId.Local, "SOREN_NORTH"));
+        Assert.Equal("/repos/devthrottle", row.Path);
+    }
+
+    // A WORKTREE IS NOT A REPOSITORY (the one-repository-list mission). Every agent session runs in a
+    // worktree, so every worktree that hosted one became a row: one Windows machine's catalogue served
+    // 559 repositories, 110 of which were live worktrees of four repositories.
+
+    [Fact]
+    public void A_session_in_a_worktree_records_the_repository_it_is_a_worktree_of()
+    {
+        var (recorder, repositories) = New();
+
+        recorder.Observe(TenantId.Local, "dir-1",
+            Session("s1", "/repos/devthrottle-p5-run-a", primaryRepoPath: "/repos/devthrottle"));
+
+        var row = Assert.Single(repositories.ReadForMachine(TenantId.Local, "SOREN_NORTH"));
+        Assert.Equal("/repos/devthrottle", row.Path);
+    }
+
+    [Fact]
+    public void Sessions_in_many_worktrees_of_one_repository_are_one_row_that_moves()
+    {
+        // What the owner actually saw, in miniature: four worktrees of one repository at the top of
+        // his list. They are now one row, and the newest session is what puts it there.
+        var (recorder, repositories) = New();
+
+        recorder.Observe(TenantId.Local, "dir-1", Session("s0", "/repos/mindzieWeb"));
+        recorder.Observe(TenantId.Local, "dir-1",
+            Session("s1", "/repos/worktrees/idle-p5-a", primaryRepoPath: "/repos/devthrottle"));
+        recorder.Observe(TenantId.Local, "dir-1",
+            Session("s2", "/repos/worktrees/idle-p5-b", primaryRepoPath: "/repos/devthrottle"));
+        recorder.Observe(TenantId.Local, "dir-1",
+            Session("s3", "/repos/devthrottle-p5-run-a", primaryRepoPath: "/repos/devthrottle"));
+
+        var rows = repositories.ReadForMachine(TenantId.Local, "SOREN_NORTH");
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("/repos/devthrottle", rows[0].Path);
+        Assert.Equal("/repos/mindzieWeb", rows[1].Path);
+    }
+
+    [Fact]
+    public void A_session_in_a_worktree_the_Director_could_not_resolve_records_the_worktree()
+    {
+        // FAILURE CASE, and the property that makes this safe: when the Director cannot prove which
+        // repository a folder belongs to - the repository deleted, a .git file pointing at nothing -
+        // it sends nothing, and the Gateway records the folder exactly as it did before. It never
+        // guesses, because it is not the machine that holds the disk.
+        var (recorder, repositories) = New();
+
+        recorder.Observe(TenantId.Local, "dir-1", Session("s1", "/repos/orphaned-worktree"));
+
+        var row = Assert.Single(repositories.ReadForMachine(TenantId.Local, "SOREN_NORTH"));
+        Assert.Equal("/repos/orphaned-worktree", row.Path);
+    }
+
+    [Fact]
+    public void A_pooled_session_that_also_carries_a_resolved_repository_still_records_the_pools()
+    {
+        // A WRONG RULE NOTHING REMOVED. A pooled slot IS a git worktree, so both answers are now
+        // available; the pool's own record must keep its precedence, because it is a fact the pool
+        // wrote down and it is right even when the slot has been handed back. This fails if a later
+        // change ever reorders the two.
+        var (recorder, repositories) = New();
+        var pooled = new PooledWorktreeRef
+        {
+            Repo = "/repos/devthrottle",
+            Slot = "wt01",
+            Path = "/pool/devthrottle/wt01",
+            Lease = "lease-1",
+        };
+
+        recorder.Observe(TenantId.Local, "dir-1",
+            Session("s1", "/repos/devthrottle", pooled, primaryRepoPath: "/repos/somewhere-else"));
 
         var row = Assert.Single(repositories.ReadForMachine(TenantId.Local, "SOREN_NORTH"));
         Assert.Equal("/repos/devthrottle", row.Path);

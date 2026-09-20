@@ -115,6 +115,18 @@ public sealed class SessionManager : IDisposable
     public Func<Account.SignedInUser?>? SignedInUserAccessor { get; set; }
 
     /// <summary>
+    /// Resolves a session's folder to the repository it is a linked WORKTREE of, or null when it is not
+    /// one (the one-repository-list mission, "a worktree is not a repository"). The default is
+    /// <see cref="Git.LinkedWorktree.ParentRepositoryOf"/> and it is the only one production uses; it is
+    /// settable so a test can put a folder layout in front of it without one on disk.
+    ///
+    /// It is read once per session, in <see cref="RaiseSessionCreated"/>, and it is CHEAP for the
+    /// ordinary session: a session started in a repository proper is answered by one file-existence
+    /// test, because a repository's <c>.git</c> is a directory and only a worktree's is a file.
+    /// </summary>
+    public Func<string, string?> PrimaryRepositoryResolver { get; set; } = Git.LinkedWorktree.ParentRepositoryOf;
+
+    /// <summary>
     /// Fired immediately after a session is added to the manager's internal dictionary,
     /// for EVERY session - whether created via the Avalonia UI, the web Control API,
     /// or restored from persistence at startup. Handlers must be idempotent: the
@@ -314,8 +326,46 @@ public sealed class SessionManager : IDisposable
         // Control API mapper) read it to build their views.
         AssignSessionNumber(session);
 
+        // A WORKTREE IS NOT A REPOSITORY (the one-repository-list mission). Every creation route funnels
+        // through here, so this is also the one place to ask which repository this session's folder is a
+        // worktree OF - and it has to be asked BEFORE the subscribers run, because the two things that
+        // record a repository use are among them: the Director's own registry (RepositoryUsageRecorder)
+        // and the Control API mapper that puts the session on the wire for the Gateway's catalogue.
+        // Resolved once and carried, rather than re-asked by each of them, because only this machine can
+        // answer it and by the time either catalogue reads the session the folder may be gone.
+        StampPrimaryRepository(session);
+
         try { OnSessionCreated?.Invoke(session); }
         catch (Exception ex) { _log?.Invoke($"OnSessionCreated handler threw: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Stamp <see cref="Session.PrimaryRepoPath"/>: the repository this session's folder is a linked
+    /// worktree of, or null when it is not one or the repository cannot be proved to exist.
+    ///
+    /// <para>A RESTORED session is stamped again rather than trusted, because the disk is what answers
+    /// and the disk may have moved while this Director was not running.</para>
+    ///
+    /// <para>It catches, and a failure leaves the stamp null. This runs on the session-creation path:
+    /// a repository picker's ordering must never be the reason a session fails to start, which is the
+    /// same rule <see cref="Configuration.RepositoryUsageRecorder"/> is written to. A null stamp is the
+    /// product's behaviour before this existed - the folder is recorded as itself.</para>
+    /// </summary>
+    private void StampPrimaryRepository(Session session)
+    {
+        if (string.IsNullOrWhiteSpace(session.RepoPath))
+            return;
+
+        try
+        {
+            session.PrimaryRepoPath = PrimaryRepositoryResolver(session.RepoPath);
+            if (session.PrimaryRepoPath is not null)
+                FileLog.Write($"[SessionManager] StampPrimaryRepository: {session.Id} runs in a worktree of {session.PrimaryRepoPath}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionManager] StampPrimaryRepository FAILED for {session.RepoPath}: {ex.Message}");
+        }
     }
 
     /// <summary>

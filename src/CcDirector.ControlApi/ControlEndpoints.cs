@@ -257,6 +257,13 @@ internal static class ControlEndpoints
                     Lease = pooledWorktree.Lease,
                 }
                 : null,
+            // The repository this session's folder is a linked worktree OF, resolved on this machine
+            // when the session was created (the one-repository-list mission, "a worktree is not a
+            // repository"). Only this machine can read it, so it has to travel: without it the Gateway's
+            // catalogue records the worktree, which is how one machine's list reached 559 repositories.
+            // Null for a session in a repository proper, and for a worktree whose repository could not
+            // be proved to exist - which is recorded as itself, exactly as before.
+            PrimaryRepoPath = s.PrimaryRepoPath,
             Status = s.Status.ToString(),
             ActivityState = s.ActivityState.ToString(),
             // Issue #959: the raw crash fact. ActivityState says only "Exited", so without this the fold

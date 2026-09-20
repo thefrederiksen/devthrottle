@@ -260,7 +260,7 @@ public sealed class SessionHistoryRecorder
             return;
 
         var repository = Core.Configuration.RepositoryUsage.StartedIn(
-            session.RepoPath, session.PooledWorktree?.Repo);
+            session.RepoPath, session.PooledWorktree?.Repo, session.PrimaryRepoPath);
         if (repository is null)
             return;
 
