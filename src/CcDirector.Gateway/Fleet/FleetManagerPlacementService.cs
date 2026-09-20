@@ -58,6 +58,19 @@ internal interface IFleetManagerPlacementEnvironment
     DateTime NowUtc();
 }
 
+/// <summary>
+/// Who asked for a change to the Fleet Manager mark (the Fleet Manager Improvement mission, phase 1).
+/// </summary>
+/// <param name="Actor">Who, in the words the record carries: the owner's device, or the session.</param>
+/// <param name="IsOwnerDevice">True only for the owner's own signed-in phone or browser. Setting up the Fleet Manager
+/// RAISES the marked session only then - any session key can set the mark, and a session must never be able to raise
+/// itself, or another, by marking it.</param>
+internal sealed record FleetManagerCaller(string Actor, bool IsOwnerDevice)
+{
+    /// <summary>A caller nobody named: never the owner's device, so it raises nothing.</summary>
+    public static readonly FleetManagerCaller Unnamed = new("unknown", false);
+}
+
 /// <summary>How one placement action ended: an HTTP status, the Gateway's own sentence on a refusal, and the
 /// refreshed answer on success.</summary>
 internal sealed record FleetManagerPlacementResult(int Status, string? Error, FleetManagerPlacementDto? Placement)
@@ -147,14 +160,57 @@ internal sealed class FleetManagerPlacementService : IDisposable
     // One action at a time per account: two starts racing would make two Fleet Managers.
     private readonly ConcurrentDictionary<TenantId, SemaphoreSlim> _gates = new();
 
+    // The account's list of raised sessions and its record (the Fleet Manager Improvement mission, phase 1). This
+    // class is where the mark is set by hand, set by a start, and handed to a successor, so it is where raised is made
+    // to follow the mark. Both null in a test of placement alone: then the mark raises nobody.
+    private readonly RaisedSessionStore? _raised;
+    private readonly RaisedSessionRecord? _raisedRecord;
+
     /// <param name="deliveryGate">Shared with the event service, so a delivery and a replacement never overlap.</param>
     public FleetManagerPlacementService(TenantSettingsResolver settings, IFleetManagerPlacementEnvironment environment,
-        FleetManagerDeliveryGate deliveryGate, TimeSpan? retirePoll = null)
+        FleetManagerDeliveryGate deliveryGate, TimeSpan? retirePoll = null,
+        RaisedSessionStore? raised = null, RaisedSessionRecord? raisedRecord = null)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _env = environment ?? throw new ArgumentNullException(nameof(environment));
         _deliveryGate = deliveryGate ?? throw new ArgumentNullException(nameof(deliveryGate));
         _retirePoll = retirePoll ?? RetirePollInterval;
+        if ((raised is null) != (raisedRecord is null))
+            throw new ArgumentException("The list of raised sessions and its record are given together.", nameof(raisedRecord));
+        _raised = raised;
+        _raisedRecord = raisedRecord;
+    }
+
+    /// <summary>
+    /// RAISED FOLLOWS THE MARK. The mark has just been set to <paramref name="markedSessionId"/> (or cleared, when
+    /// null) by <paramref name="caller"/>. Every entry the mark had granted another session is removed, and the newly
+    /// marked session is raised only when the owner's own device set the mark. The raise is recorded BEFORE the list
+    /// changes, so there is never a raised session with no record of who raised it.
+    /// </summary>
+    /// <summary>
+    /// A restart or a move has started the session that will take the mark over from <paramref name="replacing"/>. When
+    /// the running Fleet Manager is raised, the new one is raised with it - from the moment the mark moves to it, and
+    /// not before (<see cref="RaisedSessionStore.CarryToSuccessor"/>). Raised is carried, never multiplied. Whoever
+    /// asked for the restart does not matter here: nothing new is being granted.
+    /// </summary>
+    private void CarryRaisedToSuccessor(TenantId tenant, string replacing, string successor, DateTime now)
+    {
+        if (_raised is null || _raisedRecord is null) return;
+        if (!_raised.IsRaised(tenant, replacing)) return;
+        _raisedRecord.Raised(tenant, successor, "gateway",
+            $"it replaces the raised Fleet Manager {replacing}; it is raised from the moment the mark moves to it");
+        _raised.CarryToSuccessor(tenant, replacing, successor, now);
+    }
+
+    private void RaisedFollowsMark(TenantId tenant, string? markedSessionId, FleetManagerCaller caller, DateTime now)
+    {
+        if (_raised is null || _raisedRecord is null) return;
+        var raise = caller.IsOwnerDevice && markedSessionId is not null;
+        if (raise)
+            _raisedRecord.Raised(tenant, markedSessionId!, caller.Actor, "the owner set it up as the account's Fleet Manager");
+        var change = _raised.FollowMark(tenant, markedSessionId, raise, caller.Actor, now);
+        foreach (var lowered in change.Lowered)
+            _raisedRecord.Lowered(tenant, lowered, caller.Actor, "the Fleet Manager mark left it");
     }
 
     // ---- read --------------------------------------------------------------------------------------------
@@ -285,7 +341,8 @@ internal sealed class FleetManagerPlacementService : IDisposable
 
     /// <summary>Start the Fleet Manager where the setting says. <paramref name="stampOrigin"/> records who asked,
     /// the way the spawn doors do.</summary>
-    public async Task<FleetManagerPlacementResult> StartAsync(TenantId tenant, Action<NewSessionRequest> stampOrigin, CancellationToken ct)
+    public async Task<FleetManagerPlacementResult> StartAsync(TenantId tenant, Action<NewSessionRequest> stampOrigin, CancellationToken ct,
+        FleetManagerCaller? caller = null)
     {
         FileLog.Write($"[FleetManagerPlacementService] StartAsync: tenant={tenant.ToLogString()}");
         return await Guarded(tenant, "StartAsync", async () =>
@@ -296,7 +353,7 @@ internal sealed class FleetManagerPlacementService : IDisposable
             if (dto.Status.State == FleetManagerStatusDto.StateRunning)
                 return Refuse(409, $"The Fleet Manager is already running (session {dto.Status.SessionId}). "
                                    + "Restart it instead if you want a new one.");
-            return await StartNewAsync(tenant, dto, stampOrigin, ct).ConfigureAwait(false);
+            return await StartNewAsync(tenant, dto, stampOrigin, ct, caller: caller).ConfigureAwait(false);
         }).ConfigureAwait(false);
     }
 
@@ -307,10 +364,14 @@ internal sealed class FleetManagerPlacementService : IDisposable
     /// abandoned. A session marked here that was started to take over and never told gets its one event now. Returns
     /// the stored mark.
     /// </summary>
+    /// <param name="caller">Who set the mark. The route can be called by any session key as well as by the owner, and
+    /// only the owner's own device raises the session it marks (<see cref="FleetManagerCaller"/>). Null raises nobody.</param>
     /// <exception cref="ArgumentException">The id is not a session id.</exception>
-    public async Task<string?> SetMarkByOwnerAsync(TenantId tenant, string? sessionId, CancellationToken ct)
+    public async Task<string?> SetMarkByOwnerAsync(TenantId tenant, string? sessionId, CancellationToken ct,
+        FleetManagerCaller? caller = null)
     {
-        FileLog.Write($"[FleetManagerPlacementService] SetMarkByOwnerAsync: tenant={tenant.ToLogString()}, session={sessionId ?? "(clear)"}");
+        caller ??= FleetManagerCaller.Unnamed;
+        FileLog.Write($"[FleetManagerPlacementService] SetMarkByOwnerAsync: tenant={tenant.ToLogString()}, session={sessionId ?? "(clear)"}, by={caller.Actor}");
         try
         {
             var gate = Gate(tenant);
@@ -318,14 +379,20 @@ internal sealed class FleetManagerPlacementService : IDisposable
             try
             {
                 var now = _env.NowUtc();
+                var before = Clean(_settings.FleetManagerSessionId(tenant));
                 if (sessionId is null)
                 {
                     var removed = _settings.ClearFleetManagerSessionId(tenant, now);
+                    RaisedFollowsMark(tenant, null, caller, now);
                     FileLog.Write($"[FleetManagerPlacementService] SetMarkByOwnerAsync: mark cleared by the owner (removed={removed})");
                     return null;
                 }
                 var told = _env.MarkByOwner(tenant, sessionId, now);
                 var stored = _settings.FleetManagerSessionId(tenant);
+                // A session that marks the session ALREADY marked has moved nothing, so raised does not move either:
+                // without this, a raised Fleet Manager running `fleet-manager set` on itself would lower itself.
+                if (caller.IsOwnerDevice || !SameId(before, stored))
+                    RaisedFollowsMark(tenant, stored, caller, now);
                 FileLog.Write($"[FleetManagerPlacementService] SetMarkByOwnerAsync: mark={stored}, told={told}");
                 return stored;
             }
@@ -342,7 +409,8 @@ internal sealed class FleetManagerPlacementService : IDisposable
     }
 
     /// <summary>Start a new Fleet Manager in the saved place, mark it, then close the old one after its turn.</summary>
-    public async Task<FleetManagerPlacementResult> RestartAsync(TenantId tenant, Action<NewSessionRequest> stampOrigin, CancellationToken ct)
+    public async Task<FleetManagerPlacementResult> RestartAsync(TenantId tenant, Action<NewSessionRequest> stampOrigin, CancellationToken ct,
+        FleetManagerCaller? caller = null)
     {
         FileLog.Write($"[FleetManagerPlacementService] RestartAsync: tenant={tenant.ToLogString()}");
         return await Guarded(tenant, "RestartAsync", async () =>
@@ -352,14 +420,14 @@ internal sealed class FleetManagerPlacementService : IDisposable
             var (_, dto) = await FoldAsync(tenant, null, ct).ConfigureAwait(false);
             if (dto.Status.State != FleetManagerStatusDto.StateRunning)
                 return Refuse(409, "The Fleet Manager is not running, so there is nothing to restart. Start it instead.");
-            return await ReplaceAsync(tenant, dto, stampOrigin, ct).ConfigureAwait(false);
+            return await ReplaceAsync(tenant, dto, stampOrigin, ct, caller).ConfigureAwait(false);
         }).ConfigureAwait(false);
     }
 
     /// <summary>Check the new place (with the save's refusals), then restart there - or start, when none is running.
     /// The place is saved only once the new Fleet Manager has started.</summary>
     public async Task<FleetManagerPlacementResult> MoveAsync(TenantId tenant, FleetManagerPlacementRequest? request,
-        Action<NewSessionRequest> stampOrigin, CancellationToken ct)
+        Action<NewSessionRequest> stampOrigin, CancellationToken ct, FleetManagerCaller? caller = null)
     {
         FileLog.Write($"[FleetManagerPlacementService] MoveAsync: tenant={tenant.ToLogString()}, agent={request?.Agent}, machine={request?.Machine}");
         return await Guarded(tenant, "MoveAsync", async () =>
@@ -371,16 +439,16 @@ internal sealed class FleetManagerPlacementService : IDisposable
 
             var (_, dto) = await FoldAsync(tenant, null, ct, place).ConfigureAwait(false);
             return dto.Status.State == FleetManagerStatusDto.StateRunning
-                ? await ReplaceAsync(tenant, dto, stampOrigin, ct).ConfigureAwait(false)
-                : await StartNewAsync(tenant, dto, stampOrigin, ct).ConfigureAwait(false);
+                ? await ReplaceAsync(tenant, dto, stampOrigin, ct, caller).ConfigureAwait(false)
+                : await StartNewAsync(tenant, dto, stampOrigin, ct, caller: caller).ConfigureAwait(false);
         }).ConfigureAwait(false);
     }
 
     private async Task<FleetManagerPlacementResult> ReplaceAsync(TenantId tenant, FleetManagerPlacementDto dto,
-        Action<NewSessionRequest> stampOrigin, CancellationToken ct)
+        Action<NewSessionRequest> stampOrigin, CancellationToken ct, FleetManagerCaller? caller)
     {
         var oldId = dto.Status.SessionId!;
-        var result = await StartNewAsync(tenant, dto, stampOrigin, ct, replacing: oldId).ConfigureAwait(false);
+        var result = await StartNewAsync(tenant, dto, stampOrigin, ct, replacing: oldId, caller: caller).ConfigureAwait(false);
         if (result.Status != 200)
         {
             FileLog.Write($"[FleetManagerPlacementService] replace: the new Fleet Manager did not start; {oldId} stays running and marked");
@@ -396,8 +464,9 @@ internal sealed class FleetManagerPlacementService : IDisposable
     /// <param name="replacing">The marked Fleet Manager this one replaces, or null for a plain start. A replacement is
     /// recorded as the successor and NOT marked; a plain start is marked at once.</param>
     private async Task<FleetManagerPlacementResult> StartNewAsync(TenantId tenant, FleetManagerPlacementDto dto,
-        Action<NewSessionRequest> stampOrigin, CancellationToken ct, string? replacing = null)
+        Action<NewSessionRequest> stampOrigin, CancellationToken ct, string? replacing = null, FleetManagerCaller? caller = null)
     {
+        caller ??= FleetManagerCaller.Unnamed;
         if (dto.Machine is null || dto.Agent is null)
             return Refuse(409, "This account has no computer for the Fleet Manager to run on, so it was not started.");
 
@@ -440,6 +509,8 @@ internal sealed class FleetManagerPlacementService : IDisposable
         {
             _settings.SetFleetManagerSessionId(tenant, session.SessionId, startedAt);
             _env.RecordMark(tenant, _settings.FleetManagerSessionId(tenant)!, startedAt);
+            // A plain start marks at once, so raised follows at once - and only the owner's own device raises it.
+            RaisedFollowsMark(tenant, _settings.FleetManagerSessionId(tenant), caller, startedAt);
             FileLog.Write($"[FleetManagerPlacementService] started Fleet Manager {session.SessionId} ({dto.Agent}) on " +
                           $"{placement.Machine}, director={directorId}; marked as the account's Fleet Manager");
         }
@@ -449,6 +520,7 @@ internal sealed class FleetManagerPlacementService : IDisposable
             // successor and types nothing.
             using (await _deliveryGate.EnterAsync(tenant, ct).ConfigureAwait(false))
                 _settings.SetFleetManagerSuccessor(tenant, session.SessionId, replacing, startedAt);
+            CarryRaisedToSuccessor(tenant, replacing, session.SessionId, startedAt);
             FileLog.Write($"[FleetManagerPlacementService] started Fleet Manager {session.SessionId} ({dto.Agent}) on " +
                           $"{placement.Machine}, director={directorId}; it waits to take over from {replacing}, which stays marked");
         }

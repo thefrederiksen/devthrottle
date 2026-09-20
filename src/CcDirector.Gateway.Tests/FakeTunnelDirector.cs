@@ -117,6 +117,9 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
         return fake;
     }
 
+    /// <summary>Tell the Gateway a session is over, through the hub method a Director really calls when it reaps one.</summary>
+    public Task RevokeSessionKeyAsync(string sessionId) => _conn.InvokeAsync("RevokeSessionKey", sessionId);
+
     /// <summary>Replace the per-verb dispatcher (e.g. after arranging test state).</summary>
     public void OnCommand(Func<DirectorCommand, DirectorCommandResult> dispatch) => _dispatch = dispatch;
 

@@ -14,7 +14,10 @@ namespace CcDirector.Gateway.Messaging;
 public sealed record FleetParty(string SessionId, string? ControllerSessionId, string? Name, string? Machine);
 
 /// <summary>The answer to one send, and the status code the route answers it with.</summary>
-public readonly record struct FleetSendOutcome(FleetMessageSendResponse Response, FleetMessageOutcome Outcome)
+/// <param name="WaivedForRaisedSender">True when the message was queued only because its sender is a raised session
+/// (<see cref="FleetMessageVerdict.WaivedForRaisedSender"/>); the route records those.</param>
+public readonly record struct FleetSendOutcome(FleetMessageSendResponse Response, FleetMessageOutcome Outcome,
+    bool WaivedForRaisedSender = false)
 {
     /// <summary>The HTTP status for this outcome. A queued message and a dropped duplicate are both 200 -
     /// neither is a failure. A relationship refusal is 403, a rate refusal 429, a bad text 400.</summary>
@@ -137,7 +140,7 @@ public sealed class FleetMessageService
                 FileLog.Write($"[FleetMessageService] Send REFUSED ({verdict.Outcome}): from={from} to={Short(recipient.SessionId)} kind={kind} len={len}");
                 break;
         }
-        return new FleetSendOutcome(response, verdict.Outcome);
+        return new FleetSendOutcome(response, verdict.Outcome, verdict.Queued && verdict.WaivedForRaisedSender);
     }
 
     /// <summary>

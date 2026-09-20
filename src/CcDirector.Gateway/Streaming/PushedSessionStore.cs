@@ -386,6 +386,8 @@ public sealed class PushedSessionStore
         // answers about the whole account; a Director never decides them.
         session.Pin = null;
         session.OwnerChange = null;
+        // Whether a session is raised is the account's list, read on the Gateway; a Director never says so.
+        session.Raise = null;
     }
 
     /// <summary>Apply a remove/tombstone: drop one session from the Director's set.</summary>

@@ -59,6 +59,56 @@ public sealed class SessionOwnerChangeDto
     public string BusyLabel { get; set; } = "";
 }
 
+/// <summary>
+/// Whether a session is RAISED, and the one change to that the owner may make now, with every word of it (the Fleet
+/// Manager Improvement mission, phase 1). A raised session acts with the owner's permissions inside his own account.
+/// The Gateway decides all of it; a client draws <see cref="Mark"/> when it is there, offers <see cref="Offer"/> when it
+/// is there, and works out nothing.
+/// </summary>
+public sealed class SessionRaiseDto
+{
+    /// <summary>Raise the session: <c>POST /sessions/{id}/raise</c>.</summary>
+    public const string OfferRaise = "raise";
+
+    /// <summary>Lower the session: <c>POST /sessions/{id}/lower</c>.</summary>
+    public const string OfferLower = "lower";
+
+    /// <summary>True when the session is raised now.</summary>
+    public bool Raised { get; set; }
+
+    /// <summary>The visible mark on a raised row, for example "Raised"; null on a row that is not raised.</summary>
+    public string? Mark { get; set; }
+
+    /// <summary>What the mark says when pointed at; null when there is no mark.</summary>
+    public string? MarkTitle { get; set; }
+
+    /// <summary><see cref="OfferRaise"/> or <see cref="OfferLower"/> - the one change offered, which is also the last
+    /// segment of the route that makes it; null when none is offered (the session has ended).</summary>
+    public string? Offer { get; set; }
+
+    /// <summary>The button's words; null when nothing is offered.</summary>
+    public string? Label { get; set; }
+
+    /// <summary>What the button says when pointed at: what will change.</summary>
+    public string? Title { get; set; }
+
+    /// <summary>The words shown while the change is being made.</summary>
+    public string? BusyLabel { get; set; }
+
+    /// <summary>The question to confirm before raising; null when the change needs no confirmation (lowering).</summary>
+    public string? Confirm { get; set; }
+}
+
+/// <summary>The answer of <c>POST /sessions/{id}/raise</c> and <c>POST /sessions/{id}/lower</c>.</summary>
+public sealed class SessionRaiseResponse
+{
+    /// <summary>The session that was raised or lowered.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>The session's raise state after the change, exactly as the roster row now carries it.</summary>
+    public SessionRaiseDto Raise { get; set; } = new();
+}
+
 /// <summary>The body of <c>POST /gateway/fleet-manager/hand-over</c>.</summary>
 public sealed class FleetHandOverRequest
 {

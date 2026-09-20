@@ -91,7 +91,10 @@ internal static class FleetManagerWalkthroughEndpoints
         try
         {
             if (resolveTenant(ctx) is not { } tenant) return NoTenant();
-            if (OwnerOnly(ctx, "read the walkthrough") is { } refused) return refused;
+            // The READ is also a raised session's, on the owner's grant. The three writes below stay the owner's own
+            // device's: they store that THE OWNER answered, snoozed or closed, which a session must never be recorded as.
+            if (AuthMiddleware.RaisedGrantOf(ctx) != RaisedGrant.FleetManagerOwnerRoute
+                && OwnerOnly(ctx, "read the walkthrough") is { } refused) return refused;
 
             IReadOnlyList<Guid>? round = null;
             if (ctx.Request.Query.TryGetValue("round", out var raw))

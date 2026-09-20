@@ -49,6 +49,28 @@ internal static class FleetManagerOwnerDevice
         return device;
     }
 
+    /// <summary>
+    /// WHO IS ASKING, for a route that any caller may use but that does more for the owner (the Fleet Manager
+    /// Improvement mission, phase 1: setting the Fleet Manager mark raises the marked session ONLY when the owner's own
+    /// device set it - any session key can set the mark, and a session must never be able to raise itself that way).
+    /// The same rule as <see cref="Require"/>, asked without refusing.
+    /// </summary>
+    public static Fleet.FleetManagerCaller Caller(HttpContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        if (AuthMiddleware.CallingSession(ctx) is { } session)
+            return new Fleet.FleetManagerCaller(SessionStopFold.ActorFor(session.SessionId.ToString(), null, null, true), false);
+
+        var device = ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var d)
+            ? d as DeviceCredentialIdentity
+            : null;
+        var isOwner = device is not null
+                      && SessionOriginSurfaces.FromDeviceType(device.DeviceType) != SessionOriginSurfaces.Unknown;
+        var actor = SessionStopFold.ActorFor(null, device?.DeviceType, device?.DeviceId,
+            credentialAuthenticated: ctx.Items.ContainsKey(AuthMiddleware.AuthenticatedCredentialItemKey));
+        return new Fleet.FleetManagerCaller(actor, isOwner);
+    }
+
     private static IResult Refuse(string sentence)
         => Results.Json(new { code = "owner_only", error = sentence }, statusCode: StatusCodes.Status403Forbidden);
 }

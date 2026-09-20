@@ -249,6 +249,11 @@ public sealed class PostgresProviderProofTests
             ("known_repositories", "PathKey"),
             ("mission_notes", "Key"),
             ("push_subscriptions", "Endpoint"),
+            // The account's raised sessions (the Fleet Manager Improvement mission): the session id is the exact key
+            // the guard looks a caller up by, and the source is a closed word the list is read back by. A session
+            // Postgres considered raised and SQLite did not would be a permission that depends on the provider.
+            ("raised_sessions", "SessionId"),
+            ("raised_sessions", "Source"),
             ("session_history", "SessionId"),
             ("session_history_rollups", "RepoKey"),
             ("session_keys", "KeyHash"),

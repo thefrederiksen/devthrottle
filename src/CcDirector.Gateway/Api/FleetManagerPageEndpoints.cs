@@ -62,7 +62,10 @@ internal static class FleetManagerPageEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Results.Json(new { error = "no account is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
-            if (AuthMiddleware.CallingSession(ctx) is not null)
+            // A RAISED session reads it on the owner's grant (the guard let it in, and recorded it). Every other session
+            // key is refused here as well as by the guard.
+            if (AuthMiddleware.CallingSession(ctx) is not null
+                && AuthMiddleware.RaisedGrantOf(ctx) != RaisedGrant.FleetManagerOwnerRoute)
             {
                 FileLog.Write("[FleetManagerPageEndpoints] REFUSED: a session key asked for the owner's page");
                 return Results.Json(new { error = "The Fleet Manager page is the owner's. A session reads GET /gateway/fleet-manager/digest." },

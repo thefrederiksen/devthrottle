@@ -43,6 +43,26 @@ public sealed class PushedSessionStoreTests
         Assert.Contains(fresh, s => s.SessionId == "s2");
     }
 
+    /// <summary>
+    /// "Raised" is the Gateway's to say (the Fleet Manager Improvement mission, phase 1). A Director that pushes a
+    /// row already stamped raised must not have that stamp survive: a client renders it verbatim, so a forged one
+    /// would show the owner a raised session that is not.
+    /// </summary>
+    [Fact]
+    public void ApplySnapshot_ARowADirectorStampedRaised_IsStoredWithoutTheStamp()
+    {
+        var store = NewStore();
+        store.RegisterConnection(TenantId.Local, "dir-A", "conn-1");
+        var forged = Session("s1");
+        forged.Raise = new SessionRaiseDto { Raised = true, Mark = "Raised", Offer = SessionRaiseDto.OfferLower };
+
+        Assert.True(store.ApplySnapshot(TenantId.Local, "dir-A", "conn-1", 0, new[] { forged }));
+
+        var stored = Assert.Single(store.TryGetFresh(TenantId.Local, "dir-A", _staleAfter)!);
+        Assert.Equal("s1", stored.SessionId);
+        Assert.Null(stored.Raise);
+    }
+
     [Fact]
     public void SnapshotFresh_ReturnsSessionsFromAllFreshConnections_WithDirectorId()
     {
