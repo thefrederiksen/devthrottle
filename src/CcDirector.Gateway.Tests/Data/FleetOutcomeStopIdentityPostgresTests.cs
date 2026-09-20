@@ -86,7 +86,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             ctx.GetService<IMigrator>().Migrate();
             // The Wingman narration call trace (pull request 3105) is now the last migration in the set, so
             // migrating fully applies it after the migration under test.
-            Assert.Equal("20260918181205_AddWingmanNarrationCallTrace", ctx.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20260920053001_AddRaisedSessions", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 
