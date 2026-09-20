@@ -75,6 +75,7 @@ public sealed class MorningReportWindowDto
 [JsonDerivedType(typeof(WaitingSessionAttentionDto))]
 [JsonDerivedType(typeof(StaleWorktreesAttentionDto))]
 [JsonDerivedType(typeof(UnmergedBranchesAttentionDto))]
+[JsonDerivedType(typeof(LongRunningSessionsAttentionDto))]
 [JsonDerivedType(typeof(UsageLimitStopsAttentionDto))]
 [JsonDerivedType(typeof(OutdatedDirectorsAttentionDto))]
 public abstract class MorningAttentionItemDto
@@ -90,6 +91,7 @@ public static class MorningAttentionTypes
     public const string WaitingSession = "waiting-session";
     public const string StaleWorktrees = "stale-worktrees";
     public const string UnmergedBranches = "unmerged-branches";
+    public const string LongRunningSessions = "long-running-sessions";
     public const string UsageLimitStops = "usage-limit-stops";
     public const string OutdatedDirectors = "outdated-directors";
 }
@@ -137,6 +139,31 @@ public sealed class UsageLimitStopDto
 {
     public string Session { get; set; } = "";
     public DateTime StoppedUtc { get; set; }
+}
+
+/// <summary>
+/// Sessions that have been working, without a stop, for unusually long BY THIS ACCOUNT'S OWN MEASURE
+/// (#3124). ONE item per account. The rule is the owner's (20 September 2026): still working after three
+/// hours AND at least ten times the account's usual working stretch - both, so a long build does not fire
+/// it and somebody whose sessions routinely run for hours is not nagged. With too little history to know
+/// the usual, the row is absent: it never guesses.
+/// </summary>
+public sealed class LongRunningSessionsAttentionDto : MorningAttentionItemDto
+{
+    public override string Type => MorningAttentionTypes.LongRunningSessions;
+
+    /// <summary>The account's usual working stretch, in minutes: the median of its finished stretches over
+    /// the lookback. Sent so the email can say what "unusually" was measured against.</summary>
+    public double UsualMinutes { get; set; }
+
+    public List<LongRunningSessionDto> Sessions { get; set; } = new();
+}
+
+/// <summary>One session still working: its friendly name and how long the current stretch has run.</summary>
+public sealed class LongRunningSessionDto
+{
+    public string Session { get; set; } = "";
+    public double RunningHours { get; set; }
 }
 
 /// <summary>A session whose last recorded state is waiting on the human, and how long it has been there.</summary>

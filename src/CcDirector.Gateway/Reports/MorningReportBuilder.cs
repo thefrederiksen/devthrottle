@@ -136,6 +136,9 @@ public sealed class MorningReportBuilder
         // has been measured.
         report.Attention.AddRange(HygieneItems(tenant, now));
 
+        if (LongRunningSessions(ctx, tenant, now) is { } longRunning)
+            report.Attention.Add(longRunning);
+
         if (UsageLimitStops(ctx, tenant, now) is { } limited)
             report.Attention.Add(limited);
 
@@ -292,6 +295,109 @@ public sealed class MorningReportBuilder
             signature = signature[..^modelSuffix.Length];
         return Supervision.TerminatingFaultClassifier.UsageLimitSignatures
             .Contains(signature, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The floor of the running-too-long rule: a stretch shorter than this is never flagged,
+    /// whatever the account's usual is. Owner's rule, 20 September 2026.</summary>
+    public static readonly TimeSpan LongRunningFloor = TimeSpan.FromHours(3);
+
+    /// <summary>The multiple of the running-too-long rule: the stretch must also be at least this many times
+    /// the account's own usual. Owner's rule, 20 September 2026.</summary>
+    public const double LongRunningMultiple = 10;
+
+    /// <summary>How many FINISHED working stretches the account must have in the lookback before its usual
+    /// is known. Below this the row is absent - a median of three turns is an anecdote.</summary>
+    public const int LongRunningMinimumHistory = 20;
+
+    /// <summary>How far back the usual is measured.</summary>
+    public static readonly TimeSpan LongRunningLookback = TimeSpan.FromDays(14);
+
+    /// <summary>
+    /// The running-too-long row (#3124), or NULL.
+    ///
+    /// A WORKING STRETCH is the time from an <c>active</c> transition in the governance ledger to the next
+    /// transition of the same session. Finished stretches give the account's usual (their median); a session
+    /// whose LAST transition is <c>active</c> has an open stretch, measured to now.
+    ///
+    /// THE LEDGER ALONE CANNOT BE TRUSTED FOR "STILL WORKING", and this is the trap the row is built
+    /// around: the state emitter closes an open WAIT when a session exits, but it writes nothing when a
+    /// session that was active simply vanishes - the Director was closed, the laptop lid shut. That session
+    /// stays "active" in the ledger for ever. So an open stretch is only reported when the Gateway can SEE
+    /// the session live, right now, and it says Working. A session it cannot see is not claimed to be
+    /// running: no live store, or a session missing from it, means no row for that session.
+    /// </summary>
+    private LongRunningSessionsAttentionDto? LongRunningSessions(GatewayDbContext ctx, TenantId tenant, DateTime now)
+    {
+        var live = LiveSessionsById(tenant);
+        if (live.Count == 0)
+            return null;
+
+        var since = now - LongRunningLookback;
+        var rows = ctx.GovernanceEvents.AsNoTracking()
+            .Where(e => e.SubjectKind == GovernanceEventSubject.Session &&
+                        e.SessionId != null &&
+                        e.OccurredUtc >= since)
+            .OrderByDescending(e => e.OccurredUtc)
+            .ThenByDescending(e => e.RecordedUtc)
+            .Select(e => new { e.SessionId, e.State, e.OccurredUtc })
+            .Take(MaxLedgerRowsScanned)
+            .ToList();
+
+        var finishedMinutes = new List<double>();
+        var openSince = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        foreach (var group in rows.GroupBy(r => r.SessionId!, StringComparer.Ordinal))
+        {
+            // Oldest first within the session, so each transition's successor is the next element.
+            var events = group.Reverse().ToList();
+            for (var i = 0; i < events.Count; i++)
+            {
+                if (events[i].State != GovernanceEventState.Active)
+                    continue;
+                var start = DateTime.SpecifyKind(events[i].OccurredUtc, DateTimeKind.Utc);
+                if (i + 1 < events.Count)
+                    finishedMinutes.Add((DateTime.SpecifyKind(events[i + 1].OccurredUtc, DateTimeKind.Utc) - start).TotalMinutes);
+                else
+                    openSince[group.Key] = start;
+            }
+        }
+
+        if (finishedMinutes.Count < LongRunningMinimumHistory)
+        {
+            FileLog.Write($"[MorningReportBuilder] LongRunningSessions: tenant={tenant.ToLogString()} has " +
+                          $"{finishedMinutes.Count} finished working stretch(es) in {LongRunningLookback.TotalDays:0} days, " +
+                          $"under the {LongRunningMinimumHistory} needed to know its usual - the row is OMITTED");
+            return null;
+        }
+
+        finishedMinutes.Sort();
+        var mid = finishedMinutes.Count / 2;
+        var usualMinutes = finishedMinutes.Count % 2 == 1
+            ? finishedMinutes[mid]
+            : (finishedMinutes[mid - 1] + finishedMinutes[mid]) / 2.0;
+
+        var sessions = new List<LongRunningSessionDto>();
+        foreach (var (sessionId, start) in openSince)
+        {
+            if (!live.TryGetValue(sessionId, out var liveSession) ||
+                !string.Equals(liveSession.ActivityState, "Working", StringComparison.OrdinalIgnoreCase))
+                continue; // not provably working right now - see the summary
+            var running = now - start;
+            if (running < LongRunningFloor || running.TotalMinutes < usualMinutes * LongRunningMultiple)
+                continue;
+            sessions.Add(new LongRunningSessionDto
+            {
+                Session = string.IsNullOrWhiteSpace(liveSession.Name) ? sessionId : liveSession.Name!,
+                RunningHours = Math.Round(running.TotalHours, 1),
+            });
+        }
+        if (sessions.Count == 0)
+            return null;
+
+        return new LongRunningSessionsAttentionDto
+        {
+            UsualMinutes = Math.Round(usualMinutes, 1),
+            Sessions = sessions.OrderByDescending(s => s.RunningHours).ThenBy(s => s.Session, StringComparer.Ordinal).ToList(),
+        };
     }
 
     /// <summary>
