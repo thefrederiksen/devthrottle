@@ -51,6 +51,7 @@ catalogues**, so they cannot drift apart later.
 | `src/CcDirector.ControlApi/ControlApiHost.cs` | Constructs the recorder when a registry is supplied, **in the constructor** rather than in `StartAsync`: the host is built before anything can create a session, whereas `StartAsync` runs on a background task and a session created while it was still running would be a use nobody recorded. Lets go of it in `StopAsync`. |
 | `src/CcDirector.Avalonia/MainWindow.axaml.cs` | The single `registry?.MarkUsed(...)` call is **deleted**, and a comment says why and says not to put one back. The desktop button now records its use through the same one place as every other surface. |
 | `src/CcDirector.Gateway/History/SessionHistoryRecorder.cs` | Observes the repository the session was **started in** rather than the path it runs in, through the same `RepositoryUsage.StartedIn` rule. |
+| `src/CcDirector.Core/Configuration/RepositoryRegistry.cs` | **Serialized, and written atomically.** Answering the review's finding 1: this phase turns a one-thread writer into a many-thread one, and unsynchronized that could have emptied the user's list. Every entry point now takes one gate, reads hand back a snapshot instead of a live view, the file is written through a temporary file and one move, and an unreadable file is said out loud instead of being silently replaced. Section 6 has the reasoning. |
 
 **What was deliberately not done.** Phase 3 is the one that makes the Gateway serve the union already
 ordered, and phase 6 is the one that makes the Director's dialog read the Gateway list. No client
@@ -165,39 +166,54 @@ repository does not move.
 ## 5. The mission check
 
 Section 7's check, run from the worktree root on macOS, with the .NET suites run directly as section 7
-writes them.
+writes them. **Re-run in full after the rebase onto `origin/main` and after the concurrency fix**, so
+these are the counts for the branch as it stands, not the counts the first run produced.
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` | **Green.** All four workspaces. |
-| `npm test --workspaces --if-present` | **Red - and identically red on clean `origin/main`.** See below. |
-| `dotnet test src/CcDirector.Gateway.UnitTests` | 7 failed, 6353 passed. **The same 7 fail on clean `origin/main`** (6345 passed there; the 8 extra passes here are this phase's new tests). |
-| `dotnet test src/CcDirector.Core.Tests` | **Green.** 0 failed, 4457 passed, 18 skipped. |
-| `dotnet test src/CcDirector.Avalonia.Tests` | 7 failed, 543 passed. **The same 7 fail on clean `origin/main`**, name for name. |
+| `npm test --workspaces --if-present` | **Green. 2,117 tests, 0 failures** - client-core 1,453, cc-assistant 106, cockpit 457, mobile 101. |
+| `dotnet test src/CcDirector.Gateway.UnitTests` | 7 failed, 6,366 passed, 8 skipped. |
+| `dotnet test src/CcDirector.Core.Tests` | **Green.** 0 failed, 4,464 passed, 18 skipped. |
+| `dotnet test src/CcDirector.Avalonia.Tests` | 7 failed, 543 passed. |
 
-**This is not a baseline being quoted to excuse a red run.** The mission forbids that, and rightly. It
-is a measurement: a worktree was cut at `origin/main`, built, and run, and the failing sets came back
-identical. The failures are owned by two other seats the Delivery Lead has already opened for exactly
-this - one on the web suites and one on the .NET suites on macOS - so nothing here is unowned.
+**The 97 web failures are gone, and they were never this branch's.** The first run of this check found
+97 failing web tests, on a machine whose Node 26 shadows the test environment's `localStorage`. The fix
+(`020f117f5`) landed on `origin/main` afterwards; rebasing onto it turned all four workspaces green with
+no change to this branch's own code. That was predicted, and it is what happened.
+
+**The 14 .NET failures remain, and they are owned elsewhere.** They are the same 14, name for name, the
+Reviewer reproduced with its own full runs of both suites. Every one of them is a defect in the test
+rather than in the product: each asserts Windows behaviour, or the presence of an audio device, without
+saying so. A separate branch is fixing them and this phase must not touch them. They are itemised
+below, corrected.
+
+**This is not a baseline being quoted to excuse a red run.** The mission forbids that, and rightly - and
+the rule is still, strictly, unmet on this machine. What is offered is a measurement, not an excuse:
+the sets are named one by one with their causes, the Reviewer re-ran both suites and got the identical
+sets, and every failing test class was searched for the symbols this phase touches with zero hits.
 
 ### What is red, and which it is - a defect in the test or in the product
 
 Every one of these is **a defect in the test**, not in the product, and every one of them is a test
-that asserts Windows or Linux behaviour without saying so.
+that asserts Windows behaviour, or the presence of an audio device, without saying so.
 
-**The web suites (97 failing tests across client-core, cockpit and mobile).** `localStorage` is
-`undefined` inside the jsdom environment on this machine. The runner says why on its own first line:
+**The web suites - FIXED, and green here now.** The first run of this check found 97 failing tests
+across client-core, cockpit and mobile: `localStorage` was `undefined` inside the jsdom environment,
+because this machine runs Node 26.5.0 and Node 24 and later ship their own `localStorage` global that
+is absent unless `--localstorage-file` is given, shadowing the one the test environment provides. The
+runner said so on its own first line:
 
 ```
 (node:xxxxx) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 ```
 
-This machine runs Node 26.5.0; continuous integration runs Node 22 (`.github/workflows/ci.yml`). Node
-24 and later ship their own `localStorage` global that is absent unless `--localstorage-file` is given,
-and it shadows the one the test environment provides. The tests read the ambient global and so cannot
-run on a current Node.
+That was the other seat's to fix, it fixed it (`020f117f5`), and rebasing this branch onto `origin/main`
+picked the fix up. All four workspaces are green, 2,117 tests, zero failures. Nothing in this branch
+changed to make that happen - it touches no web file at all.
 
-**The .NET suites (14 failing tests).** All Windows-only behaviour asserted on macOS:
+**The .NET suites (14 failing tests).** All host behaviour asserted without saying so - Windows
+semantics, or a device this machine does not have:
 
 - `SessionCommandExecutorLivenessTests` (3) start a child process with `cmd.exe`.
 - `CronJobStoreTests.LegacyJson_RenameFailsAfterImport_...` and
@@ -206,8 +222,15 @@ run on a current Node.
 - `RulePrimitivesTests.IsPathInside_follows_a_link_that_stays_inside_the_root` and
   `RuleCandidateFilterTests.A_rule_scoped_to_this_sessions_repository_is_a_candidate` turn on path and
   link resolution that differs on macOS.
-- `MicCaptureConstructionQueriesNoDeviceTests`, `SpeakDialogCloseDuringStartupTests` and
-  `SpeakDialogReadyCueBlankingTests` (5) are audio-device tests on a machine with no such device.
+- `MicCaptureConstructionQueriesNoDeviceTests` (2), `SpeakDialogCloseDuringStartupTests` (1) and
+  `SpeakDialogReadyCueBlankingTests` (3) are **six** audio-device tests on a machine with no such
+  device. The first two fail with `DllNotFoundException: Unable to load shared library 'winmm.dll'`;
+  the other four time out waiting for a device that is not there.
+- `LegacyWorkspaceImportTests.An_imported_workspace_keeps_the_name_agent_colour_arguments_and_order_of_every_seat`
+  is the seventh Avalonia failure. Its expected value carries a baked-in Windows path, so
+  `Path.GetFileName` - which only understands the host's own separator - returns the whole string on
+  macOS: `Expected: "devthrottle_internal"`, `Actual: "D:\\ReposFred\\devthrottle_internal"`.
+  Environmental, and unrelated to anything this phase touched.
 
 **None of them is reachable from anything this phase touched**, which the reverts above also show: each
 revert moved exactly one named test and nothing else.
@@ -220,5 +243,156 @@ revert moved exactly one named test and nothing else.
   repository in that Director's own dialog - is not exercised here. It is proven at the two ends the
   code has: the Gateway records the use from the pushed session, and the Director records it from the
   creation event every remote create raises. The screen that reads it is phase 6.
-- `npm test` has never run green on this machine, before or after this change, so it says nothing
-  about this phase either way. It is owned by another seat.
+- `npm test` is green here now, but this branch touches no web file, so it says nothing about this
+  phase either way. It says the other seat's Node fix works.
+
+---
+
+## 6. The review's findings, answered
+
+The review is `docs/missions/one-repository-list/reviews/phase-1-review.md`. Law 11: every finding is
+answered by the seat that built the work, accepted or declined with the reason, and a finding is never
+closed by the seat that raised it. Both are **accepted**.
+
+### Finding 1 - the registry becomes a multi-threaded, high-frequency writer with no locking. ACCEPTED, and fixed in this branch.
+
+**The finding is right, and it matters more here than it would anywhere else.** Before this phase
+`MarkUsed` had exactly one caller, on the Avalonia user-interface thread, so its writes were serialized
+by accident. This phase makes it fire on whatever thread created the session - a tunnel command thread
+serving the Cockpit or the phone, a restore thread, a schedule - on every session start on the machine,
+which is the most frequent event in the product. The end of that road is an empty repository list, and
+an empty repository list is the exact defect this mission exists to stop. Opening a second door to it
+while closing the first would be a poor trade.
+
+The Reviewer is also right that the race's *class* pre-dates the phase: `repo-add`, `repo-delete` and
+`repo-rename` already called `Save` from tunnel threads. That is the reason the fix is at the root and
+not at the new call site. **Guarding only the recorder would have left `repo-add` racing `repo-rename`
+- the same defect with fewer witnesses** - so nothing was guarded at the call site at all.
+
+**What was done, and why each part of it.** All of it in `RepositoryRegistry`:
+
+| The change | Why this and not something else |
+|---|---|
+| One process-wide lock, taken by every public entry point, held across the whole mutate-and-save | The shared state is a plain `List<RepositoryConfig>` and one file, and the invariant is that the file matches a list that actually existed. A lock that covered only the file would still lose entries in the list; one that covered only the list would still interleave the writes. The critical section is short and bounded - a list scan and one small file - which is what `docs/CodingStyle.md` asks of a `lock`. |
+| `Repositories` hands back a snapshot instead of `AsReadOnly()` | A live view is the same defect wearing the reader's hat: `CatalogReadExecutor`, `RepoStatePusher` and the New Session dialog all enumerate it, and a concurrent add throws `"Collection was modified"` at whichever of them is mid-enumeration. `docs/CodingStyle.md`: *snapshot before iterating across threads*. |
+| The file is written through a temporary file and a single move | **This is the part the lock cannot do.** One machine runs several Directors off the same root (`CLAUDE.md`, rule 0b), so another *process* can write this file at any moment, and a lock in this process does not reach it. A plain `File.WriteAllText` truncates the destination before it writes, so any reader in that window sees an empty or half-written list - which is precisely how "the list is silently wiped" happens. With a move, a reader sees the old list or the new one. Across processes the outcome is last-writer-wins; what it can never be is a torn file. The temporary name carries a fresh identifier, because a fixed one would itself be the thing two writers race over. This is already the repository's idiom - `CcDirectorConfigService.WriteAtomic` and `SessionHookFiles.WriteAtomic` do the same. |
+| `MarkUsed` raises its change notification *after* releasing the lock | That notification runs the user interface's binding handlers. A handler that came back into the registry while the gate was held would be waiting on the thread already inside it. |
+| `SeedFrom` takes the gate once for the whole batch | A reader must never see half a seed. The lock is re-entrant, so the `TryAdd` calls inside it take it again harmlessly. |
+
+**What this does NOT cover, said plainly.** The lock protects the list and the file. It does not make
+a single `RepositoryConfig` object thread-safe: `MarkUsed` assigns `LastUsed` on an entry that a reader
+on another thread may be reading at that instant. That is a torn read of one optional date, it is
+exactly as true before this phase as after it, it cannot corrupt the file, and making those objects
+immutable is a different change - they carry `INotifyPropertyChanged` for the desktop list, so the
+bound object has to be the shared one. It is named here rather than left for someone to discover.
+
+**The tests, and why they are not timing races.** `src/CcDirector.Core.Tests/RepositoryRegistryConcurrencyTests.cs`,
+seven tests. The instruction was to prefer one test that reliably proves writes are serialized over one
+that hopes to catch an interleaving, and none of these hopes for anything:
+
+| Test | What it proves, and how it is decided rather than raced |
+|---|---|
+| `A_second_thread_cannot_write_while_one_thread_is_inside_a_write` | **The core proof.** `SeedFrom` walks the enumerable it is given while holding the gate, so an enumerable that blocks parks a writer *inside* a write for as long as the test likes. A second thread then tries to write. With the gate held it cannot finish - not on a fast machine and not on a slow one - and the file on disk, read without going through the registry, does not contain its entry. Release the gate and the write lands in full. There is no window to miss. Both threads signal that they started, so the test cannot pass by neither of them running. |
+| `Every_write_from_every_thread_survives_and_the_file_stays_readable` | 8 threads, 200 writes, each followed by a read. The assertion is the final state - every entry present, in memory and in a fresh read of the file - not any particular interleaving. |
+| `A_reader_of_the_file_never_sees_a_half_written_list` | The cross-process harm. A reader loops over the file, sharing it the way a careful second process would, while four threads write. Every read must be complete and parseable. |
+| `A_list_a_caller_is_holding_is_not_disturbed_by_a_later_write` | The reader defect, with **no threads at all**: hold the list, write, then use what you are holding. A live view throws on the spot, so this is decided, not raced. |
+| `Writing_leaves_no_temporary_files_behind` | A guard on the new mechanism: a leftover temporary beside the list would be read back as rubbish by the next scan. |
+| `Load_UnreadableFile_ThrowsAndLeavesTheFileAlone` | The silent catch, gone - see below. |
+| `Load_EmptyFile_ReadsAsAnEmptyList` | The failure case of that change: an empty file is not an unreadable one, and must not stop the Director starting. |
+
+**The silent catch in `Load` - made loud, because it was cheap.** It was fallback programming of the
+worst kind: a parse failure started with an empty list, and the very next save wrote that emptiness
+over the only copy the user had. It now throws, names the file, says the file has been left alone, and
+logs `Load FAILED` first. Three things make this cheap rather than a sprawl:
+
+- **There is one product caller.** `App.InitializeServices`, and it already runs inside the startup
+  guard that writes a crash file and shows the error - so the loud path exists and is reached.
+- **It is this repository's own settled rule for this exact kind of file.** `CcDirectorConfigService`
+  says it in as many words: *a malformed config.json THROWS rather than being silently reset. We never
+  overwrite a file we couldn't parse - that would destroy the user's data to hide a problem.*
+- **An empty or whitespace-only file is not a parse failure** and reads as an empty list, mirroring
+  `CcDirectorConfigService.ReadRaw`. Without that, a zero-byte file left behind by the old
+  non-atomic write - the very thing being fixed - would stop the Director starting.
+
+The consequence is stated rather than buried: **a genuinely unreadable `repositories.json` now stops
+the Director at startup with an error naming the file, instead of starting with an empty list.** That
+is the intended trade - the list is recoverable, and a silent wipe is not - and with the atomic write
+above, our own writes can no longer produce that file.
+
+### Finding 2 - the proof's itemization of the 14 red tests is wrong in two places. ACCEPTED, and corrected.
+
+Both corrections are in section 5, verified against a fresh full run of `CcDirector.Avalonia.Tests` on
+this branch rather than taken from the review:
+
+- The audio group is **six** tests, not five: `MicCaptureConstructionQueriesNoDeviceTests` (2),
+  `SpeakDialogCloseDuringStartupTests` (1), `SpeakDialogReadyCueBlankingTests` (3).
+- The seventh is now named:
+  `LegacyWorkspaceImportTests.An_imported_workspace_keeps_the_name_agent_colour_arguments_and_order_of_every_seat`.
+  Its failure was read, not assumed: `Expected: "devthrottle_internal"`, `Actual:
+  "D:\ReposFred\devthrottle_internal"` - the test bakes in a Windows path, and `Path.GetFileName` only
+  understands the host's own separator. Environmental, and unrelated to this change.
+
+The counts were right and the verdict is unchanged. The point is taken as made: the proof is the record
+the next seat trusts, and a seat sent looking for five audio tests would have found six and an unnamed
+seventh.
+
+### The note to the Delivery Lead, acknowledged
+
+The review notes that `RepositoryUsageIsWiredIntoTheDirectorTests` lives in `CcDirector.Gateway.UnitTests`,
+which the default `scripts/test-local.ps1` run does not execute. That is true, it is not a finding, and
+nothing is changed for it: the mission check names that suite explicitly, so the phase is gated on it,
+and `CLAUDE.md` already tells anyone touching the Gateway to run `-Parked`.
+
+---
+
+## 7. Watching the concurrency proof fail
+
+Same rule as section 4: each part of the fix was reverted on its own, the predicted symptom was
+confirmed, and the change was restored. All three reverts were run on this branch after the rebase.
+
+### Revert D - take the lock away
+
+Every `lock (_gate)` replaced by `if (true)`, leaving the class otherwise exactly as it is.
+
+```
+[FAIL] RepositoryRegistryConcurrencyTests.A_second_thread_cannot_write_while_one_thread_is_inside_a_write
+   a second thread completed a write while another thread was inside one
+
+[FAIL] RepositoryRegistryConcurrencyTests.Every_write_from_every_thread_survives_and_the_file_stays_readable
+   Assert.Equal() Failure: Values differ
+   Expected: 200
+   Actual:   195
+Failed!  - Failed: 2, Passed: 5, Skipped: 0, Total: 7
+```
+
+**Five of two hundred writes vanished** - the user's entries, lost in a plain `List.Add` that two
+threads entered at once. That is the harm, measured, in the shape the user would eventually see it.
+The other five tests stayed green, including the torn-file one, because the atomic write is a separate
+mechanism answering a separate writer.
+
+### Revert E - put the silent catch back
+
+`catch (JsonException) { /* If the file is corrupt, start fresh */ }`, exactly as it read before.
+
+```
+[FAIL] RepositoryRegistryConcurrencyTests.Load_UnreadableFile_ThrowsAndLeavesTheFileAlone
+   Assert.Throws() Failure: No exception was thrown
+Failed!  - Failed: 1, Passed: 20, Skipped: 0, Total: 21
+```
+
+Nothing was said, and the next save would have written the empty list over the user's file.
+
+### Revert F - write the file in place again
+
+The temporary file and the move replaced by `File.WriteAllText(FilePath, json)`.
+
+```
+[FAIL] RepositoryRegistryConcurrencyTests.A_reader_of_the_file_never_sees_a_half_written_list
+   Assert.Empty() Failure: Collection was not empty
+   Collection: ["empty", "empty", "[\n  {\n    \"Name\": \"seed\",\n    \"Path\": \"/"..., ...]
+Failed!  - Failed: 1, Passed: 6, Skipped: 0, Total: 7
+```
+
+The reader caught the file **empty**, twice, and half-written several times more. An empty read is what
+another Director on this machine would have taken for an empty repository list. The six other tests
+stayed green: the lock does not reach another process, which is exactly why this mechanism is there.
