@@ -177,13 +177,15 @@ the owner's two working repositories underneath two he has never opened.
 ## 6. The mission check, section 7, as I ran it
 
 Machine: Sorens Mac mini, macOS 25.5 (Darwin 25.5.0), Apple silicon, Node v26.9.0, `dotnet` at
-`~/.dotnet/dotnet`. Run from the worktree root, exactly as section 7 writes them.
+`~/.dotnet/dotnet`. Run from the worktree root, exactly as section 7 writes them. **These are the counts
+for the branch AFTER the rebase onto `origin/main` (`8134a680b`)**, so they are the counts for the branch
+as it stands rather than for an earlier base - the whole check was run twice for that reason.
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` | **Green.** All four workspaces. |
 | `npm test --workspaces --if-present` | **Green. 2,118 passed, 0 failed** - client-core 1,454, cc-assistant 106, cockpit 457, mobile 101. |
-| `dotnet test src/CcDirector.Gateway.UnitTests` | **Green. 0 failed, 6,419 passed, 8 skipped.** |
+| `dotnet test src/CcDirector.Gateway.UnitTests` | **Green. 0 failed, 6,490 passed, 8 skipped.** |
 | `dotnet test src/CcDirector.Core.Tests` | **Green. 0 failed, 4,480 passed, 18 skipped.** |
 | `dotnet test src/CcDirector.Avalonia.Tests` | **Green. 0 failed, 554 passed.** |
 
@@ -236,3 +238,35 @@ own it - not as a baseline excusing anything, because the check above is green.
 - **The seventeen deferred path-comparison defects** listed in `proofs/green-check-dotnet/` were not
   swept, as instructed. None of them sat in this phase's way: every path this phase reads goes through
   `KnownRepositoryStore.NormalizePathKey`, which was already there.
+
+## 8. The parked suite, run in full - and what it says about itself
+
+This phase's end-to-end proof lives in `CcDirector.Gateway.Tests`, which is PARKED: it is not in the
+mission check, `scripts/test-local.ps1` does not run it by default, and continuous integration is the only
+other place it runs. So it was run in full here rather than left to somebody else.
+
+**This phase's four tests pass, and so do phase 2's four and the three endpoint tests** - 11 of 11, run
+again after the rebase.
+
+**The suite as a whole is RED on macOS, and it is red on `origin/main` too.** That is stated with a
+measurement rather than asserted:
+
+| Run | Result |
+|---|---|
+| This branch, full suite | **Failed: 21**, Passed: 2,616, Skipped: 56, Total: 2,693 (36m 29s) |
+| `origin/main` (`8134a680b`), a worktree cut for the purpose, full suite | **Failed: 23**, Passed: 2,614, Skipped: 56, Total: 2,693 (21m 52s) |
+
+**Nineteen failures are identical, name for name.** The six that differ are intermittent members of the
+same two families - three `TunnelExplicitRouteProofTests` and one `WingmanMenuGuardProofTests` failed only
+on `main`; one `SessionWsProxyEndpointsTests` and one more `TunnelExplicitRouteProofTests` failed only
+here. Nothing this phase touches appears anywhere in either list: they are fleet spawn, workflow seats,
+tunnel route proofs, the hosted process-control denials, the voice sweep, and the suite's own
+machine-wide lock test.
+
+**This is not a baseline being quoted to excuse a red run**, and it must not be read as one. The mission
+check in section 6 is green with zero failures. This is a separate, worse fact found while doing the job:
+**a parked suite of 2,693 tests is 23 red on this platform, nobody is looking at it, and by its own
+charter continuous integration is the only place it runs.** It is reported to the Delivery Lead rather
+than swept up here - it is several seats' worth of work in six families and none of it is this phase's -
+but it is recorded so that the next seat who runs this suite does not spend the afternoon I spent working
+out whether the red was theirs.
