@@ -135,6 +135,15 @@ public sealed class UnmergedBranchesAttentionDto : MorningAttentionItemDto
 
     public string Repo { get; set; } = "";
     public List<UnmergedBranchDto> Branches { get; set; } = new();
+
+    /// <summary>How many of this repository's branches could NOT be placed either way: whether they are
+    /// merged was not determined, or they are unmerged with no tip date to age them by. They are counted
+    /// here rather than named in <see cref="Branches"/> - the report does not know they are unfinished
+    /// work, only that it could not rule it out - and rather than dropped, which made the email's count
+    /// read as the whole truth when it was the part that could be worked out (#3124). Absent when zero.
+    /// An item may carry this with an EMPTY <see cref="Branches"/>: nothing proven, some unknown.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int Undetermined { get; set; }
 }
 
 /// <summary>One unmerged branch: its name, how old its tip is, and how many commits it carries.</summary>
