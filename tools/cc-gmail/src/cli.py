@@ -184,10 +184,12 @@ app.add_typer(contacts_app, name="contacts")
 # Configure console to handle Unicode safely on Windows
 # This prevents UnicodeEncodeError when emails contain emoji
 if sys.platform == "win32":
-    # Use UTF-8 encoding for Windows console output
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    # Use UTF-8 encoding for Windows console output. Reconfigure the existing
+    # streams rather than wrapping their buffers in new ones: a replaced wrapper
+    # closes the underlying buffer when it is garbage collected, which closed
+    # pytest's capture file and made the CLI untestable in-process.
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 console = Console()
 
@@ -451,6 +453,62 @@ def _resolve_and_get_auth(account: Optional[str] = None):
         raise typer.Exit(1)
     auth_method = get_auth_method(acct) or "oauth"
     return acct, auth_method
+
+
+# =============================================================================
+# --json output (machine consumption)
+# =============================================================================
+
+def _message_json(msg: dict) -> dict:
+    """The --json shape of one message: the raw header values plus the thread id.
+
+    Header values are NOT sanitized or truncated here, unlike the plain output:
+    a consumer matches on them. json.dumps escapes non-ASCII, so the printed
+    text stays ASCII. A header the message does not carry is null.
+    """
+    headers = msg.get("headers", {})
+    return {
+        "id": msg.get("id"),
+        "thread_id": msg.get("thread_id"),
+        "from": headers.get("from"),
+        "to": headers.get("to"),
+        "subject": headers.get("subject"),
+        "date": headers.get("date"),
+        "labels": list(msg.get("labels", [])),
+    }
+
+
+def _draft_json(result: dict) -> dict:
+    """The --json shape of a created Gmail API draft: draft, message and thread id.
+
+    Gmail's drafts.create answers {"id", "message": {"id", "threadId", ...}}.
+    A response missing any of the three is an error, never a null in the output:
+    the consumer maps the thread to a prospect and a missing id would map nothing.
+    """
+    message = result.get("message") or {}
+    draft_json = {
+        "draft_id": result.get("id"),
+        "message_id": message.get("id"),
+        "thread_id": message.get("threadId"),
+    }
+    missing = [key for key, value in draft_json.items() if not value]
+    if missing:
+        raise ValueError(f"Gmail draft response is missing {', '.join(missing)}: {result}")
+    return draft_json
+
+
+def _require_oauth_for_draft_json(auth_method: str, command: str) -> None:
+    """Refuse draft/reply --json on an app password account, BEFORE anything is created.
+
+    The IMAP path appends the draft to [Gmail]/Drafts and learns only an IMAP UID
+    back - no Gmail draft id, message id or thread id - so it cannot honour the
+    --json contract.
+    """
+    if auth_method == "app_password":
+        console.print(f"[red]Error:[/red] {command} --json needs an OAuth account.")
+        console.print("An App Password (IMAP) account cannot return the Gmail draft, message and thread ids.")
+        console.print("Run it without --json, or use an OAuth account (cc-gmail auth --method oauth).")
+        raise typer.Exit(1)
 
 
 @app.callback(invoke_without_command=True)
@@ -969,6 +1027,7 @@ def list_emails(
     count: int = typer.Option(10, "-n", "--count", help="Number of emails to show"),
     unread: bool = typer.Option(False, "-u", "--unread", help="Show only unread"),
     include_spam: bool = typer.Option(False, "--include-spam", help="Include messages from spam and trash"),
+    json_output: bool = typer.Option(False, "--json", help="Output a JSON array: id, thread_id, from, to, subject, date, labels"),
 ):
     """List recent emails from a label/folder."""
     acct, auth_method = _resolve_and_get_auth()
@@ -990,6 +1049,14 @@ def list_emails(
                 label_ids=label_ids,
                 max_results=count,
             )
+
+        if json_output:
+            details = [
+                (client if auth_method == "app_password" else api_client).get_message_details(m["id"])
+                for m in messages
+            ]
+            print(json.dumps([_message_json(msg) for msg in details]))
+            return
 
         if not messages:
             console.print(f"[yellow]No messages in {label}[/yellow]")
@@ -1028,8 +1095,9 @@ def list_emails(
 def read(
     message_id: str = typer.Argument(..., help="Message ID to read"),
     raw: bool = typer.Option(False, "--raw", help="Show raw message data"),
+    json_output: bool = typer.Option(False, "--json", help="Output a JSON object: id, thread_id, from, to, subject, date, labels, body"),
 ):
-    """Read a specific email."""
+    """Read a specific email. Marks it as read, with or without --json."""
     acct, auth_method = _resolve_and_get_auth()
 
     try:
@@ -1041,6 +1109,13 @@ def read(
             api_client = get_client()
             msg = api_client.get_message_details(message_id)
             api_client.mark_as_read(message_id)
+
+        if json_output:
+            # labels are as fetched, i.e. from before the mark_as_read above.
+            read_json = _message_json(msg)
+            read_json["body"] = msg.get("body")
+            print(json.dumps(read_json))
+            return
 
         summary = format_message_summary(msg)
 
@@ -1139,9 +1214,12 @@ def draft(
     body_file: Path = typer.Option(None, "-f", "--file", help="Read body from file"),
     cc: str = typer.Option(None, "--cc", help="CC recipients"),
     html: bool = typer.Option(False, "--html", help="Body is HTML"),
+    json_output: bool = typer.Option(False, "--json", help="Output a JSON object: draft_id, message_id, thread_id (OAuth accounts only)"),
 ):
     """Create a draft email."""
     acct, auth_method = _resolve_and_get_auth()
+    if json_output:
+        _require_oauth_for_draft_json(auth_method, "draft")
 
     # Get body content
     if body_file:
@@ -1172,6 +1250,9 @@ def draft(
                 cc=cc,
                 html=html,
             )
+        if json_output:
+            print(json.dumps(_draft_json(result)))
+            return
         console.print(f"[green]Draft created.[/green] ID: {result.get('id')}")
 
     except HttpError as e:
@@ -1192,9 +1273,16 @@ def reply(
     reply_all: bool = typer.Option(False, "--all", help="Reply to all recipients"),
     send_flag: bool = typer.Option(False, "--send", help="Send immediately instead of saving as draft"),
     html: bool = typer.Option(False, "--html", help="Body is HTML"),
+    json_output: bool = typer.Option(False, "--json", help="Draft mode only: output a JSON object: draft_id, message_id, thread_id (OAuth accounts only)"),
 ):
     """Create a reply to an existing email (draft or send)."""
     acct, auth_method = _resolve_and_get_auth()
+    if json_output:
+        if send_flag:
+            console.print("[red]Error:[/red] reply --json is for drafts only; it cannot be combined with --send.")
+            console.print("Nothing was sent. Run it without --send to create a reply draft.")
+            raise typer.Exit(1)
+        _require_oauth_for_draft_json(auth_method, "reply")
 
     # Get body content
     if body_file:
@@ -1233,6 +1321,10 @@ def reply(
                 send=send_flag,
                 html=html,
             )
+
+        if json_output:
+            print(json.dumps(_draft_json(result)))
+            return
 
         if send_flag:
             console.print(f"[green]Reply sent.[/green]")
@@ -1304,6 +1396,7 @@ def search(
     query: str = typer.Argument(..., help="Gmail search query"),
     count: int = typer.Option(10, "-n", "--count", help="Number of results"),
     include_spam: bool = typer.Option(False, "--include-spam", help="Include messages from spam and trash"),
+    json_output: bool = typer.Option(False, "--json", help="Output a JSON array: id, thread_id, from, to, subject, date, labels"),
 ):
     """Search emails using Gmail query syntax."""
     acct, auth_method = _resolve_and_get_auth()
@@ -1323,6 +1416,14 @@ def search(
                 max_results=count,
                 include_spam_trash=include_spam,
             )
+
+        if json_output:
+            details = [
+                (client if auth_method == "app_password" else api_client).get_message_details(m["id"])
+                for m in messages
+            ]
+            print(json.dumps([_message_json(msg) for msg in details]))
+            return
 
         if not messages:
             console.print(f"[yellow]No messages matching:[/yellow] {query}")

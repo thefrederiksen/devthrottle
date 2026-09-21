@@ -295,6 +295,28 @@ cc-gmail search "has:attachment"
 cc-gmail search "after:2024/01/01 before:2024/02/01"
 ```
 
+### JSON Output (for scripts)
+
+`--json` prints machine-readable JSON instead of the table-like text. The plain
+output without `--json` is unchanged.
+
+```bash
+cc-gmail search "from:someone@example.com" --json   # [{id, thread_id, from, to, subject, date, labels}, ...]
+cc-gmail list --json                                # same array shape as search
+cc-gmail read <message_id> --json                   # one object: the same fields plus body
+cc-gmail draft -t "to@example.com" -s "Subject" -b "Body" --json   # {draft_id, message_id, thread_id}
+cc-gmail reply <message_id> -b "Reply text" --json               # {draft_id, message_id, thread_id}
+```
+
+- Header values are the raw headers (not truncated); a missing header is `null`.
+  Non-ASCII is escaped (`\u00e9`), so the output is ASCII.
+- An empty result is `[]`.
+- `read` marks the message as read, with or without `--json`.
+- `draft --json` and `reply --json` need an OAuth account: an App Password (IMAP)
+  account cannot return Gmail draft, message and thread ids, so the command
+  refuses before creating anything.
+- `reply --json` is drafts only: combined with `--send` it is refused and nothing is sent.
+
 ### Labels
 
 ```bash
