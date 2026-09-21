@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { getSessionHistory } from "../api/client";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import type { HistoryBubbleFilter } from "./bubbleMapper";
