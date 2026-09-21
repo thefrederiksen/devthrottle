@@ -91,17 +91,29 @@ jobs:
       - name: Find the image for that commit
         id: target
         run: |
-          # last-known-good is a tag the deploy moves onto each image that passed its whole deploy - the
-          # outage budget, the ten-minute watch and every subsystem. Anything else is a commit.
-          if [ "${{ inputs.commit }}" = "last-known-good" ]; then
-            TAG="last-known-good"
-          else
-            TAG="ci-${{ inputs.commit }}"
-          fi
-          if ! DIGEST=$(az acr repository show --name "$ACR" --image "${IMAGE_NAME}:${TAG}" \
+          # Three forms, because the registry keeps only three commits by name:
+          #   last-known-good - the moving tag the deploy puts on each image that passed its whole deploy
+          #   sha256:...      - a raw digest, the way back to an image whose tags have all been purged
+          #                     (the digest of anything ever deployed is in that deploy run's log)
+          #   anything else   - a short commit, resolved as ci-<commit>
+          case "${{ inputs.commit }}" in
+            last-known-good) TAG="last-known-good" ;;
+            sha256:*)        TAG="${{ inputs.commit }}" ;;
+            *)               TAG="ci-${{ inputs.commit }}" ;;
+          esac
+          case "$TAG" in
+            sha256:*) REF_ARG="${IMAGE_NAME}@${TAG}" ;;
+            *)        REF_ARG="${IMAGE_NAME}:${TAG}" ;;
+          esac
+          if ! DIGEST=$(az acr repository show --name "$ACR" --image "$REF_ARG" \
                           --query digest --output tsv 2>/dev/null) || [ -z "$DIGEST" ]; then
-            echo "ERROR: no image '${IMAGE_NAME}:${TAG}' in registry $ACR."
+            echo "ERROR: no image '$REF_ARG' in registry $ACR."
             echo "       Production has NOT been changed by this run."
+            echo ""
+            echo "       The registry keeps the three newest deploys by name, plus 'live' (what production"
+            echo "       is running) and 'last-known-good'. Anything older has been purged. If you need an"
+            echo "       image older than that, its digest is in its own deploy run's log and can be passed"
+            echo "       here as sha256:... - but only if the manifest still exists."
             echo ""
             echo "       Tags that do exist, most recent first:"
             az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" \
@@ -110,25 +122,26 @@ jobs:
           fi
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
-          # Which commit does that image carry? For a ci-<commit> tag it is in the name. For
-          # last-known-good it is not, and the wait below checks production by commit, so read it off the
-          # image's OWN tags rather than guessing: the same manifest also carries its ci-<commit> tag.
-          if [ "$TAG" = "last-known-good" ]; then
-            # `acr repository show-manifests` reads the same thing and is DEPRECATED; `acr manifest
-            # list-metadata` is the replacement, and both were verified against this registry on
-            # 2026-09-20. If the preview command is ever withdrawn, the fallback is an explicit
-            # commit, which this step already demands when it cannot resolve one.
-            COMMIT=$(az acr manifest list-metadata --registry "$ACR" --name "$IMAGE_NAME" \
-                       --query "[?digest=='${DIGEST}'].tags[]" -o tsv 2>/dev/null \
-                     | grep '^ci-' | head -n1 | sed 's/^ci-//' || true)
-            if [ -z "$COMMIT" ]; then
-              echo "ERROR: last-known-good points at an image with no ci-<commit> tag, so this run cannot"
-              echo "       tell whether production comes back on it. Production has NOT been changed."
-              echo "       Pass an explicit commit instead."
-              exit 1
-            fi
-          else
+          # Which commit does that image carry? For a ci-<commit> tag it is in the name; for a moving tag
+          # or a digest it is not, and the wait below checks production by commit, so read it off the
+          # image's OWN tags. `acr repository show-manifests` reads the same thing and is DEPRECATED;
+          # `acr manifest list-metadata` is the replacement, and both were verified against this registry
+          # on 2026-09-20.
+          if [ "$TAG" = "ci-${{ inputs.commit }}" ]; then
             COMMIT="${{ inputs.commit }}"
+          else
+            # ITS ABSENCE MUST NOT REFUSE THE ROLLBACK (review finding). The purge keeps only the three
+            # newest ci- tags, so the last known good loses its ci- tag within three deploys while the
+            # image itself stays pullable on the moving tag. Refusing then would disarm the emergency
+            # lever at exactly the moment it is needed: the designated recovery image present, pullable,
+            # and rejected. Without a commit this run can verify that production comes back HEALTHY but
+            # not WHICH code it is running, and it says so rather than pretending otherwise.
+            COMMIT=$(az acr manifest list-metadata --registry "$ACR" --name "$IMAGE_NAME"                        --query "[?digest=='${DIGEST}'].tags[]" -o tsv 2>/dev/null                      | grep '^ci-' | head -n1 | sed 's/^ci-//' || true)
+            if [ -z "$COMMIT" ]; then
+              echo "NOTE: ${TAG} carries no ci-<commit> tag, so the checks below verify that production"
+              echo "      comes back HEALTHY, not which commit it is running. What it reports is printed"
+              echo "      at the end of this run."
+            fi
           fi
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           echo "Rolling back to ${TAG} = commit ${COMMIT} (${DIGEST})."
@@ -177,6 +190,18 @@ jobs:
             --docker-custom-image-name "$REF" --output none
           echo "Production pinned to $REF at $(date -u +%H:%M:%S); waiting for it to serve $TARGET..."
 
+          # WATCH PAST THE RESTART, NOT UP TO THE FIRST GOOD ANSWER (review finding). Pinning an image
+          # returns before the platform restarts the site, so for the first seconds the OLD container is
+          # still answering. When the target is the commit production is already serving - a rollback to
+          # last-known-good after a bad deploy never took hold, or a deliberate re-pin - three sustained
+          # 200s can be answered entirely by that old container, and a run that stopped there would go
+          # GREEN and kill its poller seconds before the real restart landed. If that restart then failed,
+          # the emergency lever would report success over a dead service with nothing watching.
+          #
+          # So this loop never finishes before SETTLE_SECONDS have passed since the pin, and what it
+          # requires at the end is an unbroken streak - which a container that falls over during the
+          # restart cannot produce.
+          SETTLE_SECONDS=150
           recovered=no
           deadline=$(( started + 600 ))
           streak=0
@@ -184,15 +209,25 @@ jobs:
             body=$(curl -s -m 10 -w '\n%{http_code}' "${GATEWAY_URL}/healthz" 2>/dev/null || printf '\n000')
             code=$(printf '%s' "$body" | tail -n1)
             commit=$(printf '%s' "$body" | sed '$d' | jq -r '.commit // empty' 2>/dev/null || echo "")
-            if [ "$code" = "200" ] && [ "$commit" = "$TARGET" ]; then
-              streak=$(( streak + 1 )); echo "production 200 commit=$commit (streak $streak)"
-              if [ "$streak" -ge 3 ]; then recovered=yes; break; fi
+            elapsed=$(( $(date +%s) - started ))
+            if [ "$code" = "200" ] && { [ -z "$TARGET" ] || [ "$commit" = "$TARGET" ]; }; then
+              streak=$(( streak + 1 ))
+              echo "production 200 commit=${commit:-<none>} (streak $streak, ${elapsed}s since the pin)"
+              if [ "$streak" -ge 3 ] && [ "$elapsed" -ge "$SETTLE_SECONDS" ]; then recovered=yes; break; fi
             else
-              streak=0; echo "production HTTP $code commit=${commit:-<none>} (starting)"
+              streak=0
+              echo "production HTTP $code commit=${commit:-<none>} (restarting, ${elapsed}s since the pin)"
             fi
             sleep 3
           done
+
+          # Stop the poller and WAIT for it to go before reading its log, or the last sample can be
+          # half-written and the awk below counts a truncated line as an outage (review finding). This is
+          # what the deploy workflow's handover step does.
           kill "$POLL" 2>/dev/null || true
+          for _ in $(seq 1 50); do
+            if kill -0 "$POLL" 2>/dev/null; then sleep 0.2; else break; fi
+          done
 
           echo "--- production poll across the rollback ---"; cat "$LOG"
           longest=$(awk '
@@ -204,8 +239,8 @@ jobs:
 
           if [ "$recovered" != "yes" ]; then
             echo ""
-            echo "ERROR: the rollback did NOT restore production - it never served a sustained 200 on"
-            echo "       commit $TARGET within 600s. PRODUCTION IS PROBABLY DOWN."
+            echo "ERROR: the rollback did NOT restore production - it never held a sustained 200${TARGET:+ on commit $TARGET}"
+            echo "       within 600s. PRODUCTION IS PROBABLY DOWN."
             echo ""
             echo "       Production is now pinned to the OLD image:"
             echo "         $REF"
@@ -222,13 +257,13 @@ jobs:
           # answering? With last-known-good, and with any rollback to the commit already live, every sample
           # can carry the target from the first moment - so a pass here proves production is healthy on the
           # wanted commit, and proves nothing about the restart. Say which of the two happened.
-          OTHER=$(awk -v t="$TARGET" '$2=="200" && $3!=t {n++} END {print n+0}' "$LOG")
+          OTHER=$(awk -v t="${TARGET:-__none__}" '$2=="200" && $3!=t {n++} END {print n+0}' "$LOG")
           DOWN=$(awk '$2!="200" {n++} END {print n+0}' "$LOG")
           if [ "$OTHER" -gt 0 ] || [ "$DOWN" -gt 0 ]; then
-            echo "Recovered: production is serving commit $TARGET again, and this run watched it change"
+            echo "Recovered: production is serving${TARGET:+ commit $TARGET} again, and this run watched it change"
             echo "(samples on another commit: $OTHER; samples with no answer: $DOWN)."
           else
-            echo "Production is serving commit $TARGET and answered every single sample."
+            echo "Production is serving${TARGET:+ commit $TARGET} and answered every single sample."
             echo "THE RESTART ITSELF WAS NOT OBSERVED: no sample carried a different commit and none failed,"
             echo "so this run cannot say the pinned image is what is serving - production may have been on"
             echo "$TARGET the whole time. Check the image now pinned, below, against what /healthz reports,"
@@ -243,6 +278,6 @@ jobs:
           az appservice plan show -g "$AZURE_RG" -n "$PLAN" --query "{sku:sku.name,tier:sku.tier}" -o table
           echo "== Image now pinned =="
           az webapp config show -g "$AZURE_RG" -n "$APP" --query linuxFxVersion -o tsv
-          echo "== /healthz =="
+          echo "== /healthz (what production reports it is running) =="
           curl -s -m 15 "${GATEWAY_URL}/healthz" || true
           echo

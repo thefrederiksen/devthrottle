@@ -408,13 +408,24 @@ jobs:
       # background poller. Stop the poller and hand its log over as an artifact; the watch job starts its
       # own poller and joins the two records into one timeline. The samples carry absolute epoch
       # timestamps, so joining them is concatenation in order, not a guess.
+      # UNCONDITIONAL ON PURPOSE (review finding). This used to run only when readiness was healthy,
+      # which was right when a failed readiness meant staging never warmed and production was untouched.
+      # In place it means the opposite: production is pinned to the new image and may be DOWN, and the
+      # record this step hands over is the only external evidence of what happened - the 000s, the 502
+      # flaps, the old-commit stragglers that say whether the container is crash-looping or the site was
+      # stopped. Discarding the timeline of the worst deploy is precisely backwards.
       - name: Hand the production poll record to the watch job
         id: handover
-        if: always() && steps.readiness.outputs.outcome == 'healthy'
+        if: always()
         run: |
           # The poller is a child of the readiness step's shell, not this one, so `wait` cannot reap it.
           # Signal it and then watch the process actually disappear before reading the log, otherwise the
           # last sample can be half-written when it is uploaded.
+          if [ ! -f /tmp/deploy-poll.log ]; then
+            echo "No poll record: this run never reached the deploy step (refused at the gates, or the"
+            echo "build failed). Nothing to hand over."
+            exit 0
+          fi
           if [ -f /tmp/deploy-poll.pid ]; then
             P=$(cat /tmp/deploy-poll.pid)
             kill "$P" 2>/dev/null || true
@@ -432,15 +443,22 @@ jobs:
           echo "Last sample handed over: $(tail -n1 /tmp/deploy-poll.log)"
 
       - name: Upload the production poll record
-        if: always() && steps.readiness.outputs.outcome == 'healthy'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: deploy-poll-log
           path: /tmp/deploy-poll.log
-          if-no-files-found: error
+          # warn, not error: a run refused at the gates (wrong ref, a failed check) never starts a poller,
+          # and there is genuinely nothing to upload. A readiness FAILURE does have a log, and that is the
+          # case this step exists for.
+          if-no-files-found: warn
 
   # The passive half. It changes NOTHING in Azure - it polls /healthz, reads the site state, diffs the
-  # migration set in git, and writes a report. It is deliberately outside the serialisation group so that
+  # migration set in git, and writes a report. The registry work that labels and prunes images used to
+  # sit here and does not any more: it WRITES, and this job deliberately runs outside the serialisation
+  # group, so a purge here could delete an image out from under an emergency rollback between that
+  # rollback resolving a tag and the platform pulling it. It lives in the `retain` job below, inside
+  # the group. It is deliberately outside the serialisation group so that
   # an emergency rollback started during these ten minutes runs immediately instead of queueing behind an
   # observation. `if: always()` so a deploy that failed before the restart still gets its metrics row.
   watch:
@@ -449,6 +467,11 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     environment: hosted-gateway-production
+
+    # Read by the `retain` job, which decides whether this run's image has earned the last-known-good
+    # label. A run that was rolled back mid-watch must never brand its own image as good.
+    outputs:
+      superseded: ${{ steps.outage.outputs.superseded }}
 
     steps:
       # FIRST, before checkout or login: resume polling production as quickly as this runner allows. The
@@ -544,7 +567,7 @@ jobs:
           # 60 seconds the plan change measured on 2026-09-20. If these start creeping toward two
           # minutes, the machine is short of memory again - that is the shape the whole 20 September
           # investigation followed.
-          MAX_ACCEPTABLE_OUTAGE_SECONDS: '10'
+          MAX_ACCEPTABLE_OUTAGE_SECONDS: '120'
         run: |
           STATE_LOG=/tmp/site-state.log; : > "$STATE_LOG"
           echo "Watching for ${WATCH_SECONDS}s past the deploy (the failure window is 2-4 minutes out)..."
@@ -844,100 +867,6 @@ jobs:
           fi
           exit 1
 
-      # MARK THIS IMAGE AS THE ONE KNOWN TO WORK. `success()` is the whole point: this step runs only if
-      # every check above it passed - production came back on the new commit, it stayed available for the
-      # ten-minute watch, and every subsystem behind the pages reported available. An image that carried a
-      # failing deploy must never be labelled good, because this label is what a panicking rollback reaches
-      # for first.
-      #
-      # `az acr import` from the registry to itself just adds the tag to the existing manifest: nothing is
-      # pulled, pushed or rebuilt, and no extra storage is used. --force moves the tag off the previous
-      # holder, which is exactly what "last known good" means.
-      - name: Mark this image as the last known good
-        if: success() && needs.deploy.outputs.readiness_outcome == 'healthy'
-        run: |
-          REF="${ACR}.azurecr.io/${IMAGE_NAME}@${{ needs.deploy.outputs.digest }}"
-          az acr import --name "$ACR" --source "$REF" \
-            --image "${IMAGE_NAME}:last-known-good" --force
-          echo "Tagged ${{ needs.deploy.outputs.short }} as last-known-good."
-
-      # KEEP A FIXED NUMBER OF IMAGES, AND DELETE THE REST.
-      #
-      # Every deploy pushes an image tagged ci-<short commit> and nothing ever removed one, so the registry
-      # held 85 images and 22 GB against the 10 GB the Basic tier includes - about $1.25 a month of overage,
-      # growing with every deploy. Keeping images IS the rollback story, so the answer is a known number of
-      # them rather than all or none. THREE is the owner's number (2026-09-20). A first purge on that date
-      # took the registry from 22 GB to 1.7 GB.
-      #
-      # TWO TAGS ARE PLANTED FIRST, AND THEY ARE WHAT MAKES THIS SAFE. `acr purge` deletes the tags its
-      # filter matches, and `--untagged` then removes any manifest left with no tags at all. Production is
-      # pinned BY DIGEST, so an image whose ci-<commit> tag is purged becomes untagged and is deleted - and
-      # the very next restart of the site would try to pull an image that no longer exists. The same is true
-      # of last-known-good once its own ci- tag ages out. So before purging:
-      #   * `live` is moved onto the digest production is actually running, and
-      #   * `last-known-good` is already on the image from the last fully successful deploy (step above).
-      # Neither name matches the ci-.* filter, so both manifests keep a tag, survive --untagged, and stay
-      # pullable however old they are.
-      #
-      # WHY `acr purge` AND NOT A LOOP OF DELETES. This step first ran `az acr repository delete` once per
-      # tag. Deleting one image that way works; dozens in a row do not - the registry answered "The
-      # requested data does not exist" to nearly every call while the CLI still printed its "will delete"
-      # warning, so the loop looked like it was working and deleted almost nothing. `acr purge` runs inside
-      # the registry as a task, handles its own pacing, and reports the counts it actually deleted.
-      - name: Keep the last three images and delete the older ones
-        if: always() && needs.deploy.outputs.readiness_outcome == 'healthy'
-        env:
-          KEEP: '3'
-        run: |
-          set -euo pipefail
-          LIVE=$(az webapp config show -g "$AZURE_RG" -n "$APP" --query linuxFxVersion -o tsv)
-          LIVE_DIGEST="${LIVE#*@}"
-          if [ "$LIVE_DIGEST" = "$LIVE" ]; then
-            echo "ERROR: production is pinned by tag, not by digest ('$LIVE'). This step protects the live"
-            echo "       image by digest, so it refuses rather than purging without that protection."
-            exit 1
-          fi
-          # Keep a tag on the live manifest so --untagged cannot take the image production is running.
-          az acr import --name "$ACR" --source "${ACR}.azurecr.io/${IMAGE_NAME}@${LIVE_DIGEST}" \
-            --image "${IMAGE_NAME}:live" --force
-          echo "Tagged the live digest as 'live' so the purge cannot remove it."
-
-          # --ago 0d: age is not the rule here, count is. --keep keeps the newest KEEP matching tags.
-          az acr run --registry "$ACR" --cmd \
-            "acr purge --filter '${IMAGE_NAME}:ci-.*' --keep ${KEEP} --ago 0d --untagged" \
-            /dev/null
-
-          echo "--- images that remain ---"
-          az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" --orderby time_desc -o tsv
-          az acr show-usage -n "$ACR" --query "[?name=='Size'].{used:currentValue,limit:limit}" -o tsv
-
-      # The rollback targets, printed where someone reaching for them will be looking: on the deploy run
-      # itself. A rollback needs a commit, and the only place they exist is the registry.
-      - name: List the images a rollback can choose from
-        if: always() && needs.deploy.outputs.readiness_outcome == 'healthy'
-        run: |
-          {
-            echo "## Rollback targets"
-            echo ""
-            echo "Put any of these back with:"
-            echo ""
-            echo "\`\`\`"
-            echo "gh workflow run rollback-hosted-gateway.yml --repo ${{ github.repository }} --ref main -f commit=<short commit>"
-            echo "\`\`\`"
-            echo ""
-            echo "\`commit=last-known-good\` is also accepted - it is the newest image that passed its whole deploy."
-            echo ""
-            echo "The registry keeps the three newest images, plus \`live\` (what production runs) and"
-            echo "\`last-known-good\`. Both of those keep their image pullable however old it gets."
-            echo ""
-            echo "| image | built |"
-            echo "| --- | --- |"
-            az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" \
-              --orderby time_desc --top 5 --detail \
-              --query "[].{tag:name,time:lastUpdateTime}" -o tsv \
-              | while read -r tag time; do echo "| \`$tag\` | $time |"; done
-          } >> "$GITHUB_STEP_SUMMARY"
-
       # Does this deploy carry a schema change to the LIVE Supabase Postgres? Diff the Postgres migration set
       # (the one Database.Migrate() applies on hosted) between the outgoing live commit and the shipped one.
       # "unknown" (never a guess) when the outgoing commit is not readable - the image predated the .commit
@@ -988,6 +917,13 @@ jobs:
           # THE LEDGER'S COLUMNS CHANGED WITH THE MOVE TO IN-PLACE DEPLOYS (2026-09-20):
           # swap_window_gap_seconds is now restart_gap_seconds, and the swapped-then-* outcome words are
           # deployed-then-*. A ledger row older than that date uses the old names.
+          # ASSIGNED BEFORE THE FOLDING BLOCK BELOW READS THEM. These four were set after it once, and
+          # the one the second commit added (RESTART_OBS) expanded to empty inside the chain, so its
+          # outcome word could never be reached - a false green hiding behind a variable that had not been
+          # set yet. Keep every value the fold reads above the fold.
+          BUILD_S="${{ needs.deploy.outputs.build_seconds }}"; BUILD_S="${BUILD_S:-}"
+          RESTART_S="${{ needs.deploy.outputs.restart_gap_seconds }}"; RESTART_S="${RESTART_S:-not-measured}"
+          RESTART_OBS="${{ needs.deploy.outputs.restart_observed }}"; RESTART_OBS="${RESTART_OBS:-not-measured}"
           OUTCOME="${{ needs.deploy.outputs.readiness_outcome }}"; OUTCOME="${OUTCOME:-failed}"
           DEPLOY_RESULT="${{ needs.deploy.result }}"
           OUTAGE_RESULT="${{ steps.outage.outcome }}"
@@ -1023,9 +959,6 @@ jobs:
             no)      ROLLBACK="no" ;;
             *)       ROLLBACK="not-measured" ;;
           esac
-          BUILD_S="${{ needs.deploy.outputs.build_seconds }}"; BUILD_S="${BUILD_S:-}"
-          RESTART_S="${{ needs.deploy.outputs.restart_gap_seconds }}"; RESTART_S="${RESTART_S:-not-measured}"
-          RESTART_OBS="${{ needs.deploy.outputs.restart_observed }}"; RESTART_OBS="${RESTART_OBS:-not-measured}"
           OUTAGE_S="${{ steps.outage.outputs.true_outage_seconds }}"
           TOTAL_S="${{ steps.outage.outputs.total_unavailable_seconds }}"
           STATE_LEFT="${{ steps.outage.outputs.site_state_left_running }}"; STATE_LEFT="${STATE_LEFT:-not-measured}"
@@ -1090,3 +1023,126 @@ jobs:
           name: deploy-metrics
           path: deploy-metrics.json
           if-no-files-found: warn
+
+  # The registry half, and the reason it is its own job: it WRITES to the registry (two moving tags) and
+  # DELETES from it (the purge), so it belongs inside the serialisation group. It cannot live in `watch`,
+  # which is deliberately outside the group so an emergency rollback can start while production is being
+  # observed - a purge running there could delete the very image a rollback had just resolved, in the
+  # window before the platform pulls it, and take production down from the emergency lever itself.
+  #
+  # It runs after the watch because what the watch SAW decides whether this image has earned the label.
+  retain:
+    name: Label the good image and keep the last three
+    needs: [deploy, watch]
+    if: always() && needs.deploy.outputs.readiness_outcome == 'healthy'
+    runs-on: ubuntu-latest
+    environment: hosted-gateway-production
+
+    concurrency:
+      group: hosted-gateway-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Azure login (OIDC, no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_GW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_GW_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_GW_SUBSCRIPTION_ID }}
+
+      # MARK THIS IMAGE AS THE ONE KNOWN TO WORK. The condition is the whole point: the watch job must
+      # have PASSED - production came back on the new commit, stayed available for ten minutes, and every
+      # subsystem behind the pages reported available - AND nothing may have superseded this deploy while
+      # it was watched. That second half is a review finding: the watch runs outside the serialisation
+      # group so an emergency rollback can start during it, and a rollback that fits inside the outage
+      # budget leaves the watch GREEN. Without the superseded check this step would then brand the image a
+      # human had just rolled production off as the last known good, and the next panic rollback would
+      # re-ship it while everyone believed they were recovering.
+      #
+      # `az acr import` from the registry to itself just adds the tag to the existing manifest: nothing is
+      # pulled, pushed or rebuilt, and no extra storage is used. --force moves the tag off the previous
+      # holder, which is exactly what "last known good" means.
+      - name: Mark this image as the last known good
+        if: needs.watch.result == 'success' && needs.watch.outputs.superseded == 'no'
+        run: |
+          REF="${ACR}.azurecr.io/${IMAGE_NAME}@${{ needs.deploy.outputs.digest }}"
+          az acr import --name "$ACR" --source "$REF" \
+            --image "${IMAGE_NAME}:last-known-good" --force
+          echo "Tagged ${{ needs.deploy.outputs.short }} as last-known-good."
+
+      # KEEP A FIXED NUMBER OF IMAGES, AND DELETE THE REST.
+      #
+      # Every deploy pushes an image tagged ci-<short commit> and nothing ever removed one, so the registry
+      # held 85 images and 22 GB against the 10 GB the Basic tier includes - about $1.25 a month of overage,
+      # growing with every deploy. Keeping images IS the rollback story, so the answer is a known number of
+      # them rather than all or none. THREE is the owner's number (2026-09-20). A first purge on that date
+      # took the registry from 22 GB to 1.7 GB.
+      #
+      # TWO TAGS ARE PLANTED FIRST, AND THEY ARE WHAT MAKES THIS SAFE. `acr purge` deletes the tags its
+      # filter matches, and `--untagged` then removes any manifest left with no tags at all. Production is
+      # pinned BY DIGEST, so an image whose ci-<commit> tag is purged becomes untagged and is deleted - and
+      # the very next restart of the site would try to pull an image that no longer exists. The same is true
+      # of last-known-good once its own ci- tag ages out. So before purging:
+      #   * `live` is moved onto the digest production is actually running, and
+      #   * `last-known-good` is already on the image from the last fully successful deploy (step above).
+      # Neither name matches the ci-.* filter, so both manifests keep a tag, survive --untagged, and stay
+      # pullable however old they are.
+      #
+      # WHY `acr purge` AND NOT A LOOP OF DELETES. This step first ran `az acr repository delete` once per
+      # tag. Deleting one image that way works; dozens in a row do not - the registry answered "The
+      # requested data does not exist" to nearly every call while the CLI still printed its "will delete"
+      # warning, so the loop looked like it was working and deleted almost nothing. `acr purge` runs inside
+      # the registry as a task, handles its own pacing, and reports the counts it actually deleted.
+      - name: Keep the last three images and delete the older ones
+        if: always()
+        env:
+          KEEP: '3'
+        run: |
+          set -euo pipefail
+          LIVE=$(az webapp config show -g "$AZURE_RG" -n "$APP" --query linuxFxVersion -o tsv)
+          LIVE_DIGEST="${LIVE#*@}"
+          if [ "$LIVE_DIGEST" = "$LIVE" ]; then
+            echo "ERROR: production is pinned by tag, not by digest ('$LIVE'). This step protects the live"
+            echo "       image by digest, so it refuses rather than purging without that protection."
+            exit 1
+          fi
+          # Keep a tag on the live manifest so --untagged cannot take the image production is running.
+          az acr import --name "$ACR" --source "${ACR}.azurecr.io/${IMAGE_NAME}@${LIVE_DIGEST}" \
+            --image "${IMAGE_NAME}:live" --force
+          echo "Tagged the live digest as 'live' so the purge cannot remove it."
+
+          # --ago 0d: age is not the rule here, count is. --keep keeps the newest KEEP matching tags.
+          az acr run --registry "$ACR" --cmd \
+            "acr purge --filter '${IMAGE_NAME}:ci-.*' --keep ${KEEP} --ago 0d --untagged" \
+            /dev/null
+
+          echo "--- images that remain ---"
+          az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" --orderby time_desc -o tsv
+          az acr show-usage -n "$ACR" --query "[?name=='Size'].{used:currentValue,limit:limit}" -o tsv
+
+      # The rollback targets, printed where someone reaching for them will be looking: on the deploy run
+      # itself. A rollback needs a commit, and the only place they exist is the registry.
+      - name: List the images a rollback can choose from
+        if: always()
+        run: |
+          {
+            echo "## Rollback targets"
+            echo ""
+            echo "Put any of these back with:"
+            echo ""
+            echo "\`\`\`"
+            echo "gh workflow run rollback-hosted-gateway.yml --repo ${{ github.repository }} --ref main -f commit=<short commit>"
+            echo "\`\`\`"
+            echo ""
+            echo "\`commit=last-known-good\` is also accepted - it is the newest image that passed its whole deploy."
+            echo ""
+            echo "The registry keeps the three newest images, plus \`live\` (what production runs) and"
+            echo "\`last-known-good\`. Both of those keep their image pullable however old it gets."
+            echo ""
+            echo "| image | built |"
+            echo "| --- | --- |"
+            az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" \
+              --orderby time_desc --top 5 --detail \
+              --query "[].{tag:name,time:lastUpdateTime}" -o tsv \
+              | while read -r tag time; do echo "| \`$tag\` | $time |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
