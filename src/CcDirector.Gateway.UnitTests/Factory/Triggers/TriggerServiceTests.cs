@@ -132,6 +132,30 @@ public sealed class TriggerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ADirectorThatDiedLeavesItsSessionWorking_TheLockHolds_ButTheOwnerSeesItRed()
+    {
+        // Review finding 1: the Director that ran the session is killed without unregistering, so the Gateway's last
+        // row for the session says Working for good. The lock still never starts a second session - that lean is
+        // deliberate - but it must not hold with an OK face: past the horizon the trigger turns red and names it.
+        var service = Service();
+        var t = Add(service);
+        var first = await Report(service, t, Counted(2));
+        Assert.Equal("Working", _sessions[first.SessionId!].ActivityState);
+
+        _now = _now.AddHours(1);
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, (await Report(service, t, Counted(3))).Outcome);
+        Assert.Equal("OK", service.ToDto(service.Store.Find(Tenant, t.Id)!).StatusText);
+
+        _now = _now.Add(TriggerStatusFold.LongRunningAfter);
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, (await Report(service, t, Counted(5))).Outcome);
+        var dto = service.ToDto(service.Store.Find(Tenant, t.Id)!);
+
+        Assert.Equal(TriggerStatusKind.Red, dto.Status);
+        Assert.Equal($"session {first.SessionId} has not ended after 7 hours; no new session starts until it does", dto.StatusText);
+        Assert.Single(_starts);
+    }
+
+    [Fact]
     public async Task ACrashedSession_HasEnded()
     {
         var service = Service();

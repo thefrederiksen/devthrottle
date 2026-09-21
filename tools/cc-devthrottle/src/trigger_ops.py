@@ -259,12 +259,12 @@ def set_paused(key: str, paused: bool) -> None:
     ])
 
 
-def runs(key: str, limit: int, json_output: bool) -> None:
-    if limit < 1:
-        axi_cli.usage_error("--limit must be at least 1.")
+def runs(key: str, count: int, json_output: bool) -> None:
+    if count < 1:
+        axi_cli.usage_error("--count must be at least 1.")
         return
     try:
-        data = _client().runs(key, limit)
+        data = _client().runs(key, count)
     except GatewayError as ex:
         _fail(ex, key)
         return

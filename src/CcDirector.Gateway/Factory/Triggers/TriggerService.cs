@@ -80,7 +80,8 @@ public sealed class TriggerService
     /// <summary>A trigger as the routes serve it, with its status decided now.</summary>
     public TriggerDto ToDto(TriggerEntity t)
     {
-        var status = TriggerStatusFold.For(t.CreatedUtc, t.IntervalSeconds, t.LastCheckUtc, t.LastOutcome, t.LastReason, _nowUtc());
+        var status = TriggerStatusFold.For(t.CreatedUtc, t.IntervalSeconds, t.LastCheckUtc, t.LastOutcome, t.LastReason,
+            t.LastSessionId, t.LastStartedUtc is { } s ? DateTime.SpecifyKind(s, DateTimeKind.Utc) : null, _nowUtc());
         return new TriggerDto
         {
             Id = t.Id.ToString("D"),

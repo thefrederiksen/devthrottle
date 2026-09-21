@@ -14,6 +14,11 @@ public readonly record struct TriggerStatus(string Kind, string Text);
 ///    silence is never a quiet night. This is checked first: a newer silence outranks an older failure.
 ///  - RED "check failed: reason" when the last check broke the check contract, and RED "start failed: reason"
 ///    when the check counted work but the session could not be started.
+///  - RED "session ... has not ended" when the last check counted work and was skipped because the session this
+///    trigger started is still alive, and that session was started more than <see cref="LongRunningAfter"/> ago.
+///    The one-at-a-time lock leans to never starting twice, so it reads a session as alive for as long as the
+///    Gateway's last row for it says so - and a Director that died without unregistering leaves that row saying
+///    Working for good. The lock then holds forever; this is what stops it holding forever with an OK face.
 ///  - OK otherwise, including "waiting for the first check" for a new trigger inside its first two intervals.
 /// </summary>
 public static class TriggerStatusFold
@@ -21,9 +26,14 @@ public static class TriggerStatusFold
     /// <summary>The prefix a failed start's reason carries, so the status can say which half failed.</summary>
     public const string StartFailedPrefix = "the session could not be started: ";
 
+    /// <summary>How long a started session may hold the lock, while there is work waiting, before the status turns
+    /// red. Deliberately generous: a trigger's session doing a long piece of work is normal, and this only has to
+    /// catch the lock that never lets go.</summary>
+    public static readonly TimeSpan LongRunningAfter = TimeSpan.FromHours(6);
+
     public static TriggerStatus For(
         DateTime createdUtc, int intervalSeconds, DateTime? lastCheckUtc, string? lastOutcome, string? lastReason,
-        DateTime nowUtc)
+        string? lastSessionId, DateTime? lastStartedUtc, DateTime nowUtc)
     {
         var silenceLimit = TimeSpan.FromSeconds(intervalSeconds * 2.0);
         var since = lastCheckUtc ?? createdUtc;
@@ -39,6 +49,14 @@ public static class TriggerStatusFold
             return reason.StartsWith(StartFailedPrefix, StringComparison.Ordinal)
                 ? new TriggerStatus(TriggerStatusKind.Red, "start failed: " + reason[StartFailedPrefix.Length..])
                 : new TriggerStatus(TriggerStatusKind.Red, "check failed: " + reason);
+        }
+
+        if (lastOutcome == TriggerRunOutcome.SkippedRunning && lastStartedUtc is { } started)
+        {
+            var held = nowUtc - started;
+            if (held > LongRunningAfter)
+                return new TriggerStatus(TriggerStatusKind.Red,
+                    $"session {lastSessionId ?? "(unknown)"} has not ended after {(int)held.TotalHours} hours; no new session starts until it does");
         }
 
         return new TriggerStatus(TriggerStatusKind.Ok, "OK");

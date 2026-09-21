@@ -122,13 +122,29 @@ def test_runs_prints_every_outcome_with_its_session_and_reason():
     ]}
     with patch("src.trigger_ops.TriggerClient") as client_cls:
         client_cls.return_value.runs.return_value = history
-        result = runner.invoke(app, ["trigger", "runs", "website-new-mail", "--limit", "3"])
-        limit = client_cls.return_value.runs.call_args.args[1]
+        result = runner.invoke(app, ["trigger", "runs", "website-new-mail", "--count", "3"])
+        count = client_cls.return_value.runs.call_args.args[1]
     assert result.exit_code == 0, result.output
-    assert limit == 3
+    assert count == 3
     assert "started  count=2 session abc" in result.stdout
     assert "failed  count=- reason: exit code 1" in result.stdout
     assert "nothing-to-do  count=0" in result.stdout
+
+
+def test_runs_takes_the_fleets_short_count_flag():
+    with patch("src.trigger_ops.TriggerClient") as client_cls:
+        client_cls.return_value.runs.return_value = {"triggerId": _TRIGGER["id"], "runs": []}
+        result = runner.invoke(app, ["trigger", "runs", "website-new-mail", "-n", "7"])
+        count = client_cls.return_value.runs.call_args.args[1]
+    assert result.exit_code == 0, result.output
+    assert count == 7
+
+
+def test_runs_refuses_the_limit_flag_the_fleet_does_not_use():
+    with patch("src.trigger_ops.TriggerClient") as client_cls:
+        result = runner.invoke(app, ["trigger", "runs", "website-new-mail", "--limit", "3"])
+        client_cls.return_value.runs.assert_not_called()
+    assert result.exit_code != 0
 
 
 def test_a_gateway_with_the_switch_off_is_reported_with_the_remedy():
