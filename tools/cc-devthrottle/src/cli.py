@@ -13,6 +13,7 @@ from . import __version__
 from . import browser_ops
 from . import diag_ops
 from . import email_ops
+from . import factory_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import mission_ops
@@ -112,6 +113,12 @@ schedule_app = typer.Typer(
     cls=AxiGroup,
     help="Manage Gateway schedules.", add_completion=False, no_args_is_help=True
 )
+factory_app = typer.Typer(
+    cls=AxiGroup,
+    help="Record what a factory agent did, and read the factory activity record back.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 workflow_app = typer.Typer(
     cls=AxiGroup,
     help="Read and author the fleet's shared Workflows on the Gateway.",
@@ -174,6 +181,7 @@ app.add_typer(message_app, name="message")
 app.add_typer(fleet_manager_app, name="fleet-manager")
 app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
+app.add_typer(factory_app, name="factory")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(skill_app, name="skill")
 app.add_typer(setup_app, name="setup")
@@ -894,6 +902,29 @@ _ACTIONS = [
         "id": "schedule-endpoint",
         "description": "Show the Gateway endpoint used by schedule commands.",
         "command": "cc-devthrottle schedule endpoint",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "factory-record",
+        "description": "Append one row to the factory activity record and print its id; exits non-zero when the row was not written.",
+        "command": "cc-devthrottle factory record --factory <id> --agent <id> --outcome <outcome> --what <sentence>",
+        "mutatesState": True,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "agent", "required": True},
+            {"name": "outcome", "required": True},
+            {"name": "what", "required": True},
+            {"name": "subject", "required": False},
+            {"name": "link", "required": False},
+            {"name": "version", "required": False},
+            {"name": "corrects", "required": False},
+        ],
+    },
+    {
+        "id": "factory-activity",
+        "description": "Read the factory activity record, newest first.",
+        "command": "cc-devthrottle factory activity",
         "mutatesState": False,
         "args": [],
     },
@@ -3182,6 +3213,44 @@ def schedule_endpoint(
 ) -> None:
     """Show the Gateway base URL used by schedule commands."""
     schedule_ops.endpoint(json_output)
+
+
+@factory_app.command("record")
+def factory_record(
+    factory: str = typer.Option(..., "--factory", help="The factory the row belongs to."),
+    agent: str = typer.Option(..., "--agent", help="The factory agent that acted."),
+    outcome: str = typer.Option(
+        ..., "--outcome", help="One of: " + ", ".join(factory_ops.OUTCOMES) + "."
+    ),
+    what: str = typer.Option(..., "--what", help="What happened, in one plain sentence (at most 500 characters)."),
+    subject: Optional[str] = typer.Option(None, "--subject", help="What the row is about, for example the business name."),
+    link: Optional[str] = typer.Option(None, "--link", help="A link to the evidence."),
+    version: Optional[str] = typer.Option(None, "--version", help="The factory agent definition's version."),
+    corrects: Optional[str] = typer.Option(None, "--corrects", help="The id of the row this one corrects."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the recorded row as JSON."),
+) -> None:
+    """Record one factory activity row and print its id; non-zero exit if not recorded.
+
+    A business tool calls this BEFORE it acts and obeys the exit code: whenever the row was not written -
+    factory agents switched off, the row refused, the Gateway unreachable - it exits non-zero with the reason.
+    """
+    factory_ops.record(factory, agent, outcome, what, subject, link, version, corrects, json_output)
+
+
+@factory_app.command("activity")
+def factory_activity(
+    factory: Optional[str] = typer.Option(None, "--factory", help="Only this factory."),
+    agent: Optional[str] = typer.Option(None, "--agent", help="Only this factory agent."),
+    outcome: Optional[str] = typer.Option(None, "--outcome", help="Only this outcome."),
+    since: Optional[str] = typer.Option(None, "--from", help="Only rows at or after this UTC time (ISO 8601)."),
+    until: Optional[str] = typer.Option(None, "--to", help="Only rows before this UTC time (ISO 8601)."),
+    oldest_first: bool = typer.Option(False, "--oldest-first", help="Oldest first instead of newest first."),
+    offset: int = typer.Option(0, "--offset", min=0, help="Skip this many matching rows."),
+    limit: int = typer.Option(50, "--count", "-n", min=1, max=1000, help="Largest number of rows to show (1-1000)."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the page as JSON."),
+) -> None:
+    """Read the factory activity record, newest first."""
+    factory_ops.activity(factory, agent, outcome, since, until, oldest_first, offset, limit, json_output)
 
 
 @setup_app.command("status")

@@ -75,7 +75,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             // pins below moved with them.
             Assert.Equal("20260920021806_AddDiscoveredRepositories", all[index + 3]);
             Assert.Equal("20260920053001_AddRaisedSessions", all[index + 4]);
-            Assert.Equal(index + 5, all.Count);
+            // The factory activity record landed after that.
+            Assert.Equal("20260921084515_AddFactoryActivity", all[index + 5]);
+            Assert.Equal(index + 6, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

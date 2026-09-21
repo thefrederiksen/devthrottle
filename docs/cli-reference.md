@@ -1639,6 +1639,36 @@ COMMANDS:
 `--json` is available on `list`, `get`, `runs`, `create`, `run`, and `endpoint`.
 `--notify-on none|always|failure` and `--notify-webhook URL` are available on `create`.
 
+### Factory
+
+The factory activity record: an append-only log, on the Gateway, of what each factory agent did and
+how it came out. Rows are never changed or deleted; a wrong row is corrected by recording a new one
+with `--corrects <id>`. Both commands need factory agents switched on at the Gateway
+(`"factoryAgents": { "enabled": true }` in the Gateway's `config.json`; it is off by default).
+
+```
+USAGE: cc-devthrottle factory COMMAND [ARGS]...
+
+COMMANDS:
+  record --factory ID --agent ID --outcome OUTCOME --what "SENTENCE"
+         [--subject TEXT] [--link URL] [--version V] [--corrects ROW-ID] [--json]
+  activity [--factory ID] [--agent ID] [--outcome OUTCOME] [--from UTC] [--to UTC]
+           [--oldest-first] [--offset N] [--count N | -n N] [--json]
+```
+
+`OUTCOME` is exactly one of `started`, `allowed`, `asked`, `blocked`, `escalated`, `done`,
+`sent-back`, `nothing-to-do`, `paused`, `failed`. Any other word is refused by the Gateway with the
+list. `--what` is one plain sentence of at most 500 characters.
+
+`record` prints the new row's id on its first line (`--json` prints the whole row) and exits 0 ONLY
+when the Gateway returned that id. It exits 1 with the reason whenever the row was not written: the
+switch is off (the route answers 404), the Gateway refused the row, the Gateway could not be reached,
+or its answer carried no id. A business tool records BEFORE it acts and stops when this exits non-zero.
+The Gateway stamps the calling session as the actor and as the row's session.
+
+`activity` reads newest first; `--from` is inclusive and `--to` exclusive. `--count` defaults to 50
+(at most 1000); when more rows match it says which `--offset` shows the next page.
+
 ### Setup
 
 ```

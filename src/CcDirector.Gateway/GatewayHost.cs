@@ -226,6 +226,19 @@ public sealed class GatewayHost : IAsyncDisposable
     public bool AuthEnabled { get; }
 
     /// <summary>
+    /// The factory agents switch (Website Business Factory, product track): <c>factoryAgents.enabled</c> in
+    /// config.json, default OFF, or the explicit constructor override a test passes. Resolved once, at
+    /// construction, the way the stream switch was (issue #1176). While it is off the factory surface -
+    /// today the activity record at <see cref="Api.FactoryActivityEndpoints.Route"/> - is not mapped at all,
+    /// so it answers 404.
+    /// </summary>
+    public bool FactoryAgentsEnabled { get; }
+
+    /// <summary>The append-only factory activity record. Constructed whatever the switch says, so the
+    /// database shape does not depend on it; only the routes do.</summary>
+    public Factory.FactoryActivityRecord FactoryActivity { get; }
+
+    /// <summary>
     /// Environment override for the host-wide auth gate (issue #917). As of Phase 1 the gate is ON by
     /// default, so this variable is now a DISABLE override for debugging: set <c>CC_GATEWAY_AUTH=0</c> to
     /// turn the gate off. (Setting it to <c>1</c> is a harmless no-op since enforcement is already the
@@ -1302,7 +1315,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
     private readonly TimeSpan? _directorLaunchTimeout;
 
-    public GatewayHost(int port = DefaultPort, string? token = null, bool? authEnabled = null, string? instancesDirectory = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, Core.Account.DevThrottleAccountService? account = null, bool? streamMode = null, string? inputStatsPath = null, string? promptLogPath = null, string? snoozePath = null, string? pushSubscriptionsPath = null, string? wingmanInstructionsPath = null, string? missionsPath = null, string? missionNotesPath = null, Transcription.GatewayTranscriptionService? dictationTranscription = null, Core.Agents.AgentKind? brainTool = null, TimeSpan? directorLaunchTimeout = null)
+    public GatewayHost(int port = DefaultPort, string? token = null, bool? authEnabled = null, string? instancesDirectory = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, Core.Account.DevThrottleAccountService? account = null, bool? streamMode = null, string? inputStatsPath = null, string? promptLogPath = null, string? snoozePath = null, string? pushSubscriptionsPath = null, string? wingmanInstructionsPath = null, string? missionsPath = null, string? missionNotesPath = null, Transcription.GatewayTranscriptionService? dictationTranscription = null, Core.Agents.AgentKind? brainTool = null, TimeSpan? directorLaunchTimeout = null, bool? factoryAgentsEnabled = null)
     {
         var retiredFilesRemoved = Core.Configuration.LegacyPrivacyDataCleanup.Run();
         if (retiredFilesRemoved > 0)
@@ -1446,6 +1459,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // Gateway Cleanup: the tunnel is mandatory; the streamMode parameter is ignored and retained only for existing test call sites (removed with the test rewrite).
         _streamStaleAfter = TimeSpan.FromSeconds(gatewayConfig.StreamStaleAfterSeconds);
         AuthEnabled = ResolveAuthEnabled(authEnabled);
+        FactoryAgentsEnabled = factoryAgentsEnabled ?? Core.Configuration.FactoryAgentsConfig.IsEnabled();
+        FileLog.Write($"[GatewayHost] factory agents switch: {(FactoryAgentsEnabled ? "ON" : "OFF")} ({(factoryAgentsEnabled.HasValue ? "explicit override" : "config.json factoryAgents.enabled")})");
         if (AuthEnabled)
             FileLog.Write($"[GatewayHost] auth gate booted ON (enforced by default, issue #917 - a per-device key or the shared token is required, even on the tailnet; set {AuthDisabledEnvVar}=1 to disable for debugging)");
         else
@@ -1606,6 +1621,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // The governance audit trail (issue #1771, spine item 4): append-only intervention + permission/
         // sandbox decisions on the EF data layer, so a Gateway restart never loses a recorded audit fact.
         _governanceAudit = new Governance.GovernanceAuditLog(_gatewayDb);
+        FactoryActivity = new Factory.FactoryActivityRecord(_gatewayDb);
         _sessionSpendEmitter = new Governance.SessionSpendEmitter(_sessionSpend);
         _sessionStateEmitter = new Governance.SessionStateEventEmitter(_governanceEvents, _tenantBoundary);
         // The weekly Outcome Ledger reporter (issue #1771, spine item 4): read-only over the run tables +
@@ -4221,6 +4237,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // The governance audit trail (issue #1771, spine item 4): append-only intervention +
         // permission/sandbox decisions - the safety and attention-burden audit. Append and read only.
         Api.GovernanceAuditEndpoints.Map(_app, _governanceAudit);
+
+        // The factory activity record (Website Business Factory, product track): append-only, never pruned.
+        // Behind the factory agents switch - while it is off the routes are simply not mapped, so they 404.
+        if (FactoryAgentsEnabled)
+            Api.FactoryActivityEndpoints.Map(_app, FactoryActivity);
+        else
+            FileLog.Write("[GatewayHost] factory agents are OFF: the factory activity routes are not mapped");
 
         // The weekly Outcome Ledger (issue #1771, spine item 4): the first report that pays rent - verified
         // yield, aging WIP, and high-effort/no-outcome runs with cost + attention-burden. Read-only.

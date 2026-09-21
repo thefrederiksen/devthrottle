@@ -1,0 +1,13 @@
+tools/cc-devthrottle Python tests, 2026-09-21
+
+Run in a scratch virtual environment with the dependencies the continuous integration job installs
+(pytest, typer, rich, requests - latest). This machine's own Python has click 8.1.8, below the tool's
+declared floor of 8.2.1, and under it every existing test that reads standard error fails; that is
+the machine, not the code.
+
+  FORCE_COLOR=1 python -m pytest tests/ -q           (working directory tools/cc-devthrottle)
+    3483 passed, 3 skipped   (the 3 skips are existing tests, not new ones)
+    includes tests/test_factory_ops.py: 12 passed
+
+  python -m pytest tools/test_shipped_tools_contract.py tools/cc_shared/tests/test_axi_output.py -q
+    136 passed
