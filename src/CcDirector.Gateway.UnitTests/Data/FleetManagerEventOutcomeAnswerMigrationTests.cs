@@ -42,8 +42,9 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             Assert.Equal("20260917110600_AddFleetOutcomeStopIdentity", all[index + 2]);
             Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[index + 3]);
             Assert.Equal("20260920021757_AddDiscoveredRepositories", all[index + 4]);
-            Assert.Equal("20260920052924_AddRaisedSessions", all[index + 5]); // the only migrations after it
-            Assert.Equal(index + 6, all.Count);
+            Assert.Equal("20260920052924_AddRaisedSessions", all[index + 5]);
+            Assert.Equal("20260921081600_AddFactoryActivity", all[index + 6]); // the only migrations after it
+            Assert.Equal(index + 7, all.Count);
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
             Assert.Empty(context.Database.GetAppliedMigrations());

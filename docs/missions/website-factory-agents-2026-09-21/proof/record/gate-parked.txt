@@ -1,0 +1,26 @@
+Parked suites, 2026-09-21. The full `.\scripts\test-local.ps1 -Parked` run is documented at tens of
+minutes (Core.Tests alone takes 11 to 33) and does not fit the 10-minute limit a session's foreground
+command has, so the suites were run one at a time.
+
+CcDirector.Gateway.UnitTests  (dotnet test, whole project, foreground)
+  Passed: 6998, Failed: 0, Skipped: 8, Total: 7006
+  The 8 skipped are the PostgreSQL-backed proofs, which only run under the script's own throwaway
+  PostgreSQL. They did NOT run and are not counted as passes.
+  A first run failed 10: nine were this change's missing PostgreSQL twin migration and the tests that
+  pin the newest migration (fixed in this pull request), and one was a database-file open race in
+  HostedEnrollmentEndpointTests. A second run's one unrelated failure, the same kind of race in
+  DirectorHubTests, passed on a targeted rerun. The final whole-project run above had 0 failures.
+
+CcDirector.Gateway.Tests  (.\scripts\test-local.ps1 -Gateway, with its own PostgreSQL)
+  NO VERDICT. The run was stopped by the session's host after about 4 minutes because the machine was
+  critically low on memory. Before it stopped, one test had failed:
+    Stats.GatewayStatsWritePathPostgresTests.AStragglerFromTheLifeBeforeAReset_IsNotCountedAsGrowthInTheLifeAfterIt
+  That test is on the statistics database, a separate context this change does not touch. Its cause
+  was not investigated.
+  Separately, this change's own route tests passed in a filtered run of this suite:
+    dotnet test src/CcDirector.Gateway.Tests --filter FullyQualifiedName~FactoryActivityRouteTests
+    Passed: 3, Failed: 0
+  This suite's two PostgreSQL migration-order tests (FleetOutcomeStopIdentityPostgresTests,
+  TurnVerdictAnswerChoicePostgresTests) were updated for the new migration but have NOT been run.
+
+CcDirector.Core.Tests  NOT RUN (see above). This change adds one file to Core.

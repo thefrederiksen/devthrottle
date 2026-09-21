@@ -1,0 +1,18 @@
+.\scripts\test-local.ps1   (default run, Debug, 2026-09-21, worktree wbf-activity-record)
+
+  PASS  CcDirector.Core.UnitTests            Passed: 793, Failed: 0
+  PASS  CcDirector.Avalonia.Tests            Passed: 800, Failed: 0
+  PASS  CcDirector.Engine.Tests              Passed:  63, Failed: 0
+  PASS  CcDirector.HostedAgent.Tests         Passed:  88, Failed: 0
+  FAIL  CcDirector.Launcher.Tests            Passed: 195, Failed: 2
+  PASS  CcDirector.Terminal.Avalonia.Tests   Passed:  30, Failed: 0
+  PASS  CcDirector.Reclaim.Tests             Passed: 310, Failed: 0
+  PASS  cc-director-setup.Tests              Passed:  25, Failed: 0
+  PASS  cc-director-setup-engine.Tests       Passed: 619, Failed: 0
+
+The two Launcher failures are NOT caused by this change, which has no diff under src/CcDirector.Launcher*:
+  LauncherDeclaredCapabilitiesTests.Describing_the_launcher_asks_the_signal_and_never_raises_it
+  LauncherDeclaredCapabilitiesTests.An_unarmed_launcher_declares_no_restart_signal_and_that_is_a_NO_not_an_unknown
+Both assert that the launcher restart signal is NOT armed. On Windows that answer comes from the kernel
+(a named event), and this machine runs a real launcher that has armed it, so the kernel says yes.
+They depend on the machine, not on the code.

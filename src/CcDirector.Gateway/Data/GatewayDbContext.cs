@@ -262,6 +262,7 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The append-only governance audit trail (<c>governance_audit_events</c>) - structured
     /// intervention and permission/sandbox decisions, never inferred from transcripts (issue #1771).</summary>
     public DbSet<GovernanceAuditEventEntity> GovernanceAuditEvents => Set<GovernanceAuditEventEntity>();
+    public DbSet<FactoryActivityEntity> FactoryActivity => Set<FactoryActivityEntity>();
 
     /// <summary>The append-only activity ledger (<c>activity_events</c>) - submission, terminal-output,
     /// state-transition, transcript and snooze lifecycle evidence, per tenant, retained 30 days (the
@@ -1171,6 +1172,28 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.Category, e.OccurredUtc });
         });
 
+        modelBuilder.Entity<FactoryActivityEntity>(b =>
+        {
+            b.ToTable("factory_activity");
+            b.HasKey(e => e.Id);
+            // Lengths are enforced by the store with a sentence; these are the column's outer bound.
+            b.Property(e => e.Factory).HasMaxLength(128);
+            b.Property(e => e.FactoryAgent).HasMaxLength(128);
+            b.Property(e => e.FactoryAgentVersion).HasMaxLength(64);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.What).HasMaxLength(500);
+            b.Property(e => e.Outcome).HasMaxLength(32);
+            b.Property(e => e.Subject).HasMaxLength(256);
+            b.Property(e => e.Link).HasMaxLength(2048);
+            b.Property(e => e.Actor).HasMaxLength(256);
+            // The read paths: one factory over time, one factory agent over time, and one outcome over time
+            // (every "blocked", every "failed"). Tenant-leading for the global filter. CorrectsId is a value
+            // reference, never a foreign key - the record never cascades.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.OccurredUtc });
+            b.HasIndex(e => new { e.TenantId, e.FactoryAgent, e.OccurredUtc });
+            b.HasIndex(e => new { e.TenantId, e.Outcome, e.OccurredUtc });
+        });
+
         modelBuilder.Entity<EntitlementEntity>(b =>
         {
             // EXCLUDED FROM MIGRATIONS on purpose. This table belongs to the payment side, which creates it
@@ -1349,6 +1372,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<MissionNoteEntity>(modelBuilder);
         ApplyTenantScope<WorkspaceEntity>(modelBuilder);
         ApplyTenantScope<GovernanceAuditEventEntity>(modelBuilder);
+        ApplyTenantScope<FactoryActivityEntity>(modelBuilder);
         ApplyTenantScope<TenantSettingEntity>(modelBuilder);
         ApplyTenantScope<DictationTranscriptEntity>(modelBuilder);
         ApplyTenantScope<WorkflowTenantOverrideEntity>(modelBuilder);

@@ -278,6 +278,9 @@ public static class SessionKeyGuard
                 // The calling session's OWN message inbox (the Message Load mission). There is no session id in
                 // the path: the route reads the inbox of the key that called it and no other.
                 case "fleet/inbox":
+                // The factory activity record (Website Business Factory). A business tool reads back what its
+                // factory did; the route is only mapped while the factory agents switch is on.
+                case "gateway/factory/activity":
                     return true;
             }
 
@@ -443,6 +446,11 @@ public static class SessionKeyGuard
 
             // Create a mission - the unit of work sessions attach to.
             if (Join(s) == "missions") return true;
+
+            // Append one row to the factory activity record (Website Business Factory). This is the write a
+            // business tool makes BEFORE it acts, and the Gateway stamps the calling session on the row. It
+            // appends to our own record and reaches nothing outside the Gateway; there is no update or delete.
+            if (Join(s) == "gateway/factory/activity") return true;
 
             // Start a session, or an application, on a machine in this account.
             if (s.Length == 3 && s[0] == "machines" && (s[2] == "sessions" || s[2] == "launch")) return true;
