@@ -257,7 +257,16 @@ jobs:
           # answering? With last-known-good, and with any rollback to the commit already live, every sample
           # can carry the target from the first moment - so a pass here proves production is healthy on the
           # wanted commit, and proves nothing about the restart. Say which of the two happened.
-          OTHER=$(awk -v t="${TARGET:-__none__}" '$2=="200" && $3!=t {n++} END {print n+0}' "$LOG")
+          # WITH NO TARGET COMMIT, "another commit" IS NOT COUNTABLE (verification finding). When the
+          # image is a moving tag or a digest whose ci- tag has been purged, TARGET is empty; counting
+          # samples whose commit differs from an empty string counts the target container's OWN answers,
+          # so OTHER is always positive and the run would claim it watched production change when it
+          # watched nothing of the kind. Only a sample with NO ANSWER is evidence of a restart here.
+          if [ -n "$TARGET" ]; then
+            OTHER=$(awk -v t="$TARGET" '$2=="200" && $3!=t {n++} END {print n+0}' "$LOG")
+          else
+            OTHER=0
+          fi
           DOWN=$(awk '$2!="200" {n++} END {print n+0}' "$LOG")
           if [ "$OTHER" -gt 0 ] || [ "$DOWN" -gt 0 ]; then
             echo "Recovered: production is serving${TARGET:+ commit $TARGET} again, and this run watched it change"

@@ -458,9 +458,8 @@ jobs:
   # sit here and does not any more: it WRITES, and this job deliberately runs outside the serialisation
   # group, so a purge here could delete an image out from under an emergency rollback between that
   # rollback resolving a tag and the platform pulling it. It lives in the `retain` job below, inside
-  # the group. It is deliberately outside the serialisation group so that
-  # an emergency rollback started during these ten minutes runs immediately instead of queueing behind an
-  # observation. `if: always()` so a deploy that failed before the restart still gets its metrics row.
+  # the group. THIS job stays outside the serialisation group, so an emergency rollback started during
+  # these ten minutes runs immediately instead of queueing behind an observation that changes nothing. `if: always()` so a deploy that failed before the restart still gets its metrics row.
   watch:
     name: Watch production past the deploy and report
     needs: deploy
@@ -1065,9 +1064,28 @@ jobs:
       - name: Mark this image as the last known good
         if: needs.watch.result == 'success' && needs.watch.outputs.superseded == 'no'
         run: |
-          REF="${ACR}.azurecr.io/${IMAGE_NAME}@${{ needs.deploy.outputs.digest }}"
-          az acr import --name "$ACR" --source "$REF" \
-            --image "${IMAGE_NAME}:last-known-good" --force
+          set -euo pipefail
+          DIGEST="${{ needs.deploy.outputs.digest }}"
+
+          # READ WHAT PRODUCTION IS RUNNING AT THIS MOMENT, not only what the watch concluded
+          # (verification finding). The watch decides `superseded` from its closing commit check, and a
+          # rollback dispatched in the last seconds of those ten minutes has not changed production yet
+          # when that check runs - so the watch says superseded=no, this job then queues behind that
+          # rollback inside the shared group, and without this check it would label the image the
+          # rollback had just taken production OFF as the last known good. The window is seconds wide,
+          # and inside it the next panic rollback would re-ship the bad code believing it was recovering.
+          LIVE=$(az webapp config show -g "$AZURE_RG" -n "$APP" --query linuxFxVersion -o tsv)
+          LIVE_DIGEST="${LIVE#*@}"
+          if [ "$LIVE_DIGEST" != "$DIGEST" ]; then
+            echo "NOT labelling this image as last-known-good: production is no longer running it."
+            echo "  this run deployed: $DIGEST"
+            echo "  production runs:   $LIVE_DIGEST"
+            echo "Something replaced this deploy after the watch's last look - a rollback is the expected"
+            echo "cause. The label stays where it is, which is the whole point of having it."
+            exit 0
+          fi
+
+          az acr import --name "$ACR" --source "${ACR}.azurecr.io/${IMAGE_NAME}@${DIGEST}"             --image "${IMAGE_NAME}:last-known-good" --force
           echo "Tagged ${{ needs.deploy.outputs.short }} as last-known-good."
 
       # KEEP A FIXED NUMBER OF IMAGES, AND DELETE THE REST.
