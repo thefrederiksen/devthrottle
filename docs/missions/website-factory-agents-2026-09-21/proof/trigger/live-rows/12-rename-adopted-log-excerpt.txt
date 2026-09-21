@@ -1,0 +1,23 @@
+== Gateway log (build 0e1bdd611)
+2026-09-21 16:50:03.734 [TriggerEndpoints] POST /triggers/Website mail - stub count 1/resume
+2026-09-21 16:50:03.735 [TriggerService] ResumeAsync: tenant=local, trigger=Website mail - stub count 1, by=unknown
+2026-09-21 16:50:03.737 [TriggerStore] Resume: tenant=local, trigger=b132120e-d995-491f-aca5-611435880f2b
+2026-09-21 16:50:03.747 [TriggerStore] Resume: trigger=Website mail - stub count 1, released=c8aeafb3-316e-4d57-81af-75b76a30f8c8
+2026-09-21 16:50:30.071 [TriggerEndpoints] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks
+2026-09-21 16:50:30.071 [TriggerService] ReportCheckAsync: tenant=local, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, trigger=b132120e-d995-491f-aca5-611435880f2b
+2026-09-21 16:50:30.077 [TriggerStore] BeginStart: trigger=b132120e-d995-491f-aca5-611435880f2b, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, name=front-desk - Website mail - stub count 1 - 2026-09-21 16:50, lock taken with no session yet
+2026-09-21 16:50:30.078 [TriggerService] ReportCheckAsync: trigger=Website mail - stub count 1, count=1, lock taken, starting session 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50' off the request
+2026-09-21 16:50:30.082 [MachineSessionSpawner] SpawnOnMachineAsync: machine=SOREN_NORTH, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, repo=C:\Users\soren\AppData\Local\Temp\wbf-live\repo
+2026-09-21 16:51:00.099 [DirectorCommandRouter] create sid= director=5453e038-f4c3-491d-a3a2-34f02fc0e34e: TIMED OUT after 30 seconds
+2026-09-21 16:51:00.100 [MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine=SOREN_NORTH, outcomeUnknown=True, error=The Director did not answer within 30 seconds. It is not known whether the command was carried out.
+2026-09-21 16:51:00.104 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=failed, count=1, session=none
+2026-09-21 16:51:00.105 [TriggerService] FinishStartAsync: trigger=Website mail - stub count 1, outcome=failed, outcomeUnknown=True, count=1, session=none, reason=the session start outcome is not known: The Director did not answer within 30 seconds. It is not known whether the command was carried out. The lock is held until a session named 'front-desk - Website mail - stub count 1 - 2026-09-21 16:
+2026-09-21 16:51:10.193 [TriggerEndpoints] PUT /triggers/b132120e-d995-491f-aca5-611435880f2b
+2026-09-21 16:51:10.197 [TriggerStore] Update: tenant=local, trigger=b132120e-d995-491f-aca5-611435880f2b
+2026-09-21 16:52:00.810 [TriggerEndpoints] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks
+2026-09-21 16:52:00.810 [TriggerService] ReportCheckAsync: tenant=local, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, trigger=b132120e-d995-491f-aca5-611435880f2b
+2026-09-21 16:52:00.812 [TriggerStore] AdoptStart: trigger=b132120e-d995-491f-aca5-611435880f2b, session=f66d3fee-36e1-4fe4-908c-f49b1116ac89
+2026-09-21 16:52:00.814 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=started, count=none, session=f66d3fee-36e1-4fe4-908c-f49b1116ac89
+2026-09-21 16:52:00.815 [TriggerService] ResolveUnknownStart: trigger=Website mail - stub count 1 RENAMED, outcome=started, session=f66d3fee-36e1-4fe4-908c-f49b1116ac89, name=front-desk - Website mail - stub count 1 - 2026-09-21 16:50
+2026-09-21 16:52:00.818 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=skipped-running, count=1, session=f66d3fee-36e1-4fe4-908c-f49b1116ac89
+2026-09-21 16:52:00.819 [TriggerService] ReportCheckAsync: trigger=Website mail - stub count 1 RENAMED, outcome=skipped-running, count=1, session=f66d3fee-36e1-4fe4-908c-f49b1116ac89, reason=none

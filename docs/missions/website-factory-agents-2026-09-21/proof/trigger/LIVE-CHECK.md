@@ -152,6 +152,47 @@ the watch (20:10:44 to 20:11:24), not in a screenshot. The stub trigger was then
 Not proven live: the lapse after 5 minutes with no session (it needs a create that is lost outright; the unit
 test covers it), and adoption after a Gateway restart mid-start.
 
+### 4. Adoption by the exact name the start used (commits `f0ccfeb82`, `0e1bdd611`; review finding 1)
+
+A different agent's review (`D:/ReposFred/wbf-reviews/REVIEW-live-fix-3281.md`, answered at its foot) found that
+adoption worked the session name out again from the trigger's current name, factory agent and the account's
+time zone. An owner edit to any of them inside the grace would make the name miss, the lock would lapse with a row
+naming a name no start used, and the next check would start a second session while the first lived. The Tech
+Lead ruled to accept it.
+
+**What changed.** `BeginStart` stores the exact name with the lock, in a new column `triggers.LastStartName`
+(migrations `AddTriggerStartName`: SQLite `20260921203243`, PostgreSQL `20260921203258`; one nullable column each,
+and the model snapshots differ by that column only). Adoption looks the session up by it and never works it out
+again. A released lock forgets it. Seven migration pins in the test suites moved by one, as their comments say.
+
+**Tests.** `AnUnknownOutcome_IsStillAdopted_WhenTheOwnerRenamesTheTriggerMeanwhile` renames the trigger and its
+factory agent during a pending unknown start; the session is still adopted and nothing else starts. Revert proof:
+with the old line that worked the name out again, it FAILS; restored, it passes (both runs rebuilt).
+`ADefiniteFailure_ForgetsTheStartName_WithTheLock`. Gate: `dotnet test src\CcDirector.Gateway.UnitTests` 7168
+passed, 0 failed, 8 skipped. `.\scripts\test-local.ps1 -Gateway` filtered to Postgres, Migration, Trigger,
+Factory and the three spawner host tests, on its own throwaway PostgreSQL: 114 passed, 0 failed - the full-migrate
+PostgreSQL proofs now apply `AddTriggerStartName` on a real PostgreSQL; the 4 not run are the hosted-database
+proofs that need the real hosted connection string. `.\scripts\test-local.ps1`: green except the two Launcher tests
+known red (issue 3242).
+
+**Live**, on the rig Gateway republished at `0e1bdd611` (`gw-stage4`): its SQLite record took the migration at
+start (`__EFMigrationsHistory` newest `20260921203243_AddTriggerStartName`; `triggers` has `LastStartName`). Then
+the unknown case again with `live-rig/slow-director.ps1`, and the trigger renamed inside the window - the review's
+exact case:
+
+| Time (UTC) | What happened | Row / status |
+|---|---|---|
+| 20:50:30.08 | check counted 1; lock taken with its name `front-desk - Website mail - stub count 1 - 2026-09-21 16:50`; create sent; the rig Director suspended at 20:50:30.14 | none yet |
+| 20:51:00.10 | the Gateway's 30-second wait ran out | `failed`: "the session start outcome is not known ..."; **RED "start outcome unknown - waiting for the session"** |
+| 20:51:10 | the Director resumed and created `f66d3fee` under the start's name; the trigger RENAMED to "Website mail - stub count 1 RENAMED", factory agent "front-desk-renamed" (`PUT /triggers/b132120e`) | still RED |
+| 20:52:00.81 | next check: `ResolveUnknownStart` on the renamed trigger looked up the STORED name and found `f66d3fee` | a NEW **`started`** row, `f66d3fee`; this check's own **`skipped-running`**; status **OK** |
+| 20:53:30.52 | next check | `skipped-running` on `f66d3fee` |
+
+One session. Rows: `live-rows/11-after-rename-adopted-runs-b132120e.json`, `11-after-rename-adopted-activity.json`;
+the watch: `live-rows/11-rename-adopted-watch.txt`; the Gateway log, where the adoption line names the RENAMED
+trigger and the stored start name: `live-rows/12-rename-adopted-log-excerpt.txt`. The trigger was then paused,
+`f66d3fee` stopped, and the trigger renamed back.
+
 ## The defect: every start on a real Director is recorded as failed, and the lock is never set
 
 **What happened.** With the stub check counting 1, the trigger was resumed at 15:08:01 UTC. Over the next

@@ -1,0 +1,225 @@
+{
+  "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+  "runs": [
+    {
+      "id": "aba6579f-36b3-4469-a193-2e4a7cfe4ef9",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:53:30.5027727Z",
+      "recordedUtc": "2026-09-21T20:53:30.5191166Z",
+      "outcome": "skipped-running",
+      "count": 1,
+      "sessionId": "f66d3fee-36e1-4fe4-908c-f49b1116ac89",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "31aaad0c-f598-47ab-9a69-20356a2bb0b1",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:52:00.8099549Z",
+      "recordedUtc": "2026-09-21T20:52:00.8166101Z",
+      "outcome": "skipped-running",
+      "count": 1,
+      "sessionId": "f66d3fee-36e1-4fe4-908c-f49b1116ac89",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "6ebdf5bd-72ad-4700-8cfc-311467aeb2bb",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:52:00.8111946Z",
+      "recordedUtc": "2026-09-21T20:52:00.8111946Z",
+      "outcome": "started",
+      "count": null,
+      "sessionId": "f66d3fee-36e1-4fe4-908c-f49b1116ac89",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "6053fcd5-3bf7-46c1-bb5b-bbc7794a8ea8",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:50:30.0714399Z",
+      "recordedUtc": "2026-09-21T20:51:00.1009536Z",
+      "outcome": "failed",
+      "count": 1,
+      "sessionId": null,
+      "reason": "the session start outcome is not known: The Director did not answer within 30 seconds. It is not known whether the command was carried out. The lock is held until a session named 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50' shows up, or for 5 minutes.",
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "fbd6790e-81bd-4e4e-a3c2-66b61d6bf8b2",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:49:00.6708695Z",
+      "recordedUtc": "2026-09-21T20:49:00.6718438Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "f9d23048-341b-42c3-9a57-9994928cdcf2",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:47:30.3234332Z",
+      "recordedUtc": "2026-09-21T20:47:30.3254047Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "781cffdc-7f47-4552-a946-f897c5812fed",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:46:00.0724764Z",
+      "recordedUtc": "2026-09-21T20:46:00.0733514Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "24ca4007-7b92-40cc-8dfa-61553abb59e4",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:44:30.083023Z",
+      "recordedUtc": "2026-09-21T20:44:30.0837249Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "c736534c-800d-464e-a8f5-ad0916f5261c",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:43:00.1733464Z",
+      "recordedUtc": "2026-09-21T20:43:00.178321Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "6fd493f9-eac7-4fc5-b9e3-337748f5b06d",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:41:30.073656Z",
+      "recordedUtc": "2026-09-21T20:41:30.074664Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "3134574c-afb6-419b-924b-4b9873b68601",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:40:00.250847Z",
+      "recordedUtc": "2026-09-21T20:40:00.2525396Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "73a0ff88-b160-4506-aa08-0c9a2ee2c2d8",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:38:31.9627827Z",
+      "recordedUtc": "2026-09-21T20:38:31.9739217Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "266c8fa1-d3cb-4091-bb9a-ac11d32893f1",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:37:00.0570825Z",
+      "recordedUtc": "2026-09-21T20:37:00.0580702Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "59b86bc7-6ef3-4bad-8081-2cbcb317d782",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:35:30.1791758Z",
+      "recordedUtc": "2026-09-21T20:35:30.1800656Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "011f0ad2-697d-4adf-8b3b-cb41ea9e99f7",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:34:00.0724631Z",
+      "recordedUtc": "2026-09-21T20:34:00.0731975Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "5b6f84c4-e595-430b-a39a-f5fed4139c58",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:32:30.0742908Z",
+      "recordedUtc": "2026-09-21T20:32:30.0754547Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "5e9da7fa-c9c8-45f0-b260-2f9ac3402da2",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:31:00.0701248Z",
+      "recordedUtc": "2026-09-21T20:31:00.0716733Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "37a22588-051e-4d12-bea7-a371dc245cf0",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:29:30.2628688Z",
+      "recordedUtc": "2026-09-21T20:29:30.2637833Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "7d857d0a-54fd-4a2f-a28d-d39f8d56e5e4",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:28:00.1377849Z",
+      "recordedUtc": "2026-09-21T20:28:00.1387297Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "da6d0b27-3cc9-4f8f-a73d-e500cee1c34b",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:26:30.177015Z",
+      "recordedUtc": "2026-09-21T20:26:30.1782267Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    }
+  ]
+}
