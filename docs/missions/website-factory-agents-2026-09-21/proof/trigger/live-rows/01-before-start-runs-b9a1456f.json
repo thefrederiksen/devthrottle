@@ -1,0 +1,49 @@
+{
+  "triggerId": "b9a1456f-146f-464a-933c-218ad38d6a22",
+  "runs": [
+    {
+      "id": "b14a9671-7e88-4484-a291-e5aa66ea901e",
+      "triggerId": "b9a1456f-146f-464a-933c-218ad38d6a22",
+      "checkedUtc": "2026-09-21T15:06:36.0316141Z",
+      "recordedUtc": "2026-09-21T15:06:36.0354769Z",
+      "outcome": "failed",
+      "count": null,
+      "sessionId": null,
+      "reason": "exit code 1: The system cannot find the path specified.",
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "f82810d3-629a-45d4-851d-f309fa55230a",
+      "triggerId": "b9a1456f-146f-464a-933c-218ad38d6a22",
+      "checkedUtc": "2026-09-21T15:05:06.0719021Z",
+      "recordedUtc": "2026-09-21T15:05:06.073497Z",
+      "outcome": "failed",
+      "count": null,
+      "sessionId": null,
+      "reason": "exit code 1: The system cannot find the path specified.",
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "8769100c-316e-4dd0-8a8e-cd7a61bb7626",
+      "triggerId": "b9a1456f-146f-464a-933c-218ad38d6a22",
+      "checkedUtc": "2026-09-21T15:03:36.0944808Z",
+      "recordedUtc": "2026-09-21T15:03:36.0971039Z",
+      "outcome": "failed",
+      "count": null,
+      "sessionId": null,
+      "reason": "exit code 1: The system cannot find the path specified.",
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "4da0f3ef-c5ed-49b3-a0c7-a35a3e9d9ffe",
+      "triggerId": "b9a1456f-146f-464a-933c-218ad38d6a22",
+      "checkedUtc": "2026-09-21T15:02:06.5782931Z",
+      "recordedUtc": "2026-09-21T15:02:06.7311883Z",
+      "outcome": "failed",
+      "count": null,
+      "sessionId": null,
+      "reason": "exit code 1: The system cannot find the path specified.",
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    }
+  ]
+}
