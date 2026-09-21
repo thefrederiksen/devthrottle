@@ -79,6 +79,18 @@ public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
             _gateway, "sub-bob", "bob@example.com", "dev-b", "MB");
         TenantA = deviceA.Tenant;
         TenantB = deviceB.Tenant;
+
+        // THE SESSION SUPERVISOR IS SWITCHED OFF HERE, and before the snapshots below are pushed, because
+        // pushing a settled session IS a turn end and the supervisor answers every turn end with one read of
+        // that session's live screen (it is looking for a dropped connection to recover from). That read is
+        // the same "screen-grid" verb this test counts, on the tenant's OWN session: it is correct traffic,
+        // and it made both halves of this proof dishonest. The absence below failed on dir-A's own supervisor
+        // read, and the positive control on dir-B could have passed on B's supervisor read without the voice
+        // sweep reaching anything. Switched off, the only screen read left in this Gateway is the voice
+        // sweep's, which is the thing under test.
+        _gateway.TenantSettingsResolver.SetSessionSupervisorEnabled(TenantA, false, DateTime.UtcNow);
+        _gateway.TenantSettingsResolver.SetSessionSupervisorEnabled(TenantB, false, DateTime.UtcNow);
+
         var keyA = deviceA.DeviceKey;
         var keyB = deviceB.DeviceKey;
 

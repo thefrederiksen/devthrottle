@@ -49,6 +49,13 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
             streamMode: true);
         await _gateway.StartAsync();
 
+        // THE SESSION SUPERVISOR IS SWITCHED OFF. A pushed session that has stopped is a turn end, and the
+        // supervisor answers it with one "screen-grid" read on its own task, so that read reaches the tunnel at
+        // an unpredictable moment. It was captured here as the command a route sent - "expected
+        // screenshot-delete, actual screen-grid" - on a different route each run.
+        _gateway.TenantSettingsResolver.SetSessionSupervisorEnabled(
+            CcDirector.Core.Tenancy.TenantId.Local, false, DateTime.UtcNow);
+
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
 

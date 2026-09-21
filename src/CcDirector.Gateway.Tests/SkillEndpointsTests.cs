@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using CcDirector.Gateway;
+using CcDirector.Gateway.Skills;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -55,13 +56,27 @@ public sealed class SkillEndpointsTests : IAsyncLifetime
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
     }
 
+    /// <summary>
+    /// Every shipped skill reaches the register and comes back in the order it is seeded in.
+    ///
+    /// The expectation is READ FROM THE SEED SOURCE rather than typed out here. The seed list is the
+    /// product's own, and it grows: this test used to name five skills and failed the moment a sixth
+    /// was shipped, which says nothing about the endpoint and only that the list moved on. What is
+    /// worth holding is the plumbing between them - that the seeder wrote every definition into the
+    /// store, that the endpoint reads the store rather than a subset, and that nothing is dropped,
+    /// duplicated or reordered on the way out.
+    /// </summary>
     [Fact]
     public async Task The_register_serves_the_shipped_skills()
     {
         var body = await _http.GetFromJsonAsync<JsonObject>("gateway/skills");
 
         var ids = body!["skills"]!.AsArray().Select(s => (string?)s!["id"]).ToArray();
-        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" }, ids);
+        var shipped = BuiltInSkills.All().Select(s => s.Id).ToArray();
+
+        Assert.NotEmpty(shipped);
+        Assert.Equal(shipped, ids);
+        Assert.Contains("dev-throttle", ids);
     }
 
     [Fact]

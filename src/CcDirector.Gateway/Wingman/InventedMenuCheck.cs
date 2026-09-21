@@ -1,72 +1,60 @@
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Wingman;
 
 /// <summary>
-/// THE JUDGE DOES NOT GET TO INVENT A PICKER (issue 2976). The verdict judge sometimes answers a plain prose
-/// question as a menu: it says the person answers with keys, writes a menu question and options, and the screen
-/// shows no picker at all. On the corpus of 381 gradable turns that was 32 stops on the shipped prompt.
+/// THE JUDGE DOES NOT GET TO INVENT A PICKER (issue 2976). The verdict judge answered plain prose questions as menus:
+/// it said the person answers with keys, wrote a menu question and options, and the screen showed no picker at all.
+/// An invented menu tells a listener to press a button on the phone for a question they could have answered by
+/// speaking, and the button does not exist - the answer route re-reads the screen and refuses to press anything.
 ///
-/// It was always wrong and it is now LOUD, because the narration call reads the judge's decision: an invented menu
-/// tells a listener to press a button on the phone for a question they could have answered by speaking, and the
-/// button does not exist - the answer route re-reads the screen and refuses to press anything.
+/// CODE DECIDES WHETHER A PICKER IS DRAWN, and the judge's claim is checked against it
+/// (<see cref="PickerOnScreen"/>, owner ruling 2026-09-20). The judge is told that answer in its prompt rather than
+/// asked for it, and this check is what makes the answer binding: a menu with options on a screen where no picker is
+/// drawn is removed before the record is stored.
 ///
-/// THE SCREEN DECIDES, and it decides on the judge's OWN OPTION LABELS:
-/// <see cref="WingmanMenuLogic.MenuHasAnswerableOptions"/>, the same test the send-time guards use, which asks
-/// whether every label the judge wrote is actually on the live grid. A menu whose labels are not on the screen
-/// cannot be pressed even if the person tries - the answer route re-reads the screen and refuses - so correcting
-/// it to a reply takes away nothing that worked. When it is corrected the menu and the options go with it, because
-/// a keys option carries the bytes that SELECT it (a "1", an arrow) and typing those into a composer as if they
-/// were words is worse than offering nothing.
+/// WHAT THE PREVIOUS VERSION COULD NOT DO. It asked whether every option label the judge wrote appeared somewhere on
+/// the screen, and prose labels always do - it corrected 12 of the corpus's 32 invented menus and called the other 20
+/// a limit no screen check could pass. That was a limit of reading LABELS. Reading the picker's own furniture - its
+/// footer, its selected row - separates all 32 from real pickers. The measurement, both ways, is in the private
+/// repository at docs/missions/wingman-picker-flag-2026-09-19/.
 ///
-/// IT IS DELIBERATELY NOT <see cref="WingmanMenuLogic.LiveScreenHasMenuSelection"/>, which the first version of
-/// this check used and which cost a live defect on 2026-09-17. That one asks for a DRAWN MARKER ON A NUMBERED
-/// OPTION ROW - the shape Claude Code's Ink picker usually draws, but not the only shape a real picker takes.
-/// Measured over the corpus's 35 keys stops it stripped the buttons off two of the three GENUINE pickers in it:
-/// the folder-trust prompt, whose options read "❯ No, exit" / "Yes, I trust this folder" with no numbers at all,
-/// and the feedback survey, which puts "1: Bad  2: Fine  3: Good" on ONE line with the marker on another. Taking
-/// the buttons off a real picker is worse than leaving an invented menu, so this check corrects only what it can
-/// positively show the screen does not offer.
+/// WHAT IS NEVER CORRECTED:
+///   - an UNREAD screen. No rows means the screen could not be read, not that there is no picker; a real picker whose
+///     grid failed to arrive keeps its buttons.
+///   - a menu with NO options. That is the typed-but-unsent confirm the prompt asks for - the composer holds text the
+///     person already typed, and the one button sends it. No picker is drawn for it, by definition.
 ///
-/// WHAT IT CATCHES, MEASURED. Over those same 35 stops the label check keeps all 3 real pickers and corrects 12
-/// of the 32 invented menus. The other 20 invent labels that DO appear somewhere in the agent's prose, so no
-/// screen check can tell them from a picker; those belong to the judge's prompt, not here.
-///
-/// WHY CORRECT AND NOT REFUSE. Refusing would throw the whole verdict away - colour, label, receipt and all - over
-/// one field, and a red row with no reading is worse for the owner than a right reading with no buttons. The judge's
-/// account of what the session is doing is not in doubt; only its claim about a picker is.
-///
-/// AN UNREAD SCREEN CORRECTS NOTHING. No rows means the screen could not be read, not that there is no menu, and
-/// the two must never share a code path: a real picker whose grid failed to arrive keeps its buttons.
+/// WHY CORRECT AND NOT REFUSE. Refusing throws the whole verdict away - colour, label, receipt and all - over one
+/// field. The judge's account of what the session is doing is not in doubt; only its claim about a picker is. The
+/// reason travels on the record (<see cref="TurnVerdictDto.OptionsDroppedReason"/>) so every correction is answerable
+/// by query, not only by reading a log.
 /// </summary>
 public static class InventedMenuCheck
 {
     /// <summary>
-    /// Correct a keys answer the screen does not support, in place. True when this record was corrected - the
-    /// caller logs it and says so in its trace.
+    /// Correct, in place, a keys answer with options on a screen where no picker is drawn. True when this record was
+    /// corrected. <paramref name="reading"/> is what the screen showed, for the caller to log whether or not anything
+    /// changed.
     /// </summary>
     /// <param name="verdict">The parsed record, or a salvaged decision read for the narration call.</param>
     /// <param name="screenRows">The screen the verdict was formed on. Empty or null means it was not read.</param>
-    public static bool Correct(TurnVerdictDto? verdict, IReadOnlyList<string>? screenRows)
+    /// <param name="agentKind">The agent the session runs, as the package names it.</param>
+    /// <param name="reading">The picker reading of that screen.</param>
+    public static bool Correct(TurnVerdictDto? verdict, IReadOnlyList<string>? screenRows, string? agentKind,
+        out PickerReading reading)
     {
+        reading = PickerOnScreen.Read(screenRows, agentKind);
         if (verdict is null) return false;
-        if (!string.Equals(verdict.AnswerVia, "keys", StringComparison.Ordinal)) return false;
-        if (screenRows is null || screenRows.Count == 0) return false;
-        if (WingmanMenuLogic.MenuHasAnswerableOptions(AsMenu(verdict.Options), screenRows)) return false;
+        if (!string.Equals(verdict.AnswerVia, TurnVerdictContract.AnswerViaKeys, StringComparison.Ordinal)) return false;
+        if (!reading.ScreenRead || reading.Drawn) return false;
+        if (verdict.Options is null || verdict.Options.Count == 0) return false;
 
-        verdict.AnswerVia = "reply";
+        verdict.AnswerVia = TurnVerdictContract.AnswerViaReply;
         verdict.Menu = null;
         verdict.Options = new List<TurnVerdictOptionDto>();
+        verdict.OptionsDroppedReason = "the judge offered a menu and no picker is drawn on the screen: " + reading.Describe();
         return true;
-    }
-
-    /// <summary>The record's options in the shape the send-time guard reads. Only the label matters here.</summary>
-    private static WingmanMenu AsMenu(IReadOnlyList<TurnVerdictOptionDto>? options)
-    {
-        var menu = new WingmanMenu { IsMenu = true };
-        if (options is null) return menu;
-        foreach (var o in options)
-            menu.Options.Add(new WingmanMenuOption { Key = o.Key ?? "", Send = o.Send ?? "" });
-        return menu;
     }
 }
