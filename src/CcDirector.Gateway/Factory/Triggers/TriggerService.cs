@@ -299,7 +299,7 @@ public sealed class TriggerService
                 return new TriggerReportResult(TriggerReportRefusal.None, recorded.Run, null);
             }
 
-            if (!_store.BeginStart(tenant, trigger.Id, directorId, now))
+            if (!_store.BeginStart(tenant, trigger.Id, directorId, now, decision.Start.Name!))
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"trigger '{trigger.Name}' was deleted while its check was being recorded");
             _inFlight[trigger.Id] = 0;
@@ -334,9 +334,11 @@ public sealed class TriggerService
 
     /// <summary>
     /// Settle a start whose outcome was not known, under the per-trigger lock. It applies only to a lock with no
-    /// session while no start of this trigger runs here. The session is looked for by the name the start gave it,
-    /// which is computed from the lock's own start time: found, it is adopted - a new <c>started</c> row with its id
-    /// makes it the lock; not found and the start grace is over, the lock lapses with a <c>failed</c> row saying so.
+    /// session while no start of this trigger runs here. The session is looked for by the exact name the start gave
+    /// it, stored with the lock (<see cref="TriggerEntity.LastStartName"/>) - never worked out again from the trigger's
+    /// name, factory agent or the account's time zone, which the owner can change meanwhile. Found, it is adopted - a
+    /// new <c>started</c> row with its id makes it the lock; not found and the start grace is over, the lock lapses
+    /// with a <c>failed</c> row saying so.
     /// Inside the grace with no session yet, nothing changes and the lock keeps holding. Returns the trigger as it now
     /// stands, or null when it no longer exists.
     /// </summary>
@@ -346,8 +348,9 @@ public sealed class TriggerService
             return trigger;
 
         var startedUtc = DateTime.SpecifyKind(trigger.LastStartedUtc!.Value, DateTimeKind.Utc);
-        var name = SessionName(trigger, _timeZone(tenant), startedUtc);
-        var found = _findSessionByName(tenant, name);
+        // Every lock BeginStart takes carries its name; a lock without one has no name to look for, and lapses.
+        var name = trigger.LastStartName;
+        var found = string.IsNullOrEmpty(name) ? null : _findSessionByName(tenant, name);
         TriggerCheckRecorded? recorded;
         string what;
         if (found is not null && !string.IsNullOrEmpty(found.SessionId))
@@ -358,7 +361,7 @@ public sealed class TriggerService
         else if (now - startedUtc >= StartGrace)
         {
             var reason = TriggerStatusFold.StartFailedPrefix +
-                         $"no session named '{name}' showed up within {(int)StartGrace.TotalMinutes} minutes of a start whose outcome was not known; the lock is released";
+                         $"no session named '{name ?? "(no name was recorded)"}' showed up within {(int)StartGrace.TotalMinutes} minutes of a start whose outcome was not known; the lock is released";
             recorded = _store.LapseStart(tenant, trigger.Id, directorId, reason, now);
             what = $"{trigger.Name}: {reason}";
         }

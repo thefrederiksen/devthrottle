@@ -542,6 +542,52 @@ public sealed class TriggerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AnUnknownOutcome_IsStillAdopted_WhenTheOwnerRenamesTheTriggerMeanwhile()
+    {
+        // Review finding 1 (REVIEW-live-fix-3281.md): the session carries the name the start gave it. Worked out
+        // again after a rename, the name would no longer match, the session would never be adopted, and the lock
+        // would lapse and start a second one while the first lives. The start's own name is stored with the lock.
+        var service = Service();
+        var t = Add(service);
+        _startUnknown = DidNotAnswer;
+        await Report(service, t, Counted(1));
+        _startUnknown = null;
+        Assert.Equal("Front Desk - website-new-mail - 2026-09-21 12:00", service.Store.Find(Tenant, t.Id)!.LastStartName);
+
+        var (renamed, error) = service.Store.Update(Tenant, t.Id,
+            new TriggerDefinitionRequest { Name = "website-mail-renamed", FactoryAgent = "Front Desk Two" });
+        Assert.Null(error);
+        Assert.Equal("website-mail-renamed", renamed!.Name);
+
+        const string created = "bbbbbbbb-0000-4000-8000-000000000002";
+        _sessions[created] = new SessionDto
+        {
+            SessionId = created, ActivityState = "Working", Name = "Front Desk - website-new-mail - 2026-09-21 12:00",
+        };
+        _now = _now.AddMinutes(1);
+        var check = await Report(service, t, Counted(1));
+
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, check.Outcome);
+        Assert.Equal(created, check.SessionId);
+        Assert.Equal(created, service.Store.Find(Tenant, t.Id)!.LastSessionId);
+        Assert.Single(_starts);
+    }
+
+    [Fact]
+    public async Task ADefiniteFailure_ForgetsTheStartName_WithTheLock()
+    {
+        var service = Service();
+        var t = Add(service);
+        _startError = "machine SOREN_NORTH is off";
+
+        await Report(service, t, Counted(1));
+
+        var trigger = service.Store.Find(Tenant, t.Id)!;
+        Assert.Null(trigger.LastStartedUtc);
+        Assert.Null(trigger.LastStartName);
+    }
+
+    [Fact]
     public async Task AStartStillRunning_IsNotTakenForAnUnknownOutcome()
     {
         // In flight, the lock also has no session - but its start is running here, so nothing is looked up or lapsed
@@ -566,7 +612,8 @@ public sealed class TriggerServiceTests : IDisposable
         // hold for good: inside the grace it holds, after it the next check starts.
         var service = Service();
         var t = Add(service);
-        Assert.True(service.Store.BeginStart(Tenant, Guid.Parse(t.Id), Director, _now));
+        Assert.True(service.Store.BeginStart(Tenant, Guid.Parse(t.Id), Director, _now,
+            "Front Desk - website-new-mail - 2026-09-21 12:00"));
 
         _now = _now.AddMinutes(1);
         Assert.Equal(TriggerRunOutcome.SkippedRunning, (await Report(service, t, Counted(2))).Outcome);

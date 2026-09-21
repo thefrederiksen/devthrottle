@@ -166,6 +166,7 @@ public sealed class TriggerStore
                 released = row.LastSessionId;
                 row.LastSessionId = null;
                 row.LastStartedUtc = null;
+                row.LastStartName = null;
             }
             row.Paused = false;
             ctx.SaveChanges();
@@ -255,10 +256,12 @@ public sealed class TriggerStore
     /// yet, which <see cref="TriggerService.IsLastSessionAlive"/> reads as a start in flight. Also brings the
     /// last-check time and the reporting Director's claim up to date, as recording a check does, so the trigger does
     /// not read as silent while its start runs. No run row is written here: the start's own result writes it, once.
-    /// Returns false when the trigger no longer exists.
+    /// <paramref name="startName"/> is the exact name the start gives its session, stored with the lock so a start
+    /// whose outcome is not known can find its session by it. Returns false when the trigger no longer exists.
     /// </summary>
-    public bool BeginStart(TenantId tenant, Guid triggerId, string directorId, DateTime nowUtc)
+    public bool BeginStart(TenantId tenant, Guid triggerId, string directorId, DateTime nowUtc, string startName)
     {
+        ArgumentException.ThrowIfNullOrEmpty(startName);
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
@@ -271,8 +274,9 @@ public sealed class TriggerStore
             trigger.ClaimedUtc = now;
             trigger.LastSessionId = null;
             trigger.LastStartedUtc = now;
+            trigger.LastStartName = Cap(startName, 320);
             ctx.SaveChanges();
-            FileLog.Write($"[TriggerStore] BeginStart: trigger={triggerId}, director={directorId}, lock taken with no session yet");
+            FileLog.Write($"[TriggerStore] BeginStart: trigger={triggerId}, director={directorId}, name={trigger.LastStartName}, lock taken with no session yet");
             return true;
         }
     }
@@ -362,6 +366,7 @@ public sealed class TriggerStore
                 // The start failed: release the lock BeginStart took. Only a pending lock - no session - is released;
                 // the owner may have resumed the trigger meanwhile, and there is nothing else to undo.
                 trigger.LastStartedUtc = null;
+                trigger.LastStartName = null;
             }
             ctx.SaveChanges();
 
