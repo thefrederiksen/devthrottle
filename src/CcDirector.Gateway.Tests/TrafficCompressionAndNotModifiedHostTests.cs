@@ -14,8 +14,8 @@ namespace CcDirector.Gateway.Tests;
 /// compressed and still delivers each event as it happens.
 ///
 /// Revert-proof: take <c>GatewayResponseCompression.Use</c> out of GatewayHost and the two compression tests go
-/// red; send <c>/events</c> through the compressor and the stream test goes red (no event arrives while the
-/// compressor holds it); put Results.Json back on either route and its 304 test goes red (no ETag, no 304).
+/// red; send <c>/events</c> through the compressor (drop BOTH the path bypass and the event-stream type
+/// exclusion - either one alone still protects it) and the stream test goes red on its Content-Encoding; put Results.Json back on either route and its 304 test goes red (no ETag, no 304).
 /// </summary>
 public sealed class TrafficCompressionAndNotModifiedHostTests : IAsyncLifetime
 {
