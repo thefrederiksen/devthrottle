@@ -74,9 +74,10 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // pins below moved with them.
             Assert.Equal("20260920021806_AddDiscoveredRepositories", all[index + 2]);
             Assert.Equal("20260920053001_AddRaisedSessions", all[index + 3]);
-            // The factory activity record landed after that.
+            // The factory activity record landed after that, and the factory triggers after it.
             Assert.Equal("20260921084515_AddFactoryActivity", all[index + 4]);
-            Assert.Equal(all.Count - 5, index);
+            Assert.Equal("20260921105238_AddFactoryTriggers", all[index + 5]);
+            Assert.Equal(all.Count - 6, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -91,8 +92,8 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
         {
             ctx.GetService<IMigrator>().Migrate();
             // Later migrations follow the one under test, so migrating fully applies them too; the raised sessions
-            // table was the last of them until the factory activity record followed it.
-            Assert.Equal("20260921084515_AddFactoryActivity", ctx.Database.GetAppliedMigrations().Last());
+            // table was the last of them until the factory activity record and then the factory triggers followed it.
+            Assert.Equal("20260921105238_AddFactoryTriggers", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

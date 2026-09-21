@@ -1,6 +1,7 @@
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
@@ -33,7 +34,9 @@ public sealed class TriggerServiceTests : IDisposable
     private TriggerService Service()
     {
         var store = new TriggerStore(_harness.Open());
-        return new TriggerService(store,
+        // The record is opened on the harness's default (Local) tenant on purpose: the service must write each row
+        // into the TRIGGER's account by naming it, never into whatever tenant happens to be ambient.
+        return new TriggerService(store, new FactoryActivityRecord(_harness.Open()),
             async (machine, request, ct) =>
             {
                 lock (_starts) _starts.Add((machine, request));
@@ -68,6 +71,11 @@ public sealed class TriggerServiceTests : IDisposable
         Assert.Equal(TriggerReportRefusal.None, result.Refusal);
         return TriggerService.ToDto(result.Run!);
     }
+
+    /// <summary>The factory activity rows the account holds, oldest first, read as that account.</summary>
+    private List<FactoryActivityDto> Activity(TenantId? tenant = null)
+        => new FactoryActivityRecord(_harness.Open(new FixedTenantContext(tenant ?? Tenant)))
+            .Query(oldestFirst: true, limit: FactoryActivityRecord.MaxPageSize).Rows;
 
     [Fact]
     public async Task EmptyCheck_WritesNothingToDo_AndStartsNoSession()
@@ -347,5 +355,135 @@ public sealed class TriggerServiceTests : IDisposable
         Assert.InRange(runs.Count, TriggerStore.RunsKept, 560);
         // The newest check is always there.
         Assert.Equal(_now, runs[0].RecordedUtc);
+    }
+
+    // ---------------------------------------------------------------------------------------------------
+    // Every check is also one factory activity row (the record, pull request 3272).
+    // ---------------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ANothingToDoCheck_WritesOneActivityRow_NamingTheTriggerAsActor()
+    {
+        var service = Service();
+        var t = Add(service);
+
+        var run = await Report(service, t, Counted(0));
+
+        var row = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityOutcome.NothingToDo, row.Outcome);
+        Assert.Equal("website-factory", row.Factory);
+        Assert.Equal("Front Desk", row.FactoryAgent);
+        Assert.Equal("trigger:" + t.Id, row.Actor);
+        Assert.Equal("website-new-mail", row.Subject);
+        Assert.Equal("Checked website-new-mail - nothing to do", row.What);
+        Assert.Null(row.SessionId);
+        Assert.Equal(run.CheckedUtc, row.OccurredUtc);
+    }
+
+    [Fact]
+    public async Task AStartedCheck_WritesStarted_WithTheSessionId()
+    {
+        var service = Service();
+        var t = Add(service);
+
+        var run = await Report(service, t, Counted(2));
+
+        var row = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityOutcome.Started, row.Outcome);
+        Assert.Equal(run.SessionId, row.SessionId);
+        Assert.Equal($"Checked website-new-mail - counted 2, started session {run.SessionId}", row.What);
+    }
+
+    [Fact]
+    public async Task APausedCheck_WritesPaused()
+    {
+        var service = Service();
+        var t = Add(service, paused: true);
+
+        await Report(service, t, Counted(4));
+
+        var row = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityOutcome.Paused, row.Outcome);
+        Assert.Equal("Checked website-new-mail - counted 4, but the trigger is paused, so nothing started", row.What);
+    }
+
+    [Fact]
+    public async Task ASkippedRunningCheck_WritesTheRecordsSkipped_WithTheRunningSession()
+    {
+        var service = Service();
+        var t = Add(service);
+        var first = await Report(service, t, Counted(2));
+
+        _now = _now.AddMinutes(5);
+        await Report(service, t, Counted(3));
+
+        var rows = Activity();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(FactoryActivityOutcome.Skipped, rows[1].Outcome);
+        Assert.Equal(first.SessionId, rows[1].SessionId);
+        Assert.Equal($"Checked website-new-mail - counted 3, but its last session {first.SessionId} is still running, so nothing started", rows[1].What);
+    }
+
+    [Fact]
+    public async Task ABrokenCheck_WritesFailed_WithTheReason()
+    {
+        var service = Service();
+        var t = Add(service);
+
+        await Report(service, t, new TriggerCheckReport { CheckedAtUtc = _now, ExitCode = 1, ErrorOutput = "not signed in" });
+
+        var row = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityOutcome.Failed, row.Outcome);
+        Assert.Equal("Checked website-new-mail - the check failed: exit code 1: not signed in", row.What);
+    }
+
+    [Fact]
+    public async Task AFailedStart_WritesFailed_SayingTheSessionCouldNotBeStarted()
+    {
+        var service = Service();
+        var t = Add(service);
+        _startError = "machine SOREN_NORTH is off";
+
+        await Report(service, t, Counted(2));
+
+        var row = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityOutcome.Failed, row.Outcome);
+        Assert.Null(row.SessionId);
+        Assert.Equal("Checked website-new-mail - counted 2, but the session could not be started: machine SOREN_NORTH is off", row.What);
+    }
+
+    [Fact]
+    public async Task EveryCheck_WritesExactlyOneRow_InTheTriggersOwnAccount()
+    {
+        var service = Service();
+        var t = Add(service);
+        await Report(service, t, Counted(0));
+        _now = _now.AddMinutes(5);
+        await Report(service, t, Counted(2));
+        _now = _now.AddMinutes(5);
+        await Report(service, t, Counted(2));
+
+        Assert.Equal(new[] { FactoryActivityOutcome.NothingToDo, FactoryActivityOutcome.Started, FactoryActivityOutcome.Skipped },
+            Activity().Select(r => r.Outcome).ToArray());
+        Assert.Equal(3, service.Store.ListRuns(Tenant, Guid.Parse(t.Id), 10).Count); // the trigger's own history stays too
+        Assert.Empty(Activity(TenantId.Local));
+        Assert.Empty(Activity(OtherTenant));
+    }
+
+    [Fact]
+    public async Task AFailureReasonLongerThanTheRecordTakes_IsCut_AndTheRunKeepsItWhole()
+    {
+        var service = Service();
+        var t = Add(service);
+        // A check's own output is already cut to a short quote; a machine's refusal to start a session is not.
+        var longError = new string('x', 900);
+        _startError = longError;
+
+        var run = await Report(service, t, Counted(2));
+
+        var row = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityRecord.MaxWhatChars, row.What.Length);
+        Assert.EndsWith("...", row.What);
+        Assert.EndsWith(longError, run.Reason);
     }
 }

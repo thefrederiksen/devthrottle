@@ -1952,6 +1952,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // its last session is still alive is read from the same session list the roster serves.
         Triggers = new Factory.Triggers.TriggerService(
             new Factory.Triggers.TriggerStore(_gatewayDb),
+            FactoryActivity,
             async (machine, request, ct) =>
             {
                 var (ok, dto, error, _) = await _machineSessionSpawner.SpawnOnMachineAsync(machine, request, ct);

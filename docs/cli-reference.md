@@ -1710,9 +1710,15 @@ is recorded. The product knows nothing about any particular tool; this is all it
   ended.
 - `failed` - the check broke the contract, or the session could not be started, with the reason.
 
+Every check is also written to the factory activity record (`cc-devthrottle factory activity`) as one
+row: the trigger's factory and factory agent, the actor `trigger:<trigger id>`, the outcome
+(`nothing-to-do`, `started` with the session id, `paused`, `skipped` for `skipped-running`, or
+`failed`), and one plain sentence such as `Checked website-new-mail - nothing to do`.
+
 **Status.** `list` and `show` print the status the Gateway decided: `OK`, `RED - check failed:
-<reason>`, `RED - start failed: <reason>`, or `RED - no checks ran` when no check has been recorded
-within two intervals. Silence is never a quiet night.
+<reason>`, `RED - start failed: <reason>`, `RED - no checks ran` when no check has been recorded
+within two intervals, or `RED - session <id> has not ended after N hours` when work has waited more
+than six hours behind a session that never reported ending. Silence is never a quiet night.
 
 **The switch.** Triggers exist only while the Gateway's `config.json` has
 `"factoryAgents": { "enabled": true }` (default off). While it is off, every trigger command

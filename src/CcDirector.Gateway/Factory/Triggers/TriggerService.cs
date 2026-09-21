@@ -44,6 +44,11 @@ public delegate Task<(string? sessionId, string? error)> TriggerSessionStarter(
 ///  - it counted work, and nothing stands in the way         -> start one session; <c>started</c> with its id,
 ///                                                              or <c>failed</c> when it could not be started
 ///
+/// EVERY CHECK IS ALSO A FACTORY ACTIVITY ROW. Beside its own run history, each recorded check appends one row to
+/// the append-only factory activity record: the trigger's factory and factory agent, the actor
+/// <c>trigger:&lt;trigger id&gt;</c>, the outcome in the record's words (<c>skipped-running</c> is the record's
+/// <c>skipped</c>), and one plain sentence. The Cockpit groups those rows by outcome and actor, never by the sentence.
+///
 /// ONE AT A TIME, UNTIL THE SESSION HAS ENDED. The schedule's overlap guard is held only while a session is being
 /// STARTED. This lock is the started session itself: while the session this trigger last started is still alive in
 /// the Gateway's session list, no second one starts. Deciding and starting also happen under a per-trigger lock, so
@@ -55,7 +60,11 @@ public sealed class TriggerService
     /// returns before the session shows in the roster, and "not in the list yet" must not read as "ended".</summary>
     public static readonly TimeSpan StartGrace = TimeSpan.FromMinutes(5);
 
+    /// <summary>The actor prefix of every factory activity row a trigger writes: <c>trigger:&lt;id&gt;</c>.</summary>
+    public const string ActorPrefix = "trigger:";
+
     private readonly TriggerStore _store;
+    private readonly FactoryActivityRecord _activity;
     private readonly TriggerSessionStarter _startSession;
     private readonly Func<TenantId, string, SessionDto?> _findSession;
     private readonly Func<TenantId, TimeZoneInfo> _timeZone;
@@ -65,10 +74,11 @@ public sealed class TriggerService
     /// <param name="findSession">The last row any Director of the account reported for a session, or null when
     /// the Gateway knows no such session.</param>
     /// <param name="timeZone">The account's time zone, for the time in a started session's name.</param>
-    public TriggerService(TriggerStore store, TriggerSessionStarter startSession,
+    public TriggerService(TriggerStore store, FactoryActivityRecord activity, TriggerSessionStarter startSession,
         Func<TenantId, string, SessionDto?> findSession, Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _activity = activity ?? throw new ArgumentNullException(nameof(activity));
         _startSession = startSession ?? throw new ArgumentNullException(nameof(startSession));
         _findSession = findSession ?? throw new ArgumentNullException(nameof(findSession));
         _timeZone = timeZone ?? throw new ArgumentNullException(nameof(timeZone));
@@ -170,6 +180,8 @@ public sealed class TriggerService
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"trigger '{trigger.Name}' was deleted while its check was being recorded");
 
+            _activity.Append(tenant, ActivityFor(trigger, recorded.Run), callingActor: null);
+
             FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={trigger.Name}, outcome={outcome}, count={count?.ToString(CultureInfo.InvariantCulture) ?? "none"}, session={sessionId ?? "none"}, reason={reason ?? "none"}");
             return new TriggerReportResult(TriggerReportRefusal.None, recorded.Run, null);
         }
@@ -239,6 +251,54 @@ public sealed class TriggerService
         return trigger.LastStartedUtc is { } started
                && now - DateTime.SpecifyKind(started, DateTimeKind.Utc) < StartGrace;
     }
+
+    /// <summary>
+    /// The factory activity row for one recorded check: who (the trigger), what it came to in the record's outcome
+    /// words, and one plain sentence. The sentence is for a person to read; nothing groups or decides on it.
+    /// </summary>
+    internal static AppendFactoryActivityRequest ActivityFor(TriggerEntity trigger, TriggerRunEntity run)
+    {
+        var name = trigger.Name;
+        var counted = run.Count is { } c ? $"counted {c.ToString(CultureInfo.InvariantCulture)}" : "counted nothing";
+        var (outcome, what) = run.Outcome switch
+        {
+            TriggerRunOutcome.NothingToDo => (FactoryActivityOutcome.NothingToDo,
+                $"Checked {name} - nothing to do"),
+            TriggerRunOutcome.Started => (FactoryActivityOutcome.Started,
+                $"Checked {name} - {counted}, started session {run.SessionId}"),
+            TriggerRunOutcome.Paused => (FactoryActivityOutcome.Paused,
+                $"Checked {name} - {counted}, but the trigger is paused, so nothing started"),
+            TriggerRunOutcome.SkippedRunning => (FactoryActivityOutcome.Skipped,
+                $"Checked {name} - {counted}, but its last session {run.SessionId} is still running, so nothing started"),
+            TriggerRunOutcome.Failed => (FactoryActivityOutcome.Failed, FailedSentence(name, run)),
+            _ => throw new InvalidOperationException($"Trigger run outcome '{run.Outcome}' has no factory activity outcome."),
+        };
+
+        return new AppendFactoryActivityRequest
+        {
+            Factory = trigger.Factory,
+            FactoryAgent = trigger.FactoryAgent,
+            SessionId = run.SessionId,
+            What = Sentence(what),
+            Outcome = outcome,
+            Subject = name,
+            Actor = ActorPrefix + trigger.Id.ToString("D"),
+            OccurredUtc = DateTime.SpecifyKind(run.CheckedUtc, DateTimeKind.Utc),
+        };
+    }
+
+    private static string FailedSentence(string name, TriggerRunEntity run)
+    {
+        var reason = string.IsNullOrWhiteSpace(run.Reason) ? "no reason was recorded" : run.Reason;
+        return reason.StartsWith(TriggerStatusFold.StartFailedPrefix, StringComparison.Ordinal)
+            ? $"Checked {name} - counted {run.Count?.ToString(CultureInfo.InvariantCulture) ?? "work"}, but {reason}"
+            : $"Checked {name} - the check failed: {reason}";
+    }
+
+    /// <summary>The record takes at most <see cref="FactoryActivityRecord.MaxWhatChars"/>; a long failure reason is
+    /// cut, and the full reason stays in the trigger's own run history.</summary>
+    private static string Sentence(string what)
+        => what.Length <= FactoryActivityRecord.MaxWhatChars ? what : what[..(FactoryActivityRecord.MaxWhatChars - 3)] + "...";
 
     /// <summary>"&lt;factory agent&gt; - &lt;trigger name&gt; - &lt;time&gt;", the time in the account's zone.</summary>
     public static string SessionName(TriggerEntity trigger, TimeZoneInfo zone, DateTime nowUtc)
