@@ -582,6 +582,53 @@ public sealed class SessionSupervisorTests
     }
 
     /// <summary>
+    /// A turn end that arrives after the last episode was CANCELLED - but before that episode has finished
+    /// unwinding - starts a new episode. The cancelled one will never send anything, because the session
+    /// worked, so it must not keep holding the gate that stops a second ladder starting.
+    ///
+    /// This is the network-is-down case, which is the case the supervisor exists for. A turn that fails on a
+    /// dead connection ends at once, so "working" and the next turn end arrive milliseconds apart: the old
+    /// episode is cancelled by the first and has not yet left the table when the second lands. The second
+    /// fault used to be dropped as "an episode is already being worked", leaving the session parked on a
+    /// fault with nobody coming for it. The old episode is held mid-unwind here so the order is exact rather
+    /// than a matter of timing: before the fix this failed every time, not now and then.
+    /// </summary>
+    [Fact]
+    public async Task ATurnEndAfterTheLastEpisodeWasCancelled_StartsANewEpisode_EvenBeforeTheOldOneHasUnwound()
+    {
+        var oldCancelled = new SemaphoreSlim(0, 1);
+        var releaseOld = new SemaphoreSlim(0, 1);
+        var waits = 0;
+        var env = new FakeEnvironment
+        {
+            Screen = TransientFaultScreen(),
+            Knobs = SupervisorSettings.Defaults with { MaxLongRetries = 0 },
+        };
+        using var supervisor = new SessionSupervisor(env);
+        env.OnWait = _ =>
+        {
+            if (Interlocked.Increment(ref waits) != 1) return;
+            // The first episode's wait. The session starts working, which cancels this episode - and the
+            // episode is then held HERE, cancelled but not yet out of the table, while the next turn ends.
+            supervisor.OnSessionWorking(Tenant, Session);
+            oldCancelled.Release();
+            releaseOld.Wait(TimeSpan.FromSeconds(5));
+        };
+
+        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
+        Assert.True(await oldCancelled.WaitAsync(TimeSpan.FromSeconds(5)), "the first episode never reached its wait");
+
+        // The turn fails again at once, on the same dead connection.
+        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
+
+        await WaitUntil(() => env.ContinuesSent.Count > 0);
+        releaseOld.Release();
+
+        // Exactly one "continue", and it is the NEW episode's: the cancelled one never sends.
+        Assert.Equal(new[] { Session }, env.ContinuesSent);
+    }
+
+    /// <summary>
     /// One pass of the ladder that sends its first "continue" and is then interrupted by the session going
     /// Working - the ordinary production sequence when a continue reaches a still-broken network. The
     /// interruption arrives the way it really does: as a cancellation of the wait.

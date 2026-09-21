@@ -135,9 +135,9 @@ public sealed class SessionSupervisor : IDisposable
 
         var key = (signal.Tenant, signal.SessionId);
         var cts = new CancellationTokenSource();
-        if (!_running.TryAdd(key, cts))
+        if (!TryClaimEpisode(key, cts))
         {
-            // An episode is already being worked for this session; a second turn-end changes nothing.
+            // A LIVE episode is already being worked for this session; a second turn-end changes nothing.
             cts.Dispose();
             return;
         }
@@ -165,6 +165,30 @@ public sealed class SessionSupervisor : IDisposable
                 cts.Dispose();
             }
         });
+    }
+
+    /// <summary>
+    /// Take the gate that allows one episode per session. A LIVE episode keeps it: a second turn end while one
+    /// is being worked changes nothing. A CANCELLED episode gives it up.
+    ///
+    /// Cancelling does not take an episode out of the table - it leaves only when its task has finished
+    /// unwinding, in the finally below. A turn end that lands in that gap is a NEW turn that ended, and it
+    /// used to be dropped as "already being worked" by an episode that was never going to send anything. That
+    /// gap is widest in exactly the case this class exists for: on a dead connection a turn fails the moment
+    /// it starts, so "working" and the next turn end arrive milliseconds apart, and the second fault went
+    /// unwatched with the session parked on it.
+    ///
+    /// Replacing the cancelled entry is safe because the old episode's cleanup removes only its OWN entry.
+    /// </summary>
+    private bool TryClaimEpisode((TenantId, string) key, CancellationTokenSource cts)
+    {
+        while (true)
+        {
+            if (_running.TryAdd(key, cts)) return true;
+            if (!_running.TryGetValue(key, out var existing)) continue;   // it left between the two reads
+            if (!existing.IsCancellationRequested) return false;           // a live episode owns the session
+            if (_running.TryUpdate(key, cts, existing)) return true;       // supersede the cancelled one
+        }
     }
 
     /// <summary>
