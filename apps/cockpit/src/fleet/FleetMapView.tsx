@@ -26,18 +26,21 @@ import { useSharedRoster } from "@devthrottle/client-core/fleet/rosterStore";
 import { repoBasename, repoIdentity, relativeTime } from "./format";
 import {
   agentBadgeText,
+  awayText,
+  crewElsewhereText,
   directorLabelOf,
   elsewhereTag,
   FLEET_TREE_PIVOTS,
+  homeLabelOf,
   laneTree,
   directorsByMachine,
   groupByDirector,
   machineKeyOf,
   modelChip,
   modelKeyOf,
-  nestedElsewhereText,
   shortDir,
   type DirectorGroup as FormatDirectorGroup,
+  type LaneTree,
 } from "./fleetMapFormat";
 import {
   buildSessionTree,
@@ -763,41 +766,87 @@ function FleetList({ sessions, onOpen }: { sessions: SessionDto[]; onOpen: (sid:
 // follows): any session that started others is a parent, and the sessions it started sit UNDER it,
 // collapsed by default behind a chevron, with the crew line saying what is inside. Which sessions are
 // top-level here, and whether their crews reach into other columns, is laneTree's rule (fleetMapFormat,
-// unit tested); this only renders it.
+// unit tested); this only renders it. SOLID RUNS HERE, DOTTED RUNS ELSEWHERE: a top-level card whose
+// parent runs in another column sits under a small tag naming that parent.
 function LaneCards({ sessions, pivot, onOpen }: { sessions: SessionDto[]; pivot: Pivot; onOpen: (sid: string) => void }) {
   const fleetTree = useContext(FleetTreeContext);
+  const directors = useContext(ReachabilityContext);
   const tree = useMemo(() => laneTree(sessions, fleetTree), [sessions, fleetTree]);
-  if (tree.roots.length === 0) {
-    return <div className="fmap-freeslot">{nestedElsewhereText(sessions.length)}</div>;
-  }
+  const homeOf = useCallback(
+    (s: SessionDto) => homeLabelOf(s, pivot, reachabilityFor(directors, s.directorId)),
+    [pivot, directors],
+  );
   return (
     <>
-      {tree.roots.map((s) => (
-        <TreeCard key={s.sessionId ?? s.number} session={s} tree={tree} depth={0} pivot={pivot} onOpen={onOpen} />
-      ))}
+      {tree.roots.map((s) => {
+        const key = s.sessionId ?? s.number;
+        const parent = tree.parentElsewhere.get((s.sessionId ?? "").trim());
+        if (parent === undefined) {
+          return <TreeCard key={key} session={s} tree={tree} depth={0} away={false} homeOf={homeOf} pivot={pivot} onOpen={onOpen} />;
+        }
+        return (
+          <div key={key} className="fmap-tree">
+            <ParentTag parent={parent} home={homeOf(parent)} onOpen={onOpen} />
+            <div className="fmap-kids">
+              <TreeCard session={s} tree={tree} depth={1} away={false} homeOf={homeOf} pivot={pivot} onOpen={onOpen} />
+            </div>
+          </div>
+        );
+      })}
     </>
+  );
+}
+
+// The small dotted tag above a session whose parent runs in another column: the parent's number, name and
+// where it runs, with an arrow pointing out of the column. Clicking it opens the parent.
+function ParentTag({ parent, home, onOpen }: { parent: SessionDto; home: string; onOpen: (sid: string) => void }) {
+  const pid = (parent.sessionId ?? "").trim();
+  const num = parent.number;
+  const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
+  const name = (parent.name ?? "").trim().length === 0 ? "(unnamed)" : (parent.name ?? "");
+  const label = `Started by ${hasNum ? `${num} ` : ""}${name}, which runs on ${home}`;
+  return (
+    <button
+      type="button"
+      className="fmap-parent-tag"
+      aria-label={label}
+      title={`${label}. Open it.`}
+      onClick={() => pid.length > 0 && onOpen(pid)}
+    >
+      <span className="fmap-arrow-out back" aria-hidden="true" />
+      {hasNum && <span className="num-badge">{num}</span>}
+      <span className="fmap-parent-tag-name">{name}</span>
+      <span className="fmap-parent-tag-where">{home}</span>
+    </button>
   );
 }
 
 // One card and, when it supervises sessions, its chevron, its crew line while collapsed and its crew while
 // expanded. Expanded or collapsed is the SAME remembered setting the Sessions list uses (isCrewExpanded),
-// so opening a crew on one screen opens it on the other.
+// so opening a crew on one screen opens it on the other. A card for a session that runs in another column
+// is dotted, and so is everything under it: it points at the solid card drawn there.
 function TreeCard({
   session: s,
   tree,
   depth,
   parent,
+  away,
+  homeOf,
   pivot,
   onOpen,
 }: {
   session: SessionDto;
-  tree: SessionTree;
+  tree: LaneTree;
   depth: number;
   parent?: SessionDto;
+  /** True when this card sits under a dotted card, so it is dotted too. */
+  away: boolean;
+  homeOf: (s: SessionDto) => string;
   pivot: Pivot;
   onOpen: (sid: string) => void;
 }) {
   const sid = (s.sessionId ?? "").trim();
+  const isAway = away || !tree.here.has(sid);
   const kids = childrenOf(tree, s);
   const isParent = kids.length > 0;
   const [expanded, setExpanded] = useState<boolean>(() => isCrewExpanded(sid));
@@ -808,6 +857,7 @@ function TreeCard({
   };
   const name = (s.name ?? "").trim().length === 0 ? "(unnamed)" : (s.name ?? "");
   const underCount = isParent ? descendantsOf(tree, s).length : 0;
+  const elsewhere = isParent && !expanded ? crewElsewhereText(tree, s, homeOf) : "";
   return (
     <div className={isParent ? "fmap-tree fmap-tree-parent" : "fmap-tree"}>
       {isParent && (
@@ -823,10 +873,18 @@ function TreeCard({
       <NodeCard
         session={s}
         depth={depth}
-        parent={parent}
+        parent={isAway ? undefined : parent}
+        awayLine={isAway ? awayText(pivot, homeOf(s)) : null}
         pivot={pivot}
         onOpen={onOpen}
-        crew={isParent && !expanded ? <CrewLine root={s} tree={tree} /> : null}
+        crew={
+          isParent && !expanded ? (
+            <>
+              <CrewLine root={s} tree={tree} />
+              {elsewhere.length > 0 && <div className="fmap-crew-elsewhere">{elsewhere}</div>}
+            </>
+          ) : null
+        }
       />
       {isParent && expanded && (
         // The indent is capped, so a deep chain leans right a little and then stops rather than squeezing
@@ -839,6 +897,8 @@ function TreeCard({
               tree={tree}
               depth={depth + 1}
               parent={s}
+              away={isAway}
+              homeOf={homeOf}
               pivot={pivot}
               onOpen={onOpen}
             />
@@ -855,6 +915,7 @@ function NodeCard({
   onOpen,
   depth = 0,
   parent,
+  awayLine = null,
   crew = null,
 }: {
   session: SessionDto;
@@ -863,6 +924,8 @@ function NodeCard({
   depth?: number;
   /** The session this card is drawn under, when it is a child - so it can say where it runs if that differs. */
   parent?: SessionDto;
+  /** Set when this session runs in another column: the card is dotted and this line says where it runs. */
+  awayLine?: string | null;
   /** The crew line, when this card is a collapsed parent. */
   crew?: ReactNode;
 }) {
@@ -889,6 +952,7 @@ function NodeCard({
     "fmap-card" +
     (color === "red" ? " needs" : "") +
     (depth > 0 ? " fmap-card-child" : "") +
+    (awayLine !== null ? " fmap-card-away" : "") +
     (wobbly ? " fmap-card-wobbly" : "") +
     // Anything the Gateway calls stale that is not specifically wobbly dims like an offline card: a
     // stopped Director's leftover rows are last-known too, and must not read as live.
@@ -964,6 +1028,13 @@ function NodeCard({
           Gateway deliberately keeps serving - was captioned "Wobbly": the one state it certainly was not. */}
       {lastSeen.length > 0 && (
         <div className="fmap-card-lastseen">{directorStateLabel(reach)} - {lastSeen}</div>
+      )}
+
+      {awayLine !== null && (
+        <div className="fmap-card-awayline">
+          <span className="fmap-arrow-out" aria-hidden="true" />
+          {awayLine}
+        </div>
       )}
 
       {crew !== null && <div className="fmap-card-crew">{crew}</div>}

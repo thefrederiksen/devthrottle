@@ -1,7 +1,8 @@
 ﻿import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { type DirectorReachability } from "@devthrottle/client-core/fleet/fleetClient";
 import { modelChipOf, type ModelChip } from "@devthrottle/client-core/sessions/model";
-import { buildSessionTree, isOnAnotherMachine, type SessionTree } from "@devthrottle/client-core/sessions/tree";
+import { buildSessionTree, descendantsOf, isOnAnotherMachine, type SessionTree } from "@devthrottle/client-core/sessions/tree";
+import { repoBasename, repoIdentity } from "./format";
 
 /**
  * Pure helpers for the Fleet Map's card rendering, kept out of FleetMapView.tsx so they can be unit
@@ -14,7 +15,8 @@ import { buildSessionTree, isOnAnotherMachine, type SessionTree } from "@devthro
  * the fleet the crew runs. This is the Sessions list's rule (client-core/sessions/tree: "a view that
  * groups by machine groups the ROOTS"), so the Fleet Map and the Sessions list cannot disagree about who
  * is under whom: a Worker on SOREN_NORTH started by an Architect on the Mac Mini sits under that
- * Architect, in the Mac Mini's column, saying where it runs.
+ * Architect, in the Mac Mini's column, dotted and saying where it runs - and solid in SOREN_NORTH's own
+ * column, under a tag naming the Architect (see laneTree).
  *
  * "By agent" and "By model" are NOT in the set, on purpose. Those pivots exist to show what runs a given
  * agent or model; hiding a Codex Worker inside its Claude Architect's column would defeat the pivot. There
@@ -22,36 +24,89 @@ import { buildSessionTree, isOnAnotherMachine, type SessionTree } from "@devthro
  */
 export const FLEET_TREE_PIVOTS: ReadonlySet<string> = new Set(["machine", "director", "repo", "worktree"]);
 
+/** The tree one column draws, plus what it needs to tell a session that runs here from one that does not. */
+export interface LaneTree extends SessionTree {
+  /** The ids of the sessions the column holds - the ones that run here. Any other card it draws is dotted. */
+  here: ReadonlySet<string>;
+  /** For a top-level card whose parent runs in another column: that parent, keyed by the card's id. */
+  parentElsewhere: ReadonlyMap<string, SessionDto>;
+}
+
+const idOf = (s: SessionDto): string => String(s.sessionId ?? "").trim();
+
 /**
  * The tree one column (or one Director group inside a column) draws. `laneSessions` are the sessions
  * that belong to the column, in the column's order; the roots come back in that same order.
  *
- * With `fleetTree` (built over the WHOLE roster by buildSessionTree), the column draws only its sessions
- * that are top-level fleet-wide, and each one carries its crew from the fleet tree - including crew that
- * lives in another column. Every session is therefore drawn exactly once on the map.
+ * With `fleetTree` (built over the WHOLE roster by buildSessionTree), a crew stays one tree wherever its
+ * members run, and the rule is SOLID RUNS HERE, DOTTED RUNS ELSEWHERE (owner ruling, 21 September 2026):
+ *
+ * - A parent carries its whole crew from the fleet tree. A crew member that runs in another column is
+ *   still drawn under it, dotted, saying where it runs - and so is everything under that member.
+ * - A session whose parent runs in another column is ALSO drawn in its own column, solid, under a small
+ *   tag naming that parent (parentElsewhere). Its column therefore accounts for every session it counts.
+ *
+ * Every session is drawn solid exactly once on the map; a dotted card is only ever a pointer to it.
  *
  * With `fleetTree` null (the agent and model pivots, and any search), the tree is built over the column
  * alone, so a session nests only under a parent the column also holds, and a search match is never
  * hidden inside a collapsed crew.
  */
-export function laneTree(laneSessions: SessionDto[], fleetTree: SessionTree | null): SessionTree {
-  if (fleetTree === null) return buildSessionTree(laneSessions);
-  const rootIds = new Set(fleetTree.roots.map((r) => String(r.sessionId ?? "").trim()));
-  return {
-    roots: laneSessions.filter((s) => rootIds.has(String(s.sessionId ?? "").trim())),
-    childrenOf: fleetTree.childrenOf,
-  };
+export function laneTree(laneSessions: SessionDto[], fleetTree: SessionTree | null): LaneTree {
+  const here = new Set(laneSessions.map(idOf));
+  if (fleetTree === null) return { ...buildSessionTree(laneSessions), here, parentElsewhere: new Map() };
+  // The parent of every session, as the fleet tree placed it (an ownership loop's members are already
+  // promoted to roots there, so this cannot loop).
+  const byId = new Map<string, SessionDto>();
+  for (const r of fleetTree.roots) byId.set(idOf(r), r);
+  for (const kids of fleetTree.childrenOf.values()) for (const k of kids) byId.set(idOf(k), k);
+  const parentOf = new Map<string, SessionDto>();
+  for (const [pid, kids] of fleetTree.childrenOf) {
+    const p = byId.get(pid);
+    if (p !== undefined) for (const k of kids) parentOf.set(idOf(k), p);
+  }
+  const parentElsewhere = new Map<string, SessionDto>();
+  const roots = laneSessions.filter((s) => {
+    const p = parentOf.get(idOf(s));
+    if (p === undefined) return true;
+    if (here.has(idOf(p))) return false;
+    parentElsewhere.set(idOf(s), p);
+    return true;
+  });
+  return { roots, childrenOf: fleetTree.childrenOf, here, parentElsewhere };
 }
 
 /**
- * What a column (or Director group) says when every session it holds is drawn under a parent in another
- * column - so it neither looks empty nor claims to be a free slot. Empty string when there are none.
+ * Where a session is drawn solid, in the words of the pivot's column: "SOREN_NORTH / DevThrottle_1" on
+ * the machine and Director pivots (the Director too, because one machine can run several), the
+ * repository or the working tree on theirs. A dotted card and a parent tag both say this.
  */
-export function nestedElsewhereText(count: number): string {
-  if (count <= 0) return "";
-  return count === 1
-    ? "1 session here is shown under the session that started it, in another column"
-    : `${count} sessions here are shown under the sessions that started them, in other columns`;
+export function homeLabelOf(s: SessionDto, pivot: string, reach: DirectorReachability | undefined): string {
+  if (pivot === "repo") return repoIdentity(s.repoName, s.repoPath);
+  if (pivot === "worktree") return repoBasename(s.repoPath);
+  const machine = (s.machineName ?? "").trim();
+  const director = directorLabelOf((s.directorId ?? "").trim(), reach);
+  return machine.length === 0 ? director : `${machine} / ${director}`;
+}
+
+/** The line on a dotted card: where the session really is. */
+export function awayText(pivot: string, home: string): string {
+  return pivot === "repo" || pivot === "worktree" ? `drawn in full in ${home}` : `runs on ${home}`;
+}
+
+/**
+ * The part of a collapsed crew that runs in another column, counted by where it runs, so a collapsed
+ * parent still says that some of its crew is elsewhere: "1 runs on devthrottle-mac-mini / DevThrottle_1".
+ * Empty when the whole crew runs here.
+ */
+export function crewElsewhereText(tree: LaneTree, root: SessionDto, homeOf: (s: SessionDto) => string): string {
+  const counts = new Map<string, number>();
+  for (const d of descendantsOf(tree, root)) {
+    if (tree.here.has(idOf(d.session))) continue;
+    const home = homeOf(d.session);
+    counts.set(home, (counts.get(home) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([home, n]) => `${n} ${n === 1 ? "runs" : "run"} on ${home}`).join(", ");
 }
 
 /**

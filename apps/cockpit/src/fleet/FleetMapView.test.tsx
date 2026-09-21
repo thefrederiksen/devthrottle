@@ -57,6 +57,7 @@ const LEGEND = {
 };
 
 import { FleetMapView } from "./FleetMapView";
+import { resetCrewExpandedForTests } from "@devthrottle/client-core/sessions/tree";
 
 // A fully Gateway-stamped session (effectiveColor / stateLabel / effectiveColorHex are required fields the
 // dumb client renders verbatim, so a fixture missing them would throw or paint the protocol sentinel).
@@ -384,6 +385,9 @@ describe("FleetMapView - the Sessions list's tree, across machines", () => {
   }
 
   beforeEach(() => {
+    // The remembered open crews live in memory as well as in localStorage; forget both, so a crew one
+    // test opened is not still open in the next.
+    resetCrewExpandedForTests();
     window.localStorage.setItem("cockpit.fleetMapPivot", "machine");
     rosterValue.current = {
       sessions: fleet(),
@@ -403,25 +407,45 @@ describe("FleetMapView - the Sessions list's tree, across machines", () => {
     const chevron = screen.getByRole("button", { name: /Expand the 2 sessions under AXI Tools - Architect/ });
     expect(chevron.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByText(/2 under it:/)).toBeTruthy();
-    // Collapsed: neither Worker is drawn anywhere on the map - including SOREN_NORTH's column.
-    expect(screen.queryByText("AXI Tools - Worker - benchmark")).toBeNull();
+    // Collapsed: 146, which runs beside 102, is hidden in the crew. 124 runs on SOREN_NORTH, so that
+    // column still shows it, once, solid, under the tag naming 102.
     expect(screen.queryByText("AXI Tools - Worker - fix")).toBeNull();
+    expect(screen.getAllByText("AXI Tools - Worker - benchmark")).toHaveLength(1);
     expect(screen.getByText("cc-worktrees - Architect")).toBeTruthy();
   });
 
-  it("expands to BOTH Workers under 102, the one on SOREN_NORTH saying where it runs, each drawn once", () => {
+  it("expands to BOTH Workers under 102, the one on SOREN_NORTH dotted and saying where it runs", () => {
     render(<FleetMapView />);
     fireEvent.click(screen.getByRole("button", { name: /Expand the 2 sessions under AXI Tools - Architect/ }));
     const crew = screen.getByLabelText("Sessions under AXI Tools - Architect");
     expect(crew.textContent).toContain("AXI Tools - Worker - fix");
     expect(crew.textContent).toContain("AXI Tools - Worker - benchmark");
-    expect(screen.getAllByText("AXI Tools - Worker - benchmark")).toHaveLength(1);
-    const card124 = screen.getByText("AXI Tools - Worker - benchmark").closest("article");
-    expect(card124?.textContent).toContain("SOREN_NORTH");
-    const card146 = screen.getByText("AXI Tools - Worker - fix").closest("article");
+    const dotted124 = [...crew.querySelectorAll("article")].find((a) => a.textContent?.includes("AXI Tools - Worker - benchmark"));
+    expect(dotted124?.className).toContain("fmap-card-away");
+    expect(dotted124?.textContent).toContain("runs on SOREN_NORTH / Director 1");
+    const card146 = [...crew.querySelectorAll("article")].find((a) => a.textContent?.includes("AXI Tools - Worker - fix"));
+    expect(card146?.className).not.toContain("fmap-card-away");
     expect(card146?.textContent).not.toContain("SOREN_NORTH");
     // The open crew is the Sessions list's remembered setting, so the two screens agree.
     expect(window.localStorage.getItem("dt.sessions.crewExpanded")).toContain("102");
+  });
+
+  it("draws 124 solid in SOREN_NORTH's own column, under a dotted tag naming 102 on the Mac Mini", () => {
+    render(<FleetMapView />);
+    // Visible without expanding anything: its own column always shows it.
+    const tag = screen.getByRole("button", {
+      name: "Started by 102 AXI Tools - Architect, which runs on devthrottle-mac-mini / Director 1",
+    });
+    const solid124 = tag.parentElement?.querySelector("article");
+    expect(solid124?.textContent).toContain("AXI Tools - Worker - benchmark");
+    expect(solid124?.className).not.toContain("fmap-card-away");
+    expect(solid124?.className).toContain("fmap-card-child");
+  });
+
+  it("says on a collapsed parent that some of its crew runs on another machine", () => {
+    render(<FleetMapView />);
+    const card102 = screen.getAllByText("AXI Tools - Architect").map((e) => e.closest("article")).find((a) => a !== null);
+    expect(card102?.textContent).toContain("1 runs on SOREN_NORTH / Director 1");
   });
 
   it("By agent does not hide a session inside another column's crew", () => {
