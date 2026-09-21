@@ -197,6 +197,22 @@ export function classify(s: SessionDto): TriageBucket {
   throw new Error(`Gateway /sessions returned invalid triageBucket '${stamped}' for session ${s.sessionId ?? "(unknown)"}.`);
 }
 
+// THE SAME RULING, FOR A CALLER THAT MUST NOT DIE OF NOT BEING TOLD.
+//
+// classify() throws on an unstamped session on purpose: ORDERING the roster with a bucket missing would
+// silently put sessions in the wrong place, and a loud failure is the right one there. But a single
+// control that only wants to know whether to draw the word "Working" is not ordering anything, and
+// taking the whole composer down with it - which is what happened - is a far worse answer than not
+// drawing the word.
+//
+// So this is the one rule with two doors, not two rules: null means the Gateway did not say, which is
+// NOT the same as "no". A caller that gets null must render the absence, never guess a bucket.
+export function classifyOrNull(s: SessionDto): TriageBucket | null {
+  const stamped = (s as GatewayStampedSession).triageBucket?.trim();
+  if (stamped === "needsYou" || stamped === "active" || stamped === "onHold") return stamped;
+  return null;
+}
+
 export function inBucket(sessions: SessionDto[], bucket: TriageBucket): SessionDto[] {
   return inDesktopOrder(sessions.filter((s) => classify(s) === bucket));
 }

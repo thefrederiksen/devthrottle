@@ -22,13 +22,12 @@ version numbers, release notes, tags, or the mailing list.
 ## What you must know first
 
 - **This workflow is the ONLY way to update the live Gateway.** Do not pin an
-  image, restart the site, change app settings, or touch the staging slot by hand
-  with `az`, and do not do it in the Azure Portal. Those paths skip the warmed
-  hand-off, the outage measurement and the refusals below, and a hand-driven
-  change is how you get an unmeasured outage on live sessions. If this workflow
-  cannot do what is needed, that is a gap to fix in the workflow, not to work
-  around. The emergency swap-back is also a workflow
-  (`rollback-hosted-gateway.yml`) - use it rather than swapping by hand.
+  image, restart the site, or change app settings by hand with `az`, and do not do
+  it in the Azure Portal. Those paths skip the outage measurement and the refusals
+  below, and a hand-driven change is how you get an unmeasured outage on live
+  sessions. If this workflow cannot do what is needed, that is a gap to fix in the
+  workflow, not to work around. Rolling back is also a workflow
+  (`rollback-hosted-gateway.yml`) - use it rather than pinning an old image by hand.
 - **A person authorizes the go-live.** Starting this deploy pushes new code to
   the live service. Get an explicit go from the human before you start it. Do not
   start it on your own initiative.
@@ -58,6 +57,11 @@ version numbers, release notes, tags, or the mailing list.
   across deploys. This deploy only: rebuild the image, point the live service at
   the new image, restart, verify health. It needs no stored secrets - it signs in
   to Azure through a trust that is already configured.
+- **A deploy takes production off the air for about a minute, and that is expected.**
+  Since 20 September 2026 the plan is Basic B2, which has no deployment slots, so the
+  deploy is an in-place restart: the old container stops, the new one starts, and the
+  gap is the new container's start-up. Tell the human that before you start, and tell
+  them the measured number afterwards. The budget the run is held to is 120 seconds.
 
 ## Steps
 
@@ -99,58 +103,51 @@ curl -s -m 20 -o /dev/null -w "HTTP %{http_code}\n" https://devthrottle-gw.azure
 
 A `200` means the live Gateway is up.
 
-**A blip here is NOT normal, and must not be waved through.** This used to say a
-minute or two of `502`/`000` was expected cold-start behaviour and told you not to
-report it. That was wrong, and it trained people to accept the exact failure that
-took the live service down for 38.5 seconds on 2 August 2026 (issue #2383).
+**A gap here IS expected now, and it is about a minute.** This section used to say
+the deploy was a warmed slot swap with no cold start on the user path. That was true
+until 20 September 2026 and is not true any more.
 
-The deploy is a **warmed slot swap**: the old instance keeps serving until the new
-one is proven healthy, and the swap itself has measured `Longest unavailable
-stretch: 0.0s` across three consecutive deploys. There is no cold start on the
-user path, because the user is never moved onto a cold instance.
+The plan was S1 Standard, whose single worker had 1.75 GB of memory and spent most of
+its life swapping to disk. Deploys on it measured 87s, 122.8s, 172.0s and 360.7s of
+outage - the warmed swap stopped saving anything, because both slots shared that one
+starved worker. The owner moved the plan to Basic B2: twice the memory and twice the
+processor for $25 a month instead of $69. Basic has no deployment slots, so the staging
+slot was deleted and the deploy became an in-place restart.
 
-**But the swap is not the whole cost of a deploy, and this section used to imply
-it was.** It said a healthy deploy has "no user-visible gap at all". Around the
-swap, a healthy deploy still costs roughly four seconds while the spare slot
-starts, five while the old slot stops, and about ten in which Directors show
-yellow and reconnect on their own - both slots share one worker, so starting and
-stopping the spare disturbs production.
+**What normal looks like now:** the plan change itself, measured with a one-second
+probe, took production down for **about 60 seconds**. A deploy should be in that
+region. The run fails if it exceeds **120 seconds**, which is the owner's ruling of
+20 September 2026: "It is completely okay to have two minutes out of this if we just
+know we have it."
 
-**Measured, so you know what normal looks like:** two consecutive healthy deploys
-came in at **6.7s** (2026-08-19, run 32280188992) and **6.6s** (2026-08-20, run
-32321987703) of longest external outage, with the swap window itself at 0.0s both
-times. The second carried the change that moved the database open behind the port
-bind, and it did not shift the number - which is how we know this cost is the slot
-churn on a shared worker, not application startup. So around six or seven seconds
-is what a good deploy costs here. The budget was five, which failed every deploy
-and left the gate unable to tell a normal one from the two below; the owner set it
-to ten on 2026-08-20 - "if the time gets over 10 seconds, then we start dealing
-with it".
+**What is still NOT normal:** minutes of `502`/`000` beyond that, or a site that never
+comes back. Two deploys in August took the service down for 38.5s and 46.7s against a
+five-second budget, both because a container failed its own startup and the platform
+reverted by stopping the SITE - which tore down the healthy container beside it. The
+same failure is available to an in-place restart. If `/healthz` does not answer `200`
+within a couple of minutes of the run going green, say so; do not wait it out.
 
-**And a deploy can be far worse than that, from a cause the swap number does not
-cover.** On 12 August 2026 one took the live service off the air for **46.7
-seconds** against what was then a five-second budget (issue #2585) - worse than the 38.5-second
-failure above, and eight days after this section was written to prevent a repeat.
-Neither outage was the cutover. In both, a second container failed its own
-startup, the platform reverted by stopping the SITE, and stopping the site tore
-down the healthy container that was serving traffic beside it.
+**A failed run is a report, not a protection.** The watch job fails when the outage
+exceeds the budget, and it did fail on 12 August - users were dark for 46.7 seconds
+regardless. Never present a green run as proof that deploying is free.
 
-So if `/healthz` does not answer `200` immediately after the run goes green,
-something went wrong with the hand-off. Say so; do not wait it out.
+**If a deploy ships bad code**, roll back by putting a previous image back. The registry
+keeps the **three newest** images, plus whatever production is running and the last one
+that passed a whole deploy (`last-known-good`). The deploy run's summary lists what is
+available, and prints the commit it replaced ("Outgoing live commit"):
 
-**A failed run is a report, not a protection.** The watch job fails if the
-external outage exceeds **ten seconds**, and it did fail on 12 August - users were
-dark for 46.7 seconds regardless. A green run means production stayed inside the
-budget; a red one tells you afterwards that it did not. Neither prevents an
-outage, so never present a green run as proof that deploying is free.
+```
+gh workflow run rollback-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main -f commit=last-known-good
+```
 
-v2.0.4 mitigates the 12 August cause: the Gateway now waits for its database
-inside the platform's start budget instead of giving up at ninety seconds and
-exiting. Its own code comments say it is a mitigation and NOT the fix. The fix is
-to bind the port before the database work, so site startup never depends on
-PostgreSQL (#2383's first recommendation), and that is unbuilt. Until it is,
-expect that a deploy CAN take the service down for tens of seconds, and say so
-when you report one.
+`commit=<short commit>` works too. That is a pin and a restart, not a rebuild - a minute
+or two, and an outage of its own. It puts back CODE, not data: an older image does not
+undo a database change that shipped with the bad deploy.
+
+**The way back to zero-outage deploys** is a slot-capable plan (Premium v3 P0v3: 4 GB,
+about $57 a month, cheaper than the old S1) plus the warmed-swap deploy and swap-back
+rollback, which are in git history before 20 September 2026. That is the owner's call,
+because it costs money every month.
 
 ### 5. Report plainly
 

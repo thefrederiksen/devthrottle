@@ -22,6 +22,14 @@
      light accent text, the ready green, the decision card's tint, the panel's deeper navy and the stopped dot. */
   --owner-bubble-bg: #1e3a6b;
   --owner-bubble-border: #2c5391;
+  /* THE OWNER'S OWN WORDS IN A TRANSCRIPT (owner ruling, 2026-09-20): neutral, not blue. The reader
+     already knows what they said; what they came to read is the answer, and a saturated slab on their
+     own message was the heaviest object on the screen. Kept APART from --owner-bubble-* above, which
+     the Fleet Manager page also spends on focus rings and the recommended-option border - those are an
+     accent and should stay one. These three are only ever a said-by-you bubble. */
+  --you-bubble-bg: #222839;
+  --you-bubble-border: #333c52;
+  --you-bubble-text: #ccd4e4;
   --accent-text: #9cc2ff;
   --ok: #22c55e;
   --ok-text: #6ee79b;
@@ -399,9 +407,23 @@ body {
 
 .roster-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  padding: 0 4px;
+  padding: 2px 4px 10px;
+}
+
+/* Pushes the ordering toggle and the plus to the right edge of the one header row. */
+.roster-head-spacer {
+  flex: 1;
+}
+
+/* The two controls that are not about reading the list, at the foot of the rail. */
+.roster-foot {
+  margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .roster-title {
@@ -417,10 +439,13 @@ body {
   color: var(--text-dim);
 }
 
+/* A segmented pair, small, on the one header row - no longer a full-width row of its own. */
 .roster-view {
-  display: flex;
-  gap: 4px;
-  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
 }
 
 /* The "What do the colours mean?" link under the ordering toggle (client-core/sessions/colourLegend.css
@@ -431,14 +456,18 @@ body {
 }
 
 .roster-view-btn {
-  flex: 1;
-  padding: 5px 8px;
-  font-size: 12px;
+  padding: 4px 9px;
+  font-size: 11.5px;
   color: var(--text-dim);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 7px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--border);
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.roster-view-btn:last-child {
+  border-right: 0;
 }
 
 .roster-view-btn:hover {
@@ -453,17 +482,22 @@ body {
 
 /* The "+ New session" action on the roster head (issue #1023) - the desktop Cockpit's only way to
    start a session. Pushed to the right of the head so it never crowds the title/count. */
+/* A plus, not a labelled blue button. Starting a session is one of the two things this header does,
+   and the word "New session" was costing a third of the row to say what the plus says. */
 .roster-newbtn {
-  margin-left: auto;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #ffffff;
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: 7px;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   cursor: pointer;
-  white-space: nowrap;
 }
 
 .roster-newbtn:hover {
@@ -479,17 +513,23 @@ body {
   padding: 6px 8px 2px;
 }
 
+/* Quiet, at the foot of the rail. It was a full-width filled button above the first session - the
+   largest and brightest object in the window, for something done about once a day. */
 .roster-voice-all-btn {
   width: 100%;
-  padding: 7px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #ffffff;
-  background: var(--accent);
-  border: 1px solid var(--accent);
+  padding: 5px 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
   border-radius: 7px;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.roster-voice-all-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 /* The return trip ("turn it all off"): muted fill with the accent outline, so on and off never look alike. */
@@ -1397,38 +1437,59 @@ body {
   color: var(--text-dim);
 }
 
-.action-bar {
+/* THE STRIP UNDER THE COMPOSER. One urgent verb and its escalation, not a row of five. */
+.action-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 10px;
+  padding: 7px 18px 0;
   background: var(--surface);
-  border-top: 1px solid var(--border);
   flex: 0 0 auto;
+  font-size: 12px;
 }
 
-.act-btn {
-  padding: 6px 12px;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 7px;
+.action-working {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.act-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  font-size: 12px;
+  border-radius: 99px;
+  border: 1px solid #45302a;
+  background: #1c1410;
+  color: #f0a87e;
   cursor: pointer;
 }
 
-.act-btn:hover:not(:disabled) {
-  border-color: var(--accent);
+.act-stop svg {
+  width: 11px;
+  height: 11px;
 }
 
-.act-btn:disabled {
+.act-stop:hover:not(:disabled) {
+  border-color: #6a4433;
+}
+
+.act-escalate {
+  padding: 4px 11px;
+  font-size: 12px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--attention);
+  cursor: pointer;
+}
+
+.act-stop:disabled,
+.act-escalate:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.act-btn.act-stop {
-  color: var(--attention);
 }
 
 .action-status {
@@ -1436,8 +1497,7 @@ body {
   color: var(--text-dim);
 }
 
-/* Shown in place of the button row while a cold-linked session's capabilities are still loading
-   (issue #1247), so the bar is never an empty strip. */
+/* Shown in place of the strip while a cold-linked session's capabilities are still loading (#1247). */
 .action-loading {
   font-size: 12px;
   color: var(--text-dim);
@@ -1449,13 +1509,13 @@ body {
 }
 
 .composer {
-  padding: 10px 12px 12px;
+  padding: 8px 12px 12px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 /* Drag-and-drop an image onto the composer (issue #1210): a clear accent affordance while a file is
@@ -1466,53 +1526,124 @@ body {
   background: var(--surface-2);
 }
 
-.composer-input {
-  width: 100%;
-  resize: vertical;
-  min-height: 58px;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--text);
+/* ONE COMPOSER. Attach and Speak sit inside it because they are inputs; Send is the single filled
+   control in the window. The box grows with the text and stops at a third of a tall screen. */
+.composer-pill {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 7px 6px 9px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 22px;
+}
+
+.composer-pill:focus-within {
+  border-color: #3b4763;
+}
+
+.composer-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  min-height: 30px;
+  max-height: 33vh;
+  padding: 6px 2px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  font-family: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 0;
 }
 
 .composer-input:focus {
   outline: none;
-  border-color: var(--accent);
 }
 
-.composer-btns {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.composer-input::placeholder {
+  color: var(--text-dim);
 }
 
-.composer-btn {
-  padding: 7px 16px;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--surface-2);
+/* Attach and Speak: quiet, round, the same size, inside the pill. */
+.composer-round {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
   cursor: pointer;
 }
 
-.composer-btn:hover:not(:disabled) {
-  border-color: var(--accent);
+.composer-round svg,
+.composer-send svg {
+  width: 15px;
+  height: 15px;
 }
 
-.composer-btn.send {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+.composer-round:hover:not(:disabled) {
+  color: var(--text);
+  border-color: #3b4763;
 }
 
-.composer-btn:disabled {
-  opacity: 0.5;
+.composer-round:disabled {
+  opacity: 0.45;
   cursor: default;
+}
+
+/* THE ONE FILLED CONTROL IN THE WINDOW. White rather than the accent blue on purpose: in a dark window
+   a white fill is the most confident thing that can be drawn, and it costs nothing from a colour budget
+   that is spent entirely on saying what a session is doing. */
+.composer-send {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #0b1020;
+  cursor: pointer;
+}
+
+.composer-send:disabled {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: default;
+}
+
+/* Queue, when it is a real second choice beside Send rather than the only way to send. */
+.composer-ghost {
+  flex: 0 0 auto;
+  padding: 6px 11px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  cursor: pointer;
+}
+
+.composer-ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: #3b4763;
+}
+
+.composer-ghost:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.composer-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
 }
 
 .composer-file {
@@ -1937,6 +2068,41 @@ body {
 
 /* A pill that fills in when its choice is on. The checkbox inside is still a real checkbox - it keeps
    its keyboard behaviour and its accessible name - it is simply not the thing drawn. */
+/* THE ONE DETAIL SWITCH. It replaced three checkboxes here AND gave the rail the control it never had,
+   so a single click takes the whole window from screenshot-clean to fully instrumented. */
+.chat-density {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.chat-density-btn {
+  font-size: 11.5px;
+  font-family: inherit;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--border);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.chat-density-btn:last-child {
+  border-right: 0;
+}
+
+.chat-density-btn:hover {
+  color: var(--text);
+}
+
+.chat-density-btn.on {
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+}
+
 .chat-filter-pill {
   display: inline-flex;
   align-items: center;
@@ -2057,8 +2223,9 @@ body {
 .chat-bubble.user {
   align-self: flex-end;
   max-width: 72%;
-  background: var(--owner-bubble-bg);
-  border: 1px solid var(--owner-bubble-border);
+  background: var(--you-bubble-bg);
+  border: 1px solid var(--you-bubble-border);
+  color: var(--you-bubble-text);
   border-radius: 12px 12px 3px 12px;
   padding: 9px 13px;
 }

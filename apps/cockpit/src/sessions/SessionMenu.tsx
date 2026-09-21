@@ -3,13 +3,16 @@ import { createPortal } from "react-dom";
 import {
   getHandover,
   holdSession,
+  sendClearContext,
+  sendCompactContext,
+  sendHistoryPicker,
   type SessionDto,
   type SessionHandover,
 } from "@devthrottle/client-core/api/client";
 import { renameSession } from "@devthrottle/client-core/fleet/fleetClient";
 import { useSnoozeOptions } from "@devthrottle/client-core/settings/snoozeOptions";
 import { buildSnoozeMenu } from "@devthrottle/client-core/settings/snoozeMenu";
-import { useDismissOnBackdrop } from "../components";
+import { ConfirmDialog, useDismissOnBackdrop } from "../components";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useStopSession } from "./StopSessionProvider";
 import { runHandOver } from "@devthrottle/client-core/fleetmanager/handOverClient";
@@ -72,6 +75,31 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
   // any menu never waits on the network - see useSnoozeOptions.
   const snoozeOptions = useSnoozeOptions();
   const snoozeMenu = buildSnoozeMenu(session.onHold === true, snoozeOptions);
+  // THE CONTEXT VERBS (owner ruling, 2026-09-20). Compact, Clear context and History used to sit in a
+  // permanent row under every conversation, drawn at the same weight as Send. They are rare, and one of
+  // them destroys the conversation, so they live here now - behind two deliberate movements rather than
+  // one reflex. Each is drawn only if the session's driver declares the verb, exactly as before.
+  const [confirmCompact, setConfirmCompact] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [compacting, setCompacting] = useState(false);
+  const [contextNote, setContextNote] = useState<string | null>(null);
+  // One runner for the three, so a failure is visible and reported in the same words wherever it came
+  // from. The note sits under the menu button rather than vanishing with the menu that launched it.
+  const runContext = async (verb: () => Promise<void>, done: string, action: string) => {
+    setContextNote(null);
+    try {
+      await verb();
+      setContextNote(done);
+      window.setTimeout(() => setContextNote(null), 5000);
+    } catch (err) {
+      setContextNote(describeAndReport(SURFACE, action, err));
+    }
+  };
+  const caps = session.driverCapabilities ?? [];
+  const canCompact = caps.includes("CompactContext");
+  const canClear = caps.includes("ClearContext");
+  const canHistory = caps.includes("History");
+  const hasContextVerbs = canCompact || canClear || canHistory;
   const [snoozeForOpen, setSnoozeForOpen] = useState(false);
   const [subPos, setSubPos] = useState<{ top: number; left?: number; right?: number } | null>(null);
   const snoozeForRef = useRef<HTMLButtonElement | null>(null);
@@ -352,12 +380,97 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
             <button type="button" role="menuitem" className="session-menu-item" onClick={openHandover}>
               Handover info
             </button>
+            {hasContextVerbs && <div className="session-menu-head">Context</div>}
+            {canCompact && (
+              <button
+                type="button"
+                role="menuitem"
+                className="session-menu-item"
+                title="Summarize the conversation - frees context window, keeps what the session has learned"
+                onClick={() => { setOpen(false); setConfirmCompact(true); }}
+              >
+                {compacting ? "Compacting..." : "Compact context"}
+              </button>
+            )}
+            {canHistory && (
+              <button
+                type="button"
+                role="menuitem"
+                className="session-menu-item"
+                title="Open the in-terminal history picker (the driver's double-Esc)"
+                onClick={() => { setOpen(false); void runContext(() => sendHistoryPicker(sid), "history picker opened (Esc closes)", "open the history picker"); }}
+              >
+                History
+              </button>
+            )}
+            {canClear && (
+              <button
+                type="button"
+                role="menuitem"
+                className="session-menu-item danger"
+                title="Reset the conversation in place (/clear) - the process keeps running"
+                onClick={() => { setOpen(false); setConfirmClear(true); }}
+              >
+                Clear context
+              </button>
+            )}
             <button type="button" role="menuitem" className="session-menu-item danger" onClick={openStop}>
               Stop session
             </button>
           </div>,
           document.body,
         )}
+
+      {contextNote !== null && (
+        <span className="session-menu-note" role="status">
+          {contextNote}
+        </span>
+      )}
+
+      {/* The two confirmations deliberately READ DIFFERENTLY (issue #2167): clearing destroys the
+          conversation, compaction preserves it. Two confirmations worded alike would train one reflex
+          for two opposite outcomes, which is worse than one. */}
+      <ConfirmDialog
+        open={confirmCompact}
+        title="Compact this session's context?"
+        message={
+          "This summarizes the conversation so far, freeing room in the context window. The session keeps " +
+          "what it has learned, and stays where it is - nothing is sent to it. It can take a minute or two."
+        }
+        confirmLabel="Compact"
+        busyLabel="Compacting..."
+        onConfirm={async () => {
+          setCompacting(true);
+          try {
+            // Compact ONLY - no follow-up prompt. Render the Gateway's own sentence verbatim: it is the
+            // only thing that knows whether the compaction was watched to completion or merely submitted.
+            const result = await sendCompactContext(sid);
+            setContextNote(result.detail);
+            window.setTimeout(() => setContextNote(null), 8000);
+          } finally {
+            setCompacting(false);
+          }
+        }}
+        onClose={() => setConfirmCompact(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear this session's context?"
+        message={
+          "This resets the conversation in place (/clear). The running process keeps going, but the " +
+          "agent loses the current conversation. This cannot be undone."
+        }
+        confirmLabel="Clear context"
+        busyLabel="Clearing..."
+        onConfirm={async () => {
+          // Let a failure throw so the dialog surfaces it (fail loudly); note it on success.
+          await sendClearContext(sid);
+          setContextNote("context cleared");
+          window.setTimeout(() => setContextNote(null), 5000);
+        }}
+        onClose={() => setConfirmClear(false)}
+      />
 
       {/* The flyout is its own portal, like the parent popup, so the scrolling rail cannot clip it. It
           stays open while the pointer is over EITHER the parent item or the flyout itself. */}

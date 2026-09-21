@@ -349,4 +349,92 @@ public sealed class DiscoveredRepositoryObserverTests : IDisposable
 
         Assert.Empty(AllRows());
     }
+
+    // A WORKTREE IS NOT A REPOSITORY (the one-repository-list mission): the statements that let the
+    // catalogue collapse a worktree's row are taken off the SAME push, from the worktrees the Director's
+    // scan already computes with git and already sends. No new field, no new feed.
+
+    /// <summary>One repository the Director scanned, with the worktrees git reported for it.</summary>
+    private static RepoStatusDto PushedWithWorktrees(string path, string name, params string[] worktreePaths)
+    {
+        var row = Pushed(path, name);
+        row.Worktrees = worktreePaths.Select(worktree => new WorktreeDto { Path = worktree }).ToList();
+        return row;
+    }
+
+    [Fact]
+    public void ObserveSnapshot_TheWorktreesOnThePush_CollapseTheirRows()
+    {
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/one", "one", _now.AddHours(-2));
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/one-wt", "", _now);
+
+        NewObserver().ObserveSnapshot(TenantId.Local, DirectorId,
+            new[] { PushedWithWorktrees("/roots/alpha/one", "one", "/roots/alpha/one-wt") }, _now);
+
+        var row = Assert.Single(AllRows());
+        Assert.Equal("/roots/alpha/one", row.Path);
+        Assert.Equal(_now, row.LastUsedUtc);
+    }
+
+    /// <summary>
+    /// FAILURE CASE: a warm-start push collapses nothing. A cached worktree list is not a statement about
+    /// now, and this is a destructive operation.
+    ///
+    /// <para><b>WHAT HOLDS THIS SHUT, measured rather than assumed.</b> It is the reconciliation guard,
+    /// not the provisional filter beside the worktree loop: moving that loop above the filter, so cached
+    /// lists are believed, leaves this test green. One provisional row anywhere in the push makes the
+    /// whole push something other than a real observation, and the collapse does not run on one of
+    /// those.</para>
+    /// </summary>
+    [Fact]
+    public void ObserveSnapshot_AProvisionalPush_CollapsesNothing()
+    {
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/one", "one", _now.AddHours(-2));
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/one-wt", "", _now);
+        var warm = PushedWithWorktrees("/roots/alpha/one", "one", "/roots/alpha/one-wt");
+        warm.Provisional = true;
+
+        NewObserver().ObserveSnapshot(TenantId.Local, DirectorId,
+            new[] { warm, Pushed("/roots/alpha/two", "two") }, _now);
+
+        Assert.Contains("/roots/alpha/one-wt", AllRows().Select(row => row.Path));
+    }
+
+    [Fact]
+    public void ObserveSnapshot_AWorktreeAppearing_DefeatsTheUnchangedRePushSkip()
+    {
+        // The skip's signature has to cover the worktrees, because a new worktree of a repository the
+        // scan already reported changes nothing else in the push - and the collapse it would authorise
+        // would be skipped with it.
+        var observer = NewObserver();
+        observer.ObserveSnapshot(TenantId.Local, DirectorId,
+            new[] { Pushed("/roots/alpha/one", "one") }, _now);
+        _catalog.Observe(TenantId.Local, RegisteredMachine, "/roots/alpha/one-wt", "", _now);
+
+        observer.ObserveSnapshot(TenantId.Local, DirectorId,
+            new[] { PushedWithWorktrees("/roots/alpha/one", "one", "/roots/alpha/one-wt") }, _now.AddMinutes(1));
+
+        Assert.Equal(new[] { "/roots/alpha/one" }, AllRows().Select(row => row.Path).ToArray());
+    }
+
+    [Fact]
+    public void ObserveSnapshot_TheSameWorktreesInADifferentOrder_AreStillSkipped()
+    {
+        // And the saving is not lost: git lists worktrees in whatever order it walked them.
+        var observer = NewObserver();
+        observer.ObserveSnapshot(TenantId.Local, DirectorId,
+            new[] { PushedWithWorktrees("/roots/alpha/one", "one", "/roots/alpha/a", "/roots/alpha/b") }, _now);
+
+        using (var context = _harness.Open().CreateContext(TenantId.Local))
+        {
+            context.KnownRepositories.RemoveRange(context.KnownRepositories.ToList());
+            context.SaveChanges();
+        }
+
+        observer.ObserveSnapshot(TenantId.Local, DirectorId,
+            new[] { PushedWithWorktrees("/roots/alpha/one", "one", "/roots/alpha/b", "/roots/alpha/a") },
+            _now.AddMinutes(1));
+
+        Assert.Empty(AllRows());
+    }
 }

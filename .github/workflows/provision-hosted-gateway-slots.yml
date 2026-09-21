@@ -1,40 +1,49 @@
 name: Provision hosted Gateway slots
 
-# One-time (idempotent, safe to re-run) infrastructure change that moves the hosted Gateway onto an
-# App Service tier that supports DEPLOYMENT SLOTS and creates a warmed "staging" slot. This is what lets
-# a deploy become a warmed slot swap - the old instance keeps serving until the new one is proven healthy,
-# so the external outage drops from a ~95s in-place restart to a few seconds of hand-off.
+# RESTORES THE SLOT ARRANGEMENT. It is NOT part of the current deploy path and must not be run casually.
 #
-# This does NOT deploy application code and it does NOT run on a push. A human starts it deliberately from
-# the Actions UI or with `gh workflow run provision-hosted-gateway-slots.yml`. Like the deploy workflow it
-# needs NO stored secret - only the Azure OIDC federated login as the devthrottle-hosted-gateway service
-# principal (Contributor on the subscription, which can change the plan SKU and create slots).
+# Since 2026-09-20 the plan is Basic B2, which has NO deployment slots, and deploys are in-place restarts
+# (deploy-hosted-gateway.yml). This workflow is the way BACK: it moves the plan to a slot-capable tier,
+# creates the staging slot, mounts the shared Azure Files share on it, sets the swap warmup gate, and
+# leaves the slot stopped.
+#
+# RUNNING IT ALONE ACHIEVES NOTHING GOOD. The deploy workflow no longer swaps, so a slot created here just
+# sits there - and the plan change raises the monthly bill (Basic B2 is $25; Premium v3 P0v3 is $57 and S1
+# is $69). Going back to zero-outage deploys means BOTH: run this, and restore the warmed-swap deploy and
+# swap-back rollback from git history before 2026-09-20. It also needs the owner's go, because it costs
+# money every month.
+#
+# It does NOT deploy application code. A human starts it deliberately from the Actions UI or with
+# `gh workflow run provision-hosted-gateway-slots.yml`. It needs NO stored secret - only the Azure OIDC
+# federated login as the devthrottle-hosted-gateway service principal (Contributor on the subscription,
+# which can change the plan SKU and create slots).
 #
 # What it ensures, each step create-if-absent / set-in-place:
-#   1. The App Service Plan is at a slot-capable SKU (S1 by default). Basic (B1) supports zero slots.
+#   1. The App Service Plan is at a slot-capable SKU. Basic (B1, B2, B3) supports zero slots; the cheapest
+#      tier that has them is Premium v3 P0v3, which also carries 4 GB of memory for less than S1 costs.
 #   2. A "staging" slot exists, its configuration cloned from production (same image, same app settings
 #      incl. the Supabase connection and CC_DIRECTOR_ROOT, so it behaves like production while warming).
 #   3. The Azure Files share is mounted on staging (configuration-source does not clone storage mounts).
 #   4. The swap warmup gate is set: a swap into production is not completed until the incoming instance
 #      answers /healthz 200, so users never cut over to a cold instance.
-#   5. The staging slot is STOPPED. Steady state is ONE running instance writing the shared file mount;
-#      the deploy pipeline starts staging only for the duration of a deploy and stops it again after the
-#      swap, so the two-writers-on-the-share window is bounded to the warmup, never permanent.
+#   5. The staging slot is STOPPED. Steady state is ONE running instance writing the shared file mount.
+#
+# The Wingman debug view's staff list used to be set here. It is its own workflow now
+# (set-gateway-staff-emails.yml), because setting a list of people must not require a plan change.
 
 on:
   workflow_dispatch:
     inputs:
       target_sku:
-        description: App Service Plan SKU to ensure (S1 is the cheapest tier with deployment slots)
+        description: App Service Plan SKU to ensure (P0v3 is the cheapest slot-capable tier, 4 GB, ~$57/month)
         required: false
-        default: S1
-      staff_emails:
+        default: P0v3
+      i_understand_the_cost:
         description: >-
-          Account addresses allowed to open the Wingman's debug view, comma separated. It shows every prompt
-          and every model answer behind a reading, so it is open to nobody until this is set. Leave blank to
-          keep whatever is already set; type the word none to clear it and close the view to everyone.
-        required: false
-        default: ''
+          Type yes to confirm the owner has agreed to the higher monthly plan cost AND that the warmed-swap
+          deploy workflow is being restored with it. Anything else refuses.
+        required: true
+        default: 'no'
 
 # SERIALISATION. Shares ONE group with deploy-hosted-gateway.yml and rollback-hosted-gateway.yml.
 # This workflow creates the staging slot, mounts the shared Azure Files share on it, changes app
@@ -64,7 +73,7 @@ env:
 
 jobs:
   provision:
-    name: Ensure S1 plan and a warmed staging slot
+    name: Ensure a slot-capable plan and a warmed staging slot
     runs-on: ubuntu-latest
     environment: hosted-gateway-production
 
@@ -75,6 +84,14 @@ jobs:
           client-id: ${{ vars.AZURE_GW_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_GW_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_GW_SUBSCRIPTION_ID }}
+
+      - name: Refuse unless the cost is acknowledged
+        if: ${{ inputs.i_understand_the_cost != 'yes' }}
+        run: |
+          echo "REFUSED: this workflow raises the monthly Azure bill and only helps if the warmed-swap"
+          echo "         deploy workflow is restored with it. Nothing has been changed."
+          echo "         Re-run it with i_understand_the_cost = yes once the owner has agreed."
+          exit 1
 
       - name: Show current plan SKU
         run: az appservice plan show -g "$AZURE_RG" -n "$PLAN" --query "{name:sku.name,tier:sku.tier,capacity:sku.capacity}" -o json
@@ -133,28 +150,6 @@ jobs:
           az webapp config appsettings set -g "$AZURE_RG" -n "$APP" --slot "$SLOT" --settings \
             WEBSITE_SWAP_WARMUP_PING_PATH=/healthz \
             WEBSITE_SWAP_WARMUP_PING_STATUSES=200 -o none
-
-      - name: Set the Wingman debug view's staff list (production and staging)
-        if: inputs.staff_emails != ''
-        env:
-          STAFF_EMAILS: ${{ inputs.staff_emails }}
-        run: |
-          # WHO MAY OPEN THE WINGMAN'S DEBUG VIEW. The view hands over the raw terminal screen, the
-          # conversation, the exact prompt and the raw model answer for both calls of a reading, so the
-          # Gateway serves it to a listed account only. An unset or empty list grants it to NOBODY, which is
-          # why this step is skipped rather than defaulted when nothing was typed - a default here would be a
-          # guess at who staff are, and guessing wrong opens the view or closes it without anyone deciding.
-          #
-          # The word none clears it. Set IDENTICALLY on both slots, like the warmup gate above, so a swap and
-          # a swap-back both land on the same list rather than moving it between slots.
-          VALUE="$STAFF_EMAILS"
-          if [ "$VALUE" = "none" ]; then VALUE=""; fi
-          az webapp config appsettings set -g "$AZURE_RG" -n "$APP" --settings \
-            DEVTHROTTLE_STAFF_EMAILS="$VALUE" -o none
-          az webapp config appsettings set -g "$AZURE_RG" -n "$APP" --slot "$SLOT" --settings \
-            DEVTHROTTLE_STAFF_EMAILS="$VALUE" -o none
-          # Never echo the list itself - it is a list of people.
-          echo "Staff list set on production and staging ($(echo "$VALUE" | tr ',' '\n' | grep -c . ) address(es))."
 
       - name: Stop the staging slot (steady state is one running instance)
         run: az webapp stop -g "$AZURE_RG" -n "$APP" --slot "$SLOT" -o none

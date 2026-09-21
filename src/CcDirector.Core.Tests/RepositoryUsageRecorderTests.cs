@@ -184,25 +184,60 @@ public sealed class RepositoryUsageTests
 {
     [Fact]
     public void StartedIn_NoPooledWorktree_IsTheSessionsOwnRepository()
-        => Assert.Equal("/repos/devthrottle", RepositoryUsage.StartedIn("/repos/devthrottle", null));
+        => Assert.Equal("/repos/devthrottle", RepositoryUsage.StartedIn("/repos/devthrottle", null, null));
 
     [Fact]
     public void StartedIn_PooledWorktree_IsTheRepositoryTheSlotCameFrom()
         => Assert.Equal("/repos/devthrottle",
-            RepositoryUsage.StartedIn("/pool/devthrottle/wt01", "/repos/devthrottle"));
+            RepositoryUsage.StartedIn("/pool/devthrottle/wt01", "/repos/devthrottle", null));
 
     [Fact]
     public void StartedIn_BlankPooledRepository_FallsBackToTheSessionsOwnRepository()
-        => Assert.Equal("/repos/devthrottle", RepositoryUsage.StartedIn("/repos/devthrottle", "   "));
+        => Assert.Equal("/repos/devthrottle", RepositoryUsage.StartedIn("/repos/devthrottle", "   ", null));
 
     [Fact]
     public void StartedIn_NeitherIsKnown_IsNullSoNothingIsRecorded()
     {
-        Assert.Null(RepositoryUsage.StartedIn(null, null));
-        Assert.Null(RepositoryUsage.StartedIn("  ", null));
+        Assert.Null(RepositoryUsage.StartedIn(null, null, null));
+        Assert.Null(RepositoryUsage.StartedIn("  ", null, null));
     }
 
     [Fact]
     public void StartedIn_TrimsSurroundingWhitespace()
-        => Assert.Equal("/repos/devthrottle", RepositoryUsage.StartedIn("  /repos/devthrottle  ", null));
+        => Assert.Equal("/repos/devthrottle", RepositoryUsage.StartedIn("  /repos/devthrottle  ", null, null));
+
+    // A WORKTREE IS NOT A REPOSITORY (the one-repository-list mission). The rule itself, at this level,
+    // is only the precedence; what decides whether a folder IS a worktree is LinkedWorktree, and it has
+    // its own tests against real folders on a real disk.
+
+    [Fact]
+    public void StartedIn_AWorktree_IsTheRepositoryItIsAWorktreeOf()
+        => Assert.Equal("/repos/devthrottle",
+            RepositoryUsage.StartedIn("/repos/devthrottle-p5-run-a", null, "/repos/devthrottle"));
+
+    [Fact]
+    public void StartedIn_AWorktreeWhoseRepositoryCouldNotBeResolved_IsTheFolderItself()
+        => Assert.Equal("/repos/devthrottle-p5-run-a",
+            RepositoryUsage.StartedIn("/repos/devthrottle-p5-run-a", null, null));
+
+    [Fact]
+    public void StartedIn_ABlankResolvedRepository_IsTheFolderItself()
+        => Assert.Equal("/repos/devthrottle-p5-run-a",
+            RepositoryUsage.StartedIn("/repos/devthrottle-p5-run-a", null, "   "));
+
+    [Fact]
+    public void StartedIn_TrimsTheResolvedRepositoryToo()
+        => Assert.Equal("/repos/devthrottle",
+            RepositoryUsage.StartedIn("/repos/devthrottle-p5-run-a", null, "  /repos/devthrottle  "));
+
+    /// <summary>
+    /// The pooled slot keeps its precedence. A pooled slot IS a git worktree, so both answers are
+    /// available and they normally agree - but the pool's own record is a fact it wrote down, needing no
+    /// disk, and it is right even when the slot has already been handed back. This is a WRONG RULE
+    /// nothing removed: it fails if a later change ever reorders the two.
+    /// </summary>
+    [Fact]
+    public void StartedIn_APooledSlotThatIsAlsoAWorktree_StillAnswersWithThePoolsOwnRepository()
+        => Assert.Equal("/repos/devthrottle",
+            RepositoryUsage.StartedIn("/pool/devthrottle/wt01", "/repos/devthrottle", "/somewhere/else"));
 }

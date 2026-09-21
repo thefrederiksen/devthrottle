@@ -107,11 +107,14 @@
   border-radius: 8px;
   padding: 8px 10px;
 }
+/* The same said-by-you tokens the session transcript uses, so the two conversations in this product do
+   not disagree about what "something you said" looks like (owner ruling, 2026-09-20). */
 .fmp-me {
   align-self: flex-end;
   max-width: 70%;
-  background: var(--owner-bubble-bg);
-  border: 1px solid var(--owner-bubble-border);
+  background: var(--you-bubble-bg);
+  border: 1px solid var(--you-bubble-border);
+  color: var(--you-bubble-text);
   border-radius: 12px 12px 3px 12px;
   padding: 9px 13px;
 }

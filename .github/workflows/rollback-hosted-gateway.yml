@@ -1,58 +1,60 @@
 name: Rollback hosted Gateway
 
-# Emergency levers for the hosted Gateway, run by a human deliberately. Two actions:
+# The emergency lever for the hosted Gateway, run by a human deliberately: put a PREVIOUS commit's image
+# back into production.
 #
-#   swap-back  - a deploy swapped bad code into production; the previous instance is still sitting in the
-#                staging slot, so swapping again puts it straight back. This is the fast recovery: seconds,
-#                no rebuild. Only valid right after a bad deploy and before the staging slot is stopped or
-#                overwritten by the next deploy.
-#                If it does NOT restore production, the run exits RED and deliberately LEAVES the staging
-#                slot RUNNING as the only remaining swap target. That is a declared hazard - two containers
-#                on the shared file share - and the run output says so and says how to clear it. It is never
-#                silently green: this lever reporting success without recovering is the one failure that
-#                turns a bad deploy into an unrecoverable one.
+# It takes a commit and pins the image that was built from it. The image is already in the container
+# registry - every deploy builds one tagged `ci-<short commit>` - so there is no rebuild and nothing to
+# compile: the run is a pin, a restart, and a measured wait for production to come back. A minute or two,
+# not the five a deploy costs.
 #
-#   downgrade  - abandon slots and return the plan to Basic (B1). Deletes the staging slot first (a slot
-#                cannot exist on Basic). Use only if we decide to stop paying for the Standard tier; it
-#                brings back the ~95s in-place-restart deploys.
+# WHY IT IS NOT A SWAP ANY MORE (2026-09-20). This used to be `swap-back`: the previous instance sat in a
+# staging slot and a second swap put it straight back in seconds. The owner moved the plan to Basic B2 for
+# the memory (see deploy-hosted-gateway.yml for the whole reasoning), Basic has no deployment slots, and
+# the staging slot was deleted. There is no standing previous instance to swap to, so recovery is a
+# re-pin. It is slower than a swap and it is an outage of its own - which is the accepted trade, not an
+# oversight.
 #
-# OIDC login only, no stored secret, same service principal as the deploy and provisioning workflows.
+# WHICH COMMIT? Three ways, in the order they are least likely to be wrong:
+#   * `last-known-good` - the newest image that passed its ENTIRE deploy (came back on the new commit,
+#     stayed available for the ten-minute watch, every subsystem up). Pass those words instead of a commit.
+#   * The deploy run that shipped the bad code prints the commit it replaced ("Outgoing live commit"), and
+#     its deploy-metrics artifact carries it as `outgoing_commit`. Its summary also lists the images
+#     still in the registry with the time each was built.
+#   * `git log --oneline origin/main` and pick the one before the bad change.
+# The registry keeps the THREE newest images plus whatever production is running and the last known
+# good, so anything older than the last three deploys may no longer have an image. The step below lists what does exist when that happens.
+#
+# This workflow does NOT rebuild, does NOT touch app settings, and does NOT change the plan. Returning to
+# a slot-capable plan (Premium v3 P0v3) is provision-hosted-gateway-slots.yml, and it needs the warmed-swap
+# deploy workflow back with it - both are in git history before 2026-09-20.
+#
+# OIDC login only, no stored secret, same service principal as the deploy workflow.
 
 on:
   workflow_dispatch:
     inputs:
-      action:
-        description: Which rollback to run
+      commit:
+        description: >-
+          The short commit to put back (for example 1a2b3c4), or the words last-known-good for the newest
+          image that passed its whole deploy. The deploy run's summary lists what is available.
         required: true
-        type: choice
-        options:
-          - swap-back
-          - downgrade
-      downgrade_sku:
-        description: SKU to return to when action=downgrade (Basic B1 has no slots)
-        required: false
-        default: B1
+        type: string
 
-# SERIALISATION. Shares ONE group with deploy-hosted-gateway.yml and
-# provision-hosted-gateway-slots.yml, so a rollback can never run while a deploy or the slot
-# provisioning is in flight. Production and staging mount the SAME Azure Files share, so two of
-# these at once means two containers writing one set of files - the mechanism that corrupted the
-# statistics database and took GET /sessions down for 32 minutes on 2026-07-30.
+# SERIALISATION. Shares ONE group with deploy-hosted-gateway.yml, so a rollback can never run while a
+# deploy is changing the image, and vice versa. Both pin the production container image; two of them at
+# once is a race over which image production ends up on. A deploy also restarts the site, and the platform
+# can run the outgoing and incoming containers together across that restart - two containers on the one
+# Azure Files share at /home/gateway/cc-director, which is what corrupted the statistics database and took
+# GET /sessions down for 32 minutes on 2026-07-30.
 #
-# cancel-in-progress is FALSE: a swap-back that arrives while a deploy is mid-swap must WAIT, not
-# cut the deploy off half-finished. Cancelling a deploy mid-swap can leave an Azure swap completing
-# server-side while this workflow issues the reverse swap - two swap operations racing - and a
-# cancelled deploy can abandon the staging slot RUNNING, a permanent second writer on the shared file
-# share (2026-07-27). So do NOT cancel a running deploy to make this start sooner.
+# cancel-in-progress is FALSE: a rollback that arrives while a deploy is mid-restart WAITS rather than
+# cutting it off half-finished. Do NOT cancel a running deploy to make this start sooner - a cancelled
+# deploy is one that pinned an image and then stopped watching whether the site came back on it.
 #
-# The wait is now only as long as the deploy is actually MUTATING. deploy-hosted-gateway.yml declares
-# this group on its mutating job rather than on the whole workflow, so it holds the group through the
-# build, the staging warm-up, the swap and the settle step, and releases it there. Its ten-minute
-# post-swap watch runs in a separate job outside the group, so a swap-back started during that watch
-# begins immediately instead of queueing behind an observation that changes nothing.
-#
-# The group is declared at WORKFLOW level here on purpose: this workflow is short and every step of it
-# mutates, so there is nothing to hold the group for that is not dangerous.
+# The wait is only as long as the deploy is actually MUTATING: the deploy declares this group on its
+# mutating job, and its ten-minute post-deploy watch runs outside the group, so a rollback started during
+# that watch begins immediately.
 concurrency:
   group: hosted-gateway-production
   cancel-in-progress: false
@@ -64,13 +66,14 @@ permissions:
 env:
   AZURE_RG: rg-devthrottle-hosted-gateway
   PLAN: plan-devthrottle-gw
+  ACR: crdevthrottlehg
   APP: devthrottle-gw
-  SLOT: staging
+  IMAGE_NAME: devthrottle-gateway
   GATEWAY_URL: https://devthrottle-gw.azurewebsites.net
 
 jobs:
   rollback:
-    name: Roll the hosted Gateway back
+    name: Put a previous commit's image back into production
     runs-on: ubuntu-latest
     environment: hosted-gateway-production
 
@@ -82,130 +85,208 @@ jobs:
           tenant-id: ${{ vars.AZURE_GW_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_GW_SUBSCRIPTION_ID }}
 
-      - name: Swap the previous instance back into production
-        if: ${{ inputs.action == 'swap-back' }}
+      # Resolve the commit to an immutable digest BEFORE anything is changed. A commit whose image was
+      # never built, or has been cleaned out of the registry, must fail here - where production is still
+      # untouched - and not after the site has been pinned to something that cannot be pulled.
+      - name: Find the image for that commit
+        id: target
         run: |
-          # The staging slot must be running to be swapped. Start it (a no-op if already up), then swap.
-          az webapp start -g "$AZURE_RG" -n "$APP" --slot "$SLOT" -o none
-
-          # From here the staging slot is RUNNING, so every exit below leaves a second writer on the
-          # shared mount until something stops it. A bare errexit death here would end the step with the
-          # Azure error and nothing else - the operator would not be told that a slot is now up. Declare it.
-          if ! az webapp deployment slot swap -g "$AZURE_RG" -n "$APP" \
-                 --slot "$SLOT" --target-slot production -o none; then
-            echo "ERROR: the swap FAILED. Production was NOT changed by this run - it is still serving"
-            echo "       whatever it was serving before, so this is not itself an outage."
+          # Three forms, because the registry keeps only three commits by name:
+          #   last-known-good - the moving tag the deploy puts on each image that passed its whole deploy
+          #   sha256:...      - a raw digest, the way back to an image whose tags have all been purged
+          #                     (the digest of anything ever deployed is in that deploy run's log)
+          #   anything else   - a short commit, resolved as ci-<commit>
+          case "${{ inputs.commit }}" in
+            last-known-good) TAG="last-known-good" ;;
+            sha256:*)        TAG="${{ inputs.commit }}" ;;
+            *)               TAG="ci-${{ inputs.commit }}" ;;
+          esac
+          case "$TAG" in
+            sha256:*) REF_ARG="${IMAGE_NAME}@${TAG}" ;;
+            *)        REF_ARG="${IMAGE_NAME}:${TAG}" ;;
+          esac
+          if ! DIGEST=$(az acr repository show --name "$ACR" --image "$REF_ARG" \
+                          --query digest --output tsv 2>/dev/null) || [ -z "$DIGEST" ]; then
+            echo "ERROR: no image '$REF_ARG' in registry $ACR."
+            echo "       Production has NOT been changed by this run."
             echo ""
-            echo "       BUT THE STAGING SLOT WAS STARTED AND IS STILL RUNNING. That is a SECOND WRITER on"
-            echo "       the shared Azure Files mount at /home/gateway/cc-director - the thing that corrupted"
-            echo "       the statistics database and took GET /sessions down for 32 minutes on 2026-07-30."
-            echo "       It is left up rather than stopped blindly because the swap's failure mode is not"
-            echo "       known here and a stop during a half-finished swap is its own hazard."
+            echo "       The registry keeps the three newest deploys by name, plus 'live' (what production"
+            echo "       is running) and 'last-known-good'. Anything older has been purged. If you need an"
+            echo "       image older than that, its digest is in its own deploy run's log and can be passed"
+            echo "       here as sha256:... - but only if the manifest still exists."
             echo ""
-            echo "       DO THIS NOW - read the slot's real state, then decide:"
-            echo "         az webapp show -g $AZURE_RG -n $APP --slot $SLOT --query state -o tsv"
-            echo "         az webapp stop -g $AZURE_RG -n $APP --slot $SLOT"
+            echo "       Tags that do exist, most recent first:"
+            az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" \
+              --orderby time_desc --top 20 --output tsv | sed 's/^/         /'
             exit 1
           fi
-          echo "Swapped '$SLOT' back into production. Verifying /healthz..."
-          # RECORD whether recovery was actually observed. This loop used to break on a 200 and then fall
-          # straight through when it never saw one: thirty HTTP 500s and the step carried on, stopped the
-          # staging slot and reported success. The bare diagnostic curl below cannot catch that either - it
-          # has no --fail, so it exits 0 on an HTTP 500. The result was the worst possible shape for an
-          # emergency lever: a swap-back that did NOT restore production reported GREEN while stopping the
-          # only remaining swap target, so the one recovery path left was destroyed and the only evidence
-          # anyone had said it worked. Never infer recovery from "the loop finished".
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+          # Which commit does that image carry? For a ci-<commit> tag it is in the name; for a moving tag
+          # or a digest it is not, and the wait below checks production by commit, so read it off the
+          # image's OWN tags. `acr repository show-manifests` reads the same thing and is DEPRECATED;
+          # `acr manifest list-metadata` is the replacement, and both were verified against this registry
+          # on 2026-09-20.
+          if [ "$TAG" = "ci-${{ inputs.commit }}" ]; then
+            COMMIT="${{ inputs.commit }}"
+          else
+            # ITS ABSENCE MUST NOT REFUSE THE ROLLBACK (review finding). The purge keeps only the three
+            # newest ci- tags, so the last known good loses its ci- tag within three deploys while the
+            # image itself stays pullable on the moving tag. Refusing then would disarm the emergency
+            # lever at exactly the moment it is needed: the designated recovery image present, pullable,
+            # and rejected. Without a commit this run can verify that production comes back HEALTHY but
+            # not WHICH code it is running, and it says so rather than pretending otherwise.
+            COMMIT=$(az acr manifest list-metadata --registry "$ACR" --name "$IMAGE_NAME"                        --query "[?digest=='${DIGEST}'].tags[]" -o tsv 2>/dev/null                      | grep '^ci-' | head -n1 | sed 's/^ci-//' || true)
+            if [ -z "$COMMIT" ]; then
+              echo "NOTE: ${TAG} carries no ci-<commit> tag, so the checks below verify that production"
+              echo "      comes back HEALTHY, not which commit it is running. What it reports is printed"
+              echo "      at the end of this run."
+            fi
+          fi
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "Rolling back to ${TAG} = commit ${COMMIT} (${DIGEST})."
+
+      # What production runs right now, recorded before it is replaced. This is the way FORWARD again if
+      # the rollback turns out to be the wrong call, and it is the only record of it once the pin changes.
+      - name: Record what production is running now
+        id: current
+        run: |
+          IMG=$(az webapp config show -g "$AZURE_RG" -n "$APP" --query linuxFxVersion -o tsv)
+          IMG=${IMG#DOCKER|}
+          NOWCOMMIT=$(curl -s -m 15 "${GATEWAY_URL}/healthz" | jq -r '.commit // empty' 2>/dev/null || true)
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+          echo "commit=$NOWCOMMIT" >> "$GITHUB_OUTPUT"
+          echo "Production is on image: $IMG"
+          echo "Production reports commit: ${NOWCOMMIT:-<none reported>}"
+          if [ -n "$NOWCOMMIT" ] && [ "$NOWCOMMIT" = "${{ inputs.commit }}" ] && [ "${{ inputs.commit }}" != "last-known-good" ]; then
+            echo ""
+            echo "NOTE: production already reports commit ${{ inputs.commit }}. This run will still re-pin"
+            echo "      and restart it, and the availability check below cannot tell the new container from"
+            echo "      the old one - they report the same commit. If you meant a different commit, stop"
+            echo "      this run now."
+          fi
+
+      # Pin the old image and wait for production to come back on it, polling from outside once a second
+      # so the recovery is measured rather than assumed. NEVER infer recovery from "the loop finished":
+      # this lever once reported GREEN after thirty HTTP 500s, which is the worst possible shape for an
+      # emergency brake.
+      - name: Put the previous image back and verify production recovers
+        id: recover
+        run: |
+          TARGET="${{ steps.target.outputs.commit }}"
+          REF="${ACR}.azurecr.io/${IMAGE_NAME}@${{ steps.target.outputs.digest }}"
+          LOG=/tmp/rollback-poll.log; : > "$LOG"
+          ( while :; do
+              t=$(date +%s.%N)
+              body=$(curl -s -m 2 -w '\n%{http_code}' "${GATEWAY_URL}/healthz" 2>/dev/null || printf '\n000')
+              code=$(printf '%s' "$body" | tail -n1)
+              commit=$(printf '%s' "$body" | sed '$d' | jq -r '.commit // empty' 2>/dev/null || echo "")
+              echo "$t $code ${commit:-none}" >> "$LOG"
+              sleep 1
+            done ) & POLL=$!
+
+          started=$(date +%s)
+          az webapp config container set -g "$AZURE_RG" -n "$APP" \
+            --docker-custom-image-name "$REF" --output none
+          echo "Production pinned to $REF at $(date -u +%H:%M:%S); waiting for it to serve $TARGET..."
+
+          # WATCH PAST THE RESTART, NOT UP TO THE FIRST GOOD ANSWER (review finding). Pinning an image
+          # returns before the platform restarts the site, so for the first seconds the OLD container is
+          # still answering. When the target is the commit production is already serving - a rollback to
+          # last-known-good after a bad deploy never took hold, or a deliberate re-pin - three sustained
+          # 200s can be answered entirely by that old container, and a run that stopped there would go
+          # GREEN and kill its poller seconds before the real restart landed. If that restart then failed,
+          # the emergency lever would report success over a dead service with nothing watching.
+          #
+          # So this loop never finishes before SETTLE_SECONDS have passed since the pin, and what it
+          # requires at the end is an unbroken streak - which a container that falls over during the
+          # restart cannot produce.
+          SETTLE_SECONDS=150
           recovered=no
-          for i in $(seq 1 30); do
-            code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/healthz" || true)
-            echo "attempt $i: HTTP $code"
-            if [ "$code" = "200" ]; then
-              recovered=yes
-              echo "Recovered."
-              break
+          deadline=$(( started + 600 ))
+          streak=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            body=$(curl -s -m 10 -w '\n%{http_code}' "${GATEWAY_URL}/healthz" 2>/dev/null || printf '\n000')
+            code=$(printf '%s' "$body" | tail -n1)
+            commit=$(printf '%s' "$body" | sed '$d' | jq -r '.commit // empty' 2>/dev/null || echo "")
+            elapsed=$(( $(date +%s) - started ))
+            if [ "$code" = "200" ] && { [ -z "$TARGET" ] || [ "$commit" = "$TARGET" ]; }; then
+              streak=$(( streak + 1 ))
+              echo "production 200 commit=${commit:-<none>} (streak $streak, ${elapsed}s since the pin)"
+              if [ "$streak" -ge 3 ] && [ "$elapsed" -ge "$SETTLE_SECONDS" ]; then recovered=yes; break; fi
+            else
+              streak=0
+              echo "production HTTP $code commit=${commit:-<none>} (restarting, ${elapsed}s since the pin)"
             fi
             sleep 3
           done
 
-          # The response body, whatever it is - the diagnostic that says WHY when the code was not 200.
-          # `|| true` is load-bearing, not defensive habit. Steps run under `bash -e`, and this curl fails
-          # at the TRANSPORT level (exit 7 connection refused, exit 28 timeout) precisely when production is
-          # hard down - the common case in the outage this lever exists for. Unguarded, errexit would kill
-          # the step HERE, one line before the verdict below: an unrecovered swap-back would exit red with
-          # the hazard banner never printed, and a RECOVERED one would exit red without stopping staging.
-          # A diagnostic must never decide the outcome.
-          curl -s -m 15 "${GATEWAY_URL}/healthz" || true
-          echo
+          # Stop the poller and WAIT for it to go before reading its log, or the last sample can be
+          # half-written and the awk below counts a truncated line as an outage (review finding). This is
+          # what the deploy workflow's handover step does.
+          kill "$POLL" 2>/dev/null || true
+          for _ in $(seq 1 50); do
+            if kill -0 "$POLL" 2>/dev/null; then sleep 0.2; else break; fi
+          done
+
+          echo "--- production poll across the rollback ---"; cat "$LOG"
+          longest=$(awk '
+            $2=="200" { if (gap != "") { d = $1 - gap; if (d > longest) longest = d; gap = "" } last=$1; next }
+            { if (gap == "") gap = (last != "" ? last : $1); seen=$1 }
+            END { if (gap != "") { d = seen - gap; if (d > longest) longest = d } printf "%.1f", longest+0 }
+          ' "$LOG")
+          echo "Longest unavailable stretch during this rollback: ${longest}s"
 
           if [ "$recovered" != "yes" ]; then
-            echo "ERROR: the swap-back did NOT restore production - /healthz never returned 200 in 30 attempts."
             echo ""
-            echo "       THE STAGING SLOT HAS BEEN LEFT RUNNING ON PURPOSE. This is a declared hazard, not"
-            echo "       an oversight, and it must be resolved rather than left alone:"
+            echo "ERROR: the rollback did NOT restore production - it never held a sustained 200${TARGET:+ on commit $TARGET}"
+            echo "       within 600s. PRODUCTION IS PROBABLY DOWN."
             echo ""
-            echo "         * It is a SECOND WRITER on the shared Azure Files mount at /home/gateway/cc-director."
-            echo "           Two containers on one set of files is what corrupted the statistics database and"
-            echo "           took GET /sessions down for 32 minutes on 2026-07-30. That risk is running RIGHT NOW."
-            echo "         * It is being accepted only because the alternative is worse. The slot still holds"
-            echo "           the instance that was in production before this swap-back, and it is the only"
-            echo "           remaining swap target - stopping it would leave no recovery path at all. Stopping"
-            echo "           a slot while production is unhealthy is also what caused a 502 outage before."
-            echo "         * This run exits RED so a human is looking within seconds, not in a week. A declared"
-            echo "           hazard with a red run beats an undeclared recovery reporting green."
-            echo "         * This run ending also RELEASES the hosted-gateway-production serialisation group,"
-            echo "           so anything queued behind it can now start while both containers are up. A queued"
-            echo "           DEPLOY is safe - it refuses to start on a staging slot that is not Stopped - but"
-            echo "           the slot provisioning workflow and a second rollback have no such guard. Check"
-            echo "           the Actions queue before you do anything else."
+            echo "       Production is now pinned to the OLD image:"
+            echo "         $REF"
+            echo "       It was on this before this run:"
+            echo "         ${{ steps.current.outputs.image }}"
             echo ""
-            echo "       DO THIS NOW, in order:"
-            echo "         1. Find out why production is still unhealthy - the platform container log for"
-            echo "            $APP has the failing container's own startup output."
-            echo "         2. Decide: swap again, or fix forward and deploy."
-            echo "         3. When production is healthy, return to steady state - ONE running instance:"
-            echo "              az webapp stop -g $AZURE_RG -n $APP --slot $SLOT"
-            echo "       Do not walk away while two containers share that mount."
+            echo "       This means the fault is very unlikely to be the code that was just replaced -"
+            echo "       both images now failed to come up. Look at the platform container log for $APP"
+            echo "       (the container's own startup output), and at whether the site itself was stopped."
+            echo "       Do not keep re-pinning images in the hope that one starts."
             exit 1
           fi
-
-          # Production recovered. Return to steady state - one running instance. If the stop FAILS, the
-          # slot is still a second writer on the shared mount, and errexit alone would end the step here
-          # with a bare red and no explanation: the identical undeclared-hazard shape as the failure path
-          # above, just reached from the good side. Declare it the same way.
-          if ! az webapp stop -g "$AZURE_RG" -n "$APP" --slot "$SLOT" -o none; then
-            echo "ERROR: production RECOVERED, but stopping the staging slot FAILED."
-            echo ""
-            echo "       THE SWAP-BACK ITSELF WORKED - production is serving again. This is a cleanup"
-            echo "       failure, not a recovery failure, and it still needs you:"
-            echo ""
-            echo "         * The staging slot is very likely STILL RUNNING, which makes it a SECOND WRITER"
-            echo "           on the shared Azure Files mount at /home/gateway/cc-director. Two containers on"
-            echo "           one set of files corrupted the statistics database and took GET /sessions down"
-            echo "           for 32 minutes on 2026-07-30."
-            echo "         * This run ending RELEASES the hosted-gateway-production serialisation group, so"
-            echo "           anything queued can start while both containers are up. A queued DEPLOY refuses"
-            echo "           to start on a slot that is not Stopped; the provisioning workflow and a second"
-            echo "           rollback do not."
-            echo ""
-            echo "       DO THIS NOW - confirm the slot's real state, then stop it:"
-            echo "         az webapp show -g $AZURE_RG -n $APP --slot $SLOT --query state -o tsv"
-            echo "         az webapp stop -g $AZURE_RG -n $APP --slot $SLOT"
-            exit 1
+          # Did this run actually WATCH the old container go away, or did it only find the right commit
+          # answering? With last-known-good, and with any rollback to the commit already live, every sample
+          # can carry the target from the first moment - so a pass here proves production is healthy on the
+          # wanted commit, and proves nothing about the restart. Say which of the two happened.
+          # WITH NO TARGET COMMIT, "another commit" IS NOT COUNTABLE (verification finding). When the
+          # image is a moving tag or a digest whose ci- tag has been purged, TARGET is empty; counting
+          # samples whose commit differs from an empty string counts the target container's OWN answers,
+          # so OTHER is always positive and the run would claim it watched production change when it
+          # watched nothing of the kind. Only a sample with NO ANSWER is evidence of a restart here.
+          if [ -n "$TARGET" ]; then
+            OTHER=$(awk -v t="$TARGET" '$2=="200" && $3!=t {n++} END {print n+0}' "$LOG")
+          else
+            OTHER=0
           fi
-          echo "Staging stopped; steady state restored to one running instance."
-
-      - name: Downgrade the plan (delete staging, return to Basic)
-        if: ${{ inputs.action == 'downgrade' }}
-        run: |
-          if az webapp deployment slot list -g "$AZURE_RG" -n "$APP" --query "[?name=='$SLOT'] | length(@)" -o tsv | grep -q '^1$'; then
-            az webapp deployment slot delete -g "$AZURE_RG" -n "$APP" --slot "$SLOT"
-            echo "Deleted slot '$SLOT'"
+          DOWN=$(awk '$2!="200" {n++} END {print n+0}' "$LOG")
+          if [ "$OTHER" -gt 0 ] || [ "$DOWN" -gt 0 ]; then
+            echo "Recovered: production is serving${TARGET:+ commit $TARGET} again, and this run watched it change"
+            echo "(samples on another commit: $OTHER; samples with no answer: $DOWN)."
+          else
+            echo "Production is serving${TARGET:+ commit $TARGET} and answered every single sample."
+            echo "THE RESTART ITSELF WAS NOT OBSERVED: no sample carried a different commit and none failed,"
+            echo "so this run cannot say the pinned image is what is serving - production may have been on"
+            echo "$TARGET the whole time. Check the image now pinned, below, against what /healthz reports,"
+            echo "and if this was meant to CHANGE the running code, treat it as unconfirmed."
           fi
-          az appservice plan update -g "$AZURE_RG" -n "$PLAN" --sku "${{ inputs.downgrade_sku }}" -o none
-          echo "Plan returned to ${{ inputs.downgrade_sku }}. Deploys are back to in-place restart."
+          curl -s -m 15 "${GATEWAY_URL}/healthz"; echo
 
       - name: Report
         if: always()
         run: |
-          az appservice plan show -g "$AZURE_RG" -n "$PLAN" --query "{sku:sku.name}" -o table
-          az webapp deployment slot list -g "$AZURE_RG" -n "$APP" --query "[].{name:name,state:state}" -o table 2>/dev/null || true
+          echo "== Plan =="
+          az appservice plan show -g "$AZURE_RG" -n "$PLAN" --query "{sku:sku.name,tier:sku.tier}" -o table
+          echo "== Image now pinned =="
+          az webapp config show -g "$AZURE_RG" -n "$APP" --query linuxFxVersion -o tsv
+          echo "== /healthz (what production reports it is running) =="
+          curl -s -m 15 "${GATEWAY_URL}/healthz" || true
+          echo

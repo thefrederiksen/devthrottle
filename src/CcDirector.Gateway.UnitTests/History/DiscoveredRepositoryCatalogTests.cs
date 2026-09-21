@@ -40,7 +40,7 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
         var store = NewStore();
 
         Assert.True(store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found(@"D:\Repos\never-opened", "never-opened") }, rootFolders: null, _now, reconcile: true));
+            new[] { Found(@"D:\Repos\never-opened", "never-opened") }, rootFolders: null, worktrees: null, _now, reconcile: true));
 
         var row = Assert.Single(AllRows());
         Assert.Null(row.LastUsedUtc);
@@ -60,7 +60,7 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
         store.Observe(TenantId.Local, Machine, "/repos/in-use", "in-use", used);
 
         Assert.False(store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/repos/in-use", "in-use") }, rootFolders: null, _now, reconcile: true));
+            new[] { Found("/repos/in-use", "in-use") }, rootFolders: null, worktrees: null, _now, reconcile: true));
 
         var row = Assert.Single(AllRows());
         Assert.Equal(used, row.LastUsedUtc);
@@ -74,7 +74,7 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/repos/opened-tomorrow", "opened-tomorrow") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/repos/opened-tomorrow", "opened-tomorrow") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         Assert.True(store.Observe(TenantId.Local, Machine, "/repos/opened-tomorrow", "opened-tomorrow", _now.AddHours(1)));
 
@@ -97,11 +97,11 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
             Found("/repos/used", "used"),
             Found("/roots/alpha/one", "one"),
             Found("/roots/alpha/two", "two"),
-        }, rootFolders: null, _now, reconcile: true);
+        }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         // The alpha root folder is unregistered, so the next scan reports neither repository under it.
         Assert.True(store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/repos/used", "used") }, rootFolders: null, _now.AddMinutes(1), reconcile: true));
+            new[] { Found("/repos/used", "used") }, rootFolders: null, worktrees: null, _now.AddMinutes(1), reconcile: true));
 
         var row = Assert.Single(AllRows());
         Assert.Equal("/repos/used", row.Path);
@@ -113,11 +113,11 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         // The caller could not tell this was a complete observation - a cold start, or a warm-cache push.
         Assert.False(store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            Array.Empty<DiscoveredRepository>(), rootFolders: null, _now.AddMinutes(1), reconcile: false));
+            Array.Empty<DiscoveredRepository>(), rootFolders: null, worktrees: null, _now.AddMinutes(1), reconcile: false));
 
         Assert.Equal("/roots/alpha/one", Assert.Single(AllRows()).Path);
     }
@@ -127,14 +127,14 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, worktrees: null, _now, reconcile: true);
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorTwo,
-            new[] { Found("/roots/beta/two", "two") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/beta/two", "two") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         // The first Director rescans its own - unchanged - root folder. The second Director's finding is
         // not in that snapshot, and must survive it.
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, _now.AddHours(2), reconcile: true);
+            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, worktrees: null, _now.AddHours(2), reconcile: true);
 
         var rows = AllRows();
         Assert.Equal(2, rows.Count);
@@ -147,10 +147,10 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/shared/one", "one") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/shared/one", "one") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         Assert.False(store.ObserveDiscovered(TenantId.Local, Machine, DirectorTwo,
-            new[] { Found("/roots/shared/one", "one") }, rootFolders: null, _now.AddHours(2), reconcile: true));
+            new[] { Found("/roots/shared/one", "one") }, rootFolders: null, worktrees: null, _now.AddHours(2), reconcile: true));
 
         var row = Assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.DiscoveredByDirectorId);
@@ -162,12 +162,12 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found(@"D:\Repos\Project\", "Project") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found(@"D:\Repos\Project\", "Project") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         // The same repository, spelled the other way. Windows-ness is decided from the PATH'S OWN SHAPE -
         // the Gateway is never the machine the path describes.
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("d:/repos/project", "Project") }, rootFolders: null, _now.AddHours(2), reconcile: true);
+            new[] { Found("d:/repos/project", "Project") }, rootFolders: null, worktrees: null, _now.AddHours(2), reconcile: true);
 
         var row = Assert.Single(AllRows());
         Assert.Equal("d:/repos/project", row.Path);
@@ -179,12 +179,12 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, "north", DirectorOne,
-            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         // A scan reported under a different machine is a different machine's catalog, and reconciling one
         // from the other would empty it.
         store.ObserveDiscovered(TenantId.Local, "south", DirectorOne,
-            new[] { Found("/roots/beta/two", "two") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/beta/two", "two") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         Assert.Equal(2, AllRows().Count);
     }
@@ -194,16 +194,16 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         var found = new[] { Found("/roots/alpha/one", "one") };
-        store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne, found, rootFolders: null, _now, reconcile: true);
+        store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne, found, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         // Inside the freshness interval the stamp is left where it is - a ten-second reseed must not be a
         // database write per Director for a fact nothing reads to the second.
         Assert.False(store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne, found,
-            rootFolders: null, _now.Add(KnownRepositoryStore.LastSeenFreshnessInterval).AddMinutes(-1), reconcile: true));
+            rootFolders: null, worktrees: null, _now.Add(KnownRepositoryStore.LastSeenFreshnessInterval).AddMinutes(-1), reconcile: true));
         Assert.Equal(_now, Assert.Single(AllRows()).LastSeenUtc);
 
         var due = _now.Add(KnownRepositoryStore.LastSeenFreshnessInterval);
-        Assert.True(store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne, found, rootFolders: null, due, reconcile: true));
+        Assert.True(store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne, found, rootFolders: null, worktrees: null, due, reconcile: true));
         Assert.Equal(due, Assert.Single(AllRows()).LastSeenUtc);
     }
 
@@ -212,14 +212,14 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "renamed") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "renamed") }, rootFolders: null, worktrees: null, _now, reconcile: true);
         Assert.Equal("renamed", Assert.Single(AllRows()).Name);
 
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "") }, rootFolders: null, worktrees: null, _now, reconcile: true);
         Assert.Equal("renamed", Assert.Single(AllRows()).Name);
     }
 
@@ -228,13 +228,13 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
     {
         var store = NewStore();
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne,
-            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, _now, reconcile: true);
+            new[] { Found("/roots/alpha/one", "one") }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         store.ObserveDiscovered(TenantId.Local, Machine, DirectorOne, new[]
         {
             Found("   ", "pathless"),
             Found("/roots/alpha/one", "one"),
-        }, rootFolders: null, _now, reconcile: true);
+        }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         Assert.Equal("/roots/alpha/one", Assert.Single(AllRows()).Path);
     }
@@ -248,7 +248,7 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
         {
             Found("/repos/used", "used"),
             Found("/roots/alpha/never-opened", "never-opened"),
-        }, rootFolders: null, _now, reconcile: true);
+        }, rootFolders: null, worktrees: null, _now, reconcile: true);
 
         // Stored as two rows - phase 2.
         Assert.Equal(2, AllRows().Count);
@@ -272,11 +272,11 @@ public sealed class DiscoveredRepositoryCatalogTests : IDisposable
         var found = new[] { Found("/roots/alpha/one", "one") };
 
         Assert.Throws<ArgumentException>(() =>
-            store.ObserveDiscovered(TenantId.Local, Machine, "  ", found, rootFolders: null, _now, reconcile: true));
+            store.ObserveDiscovered(TenantId.Local, Machine, "  ", found, rootFolders: null, worktrees: null, _now, reconcile: true));
         Assert.Throws<ArgumentException>(() =>
-            store.ObserveDiscovered(TenantId.Local, "  ", DirectorOne, found, rootFolders: null, _now, reconcile: true));
+            store.ObserveDiscovered(TenantId.Local, "  ", DirectorOne, found, rootFolders: null, worktrees: null, _now, reconcile: true));
         Assert.Throws<ArgumentException>(() =>
-            store.ObserveDiscovered(default, Machine, DirectorOne, found, rootFolders: null, _now, reconcile: true));
+            store.ObserveDiscovered(default, Machine, DirectorOne, found, rootFolders: null, worktrees: null, _now, reconcile: true));
 
         Assert.Empty(AllRows());
     }

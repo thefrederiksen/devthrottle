@@ -118,6 +118,22 @@ export interface SessionComposerProps {
 
 const DEFAULT_PLACEHOLDER = "Type a message... (Ctrl+Enter to send, Ctrl+Shift+Enter to queue)";
 
+/** The one filled control in the window. An arrow, because Send and Queue both mean "away from here". */
+function SendArrow() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function SessionComposer({
   sessionId,
   value,
@@ -434,15 +450,32 @@ export function SessionComposer({
 
   // The queue button, built once and placed once. It takes the SENDING slot - first on the bar, and drawn as the
   // loud one - when it is the only way to send from this box; otherwise it keeps its ordinary place after Speak.
+  // When queueing is the ONLY way to send - a turn is in flight - it takes the filled control and the
+  // arrow, because that is the one thing pressing it does. It does not pretend to be a second verb
+  // sitting beside Send; it IS the send, honest about where the words will go.
   const queueButton = offersQueue ? (
-    <button
-      type="button"
-      className={`composer-btn${queueIsTheOnlySend ? " send" : ""}`}
-      disabled={busy || empty}
-      onClick={() => void queue()}
-    >
-      {queueIsTheOnlySend ? "Queue it" : "Queue"}
-    </button>
+    queueIsTheOnlySend ? (
+      <button
+        type="button"
+        className="composer-send"
+        disabled={busy || empty}
+        onClick={() => void queue()}
+        title="The session is working - your words go in the queue and land when it finishes"
+        aria-label="Queue it"
+      >
+        <SendArrow />
+      </button>
+    ) : (
+      <button
+        type="button"
+        className="composer-ghost"
+        disabled={busy || empty}
+        onClick={() => void queue()}
+        title="Put this in the queue instead of sending it now"
+      >
+        Queue
+      </button>
+    )
   ) : null;
 
   return (
@@ -452,49 +485,25 @@ export function SessionComposer({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
     >
-      <textarea
-        ref={textareaRef}
-        className="composer-input"
-        rows={3}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => {
-          // The caret AFTER the change is what tells a deletion of the first of two identical copies from a
-          // deletion of the second; the record cannot know it from the text alone.
-          provenanceRef.current.textChanged(e.target.value, e.target.selectionStart ?? undefined);
-          onChange(e.target.value);
-        }}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        spellCheck={false}
-      />
-      <div className="composer-btns">
-        {offersSend && (
-          <button type="button" className="composer-btn send" disabled={busy || empty} onClick={() => void send()}>
-            Send
-          </button>
-        )}
-        {queueIsTheOnlySend && queueButton}
-        <button
-          type="button"
-          className="composer-btn"
-          disabled={busy || dictating || !sessionId}
-          onClick={onSpeak}
-          title="Dictate into the composer"
-        >
-          Speak
-        </button>
-        {!queueIsTheOnlySend && queueButton}
+      {/* ONE COMPOSER (owner ruling, 2026-09-20). This row used to be four buttons under a box, with
+          five more driver verbs in a bar above it - nine controls of equal weight under every
+          conversation. Attach and Speak are INPUTS, so they belong inside the input; Send is the one
+          filled control in the window; the driver verbs went to where they can actually act (Stop to
+          the strip under this pill, the rest to the session menu). Nothing was dropped. */}
+      <div className="composer-pill">
         {showQueueAndAttach && (
           <>
             <button
               type="button"
-              className="composer-btn"
+              className="composer-round"
               disabled={busy}
               onClick={() => fileRef.current?.click()}
               title="Upload a device-local image and insert its path (or paste / drag one in)"
+              aria-label="Attach"
             >
-              Attach
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
             </button>
             <input
               ref={fileRef}
@@ -506,9 +515,57 @@ export function SessionComposer({
             />
           </>
         )}
-        {status !== null && <span className="composer-status">{status}</span>}
-        {error !== null && <span className="composer-error">{error}</span>}
+        <textarea
+          ref={textareaRef}
+          className="composer-input"
+          rows={1}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => {
+            // The caret AFTER the change is what tells a deletion of the first of two identical copies from a
+            // deletion of the second; the record cannot know it from the text alone.
+            provenanceRef.current.textChanged(e.target.value, e.target.selectionStart ?? undefined);
+            onChange(e.target.value);
+          }}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          spellCheck={false}
+        />
+        <button
+          type="button"
+          className="composer-round"
+          disabled={busy || dictating || !sessionId}
+          onClick={onSpeak}
+          title="Dictate into the composer"
+          aria-label="Speak"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <rect x="6" y="2.2" width="4" height="7" rx="2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M3.8 7.4a4.2 4.2 0 0 0 8.4 0M8 11.6v2.2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+        {!queueIsTheOnlySend && queueButton}
+        {offersSend && (
+          <button
+            type="button"
+            className="composer-send"
+            disabled={busy || empty}
+            onClick={() => void send()}
+            aria-label="Send"
+            title="Send this to the session"
+          >
+            <SendArrow />
+          </button>
+        )}
+        {queueIsTheOnlySend && queueButton}
       </div>
+
+      {(status !== null || error !== null) && (
+        <div className="composer-strip">
+          {status !== null && <span className="composer-status">{status}</span>}
+          {error !== null && <span className="composer-error">{error}</span>}
+        </div>
+      )}
 
       {/* The live status of a background dictation Send for THIS session (the same shared strip the
           mobile screens mount): in-flight phase, held/parked with retry controls, dropped with the

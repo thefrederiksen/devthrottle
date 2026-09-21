@@ -59,8 +59,12 @@ type MainTab = "terminal" | "chat" | "voice" | "sourceControl" | "wingman" | "re
 // the tab already chosen and the report already open, and every switch writes the address back so it never
 // describes a screen that is not the one you are looking at. Terminal is the default and is left OUT of the
 // address, so an ordinary session link stays `/session/{sid}`.
-const MAIN_TABS: readonly MainTab[] = ["terminal", "chat", "voice", "sourceControl", "wingman", "reports"];
-const DEFAULT_MAIN_TAB: MainTab = "terminal";
+// Chat leads, and Chat is where a session opens (owner ruling, 2026-09-20). The command line is the
+// thing this product is trying to stop people having to look at, so it cannot be the first thing they
+// see. Terminal keeps its place in the row, one click away, and is still always MOUNTED (see below) -
+// only the opening view changed.
+const MAIN_TABS: readonly MainTab[] = ["chat", "terminal", "voice", "sourceControl", "wingman", "reports"];
+const DEFAULT_MAIN_TAB: MainTab = "chat";
 
 function tabFromAddress(raw: string | null): MainTab {
   return MAIN_TABS.includes(raw as MainTab) ? (raw as MainTab) : DEFAULT_MAIN_TAB;
@@ -185,20 +189,20 @@ export function SessionDetail() {
           <button
             type="button"
             role="tab"
-            aria-selected={mainTab === "terminal"}
-            className={`session-tab ${mainTab === "terminal" ? "on" : ""}`}
-            onClick={() => setMainTab("terminal")}
-          >
-            Terminal
-          </button>
-          <button
-            type="button"
-            role="tab"
             aria-selected={mainTab === "chat"}
             className={`session-tab ${mainTab === "chat" ? "on" : ""}`}
             onClick={() => setMainTab("chat")}
           >
             Chat
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mainTab === "terminal"}
+            className={`session-tab ${mainTab === "terminal" ? "on" : ""}`}
+            onClick={() => setMainTab("terminal")}
+          >
+            Terminal
           </button>
           <button
             type="button"
@@ -341,7 +345,7 @@ export function SessionDetail() {
             Every other tab keeps both, unchanged. */}
         {mainTab !== "wingman" && (
           <>
-            <SessionActionBar sessionId={sessionId} capabilities={selected?.driverCapabilities} />
+            <SessionActionBar sessionId={sessionId} capabilities={selected?.driverCapabilities} session={selected} />
             <SessionComposer
               sessionId={sessionId}
               value={compose}
