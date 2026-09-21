@@ -107,6 +107,14 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
         TenantNoOp = deviceNoOp.Tenant;
         TenantNarratable = deviceNarratable.Tenant;
 
+        // THE SESSION SUPERVISOR IS SWITCHED OFF, before the snapshots below are pushed. A pushed settled session
+        // is a turn end, and the supervisor answers it on its own task with a "screen-grid" read - here of a
+        // screen that says "API key auth failed", which sends it down its whole fault path while the voice sweep
+        // under test is running. Its reads also satisfy the "screen-grid reached the Director" checks below, which
+        // are meant to prove the SWEEP got there; with it off they still pass, so the sweep does reach it.
+        _gateway.TenantSettingsResolver.SetSessionSupervisorEnabled(TenantNoOp, false, DateTime.UtcNow);
+        _gateway.TenantSettingsResolver.SetSessionSupervisorEnabled(TenantNarratable, false, DateTime.UtcNow);
+
         _dirNoOp = await FakeTunnelDirector.StartAsync(_gateway, deviceNoOp.DeviceKey, "dir-noop", "MN",
             dispatch: cmd =>
             {
@@ -267,6 +275,15 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
         Assert.Contains(_seenByNarratable,
             command => command.Verb == "screen-grid" && command.SessionId == NarratableSession);
 
+        // THE REST FOLLOWS THE READING, WHICH THE SWEEP DOES NOT WAIT FOR. Clearing the planted verdict and
+        // dropping the old clip both happen once the stop has been judged, and the judging runs on the thread
+        // pool after the sweep has returned. So they are waited for here as the end state they are - both of
+        // them, because the clip is dropped just after the flag clears - and then asserted exactly as before.
+        // Asserted the moment the sweep returned, this lost the race under load: the flag was still set.
+        await WaitUntil(() =>
+            !_gateway.VoiceService.NothingToNarrateFor(TenantNarratable, NarratableSession)
+            && _gateway.VoiceService.Get(TenantNarratable, NarratableSession)?.Reply != "The older successful answer.");
+
         // Selecting the terminal source clears the deliberately planted opposite verdict. If the callback
         // path skipped the live screen, it would leave this true after finding no current reply.
         Assert.False(_gateway.VoiceService.NothingToNarrateFor(TenantNarratable, NarratableSession));
@@ -283,6 +300,15 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
             Assert.Contains("API key auth failed", ready.Reply);
             Assert.NotEqual("The older successful answer.", ready.Reply);
         }
+    }
+
+    /// <summary>Poll for state the sweep's thread-pool work sets after the sweep has returned, rather than
+    /// sleeping a fixed time. Returns when the condition holds or the deadline passes; the caller asserts, so a
+    /// timeout surfaces as the original assertion rather than as a message from here.</summary>
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(50);
     }
 
     /// <summary>Poll for a verb+session rather than sleeping a fixed time: the sweep fires generation onto
