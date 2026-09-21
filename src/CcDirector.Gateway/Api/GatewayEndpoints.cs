@@ -1752,7 +1752,10 @@ internal static class GatewayEndpoints
                 // untouched, so every existing reader of this envelope (the Cockpit, the phone, and the
                 // Director's own relay) is unaffected.
                 var (rosterComplete, rosterIncompleteReason) = RosterCompleteness.Fold(reachability);
-                return Results.Json(new
+                // Traffic optimization, phase 1: both roster shapes answer an unchanged poll with a 304 and no
+                // body (ConditionalJson) - the tag is the hash of these exact bytes, so any field that changes
+                // is a full answer.
+                return ConditionalJson.Serve(ctx, new
                 {
                     sessions = all,
                     machineErrors,
@@ -1763,7 +1766,7 @@ internal static class GatewayEndpoints
                     rosterStaleAnswerCaution = RosterCompleteness.StaleAnswerCaution(reachability),
                 });
             }
-            return Results.Json(all);
+            return ConditionalJson.Serve(ctx, all);
         })
         // Issue #806: advertise the default response shape (a SessionDto array) in the OpenAPI
         // document so the mobile app's openapi-typescript codegen generates a typed roster client.

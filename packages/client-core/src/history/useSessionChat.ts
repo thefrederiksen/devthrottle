@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSessionHistory } from "../api/client";
+import { useVisiblePolling } from "../polling/useVisiblePolling";
 import type { HistoryBubbleFilter } from "./bubbleMapper";
 import type { SessionHistoryDto } from "./types";
 import {
@@ -12,7 +13,7 @@ import {
 
 // The shared Session Chat hook (hoisted for issue #1213). It drives the live conversation-history view
 // for BOTH the mobile Chat page and the Cockpit Chat tab: it polls GET /sessions/{sid}/history every
-// 2.5s, applies the desktop "Show:" filter (persisted per browser), and only commits a new bubble list
+// 2.5s while the page is visible, applies the desktop "Show:" filter (persisted per browser), and only commits a new bubble list
 // when the change-signature actually changes, so a steady poll never re-renders or yanks a scrolled-up
 // reader. Every call carries the Bearer token (via the shared client), so Chat works with global
 // Gateway auth on or off. The view owns only the DOM: the scroll element and its sticky-bottom follow.
@@ -64,35 +65,30 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
     setBubbles(rendered.bubbles);
   }, []);
 
-  // Live poll every 2.5s. AbortController cancels the in-flight fetch on unmount/session switch.
-  useEffect(() => {
-    if (!sessionId) return;
-    const controller = new AbortController();
-    let cancelled = false;
-
-    const refresh = async () => {
+  // Live poll every 2.5s, only while the page is visible (traffic optimization, phase 1). This used to be a bare
+  // setInterval, so a hidden or forgotten tab re-downloaded the whole conversation every 2.5s all night. The
+  // shared visibility helper stops the timer and cancels the in-flight read when the tab is hidden, and reads
+  // once at once when it is visible again. The signal it hands us is aborted on hide, unmount and session
+  // switch, so a late answer for a session no longer on screen is dropped.
+  const refresh = useCallback(
+    async (signal: AbortSignal) => {
+      if (!sessionId) return;
       try {
-        const history = await getSessionHistory(sessionId, controller.signal);
-        if (cancelled) return;
+        const history = await getSessionHistory(sessionId, signal);
+        if (signal.aborted) return;
         setLoadFailed(false);
         setLoadError(null);
         lastHistoryRef.current = history;
         renderHistory(history, false);
       } catch (err) {
-        if (cancelled || controller.signal.aborted) return;
+        if (signal.aborted) return;
         setLoadFailed(true);
         setLoadError(err instanceof Error ? err.message : String(err));
       }
-    };
-
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), CHAT_POLL_MS);
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [sessionId, renderHistory]);
+    },
+    [sessionId, renderHistory],
+  );
+  useVisiblePolling(refresh, CHAT_POLL_MS, Boolean(sessionId));
 
   // A "Show:" checkbox flipped: remember the choice and re-render the cached history immediately
   // through the new filter (force, since the filter is part of the signature).
