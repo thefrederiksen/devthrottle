@@ -79,7 +79,9 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20260921105238_AddFactoryTriggers", all[index + 5]);
             // The factory activity record's read indexes (the Factory Agents pages) after that.
             Assert.Equal("20260921131114_IndexFactoryActivityReads", all[index + 6]);
-            Assert.Equal(all.Count - 7, index);
+            // The name a trigger's pending start used, stored with its lock (the trigger's live check) after that.
+            Assert.Equal("20260921203258_AddTriggerStartName", all[index + 7]);
+            Assert.Equal(all.Count - 8, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -94,8 +96,9 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
         {
             ctx.GetService<IMigrator>().Migrate();
             // Later migrations follow the one under test, so migrating fully applies them too; the raised sessions
-            // table was the last of them until the factory activity record and then the factory triggers followed it.
-            Assert.Equal("20260921131114_IndexFactoryActivityReads", ctx.Database.GetAppliedMigrations().Last());
+            // table was the last of them until the factory activity record and then the factory triggers followed it,
+            // and then the name a trigger's pending start used.
+            Assert.Equal("20260921203258_AddTriggerStartName", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 
