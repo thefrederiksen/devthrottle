@@ -388,6 +388,8 @@ public sealed class PushedSessionStore
         session.OwnerChange = null;
         // Whether a session is raised is the account's list, read on the Gateway; a Director never says so.
         session.Raise = null;
+        // Which factory agent started a session is the factory activity record's answer, read on the Gateway.
+        session.FactoryAgent = null;
     }
 
     /// <summary>Apply a remove/tombstone: drop one session from the Director's set.</summary>

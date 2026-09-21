@@ -899,6 +899,14 @@ public sealed class SessionDto
     public SessionRaiseDto? Raise { get; set; }
 
     /// <summary>
+    /// GATEWAY-OWNED: the "factory agent" chip (Website Business Factory, Screen 6) - which factory agent and factory
+    /// started this session, in finished words. Stamped by the roster fold (<c>FactoryAgentsFold.StampChips</c>) from
+    /// the factory activity record's "started" rows, only while the Factory Agents switch is on; null on every other
+    /// session. Assigned on every fold, so a Director's echo never survives.
+    /// </summary>
+    public SessionFactoryAgentDto? FactoryAgent { get; set; }
+
+    /// <summary>
     /// A supervised session has its hand up: it is still WORKING and has hit something it cannot decide
     /// inside its mandate (issue #2662). Gateway-owned and Gateway-stamped, from the hand-raise registry.
     ///

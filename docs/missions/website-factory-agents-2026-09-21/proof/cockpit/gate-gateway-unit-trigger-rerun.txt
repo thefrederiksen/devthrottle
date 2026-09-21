@@ -1,0 +1,4 @@
+﻿TriggerServiceTests rerun in isolation after the full-suite flake (3 runs):
+Passed 31/31
+Passed 31/31
+Passed 31/31

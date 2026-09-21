@@ -7,6 +7,7 @@ import { Chevron, NavIcon, type NavIconName } from "./components";
 import { CockpitStatusPill } from "./network/CockpitStatusPill";
 import { StopSessionProvider } from "./sessions/StopSessionProvider";
 import { useFleetManagerWaitingCount } from "./fleetmanager/useWaitingCount";
+import { useFactorySwitch } from "./factory/useFactorySwitch";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -91,6 +92,15 @@ const NAV_MAIN: ReadonlyArray<NavItem> = [
   { to: "/transcription", label: "Transcription", icon: "transcription" },
   { to: "/network", label: "Network", icon: "network" },
 ];
+
+// Factory Agents sits after Fleet Map and before History - but only while the GATEWAY says the area is on
+// (factoryAgents.enabled). The rail never decides that itself (rule 7).
+const FACTORY_AGENTS_ITEM: NavItem = {
+  to: "/factory-agents",
+  label: "Factory Agents",
+  icon: "factory-agents",
+  subtree: "/factory-agents",
+};
 
 // The public documentation site. devthrottle.com is a PUBLIC website (NOT a Director), so this external
 // link does not violate the Gateway-only-ingress rule; it is the same intended absolute-URL exception the
@@ -182,7 +192,13 @@ export function AppShell() {
     });
   };
 
-  const mainNav = NAV_MAIN.map((item) =>
+  const factorySwitch = useFactorySwitch().state;
+  const railItems =
+    factorySwitch === "on"
+      ? NAV_MAIN.flatMap((item) => (item.to === "/fleet-map" ? [item, FACTORY_AGENTS_ITEM] : [item]))
+      : NAV_MAIN;
+
+  const mainNav = railItems.map((item) =>
     item.to === "/dictionary"
       ? { ...item, badge: suggestCount }
       : item.to === "/fleet-manager"

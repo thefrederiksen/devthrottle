@@ -1,0 +1,26 @@
+﻿
+> @devthrottle/cockpit@0.1.0 build
+> tsc --noEmit && vite build
+
+vite v6.0.3 building for production...
+transforming...
+✓ 297 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/build.json                     0.07 kB │ gzip:   0.09 kB
+dist/index.html                     1.98 kB │ gzip:   0.99 kB
+dist/assets/index-CsqgY9zs.css    203.57 kB │ gzip:  34.95 kB
+dist/assets/index-Bawc0oi6.js   1,228.44 kB │ gzip: 338.95 kB
+node.exe : 
+At C:\Program Files\nodejs\npm.ps1:29 char:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: 
+https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 7.38s

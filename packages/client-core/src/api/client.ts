@@ -39,7 +39,19 @@ export type SessionDto = components["schemas"]["SessionDto"] & {
   /** The Fleet Manager mission, step 8: the one change of owner the owner may make to this session now, with its
    *  words, or null. A client offers exactly this and nothing it works out for itself. */
   ownerChange?: SessionOwnerChange | null;
+  /** Website Business Factory, Screen 6: the "factory agent" chip - which factory agent and factory started this
+   *  session, in the Gateway's words. Null on every other session, from an older Gateway, and while the Gateway's
+   *  Factory Agents switch is off. */
+  factoryAgent?: SessionFactoryAgentChip | null;
 };
+
+/** The "factory agent" chip on a session (see the C# SessionFactoryAgentDto). Rendered verbatim. */
+export interface SessionFactoryAgentChip {
+  label: string;
+  text: string;
+  title: string;
+  href: string;
+}
 
 /** A row pinned first in the session list (see the C# SessionPinDto). Hand-written for the reason `modelDisplay` is. */
 export interface SessionPin {

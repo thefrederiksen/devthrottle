@@ -1,0 +1,73 @@
+﻿  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-wbf-cockpit\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+dotnet : [xUnit.net 00:00:24.44]     
+CcDirector.Gateway.Tests.Factory.Triggers.TriggerServiceTests.TheHistory_KeepsAtLeastTheNewest500 [FAIL]
+At line:1 char:409
++ ... f\cockpit"; dotnet test src\CcDirector.Gateway.UnitTests *> "$p\gate- ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([xUnit.net 00:0...ewest500 [FAIL]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  Failed CcDirector.Gateway.Tests.Factory.Triggers.TriggerServiceTests.TheHistory_KeepsAtLeastTheNewest500 [1 s]
+  Error Message:
+   System.ObjectDisposedException : Cannot access a disposed object.
+Object name: 'SQLitePCL.sqlite3'.
+  Stack Trace:
+     at System.Runtime.InteropServices.SafeHandle.DangerousAddRef(Boolean& success)
+   at System.StubHelpers.StubHelpers.SafeHandleAddRef(SafeHandle pHandle, Boolean& success)
+   at SQLitePCL.SQLite3Provider_e_sqlite3.SQLitePCL.ISQLite3Provider.sqlite3_create_function(sqlite3 db, Byte[] name, Int32 nargs, Int32 flags, Object v, delegate_function_scalar func)
+   at SQLitePCL.raw.sqlite3_create_function(sqlite3 db, String name, Int32 nArg, Int32 flags, Object v, delegate_function_scalar func)
+   at SQLitePCL.raw.sqlite3_create_function(sqlite3 db, String name, Int32 nArg, Object v, delegate_function_scalar func)
+   at Microsoft.Data.Sqlite.SqliteConnection.Open()
+   at Microsoft.EntityFrameworkCore.Storage.RelationalConnection.OpenDbConnection(Boolean errorsExpected)
+   at Microsoft.EntityFrameworkCore.Storage.RelationalConnection.OpenInternal(Boolean errorsExpected)
+   at Microsoft.EntityFrameworkCore.Storage.RelationalConnection.Open(Boolean errorsExpected)
+   at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReader(RelationalCommandParameterObject parameterObject)
+   at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.Enumerator.InitializeReader(Enumerator enumerator)
+   at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.Enumerator.<>c.<MoveNext>b__21_0(DbContext _, Enumerator enumerator)
+   at Microsoft.EntityFrameworkCore.Storage.NonRetryingExecutionStrategy.Execute[TState,TResult](TState state, Func`3 operation, Func`3 verifySucceeded)
+   at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.Enumerator.MoveNext()
+   at System.Linq.Enumerable.TryGetSingle[TSource](IEnumerable`1 source, Boolean& found)
+   at lambda_method1695(Closure, QueryContext)
+   at Microsoft.EntityFrameworkCore.Query.Internal.QueryCompiler.ExecuteCore[TResult](Expression query, Boolean async, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.Query.Internal.QueryCompiler.Execute[TResult](Expression query)
+   at Microsoft.EntityFrameworkCore.Query.Internal.EntityQueryProvider.Execute[TResult](Expression expression)
+   at CcDirector.Gateway.Factory.Triggers.TriggerStore.PruneIn(GatewayDbContext ctx, Guid triggerId) in D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway\Factory\Triggers\TriggerStore.cs:line 295
+   at CcDirector.Gateway.Factory.Triggers.TriggerStore.RecordCheck(TenantId tenant, Guid triggerId, String directorId, DateTime checkedUtc, String outcome, Nullable`1 count, String sessionId, String reason, DateTime nowUtc) in D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway\Factory\Triggers\TriggerStore.cs:line 287
+   at CcDirector.Gateway.Factory.Triggers.TriggerService.ReportCheckAsync(TenantId tenant, String directorId, String triggerIdOrName, TriggerCheckReport report, CancellationToken ct) in D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway\Factory\Triggers\TriggerService.cs:line 225
+   at CcDirector.Gateway.Tests.Factory.Triggers.TriggerServiceTests.Report(TriggerService service, TriggerEntityRef t, TriggerCheckReport report, String director, Nullable`1 tenant) in D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway.UnitTests\Factory\Triggers\TriggerServiceTests.cs:line 70
+   at CcDirector.Gateway.Tests.Factory.Triggers.TriggerServiceTests.TheHistory_KeepsAtLeastTheNewest500() in D:\ReposFred\devthrottle-wbf-cockpit\src\CcDirector.Gateway.UnitTests\Factory\Triggers\TriggerServiceTests.cs:line 351
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:39.76]     CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [SKIP]
+  Skipped CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [1 ms]
+[xUnit.net 00:01:29.93]     CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [SKIP]
+  Skipped CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [1 ms]
+[xUnit.net 00:02:37.85]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [SKIP]
+[xUnit.net 00:02:37.85]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [SKIP]
+[xUnit.net 00:02:37.85]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [SKIP]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [1 ms]
+[xUnit.net 00:02:37.85]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [SKIP]
+[xUnit.net 00:02:37.85]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [SKIP]
+[xUnit.net 00:02:37.85]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [SKIP]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [1 ms]
+
+Failed!  - Failed:     1, Passed:  7149, Skipped:     8, Total:  7158, Duration: 5 m 15 s - CcDirector.Gateway.UnitTests.dll (net10.0)

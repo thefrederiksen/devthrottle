@@ -12,6 +12,10 @@ import { FleetManagerView } from "./fleetmanager/FleetManagerView";
 import { WalkthroughView } from "./fleetmanager/WalkthroughView";
 import { FleetMapView } from "./fleet/FleetMapView";
 import { HistoryView } from "./history/HistoryView";
+import { FactoryAreaGate } from "./factory/FactoryAreaGate";
+import { FactoryAgentsView } from "./factory/FactoryAgentsView";
+import { FactoryAgentPageView } from "./factory/FactoryAgentPageView";
+import { FactoryWaitingView } from "./factory/FactoryWaitingView";
 import { DirectorsView } from "./fleet/DirectorsView";
 import { DirectorDetailView } from "./fleet/DirectorDetailView";
 import { ScheduleView } from "./schedule/ScheduleView";
@@ -114,6 +118,12 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // page lists, pivotable by machine / repository / agent. Reads the same GET /sessions
           // envelope through client-core.
           { path: "/fleet-map", element: <FleetMapView /> },
+          // Factory Agents (Website Business Factory, product track): the factories, their factory agents, what they
+          // did, what waits for the owner, and reports. Behind the Gateway's factoryAgents.enabled switch: while the
+          // Gateway says it is off, every one of these routes is the ordinary "Page not found".
+          { path: "/factory-agents", element: <FactoryAreaGate><FactoryAgentsView /></FactoryAreaGate> },
+          { path: "/factory-agents/waiting", element: <FactoryAreaGate><FactoryWaitingView /></FactoryAreaGate> },
+          { path: "/factory-agents/:factory/:agent", element: <FactoryAreaGate><FactoryAgentPageView /></FactoryAreaGate> },
           // The History page (issue #2194): what was worked on over a picked range, grouped by
           // repository and day, from the Gateway's durable per-session record (GET /history/report).
           // Running sessions appear as the entries that have not ended yet.

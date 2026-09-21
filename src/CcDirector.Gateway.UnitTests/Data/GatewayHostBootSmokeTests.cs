@@ -79,6 +79,9 @@ public sealed class GatewayHostBootSmokeTests
     // The Website Business Factory mission, product track: the factory triggers and their run history.
     private const string FactoryTriggersPostgresMigration = "20260921105238_AddFactoryTriggers";
     private const string FactoryTriggersSqliteMigration = "20260921105211_AddFactoryTriggers";
+    // The Factory Agents pages: indexes for the Sessions chip's read and the unfiltered window read.
+    private const string FactoryActivityIndexesPostgresMigration = "20260921131114_IndexFactoryActivityReads";
+    private const string FactoryActivityIndexesSqliteMigration = "20260921131049_IndexFactoryActivityReads";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -129,7 +132,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(RaisedSessionsPostgresMigration, migrations);
         Assert.Contains(FactoryActivityPostgresMigration, migrations);
         Assert.Contains(FactoryTriggersPostgresMigration, migrations);
-        Assert.Equal(FactoryTriggersPostgresMigration, migrations[^1]);
+        Assert.Contains(FactoryActivityIndexesPostgresMigration, migrations);
+        Assert.Equal(FactoryActivityIndexesPostgresMigration, migrations[^1]);
     }
 
     /// <summary>
@@ -178,7 +182,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(RaisedSessionsSqliteMigration, sqliteAll);
         Assert.Contains(FactoryActivitySqliteMigration, sqliteAll);
         Assert.Contains(FactoryTriggersSqliteMigration, sqliteAll);
-        Assert.Equal(FactoryTriggersSqliteMigration, sqliteAll[^1]);
+        Assert.Contains(FactoryActivityIndexesSqliteMigration, sqliteAll);
+        Assert.Equal(FactoryActivityIndexesSqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
@@ -271,8 +276,9 @@ public sealed class GatewayHostBootSmokeTests
             DiscoveredRepositoriesSqliteMigration,
             RaisedSessionsSqliteMigration,
             FactoryActivitySqliteMigration,
-            FactoryTriggersSqliteMigration);
-        Assert.Equal(FactoryTriggersSqliteMigration, applied[^1]);
+            FactoryTriggersSqliteMigration,
+            FactoryActivityIndexesSqliteMigration);
+        Assert.Equal(FactoryActivityIndexesSqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -318,8 +324,9 @@ public sealed class GatewayHostBootSmokeTests
             DiscoveredRepositoriesPostgresMigration,
             RaisedSessionsPostgresMigration,
             FactoryActivityPostgresMigration,
-            FactoryTriggersPostgresMigration);
-        Assert.Equal(FactoryTriggersPostgresMigration, migrations[^1]);
+            FactoryTriggersPostgresMigration,
+            FactoryActivityIndexesPostgresMigration);
+        Assert.Equal(FactoryActivityIndexesPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }
