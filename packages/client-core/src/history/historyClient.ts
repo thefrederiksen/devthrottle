@@ -29,7 +29,7 @@ export interface WorkHistorySession {
    */
   originKind?: string | null;
   /** Where the create call came from: "desktop" | "cockpit" | "phone" | "cli" | "cron" |
-   * "workflow" | "api" | "unknown". Null on rows that predate the field. */
+   * "workflow" | "trigger" | "api" | "unknown". Null on rows that predate the field. */
   originSurface?: string | null;
   /** The session that ASKED for this one, or null. Keys the same table, so it resolves against
    * other records in the report - and may name a row retention has already pruned. */

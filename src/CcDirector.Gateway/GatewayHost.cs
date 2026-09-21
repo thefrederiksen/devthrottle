@@ -229,14 +229,20 @@ public sealed class GatewayHost : IAsyncDisposable
     /// The factory agents switch (Website Business Factory, product track): <c>factoryAgents.enabled</c> in
     /// config.json, default OFF, or the explicit constructor override a test passes. Resolved once, at
     /// construction, the way the stream switch was (issue #1176). While it is off the factory surface -
-    /// today the activity record at <see cref="Api.FactoryActivityEndpoints.Route"/> - is not mapped at all,
-    /// so it answers 404.
+    /// today the activity record at <see cref="Api.FactoryActivityEndpoints.Route"/>, the triggers at
+    /// <c>/triggers</c> and the Director's <c>/directors/{id}/triggers</c> - is not mapped at all, so it answers
+    /// 404 and a Director asking for its checks is given none.
     /// </summary>
     public bool FactoryAgentsEnabled { get; }
 
     /// <summary>The append-only factory activity record. Constructed whatever the switch says, so the
     /// database shape does not depend on it; only the routes do.</summary>
     public Factory.FactoryActivityRecord FactoryActivity { get; }
+
+    /// <summary>The factory triggers (Website Business Factory, product track): the definitions, their run
+    /// history, and the decision to start a session when a check counts work. Constructed whatever the switch
+    /// says, so the database shape does not depend on it; only the routes do.</summary>
+    internal Factory.Triggers.TriggerService Triggers { get; }
 
     /// <summary>
     /// Environment override for the host-wide auth gate (issue #917). As of Phase 1 the gate is ON by
@@ -1940,6 +1946,20 @@ public sealed class GatewayHost : IAsyncDisposable
         // G8 increment 2: wrap the cron engine in the per-tenant worker seam so the background sweep enters
         // each tenant's scope before it reads the tenant-scoped cron_jobs store.
         _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine);
+
+        // The factory triggers (Website Business Factory, product track). A trigger's session starts through the
+        // SAME single resolve-then-create method a schedule's does, stamped with its own origin surface; whether
+        // its last session is still alive is read from the same session list the roster serves.
+        Triggers = new Factory.Triggers.TriggerService(
+            new Factory.Triggers.TriggerStore(_gatewayDb),
+            async (machine, request, ct) =>
+            {
+                var (ok, dto, error, _) = await _machineSessionSpawner.SpawnOnMachineAsync(machine, request, ct);
+                return ok && dto is not null ? (dto.SessionId, null) : (null, error);
+            },
+            findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+            nowUtc: () => DateTime.UtcNow);
 
         // The activity ledger's 30-day retention, on the same per-tenant worker seam.
         _activityRetentionSweep = new Activity.ActivityRetentionSweep(_tenantBoundary, TenantRegistry, _activityEvents);
@@ -4602,6 +4622,20 @@ public sealed class GatewayHost : IAsyncDisposable
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
         CronRunEndpoints.Map(_app, _cronEngine, _cronRuns);
+
+        // Factory triggers (Website Business Factory, product track): the definitions, the run history, and the
+        // Director's half - fetch its checks, report each result. Behind the factory agents switch: while it is
+        // off none of these routes is mapped, so each answers 404 and a Director is handed no checks to run.
+        if (FactoryAgentsEnabled)
+            TriggerEndpoints.Map(_app,
+                resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+                service: Triggers,
+                directorMachine: (tenant, directorId) => Registry.ListDirectors(tenant)
+                    .FirstOrDefault(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+                    ?.MachineName,
+                nowUtc: () => DateTime.UtcNow);
+        else
+            FileLog.Write("[GatewayHost] factory agents are OFF: the trigger routes are not mapped");
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,

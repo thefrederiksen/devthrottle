@@ -28,7 +28,7 @@ namespace CcDirector.ControlApi;
 /// When the config is disabled (no gateway.url) the client is inert - every method
 /// is a no-op so the Director boots normally in local-only mode.
 /// </summary>
-public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IDisposable
+public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers.ITriggerGateway, IDisposable
 {
     /// <summary>How often the heartbeat fires.</summary>
     public static TimeSpan HeartbeatInterval { get; } = TimeSpan.FromSeconds(15);
@@ -867,6 +867,70 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IDisposa
         {
             FileLog.Write($"[GatewayClient] PushRepoStateAsync FAILED: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// The factory triggers this Director runs (the Website Business Factory mission, product track):
+    /// <c>GET /directors/{id}/triggers</c>. The Gateway decides which - the triggers on this machine that no other
+    /// Director on it holds. A Gateway with its factory agents switch off does not map the route, which answers 404
+    /// or, through the web app's page fallback, something that is not JSON: both mean "run nothing", and say so.
+    /// </summary>
+    public async Task<Triggers.TriggerFetch> FetchTriggersAsync(string directorId, CancellationToken ct)
+    {
+        if (!_config.IsEnabled) return Triggers.TriggerFetch.Off("no Gateway is configured");
+        try
+        {
+            using var resp = await _http.GetAsync($"directors/{Uri.EscapeDataString(directorId)}/triggers", ct);
+            var mediaType = resp.Content.Headers.ContentType?.MediaType;
+            var isJson = string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase);
+
+            if (resp.StatusCode == HttpStatusCode.NotFound)
+            {
+                var body = isJson ? await resp.Content.ReadAsStringAsync(ct) : "";
+                // A 404 that names this Director is a real answer about the Director, not about the switch.
+                if (body.Contains("director_not_found", StringComparison.Ordinal))
+                    return Triggers.TriggerFetch.Failed($"the Gateway does not know Director {directorId} yet");
+                return Triggers.TriggerFetch.Off("the Gateway does not serve triggers (factory agents are off)");
+            }
+            if (!resp.IsSuccessStatusCode)
+                return Triggers.TriggerFetch.Failed($"GET /directors/{directorId}/triggers returned HTTP {(int)resp.StatusCode}");
+            if (!isJson)
+                return Triggers.TriggerFetch.Off($"the Gateway answered '{mediaType}' instead of JSON: it does not serve triggers");
+
+            var answer = await resp.Content.ReadFromJsonAsync<TriggerAssignmentResponse>(ct);
+            if (answer?.Triggers is null)
+                return Triggers.TriggerFetch.Failed("the Gateway answered with no list of triggers");
+            return new Triggers.TriggerFetch(Triggers.TriggerFetchKind.Assigned, answer.Triggers, null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            FileLog.Write($"[GatewayClient] FetchTriggersAsync FAILED: {ex.Message}");
+            return Triggers.TriggerFetch.Failed(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Report what one trigger check produced: <c>POST /directors/{id}/triggers/{triggerId}/checks</c>. The Gateway
+    /// reads it, decides, and records the run. Returns null when it was recorded, or why it was not.
+    /// </summary>
+    public async Task<string?> ReportTriggerCheckAsync(
+        string directorId, string triggerId, TriggerCheckReport report, CancellationToken ct)
+    {
+        if (!_config.IsEnabled) return "no Gateway is configured";
+        ArgumentNullException.ThrowIfNull(report);
+        try
+        {
+            using var resp = await _http.PostAsJsonAsync(
+                $"directors/{Uri.EscapeDataString(directorId)}/triggers/{Uri.EscapeDataString(triggerId)}/checks", report, ct);
+            if (resp.IsSuccessStatusCode) return null;
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            return $"HTTP {(int)resp.StatusCode}: {(body.Length > 300 ? body[..300] : body)}";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            FileLog.Write($"[GatewayClient] ReportTriggerCheckAsync FAILED: trigger={triggerId}, {ex.Message}");
+            return ex.Message;
         }
     }
 

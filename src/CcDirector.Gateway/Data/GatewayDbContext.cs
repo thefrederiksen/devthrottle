@@ -339,6 +339,13 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The sessions each account has raised to act with the owner's permissions (the Fleet Manager
     /// Improvement mission, phase 1).</summary>
     public DbSet<RaisedSessionEntity> RaisedSessions => Set<RaisedSessionEntity>();
+
+    /// <summary>The factory triggers (the Website Business Factory mission, product track): a model-free check a
+    /// Director runs on an interval, which has the Gateway start a session only when the check counts work.</summary>
+    public DbSet<TriggerEntity> Triggers => Set<TriggerEntity>();
+
+    /// <summary>Every check of every trigger, whatever it came to - at least the newest 500 per trigger.</summary>
+    public DbSet<TriggerRunEntity> TriggerRuns => Set<TriggerRunEntity>();
     /// <summary>The events about sessions a Fleet Manager owns (<c>fleet_manager_events</c>, step 4): one stop or
     /// death per row, kept until the Fleet Manager acknowledges it.</summary>
     public DbSet<FleetManagerEventEntity> FleetManagerEvents => Set<FleetManagerEventEntity>();
@@ -916,6 +923,38 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
         });
 
+        modelBuilder.Entity<TriggerEntity>(b =>
+        {
+            b.ToTable("triggers");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Name).HasMaxLength(128);
+            b.Property(e => e.Factory).HasMaxLength(128);
+            b.Property(e => e.FactoryAgent).HasMaxLength(128);
+            b.Property(e => e.Machine).HasMaxLength(256);
+            b.Property(e => e.RepoPath).HasMaxLength(1024);
+            b.Property(e => e.CheckCommand).HasMaxLength(2048);
+            b.Property(e => e.Prompt).HasMaxLength(8192);
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.Property(e => e.LastSessionId).HasMaxLength(64);
+            b.Property(e => e.ClaimedByDirectorId).HasMaxLength(64);
+            b.Property(e => e.LastOutcome).HasMaxLength(32);
+            b.Property(e => e.LastReason).HasMaxLength(1024);
+            // One trigger per name per account. The store also refuses a name that differs only in case.
+            b.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<TriggerRunEntity>(b =>
+        {
+            b.ToTable("trigger_runs");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Outcome).HasMaxLength(32);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Reason).HasMaxLength(1024);
+            b.Property(e => e.DirectorId).HasMaxLength(64);
+            // The history is read per trigger, newest first.
+            b.HasIndex(e => new { e.TenantId, e.TriggerId, e.RecordedUtc });
+        });
+
         modelBuilder.Entity<RaisedSessionEntity>(b =>
         {
             b.ToTable("raised_sessions");
@@ -1401,6 +1440,8 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FleetPreferenceEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerMarkEntity>(modelBuilder);
         ApplyTenantScope<RaisedSessionEntity>(modelBuilder);
+        ApplyTenantScope<TriggerEntity>(modelBuilder);
+        ApplyTenantScope<TriggerRunEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerOwnedSessionEntity>(modelBuilder);
 
@@ -1496,6 +1537,11 @@ public sealed class GatewayDbContext : DbContext
             // closed word compared byte-ordinally.
             modelBuilder.Entity<RaisedSessionEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<RaisedSessionEntity>().Property(e => e.Source).UseCollation("C");
+            // triggers: the name is the key a caller looks a trigger up by, and the machine is compared to a
+            // Director's registered machine name; trigger_runs: the outcome is a closed word.
+            modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");
+            modelBuilder.Entity<TriggerEntity>().Property(e => e.Machine).UseCollation("C");
+            modelBuilder.Entity<TriggerRunEntity>().Property(e => e.Outcome).UseCollation("C");
             // fleet_manager_events: the kind and the session ids are compared byte-ordinally for the same reason.
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.Kind).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");

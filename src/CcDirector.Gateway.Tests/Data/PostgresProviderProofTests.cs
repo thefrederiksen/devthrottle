@@ -276,6 +276,11 @@ public sealed class PostgresProviderProofTests
             // account_trials.subject at the top of this list is: they are the SAME identity, and the ledger
             // has to group by exactly the value the trial row is keyed on.
             ("trial_extensions", "subject"),
+            // The factory triggers (the Website Business Factory mission): a trigger is looked up by its name, its
+            // machine is compared to a Director's registered machine name, and a run's outcome is a closed word.
+            ("trigger_runs", "Outcome"),
+            ("triggers", "Machine"),
+            ("triggers", "Name"),
             // The turn-log capture switch's scope key. The pair is a UNIQUE index matched for exact equality
             // by the recorder on every turn end, so it has to mean the same thing on both providers: if
             // Postgres considered two account identifiers equal that SQLite does not, the unique index would

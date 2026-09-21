@@ -319,6 +319,7 @@ public static class SessionKeyGuard
             if (s.Length == 2 && s[0] == "missions") return true;
             if (s.Length == 3 && s[0] == "gateway" && s[1] == "workflow-runs") return true;
             if (IsScheduleRoute(verb, s)) return true;
+            if (IsTriggerRoute(verb, s)) return true;
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
@@ -482,6 +483,7 @@ public static class SessionKeyGuard
 
             // Create a scheduled job, or run one now.
             if (IsScheduleRoute(verb, s)) return true;
+            if (IsTriggerRoute(verb, s)) return true;
 
             // Create, start, stop, sign in to or rename an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
@@ -506,6 +508,7 @@ public static class SessionKeyGuard
             // inspection found that the shipped command line has always sent PUT here.
             if (IsCatalogueWrite(verb, s)) return true;
             if (IsScheduleRoute(verb, s)) return true;
+            if (IsTriggerRoute(verb, s)) return true;
 
             // Write a workspace - including writing the drain's judgments and, afterwards, what the
             // restart actually produced, back onto a captured one.
@@ -556,6 +559,7 @@ public static class SessionKeyGuard
             // the creates above.
             if (IsCatalogueWrite(verb, s)) return true;
             if (IsScheduleRoute(verb, s)) return true;
+            if (IsTriggerRoute(verb, s)) return true;
 
             // Delete a handover. Beyond the literal words of the owner's ruling, which named handovers as
             // content an agent produces without saying who may remove one - and recorded as a judgement call
@@ -900,6 +904,35 @@ public static class SessionKeyGuard
     /// configuration - it says what the product should do and when - so it falls on the allowed side of the
     /// owner's line, and running one now is no more than doing by hand what the schedule does anyway.
     /// </summary>
+    /// <summary>
+    /// The factory triggers' definition surface (the Website Business Factory mission, product track) - what
+    /// <c>cc-devthrottle trigger</c> calls. The same class of configuration as a schedule, and allowed on the same
+    /// terms: an agent sets up and pauses the work its account runs, inside that account.
+    ///
+    /// WHAT IS DELIBERATELY NOT HERE: the Director's half, <c>/directors/{id}/triggers</c> and its
+    /// <c>/checks</c> report. A check report is what decides whether a session starts, so a session that could
+    /// forge one could start sessions at will. Only a Director's own key, which this guard never sees, reports.
+    /// </summary>
+    private static bool IsTriggerRoute(string verb, string[] s)
+    {
+        if (s.Length < 1 || s[0] != "triggers") return false;
+
+        // /triggers - list, or create.
+        if (s.Length == 1) return verb is "GET" or "HEAD" or "POST";
+
+        // /triggers/{id} - read, update, delete.
+        if (s.Length == 2) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
+
+        // /triggers/{id}/pause, /resume - stop or restart the starting. /triggers/{id}/runs - its history.
+        if (s.Length == 3)
+        {
+            if (s[2] is "pause" or "resume") return verb == "POST";
+            if (s[2] == "runs") return verb is "GET" or "HEAD";
+        }
+
+        return false;
+    }
+
     private static bool IsScheduleRoute(string verb, string[] s)
     {
         if (s.Length < 2 || s[0] != "cron" || s[1] != "jobs") return false;

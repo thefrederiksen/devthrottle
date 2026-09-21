@@ -145,6 +145,7 @@ def _assert_json_unchanged(result, payload):
 SHORT_HELP_GROUPS = (
     "actions",
     "schedule",
+    "trigger",
     "workflow",
     "skill",
     "settings",
@@ -353,6 +354,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "dev-report-open", "dev-report-reply",
     # The Website Business Factory: the factory activity record a business tool writes before it acts.
     "factory-record", "factory-activity",
+    # The Website Business Factory mission, product track: factory triggers.
+    "trigger-add", "trigger-list", "trigger-show", "trigger-pause", "trigger-resume", "trigger-runs",
 }
 
 
