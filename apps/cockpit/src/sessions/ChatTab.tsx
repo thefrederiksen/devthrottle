@@ -1,7 +1,8 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { chatLinkLabel } from "@devthrottle/client-core/history/chatView";
 import type { RenderedBubble } from "@devthrottle/client-core/history/chatView";
+import { DENSITY_LABELS, filterFlagsFor, setDensity, useDensity } from "@devthrottle/client-core/sessions/density";
 import { FileViewerModal } from "../components/FileViewerModal";
 
 // The Cockpit Chat tab (issue #1213): a thin view over the SAME shared client-core hook the mobile Chat
@@ -101,6 +102,21 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
     [filter, setFilter],
   );
 
+  // The switch is the source of truth for the three machinery flags; the stored filter follows it. Only
+  // myPromptsOnly stays the reader's own independent choice - it takes the conversation AWAY rather than
+  // adding machinery to it, which is why it was never one of the three and is not one of these.
+  const density = useDensity();
+  useEffect(() => {
+    const flags = filterFlagsFor(density);
+    if (
+      filter.showToolCalls === flags.showToolCalls &&
+      filter.showToolResults === flags.showToolResults &&
+      filter.showThinking === flags.showThinking
+    )
+      return;
+    setFilter({ ...filter, ...flags });
+  }, [density, filter, setFilter]);
+
   const promptCount = useMemo(() => bubbles.filter((r) => r.bubble.kind === "user").length, [bubbles]);
 
   const onScroll = useCallback(() => {
@@ -138,31 +154,25 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
           is a pill that fills in when it is on; the checkbox itself is still a real checkbox, only drawn
           by the pill around it, so it keeps its keyboard behaviour and its accessible name. */}
       <div className="chat-filter">
-        <span className="chat-filter-label">Show:</span>
-        <label className="chat-filter-pill">
-          <input
-            type="checkbox"
-            checked={filter.showToolCalls}
-            onChange={(e) => setFilter({ ...filter, showToolCalls: e.target.checked })}
-          />
-          Tool calls
-        </label>
-        <label className="chat-filter-pill">
-          <input
-            type="checkbox"
-            checked={filter.showToolResults}
-            onChange={(e) => setFilter({ ...filter, showToolResults: e.target.checked })}
-          />
-          Results
-        </label>
-        <label className="chat-filter-pill">
-          <input
-            type="checkbox"
-            checked={filter.showThinking}
-            onChange={(e) => setFilter({ ...filter, showThinking: e.target.checked })}
-          />
-          Thinking
-        </label>
+        {/* ONE SWITCH, and it drives the session cards in the rail too (client-core/sessions/density).
+            It replaces the three machinery checkboxes that used to stand here: Clean is none of them,
+            Normal is tool calls, Everything is all three. The checkboxes said WHICH machinery; the
+            switch says HOW MUCH, which is the question a person actually has, and it is the same
+            question the rail was asking with no control at all. */}
+        <span className="chat-density" role="group" aria-label="How much detail to show">
+          {DENSITY_LABELS.map((d) => (
+            <button
+              key={d.value}
+              type="button"
+              className={`chat-density-btn ${density === d.value ? "on" : ""}`}
+              aria-pressed={density === d.value}
+              title={d.title}
+              onClick={() => setDensity(d.value)}
+            >
+              {d.label}
+            </button>
+          ))}
+        </span>
         {/* APART FROM THE THREE ABOVE, on purpose. Those add machinery back into the conversation; this
             takes the conversation away. Same row would read as a fourth of the same kind. */}
         <label className="chat-filter-pill chat-filter-mine">

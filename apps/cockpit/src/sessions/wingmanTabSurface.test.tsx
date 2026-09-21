@@ -204,8 +204,14 @@ describe("the Wingman tab's own screen", () => {
     //
     // ONE SENDING BUTTON (the review's item N3). This session is STOPPED, so there is nothing to queue behind and
     // Queue meant nothing beside Send. Speak and Attach stay: neither of them sends.
+    // The three are icons inside one pill now (owner ruling, 2026-09-20), so they are read by the name
+    // they announce rather than by the words drawn on them - which is also the name a person hears.
     const bar = boxes[0].closest(".composer")!;
-    expect([...bar.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Send", "Speak", "Attach"]);
+    expect([...bar.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Attach",
+      "Speak",
+      "Send",
+    ]);
   });
 
   it("offers one button named for what it does on a working session, and no Send beside it", async () => {
@@ -220,7 +226,11 @@ describe("the Wingman tab's own screen", () => {
     const box = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(box.placeholder).toBe("Send it something while it works - it is queued until it is ready.");
     const bar = box.closest(".composer")!;
-    expect([...bar.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Queue it", "Speak", "Attach"]);
+    expect([...bar.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Attach",
+      "Speak",
+      "Queue it",
+    ]);
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
 
     // And it DOES what it is called. A button named for the queue that reached the prompt route would be the same
@@ -231,23 +241,27 @@ describe("the Wingman tab's own screen", () => {
     expect(calls.some((url) => url.includes("/prompt"))).toBe(false);
   });
 
-  it("does not put Stop, Interrupt, Compact, Clear context or History under the answers", async () => {
+  it("does not put the driver controls under the answers", async () => {
     fakeGateway();
     openPage();
 
-    // They are all there on the Terminal tab, where they belong.
-    for (const verb of ["Stop", "Interrupt", "Compact", "Clear context", "History"]) {
-      expect(screen.getByRole("button", { name: verb })).toBeTruthy();
+    // WHERE THEY LIVE NOW (owner ruling, 2026-09-20): Stop is the one urgent verb, on the strip under
+    // the composer; Interrupt is its escalation and is not drawn until Stop has been pressed; Compact,
+    // Clear context and History moved into the session menu. What this test is about is unchanged - the
+    // Wingman tab is the one tab that carries NONE of them, because the owner clicks his answers here.
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    for (const gone of ["Interrupt", "Force interrupt", "Compact", "Clear context", "History"]) {
+      expect(screen.queryByRole("button", { name: gone })).toBeNull();
     }
 
     fireEvent.click(screen.getByRole("tab", { name: "Wingman" }));
     await waitFor(() => expect(screen.getByText("Commit and deploy the fixes?")).toBeTruthy());
 
-    for (const verb of ["Stop", "Interrupt", "Compact", "Clear context", "History"]) {
+    for (const verb of ["Stop", "Interrupt", "Force interrupt", "Compact", "Clear context", "History"]) {
       expect(screen.queryByRole("button", { name: verb })).toBeNull();
     }
 
-    // And going back to the Terminal brings the whole bar back - this tab is the only one that hides it.
+    // And going back to the Terminal brings the strip back - this tab is the only one that hides it.
     fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
     expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
   });

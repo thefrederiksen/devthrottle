@@ -44,6 +44,7 @@ import {
   REACHABILITY_WOBBLY,
   type DirectorReachability,
 } from "@devthrottle/client-core/fleet/fleetClient";
+import { showsSupervision, showsTags, useDensity } from "@devthrottle/client-core/sessions/density";
 import { SessionMenu } from "./SessionMenu";
 import { CrewLine } from "./CrewLine";
 import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
@@ -98,43 +99,47 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
 
   return (
     <div className="roster-rail">
+      {/* ONE ROW ABOVE THE SESSIONS (owner ruling, 2026-09-20). This was four rows and six controls -
+          the count, New session, the two ordering buttons, the colour legend, and a full-width blue
+          "Turn on voice for all", which was the largest and brightest object in the window for an action
+          taken about once a day. The two that are not about reading the list moved to the foot of the
+          rail; the ordering toggle stayed, because it IS about reading the list. */}
       <div className="roster-head">
         <span className="roster-title">Sessions</span>
         <span className="roster-count">{total}</span>
+        <span className="roster-head-spacer" />
+        <span className="roster-view" role="group" aria-label="Roster ordering">
+          <button
+            type="button"
+            className={`roster-view-btn ${view === "my-order" ? "on" : ""}`}
+            aria-pressed={view === "my-order"}
+            title="My order - the order you arranged them in, grouped by computer"
+            onClick={() => onView("my-order")}
+          >
+            Mine
+          </button>
+          <button
+            type="button"
+            className={`roster-view-btn ${view === "attention" ? "on" : ""}`}
+            aria-pressed={view === "attention"}
+            title="Attention first - whatever has been waiting for you longest, at the top"
+            onClick={() => onView("attention")}
+          >
+            Attention
+          </button>
+        </span>
         {/* The only way to start a session from the desktop Cockpit (issue #1023). Opens the
             dedicated machine/repo picker dialog. */}
-        <button type="button" className="roster-newbtn" onClick={onNewSession} title="Start a new session">
-          + New session
-        </button>
-      </div>
-
-      {/* The ordering toggle. "My order" is pressed by default; "Attention first" is the opt-in view. */}
-      <div className="roster-view" role="group" aria-label="Roster ordering">
         <button
           type="button"
-          className={`roster-view-btn ${view === "my-order" ? "on" : ""}`}
-          aria-pressed={view === "my-order"}
-          onClick={() => onView("my-order")}
+          className="roster-newbtn"
+          onClick={onNewSession}
+          title="Start a new session"
+          aria-label="Start a new session"
         >
-          My order
-        </button>
-        <button
-          type="button"
-          className={`roster-view-btn ${view === "attention" ? "on" : ""}`}
-          aria-pressed={view === "attention"}
-          onClick={() => onView("attention")}
-        >
-          Attention first
+          +
         </button>
       </div>
-
-      {/* What the dots mean. The same shared legend the phone roster mounts. */}
-      <ColourLegendButton className="roster-legend-btn" />
-
-      {/* The fleet-wide voice switch (issue #1765): one button turns voice mode on for every session,
-          or off again, so a person leaving their desk can put the whole fleet on voice and take it back
-          off later without touching each session. It reads the roster to pick its own direction. */}
-      {sessions !== null && total > 0 && <VoiceAllButton sessions={sessions} />}
 
       {/* A Director restart a session has asked for (issue #2725): the owner's one accept, above the
           roster where "Needs you" lives. The same shared component the phone mounts; this shell only
@@ -164,6 +169,13 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           }
         </PinnedAndRest>
       )}
+
+      {/* The two controls that are not about reading the list, at the foot of the rail, where a
+          once-a-day action belongs. */}
+      <div className="roster-foot">
+        <ColourLegendButton className="roster-legend-btn" />
+        {sessions !== null && total > 0 && <VoiceAllButton sessions={sessions} />}
+      </div>
     </div>
   );
 }
@@ -414,6 +426,14 @@ function RosterRow({
   const sid = session.sessionId ?? "";
   const selected = sid === selectedId;
   const { legend } = useSessionColourLegend();
+  // How much of this card is drawn - the one switch that also sets the conversation's detail. A card is
+  // three lines at "clean" (who, what, and the one live fact) and grows a section at each position.
+  // WHAT IS NEVER GATED: the alarm tags. A prompt that did not reach the agent, a snooze that ended and
+  // a session winding down are drawn at every position, so a screenshot taken at "clean" cannot be
+  // quieter about the fleet than the fleet actually is.
+  const density = useDensity();
+  const withSupervision = showsSupervision(density);
+  const withTags = showsTags(density);
   // A parent row: collapsed by default, remembered per crew on this device. The chevron sits OUTSIDE
   // the Link so opening the crew never navigates into the parent's session. The count on the chevron
   // is everything under it, at every level - the same number the crew line carries.
@@ -466,16 +486,16 @@ function RosterRow({
   // last-seen / waiting) renders only when it has something to say. It used to say that a plain working
   // session stays a compact two lines; the model changes that on purpose - it is the fact the fleet's cost
   // and quality turn on, and it was previously visible nowhere while a session was alive.
-  const hasTags =
-    model !== null ||
+  // Split in two by what density can hide, so a card at "clean" never draws an empty tag row. The
+  // alarms and the one live fact (the wake countdown, the waiting timer) are always in the first group.
+  const hasAlwaysTags =
     undelivered ||
-    changes !== null ||
     holdCountdown !== null ||
     snoozeExpired(session) ||
     windingDown ||
-    !!session.voiceMode ||
-    lastSeen.length > 0 ||
     (attention && !!session.needsYouSince);
+  const hasDenseTags = model !== null || changes !== null || !!session.voiceMode || lastSeen.length > 0;
+  const hasTags = hasAlwaysTags || (withTags && hasDenseTags);
   return (
     <li className={`roster-li${isParent ? " roster-li-parent" : ""}`}>
       {isParent && (
@@ -514,9 +534,9 @@ function RosterRow({
           {/* Line 2b: the supervision facts (internal#625) - started / open / idle / turns, from the
               ONE shared formatter, ticking on the shared one-second clock. Stats a Director does not
               report are omitted, never shown as zero. */}
-          <SupervisionLine session={session} />
+          {withSupervision && <SupervisionLine session={session} />}
           {/* Line 3 (Attention view only): which cc-director this session lives on. */}
-          {machineLine && (
+          {machineLine && withTags && (
             <span className="roster-machine" title={session.directorId ?? undefined}>
               {machineLine}
             </span>
@@ -532,19 +552,19 @@ function RosterRow({
                   {DELIVERY_BADGE_TEXT}
                 </span>
               )}
-              {changes !== null && (
+              {changes !== null && withTags && (
                 <span className="roster-tag changes" title={changesTitle(session) ?? undefined}>
                   {changes}
                 </span>
               )}
               {/* Which model this session is running. Muted when the Gateway's verdict is one of the two
                   absences, so an absence never carries the weight of a fact - the words say which. */}
-              {model !== null && (
+              {model !== null && withTags && (
                 <span className={model.absent ? "roster-tag model absent" : "roster-tag model"} title={model.title}>
                   {model.text}
                 </span>
               )}
-              {session.voiceMode && <span className="roster-tag voice">voice</span>}
+              {session.voiceMode && withTags && <span className="roster-tag voice">voice</span>}
               {windingDown && (
                 <span className="roster-tag winding-down" title={deletionReason(session) ?? "Marked for deletion"}>
                   winding down
@@ -552,7 +572,7 @@ function RosterRow({
               )}
               {holdCountdown !== null && <HoldCountdown session={session} />}
               {snoozeExpired(session) && <span className="roster-tag snooze-ended">Snooze ended</span>}
-              {lastSeen && <span className="roster-lastseen">{lastSeen}</span>}
+              {lastSeen && withTags && <span className="roster-lastseen">{lastSeen}</span>}
               {attention && session.needsYouSince && <WaitingTime since={String(session.needsYouSince)} />}
             </span>
           )}

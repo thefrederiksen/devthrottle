@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -22,6 +22,12 @@ vi.mock("./SessionMenu", () => ({
   SessionMenu: () => null,
 }));
 
+
+// THE CARD'S DETAIL IS BEHIND THE ONE DENSITY SWITCH (owner ruling, 2026-09-20): a card is three lines
+// at "clean", and these facts are drawn at the positions below. Setting the switch here is not a
+// workaround - it names the position each fact belongs to, and it is the only thing that proves the
+// switch reaches the rail at all.
+import { resetDensityForTests, setDensity } from "@devthrottle/client-core/sessions/density";
 import { SessionRoster } from "./SessionRoster";
 
 type RosterSession = Record<string, unknown>;
@@ -60,6 +66,11 @@ function renderRoster(sessions: RosterSession[]) {
 }
 
 afterEach(() => cleanup());
+
+beforeEach(() => {
+  resetDensityForTests();
+  setDensity("everything");
+});
 
 describe("the roster's uncommitted-changes badge", () => {
   it("shows the count for a session with uncommitted work", () => {
