@@ -93,10 +93,6 @@ const NAV_MAIN: ReadonlyArray<NavItem> = [
   { to: "/network", label: "Network", icon: "network" },
 ];
 
-// The public documentation site. devthrottle.com is a PUBLIC website (NOT a Director), so this external
-// link does not violate the Gateway-only-ingress rule; it is the same intended absolute-URL exception the
-// sign-in redirect and the desktop app's own Documentation menu item carry.
-// eslint-disable-next-line no-restricted-syntax -- documented Gateway-only-ingress exception (#967/#968): public docs site, not a Director
 // Factory Agents sits after Fleet Map and before History - but only while the GATEWAY says the area is on
 // (factoryAgents.enabled). The rail never decides that itself (rule 7).
 const FACTORY_AGENTS_ITEM: NavItem = {
@@ -106,6 +102,10 @@ const FACTORY_AGENTS_ITEM: NavItem = {
   subtree: "/factory-agents",
 };
 
+// The public documentation site. devthrottle.com is a PUBLIC website (NOT a Director), so this external
+// link does not violate the Gateway-only-ingress rule; it is the same intended absolute-URL exception the
+// sign-in redirect and the desktop app's own Documentation menu item carry.
+// eslint-disable-next-line no-restricted-syntax -- documented Gateway-only-ingress exception (#967/#968): public docs site, not a Director
 const DOCS_URL = "https://devthrottle.com/docs";
 
 // This browser's account and the app's own settings - pinned to the bottom of the rail. Help sits last:

@@ -60,7 +60,7 @@ function useView<T>(load: (signal: AbortSignal) => Promise<T>, key: string, what
       },
     );
     return () => ctrl.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `key` stands for everything `load` reads: the view reloads when the query changes, not on every render.
   }, [key, nonce]);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   return { data, error, reload };

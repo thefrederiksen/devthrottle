@@ -247,7 +247,7 @@ export const WAITING: FactoryWaitingView = {
       by: "Front Desk v3, 22 Sep 05:30",
       sessionId: "134",
       sessionLabel: "#134",
-      link: "https://mail.example.test/thread/1",
+      link: "/fixture/mail/thread/1",
       linkLabel: "Open",
       handledLabel: "I have handled it",
       handledBusyLabel: "Marking it handled...",
