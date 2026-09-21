@@ -128,7 +128,7 @@ export interface FactoryAgentPage {
   definitionText: string;
   wokenBy: FactoryWokenBy[];
   wokenByEmptyText: string | null;
-  lastCheck: string;
+  lastCheck: string | null;
   last7DaysTitle: string;
   last7Days: FactoryNumber[];
   pause: FactoryPause | null;

@@ -69,7 +69,7 @@ export function FactoryAgentPageView() {
             <div className="fa-dim">Last check: {w.lastCheck}</div>
           </div>
         ))}
-        <div className="fa-dim">Last check: {page.lastCheck}</div>
+        {page.lastCheck !== null && <div className="fa-dim">Last check of any trigger: {page.lastCheck}</div>}
       </section>
 
       <section className="fa-panel">

@@ -193,7 +193,9 @@ public sealed class FactoryAgentPageDto
     /// <summary>What the "Woken by" section says when no trigger names this factory agent, or null.</summary>
     public string? WokenByEmptyText { get; set; }
 
-    public string LastCheck { get; set; } = "";
+    /// <summary>The latest check across its triggers, or null when it has fewer than two (a single trigger's own
+    /// line already says it).</summary>
+    public string? LastCheck { get; set; }
     public string Last7DaysTitle { get; set; } = "";
     public List<FactoryNumberDto> Last7Days { get; set; } = new();
 

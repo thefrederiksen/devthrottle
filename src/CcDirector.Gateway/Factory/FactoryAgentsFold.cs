@@ -421,9 +421,11 @@ public static class FactoryAgentsFold
         };
     }
 
-    private static string LastCheck(IReadOnlyList<FactoryTriggerFacts> triggers, FactoryWindow window, TimeZoneInfo zone)
+    // The latest check across a factory agent's triggers. Only said when it has two or more: with one, its own "Woken
+    // by" line already says it, and with none the empty text already says nothing checks for it.
+    private static string? LastCheck(IReadOnlyList<FactoryTriggerFacts> triggers, FactoryWindow window, TimeZoneInfo zone)
     {
-        if (triggers.Count == 0) return "No trigger checks for it";
+        if (triggers.Count < 2) return null;
         var last = triggers.Where(t => t.LastCheckUtc is not null).OrderByDescending(t => t.LastCheckUtc).FirstOrDefault();
         return last is null
             ? "Never checked"

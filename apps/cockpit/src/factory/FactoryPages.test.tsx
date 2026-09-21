@@ -58,6 +58,21 @@ describe("A factory agent's page (Screen 2)", () => {
     expect(screen.getByText("Asked what it costs after the free build - money question")).toBeTruthy();
   });
 
+  it("says a trigger's last check once, and the latest across triggers only when the Gateway sends one", async () => {
+    renderPage();
+
+    await screen.findByTestId("factory-agent-page");
+    expect(screen.getAllByText(/^Last check/).map((el) => el.textContent)).toEqual([
+      "Last check: 22 Sep 07:55 - paused, not started",
+    ]);
+
+    cleanup();
+    client.getFactoryAgent.mockResolvedValue({ ...AGENT_PAGE, lastCheck: "22 Sep 08:01 - nothing to do" });
+    renderPage();
+    await screen.findByTestId("factory-agent-page");
+    expect(screen.getByText("Last check of any trigger: 22 Sep 08:01 - nothing to do")).toBeTruthy();
+  });
+
   it("offers Resume as the Gateway words it, and posts it for this factory agent", async () => {
     client.setFactoryPaused.mockResolvedValue(undefined);
     renderPage();

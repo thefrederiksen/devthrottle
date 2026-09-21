@@ -307,6 +307,27 @@ public sealed class FactoryAgentsFoldTests
     }
 
     [Fact]
+    public void AgentPage_TheLatestCheckAcrossTriggers_IsSaidOnlyWhenThereAreTwoOrMore()
+    {
+        // One trigger: its own Woken by line says its last check, so the page does not say it a second time.
+        var one = FactoryAgentsFold.AgentPage(Factory, "front-desk",
+            Inputs(Array.Empty<FactoryActivityDto>(), new[] { Trigger() }, windowKey: FactoryAgentsFold.WindowLast7d));
+        Assert.Null(one.LastCheck);
+        Assert.NotEmpty(Assert.Single(one.WokenBy).LastCheck);
+
+        // None: the empty text already says nothing checks for it.
+        var none = FactoryAgentsFold.AgentPage(Factory, "scout",
+            Inputs(Array.Empty<FactoryActivityDto>(), windowKey: FactoryAgentsFold.WindowLast7d));
+        Assert.Null(none.LastCheck);
+
+        // Two: the page says the latest of them.
+        var two = FactoryAgentsFold.AgentPage(Factory, "front-desk",
+            Inputs(Array.Empty<FactoryActivityDto>(), new[] { Trigger(id: "t1"), Trigger(id: "t2") }, windowKey: FactoryAgentsFold.WindowLast7d));
+        Assert.Equal(2, two.WokenBy.Count);
+        Assert.NotNull(two.LastCheck);
+    }
+
+    [Fact]
     public void AgentPage_NoTrigger_OffersNoPauseAndSaysWhy()
     {
         var page = FactoryAgentsFold.AgentPage(Factory, "scout",

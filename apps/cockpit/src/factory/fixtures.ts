@@ -217,7 +217,7 @@ export const AGENT_PAGE: FactoryAgentPage = {
     },
   ],
   wokenByEmptyText: null,
-  lastCheck: "22 Sep 07:55 - paused, not started",
+  lastCheck: null,
   last7DaysTitle: "Last 7 days",
   last7Days: [
     { text: "14 runs", tone: "neutral", target: null, outcome: null, href: null },
