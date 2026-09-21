@@ -22,7 +22,7 @@ internal sealed record FactoryAgentsSources(
     Func<TenantId, FactoryRecordQuery, FactoryActivityPage> Query,
     Func<TenantId, AppendFactoryActivityRequest, string, FactoryActivityDto> Append,
     Func<TenantId, IReadOnlyList<FactoryTriggerFacts>> Triggers,
-    Func<TenantId, string, bool, string, bool> SetTriggerPaused,
+    Func<TenantId, string, bool, string, CancellationToken, Task<bool>> SetTriggerPaused,
     Func<TenantId, IReadOnlySet<string>> LiveSessionIds,
     Func<TenantId, TimeZoneInfo> TimeZone,
     Func<DateTime> NowUtc,
@@ -190,18 +190,18 @@ internal static class FactoryAgentsViewEndpoints
         {
             var paused = action == "pause";
             app.MapPost(Prefix + "/factories/{factory}/" + action, (HttpContext ctx, string factory) =>
-                Owner(ctx, resolveTenant, $"POST {action} factory {factory}", tenant =>
-                    SetPaused(sources, tenant, ctx, t => SameId(t.Factory, factory), paused)));
+                OwnerAsync(ctx, resolveTenant, $"POST {action} factory {factory}", tenant =>
+                    SetPausedAsync(sources, tenant, ctx, t => SameId(t.Factory, factory), paused)));
 
             app.MapPost(Prefix + "/factories/{factory}/agents/{agent}/" + action, (HttpContext ctx, string factory, string agent) =>
-                Owner(ctx, resolveTenant, $"POST {action} agent {factory}/{agent}", tenant =>
-                    SetPaused(sources, tenant, ctx, t => SameId(t.Factory, factory) && SameId(t.FactoryAgent, agent), paused)));
+                OwnerAsync(ctx, resolveTenant, $"POST {action} agent {factory}/{agent}", tenant =>
+                    SetPausedAsync(sources, tenant, ctx, t => SameId(t.Factory, factory) && SameId(t.FactoryAgent, agent), paused)));
         }
 
         FileLog.Write($"[FactoryAgentsViewEndpoints] mapped {Prefix} views, activity, waiting, reports, pause and resume");
     }
 
-    private static IResult SetPaused(FactoryAgentsSources sources, TenantId tenant, HttpContext ctx,
+    private static async Task<IResult> SetPausedAsync(FactoryAgentsSources sources, TenantId tenant, HttpContext ctx,
         Func<FactoryTriggerFacts, bool> which, bool paused)
     {
         var triggers = sources.Triggers(tenant).Where(which).ToList();
@@ -209,7 +209,10 @@ internal static class FactoryAgentsViewEndpoints
             return Results.Json(new { error = "No trigger wakes this, so there is nothing to pause or resume." },
                 statusCode: StatusCodes.Status404NotFound);
         var by = OwnerActor(ctx);
-        var changed = triggers.Count(t => t.Paused != paused && sources.SetTriggerPaused(tenant, t.Id, paused, by));
+        var changed = 0;
+        foreach (var t in triggers.Where(t => t.Paused != paused))
+            if (await sources.SetTriggerPaused(tenant, t.Id, paused, by, ctx.RequestAborted))
+                changed++;
         FileLog.Write($"[FactoryAgentsViewEndpoints] {(paused ? "pause" : "resume")}: triggers={triggers.Count}, changed={changed}, by={by}");
         return Results.Json(new { triggers = triggers.Count, changed });
     }
@@ -255,6 +258,29 @@ internal static class FactoryAgentsViewEndpoints
         var corrections = candidates.Count == 0 ? new List<FactoryActivityDto>() : Corrections(sources, tenant);
         return new FactoryFoldInputs(rows, truncated || t1 || t2, candidates, corrections, sources.Triggers(tenant),
             sources.LiveSessionIds(tenant), window, sources.TimeZone(tenant), now);
+    }
+
+    private static async Task<IResult> OwnerAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
+        Func<TenantId, Task<IResult>> handle)
+    {
+        FileLog.Write($"[FactoryAgentsViewEndpoints] {what}");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant)
+                return Results.Json(new { error = "no account is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+            if (AuthMiddleware.CallingSession(ctx) is not null)
+            {
+                FileLog.Write($"[FactoryAgentsViewEndpoints] REFUSED: a session key asked for the owner's page ({what})");
+                return Results.Json(new { error = "The Factory Agents pages are the owner's. A session reads the record with cc-devthrottle factory activity." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            return await handle(tenant);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FactoryAgentsViewEndpoints] {what} FAILED: {ex.Message}");
+            throw;
+        }
     }
 
     // Every row that corrects another. A correction may carry any outcome except the quiet ones a trigger writes on

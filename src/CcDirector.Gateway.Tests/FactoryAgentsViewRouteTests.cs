@@ -127,6 +127,42 @@ public sealed class FactoryAgentsViewRouteTests
     }
 
     [Fact]
+    public async Task Switch_on_a_real_trigger_shows_on_its_factory_and_Pause_and_Resume_reach_it()
+    {
+        await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
+        var factory = "f-" + Guid.NewGuid().ToString("N");
+        var created = await h.Owner.PostAsJsonAsync("triggers", new TriggerDefinitionRequest
+        {
+            Name = "new-mail-" + factory,
+            Factory = factory,
+            FactoryAgent = "front-desk",
+            Machine = Environment.MachineName,
+            RepoPath = Path.GetTempPath(),
+            CheckCommand = "cc-website-factory mail-waiting --json",
+            IntervalSeconds = 300,
+            Prompt = "New mail: {count} threads.",
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var trigger = (await created.Content.ReadFromJsonAsync<TriggerDto>(Web))!;
+
+        var card = Assert.Single((await GetAsync<FactoriesViewDto>(h.Owner, "gateway/factory-agents/factories")).Factories,
+            c => c.Id == factory);
+        Assert.Equal("RUNNING", card.StatusWord);
+        Assert.Equal("1 factory agent, 1 trigger", card.Subtitle);
+        Assert.NotNull(card.Pause);
+
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PostAsync($"gateway/factory-agents/factories/{factory}/pause", null)).StatusCode);
+        Assert.True((await GetAsync<TriggerDto>(h.Owner, $"triggers/{trigger.Id}")).Paused);
+        var paused = Assert.Single((await GetAsync<FactoriesViewDto>(h.Owner, "gateway/factory-agents/factories")).Factories,
+            c => c.Id == factory);
+        Assert.Equal("PAUSED", paused.StatusWord);
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await h.Owner.PostAsync($"gateway/factory-agents/factories/{factory}/agents/front-desk/resume", null)).StatusCode);
+        Assert.False((await GetAsync<TriggerDto>(h.Owner, $"triggers/{trigger.Id}")).Paused);
+    }
+
+    [Fact]
     public async Task Switch_on_a_session_key_is_refused_the_owners_pages()
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: true);

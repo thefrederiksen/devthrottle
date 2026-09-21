@@ -245,17 +245,16 @@ public sealed class GatewayHost : IAsyncDisposable
     internal Factory.Triggers.TriggerService Triggers { get; }
 
     /// <summary>
-    /// What the owner's Factory Agents pages read, each in the account the route resolved. The triggers are the
-    /// trigger store's, which has not merged yet: until it does the account has no triggers, so no page offers a
-    /// Pause, and nothing can ask this to pause one.
+    /// What the owner's Factory Agents pages read, each in the account the route resolved. The triggers, their
+    /// status, and Pause and Resume all go through the trigger service, the same one <c>cc-devthrottle trigger</c> uses.
     /// </summary>
     private Api.FactoryAgentsSources FactoryAgentsViewSources() => new(
         Query: (tenant, q) => FactoryActivity.Query(tenant, q.Factory, q.Agent, q.Outcome, q.FromUtc, q.ToUtc,
             q.OldestFirst, q.Offset, q.Limit),
         Append: (tenant, request, actor) => FactoryActivity.Append(tenant, request, actor),
-        Triggers: _ => Array.Empty<Factory.FactoryTriggerFacts>(),
-        SetTriggerPaused: (_, triggerId, _, _) => throw new InvalidOperationException(
-            $"There is no trigger store on this Gateway yet, so trigger {triggerId} cannot be paused or resumed."),
+        Triggers: tenant => Factory.FactoryTriggerSource.Facts(Triggers, tenant),
+        SetTriggerPaused: (tenant, triggerId, paused, by, ct) =>
+            Factory.FactoryTriggerSource.SetPausedAsync(Triggers, tenant, triggerId, paused, by, ct),
         LiveSessionIds: tenant => LiveSessionIdsFor(tenant),
         TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
         NowUtc: () => DateTime.UtcNow,

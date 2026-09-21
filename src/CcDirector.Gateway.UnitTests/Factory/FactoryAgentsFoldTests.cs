@@ -47,9 +47,15 @@ public sealed class FactoryAgentsFoldTests
             FactoryAgentsFold.ResolveWindow(windowKey, null, null, Now, windowKey),
             Utc, Now);
 
-    private static List<FactoryActivityDto> EmptyChecks(int count, DateTime start, string agent = "front-desk") =>
+    private static List<FactoryActivityDto> EmptyChecks(int count, DateTime start, string agent = "front-desk",
+        string trigger = "t1", string name = "New business mail") =>
         Enumerable.Range(0, count)
-            .Select(i => Row(agent, "nothing-to-do", "Checked for new business mail - nothing to do", start.AddMinutes(5 * i), actor: "trigger:t1"))
+            .Select(i =>
+            {
+                var r = Row(agent, "nothing-to-do", $"Checked {name} - nothing to do", start.AddMinutes(5 * i), actor: "trigger:" + trigger);
+                r.Subject = name;
+                return r;
+            })
             .ToList();
 
     [Fact]
@@ -64,7 +70,7 @@ public sealed class FactoryAgentsFoldTests
         Assert.Equal(3, view.Rows.Count);
         var line = view.Rows[1];
         Assert.True(line.Collapsed);
-        Assert.Equal("Checked for new business mail 25 times - nothing to do", line.What);
+        Assert.Equal("Checked \"New business mail\" 25 times - nothing to do", line.What);
         Assert.Equal("03:00-05:00", line.Time);
         Assert.Equal(FactoryTone.Grey, line.OutcomeTone);
         Assert.Null(line.SessionId);
@@ -80,8 +86,8 @@ public sealed class FactoryAgentsFoldTests
         var view = FactoryAgentsFold.Activity(Inputs(rows), FactoryFilter.None, "/csv");
 
         Assert.Equal(new[] { true, false, true }, view.Rows.Select(r => r.Collapsed));
-        Assert.Equal("Checked for new business mail 3 times - nothing to do", view.Rows[0].What);
-        Assert.Equal("Checked for new business mail 17 times - nothing to do", view.Rows[2].What);
+        Assert.Equal("Checked \"New business mail\" 3 times - nothing to do", view.Rows[0].What);
+        Assert.Equal("Checked \"New business mail\" 17 times - nothing to do", view.Rows[2].What);
     }
 
     [Fact]
@@ -91,29 +97,71 @@ public sealed class FactoryAgentsFoldTests
 
         var line = Assert.Single(view.Rows);
         Assert.False(line.Collapsed);
-        Assert.Equal("Checked for new business mail - nothing to do", line.What);
+        Assert.Equal("Checked New business mail - nothing to do", line.What);
     }
 
     [Fact]
-    public void Factories_TriggersExistAndNoRowsAtAll_IsTheRedFaultNoChecksRan()
+    public void Collapse_ANothingToDoRowASessionWrote_IsItsOwnLine()
     {
-        var view = FactoryAgentsFold.Factories(Inputs(Array.Empty<FactoryActivityDto>(), new[] { Trigger() }));
+        var rows = EmptyChecks(3, Now.AddHours(-5));
+        rows.Insert(1, Row("front-desk", "nothing-to-do", "Read the inbox - nothing to do", Now.AddHours(-5).AddMinutes(2), actor: "session:s9"));
+
+        var view = FactoryAgentsFold.Activity(Inputs(rows), FactoryFilter.None, "/csv");
+
+        Assert.Equal(new[] { false, false, true }, view.Rows.Select(r => r.Collapsed));
+        Assert.Equal("Read the inbox - nothing to do", view.Rows[1].What);
+    }
+
+    [Fact]
+    public void Collapse_TwoTriggersEmptyChecksInterleaved_AreOneLineEach_WhateverTheirSentences()
+    {
+        var a = EmptyChecks(4, Now.AddHours(-5), trigger: "t1", name: "New business mail");
+        var b = EmptyChecks(4, Now.AddHours(-5).AddMinutes(1), trigger: "t2", name: "Unpaid invoices");
+        // The same sentence on both triggers: grouping by the sentence would merge them into one line of eight.
+        foreach (var r in b) r.What = a[0].What;
+        var rows = a.Concat(b).OrderBy(r => r.OccurredUtc).ToList();
+
+        var view = FactoryAgentsFold.Activity(Inputs(rows), FactoryFilter.None, "/csv");
+
+        Assert.Equal(2, view.Rows.Count);
+        Assert.All(view.Rows, r => Assert.True(r.Collapsed));
+        Assert.Equal("Checked \"New business mail\" 4 times - nothing to do", view.Rows[0].What);
+        Assert.Equal("Checked \"Unpaid invoices\" 4 times - nothing to do", view.Rows[1].What);
+    }
+
+    [Fact]
+    public void Factories_ATriggerWhoseStatusIsNoChecksRan_IsTheRedFault()
+    {
+        var view = FactoryAgentsFold.Factories(Inputs(Array.Empty<FactoryActivityDto>(),
+            new[] { Trigger(red: true, status: "no checks ran") }));
 
         var card = Assert.Single(view.Factories);
         Assert.Equal("FAULT", card.StatusWord);
         Assert.Equal(FactoryTone.Red, card.StatusTone);
-        Assert.StartsWith("No checks ran in the last 24 hours.", card.FaultText);
-        Assert.Contains("not a quiet night", card.FaultText);
-        var agent = Assert.Single(card.Agents);
-        Assert.Equal("FAULT", agent.StatusWord);
+        Assert.Equal("Trigger \"New business mail\": no checks ran.", card.FaultText);
+        Assert.Equal("FAULT", Assert.Single(card.Agents).StatusWord);
     }
 
     [Fact]
-    public void Activity_TriggersExistAndNoRows_CarriesTheNoChecksFault_ButAnEmptyOutcomeFilterDoesNot()
+    public void Factories_ATriggerThatIsFineButWroteNothingInTheWindow_IsNotAFault()
     {
-        var none = FactoryAgentsFold.Activity(Inputs(Array.Empty<FactoryActivityDto>(), new[] { Trigger() }), FactoryFilter.None, "/csv");
-        var fault = Assert.Single(none.Faults);
-        Assert.StartsWith("Website Business: No checks ran", fault);
+        // A trigger that checks daily writes nothing in most hours. The window is never the judge of "no checks ran";
+        // the trigger's own status is, and it says OK.
+        var view = FactoryAgentsFold.Factories(Inputs(Array.Empty<FactoryActivityDto>(), new[] { Trigger() },
+            windowKey: FactoryAgentsFold.WindowLast24h));
+
+        var card = Assert.Single(view.Factories);
+        Assert.Equal("RUNNING", card.StatusWord);
+        Assert.Null(card.FaultText);
+        Assert.NotEqual("FAULT", Assert.Single(card.Agents).StatusWord);
+    }
+
+    [Fact]
+    public void Activity_ARedTriggerIsAFault_AndAQuietFilteredViewIsNot()
+    {
+        var red = FactoryAgentsFold.Activity(Inputs(Array.Empty<FactoryActivityDto>(),
+            new[] { Trigger(red: true, status: "check failed: the command exited 1") }), FactoryFilter.None, "/csv");
+        Assert.Equal("Website Business: trigger \"New business mail\" - check failed: the command exited 1.", Assert.Single(red.Faults));
 
         // A quiet night that DID check, filtered to an outcome that did not happen, is not a fault.
         var quiet = FactoryAgentsFold.Activity(Inputs(EmptyChecks(10, Now.AddHours(-2)), new[] { Trigger() }),

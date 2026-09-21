@@ -32,7 +32,7 @@ public sealed class FactoryAgentsViewSupportTests
         },
         Append: (_, _, _) => throw new InvalidOperationException("not used"),
         Triggers: _ => Array.Empty<FactoryTriggerFacts>(),
-        SetTriggerPaused: (_, _, _, _) => false,
+        SetTriggerPaused: (_, _, _, _, _) => Task.FromResult(false),
         LiveSessionIds: _ => new HashSet<string>(),
         TimeZone: _ => TimeZoneInfo.Utc,
         NowUtc: () => Now,

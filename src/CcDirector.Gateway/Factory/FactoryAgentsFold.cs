@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Factory.Triggers;
 
 namespace CcDirector.Gateway.Factory;
 
@@ -99,8 +100,6 @@ public static class FactoryAgentsFold
 
     /// <summary>The longest custom window one read may cover.</summary>
     public static readonly TimeSpan MaxCustomWindow = TimeSpan.FromDays(366);
-
-    private const string NothingToDoSuffix = " - nothing to do";
 
     // The order outcomes are counted and offered in: what happened, then what was held back, then the quiet rows.
     private static readonly string[] SummaryOrder =
@@ -234,11 +233,10 @@ public static class FactoryAgentsFold
             .OrderBy(Humanize, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var faults = new List<string>();
-        var noChecks = triggers.Count > 0 && rows.Count == 0;
-        if (noChecks)
-            faults.Add(NoChecksSentence(triggers.Count, input.Window, input.Zone));
-        faults.AddRange(triggers.Where(t => t.Red).Select(t => $"Trigger \"{t.Name}\": {TriggerRedText(t)}."));
+        // A trigger's fault - "no checks ran" included - is the trigger's own status, decided on the Gateway from its
+        // last check (TriggerStatusFold). The window is never the judge: a trigger that checks daily writes nothing
+        // in the last hour, and that is not a fault.
+        var faults = triggers.Where(t => t.Red).Select(t => $"Trigger \"{t.Name}\": {TriggerRedText(t)}.").ToList();
 
         string word, tone;
         if (faults.Count > 0) { word = "FAULT"; tone = FactoryTone.Red; }
@@ -320,7 +318,7 @@ public static class FactoryAgentsFold
     private static (string Word, string Tone) AgentStatus(IReadOnlyList<FactoryTriggerFacts> triggers,
         IReadOnlyList<FactoryActivityDto> rows, IReadOnlySet<string> live)
     {
-        if (triggers.Any(t => t.Red) || (triggers.Count > 0 && rows.Count == 0))
+        if (triggers.Any(t => t.Red))
             return ("FAULT", FactoryTone.Red);
         if (triggers.Count > 0 && triggers.All(t => t.Paused))
             return ("PAUSED", FactoryTone.Paused);
@@ -463,7 +461,7 @@ public static class FactoryAgentsFold
             Window = WindowDto(input.Window, input.Zone),
             Filters = Filters(input, filter),
             Rows = lines,
-            Faults = NoChecksFaults(input, filter),
+            Faults = TriggerFaults(input, filter),
             EmptyText = lines.Count == 0 ? $"Nothing matches these filters {WindowPhrase(input.Window, input.Zone)}." : null,
             TruncatedText = input.WindowTruncated
                 ? $"This window holds more than {input.WindowRows.Count} rows; only the first {input.WindowRows.Count} are shown. Choose a shorter window."
@@ -492,7 +490,7 @@ public static class FactoryAgentsFold
         var i = 0;
         while (i < rows.Count)
         {
-            if (!Is(rows[i], FactoryActivityOutcome.NothingToDo))
+            if (!IsEmptyTriggerCheck(rows[i]))
             {
                 lines.Add(Line(rows[i], window, zone, byId, correctedBy));
                 i++;
@@ -500,9 +498,10 @@ public static class FactoryAgentsFold
             }
 
             var j = i;
-            while (j < rows.Count && Is(rows[j], FactoryActivityOutcome.NothingToDo)) j++;
+            while (j < rows.Count && IsEmptyTriggerCheck(rows[j])) j++;
+            // One line per trigger: the actor names it. The sentence is for a person to read and is never grouped on.
             var groups = rows.Skip(i).Take(j - i)
-                .GroupBy(r => (F: r.Factory.ToLowerInvariant(), A: r.FactoryAgent.ToLowerInvariant(), r.Actor, S: Stem(r.What)))
+                .GroupBy(r => r.Actor, StringComparer.Ordinal)
                 .ToList();
             foreach (var g in groups)
             {
@@ -547,9 +546,9 @@ public static class FactoryAgentsFold
         var first = run[0];
         var last = run[^1];
         var n = run.Count;
-        var what = EndsWithNothingToDo(first.What)
-            ? $"{Stem(first.What)} {n} times - nothing to do"
-            : $"{first.What} - {n} times";
+        var what = string.IsNullOrWhiteSpace(first.Subject)
+            ? $"Checked {n} times - nothing to do"
+            : $"Checked \"{first.Subject.Trim()}\" {n} times - nothing to do";
         return new FactoryActivityRowViewDto
         {
             Key = first.Id.ToString(),
@@ -692,7 +691,7 @@ public static class FactoryAgentsFold
             TruncatedText = input.WindowTruncated
                 ? $"This window holds more than {input.WindowRows.Count} rows, so these counts are short. Choose a shorter window."
                 : null,
-            Faults = NoChecksFaults(input, filter),
+            Faults = TriggerFaults(input, filter),
             CsvHref = csvHref,
             SaveLabel = "Make a report from this",
             SavedTitle = "Saved reports",
@@ -814,25 +813,12 @@ public static class FactoryAgentsFold
     // ---------------------------------------------------------------------------------------------------------
     // Shared words
 
-    private static List<string> NoChecksFaults(FactoryFoldInputs input, FactoryFilter filter)
-    {
-        var faults = new List<string>();
-        var byFactory = input.Triggers
-            .Where(t => filter.Factory is null || SameId(t.Factory, filter.Factory))
-            .GroupBy(t => t.Factory.ToLowerInvariant());
-        foreach (var g in byFactory)
-        {
-            var factory = g.First().Factory;
-            if (!input.WindowRows.Any(r => SameId(r.Factory, factory)))
-                faults.Add($"{Title(factory)}: {NoChecksSentence(g.Count(), input.Window, input.Zone)}");
-            faults.AddRange(g.Where(t => t.Red).Select(t => $"{Title(factory)}: trigger \"{t.Name}\" - {TriggerRedText(t)}."));
-        }
-        return faults;
-    }
-
-    private static string NoChecksSentence(int triggerCount, FactoryWindow window, TimeZoneInfo zone) =>
-        $"No checks ran {WindowPhrase(window, zone)}. {(triggerCount == 1 ? "Its trigger" : $"Its {triggerCount} triggers")} "
-        + "should have written a row on every check, and the record has nothing from this factory. That is a fault, not a quiet night.";
+    // Every trigger in fault among the factories shown, in the trigger's own words (TriggerStatusFold).
+    private static List<string> TriggerFaults(FactoryFoldInputs input, FactoryFilter filter) =>
+        input.Triggers
+            .Where(t => t.Red && (filter.Factory is null || SameId(t.Factory, filter.Factory)))
+            .Select(t => $"{Title(t.Factory)}: trigger \"{t.Name}\" - {TriggerRedText(t)}.")
+            .ToList();
 
     private static string TriggerRedText(FactoryTriggerFacts t) =>
         string.IsNullOrWhiteSpace(t.StatusText) ? "in fault" : t.StatusText!.Trim().TrimEnd('.');
@@ -984,11 +970,10 @@ public static class FactoryAgentsFold
     private static string? SessionLabel(string? sessionId) =>
         string.IsNullOrEmpty(sessionId) ? null : "#" + (sessionId.Length > 8 ? sessionId[..8] : sessionId);
 
-    private static bool EndsWithNothingToDo(string what) =>
-        what.TrimEnd().EndsWith(NothingToDoSuffix, StringComparison.OrdinalIgnoreCase);
-
-    private static string Stem(string what) =>
-        EndsWithNothingToDo(what) ? what.TrimEnd()[..^NothingToDoSuffix.Length].TrimEnd() : what.Trim();
+    // An empty check a trigger wrote: the outcome "nothing to do" and an actor naming a trigger. Only these collapse;
+    // a "nothing to do" a session or a person wrote is its own line.
+    private static bool IsEmptyTriggerCheck(FactoryActivityDto r) =>
+        Is(r, FactoryActivityOutcome.NothingToDo) && r.Actor.StartsWith(TriggerService.ActorPrefix, StringComparison.Ordinal);
 
     private static bool Is(FactoryActivityDto r, string outcome) => string.Equals(r.Outcome, outcome, StringComparison.Ordinal);
 
