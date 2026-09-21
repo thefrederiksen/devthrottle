@@ -824,11 +824,15 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.HasIndex("TenantId");
 
+                    b.HasIndex("TenantId", "OccurredUtc");
+
                     b.HasIndex("TenantId", "Factory", "OccurredUtc");
 
                     b.HasIndex("TenantId", "FactoryAgent", "OccurredUtc");
 
                     b.HasIndex("TenantId", "Outcome", "OccurredUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "Outcome", "OccurredUtc");
 
                     b.ToTable("factory_activity", (string)null);
                 });

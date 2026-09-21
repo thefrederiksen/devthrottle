@@ -46,6 +46,8 @@ public sealed record FactoryFilter(string? Factory, string? Agent, string? Outco
 /// <param name="WindowRows">Every record row in the window (factory-filtered at most - never agent- or
 /// outcome-filtered, because "no checks ran" must be judged on everything the factory wrote).</param>
 /// <param name="WindowTruncated">True when the window held more rows than one read returns.</param>
+/// <param name="WaitingTruncated">True when the asked, escalated or correcting rows held more than one read returns,
+/// so the Waiting list may hold an item that is already handled, or miss one.</param>
 /// <param name="WaitingCandidates">Every asked and escalated row, whatever its age.</param>
 /// <param name="Corrections">Every row that corrects another, from the oldest waiting candidate onward.</param>
 /// <param name="Triggers">Every trigger of the account.</param>
@@ -56,6 +58,7 @@ public sealed record FactoryFilter(string? Factory, string? Agent, string? Outco
 public sealed record FactoryFoldInputs(
     IReadOnlyList<FactoryActivityDto> WindowRows,
     bool WindowTruncated,
+    bool WaitingTruncated,
     IReadOnlyList<FactoryActivityDto> WaitingCandidates,
     IReadOnlyList<FactoryActivityDto> Corrections,
     IReadOnlyList<FactoryTriggerFacts> Triggers,
@@ -597,8 +600,8 @@ public static class FactoryAgentsFold
                   + "An asked item clears by itself when the record notes it was handled. An escalation stays here until you mark it handled.",
             Items = open.Select(r => WaitingItem(r, input.Zone)).ToList(),
             EmptyText = open.Count == 0 ? "Nothing asked or escalated is waiting on you." : null,
-            TruncatedText = input.WindowTruncated
-                ? "The record held more corrections than one read returns, so some items here may already be handled."
+            TruncatedText = input.WaitingTruncated
+                ? "The record held more asked, escalated or correcting rows than one read returns, so this list may miss an item, and some items here may already be handled."
                 : null,
         };
     }
@@ -629,11 +632,14 @@ public static class FactoryAgentsFold
     /// changed. Refused unless the row is an escalation nothing has corrected yet.
     /// </summary>
     public static AppendFactoryActivityRequest HandledRow(FactoryActivityDto escalation, IReadOnlyList<FactoryActivityDto> corrections,
-        string actor, DateTime nowUtc)
+        bool correctionsTruncated, string actor, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(escalation);
         if (!Is(escalation, FactoryActivityOutcome.Escalated))
             throw new FactoryViewValidationException("Only an escalation can be marked handled; an asked item clears when the record notes it was handled.");
+        // A cut corrections list cannot prove the escalation is still open, and writing on a guess would correct it twice.
+        if (correctionsTruncated)
+            throw new FactoryViewValidationException("The record holds more correcting rows than one read returns, so it cannot be told whether this escalation is already handled. Nothing was written.");
         if (corrections.Any(c => c.CorrectsId == escalation.Id))
             throw new FactoryViewValidationException("This escalation is already handled.");
 

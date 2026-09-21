@@ -110,6 +110,49 @@ public sealed class FactoryAgentsViewSupportTests
     }
 
     [Fact]
+    public void Inputs_ACutCorrectionsRead_WarnsOnWaitingAndNotOnTheWindow()
+    {
+        // One open escalation, and more correcting rows of one outcome than one read returns. The correction for the
+        // escalation sits past the ceiling, so the list the fold sees cannot clear it - it must say so, not look whole.
+        var escalation = new FactoryActivityDto
+        {
+            Id = Guid.NewGuid(), Factory = "f", FactoryAgent = "a", What = "money", Outcome = "escalated", Actor = "x",
+            OccurredUtc = Now.AddHours(-3), RecordedUtc = Now.AddHours(-3),
+        };
+        var corrections = Enumerable.Range(0, FactoryAgentsViewEndpoints.MaxRowsPerRead + 5)
+            .Select(i => new FactoryActivityDto
+            {
+                Id = Guid.NewGuid(), Factory = "f", FactoryAgent = "a", What = $"fix {i}", Outcome = "done", Actor = "owner",
+                CorrectsId = Guid.NewGuid(), OccurredUtc = Now.AddDays(-30).AddSeconds(i), RecordedUtc = Now,
+            })
+            .ToList();
+        var all = new List<FactoryActivityDto> { escalation };
+        all.AddRange(corrections);
+        var sources = Sources(all) with
+        {
+            Query = (_, q) =>
+            {
+                var rows = all.Where(r => (q.Outcome is null || r.Outcome == q.Outcome)
+                                          && (q.FromUtc is null || r.OccurredUtc >= q.FromUtc)
+                                          && (q.ToUtc is null || r.OccurredUtc < q.ToUtc)).ToList();
+                var page = rows.Skip(q.Offset).Take(q.Limit).ToList();
+                return new FactoryActivityPage { Rows = page, Offset = q.Offset, Limit = q.Limit, HasMore = q.Offset + page.Count < rows.Count };
+            },
+        };
+
+        var window = FactoryAgentsFold.ResolveWindow("last-24h", null, null, Now, "last-24h");
+        var inputs = FactoryAgentsViewEndpoints.Inputs(sources, TenantA, window, null, Now);
+
+        Assert.True(inputs.WaitingTruncated);
+        Assert.False(inputs.WindowTruncated);
+        Assert.Equal(FactoryAgentsViewEndpoints.MaxRowsPerRead, inputs.Corrections.Count);
+        var waiting = FactoryAgentsFold.Waiting(inputs, null);
+        Assert.NotNull(waiting.TruncatedText);
+        Assert.Contains("may already be handled", waiting.TruncatedText);
+        Assert.Null(FactoryAgentsFold.Activity(inputs, FactoryFilter.None, "/csv").TruncatedText);
+    }
+
+    [Fact]
     public void Reports_SaveThenList_RoundTripsForItsOwnAccountOnly()
     {
         using var h = new GatewayDbTestHarness();

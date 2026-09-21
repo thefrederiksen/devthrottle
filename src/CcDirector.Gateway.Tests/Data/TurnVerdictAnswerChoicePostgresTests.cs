@@ -78,7 +78,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             // The factory activity record landed after that, and the factory triggers after it.
             Assert.Equal("20260921084515_AddFactoryActivity", all[index + 5]);
             Assert.Equal("20260921105238_AddFactoryTriggers", all[index + 6]);
-            Assert.Equal(index + 7, all.Count);
+            // The factory activity record's read indexes (the Factory Agents pages) after that.
+            Assert.Equal("20260921131114_IndexFactoryActivityReads", all[index + 7]);
+            Assert.Equal(index + 8, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

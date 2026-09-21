@@ -133,13 +133,16 @@ internal static class FactoryAgentsViewEndpoints
             Owner(ctx, resolveTenant, $"POST handled {id}", tenant =>
             {
                 var now = sources.NowUtc();
-                var (escalations, _) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, FactoryActivityOutcome.Escalated, null, null, false, 0, PageSize));
+                var (escalations, escalationsTruncated) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, FactoryActivityOutcome.Escalated, null, null, false, 0, PageSize));
                 var escalation = escalations.FirstOrDefault(r => r.Id == id);
+                if (escalation is null && escalationsTruncated)
+                    return Results.Json(new { error = $"The record holds more than {MaxRowsPerRead} escalations, and this one is not among those one read returns. Nothing was written." },
+                        statusCode: StatusCodes.Status409Conflict);
                 if (escalation is null)
                     return Results.Json(new { error = "There is no escalation with that id." }, statusCode: StatusCodes.Status404NotFound);
-                var corrections = Corrections(sources, tenant);
+                var (corrections, correctionsTruncated) = Corrections(sources, tenant);
                 var actor = OwnerActor(ctx);
-                var request = FactoryAgentsFold.HandledRow(escalation, corrections, actor, now);
+                var request = FactoryAgentsFold.HandledRow(escalation, corrections, correctionsTruncated, actor, now);
                 var written = sources.Append(tenant, request, actor);
                 FileLog.Write($"[FactoryAgentsViewEndpoints] POST handled: escalation={id} corrected by row {written.Id}, actor={actor}");
                 return Results.Json(written, statusCode: StatusCodes.Status201Created);
@@ -255,8 +258,8 @@ internal static class FactoryAgentsViewEndpoints
         var (asked, t1) = ReadAll(sources, tenant, new FactoryRecordQuery(factory, null, FactoryActivityOutcome.Asked, null, null, true, 0, PageSize));
         var (escalated, t2) = ReadAll(sources, tenant, new FactoryRecordQuery(factory, null, FactoryActivityOutcome.Escalated, null, null, true, 0, PageSize));
         var candidates = asked.Concat(escalated).ToList();
-        var corrections = candidates.Count == 0 ? new List<FactoryActivityDto>() : Corrections(sources, tenant);
-        return new FactoryFoldInputs(rows, truncated || t1 || t2, candidates, corrections, sources.Triggers(tenant),
+        var (corrections, t3) = candidates.Count == 0 ? (new List<FactoryActivityDto>(), false) : Corrections(sources, tenant);
+        return new FactoryFoldInputs(rows, truncated, t1 || t2 || t3, candidates, corrections, sources.Triggers(tenant),
             sources.LiveSessionIds(tenant), window, sources.TimeZone(tenant), now);
     }
 
@@ -286,16 +289,19 @@ internal static class FactoryAgentsViewEndpoints
     // Every row that corrects another. A correction may carry any outcome except the quiet ones a trigger writes on
     // its own, so those two are the only ones not read. There is NO time bound: a caller sets a row's own time, so a
     // correction can carry a time earlier than the row it corrects, and a bound on it would keep a handled item on
-    // the list for ever. The rows read are the few non-quiet ones, never the empty checks.
-    private static List<FactoryActivityDto> Corrections(FactoryAgentsSources sources, TenantId tenant)
+    // the list for ever. The rows read are the few non-quiet ones, never the empty checks. The second value is true
+    // when any outcome's read was cut, so a caller never treats a partial list of corrections as the whole one.
+    private static (List<FactoryActivityDto> Rows, bool Truncated) Corrections(FactoryAgentsSources sources, TenantId tenant)
     {
         var all = new List<FactoryActivityDto>();
+        var truncated = false;
         foreach (var outcome in FactoryActivityOutcome.All.Where(o => o is not FactoryActivityOutcome.NothingToDo and not FactoryActivityOutcome.Paused))
         {
-            var (rows, _) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, outcome, null, null, true, 0, PageSize));
+            var (rows, cut) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, outcome, null, null, true, 0, PageSize));
             all.AddRange(rows.Where(r => r.CorrectsId is not null));
+            truncated |= cut;
         }
-        return all;
+        return (all, truncated);
     }
 
     /// <summary>Page through the record up to <see cref="MaxRowsPerRead"/> rows. The second value is true when the

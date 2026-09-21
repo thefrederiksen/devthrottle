@@ -38,12 +38,13 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal("20260921105211_AddFactoryTriggers", all[^1]); // the migrations that sort after it
-            Assert.Equal("20260921081600_AddFactoryActivity", all[^2]);
-            Assert.Equal("20260920052924_AddRaisedSessions", all[^3]);
-            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[^4]);
-            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[^5]);
-            Assert.Equal(SqliteUnderTest, all[^6]);
+            Assert.Equal("20260921131049_IndexFactoryActivityReads", all[^1]); // the migrations that sort after it
+            Assert.Equal("20260921105211_AddFactoryTriggers", all[^2]);
+            Assert.Equal("20260921081600_AddFactoryActivity", all[^3]);
+            Assert.Equal("20260920052924_AddRaisedSessions", all[^4]);
+            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[^5]);
+            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[^6]);
+            Assert.Equal(SqliteUnderTest, all[^7]);
 
             // From an EMPTY database to the schema just before, with an open record filed as it was filed then.
             Assert.Empty(context.Database.GetAppliedMigrations());
@@ -58,7 +59,7 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
 
             migrator.Migrate();
 
-            Assert.Equal("20260921105211_AddFactoryTriggers", context.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20260921131049_IndexFactoryActivityReads", context.Database.GetAppliedMigrations().Last());
             Assert.Empty(context.Database.GetPendingMigrations());
             Assert.False(context.Database.HasPendingModelChanges());
             var columns = ColumnNames(connection);
@@ -85,14 +86,14 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
     /// one: that is what says a later migration did not quietly drop them.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20260921105211_AddFactoryTriggers")]
-    [InlineData("postgres", "20260921105238_AddFactoryTriggers")]
+    [InlineData("sqlite", "20260921131049_IndexFactoryActivityReads")]
+    [InlineData("postgres", "20260921131114_IndexFactoryActivityReads")]
     public void TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);
         var assembly = context.GetService<IMigrationsAssembly>();
         Assert.True(assembly.Migrations.TryGetValue(id, out var type), $"'{id}' is not discovered for {provider}.");
-        Assert.Equal("AddFactoryTriggers", type!.Name);
+        Assert.Equal("IndexFactoryActivityReads", type!.Name);
         Assert.Equal(id, assembly.Migrations.Keys.Max(StringComparer.Ordinal));
         Assert.Equal(typeof(GatewayDbContext), type.GetCustomAttribute<DbContextAttribute>()!.ContextType);
 

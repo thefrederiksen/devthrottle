@@ -39,7 +39,7 @@ public sealed class FactoryAgentsFoldTests
         IReadOnlyList<FactoryTriggerFacts>? triggers = null, IReadOnlySet<string>? live = null,
         IReadOnlyList<FactoryActivityDto>? waiting = null, IReadOnlyList<FactoryActivityDto>? corrections = null,
         string windowKey = FactoryAgentsFold.WindowLast24h) =>
-        new(rows, false,
+        new(rows, false, false,
             waiting ?? rows.Where(r => r.Outcome is "asked" or "escalated").ToList(),
             corrections ?? rows.Where(r => r.CorrectsId is not null).ToList(),
             triggers ?? Array.Empty<FactoryTriggerFacts>(),
@@ -231,7 +231,7 @@ public sealed class FactoryAgentsFoldTests
         Assert.Equal("I have handled it", before.Items[0].HandledLabel);
         Assert.Null(before.Items[1].HandledLabel);
 
-        var handled = FactoryAgentsFold.HandledRow(escalation, Array.Empty<FactoryActivityDto>(), "soren@example.com", Now);
+        var handled = FactoryAgentsFold.HandledRow(escalation, Array.Empty<FactoryActivityDto>(), false, "soren@example.com", Now);
         Assert.Equal(escalation.Id, handled.CorrectsId);
         Assert.Equal("done", handled.Outcome);
         Assert.StartsWith("Marked handled by soren@example.com:", handled.What);
@@ -255,12 +255,22 @@ public sealed class FactoryAgentsFoldTests
     {
         var asked = Row("front-desk", "asked", "Draft", Now);
         Assert.Throws<FactoryViewValidationException>(() =>
-            FactoryAgentsFold.HandledRow(asked, Array.Empty<FactoryActivityDto>(), "me", Now));
+            FactoryAgentsFold.HandledRow(asked, Array.Empty<FactoryActivityDto>(), false, "me", Now));
 
         var escalation = Row("front-desk", "escalated", "Money", Now);
         var fix = Row("front-desk", "done", "handled", Now, corrects: escalation.Id);
         Assert.Throws<FactoryViewValidationException>(() =>
-            FactoryAgentsFold.HandledRow(escalation, new[] { fix }, "me", Now));
+            FactoryAgentsFold.HandledRow(escalation, new[] { fix }, false, "me", Now));
+    }
+
+    [Fact]
+    public void HandledRow_WhenTheCorrectionsReadWasCut_IsRefusedRatherThanRisk_ASecondCorrection()
+    {
+        var escalation = Row("front-desk", "escalated", "Money", Now);
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() =>
+            FactoryAgentsFold.HandledRow(escalation, Array.Empty<FactoryActivityDto>(), true, "me", Now));
+        Assert.Contains("Nothing was written", ex.Message);
     }
 
     [Fact]

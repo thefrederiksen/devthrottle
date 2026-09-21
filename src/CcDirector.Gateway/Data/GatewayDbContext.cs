@@ -1231,6 +1231,12 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.Factory, e.OccurredUtc });
             b.HasIndex(e => new { e.TenantId, e.FactoryAgent, e.OccurredUtc });
             b.HasIndex(e => new { e.TenantId, e.Outcome, e.OccurredUtc });
+            // The Sessions roster stamps its factory agent chip from the "started" row of each session on screen,
+            // every poll (Screen 6). The record is permanent and grows with every trigger check, so that read must
+            // seek, never scan.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.Outcome, e.OccurredUtc });
+            // The Factory Agents pages read a whole window with no factory named (Activity, Reports, Waiting).
+            b.HasIndex(e => new { e.TenantId, e.OccurredUtc });
         });
 
         modelBuilder.Entity<EntitlementEntity>(b =>
