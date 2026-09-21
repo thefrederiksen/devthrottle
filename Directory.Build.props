@@ -16,7 +16,7 @@
       - UIs read the version from their assembly at runtime - never hardcode it.
   -->
   <PropertyGroup>
-    <Version>2.8.1</Version>
+    <Version>2.9.0</Version>
   </PropertyGroup>
   <!--
     THE MUTATION-PROOF PIN GUARD, linked into every test assembly in the repository.

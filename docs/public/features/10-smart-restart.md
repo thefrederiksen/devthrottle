@@ -1,10 +1,7 @@
 # Smart Restart
 
-> **Not in a released version yet.** Smart Restart is finished and merged, and it arrives in the next
-> release of DevThrottle. The newest release as this page was written is 2.8.1, and it does not have it.
-> If there is no **Smart Restart** on your File menu, that is why: your build predates the feature, and
-> updating to the next release is what gets it. Everything below describes the feature as it is built.
-> This note comes off the day the release ships.
+> **New in 2.9.0.** If there is no **Smart Restart** on your File menu, your DevThrottle is older than
+> 2.9.0; updating is what gets it.
 
 Restarting DevThrottle used to mean losing whatever your sessions were doing. Smart Restart shuts
 them down nicely instead: every session is asked to write a short handover of what it was doing and
@@ -105,9 +102,9 @@ conversation, so it is clear which sessions never got to finish.
 
 Nothing comes back on its own. Sessions are brought back because you say so, and you are asked.
 
-When DevThrottle starts again and reaches the Gateway, if any sessions are still waiting from a smart
-shutdown, a window appears: **A restart is available**. It says when the shutdown was, the reason you
-gave for it, and how many sessions are waiting. Under that is a list, with a tick box on each line:
+When DevThrottle starts again and reaches the Gateway, if a smart shutdown has something to bring back, a
+window appears: **A restart is available**. It says when the shutdown was, the reason you gave for it,
+and how many sessions are waiting. Under that is a list, with a tick box on each line:
 
 - **A mission's lead, with its sessions underneath it.** Bringing that line back starts the lead first
   and then its sessions, each one reading its own handover.
@@ -117,12 +114,22 @@ gave for it, and how many sessions are waiting. Under that is a list, with a tic
   agent cannot be started on a saved conversation, to **open a fresh session in its repository** with
   none of the conversation in it. The line tells you which of the two you would get before you press it.
 
-Two answers: **Bring back** starts the lines you ticked, and tells you what happened to each one.
-**Not now** writes nothing.
+Three answers:
 
-**Not now is not final.** **File, Restart history** lists every record this Director has written, newest
-first - when, why, and what became of each session - and any record that is still owed sessions carries
-the same offer, so you can bring them back later in the day, or tomorrow. If the Gateway cannot be
+- **Bring back** starts the lines you ticked, and tells you what happened to each one.
+- **Not now** writes nothing, and asks you again the next time the Director starts.
+- **Don't ask again**, set apart from the other two, stops the offer for that restart. It brings nothing
+  back and deletes nothing.
+
+**You are offered a restart once.** As soon as anything has been brought back or reopened from it, it is
+not offered again when the Director starts - even if some of its sessions are still waiting. A restart
+you answered with **Don't ask again** is not offered again either, and neither is one more than seven
+days old.
+
+**Nothing is ever deleted.** **File, Restart history** lists every record this Director has written,
+newest first - when, why, and what became of each session - and says why any record is no longer offered
+at start-up: used, cleared, or too old. Whatever a record still holds carries the same offer there, so
+you can bring it back later in the day, or next week. If the Gateway cannot be
 reached, nothing is offered when DevThrottle starts, and the history says plainly that the records could
 not be read, rather than showing you an empty list and letting you think there is nothing there.
 
