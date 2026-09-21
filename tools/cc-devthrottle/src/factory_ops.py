@@ -33,7 +33,7 @@ ROUTE = "gateway/factory/activity"
 #: list; this copy exists only so `--help` can show it.
 OUTCOMES = (
     "started", "allowed", "asked", "blocked", "escalated", "done", "sent-back", "nothing-to-do", "paused",
-    "failed",
+    "skipped", "failed",
 )
 
 #: What a 404 from this route means. The route is simply not mapped while the switch is off, so the

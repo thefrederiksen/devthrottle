@@ -25,13 +25,15 @@ public static class FactoryActivityOutcome
     public const string NothingToDo = "nothing-to-do";
     /// <summary>The factory agent is paused, so nothing was started.</summary>
     public const string Paused = "paused";
+    /// <summary>A trigger check did not start a session because the one it started last is still running.</summary>
+    public const string Skipped = "skipped";
     /// <summary>The action or check failed.</summary>
     public const string Failed = "failed";
 
     /// <summary>Every legal outcome, in the order the refusal lists them.</summary>
     public static readonly string[] All =
     {
-        Started, Allowed, Asked, Blocked, Escalated, Done, SentBack, NothingToDo, Paused, Failed,
+        Started, Allowed, Asked, Blocked, Escalated, Done, SentBack, NothingToDo, Paused, Skipped, Failed,
     };
 }
 

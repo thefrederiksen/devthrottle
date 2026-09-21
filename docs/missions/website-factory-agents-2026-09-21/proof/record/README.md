@@ -30,8 +30,8 @@ Store tests, `src/CcDirector.Gateway.UnitTests/FactoryActivityRecordTests.cs` (2
 | `Append_then_Query_returns_the_row_with_server_stamps` | A written row reads back with every field, and the Gateway stamps both times. |
 | `A_correction_is_a_new_row_pointing_at_the_old_one_and_the_old_one_is_unchanged` | A correction is a second row that points at the first. The first row, serialized before and after, is identical. |
 | `A_correction_of_a_row_that_does_not_exist_is_refused_and_writes_nothing` | A correction cannot point at nothing. |
-| `A_refused_outcome_lists_the_allowed_words_and_writes_nothing` | An unknown outcome is refused with all ten allowed words, and a query afterwards finds the same count as before. |
-| `Every_listed_outcome_is_accepted` | All ten words from the design are accepted, and there are exactly ten. |
+| `A_refused_outcome_lists_the_allowed_words_and_writes_nothing` | An unknown outcome is refused with all eleven allowed words, and a query afterwards finds the same count as before. |
+| `Every_listed_outcome_is_accepted` | All eleven words are accepted (the design's ten plus `skipped`, added by review finding F1), and there are exactly eleven. |
 | `A_sentence_over_500_characters_is_refused_and_one_of_exactly_500_is_kept` | The cap sits exactly at 500. |
 | `A_missing_required_field_is_refused` (3 cases) | Factory, factory agent and "what happened" are required. |
 | `A_named_actor_wins_over_the_calling_session`, `A_row_with_no_actor_and_no_caller_is_refused` | Who acted is never blank. |
@@ -74,6 +74,18 @@ Existing guards that this change had to satisfy, and that caught real gaps while
 ## Gate results
 
 See `gate-default.txt`, `gate-parked.txt` and `gate-python.txt` beside this file.
+
+Re-run after review finding F1 added `skipped` (2026-09-21, at the commit that adds it):
+- `scripts/test-local.ps1` default run: every suite passed except four tests, none in code this change
+  touches. Two are the Launcher tests that read this machine's live restart signal
+  (`An_unarmed_launcher_declares_no_restart_signal...`, `Describing_the_launcher_asks_the_signal...`).
+  Two come from running with TEMP on drive D because drive C is full:
+  `DirectorSupervisorTests.DefaultConstructor_ResolvesRealLocalAppDataPath` expects the temporary
+  folder under `AppData\Local`, and `ReclaimRefusalTests.Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused`
+  needs Windows short names, which drive D does not create.
+- Gateway.UnitTests in full: 6998 passed, 8 skipped, 0 failed.
+- tools/cc-devthrottle, same scratch virtual environment recipe as `gate-python.txt`: 3483 passed,
+  3 skipped (`test_factory_ops.py` 12 passed); the shared contract and output tests 136 passed.
 
 ## What this proof does not cover
 

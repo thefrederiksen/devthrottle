@@ -172,7 +172,7 @@ public sealed class FactoryActivityRecordTests : IDisposable
         foreach (var word in FactoryActivityOutcome.All)
             record.Append(Row(outcome: word), "session:abc");
         Assert.Equal(FactoryActivityOutcome.All.Length, CountAll(record));
-        Assert.Equal(10, FactoryActivityOutcome.All.Length);
+        Assert.Equal(11, FactoryActivityOutcome.All.Length);
     }
 
     [Fact]

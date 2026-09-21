@@ -1657,8 +1657,9 @@ COMMANDS:
 ```
 
 `OUTCOME` is exactly one of `started`, `allowed`, `asked`, `blocked`, `escalated`, `done`,
-`sent-back`, `nothing-to-do`, `paused`, `failed`. Any other word is refused by the Gateway with the
-list. `--what` is one plain sentence of at most 500 characters.
+`sent-back`, `nothing-to-do`, `paused`, `skipped`, `failed`. Any other word is refused by the Gateway
+with the list. `skipped` is a trigger check that did not start a session because the one it started
+last is still running. `--what` is one plain sentence of at most 500 characters.
 
 `record` prints the new row's id on its first line (`--json` prints the whole row) and exits 0 ONLY
 when the Gateway returned that id. It exits 1 with the reason whenever the row was not written: the
