@@ -16,8 +16,11 @@ import {
   machineKeyOf,
   modelChip,
   modelKeyOf,
-  nestedElsewhereText,
   laneTree,
+  type LaneTree,
+  homeLabelOf,
+  awayText,
+  crewElsewhereText,
 } from "./fleetMapFormat";
 import { buildSessionTree, childrenOf, type SessionTree } from "@devthrottle/client-core/sessions/tree";
 
@@ -46,6 +49,18 @@ function drawn(tree: SessionTree): string[] {
   return out;
 }
 
+// The sessions a column draws SOLID: every card it draws for a session it holds, never under a dotted one.
+function solid(tree: LaneTree): string[] {
+  const out: string[] = [];
+  const walk = (s: SessionDto, away: boolean): void => {
+    const isAway = away || !tree.here.has(s.sessionId ?? "");
+    if (!isAway) out.push(s.sessionId ?? "");
+    for (const k of childrenOf(tree, s)) walk(k, isAway);
+  };
+  for (const r of tree.roots) walk(r, false);
+  return out;
+}
+
 describe("laneTree - the Fleet Map draws the Sessions list's tree", () => {
   // The owner's case, 16 September: Architect 102 on the Mac Mini started Worker 146 on the Mac Mini AND
   // Worker 124 on SOREN_NORTH. The Sessions list showed both under 102; the map showed only 146, and 124
@@ -64,16 +79,57 @@ describe("laneTree - the Fleet Map draws the Sessions list's tree", () => {
     expect(drawn(macColumn)).toEqual(["102@0", "146@1", "124@1"]);
   });
 
-  it("does not draw that crew member again in its own machine's column", () => {
+  it("draws that crew member again, solid, in its own machine's column under a tag naming its parent", () => {
     const tree = buildSessionTree(fleet);
     const northColumn = laneTree([w124, loose], tree);
-    expect(drawn(northColumn)).toEqual(["144@0"]);
+    expect(ids(northColumn.roots)).toEqual(["124", "144"]);
+    expect(northColumn.parentElsewhere.get("124")?.sessionId).toBe("102");
+    expect(northColumn.parentElsewhere.has("144")).toBe(false);
   });
 
-  it("draws every session exactly once across all the columns", () => {
+  it("marks the crew member dotted under its parent, and solid in its own column", () => {
     const tree = buildSessionTree(fleet);
-    const all = [...drawn(laneTree([a102, w146], tree)), ...drawn(laneTree([w124, loose], tree))];
-    expect(all.map((x) => x.split("@")[0]).sort()).toEqual(["102", "124", "144", "146"]);
+    const macColumn = laneTree([a102, w146], tree);
+    expect(macColumn.here.has("124")).toBe(false);
+    expect(macColumn.here.has("146")).toBe(true);
+    expect(laneTree([w124, loose], tree).here.has("124")).toBe(true);
+  });
+
+  it("draws every session SOLID exactly once across all the columns", () => {
+    const tree = buildSessionTree(fleet);
+    const all = [...solid(laneTree([a102, w146], tree)), ...solid(laneTree([w124, loose], tree))];
+    expect(all.sort()).toEqual(["102", "124", "144", "146"]);
+  });
+
+  it("the owner's case, 21 September: 103 on the Mac Mini started by 127 on SOREN_NORTH shows on the Mac", () => {
+    const s127 = session({ sessionId: "127", ...north });
+    const s103 = child("103", "127", mac);
+    const s113 = session({ sessionId: "113", ...mac });
+    const tree = buildSessionTree([s127, s103, s113]);
+    const macColumn = laneTree([s113, s103], tree);
+    expect(ids(macColumn.roots)).toEqual(["113", "103"]);
+    expect(macColumn.parentElsewhere.get("103")?.sessionId).toBe("127");
+    expect(drawn(laneTree([s127], tree))).toEqual(["127@0", "103@1"]);
+  });
+
+  it("does not give a tag to a session whose parent runs in the same column", () => {
+    const tree = buildSessionTree(fleet);
+    const macColumn = laneTree([a102, w146], tree);
+    expect(macColumn.parentElsewhere.size).toBe(0);
+    expect(ids(macColumn.roots)).toEqual(["102"]);
+  });
+
+  it("a grandchild back on the parent's machine is dotted under its dotted parent, and solid only once", () => {
+    // A on SOREN_NORTH started B on the Mac, and B started C on SOREN_NORTH.
+    const a = session({ sessionId: "a", ...north });
+    const b = child("b", "a", mac);
+    const c = child("c", "b", north);
+    const tree = buildSessionTree([a, b, c]);
+    const northColumn = laneTree([a, c], tree);
+    const macColumn = laneTree([b], tree);
+    expect(ids(northColumn.roots)).toEqual(["a", "c"]);
+    expect(northColumn.parentElsewhere.get("c")?.sessionId).toBe("b");
+    expect([...solid(northColumn), ...solid(macColumn)].sort()).toEqual(["a", "b", "c"]);
   });
 
   it("agrees with the Sessions list about who is under whom", () => {
@@ -84,7 +140,7 @@ describe("laneTree - the Fleet Map draws the Sessions list's tree", () => {
 
   it("keeps the column's own order for the top-level cards", () => {
     const tree = buildSessionTree(fleet);
-    expect(ids(laneTree([loose, w124], tree).roots)).toEqual(["144"]);
+    expect(ids(laneTree([loose, w124], tree).roots)).toEqual(["144", "124"]);
     const b = session({ sessionId: "b", ...north });
     expect(ids(laneTree([b, loose], buildSessionTree([...fleet, b])).roots)).toEqual(["b", "144"]);
   });
@@ -112,14 +168,47 @@ describe("laneTree - the Fleet Map draws the Sessions list's tree", () => {
   });
 });
 
-describe("nestedElsewhereText", () => {
-  it("says why a column with only crew from elsewhere has no cards", () => {
-    expect(nestedElsewhereText(1)).toBe("1 session here is shown under the session that started it, in another column");
-    expect(nestedElsewhereText(2)).toBe("2 sessions here are shown under the sessions that started them, in other columns");
+describe("homeLabelOf", () => {
+  const s = session({
+    machineName: "devthrottle-mac-mini",
+    directorId: "mac-1",
+    repoName: "thefrederiksen/devthrottle_internal",
+    repoPath: "/Users/soren/ReposFred/devthrottle_internal",
+  });
+  const reach: DirectorReachability = { directorId: "mac-1", machineName: "devthrottle-mac-mini", state: REACHABILITY_ONLINE, displayName: "DevThrottle-Mac-Mini" };
+
+  it("names the machine AND the Director on the machine and Director pivots", () => {
+    expect(homeLabelOf(s, "machine", reach)).toBe("devthrottle-mac-mini / DevThrottle-Mac-Mini");
+    expect(homeLabelOf(s, "director", reach)).toBe("devthrottle-mac-mini / DevThrottle-Mac-Mini");
   });
 
-  it("says nothing when there is nothing drawn elsewhere", () => {
-    expect(nestedElsewhereText(0)).toBe("");
+  it("names the repository or the working tree on theirs", () => {
+    expect(homeLabelOf(s, "repo", reach)).toBe("thefrederiksen/devthrottle_internal");
+    expect(homeLabelOf(s, "worktree", reach)).toBe("devthrottle_internal");
+  });
+
+  it("says runs on for a machine, and drawn in full for a repository", () => {
+    expect(awayText("machine", "X / Y")).toBe("runs on X / Y");
+    expect(awayText("repo", "o/r")).toBe("drawn in full in o/r");
+  });
+});
+
+describe("crewElsewhereText", () => {
+  const mac = { machineName: "devthrottle-mac-mini", directorId: "mac-1" };
+  const north = { machineName: "SOREN_NORTH", directorId: "north-1" };
+  const homeOf = (x: SessionDto): string => x.machineName ?? "";
+
+  it("counts the crew that runs in another column, by where it runs", () => {
+    const p = session({ sessionId: "p", ...north });
+    const f = [p, child("k1", "p", mac), child("k2", "p", mac), child("k3", "p", north)];
+    const tree = laneTree([p, f[3]], buildSessionTree(f));
+    expect(crewElsewhereText(tree, p, homeOf)).toBe("2 run on devthrottle-mac-mini");
+  });
+
+  it("says nothing when the whole crew runs here", () => {
+    const p = session({ sessionId: "p", ...north });
+    const f = [p, child("k", "p", north)];
+    expect(crewElsewhereText(laneTree(f, buildSessionTree(f)), p, homeOf)).toBe("");
   });
 });
 
