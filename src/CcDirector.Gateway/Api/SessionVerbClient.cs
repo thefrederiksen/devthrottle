@@ -179,12 +179,26 @@ internal sealed class SessionVerbClient
     public async Task<(bool ok, SessionDto? body, string? error)> CreateSessionAsync(
         NewSessionRequest req, CancellationToken ct = default)
     {
+        var (ok, body, error, _) = await CreateSessionWithOutcomeAsync(req, ct);
+        return (ok, body, error);
+    }
+
+    /// <summary>
+    /// <see cref="CreateSessionAsync"/>, also saying whether a failure left the outcome UNKNOWN: the Gateway stopped
+    /// waiting (<see cref="DirectorCommandStatus.Timeout"/>) or the tunnel dropped mid-command
+    /// (<see cref="DirectorCommandStatus.TunnelDropped"/>). Either way the Director may have created the session, so
+    /// a caller that must never start twice has to treat it as possibly started. Read from the status, never the text.
+    /// </summary>
+    public async Task<(bool ok, SessionDto? body, string? error, bool outcomeUnknown)> CreateSessionWithOutcomeAsync(
+        NewSessionRequest req, CancellationToken ct = default)
+    {
         var result = await DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, "create", "", req, ct,
             machineName: _director.MachineName);
         if (result is null)
-            return (false, null, "owning Director is not connected to the tunnel");
+            return (false, null, "owning Director is not connected to the tunnel", false);
         return result.Ok
-            ? (true, DirectorCommandRouter.ReadBody<SessionDto>(result), null)
-            : (false, null, DirectorCommandRouter.DescribeFailure(result));
+            ? (true, DirectorCommandRouter.ReadBody<SessionDto>(result), null, false)
+            : (false, null, DirectorCommandRouter.DescribeFailure(result),
+                result.Status is DirectorCommandStatus.Timeout or DirectorCommandStatus.TunnelDropped);
     }
 }

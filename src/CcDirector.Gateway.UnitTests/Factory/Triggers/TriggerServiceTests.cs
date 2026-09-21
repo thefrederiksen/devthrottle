@@ -29,6 +29,7 @@ public sealed class TriggerServiceTests : IDisposable
     private int _nextSession;
     private TaskCompletionSource? _holdStart;
     private Exception? _startThrows;
+    private string? _startUnknown;
     private readonly List<CancellationToken> _startTokens = new();
     private readonly CancellationTokenSource _lifetime = new();
 
@@ -47,12 +48,14 @@ public sealed class TriggerServiceTests : IDisposable
                 // Like the real create command: a cancelled token cuts the start off mid-create.
                 ct.ThrowIfCancellationRequested();
                 if (_startThrows is not null) throw _startThrows;
-                if (_startError is not null) return (null, _startError);
+                if (_startUnknown is not null) return TriggerStartAttempt.Unknown(_startUnknown);
+                if (_startError is not null) return TriggerStartAttempt.Failed(_startError);
                 var id = $"aaaaaaaa-0000-4000-8000-{++_nextSession:D12}";
-                _sessions[id] = new SessionDto { SessionId = id, ActivityState = "Working" };
-                return (id, null);
+                _sessions[id] = new SessionDto { SessionId = id, ActivityState = "Working", Name = request.Name };
+                return TriggerStartAttempt.Started(id);
             },
             findSession: (_, sid) => _sessions.TryGetValue(sid, out var s) ? s : null,
+            findSessionByName: (_, name) => _sessions.Values.FirstOrDefault(s => s.Name == name),
             timeZone: _ => TimeZoneInfo.Utc,
             nowUtc: () => _now,
             startLifetime: _lifetime.Token);
@@ -412,8 +415,10 @@ public sealed class TriggerServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task AStartCutOffByTheGatewayStopping_SaysSo_AndReleasesTheLock()
+    public async Task AStartCutOffByTheGatewayStopping_IsAnUnknownOutcome_AndKeepsTheLock()
     {
+        // The create may already be on its way to the Director when the Gateway stops, so this is not a definite
+        // failure: the lock stays, and the next Gateway finds the session by name or lets the lock lapse.
         var service = Service();
         var t = Add(service);
         _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -424,8 +429,134 @@ public sealed class TriggerServiceTests : IDisposable
         var run = await result.Starting!;
 
         Assert.Equal(TriggerRunOutcome.Failed, run!.Outcome);
-        Assert.Equal(TriggerStatusFold.StartFailedPrefix + "the Gateway stopped while the session was being started", run.Reason);
-        Assert.Null(service.Store.Find(Tenant, t.Id)!.LastStartedUtc);
+        Assert.StartsWith(TriggerStatusFold.StartUnknownPrefix + "the Gateway stopped while the session was being started.", run.Reason);
+        Assert.NotNull(service.Store.Find(Tenant, t.Id)!.LastStartedUtc);
+    }
+
+    // ---------------------------------------------------------------------------------------------------
+    // A start whose outcome is UNKNOWN (live, 2026-09-21: the first start after a Gateway restart spent 27 seconds
+    // installing skills, the Gateway's 30-second wait ran out, the lock was released, and the Director had created the
+    // session anyway - so the next interval started a second one). The lock is held; the session is adopted by name
+    // when it shows up; without one inside the start grace the lock lapses. A definite failure still releases at once
+    // (AFailedSlowStart_ReleasesTheLock_TurnsTheTriggerRed_AndTheNextCheckStartsAgain).
+    // ---------------------------------------------------------------------------------------------------
+
+    private const string DidNotAnswer =
+        "The Director on SOREN_NORTH did not answer within 30 seconds. It is not known whether the command was carried out.";
+
+    [Fact]
+    public async Task AnUnknownOutcome_KeepsTheLock_IsRed_AndAFailedRowSaysTheLockIsHeld()
+    {
+        var service = Service();
+        var t = Add(service);
+        _startUnknown = DidNotAnswer;
+
+        var run = await Report(service, t, Counted(1));
+
+        Assert.Equal(TriggerRunOutcome.Failed, run.Outcome);
+        Assert.Equal(1, run.Count);
+        Assert.Null(run.SessionId);
+        Assert.Equal(TriggerStatusFold.StartUnknownPrefix + DidNotAnswer +
+                     " The lock is held until a session named 'Front Desk - website-new-mail - 2026-09-21 12:00' shows up, or for 5 minutes.",
+            run.Reason);
+        var row = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityOutcome.Failed, row.Outcome);
+        Assert.StartsWith("Checked website-new-mail - counted 1, but the session start outcome is not known: ", row.What);
+        var trigger = service.Store.Find(Tenant, t.Id)!;
+        Assert.NotNull(trigger.LastStartedUtc);
+        var dto = service.ToDto(trigger);
+        Assert.Equal(TriggerStatusKind.Red, dto.Status);
+        Assert.Equal(TriggerStatusFold.StartUnknownStatus, dto.StatusText);
+
+        // The next interval, inside the grace, no session reported yet: skipped, nothing started, still red.
+        _startUnknown = null;
+        _now = _now.AddMinutes(1);
+        var next = await Report(service, t, Counted(1));
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, next.Outcome);
+        Assert.Single(_starts);
+        Assert.Equal(TriggerStatusFold.StartUnknownStatus, service.ToDto(service.Store.Find(Tenant, t.Id)!).StatusText);
+    }
+
+    [Fact]
+    public async Task AnUnknownOutcome_WhoseSessionShowsUp_IsAdopted_AsANewStartedRow_WithTheLockOnIt()
+    {
+        var service = Service();
+        var t = Add(service);
+        _startUnknown = DidNotAnswer;
+        var unknown = await Report(service, t, Counted(1));
+        _startUnknown = null;
+
+        // The Director did create it, and now reports it under the start's name.
+        const string created = "bbbbbbbb-0000-4000-8000-000000000001";
+        _sessions[created] = new SessionDto
+        {
+            SessionId = created, ActivityState = "Working", Name = "Front Desk - website-new-mail - 2026-09-21 12:00",
+        };
+        _now = _now.AddMinutes(1);
+        var check = await Report(service, t, Counted(1));
+
+        // Three rows: the unknown start, the adoption, and this check. (The last two share a recorded time here.)
+        var runs = service.Store.ListRuns(Tenant, Guid.Parse(t.Id), 10);
+        Assert.Equal(3, runs.Count);
+        Assert.Equal(unknown.Id, Assert.Single(runs, r => r.Outcome == TriggerRunOutcome.Failed).Id.ToString("D"));
+        Assert.Equal(created, Assert.Single(runs, r => r.Outcome == TriggerRunOutcome.Started).SessionId);
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, check.Outcome);
+        Assert.Equal(created, check.SessionId);
+        Assert.Single(_starts);
+        var trigger = service.Store.Find(Tenant, t.Id)!;
+        Assert.Equal(created, trigger.LastSessionId);
+        Assert.Equal("OK", service.ToDto(trigger).StatusText);
+        var adopted = Activity().Single(r => r.Outcome == FactoryActivityOutcome.Started);
+        Assert.Equal(created, adopted.SessionId);
+        Assert.Equal($"Found session {created}, named Front Desk - website-new-mail - 2026-09-21 12:00, from the start of website-new-mail whose outcome was not known, and took it as the lock", adopted.What);
+
+        // The lock is that session: when it ends, the next check starts a new one.
+        _sessions[created].ActivityState = "Exited";
+        _now = _now.AddMinutes(1);
+        Assert.Equal(TriggerRunOutcome.Started, (await Report(service, t, Counted(1))).Outcome);
+        Assert.Equal(2, _starts.Count);
+    }
+
+    [Fact]
+    public async Task AnUnknownOutcome_WithNoSessionInsideTheGrace_Lapses_WithARowSayingSo_AndTheNextCheckStarts()
+    {
+        var service = Service();
+        var t = Add(service);
+        _startUnknown = DidNotAnswer;
+        await Report(service, t, Counted(1));
+        _startUnknown = null;
+
+        _now = _now.Add(TriggerService.StartGrace);
+        var check = await Report(service, t, Counted(1));
+
+        // Three rows: the unknown start, the lapse, and this check's own start.
+        var runs = service.Store.ListRuns(Tenant, Guid.Parse(t.Id), 10);
+        Assert.Equal(3, runs.Count);
+        Assert.Single(runs, r => r.Outcome == TriggerRunOutcome.Started);
+        Assert.Single(runs, r => r.Outcome == TriggerRunOutcome.Failed && r.Reason == TriggerStatusFold.StartFailedPrefix +
+            "no session named 'Front Desk - website-new-mail - 2026-09-21 12:00' showed up within 5 minutes of a start whose outcome was not known; the lock is released");
+        Assert.Single(runs, r => r.Outcome == TriggerRunOutcome.Failed
+                                 && r.Reason!.StartsWith(TriggerStatusFold.StartUnknownPrefix, StringComparison.Ordinal));
+        Assert.Equal(TriggerRunOutcome.Started, check.Outcome);
+        Assert.Equal(2, _starts.Count);
+    }
+
+    [Fact]
+    public async Task AStartStillRunning_IsNotTakenForAnUnknownOutcome()
+    {
+        // In flight, the lock also has no session - but its start is running here, so nothing is looked up or lapsed
+        // and the trigger does not read red.
+        var service = Service();
+        var t = Add(service);
+        _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = await service.ReportCheckAsync(Tenant, Director, t.Id, Counted(1), CancellationToken.None);
+
+        _now = _now.Add(TriggerService.StartGrace);
+        Assert.Equal("OK", service.ToDto(service.Store.Find(Tenant, t.Id)!).StatusText);
+
+        _holdStart.SetResult();
+        Assert.Equal(TriggerRunOutcome.Started, (await first.Starting!)!.Outcome);
+        Assert.Single(service.Store.ListRuns(Tenant, Guid.Parse(t.Id), 10));
     }
 
     [Fact]

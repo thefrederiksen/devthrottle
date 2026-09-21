@@ -281,16 +281,42 @@ public sealed class TriggerStore
     /// Record what a start begun by <see cref="BeginStart"/> came to - the one run row of the check that asked for
     /// it. A <see cref="TriggerRunOutcome.Started"/> row makes its session the lock; a
     /// <see cref="TriggerRunOutcome.Failed"/> row releases the pending lock, so the next check that counts work
-    /// tries again. Returns null when the trigger no longer exists.
+    /// tries again - unless <paramref name="holdLock"/>, for a start whose outcome is not known: the Director may have
+    /// created the session, so the lock stays until that session is found or the start grace ends. Returns null when
+    /// the trigger no longer exists.
     /// </summary>
     public TriggerCheckRecorded? RecordStartResult(
         TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int count,
-        string? sessionId, string? reason, DateTime nowUtc)
+        string? sessionId, string? reason, DateTime nowUtc, bool holdLock)
     {
         if (outcome != TriggerRunOutcome.Started && outcome != TriggerRunOutcome.Failed)
             throw new ArgumentException($"a start ends as '{TriggerRunOutcome.Started}' or '{TriggerRunOutcome.Failed}', not '{outcome}'", nameof(outcome));
         return Record(tenant, triggerId, directorId, checkedUtc, outcome, count, sessionId, reason, nowUtc,
-            endsPendingStart: true);
+            endsPendingStart: !holdLock);
+    }
+
+    /// <summary>
+    /// A start whose outcome was not known turned out to have created <paramref name="sessionId"/>: add a new
+    /// <see cref="TriggerRunOutcome.Started"/> row with it, and make it the lock. The count is not repeated - the
+    /// check that asked for the start already recorded it. Returns null when the trigger no longer exists.
+    /// </summary>
+    public TriggerCheckRecorded? AdoptStart(TenantId tenant, Guid triggerId, string directorId, string sessionId, DateTime nowUtc)
+    {
+        FileLog.Write($"[TriggerStore] AdoptStart: trigger={triggerId}, session={sessionId}");
+        return Record(tenant, triggerId, directorId, nowUtc, TriggerRunOutcome.Started, count: null, sessionId,
+            reason: null, nowUtc, endsPendingStart: true);
+    }
+
+    /// <summary>
+    /// A start whose outcome was not known produced no session within the start grace: add a
+    /// <see cref="TriggerRunOutcome.Failed"/> row with <paramref name="reason"/> and release the lock. Returns null when
+    /// the trigger no longer exists.
+    /// </summary>
+    public TriggerCheckRecorded? LapseStart(TenantId tenant, Guid triggerId, string directorId, string reason, DateTime nowUtc)
+    {
+        FileLog.Write($"[TriggerStore] LapseStart: trigger={triggerId}");
+        return Record(tenant, triggerId, directorId, nowUtc, TriggerRunOutcome.Failed, count: null, sessionId: null,
+            reason, nowUtc, endsPendingStart: true);
     }
 
     private TriggerCheckRecorded? Record(

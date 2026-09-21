@@ -29,24 +29,42 @@ public sealed class MachineSessionSpawner
     public delegate Task<(bool ok, SessionDto? body, string? error)> CreateSessionDelegate(
         string directorId, NewSessionRequest req, CancellationToken ct);
 
+    /// <summary>The create-session call that also says whether a failure left the outcome unknown (the Gateway
+    /// stopped waiting, or the tunnel dropped mid-command), so the Director may have created the session anyway.</summary>
+    public delegate Task<(bool ok, SessionDto? body, string? error, bool outcomeUnknown)> CreateSessionWithOutcomeDelegate(
+        string directorId, NewSessionRequest req, CancellationToken ct);
+
     private readonly IDirectorTargetResolver _resolver;
-    private readonly CreateSessionDelegate _create;
+    private readonly CreateSessionWithOutcomeDelegate _create;
 
     /// <param name="resolver">Resolves the target machine to a Director, launching one on demand.</param>
     /// <param name="sendCommand">The send-a-command-down-the-stream hook.</param>
     internal MachineSessionSpawner(IDirectorTargetResolver resolver,
         DirectorCommandRouter.SendDirectorCommandAsync? sendCommand)
-        : this(resolver, (directorId, req, ct) =>
-            SessionVerbClient.ForDirector(directorId, sendCommand).CreateSessionAsync(req, ct))
+        : this(resolver, (CreateSessionWithOutcomeDelegate)((directorId, req, ct) =>
+            SessionVerbClient.ForDirector(directorId, sendCommand).CreateSessionWithOutcomeAsync(req, ct)))
     {
     }
 
-    /// <summary>Test seam: inject the resolver and a fake create call directly.</summary>
+    /// <summary>Test seam: inject the resolver and a fake create call directly. Its failures are definite.</summary>
     internal MachineSessionSpawner(IDirectorTargetResolver resolver, CreateSessionDelegate create)
+        : this(resolver, WithDefiniteOutcome(create ?? throw new ArgumentNullException(nameof(create))))
+    {
+    }
+
+    /// <summary>Test seam: inject the resolver and a fake create call that can leave the outcome unknown.</summary>
+    internal MachineSessionSpawner(IDirectorTargetResolver resolver, CreateSessionWithOutcomeDelegate create)
     {
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _create = create ?? throw new ArgumentNullException(nameof(create));
     }
+
+    private static CreateSessionWithOutcomeDelegate WithDefiniteOutcome(CreateSessionDelegate create)
+        => async (directorId, req, ct) =>
+        {
+            var (ok, body, error) = await create(directorId, req, ct);
+            return (ok, body, error, false);
+        };
 
     /// <summary>
     /// Resolve <paramref name="machine"/> to a Director (launching one if none is running) and create the
@@ -62,6 +80,19 @@ public sealed class MachineSessionSpawner
     /// than read an older Director's unrelated error afterwards.
     /// </summary>
     public async Task<(bool ok, SessionDto? dto, string? error, string? directorId)> SpawnOnMachineAsync(
+        string machine, NewSessionRequest req, CancellationToken ct, Func<string, string?>? refuseDirector = null)
+    {
+        var r = await SpawnOnMachineWithOutcomeAsync(machine, req, ct, refuseDirector);
+        return (r.Ok, r.Dto, r.Error, r.DirectorId);
+    }
+
+    /// <summary>
+    /// <see cref="SpawnOnMachineAsync"/>, also saying whether a failed create left the outcome UNKNOWN - the Gateway
+    /// stopped waiting for the Director's answer, or the tunnel dropped mid-command - so the Director may have created
+    /// the session after all. A caller that must never start twice (a factory trigger) holds its lock on that answer
+    /// instead of treating it as a failure. A failure before the create was sent is always definite.
+    /// </summary>
+    public async Task<MachineSpawnResult> SpawnOnMachineWithOutcomeAsync(
         string machine, NewSessionRequest req, CancellationToken ct, Func<string, string?>? refuseDirector = null)
     {
         if (req is null)
@@ -81,25 +112,34 @@ public sealed class MachineSessionSpawner
         {
             var reason = target.Error ?? "the target machine has no registered director";
             FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine={machine}, {reason}");
-            return (false, null, reason, target.DirectorId);
+            return MachineSpawnResult.Failed(reason, target.DirectorId, outcomeUnknown: false);
         }
 
         if (refuseDirector?.Invoke(target.DirectorId) is { } refusal)
         {
             FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync REFUSED before the create: machine={machine}, director={target.DirectorId}: {refusal}");
-            return (false, null, refusal, target.DirectorId);
+            return MachineSpawnResult.Failed(refusal, target.DirectorId, outcomeUnknown: false);
         }
 
         FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync: machine={machine}, director={target.DirectorId}, repo={req.RepoPath}");
 
-        var (ok, body, error) = await _create(target.DirectorId, req, ct);
+        var (ok, body, error, outcomeUnknown) = await _create(target.DirectorId, req, ct);
         if (!ok || body is null || string.IsNullOrEmpty(body.SessionId))
         {
-            FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine={machine}, error={error}");
-            return (false, null, error ?? "director did not return a session id", target.DirectorId);
+            FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine={machine}, outcomeUnknown={outcomeUnknown}, error={error}");
+            return MachineSpawnResult.Failed(error ?? "director did not return a session id", target.DirectorId,
+                outcomeUnknown: !ok && outcomeUnknown);
         }
 
         FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync: started sid={body.SessionId}, director={target.DirectorId}");
-        return (true, body, null, target.DirectorId);
+        return new MachineSpawnResult(true, body, null, target.DirectorId, OutcomeUnknown: false);
     }
+}
+
+/// <summary>What one spawn came to. <see cref="OutcomeUnknown"/> is true only for a failed create whose outcome the
+/// Gateway cannot know: it stopped waiting, or the tunnel dropped mid-command.</summary>
+public sealed record MachineSpawnResult(bool Ok, SessionDto? Dto, string? Error, string? DirectorId, bool OutcomeUnknown)
+{
+    public static MachineSpawnResult Failed(string error, string? directorId, bool outcomeUnknown)
+        => new(false, null, error, directorId, outcomeUnknown);
 }

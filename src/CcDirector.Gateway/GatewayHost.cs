@@ -1984,10 +1984,16 @@ public sealed class GatewayHost : IAsyncDisposable
             FactoryActivity,
             async (machine, request, ct) =>
             {
-                var (ok, dto, error, _) = await _machineSessionSpawner.SpawnOnMachineAsync(machine, request, ct);
-                return ok && dto is not null ? (dto.SessionId, null) : (null, error);
+                var r = await _machineSessionSpawner.SpawnOnMachineWithOutcomeAsync(machine, request, ct);
+                if (r.Ok && r.Dto is not null) return Factory.Triggers.TriggerStartAttempt.Started(r.Dto.SessionId);
+                var error = r.Error ?? "the machine did not return a session";
+                return r.OutcomeUnknown
+                    ? Factory.Triggers.TriggerStartAttempt.Unknown(error)
+                    : Factory.Triggers.TriggerStartAttempt.Failed(error);
             },
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            findSessionByName: (tenant, name) =>
+                GatewayEndpoints.LastKnownTriggerSessionByName(Registry, PushedSessions, tenant, name),
             timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
             nowUtc: () => DateTime.UtcNow,
             startLifetime: _triggerStartLifetime.Token);

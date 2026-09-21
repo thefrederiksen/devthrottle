@@ -38,11 +38,22 @@ public sealed record TriggerReportResult(TriggerReportRefusal Refusal, TriggerRu
 }
 
 /// <summary>
-/// Starts a session for a trigger on its machine - production wraps <c>MachineSessionSpawner.SpawnOnMachineAsync</c>,
-/// the same method schedules use. Returns the new session's id, or the reason none started.
+/// Starts a session for a trigger on its machine - production wraps
+/// <c>MachineSessionSpawner.SpawnOnMachineWithOutcomeAsync</c>, the same path schedules use. Returns the new
+/// session's id, or the reason none started and whether that failure left the outcome unknown.
 /// </summary>
-public delegate Task<(string? sessionId, string? error)> TriggerSessionStarter(
+public delegate Task<TriggerStartAttempt> TriggerSessionStarter(
     string machine, NewSessionRequest request, CancellationToken ct);
+
+/// <summary>What one session start came to: its id, or the reason none was returned. <see cref="OutcomeUnknown"/>
+/// is true when the Gateway cannot know whether the Director created the session (it stopped waiting, or the tunnel
+/// dropped mid-command) - the Director may have created it anyway.</summary>
+public sealed record TriggerStartAttempt(string? SessionId, string? Error, bool OutcomeUnknown)
+{
+    public static TriggerStartAttempt Started(string sessionId) => new(sessionId, null, false);
+    public static TriggerStartAttempt Failed(string error) => new(null, error, false);
+    public static TriggerStartAttempt Unknown(string error) => new(null, error, true);
+}
 
 /// <summary>
 /// THE GATEWAY DECIDES AND STARTS (the Website Business Factory mission, product track). A Director runs a
@@ -67,6 +78,14 @@ public delegate Task<(string? sessionId, string? error)> TriggerSessionStarter(
 /// the Gateway's session list, no second one starts - and it is taken BEFORE the start begins, so a start still in
 /// flight holds it too. Deciding and taking it happen under a per-trigger lock, so two reports arriving together
 /// cannot both start one.
+///
+/// A START WHOSE OUTCOME IS UNKNOWN KEEPS THE LOCK. When the Gateway stops waiting for the Director's answer, or the
+/// tunnel drops mid-command, the Director may have created the session anyway (seen live: a first start that spent
+/// 27 seconds installing skills outlived the Gateway's 30-second wait, and releasing the lock started a second
+/// session). So that start writes a <c>failed</c> row saying the outcome is unknown and the lock is held, and the
+/// trigger reads RED "start outcome unknown". At each later check, the session is looked for by the start's unique
+/// name: found, it is adopted - a new <c>started</c> row with its id, and the lock is that session; not found within
+/// <see cref="StartGrace"/> of the start, the lock lapses with a row saying so. A DEFINITE failure releases at once.
 /// </summary>
 public sealed class TriggerService
 {
@@ -81,21 +100,28 @@ public sealed class TriggerService
     private readonly FactoryActivityRecord _activity;
     private readonly TriggerSessionStarter _startSession;
     private readonly Func<TenantId, string, SessionDto?> _findSession;
+    private readonly Func<TenantId, string, SessionDto?> _findSessionByName;
     private readonly Func<TenantId, TimeZoneInfo> _timeZone;
     private readonly Func<DateTime> _nowUtc;
     private readonly CancellationToken _startLifetime;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
+    // The triggers whose start is running right now on this Gateway. A lock with no session that is NOT in here is a
+    // start that ended with its outcome unknown (or one a stopped Gateway left behind): the check looks for its session.
+    private readonly ConcurrentDictionary<Guid, byte> _inFlight = new();
 
     /// <param name="findSession">The last row any Director of the account reported for a session, or null when
     /// the Gateway knows no such session.</param>
+    /// <param name="findSessionByName">The last row any Director of the account reported for a session a trigger
+    /// started with this exact name, or null - how a start whose outcome was unknown finds its session.</param>
     /// <param name="timeZone">The account's time zone, for the time in a started session's name.</param>
     /// <param name="startLifetime">The Gateway's own lifetime, which every session start runs on - cancelled only when
     /// the Gateway stops, never by the request that asked for the start.</param>
     public TriggerService(TriggerStore store, FactoryActivityRecord activity, TriggerSessionStarter startSession,
-        Func<TenantId, string, SessionDto?> findSession, Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc,
-        CancellationToken startLifetime)
+        Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, SessionDto?> findSessionByName,
+        Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime)
     {
         _startLifetime = startLifetime;
+        _findSessionByName = findSessionByName ?? throw new ArgumentNullException(nameof(findSessionByName));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _activity = activity ?? throw new ArgumentNullException(nameof(activity));
         _startSession = startSession ?? throw new ArgumentNullException(nameof(startSession));
@@ -110,7 +136,8 @@ public sealed class TriggerService
     public TriggerDto ToDto(TriggerEntity t)
     {
         var status = TriggerStatusFold.For(t.CreatedUtc, t.IntervalSeconds, t.LastCheckUtc, t.LastOutcome, t.LastReason,
-            t.LastSessionId, t.LastStartedUtc is { } s ? DateTime.SpecifyKind(s, DateTimeKind.Utc) : null, _nowUtc());
+            t.LastSessionId, t.LastStartedUtc is { } s ? DateTime.SpecifyKind(s, DateTimeKind.Utc) : null, _nowUtc(),
+            startOutcomeUnknown: IsHeldByUnknownStart(t));
         return new TriggerDto
         {
             Id = t.Id.ToString("D"),
@@ -251,6 +278,13 @@ public sealed class TriggerService
                 return TriggerReportResult.Refused(TriggerReportRefusal.HeldByAnotherDirector,
                     $"Director {trigger.ClaimedByDirectorId} runs the check of trigger '{trigger.Name}'; this report was not recorded");
 
+            // A lock with no session and no start running is a start whose outcome was not known: adopt its session
+            // if the Director has reported it, or let the lock lapse once the grace is over - before deciding.
+            trigger = ResolveUnknownStart(tenant, trigger, directorId, now);
+            if (trigger is null)
+                return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
+                    $"no trigger '{triggerIdOrName}' in this account");
+
             var decision = Decide(tenant, trigger, directorId, report, now);
             if (decision.Start is null)
             {
@@ -268,6 +302,7 @@ public sealed class TriggerService
             if (!_store.BeginStart(tenant, trigger.Id, directorId, now))
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"trigger '{trigger.Name}' was deleted while its check was being recorded");
+            _inFlight[trigger.Id] = 0;
             pending = new PendingStart(tenant, trigger, directorId, report.CheckedAtUtc, decision.Count!.Value, decision.Start);
             FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={trigger.Name}, count={pending.Count.ToString(CultureInfo.InvariantCulture)}, lock taken, starting session '{pending.Request.Name}' off the request");
         }
@@ -288,7 +323,55 @@ public sealed class TriggerService
     }
 
     private SemaphoreSlim GateFor(TenantId tenant, Guid triggerId)
-        => _locks.GetOrAdd($"{tenant.Value}/{triggerId:D}", _ => new SemaphoreSlim(1, 1));
+        => _locks.GetOrAdd(KeyFor(tenant, triggerId), _ => new SemaphoreSlim(1, 1));
+
+    private static string KeyFor(TenantId tenant, Guid triggerId) => $"{tenant.Value}/{triggerId:D}";
+
+    /// <summary>True while the lock is held by a start whose outcome is not known: a start time with no session, and
+    /// no start of this trigger running on this Gateway.</summary>
+    private bool IsHeldByUnknownStart(TriggerEntity t)
+        => string.IsNullOrEmpty(t.LastSessionId) && t.LastStartedUtc is not null && !_inFlight.ContainsKey(t.Id);
+
+    /// <summary>
+    /// Settle a start whose outcome was not known, under the per-trigger lock. It applies only to a lock with no
+    /// session while no start of this trigger runs here. The session is looked for by the name the start gave it,
+    /// which is computed from the lock's own start time: found, it is adopted - a new <c>started</c> row with its id
+    /// makes it the lock; not found and the start grace is over, the lock lapses with a <c>failed</c> row saying so.
+    /// Inside the grace with no session yet, nothing changes and the lock keeps holding. Returns the trigger as it now
+    /// stands, or null when it no longer exists.
+    /// </summary>
+    private TriggerEntity? ResolveUnknownStart(TenantId tenant, TriggerEntity trigger, string directorId, DateTime now)
+    {
+        if (!IsHeldByUnknownStart(trigger))
+            return trigger;
+
+        var startedUtc = DateTime.SpecifyKind(trigger.LastStartedUtc!.Value, DateTimeKind.Utc);
+        var name = SessionName(trigger, _timeZone(tenant), startedUtc);
+        var found = _findSessionByName(tenant, name);
+        TriggerCheckRecorded? recorded;
+        string what;
+        if (found is not null && !string.IsNullOrEmpty(found.SessionId))
+        {
+            recorded = _store.AdoptStart(tenant, trigger.Id, directorId, found.SessionId, now);
+            what = $"Found session {found.SessionId}, named {name}, from the start of {trigger.Name} whose outcome was not known, and took it as the lock";
+        }
+        else if (now - startedUtc >= StartGrace)
+        {
+            var reason = TriggerStatusFold.StartFailedPrefix +
+                         $"no session named '{name}' showed up within {(int)StartGrace.TotalMinutes} minutes of a start whose outcome was not known; the lock is released";
+            recorded = _store.LapseStart(tenant, trigger.Id, directorId, reason, now);
+            what = $"{trigger.Name}: {reason}";
+        }
+        else
+        {
+            return trigger;
+        }
+
+        if (recorded is null) return null;
+        _activity.Append(tenant, ActivityFor(trigger, recorded.Run, what), callingActor: null);
+        FileLog.Write($"[TriggerService] ResolveUnknownStart: trigger={trigger.Name}, outcome={recorded.Run.Outcome}, session={recorded.Run.SessionId ?? "none"}, name={name}");
+        return recorded.Trigger;
+    }
 
     private sealed record PendingStart(TenantId Tenant, TriggerEntity Trigger, string DirectorId, DateTime CheckedUtc,
         int Count, NewSessionRequest Request);
@@ -304,51 +387,57 @@ public sealed class TriggerService
     private async Task<TriggerRunEntity?> FinishStartAsync(PendingStart p)
     {
         var name = p.Trigger.Name;
-        string? sessionId;
-        string? error;
+        TriggerStartAttempt attempt;
         try
         {
-            (sessionId, error) = await _startSession(p.Trigger.Machine, p.Request, _startLifetime).ConfigureAwait(false);
+            attempt = await _startSession(p.Trigger.Machine, p.Request, _startLifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name}, the start threw {ex.GetType().Name}: {ex.Message}");
-            sessionId = null;
-            error = ex is OperationCanceledException && _startLifetime.IsCancellationRequested
-                ? "the Gateway stopped while the session was being started"
-                : ex.Message;
+            // Cut off by the Gateway stopping, the create may already be on its way: that outcome is unknown too.
+            attempt = ex is OperationCanceledException && _startLifetime.IsCancellationRequested
+                ? TriggerStartAttempt.Unknown("the Gateway stopped while the session was being started.")
+                : TriggerStartAttempt.Failed(ex.Message);
         }
 
+        var key = p.Trigger.Id;
         try
         {
             var gate = GateFor(p.Tenant, p.Trigger.Id);
             await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             try
             {
-                var started = !string.IsNullOrEmpty(sessionId);
+                var started = !string.IsNullOrEmpty(attempt.SessionId);
                 var outcome = started ? TriggerRunOutcome.Started : TriggerRunOutcome.Failed;
+                var error = attempt.Error ?? "the machine did not return a session";
                 var reason = started ? null
-                    : TriggerStatusFold.StartFailedPrefix + (error ?? "the machine did not return a session");
+                    : attempt.OutcomeUnknown
+                        ? TriggerStatusFold.StartUnknownPrefix + error +
+                          $" The lock is held until a session named '{p.Request.Name}' shows up, or for {(int)StartGrace.TotalMinutes} minutes."
+                        : TriggerStatusFold.StartFailedPrefix + error;
                 var recorded = _store.RecordStartResult(p.Tenant, p.Trigger.Id, p.DirectorId, p.CheckedUtc, outcome,
-                    p.Count, started ? sessionId : null, reason, _nowUtc());
+                    p.Count, started ? attempt.SessionId : null, reason, _nowUtc(), holdLock: attempt.OutcomeUnknown);
                 if (recorded is null)
                 {
-                    FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name} was deleted while its session was starting; session={sessionId ?? "none"} is not recorded");
+                    FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name} was deleted while its session was starting; session={attempt.SessionId ?? "none"} is not recorded");
                     return null;
                 }
 
                 _activity.Append(p.Tenant, ActivityFor(p.Trigger, recorded.Run), callingActor: null);
-                FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name}, outcome={outcome}, count={p.Count.ToString(CultureInfo.InvariantCulture)}, session={sessionId ?? "none"}, reason={reason ?? "none"}");
+                FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name}, outcome={outcome}, outcomeUnknown={attempt.OutcomeUnknown}, count={p.Count.ToString(CultureInfo.InvariantCulture)}, session={attempt.SessionId ?? "none"}, reason={reason ?? "none"}");
                 return recorded.Run;
             }
             finally
             {
+                _inFlight.TryRemove(key, out _);
                 gate.Release();
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TriggerService] FinishStartAsync FAILED to record: trigger={name}, session={sessionId ?? "none"}, {ex.Message}");
+            _inFlight.TryRemove(key, out _);
+            FileLog.Write($"[TriggerService] FinishStartAsync FAILED to record: trigger={name}, session={attempt.SessionId ?? "none"}, {ex.Message}");
             return null;
         }
     }
@@ -409,7 +498,7 @@ public sealed class TriggerService
     /// The factory activity row for one recorded check: who (the trigger), what it came to in the record's outcome
     /// words, and one plain sentence. The sentence is for a person to read; nothing groups or decides on it.
     /// </summary>
-    internal static AppendFactoryActivityRequest ActivityFor(TriggerEntity trigger, TriggerRunEntity run)
+    internal static AppendFactoryActivityRequest ActivityFor(TriggerEntity trigger, TriggerRunEntity run, string? whatOverride = null)
     {
         var name = trigger.Name;
         var counted = run.Count is { } c ? $"counted {c.ToString(CultureInfo.InvariantCulture)}" : "counted nothing";
@@ -433,7 +522,7 @@ public sealed class TriggerService
             Factory = trigger.Factory,
             FactoryAgent = trigger.FactoryAgent,
             SessionId = run.SessionId,
-            What = Sentence(what),
+            What = Sentence(whatOverride ?? what),
             Outcome = outcome,
             Subject = name,
             Actor = ActorPrefix + trigger.Id.ToString("D"),
@@ -445,6 +534,7 @@ public sealed class TriggerService
     {
         var reason = string.IsNullOrWhiteSpace(run.Reason) ? "no reason was recorded" : run.Reason;
         return reason.StartsWith(TriggerStatusFold.StartFailedPrefix, StringComparison.Ordinal)
+               || reason.StartsWith(TriggerStatusFold.StartUnknownPrefix, StringComparison.Ordinal)
             ? $"Checked {name} - counted {run.Count?.ToString(CultureInfo.InvariantCulture) ?? "work"}, but {reason}"
             : $"Checked {name} - the check failed: {reason}";
     }
