@@ -54,9 +54,13 @@ public sealed class SessionTurnStore
     /// <summary>How many ordinals one page of the contiguous-watermark scan reads.</summary>
     private const int WatermarkPage = 1000;
 
-    public SessionTurnStore(GatewayDatabase db)
+    private readonly Func<DateTime> _utcNow;
+
+    /// <param name="utcNow">The clock a held conversation's idleness is measured on; the system clock when omitted.</param>
+    public SessionTurnStore(GatewayDatabase db, Func<DateTime>? utcNow = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
 
     /// <summary>
@@ -223,11 +227,14 @@ public sealed class SessionTurnStore
         {
             using var ctx = _db.CreateContext();
             var head = ctx.SessionTurnHeads.AsNoTracking().FirstOrDefault(h => h.SessionId == sessionId);
-            if (head is null) return null;
-            var rows = ctx.SessionTurns.AsNoTracking()
-                .Where(t => t.SessionId == sessionId && t.Generation == head.Generation && t.Ordinal < head.Count)
-                .OrderBy(t => t.Ordinal)
-                .ToList();
+            var key = (ctx.ActiveTenant ?? "", sessionId);
+            if (head is null)
+            {
+                _held.Remove(key);
+                return null;
+            }
+
+            var rows = HeldRows(ctx, key, head);
             var messages = new List<HistoryMessageDto>(rows.Count);
             foreach (var row in rows)
             {
@@ -239,6 +246,132 @@ public sealed class SessionTurnStore
                 });
             }
             return (head, messages);
+        }
+    }
+
+    // ----- the held conversations (devthrottle_internal#2199) -----
+    //
+    // Chat polls a session's conversation every 2.5 seconds per open screen, and the narration, the turn log and the
+    // Wingman Now route read it on every stop. Each of those used to read the WHOLE current generation - every row
+    // with its parts JSON, the widest rows in the database - although a stored turn never changes once it is held:
+    // rows are insert-only (a push skips ordinals already present) and the head's count is the length of a
+    // contiguous prefix that retention never cuts from the middle. So the rows already read are kept, and a read
+    // asks the database only for the ordinals past them. The head is still read every time - it is one small row,
+    // and it is what says whether anything changed.
+    //
+    // What is held is the stored row (role, time, parts JSON), never the objects handed out: every read
+    // deserialises fresh messages, so a caller that changes what it was given cannot change the next caller's answer.
+
+    /// <summary>One stored turn as it is held: exactly the three columns a reader is built from.</summary>
+    private sealed record HeldTurn(string Role, DateTime? TimestampUtc, string PartsJson);
+
+    private sealed class HeldConversation
+    {
+        public required string Generation { get; init; }
+        public required List<HeldTurn> Turns { get; init; }
+        public DateTime LastReadUtc { get; set; }
+    }
+
+    /// <summary>The most stored turns held across every conversation. Past it the least recently read conversations
+    /// are let go. Fifty thousand rows of parts JSON is tens of megabytes - a few dozen long conversations, which is
+    /// more than are ever open or being narrated at once.</summary>
+    internal const int MaxHeldTurns = 50_000;
+
+    /// <summary>A conversation nobody has read for this long is let go.</summary>
+    internal static readonly TimeSpan HeldIdleLimit = TimeSpan.FromMinutes(10);
+
+    private readonly Dictionary<(string Tenant, string SessionId), HeldConversation> _held = new();
+    private int _heldTurnCount;
+
+    /// <summary>How many stored turns are held right now, for the tests.</summary>
+    internal int HeldTurnCount { get { lock (_gate) return _heldTurnCount; } }
+
+    /// <summary>
+    /// The current generation's contiguous prefix, as held rows: the held ones plus whatever the database has past
+    /// them. The held rows are discarded - and the prefix read whole - when they cannot be the start of what the head
+    /// now describes: another generation, or a head that counts fewer rows than are held (retention removed the
+    /// session and it came back).
+    /// </summary>
+    private List<HeldTurn> HeldRows(GatewayDbContext ctx, (string Tenant, string SessionId) key, SessionTurnHeadEntity head)
+    {
+        var now = _utcNow();
+        EvictIdle(now);
+
+        if (_held.TryGetValue(key, out var held)
+            && (!string.Equals(held.Generation, head.Generation, StringComparison.Ordinal) || held.Turns.Count > head.Count))
+        {
+            Release(key, held);
+            held = null;
+        }
+
+        var from = held?.Turns.Count ?? 0;
+        var sessionId = key.SessionId;
+        var generation = head.Generation;
+        var added = from < head.Count
+            ? ctx.SessionTurns.AsNoTracking()
+                .Where(t => t.SessionId == sessionId && t.Generation == generation && t.Ordinal >= from && t.Ordinal < head.Count)
+                .OrderBy(t => t.Ordinal)
+                .Select(t => new HeldTurn(t.Role, t.TimestampUtc, t.PartsJson))
+                .ToList()
+            : new List<HeldTurn>();
+
+        var expected = head.Count - from;
+        if (added.Count != expected)
+        {
+            // The head says rows [0, Count) are all present and they are not. That is a store fault (the watermark and
+            // the rows are written in one transaction), so it is logged and the read answers exactly what the database
+            // holds, as it always did - nothing is held on top of a prefix with a hole in it.
+            FileLog.Write($"[SessionTurnStore] ReadCurrent session={sessionId}: head counts {head.Count} turn(s) but ordinals {from}..{head.Count - 1} returned {added.Count}; answering what is stored and holding nothing");
+            if (held is not null) Release(key, held);
+            if (from == 0) return added;
+            return ctx.SessionTurns.AsNoTracking()
+                .Where(t => t.SessionId == sessionId && t.Generation == generation && t.Ordinal < head.Count)
+                .OrderBy(t => t.Ordinal)
+                .Select(t => new HeldTurn(t.Role, t.TimestampUtc, t.PartsJson))
+                .ToList();
+        }
+
+        if (held is null)
+        {
+            if (added.Count > MaxHeldTurns) return added;   // too long to hold at all; served, not kept
+            held = new HeldConversation { Generation = generation, Turns = added, LastReadUtc = now };
+            _held[key] = held;
+            _heldTurnCount += added.Count;
+        }
+        else
+        {
+            held.Turns.AddRange(added);
+            held.LastReadUtc = now;
+            _heldTurnCount += added.Count;
+        }
+
+        var answer = new List<HeldTurn>(held.Turns);
+        EvictOverCap(keep: key);
+        return answer;
+    }
+
+    private void Release((string Tenant, string SessionId) key, HeldConversation held)
+    {
+        if (_held.Remove(key)) _heldTurnCount -= held.Turns.Count;
+    }
+
+    private void EvictIdle(DateTime now)
+    {
+        if (_held.Count == 0) return;
+        List<(string, string)>? idle = null;
+        foreach (var (key, held) in _held)
+            if (now - held.LastReadUtc >= HeldIdleLimit) (idle ??= new()).Add(key);
+        if (idle is null) return;
+        foreach (var key in idle) Release(key, _held[key]);
+    }
+
+    private void EvictOverCap((string Tenant, string SessionId) keep)
+    {
+        if (_heldTurnCount <= MaxHeldTurns) return;
+        foreach (var (key, held) in _held.Where(kv => kv.Key != keep).OrderBy(kv => kv.Value.LastReadUtc).ToList())
+        {
+            Release(key, held);
+            if (_heldTurnCount <= MaxHeldTurns) return;
         }
     }
 

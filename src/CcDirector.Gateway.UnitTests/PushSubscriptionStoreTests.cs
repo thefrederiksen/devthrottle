@@ -130,4 +130,52 @@ public sealed class PushSubscriptionStoreTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(subs, new JsonSerializerOptions { WriteIndented = true }));
     }
+
+    // ----- the held count (devthrottle_internal#2199: asked every few seconds per account) -----
+
+    [Fact]
+    public void Count_IsHeld_AndEveryWriteIsSeenAtOnce()
+    {
+        var store = NewStore();
+        Assert.Equal(0, store.Count);
+
+        store.Add("https://push.example/aaa", "p", "a");
+        Assert.Equal(1, store.Count);
+        store.Add("https://push.example/bbb", "p", "a");
+        Assert.Equal(2, store.Count);
+        store.Remove("https://push.example/aaa");
+        Assert.Equal(1, store.Count);
+    }
+
+    [Fact]
+    public void Count_AskedAgainWithNoWrite_DoesNotAskTheDatabase()
+    {
+        var store = NewStore();
+        store.Add("https://push.example/aaa", "p", "a");
+        Assert.Equal(1, store.Count);
+
+        using var counter = new ReaderCommandCounter(_h.DbPath);
+        for (var i = 0; i < 10; i++) Assert.Equal(1, store.Count);
+
+        Assert.Equal(0, counter.Reads);
+    }
+
+    /// <summary>A subscription another Gateway process accepted (a deploy overlap) is counted once the held count
+    /// is older than its ceiling, and not before.</summary>
+    [Fact]
+    public void Count_SeesAnotherProcesssSubscription_AfterItsCeiling()
+    {
+        var now = new DateTime(2026, 9, 21, 12, 0, 0, DateTimeKind.Utc);
+        var db = _h.Open();
+        var store = new PushSubscriptionStore(db, LegacyPath(), () => now);
+        var other = new PushSubscriptionStore(db, LegacyPath(), () => now);
+        Assert.Equal(0, store.Count);
+
+        other.Add("https://push.example/aaa", "p", "a");
+
+        now += PushSubscriptionStore.CountMaxAge - TimeSpan.FromSeconds(1);
+        Assert.Equal(0, store.Count);
+        now += TimeSpan.FromSeconds(1);
+        Assert.Equal(1, store.Count);
+    }
 }

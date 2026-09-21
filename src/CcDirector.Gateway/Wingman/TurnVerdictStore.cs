@@ -51,10 +51,13 @@ public sealed class TurnVerdictStore
 
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
+    private readonly Func<DateTime> _utcNow;
 
-    public TurnVerdictStore(GatewayDatabase db)
+    /// <param name="utcNow">The clock the held snapshot's age is measured on; the system clock when omitted.</param>
+    public TurnVerdictStore(GatewayDatabase db, Func<DateTime>? utcNow = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
 
     /// <summary>
@@ -124,6 +127,7 @@ public sealed class TurnVerdictStore
             }
 
             ctx.SaveChanges();
+            SnapshotChanged(tenant);
         }
     }
 
@@ -230,6 +234,9 @@ public sealed class TurnVerdictStore
             row.AnsweredAtUtc = Utc(answeredAtUtc);
             row.AnswerJson = JsonSerializer.Serialize(answer with { TurnEndObservedAtUtc = row.TurnEndObservedAtUtc }, VerdictJsonOptions);
             ctx.SaveChanges();
+            // The snapshot carries no answer, so nothing it holds changed. Discarded anyway: every write through
+            // this store discards it, which is a rule that needs no reasoning about which column a write touched.
+            SnapshotChanged(tenant);
             return true;
         }
     }
@@ -303,8 +310,32 @@ public sealed class TurnVerdictStore
     /// </summary>
     public IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant)
     {
-        using var ctx = _db.CreateContext(tenant);
-        var rows = SnapshotLatestCore(ctx);
+        if (!tenant.IsValid) throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
+        var now = _utcNow();
+
+        // THE ROWS ARE CACHED, THE OBJECTS ARE NOT. The fold asks this on every roster poll, every display sweep
+        // and every accepted Director push - several times a second across a fleet - and each answer carries every
+        // session's latest verdict JSON (devthrottle_internal#2199). The rows only change when this store writes them, so
+        // the answer is kept per account until the next write, and each caller still gets freshly deserialised
+        // objects it is free to change.
+        var version = _snapshotVersions.GetOrAdd(tenant.Value, 0L);
+        List<TurnVerdictEntity> rows;
+        if (_snapshots.TryGetValue(tenant.Value, out var held)
+            && held.Version == version
+            && now - held.ReadAtUtc < SnapshotMaxAge)
+        {
+            rows = held.Rows;
+        }
+        else
+        {
+            using var ctx = _db.CreateContext(tenant);
+            rows = SnapshotLatestCore(ctx);
+            // Stored under the version read BEFORE the query. A write that lands while the query runs bumps the
+            // version, so this entry is already stale and the next read asks the database again rather than
+            // serving what the write replaced.
+            _snapshots[tenant.Value] = new HeldSnapshot(version, now, rows);
+        }
+
         var map = new Dictionary<string, TurnVerdictDto>(rows.Count, StringComparer.Ordinal);
         foreach (var row in rows)
         {
@@ -332,6 +363,10 @@ public sealed class TurnVerdictStore
     ///
     /// Internal, and reached from the tests through InternalsVisibleTo, so the "one query" claim can be
     /// COUNTED against a context carrying a command interceptor rather than asserted in a comment.
+    ///
+    /// ONLY THE COLUMNS THE FOLD READS. The verdict is rebuilt from <c>VerdictJson</c> alone; the session and the
+    /// judged moment key it and name a row that cannot be read. The owner's answer (<c>AnswerJson</c>) and the
+    /// other columns are never used by this read and are not carried off the database.
     /// </summary>
     internal static List<TurnVerdictEntity> SnapshotLatestCore(GatewayDbContext ctx)
         => ctx.TurnVerdicts.AsNoTracking()
@@ -339,7 +374,33 @@ public sealed class TurnVerdictStore
             .Where(v => v.JudgedAtUtc == ctx.TurnVerdicts
                 .Where(x => x.SessionId == v.SessionId && x.SupersededAtUtc == null)
                 .Max(x => x.JudgedAtUtc))
+            .Select(v => new TurnVerdictEntity
+            {
+                TenantId = v.TenantId,
+                SessionId = v.SessionId,
+                JudgedAtUtc = v.JudgedAtUtc,
+                VerdictJson = v.VerdictJson,
+            })
             .ToList();
+
+    /// <summary>
+    /// The longest a held snapshot is served without asking the database. Every write through this store
+    /// discards the held snapshot at once, so within one Gateway process this bound never decides anything. It
+    /// exists for the one writer this process cannot hear: another Gateway process on the same database, which
+    /// happens for a few seconds while a deploy replaces the container. Thirty seconds is inside the time a
+    /// person takes to notice a row's colour, and it still turns a read several times a second into two a
+    /// minute.
+    /// </summary>
+    internal static readonly TimeSpan SnapshotMaxAge = TimeSpan.FromSeconds(30);
+
+    private sealed record HeldSnapshot(long Version, DateTime ReadAtUtc, List<TurnVerdictEntity> Rows);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _snapshotVersions = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, HeldSnapshot> _snapshots = new(StringComparer.Ordinal);
+
+    /// <summary>Called after every committed write in this tenant: the held snapshot no longer describes it.</summary>
+    private void SnapshotChanged(TenantId tenant)
+        => _snapshotVersions.AddOrUpdate(tenant.Value, 1L, (_, v) => v + 1);
 
     /// <summary>
     /// This session's stored verdicts no longer describe its screen, so its verdict state is NONE again and the
@@ -374,6 +435,7 @@ public sealed class TurnVerdictStore
             if (rows.Count == 0) return 0;
             foreach (var row in rows) row.SupersededAtUtc = stampedAt;
             ctx.SaveChanges();
+            SnapshotChanged(tenant);
             FileLog.Write(
                 $"[TurnVerdictStore] Invalidate: sid={sid} tenant={tenant.ToLogString()} superseded={rows.Count}");
             return rows.Count;
@@ -522,6 +584,7 @@ public sealed class TurnVerdictStore
             {
                 ctx.TurnVerdicts.RemoveRange(stale);
                 ctx.SaveChanges();
+                SnapshotChanged(tenant);
             }
 
             var orphaned = ctx.TurnVerdictFeedback

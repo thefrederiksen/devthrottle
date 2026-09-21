@@ -30,6 +30,8 @@ public sealed class DirectorHub : Hub
 {
     private const string DirectorIdItemKey = "cc.directorId";
     private const string TenantIdItemKey = "cc.tenantId";
+    /// <summary>Set on a connection once its turn watermarks have been handed to the Director.</summary>
+    private const string TurnWatermarksHandedItemKey = "cc.turnWatermarksHanded";
 
     private readonly PushedSessionStore _store;
     private readonly DirectorRegistry _registry;
@@ -342,6 +344,18 @@ public sealed class DirectorHub : Hub
         var shared = Capabilities;
         var answer = new GatewayCapabilities { Version = shared.Version, Commit = shared.Commit, HubMethods = shared.HubMethods };
         if (_sessionTurns is null) return answer;
+        // ONCE PER CONNECTION (devthrottle_internal#2199). A Director sends Hello on every re-push - every ten
+        // seconds - and not only when it connects, and this read returns every conversation that Director has
+        // pushed in ninety days - a read that grows with the Director's history. The Director needs the watermarks only
+        // to resume after a (re)connect; between Hellos on one connection it learns every new watermark from
+        // PushTurns itself. A repeat Hello therefore answers "not read", which the Director already treats as
+        // "keep what you have". A reconnect, a Gateway restart and a deploy are all new connections, so each of
+        // them still gets the full list.
+        if (Context.Items.ContainsKey(TurnWatermarksHandedItemKey))
+        {
+            answer.TurnWatermarksKnown = false;
+            return answer;
+        }
         // BEST EFFORT, and never allowed to throw. Hello is the first thing a Director does on every dial,
         // and the Director treats a failed Hello as a failed RESEED - so a database that is slow, not open
         // yet (this Gateway binds its port BEFORE the database is connected), or simply unhappy would stop
@@ -354,6 +368,9 @@ public sealed class DirectorHub : Hub
             using var tenantScope = EnterBoundTenantScope();
             answer.TurnWatermarks = _sessionTurns.WatermarksFor(directorId).ToList();
             answer.TurnWatermarksKnown = true;
+            // Marked only once the read succeeded: a Hello that could not read answers a silence and leaves the
+            // next Hello on this connection to try again.
+            Context.Items[TurnWatermarksHandedItemKey] = true;
             if (answer.TurnWatermarks.Count > 0)
                 FileLog.Write($"[DirectorHub] Hello: handing director={directorId} {answer.TurnWatermarks.Count} turn watermark(s) (tenant {tenant.ToLogString()})");
         }

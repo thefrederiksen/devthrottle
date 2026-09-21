@@ -414,6 +414,63 @@ public sealed class SessionHistoryStore
     }
 
     /// <summary>
+    /// The same sessions, in the same order and under the same limit as <see cref="ReadRange"/>, carrying ONLY what
+    /// the roll-up grouping and its input hash read: the session, its repository, its observed life, and its ending
+    /// and summary state (<see cref="SessionHistorySummarizer.RollupGroups"/>, <see cref="SessionHistorySummarizer.InputHash"/>).
+    /// Every other field of the returned records is left empty - they are not session records to show anyone.
+    ///
+    /// The history sweep runs every two minutes for every account and only needs to know WHICH roll-ups are stale;
+    /// reading thirty days of full rows (four JSON lists, the first prompt line and more) to find that out was a large,
+    /// steady read for nothing (devthrottle_internal#2199). The full rows are read, with
+    /// <see cref="ReadMany"/>, only for the groups that are actually rewritten.
+    /// </summary>
+    public IReadOnlyList<WorkHistorySessionDto> ReadRollupInputs(DateTime fromUtc, DateTime toUtc, int limit = 1000)
+    {
+        var take = Math.Clamp(limit, 1, MaxListLimit);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            return ctx.SessionHistory.AsNoTracking()
+                .Where(e => e.LastSeenUtc >= fromUtc && e.StartedAtUtc <= toUtc)
+                .OrderByDescending(e => e.StartedAtUtc)
+                .Take(take)
+                .Select(e => new { e.SessionId, e.RepoName, e.RepoPath, e.StartedAtUtc, e.LastSeenUtc, e.EndingKind, e.SummaryKind, e.SummaryText })
+                .ToList()
+                .Select(e => new WorkHistorySessionDto
+                {
+                    SessionId = e.SessionId,
+                    RepoName = e.RepoName,
+                    RepoPath = e.RepoPath,
+                    StartedAtUtc = e.StartedAtUtc,
+                    LastSeenUtc = e.LastSeenUtc,
+                    EndingKind = e.EndingKind,
+                    SummaryKind = e.SummaryKind,
+                    SummaryText = e.SummaryText,
+                    EndingTone = "",
+                    DescriptionLine = "",
+                })
+                .ToList();
+        }
+    }
+
+    /// <summary>These sessions' full records, folded, in no particular order. A session with no record is absent.</summary>
+    public IReadOnlyList<WorkHistorySessionDto> ReadMany(IReadOnlyCollection<string> sessionIds)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        if (sessionIds.Count == 0) return Array.Empty<WorkHistorySessionDto>();
+        var ids = sessionIds.ToList();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            return ctx.SessionHistory.AsNoTracking()
+                .Where(e => ids.Contains(e.SessionId))
+                .ToList()
+                .Select(SessionHistoryFold.ToDto)
+                .ToList();
+        }
+    }
+
+    /// <summary>
     /// How the sessions that STARTED in the inclusive UTC window came to exist (devthrottle_internal
     /// issue #982) - the counts behind "what share of sessions do agents start", plus how many carry a
     /// lineage edge at all.

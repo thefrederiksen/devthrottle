@@ -26,12 +26,15 @@ public sealed class TenantRegistry
 {
     private readonly GatewayDatabase _db;
     private readonly object _writeLock = new();
+    private readonly Func<DateTime> _utcNow;
 
     /// <param name="db">The Gateway EF database. The registry reads and writes the global <c>tenants</c>
     /// table through its UNSCOPED context (the mapping table carries no tenant_id and no query filter).</param>
-    public TenantRegistry(GatewayDatabase db)
+    /// <param name="utcNow">The clock the held census's age is measured on; the system clock when omitted.</param>
+    public TenantRegistry(GatewayDatabase db, Func<DateTime>? utcNow = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
 
     /// <summary>
@@ -103,12 +106,14 @@ public sealed class TenantRegistry
                 var winner = reread.Tenants.AsNoTracking().FirstOrDefault(t => t.AccountSubject == subject);
                 if (winner is not null)
                 {
+                    CensusChanged();   // the winner's row is new to this process's census too
                     FileLog.Write("[TenantRegistry] MintOrLookupBySubject: lost a mint race, adopting the winning tenant for the account");
                     return new TenantId(winner.Id);
                 }
                 throw;
             }
 
+            CensusChanged();
             FileLog.Write("[TenantRegistry] MintOrLookupBySubject: minted a new tenant for a first-seen account");
             return new TenantId(tenantId);
         }
@@ -136,17 +141,43 @@ public sealed class TenantRegistry
     /// its per-tenant body inside each tenant's scope. Read through the UNSCOPED context because the mapping
     /// table carries no tenant_id and no query filter (reading it needs no ambient tenant), exactly as the
     /// mint/lookup paths do. Read-only; never mints. An empty census (no tenants yet) yields an empty list.
+    ///
+    /// HELD BETWEEN SWEEPS (devthrottle_internal#2199). Every background sweep asks for the census on every cycle -
+    /// the display sweep every five seconds, cron every minute, and more - re-reading a list that changes only when
+    /// an account signs up. The list is held and discarded when this registry mints
+    /// a tenant. The age ceiling covers the one writer this process cannot hear: a second Gateway process during a
+    /// deploy, which could mint an account this one would otherwise not sweep until it restarted.
     /// </summary>
     public IReadOnlyList<TenantId> AllTenantIds()
     {
+        var now = _utcNow();
+        // The version is read BEFORE the query and the list is held under it. A mint that commits while the query
+        // runs bumps the version, so the held list is already stale and the next call reads again.
+        var version = Volatile.Read(ref _censusVersion);
+        var held = _census;
+        if (held is not null && held.Version == version && now - held.ReadAtUtc < CensusMaxAge)
+            return held.Ids;
+
         using var ctx = _db.CreateUnscopedContext();
-        return ctx.Tenants
+        var ids = ctx.Tenants
             .AsNoTracking()
             .Select(t => t.Id)
             .ToList()
             .Select(id => new TenantId(id))
             .ToList();
+        _census = new HeldCensus(ids, now, version);
+        return ids;
     }
+
+    private sealed record HeldCensus(IReadOnlyList<TenantId> Ids, DateTime ReadAtUtc, long Version);
+
+    private volatile HeldCensus? _census;
+    private long _censusVersion;
+
+    /// <summary>Called after a tenant is minted: the held census no longer lists every tenant.</summary>
+    private void CensusChanged() => Interlocked.Increment(ref _censusVersion);
+
+    internal static readonly TimeSpan CensusMaxAge = TimeSpan.FromSeconds(60);
 
     /// <summary>
     /// Every tenant with the account email recorded for it, for the daily report's recipient list.
