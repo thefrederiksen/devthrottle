@@ -5,6 +5,7 @@ proven to travel from Gmail's threadId through the library into the printed
 JSON. No real mailbox is touched.
 """
 
+import inspect
 import json
 import re
 from unittest.mock import MagicMock, patch
@@ -415,9 +416,13 @@ def _gmail_message_without(msg_id, thread_id, missing):
 def split_runner():
     """A runner whose result keeps stderr apart from stdout, so a test can see which one carried the text.
 
-    Click 8.2 (the declared floor, and what Typer vendors from 0.17 on) always captures the two
-    separately: result.stdout is stdout alone, result.output is both.
+    Click 8.2 and later always capture the two separately: result.stdout is stdout alone,
+    result.output is both. An older Click mixes them unless told not to, which would make these
+    tests pass or fail for the wrong reason, so they refuse to run on it.
     """
+    if "mix_stderr" in inspect.signature(CliRunner.__init__).parameters:
+        pytest.fail("These tests need Click 8.2.1 or later, which keeps stderr separate. "
+                    "Install the dev dependencies: python -m pip install \"click>=8.2.1\"")
     return CliRunner()
 
 
