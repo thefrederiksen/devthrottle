@@ -1,0 +1,88 @@
+name: Set the Wingman debug view's staff list
+
+# WHO MAY OPEN THE WINGMAN'S DEBUG VIEW. The view hands over the raw terminal screen, the conversation,
+# the exact prompt and the raw model answer for both calls of a reading, so the Gateway serves it to a
+# listed account only. An unset or empty list grants it to NOBODY.
+#
+# This used to be a step inside provision-hosted-gateway-slots.yml, which also changed the App Service
+# plan and created a deployment slot. Setting a list of people must not require a plan change and a
+# higher monthly bill, so it is its own workflow (2026-09-20).
+#
+# It writes ONE app setting on the production site. Writing an app setting RESTARTS the site, so it costs
+# the same outage a deploy does - about a minute. Do not run it while a deploy is running; the
+# serialisation group below enforces that.
+#
+# OIDC login only, no stored secret, same service principal as the deploy workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      staff_emails:
+        description: >-
+          Account addresses allowed to open the Wingman's debug view, comma separated. Type the word none
+          to clear it and close the view to everyone.
+        required: true
+        type: string
+
+# Shares the ONE group with the deploy and the rollback: this restarts the site, and two things
+# restarting it at once is two containers on the shared Azure Files mount.
+concurrency:
+  group: hosted-gateway-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_RG: rg-devthrottle-hosted-gateway
+  APP: devthrottle-gw
+  GATEWAY_URL: https://devthrottle-gw.azurewebsites.net
+
+jobs:
+  set-staff:
+    name: Set the staff list on production
+    runs-on: ubuntu-latest
+    environment: hosted-gateway-production
+
+    steps:
+      - name: Azure login (OIDC, no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_GW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_GW_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_GW_SUBSCRIPTION_ID }}
+
+      - name: Set DEVTHROTTLE_STAFF_EMAILS
+        env:
+          STAFF_EMAILS: ${{ inputs.staff_emails }}
+        run: |
+          VALUE="$STAFF_EMAILS"
+          if [ "$VALUE" = "none" ]; then VALUE=""; fi
+          az webapp config appsettings set -g "$AZURE_RG" -n "$APP" --settings \
+            DEVTHROTTLE_STAFF_EMAILS="$VALUE" -o none
+          # Never echo the list itself - it is a list of people, and this repository is public.
+          echo "Staff list set on production ($(echo "$VALUE" | tr ',' '\n' | grep -c . ) address(es))."
+
+      # The setting change restarts the site. Wait for it to come back rather than leaving someone to
+      # discover later that a settings change took production down.
+      - name: Wait for production to come back
+        run: |
+          deadline=$(( $(date +%s) + 600 ))
+          streak=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/healthz" || true)
+            if [ "$code" = "200" ]; then
+              streak=$(( streak + 1 )); echo "production 200 (streak $streak)"
+              [ "$streak" -ge 3 ] && break
+            else
+              streak=0; echo "production HTTP $code (restarting)"
+            fi
+            sleep 3
+          done
+          if [ "$streak" -lt 3 ]; then
+            echo "ERROR: production did not return a sustained 200 within 600s after the setting change."
+            echo "       The container's own startup output is in the platform container log for $APP."
+            exit 1
+          fi
+          echo "Production is healthy again."
