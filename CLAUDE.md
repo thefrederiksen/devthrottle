@@ -392,16 +392,23 @@ mobile" mean this same one path. There is no separate Cockpit deploy and no sepa
 - deploying from the Azure Portal
 - building an image and pinning it by hand
 
-**Why this is a rule and not a preference.** The deploy workflow warms a staging slot and swaps, so the
-cutover costs 0.0 seconds - measured. It refuses any ref that is not main. It refuses a commit whose
-checks have FAILED. It measures the real external outage at ~0.1s resolution and fails the run if it
-exceeds the budget. And it serialises against the rollback and provisioning workflows, because two
-containers on one shared file share corrupted a database on 2026-07-30 and took the service down for 32
-minutes. A hand-rolled deploy has none of that.
+**Why this is a rule and not a preference.** It refuses any ref that is not main. It refuses a commit
+whose checks have FAILED. It measures the real external outage at ~0.1s resolution and fails the run if
+it exceeds the budget. And it serialises against the rollback and the other workflows that restart the
+site, because two containers on one shared file share corrupted a database on 2026-07-30 and took the
+service down for 32 minutes. A hand-rolled deploy has none of that.
+
+**A deploy costs about a minute of outage, on purpose (2026-09-20).** The plan is Basic B2 - $25 a month,
+2 cores, 3.5 GB - chosen by the owner over the old S1, whose single 1.75 GB worker was so short of memory
+that deploys were taking 87 to 360 seconds. Basic has no deployment slots, so the staging slot is gone and
+a deploy is an in-place restart. The budget is 120 seconds, and the owner's ruling is that a KNOWN
+two-minute outage is acceptable while there are no users. Zero-outage deploys need a slot-capable plan
+(Premium v3 P0v3, 4 GB, ~$57) plus the warmed-swap workflows from git history before that date.
 
 If the skill cannot do what is needed, that is a gap to FIX IN THE WORKFLOW. Say so and stop.
 
-Rolling back is also a workflow (`rollback-hosted-gateway.yml`). Never swap by hand.
+Rolling back is also a workflow (`rollback-hosted-gateway.yml`): it puts a previous commit's image
+back. Never pin an image by hand.
 
 ## A BUILT-IN SKILL IS CHANGED IN ONE PLACE, AND IT REACHES PEOPLE BY DEPLOYING THE GATEWAY
 

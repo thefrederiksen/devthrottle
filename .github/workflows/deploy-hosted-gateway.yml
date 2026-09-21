@@ -6,18 +6,27 @@ name: Deploy hosted Gateway
 # only when someone runs this workflow. Start it from the GitHub Actions UI ("Run workflow") or with
 # `gh workflow run deploy-hosted-gateway.yml`; both are the same manual trigger.
 #
-# It REDEPLOYS via a WARMED SLOT SWAP: rebuild the image -> pin it on the STAGING slot and fully warm it
-# (boot + EF migrations + JIT, with no user on it) -> swap staging into production behind the platform
-# warmup gate -> measure the true external outage -> stop staging. The old instance keeps serving until
-# the new one is proven healthy, so the user-facing outage is a few seconds of hand-off, not the ~95s of
-# an in-place stop-start restart. It does NOT provision resources or set app settings (the resource group,
-# ACR, plan, storage mount, the staging slot and the CC_GATEWAY_DB_CONNECTION are already provisioned - see
-# provision-hosted-gateway-slots.yml and docs/architecture/step3-azure-deploy in devthrottle_internal - and
-# persist across deploys), so this workflow needs NO stored secrets - only an Azure OIDC federated login as
-# the devthrottle-hosted-gateway service principal.
+# It REDEPLOYS IN PLACE: rebuild the image -> record the image production runs now (the rollback target)
+# -> pin the new image on the production site, which makes the platform pull it and restart the site on it
+# -> measure the outage from outside -> watch ten more minutes. There is NO staging slot and NO swap.
 #
-# Requires the staging slot to exist (run provision-hosted-gateway-slots.yml once). If a swap ships bad
-# code, rollback-hosted-gateway.yml swaps the previous instance back in seconds.
+# WHY IN PLACE (owner ruling, 2026-09-20). The plan was S1 Standard, and its one worker was so short of
+# memory that it lived in swap; deploys took 87 to 360 seconds of outage and the warmed swap no longer
+# saved anything. The owner moved the plan to Basic B2 - twice the memory and twice the cores for $25 a
+# month instead of $69 - and Basic has no deployment slots, so the staging slot was deleted. The accepted
+# cost is that a deploy now takes production off the air for as long as the new container takes to start
+# (the plan change itself measured about 60 seconds). There are no users yet and a KNOWN outage of that
+# size is acceptable; an unmeasured one is not, so this workflow still measures and reports every second.
+#
+# The way back to zero-outage deploys is a slot-capable plan (Premium v3 P0v3, 4 GB, $57 a month) plus the
+# warmed-swap version of this file, which is in git history before this change.
+#
+# It does NOT provision resources or set app settings (the resource group, ACR, plan, storage mount and the
+# CC_GATEWAY_DB_CONNECTION are already provisioned - see docs/architecture/step3-azure-deploy in
+# devthrottle_internal - and persist across deploys), so this workflow needs NO stored secrets - only an
+# Azure OIDC federated login as the devthrottle-hosted-gateway service principal.
+#
+# If a deploy ships bad code, rollback-hosted-gateway.yml pins a previous commit's image the same way.
 #
 # Auth is OIDC (workload identity federation): no client secret is stored in this PUBLIC repo. The
 # service principal (Contributor on the subscription) trusts a federated credential scoped to this
@@ -29,8 +38,8 @@ name: Deploy hosted Gateway
 #
 # TWO JOBS, ON PURPOSE. `deploy` does everything that CHANGES Azure and holds the serialisation group
 # for that long (plus the few seconds it takes to hand its poll record over); `watch` is the ten-minute
-# post-swap observation and holds nothing. See the
-# comment on the group below - the split is what lets an emergency rollback start while the watch runs.
+# post-deploy observation and holds nothing. See the comment on the group below - the split is what lets
+# an emergency rollback start while the watch runs.
 
 on:
   # Manual only. A human (or an agent) starts a release deliberately - from the Actions UI or via
@@ -48,72 +57,50 @@ env:
   ACR: crdevthrottlehg
   APP: devthrottle-gw
   IMAGE_NAME: devthrottle-gateway
-  SLOT: staging
   GATEWAY_URL: https://devthrottle-gw.azurewebsites.net
-  STAGING_URL: https://devthrottle-gw-staging.azurewebsites.net
 
 jobs:
   deploy:
-    name: Build image and deploy via warmed slot swap
+    name: Build image and deploy in place
     runs-on: ubuntu-latest
     environment: hosted-gateway-production
 
-    # SERIALISATION. Everything that touches the live hosted Gateway - this deploy, the rollback
-    # (rollback-hosted-gateway.yml) and the slot provisioning/cleanup (provision-hosted-gateway-slots.yml)
-    # - shares the ONE group named below. Only one of them can run at a time; another that arrives while
-    # it is running waits. Note the limit, so nobody reads more into this than it gives: GitHub keeps at
-    # most ONE waiting member per group, so if a third contender is dispatched while one is already
-    # waiting, the one that was waiting is cancelled rather than queued behind it. This is GitHub's
-    # documented behaviour, not something measured here. It is not a deep queue - it is a mutual exclusion
-    # lock with a one-slot waiting room.
+    # SERIALISATION. Everything that changes the live hosted Gateway - this deploy and the rollback
+    # (rollback-hosted-gateway.yml) - shares the ONE group named below. Only one of them can run at a
+    # time; another that arrives while it is running waits. Note the limit, so nobody reads more into
+    # this than it gives: GitHub keeps at most ONE waiting member per group, so if a third contender is
+    # dispatched while one is already waiting, the one that was waiting is cancelled rather than queued
+    # behind it. That is GitHub's documented behaviour, not something measured here. It is not a deep
+    # queue - it is a mutual exclusion lock with a one-slot waiting room.
     #
-    # Why one group and not one per workflow: production and staging mount the SAME Azure Files share at
-    # /home/gateway/cc-director, so any two of these running at once puts two containers on one set of
-    # files. On 2026-07-30 a swap overlapped two containers for 144 seconds, which corrupted the SQLite
-    # statistics database on that share; GET /sessions then returned HTTP 500 for 32 minutes across the
-    # Cockpit, the phone and the command line. Every previous deploy had been rolling the same dice.
-    # A deploy racing a rollback, or a deploy racing the provisioning job that starts and stops the
-    # staging slot, is the same hazard with more moving parts.
+    # Why it still matters now that there is no staging slot. Two reasons, both of them real:
+    #   1. TWO CONTAINERS ON ONE SET OF FILES. The site mounts an Azure Files share at
+    #      /home/gateway/cc-director. A deploy restarts the site, and the platform can run the outgoing
+    #      and incoming containers together across that restart. On 2026-07-30 two containers overlapping
+    #      for 144 seconds corrupted the SQLite statistics database on that share and GET /sessions
+    #      returned HTTP 500 for 32 minutes. One deploy at a time keeps that window to one hand-over
+    #      rather than several at once.
+    #   2. TWO RUNS PINNING DIFFERENT IMAGES. Without the lock, a deploy and a rollback can each set the
+    #      container image seconds apart, and which one production ends up on is a race.
     #
-    # Why cancel-in-progress is FALSE. A second release WAITS for the one in flight; it must never cancel
-    # it (issue #2222). This used to be true, on the reasoning that the cancel is safe during the
-    # ~5-minute build because nothing live has changed yet. That reasoning only holds if the cancel
-    # lands during the build, and there is no way to promise it does. On 2026-07-27 one landed INSIDE
-    # "Deploy the new image to the staging slot and warm it" - after the staging slot had been started
-    # and before anything could stop it. The stop step is skipped on a cancelled run, so the slot was
-    # abandoned RUNNING: two Gateway containers on one worker for ten minutes, unattended, with the app
-    # degraded the whole time. No probe failed and /healthz never dropped, so nothing caught it.
-    # Cancelling a half-finished swap is worse than queueing behind it.
-    #
-    # Waiting costs a few minutes of build time. Cancelling costs an abandoned slot and a degraded
-    # production service. Queue.
+    # Why cancel-in-progress is FALSE. A second release WAITS for the one in flight; it must never cut it
+    # off (issue #2222). A cancelled deploy is a deploy stopped between pinning an image and proving the
+    # site came back on it, which leaves nobody watching the restart it just started. Queue instead.
     #
     # WHY THE GROUP IS DECLARED HERE, ON THE JOB, AND NOT ON THE WORKFLOW. Declared at workflow level it
-    # was held for the ENTIRE run, including the ten-minute post-swap watch - a stretch that changes
-    # nothing in Azure and only reads. An emergency swap-back started during that watch therefore queued
+    # was held for the ENTIRE run, including the ten-minute post-deploy watch - a stretch that changes
+    # nothing in Azure and only reads. An emergency rollback started during that watch therefore queued
     # behind ten minutes of pure observation, and the written workaround was for a human to go and cancel
-    # the deploy run in the Actions user interface first. That is unacceptable for the emergency brake:
-    # a rollback is used exactly when the fleet is already down, and on 2026-07-30 a rollback taking four
+    # the deploy run in the Actions user interface first. That is unacceptable for the emergency brake: a
+    # rollback is used exactly when the fleet is already down, and on 2026-07-30 a rollback taking four
     # minutes instead of sixty-seven seconds was itself a filed defect, because someone had to stop and
     # read documentation while the fleet was blind.
     #
-    # So the group covers this job, which is every step that MUTATES - build, the refusal check, starting
-    # and warming the staging slot, the swap, and the settle step that stops staging again (plus its
-    # always() safety net). The passive watch lives in the `watch` job below, which is deliberately NOT
-    # in the group. While anything dangerous is happening a rollback still queues, which is right. Once the
-    # last mutation is done this job only has to hand its poll record to the watch job - a few seconds of
-    # artifact upload - and then the group is released and a rollback runs immediately. The ten minutes of
-    # observation are no longer inside the lock; that is the whole change.
-    #
-    # Note the case this helps most: when the settle step FAILS it deliberately leaves the staging slot
-    # RUNNING as the instant swap-back instance and exits non-zero. That is precisely the moment a
-    # rollback is most urgent, and it is also the moment this job ends and releases the group.
-    #
-    # NOT DONE, and deliberately: making the rollback cancel the deploy. Cancelling a deploy mid-swap can
-    # leave an Azure swap completing server-side while the rollback issues a reverse swap - two swap
-    # operations racing - and a cancelled deploy can abandon the staging slot RUNNING, a permanent second
-    # writer on the shared file share, which is what happened on 2026-07-27. cancel-in-progress stays
-    # false in all three workflows.
+    # So the group covers this job, which is every step that MUTATES - the build, the refusals, pinning
+    # the new image and waiting for production to come back on it. The passive watch lives in the `watch`
+    # job below, which is deliberately NOT in the group. Once the last mutation is done this job only has
+    # to hand its poll record to the watch job - a few seconds of artifact upload - and then the group is
+    # released and a rollback runs immediately.
     concurrency:
       group: hosted-gateway-production
       cancel-in-progress: false
@@ -123,8 +110,10 @@ jobs:
       short: ${{ steps.short.outputs.short }}
       build_seconds: ${{ steps.build.outputs.build_seconds }}
       outgoing_commit: ${{ steps.outgoing.outputs.commit }}
+      digest: ${{ steps.digest.outputs.digest }}
       readiness_outcome: ${{ steps.readiness.outputs.outcome }}
-      swap_outage_seconds: ${{ steps.readiness.outputs.swap_outage_seconds }}
+      restart_gap_seconds: ${{ steps.readiness.outputs.restart_gap_seconds }}
+      restart_observed: ${{ steps.readiness.outputs.restart_observed }}
       time_to_healthy_seconds: ${{ steps.readiness.outputs.time_to_healthy_seconds }}
 
     steps:
@@ -142,7 +131,7 @@ jobs:
       # BEFORE the Azure login and the build, so a refused deploy costs seconds and touches nothing.
       #
       # 1. MAIN ONLY. workflow_dispatch will happily run against any branch or tag the caller picks,
-      #    which meant an unreviewed branch could be built and swapped into production without ever
+      #    which meant an unreviewed branch could be built and shipped into production without ever
       #    having been merged. Production ships what is on main, or it does not ship.
       - name: Refuse to deploy anything but main
         run: |
@@ -270,7 +259,7 @@ jobs:
           esac
           echo "Built digest: $DIGEST"
 
-      # Read the commit the LIVE service is running BEFORE the swap - this is the OUTGOING build, and the
+      # Read the commit the LIVE service is running BEFORE the deploy - this is the OUTGOING build, and the
       # /healthz .commit field (added alongside this workflow) is what makes it readable. Used for two
       # things: the honest-readiness poll below tells "the new image is serving" apart from "the old
       # container is still answering 200" by commit, and the migration-delta step diffs OUTGOING..target.
@@ -283,109 +272,39 @@ jobs:
           echo "commit=$OUT" >> "$GITHUB_OUTPUT"
           echo "Outgoing live commit: ${OUT:-<unknown - image predates the /healthz commit field>}"
 
-      # Deploy the new image to the STAGING slot and fully warm it BEFORE any user sees it. Staging shares
-      # the production configuration (same Supabase database, same storage) but has its own hostname, so
-      # this is where the new image boots, runs its EF migrations, and JIT-warms with zero user impact. If
-      # anything here fails, production is untouched and still serving the old image - the deploy aborts
-      # safely. Staging is normally STOPPED (steady state is one instance writing the shared mount), so we
-      # point it at the new digest and start it.
-      # REFUSE to start on a dirty slot (issue #2222). Steady state is staging STOPPED - one instance
-      # writing the shared mount. If it is already running, a previous run died without cleaning up, and
-      # starting a deploy on top of that means three containers contending instead of two. Fail here,
-      # where nothing has been touched, rather than discovering it after the swap.
+      # Record the image production runs NOW, before anything changes. With no staging slot there is no
+      # previous instance standing by, so the way back from a bad deploy is to pin this image again. It is
+      # printed here so the rollback target is read off the run rather than guessed.
+      - name: Read the outgoing (currently-live) image
+        id: outgoing_image
+        run: |
+          IMG=$(az webapp config show --resource-group "$AZURE_RG" --name "$APP" --query linuxFxVersion --output tsv)
+          IMG=${IMG#DOCKER|}
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+          echo "Outgoing live image: $IMG"
+
+      # Deploy IN PLACE and MEASURE the outage the way a user experiences it. Pinning the new digest on the
+      # production site makes the platform pull the image and restart the site on it, so the outage IS the
+      # new container's start-up. A background poller on the production URL runs across the whole change,
+      # and the gap between the last 200 on the old commit and the first 200 on the new one is this
+      # deploy's outage. `az webapp config container set` returns before the restart finishes, so the step
+      # then waits for production to serve the new commit, sustained.
       #
-      # The one legitimate exception is the deploy that deliberately LEAVES staging running for swap-back
-      # (see the settle step below). That case needs a human to decide whether to roll back or proceed, so
-      # it is correct for this to stop and say so rather than guess.
-      - name: Refuse to deploy onto a staging slot that is already running
-        run: |
-          STATE=$(az webapp show --resource-group "$AZURE_RG" --name "$APP" --slot "$SLOT" --query state --output tsv)
-          echo "Staging slot state: $STATE"
-          if [ "$STATE" != "Stopped" ]; then
-            echo "ERROR: the staging slot is '$STATE', expected 'Stopped'."
-            echo "       Steady state is one running instance. A running staging slot means either a"
-            echo "       previous deploy died without cleaning up (see issue #2222), or a deploy"
-            echo "       deliberately left it running so rollback-hosted-gateway could swap back."
-            echo "       Decide which, then either run the rollback or stop the slot by hand:"
-            echo "         az webapp stop -g $AZURE_RG -n $APP --slot $SLOT"
-            echo "       Nothing has been changed by this run."
-            exit 1
-          fi
-
-      - name: Deploy the new image to the staging slot and warm it
-        id: warm
-        run: |
-          TARGET="${{ steps.short.outputs.short }}"
-          REF="${ACR}.azurecr.io/${IMAGE_NAME}@${{ steps.digest.outputs.digest }}"
-          az webapp config container set --resource-group "$AZURE_RG" --name "$APP" --slot "$SLOT" \
-            --docker-custom-image-name "$REF" --output none
-          az webapp start --resource-group "$AZURE_RG" --name "$APP" --slot "$SLOT" --output none
-          echo "Staging pinned to $REF and started; warming until it serves commit $TARGET..."
-
-          # Poll the STAGING hostname until it answers 200 with the new commit, sustained 3 times: proof the
-          # new image booted and migrated cleanly. No user is on staging, so this costs no outage.
-          # up_since marks when staging first started answering 200. If it serves 200 but never reports the
-          # shipped commit, that is not a slow boot - it is the wrong image or a missing COCKPIT_COMMIT in the
-          # runtime image, so fail FAST with that diagnosis instead of burning the whole boot timeout.
-          streak=0
-          up_since=""
-          deadline=$(( $(date +%s) + 600 ))
-          while [ "$(date +%s)" -lt "$deadline" ]; do
-            body=$(curl -s -m 10 -w '\n%{http_code}' "${STAGING_URL}/healthz" 2>/dev/null || printf '\n000')
-            code=$(printf '%s' "$body" | tail -n1)
-            commit=$(printf '%s' "$body" | sed '$d' | jq -r '.commit // empty' 2>/dev/null || echo "")
-            if [ "$code" = "200" ] && [ "$commit" = "$TARGET" ]; then
-              streak=$(( streak + 1 )); echo "staging 200 commit=$commit (streak $streak)"
-              [ "$streak" -ge 3 ] && break
-            else
-              streak=0; echo "staging HTTP $code commit=${commit:-<none>} (warming)"
-              if [ "$code" = "200" ]; then
-                [ -z "$up_since" ] && up_since=$(date +%s)
-                if [ $(( $(date +%s) - up_since )) -gt 150 ]; then
-                  echo "ERROR: staging has served 200 for over 150s but never reports commit $TARGET (got"
-                  echo "       '${commit:-<none>}'). The running image is not the shipped build, or the runtime"
-                  echo "       image does not carry COCKPIT_COMMIT. Aborting before the swap; production untouched."
-                  echo "outcome=failed" >> "$GITHUB_OUTPUT"
-                  exit 1
-                fi
-              fi
-            fi
-            sleep 3
-          done
-          if [ "$streak" -lt 3 ]; then
-            echo "ERROR: staging never served a sustained 200 on commit $TARGET - aborting before the swap."
-            echo "outcome=failed" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-          echo "Staging warm and healthy on $TARGET."
-
-      # Swap the warmed staging instance into production, MEASURING the true external outage the way a user
-      # experiences it. The swap is a warmed hand-off: the old instance keeps serving until the platform's
-      # warmup gate (WEBSITE_SWAP_WARMUP_PING_PATH=/healthz) confirms the incoming instance is healthy, then
-      # the front door cuts over. `az ... slot swap` BLOCKS until the swap completes, so we start a
-      # background poller on the PRODUCTION url FIRST and let it run across the cutover, then measure the gap
-      # between the last 200 on the old commit and the first 200 on the new commit. This is the number that
-      # should now be seconds instead of ~95.
-      - name: Swap into production and measure the external outage
+      # If production never serves the new commit, the run FAILS and prints the exact rollback command. It
+      # does not roll back by itself: whether the old image is the better one is a human decision, and the
+      # new image may be one restart away from healthy.
+      - name: Deploy the new image in place and measure the outage
         id: readiness
         run: |
           TARGET="${{ steps.short.outputs.short }}"
-          LOG=/tmp/swap-poll.log; : > "$LOG"
-          # The poller is deliberately NOT killed in this step. It keeps running across the settle check
-          # below, because the outage this deploy actually causes happens MINUTES after the swap returns
-          # (issue #2203): the platform starts a fresh production container with the swapped configuration,
-          # that container fails to bind its port, and the platform stops the SITE. A window that closes
-          # 8 seconds after the swap always measured 0.0s and always missed it.
-          # It is stopped at the end of this job and its log handed to the `watch` job as an artifact, which
-          # resumes polling and joins the two records. See "Hand the production poll record to the watch job".
-          # SAMPLE FAST (issue #2383). The bar this deploy is judged against is a ONE-SECOND outage, and
-          # an instrument that samples once a second cannot resolve it: a gap shorter than the interval
-          # falls entirely between two samples and reads as a clean 0.0s. That is a null result being
-          # mistaken for proof, and it is the difference between "we measured no outage" and "we could
-          # not have seen one". The cadence is the sleep PLUS the request round trip plus the process
-          # spawns below, so it is not 0.1s in practice - which is exactly why the analysis step measures
-          # the ACHIEVED interval from these timestamps and prints it beside the verdict. A run that could
-          # not resolve the bar says so itself rather than presenting a confident zero.
+          OUTGOING="${{ steps.outgoing.outputs.commit }}"
+          REF="${ACR}.azurecr.io/${IMAGE_NAME}@${{ steps.digest.outputs.digest }}"
+          LOG=/tmp/deploy-poll.log; : > "$LOG"
+          # The poller is deliberately NOT killed in this step. It is stopped at the end of this job and its
+          # log handed to the `watch` job as an artifact, which resumes polling and joins the two records.
+          # SAMPLE FAST (issue #2383): an instrument that samples once a second cannot resolve a gap shorter
+          # than a second, so the analysis step measures the ACHIEVED interval from these timestamps and
+          # prints it beside the verdict rather than presenting a confident zero.
           ( while :; do
               t=$(date +%s.%N)
               body=$(curl -s -m 2 -w '\n%{http_code}' "${GATEWAY_URL}/healthz" 2>/dev/null || printf '\n000')
@@ -394,158 +313,164 @@ jobs:
               echo "$t $code ${commit:-none}" >> "$LOG"
               sleep 0.1
             done ) & POLL=$!
-          echo "$POLL" > /tmp/swap-poll.pid
+          echo "$POLL" > /tmp/deploy-poll.pid
+
+          if [ -n "$OUTGOING" ] && [ "$OUTGOING" = "$TARGET" ]; then
+            # KNOWN BLIND SPOT: identity here is the commit. Redeploying the commit that is ALREADY live
+            # means the old and the new container report the same string, so this step cannot tell "the new
+            # container is serving" from "the old one still is". It says so rather than claiming a proof.
+            echo "NOTE: redeploying the commit that is already live ($TARGET). The checks below confirm"
+            echo "      production answers on $TARGET; they cannot prove it is the NEW container answering,"
+            echo "      and the measured outage may read 0.0s for that reason alone."
+          fi
 
           t_deploy=$(date +%s)
-          az webapp deployment slot swap --resource-group "$AZURE_RG" --name "$APP" \
-            --slot "$SLOT" --target-slot production --output none
-          echo "Swap complete; sampling a few more seconds to catch the first sustained new-commit..."
-          sleep 8
+          az webapp config container set --resource-group "$AZURE_RG" --name "$APP" \
+            --docker-custom-image-name "$REF" --output none
+          echo "Production pinned to $REF at $(date -u +%H:%M:%S); waiting for it to serve commit $TARGET..."
 
-          echo "--- production poll across the swap ---"; cat "$LOG"
-          # last 200 whose commit is NOT the new one (old instance serving), and first 200 on the new commit.
-          last_old=$(awk -v t="$TARGET" '$2=="200" && $3!=t {print $1}' "$LOG" | tail -n1)
-          first_new=$(awk -v t="$TARGET" '$2=="200" && $3==t {print $1; exit}' "$LOG")
-          if [ -z "$first_new" ]; then
-            echo "ERROR: production never served the new commit $TARGET after the swap."
-            echo "outcome=failed" >> "$GITHUB_OUTPUT"; exit 1
-          fi
-          if [ -n "$last_old" ]; then
-            outage=$(awk -v a="$last_old" -v b="$first_new" 'BEGIN{d=b-a; if(d<0)d=0; printf "%.1f", d}')
-          else
-            outage=0
-          fi
-          tth=$(( $(printf '%.0f' "$first_new") - t_deploy ))
-          echo "swap_outage_seconds=$outage" >> "$GITHUB_OUTPUT"
-          echo "time_to_healthy_seconds=$tth" >> "$GITHUB_OUTPUT"
-          echo "outcome=healthy" >> "$GITHUB_OUTPUT"
-          echo "New image ${TARGET} live in production. Gap ACROSS THE SWAP ITSELF ~${outage}s."
-          echo "This is NOT the deploy's outage - the post-swap watch job measures that."
-          curl -s -m 15 "${GATEWAY_URL}/healthz"; echo
-
-      # Return to steady state (one running instance) ONLY after production has proven itself STABLY healthy
-      # on the new commit. Stopping the staging slot two seconds after the swap - while the just-swapped
-      # production container was still settling - is what took production down (a 502 outage that needed a
-      # manual swap-back). On a single-instance plan both slots share one worker, so a stop of one slot can
-      # disturb the other; it is only safe once production is solidly up. Require ~45s of an unbroken streak
-      # of clean external 200s on the new commit first. If production does NOT stabilize, LEAVE staging
-      # running (it is the instant swap-back instance) and fail loudly so the release is not treated as good.
-      #
-      # This is the last step that changes Azure on the SUCCESS path; the always() safety net below is the
-      # only other writer, and it writes solely when this step did not run. Everything after those two only
-      # reads, and the whole watch lives in a separate ungrouped job, so the serialisation group is released
-      # within seconds of this step finishing - including when it FAILS and leaves staging as the swap-back
-      # instance, which is exactly the moment a rollback is most urgent.
-      - name: Confirm production is stable, then stop staging
-        id: settle
-        run: |
-          TARGET="${{ steps.short.outputs.short }}"
-          need=15; streak=0; deadline=$(( $(date +%s) + 150 ))
+          # Sustained: 3 consecutive 200s on the new commit, 3 seconds apart. Ten minutes is the limit - the
+          # slowest in-place start measured on the starved S1 worker was about two minutes.
+          streak=0
+          deadline=$(( $(date +%s) + 600 ))
           while [ "$(date +%s)" -lt "$deadline" ]; do
-            body=$(curl -s -m 5 -w '\n%{http_code}' "${GATEWAY_URL}/healthz" 2>/dev/null || printf '\n000')
+            body=$(curl -s -m 10 -w '\n%{http_code}' "${GATEWAY_URL}/healthz" 2>/dev/null || printf '\n000')
             code=$(printf '%s' "$body" | tail -n1)
             commit=$(printf '%s' "$body" | sed '$d' | jq -r '.commit // empty' 2>/dev/null || echo "")
             if [ "$code" = "200" ] && [ "$commit" = "$TARGET" ]; then
-              streak=$(( streak + 1 )); echo "production stable 200 commit=$commit ($streak/$need)"
-              [ "$streak" -ge "$need" ] && break
+              streak=$(( streak + 1 )); echo "production 200 commit=$commit (streak $streak)"
+              [ "$streak" -ge 3 ] && break
             else
-              streak=0; echo "production HTTP $code commit=${commit:-<none>} (waiting for a stable streak)"
+              streak=0; echo "production HTTP $code commit=${commit:-<none>} (starting)"
             fi
             sleep 3
           done
-          if [ "$streak" -lt "$need" ]; then
-            echo "ERROR: production did not hold a stable streak on $TARGET after the swap. Leaving the staging"
-            echo "       slot RUNNING so rollback-hosted-gateway (swap-back) can recover instantly. Do not"
-            echo "       deploy again until this is understood."
-            echo "stopped_staging=no" >> "$GITHUB_OUTPUT"
+
+          if [ "$streak" -lt 3 ]; then
+            echo "ERROR: production never served a sustained 200 on commit $TARGET within 600s."
+            echo "       PRODUCTION MAY BE DOWN RIGHT NOW. The image it ran before this deploy was:"
+            echo "         ${{ steps.outgoing_image.outputs.image }}"
+            if [ -n "$OUTGOING" ]; then
+              echo "       To put that back (commit $OUTGOING), with the owner's go:"
+              echo "         gh workflow run rollback-hosted-gateway.yml --repo ${GITHUB_REPOSITORY} --ref main -f commit=$OUTGOING"
+            else
+              echo "       The outgoing commit is unknown (the live image predates the /healthz commit field),"
+              echo "       so the rollback target must be read from the image above by hand."
+            fi
+            echo "       The failing container's own startup output is in the platform container log for $APP."
+            echo "outcome=failed" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          echo "Production held a stable streak on $TARGET; stopping the staging slot."
-          az webapp stop --resource-group "$AZURE_RG" --name "$APP" --slot "$SLOT" --output none
-          echo "stopped_staging=yes" >> "$GITHUB_OUTPUT"
 
-      # The safety net (issue #2222). A run that dies anywhere between starting the staging slot and the
-      # settle step leaves that slot RUNNING, and a second Gateway container on the worker degrades the
-      # live service until someone notices. `always()` covers cancellation as well as failure, which is
-      # the case that actually bit us.
-      #
-      # It reads the settle step's own verdict and does NOT second-guess it:
-      #   stopped_staging=yes  -> settle already stopped it; nothing to do.
-      #   stopped_staging=no   -> settle DELIBERATELY left it running as the swap-back instance. Leave it.
-      #                           Stopping it here would destroy the rollback path.
-      #   <empty>              -> settle never ran, so nobody owns the slot. Stop it.
-      # This is a second line of defence, not the primary fix - a cancelled job is not guaranteed to
-      # finish its steps. The primary fix is cancel-in-progress: false above.
-      #
-      # This is the only step after `settle` that can still write to Azure, which is why it is inside the
-      # grouped job rather than in the watch job.
-      - name: Always leave the staging slot stopped unless it is the swap-back instance
-        if: always()
-        run: |
-          VERDICT="${{ steps.settle.outputs.stopped_staging }}"
-          if [ "$VERDICT" = "yes" ]; then
-            echo "Staging was already stopped by the settle step; nothing to clean up."
-            exit 0
+          # The last 200 carrying something other than the new commit (the old container still serving), and
+          # the first 200 carrying the new one. The gap between them is the outage this job can see.
+          last_old=$(awk -v t="$TARGET" '$2=="200" && $3!=t {print $1}' "$LOG" | tail -n1)
+          first_new=$(awk -v t="$TARGET" '$2=="200" && $3==t {print $1; exit}' "$LOG")
+          if [ -z "$first_new" ]; then
+            # The wait loop saw the new commit but the poller has not written a matching sample yet. Use now,
+            # which is at most one sample late, rather than dropping the measurement.
+            first_new=$(date +%s.%N)
+            echo "NOTE: the poller had not yet logged a sample on $TARGET; timing from now instead."
           fi
-          if [ "$VERDICT" = "no" ]; then
-            echo "Staging is DELIBERATELY left running as the swap-back instance - not touching it."
-            exit 0
+
+          # A ZERO HERE MUST NEVER BE A NULL RESULT WEARING A NUMBER (issue #2383, and the reviewer's
+          # finding on this change). With no sample carrying the OLD commit there is nothing to measure the
+          # gap FROM: either the poller never caught the old container, or this is a redeploy of the commit
+          # that was already live, in which case every sample carries the target and the restart is
+          # invisible to a check that identifies containers by commit. Writing 0.0 in that case produces a
+          # metrics row indistinguishable from a deploy that genuinely cost nothing, which is the exact
+          # confusion this pipeline refuses everywhere else. Say unmeasured, and carry it to the ledger.
+          if [ -n "$last_old" ]; then
+            outage=$(awk -v a="$last_old" -v b="$first_new" 'BEGIN{d=b-a; if(d<0)d=0; printf "%.1f", d}')
+            observed=yes
+          else
+            outage=unmeasured
+            observed=no
           fi
-          STATE=$(az webapp show --resource-group "$AZURE_RG" --name "$APP" --slot "$SLOT" --query state --output tsv 2>/dev/null || echo Unknown)
-          echo "This run never reached the settle step. Staging slot state: $STATE"
-          if [ "$STATE" = "Stopped" ]; then
-            echo "Already stopped - nothing to clean up."
-            exit 0
+          tth=$(( $(printf '%.0f' "$first_new") - t_deploy ))
+          echo "restart_gap_seconds=$outage" >> "$GITHUB_OUTPUT"
+          echo "restart_observed=$observed" >> "$GITHUB_OUTPUT"
+          echo "time_to_healthy_seconds=$tth" >> "$GITHUB_OUTPUT"
+          echo "outcome=healthy" >> "$GITHUB_OUTPUT"
+          if [ "$observed" = "yes" ]; then
+            echo "New image ${TARGET} live in production after ${tth}s. Gap from the old commit to the new: ~${outage}s."
+            echo "That is the restart this deploy costs; the watch job measures anything that follows it."
+          else
+            echo "New image ${TARGET} is being served by production after ${tth}s."
+            echo "THE RESTART ITSELF WAS NOT OBSERVED: no sample carried a different commit, so this run"
+            echo "cannot say whether the old container was ever replaced, nor what the change cost. The"
+            echo "gap is recorded as 'unmeasured', not as zero. The watch job still measures availability"
+            echo "for the next ten minutes, and that number is real."
           fi
-          echo "Stopping the abandoned staging slot so production is not left sharing its worker."
-          az webapp stop --resource-group "$AZURE_RG" --name "$APP" --slot "$SLOT" --output none
-          echo "Staging stopped."
+          curl -s -m 15 "${GATEWAY_URL}/healthz"; echo
 
       # The watch job runs on a DIFFERENT runner, so it cannot see this runner's /tmp or reach into the
       # background poller. Stop the poller and hand its log over as an artifact; the watch job starts its
       # own poller and joins the two records into one timeline. The samples carry absolute epoch
       # timestamps, so joining them is concatenation in order, not a guess.
+      # UNCONDITIONAL ON PURPOSE (review finding). This used to run only when readiness was healthy,
+      # which was right when a failed readiness meant staging never warmed and production was untouched.
+      # In place it means the opposite: production is pinned to the new image and may be DOWN, and the
+      # record this step hands over is the only external evidence of what happened - the 000s, the 502
+      # flaps, the old-commit stragglers that say whether the container is crash-looping or the site was
+      # stopped. Discarding the timeline of the worst deploy is precisely backwards.
       - name: Hand the production poll record to the watch job
         id: handover
-        if: always() && steps.readiness.outputs.outcome == 'healthy'
+        if: always()
         run: |
           # The poller is a child of the readiness step's shell, not this one, so `wait` cannot reap it.
           # Signal it and then watch the process actually disappear before reading the log, otherwise the
           # last sample can be half-written when it is uploaded.
-          if [ -f /tmp/swap-poll.pid ]; then
-            P=$(cat /tmp/swap-poll.pid)
+          if [ ! -f /tmp/deploy-poll.log ]; then
+            echo "No poll record: this run never reached the deploy step (refused at the gates, or the"
+            echo "build failed). Nothing to hand over."
+            exit 0
+          fi
+          if [ -f /tmp/deploy-poll.pid ]; then
+            P=$(cat /tmp/deploy-poll.pid)
             kill "$P" 2>/dev/null || true
             gone=no
             for _ in $(seq 1 50); do
               if kill -0 "$P" 2>/dev/null; then sleep 0.2; else gone=yes; break; fi
             done
             if [ "$gone" != "yes" ]; then
-              echo "WARNING: the swap poller (pid $P) did not exit within 10s of SIGTERM. The record uploaded"
+              echo "WARNING: the deploy poller (pid $P) did not exit within 10s of SIGTERM. The record uploaded"
               echo "         below may have a truncated final sample. The watch job joins this file to its own"
               echo "         samples, so treat the seam as unreliable rather than assuming it is clean."
             fi
           fi
-          wc -l /tmp/swap-poll.log
-          echo "Last sample handed over: $(tail -n1 /tmp/swap-poll.log)"
+          wc -l /tmp/deploy-poll.log
+          echo "Last sample handed over: $(tail -n1 /tmp/deploy-poll.log)"
 
       - name: Upload the production poll record
-        if: always() && steps.readiness.outputs.outcome == 'healthy'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: swap-poll-log
-          path: /tmp/swap-poll.log
-          if-no-files-found: error
+          name: deploy-poll-log
+          path: /tmp/deploy-poll.log
+          # warn, not error: a run refused at the gates (wrong ref, a failed check) never starts a poller,
+          # and there is genuinely nothing to upload. A readiness FAILURE does have a log, and that is the
+          # case this step exists for.
+          if-no-files-found: warn
 
   # The passive half. It changes NOTHING in Azure - it polls /healthz, reads the site state, diffs the
-  # migration set in git, and writes a report. It is deliberately outside the serialisation group so that
-  # an emergency rollback started during these ten minutes runs immediately instead of queueing behind an
-  # observation. `if: always()` so a deploy that failed before the swap still gets its metrics row.
+  # migration set in git, and writes a report. The registry work that labels and prunes images used to
+  # sit here and does not any more: it WRITES, and this job deliberately runs outside the serialisation
+  # group, so a purge here could delete an image out from under an emergency rollback between that
+  # rollback resolving a tag and the platform pulling it. It lives in the `retain` job below, inside
+  # the group. THIS job stays outside the serialisation group, so an emergency rollback started during
+  # these ten minutes runs immediately instead of queueing behind an observation that changes nothing. `if: always()` so a deploy that failed before the restart still gets its metrics row.
   watch:
-    name: Watch production past the swap and report
+    name: Watch production past the deploy and report
     needs: deploy
     if: always()
     runs-on: ubuntu-latest
     environment: hosted-gateway-production
+
+    # Read by the `retain` job, which decides whether this run's image has earned the last-known-good
+    # label. A run that was rolled back mid-watch must never brand its own image as good.
+    outputs:
+      superseded: ${{ steps.outage.outputs.superseded }}
 
     steps:
       # FIRST, before checkout or login: resume polling production as quickly as this runner allows. The
@@ -582,7 +507,7 @@ jobs:
         if: needs.deploy.outputs.readiness_outcome == 'healthy'
         uses: actions/download-artifact@v4
         with:
-          name: swap-poll-log
+          name: deploy-poll-log
           path: /tmp/deploy-poll
 
       - name: Azure login (OIDC, no stored secret)
@@ -596,9 +521,9 @@ jobs:
       # KEEP WATCHING. This is the step that measures the outage a user actually gets (issue #2203).
       #
       # Every deploy on 2026-07-26 reported 0.0s and every one of them took the live service down two to
-      # four minutes LATER, long after the job used to finish. The mechanism: after the swap the platform
-      # starts a fresh production container with the swapped configuration; that container's application
-      # starts but never binds its port; the platform's startup probe correctly finds nothing, gives up,
+      # four minutes LATER, long after the job used to finish. The mechanism (seen then on a slot swap, and
+      # every bit as available to an in-place restart): the platform starts a fresh production container;
+      # that container's application starts but never binds its port; the platform's startup probe correctly finds nothing, gives up,
       # and puts the SITE into Stopped. Two of the three were caught only because someone happened to be
       # polling by hand.
       #
@@ -616,40 +541,35 @@ jobs:
       # site-state sample stays because it is the only thing that catches a deliberate stop, and it costs
       # nothing - but it is the weaker of the two and must not be read as a clean bill of health.
       # `az webapp show` READS; nothing in this step writes.
-      - name: Watch production past the swap and measure the true outage
+      - name: Watch production past the deploy and measure the true outage
         id: outage
         if: needs.deploy.outputs.readiness_outcome == 'healthy'
         env:
           WATCH_SECONDS: '600'
-          # TEN. Owner ruling 2026-08-20: "if the time gets over 10 seconds, then we start dealing
-          # with it."
+          # 120 SECONDS. Owner ruling 2026-09-20: "It is completely okay to have two minutes out of
+          # this if we just know we have it."
           #
-          # This was FIVE, on the reasoning that a healthy deploy costs about zero because three
-          # earlier runs each measured "Longest unavailable stretch: 0.0s". That reasoning conflated
-          # two different numbers, and measurement has since separated them:
+          # It was TEN (owner ruling 2026-08-20, "if the time gets over 10 seconds, then we start
+          # dealing with it"), and ten was the right number for a WARMED SWAP, where the old instance
+          # kept serving until the new one was proven healthy and a good deploy cost six or seven
+          # seconds of slot churn. That is gone: the plan is Basic B2, which has no slots, so every
+          # deploy is an in-place restart and the outage IS the new container's start-up. Holding an
+          # in-place restart to ten seconds would fail every single deploy, and a gate that is always
+          # red tells you nothing - which is exactly the reasoning that moved it from five to ten.
           #
-          #   swap_window_gap_seconds   - the cutover itself. Still 0.0s. The warmed hand-off works.
-          #   external_outage_seconds   - what a caller experiences across the WHOLE watch, which also
-          #                               covers the spare slot starting and the old slot stopping.
-          #                               Both slots share one worker, so that churn disturbs
-          #                               production whether or not the app is quick to boot.
+          # This is a REPORTING threshold, not a promise: exceeding it fails the run after the fact. It
+          # has never prevented an outage and does not now. What it catches at this setting is a deploy
+          # that is much worse than a normal restart - the container that starts, fails, and takes the
+          # site down with it (38.5s on 2 August, 46.7s on 12 August, both on the old arrangement).
           #
-          # The zero readings were the first number. The second measured 6.7s on 2026-08-19 (run
-          # 32280188992) and 6.6s on 2026-08-20 (run 32321987703) - two consecutive HEALTHY deploys,
-          # one of them carrying the change that moved the database open behind the port bind, which
-          # did not shift it. So ~6-7s is what a good deploy costs here, not a sign of a failed
-          # hand-off.
-          #
-          # At five, every deploy failed, and a gate that is always red cannot tell 6.6s from the
-          # 38.5s (#2383) and 46.7s (#2585) outages it exists to catch - which is the whole reason
-          # thirty was rejected. Ten passes a normal deploy and still fails those two loudly.
-          #
-          # This is a REPORTING threshold, not a promise: exceeding it fails the run after the fact.
-          # It has never prevented an outage and does not now.
-          MAX_ACCEPTABLE_OUTAGE_SECONDS: '10'
+          # THE NUMBER TO WATCH IS THE TREND, NOT THE PASS. A normal in-place deploy should land near the
+          # 60 seconds the plan change measured on 2026-09-20. If these start creeping toward two
+          # minutes, the machine is short of memory again - that is the shape the whole 20 September
+          # investigation followed.
+          MAX_ACCEPTABLE_OUTAGE_SECONDS: '120'
         run: |
           STATE_LOG=/tmp/site-state.log; : > "$STATE_LOG"
-          echo "Watching for ${WATCH_SECONDS}s past the swap (the failure window is 2-4 minutes out)..."
+          echo "Watching for ${WATCH_SECONDS}s past the deploy (the failure window is 2-4 minutes out)..."
 
           deadline=$(( $(date +%s) + WATCH_SECONDS ))
           bad_state=""
@@ -680,22 +600,24 @@ jobs:
               echo "         timeline as unreliable rather than assuming it is clean."
             fi
           fi
-          LOG=/tmp/swap-poll.log
-          cat /tmp/deploy-poll/swap-poll.log /tmp/watch-poll.log > "$LOG"
+          LOG=/tmp/joined-poll.log
+          cat /tmp/deploy-poll/deploy-poll.log /tmp/watch-poll.log > "$LOG"
 
-          # DID SOMETHING SWAP UNDERNEATH US? This watch no longer holds the serialisation group, which is
+          # DID SOMETHING REPLACE THIS DEPLOY UNDERNEATH US? This watch no longer holds the serialisation group, which is
           # the entire point of the split - so a rollback (or the provisioning job) can legitimately run
-          # while it is watching. Availability alone cannot see that: a swap-back serves a clean 200 from
+          # while it is watching. Availability alone cannot see that: a rollback serves a clean 200 from
           # the OLD commit, so a watch that only counted 200s would report a healthy, un-rolled-back deploy
           # for a deploy that had just been rolled back. Read the commit, not just the status code.
+          # (A rollback now pins a previous commit's IMAGE rather than swapping a slot; from out here the
+          # evidence is identical - production stopped serving what this run deployed.)
           # It says SUPERSEDED, not "rolled back", because the evidence only shows that production stopped
-          # serving what this run deployed. A swap-back is the expected cause, but a newer deploy would look
+          # serving what this run deployed. A rollback is the expected cause, but a newer deploy would look
           # the same, and naming the evidence after the most likely cause is how a guess becomes a record.
           # (The metrics field is still called "rollback" so the deploy ledger's columns do not shift; its
           # VALUES are the honest ones - superseded-during-watch / no / not-measured.)
           #
           # KNOWN BLIND SPOT: identity here is the commit, so redeploying the commit that is ALREADY live
-          # cannot see a swap-back - the old and new instances report the same string. Such a run reports
+          # cannot see a rollback - the old and new instances report the same string. Such a run reports
           # superseded=no when the truthful answer is unanswerable. Telling them apart needs an identity
           # finer than the commit (a per-run build token in /healthz); until that exists, a same-commit
           # redeploy's supersession verdict is worth less than the others and this comment is the warning.
@@ -703,9 +625,9 @@ jobs:
 
           # Scan the WHOLE timeline, not just a final sample: once production has served TARGET, any later
           # SUSTAINED run of 200s carrying a different commit is the supersession. A single closing
-          # request would miss a rollback that was itself swapped over again before the watch ended.
+          # request would miss a rollback that was itself replaced again before the watch ended.
           # A "none" counts as a different commit - an image that reports no commit is not this deploy
-          # either, and treating it as clean would hide exactly the swap this scan exists to catch.
+          # either, and treating it as clean would hide exactly the replacement this scan exists to catch.
           #
           # BOTH thresholds exist because ONE of them was not enough, and the run that proved it is
           # 31005677755 (2026-08-05). Arming after 3 consecutive TARGET samples was meant to sit past the
@@ -720,10 +642,10 @@ jobs:
           # unnoticed. So the OTHER commit must now also be sustained - it is not enough to appear.
           #
           # 10 consecutive is ~1.5s at the observed median sample interval of 0.15s. The measured flap
-          # never produced more than 2 consecutive samples from the old instance; a genuine swap-back
+          # never produced more than 2 consecutive samples from the old instance; a genuine rollback
           # serves the old commit for the whole remainder of the watch (hundreds of samples), so it
           # clears this bar immediately. The gap between 2 and 10 is the margin, and it is deliberate:
-          # missing a real swap-back by a second costs nothing (the run reports the closing commit too,
+          # missing a real rollback by a second costs nothing (the run reports the closing commit too,
           # in the `serving` check below), while a false alarm costs the verdict's credibility.
           OTHER_RUN_REQUIRED=10
           other=$(awk -v t="$TARGET" -v need="$OTHER_RUN_REQUIRED" '
@@ -759,8 +681,9 @@ jobs:
           elif [ -n "$other" ]; then
             echo "superseded=yes" >> "$GITHUB_OUTPUT"
             echo "NOTE: during the watch production served commit '${other}', not the deployed '${TARGET}'."
-            echo "      Something swapped underneath this watch - a rollback (rollback-hosted-gateway.yml"
-            echo "      swap-back) is the expected cause, but a newer deploy looks identical from here."
+            echo "      Something replaced this deploy underneath the watch - a rollback"
+            echo "      (rollback-hosted-gateway.yml) is the expected cause, but a newer deploy looks"
+            echo "      identical from here."
             echo "      The availability numbers below are still true; the code now live is NOT this deploy."
           elif [ -n "$serving" ] && [ "$serving" != "$TARGET" ]; then
             echo "superseded=yes" >> "$GITHUB_OUTPUT"
@@ -776,13 +699,13 @@ jobs:
             echo "superseded=no" >> "$GITHUB_OUTPUT"
           fi
 
-          # The whole record, from before the swap to ten minutes after it. Compute the LONGEST unbroken
+          # The whole record, from before the image change to ten minutes after it. Compute the LONGEST unbroken
           # run of non-200 samples, in seconds, and the total. The poller samples about once a second, so a
           # gap is measured from the last good sample to the next good one.
           #
           # The join between the two jobs is a stretch with no samples at all, roughly ten to thirty
           # seconds. Two 200s either side of it read as continuous, so an outage contained entirely within
-          # that stretch is invisible here. It sits about 75 to 120 seconds after the swap - before the 2-4
+          # that stretch is invisible here. It sits about 75 to 120 seconds after the image change - before the 2-4
           # minute window this step exists to catch, but the numbers below are a floor, not a ceiling.
           read -r longest total start_of_longest <<EOF
           $(awk '
@@ -856,7 +779,7 @@ jobs:
             echo "--- full production poll ---"; cat "$LOG"
             exit 1
           fi
-          echo "Production stayed available for the full ${WATCH_SECONDS}s window past the swap."
+          echo "Production stayed available for the full ${WATCH_SECONDS}s window past the deploy."
 
       # PROVE THE PAGES WORK, NOT JUST THAT THE PROCESS ANSWERS.
       #
@@ -870,11 +793,11 @@ jobs:
       # /healthz now reports each subsystem that can be down on its own while the process serves. This step
       # asserts every one of them is up. It POLLS rather than asking once, because a subsystem is allowed
       # to come up after the port does - the statistics store publishes late by design, and now retries
-      # itself back after a failure - so a single read right after a swap would fail a release that was
+      # itself back after a failure - so a single read right after a deploy would fail a release that was
       # about to be fine.
       #
       # IT FAILS THE RUN AND DOES NOT ROLL BACK. A subsystem that is down does not make the new image worse
-      # than the old one, and the swap-back would ship the same code; what it needs is to be seen. The
+      # than the old one, and a rollback would not fix a subsystem that is down; what it needs is to be seen. The
       # failure is what makes it impossible to walk away from a deploy that left a page dead.
       #
       # AN ABSENT BLOCK IS A FAILURE, NOT A PASS. A missing `subsystems` object means the Gateway serving
@@ -899,7 +822,7 @@ jobs:
         # fix.
         #
         # The rest of the guard is unchanged and is a real exclusion, not a convenience: readiness_outcome
-        # is 'healthy' only when a swap actually put the new image into production. A refused deploy
+        # is 'healthy' only when production actually came back on the new image. A refused deploy
         # (wrong ref, failed checks) leaves the OLD image serving and must not be held to this contract.
         if: always() && needs.deploy.outputs.readiness_outcome == 'healthy'
         run: |
@@ -985,12 +908,21 @@ jobs:
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           TARGET="${{ needs.deploy.outputs.short }}"
           FULL=$(git rev-parse HEAD)
-          # The readiness step reports only that the swap put the new commit into production. It is set
-          # BEFORE the settle step, the staging cleanup and the ten-minute watch, so on its own it calls a
-          # run "healthy" that later failed its outage budget or left staging running - a false green in
-          # the deploy ledger, which is the one record we go back and read. Fold in the deploy job's real
-          # result and the watch step's real result. (Pre-existing on main; the split is what finally makes
-          # `needs.deploy.result` available to say it.)
+          # The readiness step reports only that production came back on the new commit. It is set BEFORE
+          # the ten-minute watch, so on its own it calls a run "healthy" that later failed its outage
+          # budget - a false green in the deploy ledger, which is the one record we go back and read. Fold
+          # in the deploy job's real result and the watch step's real result.
+          #
+          # THE LEDGER'S COLUMNS CHANGED WITH THE MOVE TO IN-PLACE DEPLOYS (2026-09-20):
+          # swap_window_gap_seconds is now restart_gap_seconds, and the swapped-then-* outcome words are
+          # deployed-then-*. A ledger row older than that date uses the old names.
+          # ASSIGNED BEFORE THE FOLDING BLOCK BELOW READS THEM. These four were set after it once, and
+          # the one the second commit added (RESTART_OBS) expanded to empty inside the chain, so its
+          # outcome word could never be reached - a false green hiding behind a variable that had not been
+          # set yet. Keep every value the fold reads above the fold.
+          BUILD_S="${{ needs.deploy.outputs.build_seconds }}"; BUILD_S="${BUILD_S:-}"
+          RESTART_S="${{ needs.deploy.outputs.restart_gap_seconds }}"; RESTART_S="${RESTART_S:-not-measured}"
+          RESTART_OBS="${{ needs.deploy.outputs.restart_observed }}"; RESTART_OBS="${RESTART_OBS:-not-measured}"
           OUTCOME="${{ needs.deploy.outputs.readiness_outcome }}"; OUTCOME="${OUTCOME:-failed}"
           DEPLOY_RESULT="${{ needs.deploy.result }}"
           OUTAGE_RESULT="${{ steps.outage.outcome }}"
@@ -1002,15 +934,20 @@ jobs:
           # observation that never happened.
           if [ "$OUTCOME" = "healthy" ]; then
             if [ "$DEPLOY_RESULT" != "success" ]; then
-              OUTCOME="swapped-then-failed"
+              OUTCOME="deployed-then-failed"
             elif [ "$OUTAGE_RESULT" = "failure" ]; then
-              OUTCOME="swapped-then-unavailable"
+              OUTCOME="deployed-then-unavailable"
             elif [ "$OUTAGE_RESULT" != "success" ]; then
-              OUTCOME="swapped-then-unmeasured"
+              OUTCOME="deployed-then-unmeasured"
             elif [ "$SUPERSEDED" = "yes" ]; then
               OUTCOME="superseded"
             elif [ "$SUPERSEDED" = "unknown" ]; then
               OUTCOME="healthy-but-unverified"
+            elif [ "$RESTART_OBS" = "no" ]; then
+              # Production is serving the shipped commit and stayed available, but nothing in the record
+              # shows the old container being replaced - a same-commit redeploy, or a poller that never
+              # caught the old one. The deploy is not in doubt; the MEASUREMENT of it is.
+              OUTCOME="healthy-restart-unobserved"
             fi
           fi
 
@@ -1021,8 +958,6 @@ jobs:
             no)      ROLLBACK="no" ;;
             *)       ROLLBACK="not-measured" ;;
           esac
-          BUILD_S="${{ needs.deploy.outputs.build_seconds }}"; BUILD_S="${BUILD_S:-}"
-          SWAP_S="${{ needs.deploy.outputs.swap_outage_seconds }}"
           OUTAGE_S="${{ steps.outage.outputs.true_outage_seconds }}"
           TOTAL_S="${{ steps.outage.outputs.total_unavailable_seconds }}"
           STATE_LEFT="${{ steps.outage.outputs.site_state_left_running }}"; STATE_LEFT="${STATE_LEFT:-not-measured}"
@@ -1041,7 +976,8 @@ jobs:
             "outcome": "$OUTCOME",
             "build_seconds": "${BUILD_S}",
             "external_outage_seconds": "${OUTAGE_S}",
-            "swap_window_gap_seconds": "${SWAP_S}",
+            "restart_gap_seconds": "${RESTART_S}",
+            "restart_observed": "${RESTART_OBS}",
             "total_unavailable_seconds": "${TOTAL_S}",
             "site_state_left_running": "${STATE_LEFT}",
             "time_to_healthy_seconds": "${TTH_S}",
@@ -1061,9 +997,10 @@ jobs:
             echo "| commit | \`$TARGET\` |"
             echo "| outcome | $OUTCOME |"
             echo "| build | ${BUILD_S:-?}s |"
-            echo "| external outage (longest, watched 10 min past the swap) | ${OUTAGE_S:-not measured}s |"
+            echo "| external outage (longest, watched 10 min past the deploy) | ${OUTAGE_S:-not measured}s |"
             echo "| total unavailable | ${TOTAL_S:-not measured}s |"
-            echo "| gap across the swap itself | ${SWAP_S:-?}s |"
+            echo "| gap from the old commit to the new | ${RESTART_S} |"
+            echo "| restart observed | ${RESTART_OBS} |"
             echo "| site left Running | ${STATE_LEFT} |"
             echo "| time-to-healthy | ${TTH_S:-?}s |"
             echo "| migration | $MIG |"
@@ -1085,3 +1022,145 @@ jobs:
           name: deploy-metrics
           path: deploy-metrics.json
           if-no-files-found: warn
+
+  # The registry half, and the reason it is its own job: it WRITES to the registry (two moving tags) and
+  # DELETES from it (the purge), so it belongs inside the serialisation group. It cannot live in `watch`,
+  # which is deliberately outside the group so an emergency rollback can start while production is being
+  # observed - a purge running there could delete the very image a rollback had just resolved, in the
+  # window before the platform pulls it, and take production down from the emergency lever itself.
+  #
+  # It runs after the watch because what the watch SAW decides whether this image has earned the label.
+  retain:
+    name: Label the good image and keep the last three
+    needs: [deploy, watch]
+    if: always() && needs.deploy.outputs.readiness_outcome == 'healthy'
+    runs-on: ubuntu-latest
+    environment: hosted-gateway-production
+
+    concurrency:
+      group: hosted-gateway-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Azure login (OIDC, no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_GW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_GW_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_GW_SUBSCRIPTION_ID }}
+
+      # MARK THIS IMAGE AS THE ONE KNOWN TO WORK. The condition is the whole point: the watch job must
+      # have PASSED - production came back on the new commit, stayed available for ten minutes, and every
+      # subsystem behind the pages reported available - AND nothing may have superseded this deploy while
+      # it was watched. That second half is a review finding: the watch runs outside the serialisation
+      # group so an emergency rollback can start during it, and a rollback that fits inside the outage
+      # budget leaves the watch GREEN. Without the superseded check this step would then brand the image a
+      # human had just rolled production off as the last known good, and the next panic rollback would
+      # re-ship it while everyone believed they were recovering.
+      #
+      # `az acr import` from the registry to itself just adds the tag to the existing manifest: nothing is
+      # pulled, pushed or rebuilt, and no extra storage is used. --force moves the tag off the previous
+      # holder, which is exactly what "last known good" means.
+      - name: Mark this image as the last known good
+        if: needs.watch.result == 'success' && needs.watch.outputs.superseded == 'no'
+        run: |
+          set -euo pipefail
+          DIGEST="${{ needs.deploy.outputs.digest }}"
+
+          # READ WHAT PRODUCTION IS RUNNING AT THIS MOMENT, not only what the watch concluded
+          # (verification finding). The watch decides `superseded` from its closing commit check, and a
+          # rollback dispatched in the last seconds of those ten minutes has not changed production yet
+          # when that check runs - so the watch says superseded=no, this job then queues behind that
+          # rollback inside the shared group, and without this check it would label the image the
+          # rollback had just taken production OFF as the last known good. The window is seconds wide,
+          # and inside it the next panic rollback would re-ship the bad code believing it was recovering.
+          LIVE=$(az webapp config show -g "$AZURE_RG" -n "$APP" --query linuxFxVersion -o tsv)
+          LIVE_DIGEST="${LIVE#*@}"
+          if [ "$LIVE_DIGEST" != "$DIGEST" ]; then
+            echo "NOT labelling this image as last-known-good: production is no longer running it."
+            echo "  this run deployed: $DIGEST"
+            echo "  production runs:   $LIVE_DIGEST"
+            echo "Something replaced this deploy after the watch's last look - a rollback is the expected"
+            echo "cause. The label stays where it is, which is the whole point of having it."
+            exit 0
+          fi
+
+          az acr import --name "$ACR" --source "${ACR}.azurecr.io/${IMAGE_NAME}@${DIGEST}"             --image "${IMAGE_NAME}:last-known-good" --force
+          echo "Tagged ${{ needs.deploy.outputs.short }} as last-known-good."
+
+      # KEEP A FIXED NUMBER OF IMAGES, AND DELETE THE REST.
+      #
+      # Every deploy pushes an image tagged ci-<short commit> and nothing ever removed one, so the registry
+      # held 85 images and 22 GB against the 10 GB the Basic tier includes - about $1.25 a month of overage,
+      # growing with every deploy. Keeping images IS the rollback story, so the answer is a known number of
+      # them rather than all or none. THREE is the owner's number (2026-09-20). A first purge on that date
+      # took the registry from 22 GB to 1.7 GB.
+      #
+      # TWO TAGS ARE PLANTED FIRST, AND THEY ARE WHAT MAKES THIS SAFE. `acr purge` deletes the tags its
+      # filter matches, and `--untagged` then removes any manifest left with no tags at all. Production is
+      # pinned BY DIGEST, so an image whose ci-<commit> tag is purged becomes untagged and is deleted - and
+      # the very next restart of the site would try to pull an image that no longer exists. The same is true
+      # of last-known-good once its own ci- tag ages out. So before purging:
+      #   * `live` is moved onto the digest production is actually running, and
+      #   * `last-known-good` is already on the image from the last fully successful deploy (step above).
+      # Neither name matches the ci-.* filter, so both manifests keep a tag, survive --untagged, and stay
+      # pullable however old they are.
+      #
+      # WHY `acr purge` AND NOT A LOOP OF DELETES. This step first ran `az acr repository delete` once per
+      # tag. Deleting one image that way works; dozens in a row do not - the registry answered "The
+      # requested data does not exist" to nearly every call while the CLI still printed its "will delete"
+      # warning, so the loop looked like it was working and deleted almost nothing. `acr purge` runs inside
+      # the registry as a task, handles its own pacing, and reports the counts it actually deleted.
+      - name: Keep the last three images and delete the older ones
+        if: always()
+        env:
+          KEEP: '3'
+        run: |
+          set -euo pipefail
+          LIVE=$(az webapp config show -g "$AZURE_RG" -n "$APP" --query linuxFxVersion -o tsv)
+          LIVE_DIGEST="${LIVE#*@}"
+          if [ "$LIVE_DIGEST" = "$LIVE" ]; then
+            echo "ERROR: production is pinned by tag, not by digest ('$LIVE'). This step protects the live"
+            echo "       image by digest, so it refuses rather than purging without that protection."
+            exit 1
+          fi
+          # Keep a tag on the live manifest so --untagged cannot take the image production is running.
+          az acr import --name "$ACR" --source "${ACR}.azurecr.io/${IMAGE_NAME}@${LIVE_DIGEST}" \
+            --image "${IMAGE_NAME}:live" --force
+          echo "Tagged the live digest as 'live' so the purge cannot remove it."
+
+          # --ago 0d: age is not the rule here, count is. --keep keeps the newest KEEP matching tags.
+          az acr run --registry "$ACR" --cmd \
+            "acr purge --filter '${IMAGE_NAME}:ci-.*' --keep ${KEEP} --ago 0d --untagged" \
+            /dev/null
+
+          echo "--- images that remain ---"
+          az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" --orderby time_desc -o tsv
+          az acr show-usage -n "$ACR" --query "[?name=='Size'].{used:currentValue,limit:limit}" -o tsv
+
+      # The rollback targets, printed where someone reaching for them will be looking: on the deploy run
+      # itself. A rollback needs a commit, and the only place they exist is the registry.
+      - name: List the images a rollback can choose from
+        if: always()
+        run: |
+          {
+            echo "## Rollback targets"
+            echo ""
+            echo "Put any of these back with:"
+            echo ""
+            echo "\`\`\`"
+            echo "gh workflow run rollback-hosted-gateway.yml --repo ${{ github.repository }} --ref main -f commit=<short commit>"
+            echo "\`\`\`"
+            echo ""
+            echo "\`commit=last-known-good\` is also accepted - it is the newest image that passed its whole deploy."
+            echo ""
+            echo "The registry keeps the three newest images, plus \`live\` (what production runs) and"
+            echo "\`last-known-good\`. Both of those keep their image pullable however old it gets."
+            echo ""
+            echo "| image | built |"
+            echo "| --- | --- |"
+            az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" \
+              --orderby time_desc --top 5 --detail \
+              --query "[].{tag:name,time:lastUpdateTime}" -o tsv \
+              | while read -r tag time; do echo "| \`$tag\` | $time |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
