@@ -234,8 +234,15 @@
   margin-top: 2px;
 }
 
-.fa-num {
+/* Scoped to the table so it outranks ".fa-table th": a number column's header sits over its right-aligned numbers,
+   not over the column before it. */
+.fa-table .fa-num {
   text-align: right;
+}
+
+/* The report's name column carries "Factory / Factory agent"; the number columns need far less. */
+.fa-report th:first-child {
+  width: 24%;
 }
 
 .fa-total td {
