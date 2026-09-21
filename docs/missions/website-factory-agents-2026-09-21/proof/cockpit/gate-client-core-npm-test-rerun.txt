@@ -1,0 +1,438 @@
+﻿
+> @devthrottle/client-core@0.1.0 test
+> node ../../scripts/check-node-version.mjs && vitest run
+
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-wbf-cockpit/packages/client-core
+
+node.exe : stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > draws no tray at 
+all - no conversation, and no floating note controls over the report
+At C:\Program Files\nodejs\npm.ps1:29 char:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (stderr | src/de...over the report:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > is the RESTORE that takes 
+Send away, not being framed: a framed page whose host never answers keeps it
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > tells the owner where the one 
+Send is, in words true of either app and naming nothing internal
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > hands the app the same state 
+hosted as the page keeps unhosted - the panel still gets everything
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+stderr | src/devreports/devReportNotes.test.ts > note-mode > arms picking when the app asks, and a click then opens 
+the note box against what was clicked
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+stderr | src/devreports/devReportNotes.test.ts > note-mode > cancels picking when the app asks
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+stderr | src/devreports/devReportNotes.test.ts > note-mode > tells the app what the reader has selected, and notes it 
+when the app asks
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+stderr | src/devreports/devReportNotes.test.ts > note-mode > says where note-taking stands as soon as it is hosted, 
+before anything is asked of it
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+stderr | src/devreports/devReportNotes.test.ts > note-mode > ignores a note-mode message that is not one of the three 
+modes
+Error: Not implemented: window.scrollTo
+    at module.exports 
+(D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-wbf-cockpit\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), 
+<anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
+ ✓ src/devreports/devReportNotes.test.ts (64 tests) 792ms
+ ✓ src/dictation/baseline.test.ts (10 tests) 29ms
+ ✓ src/devreports/frameHost.test.ts (17 tests) 40ms
+ ✓ src/voice/useVoiceModeAll.test.tsx (6 tests) 125ms
+ ✓ src/auth/accountsLayout.test.tsx (7 tests) 298ms
+ ✓ src/sessions/wingmanNowWireSample.test.tsx (9 tests) 364ms
+ ✓ src/auth/AccountsPanel.test.tsx (15 tests) 384ms
+stderr | src/settings/FleetManagerTab.test.tsx > the Fleet Manager tab > shows a loading line before the Gateway 
+answers
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. 
+You can use the `v7_startTransition` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the 
+`v7_relativeSplatPath` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/devreports/controller.test.ts (13 tests) 59ms
+ ✓ src/sessions/WingmanNow.test.tsx (59 tests) 903ms
+ ✓ src/voice/voiceMenuGuard.test.tsx (7 tests) 150ms
+ ✓ src/restart/RestartRequestsPanel.test.tsx (10 tests) 329ms
+ ✓ src/devreports/DevReportViews.test.tsx (11 tests) 213ms
+ ✓ src/devreports/exportReport.test.tsx (10 tests) 352ms
+ ✓ src/sessions/wingmanDebugView.test.tsx (6 tests) 435ms
+ ✓ src/sessions/WingmanTab.test.tsx (9 tests) 575ms
+stderr | src/sessions/ColourLegend.test.tsx > ColourLegendPanel > says the read failed, and draws no colours, when the 
+Gateway refuses
+[sessionColours] the colour legend could not be read GatewayError: boom
+    at Function.from (D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\api\client.ts:433:12)
+    at getSessionColourLegend 
+(D:\ReposFred\devthrottle-wbf-cockpit\packages\client-core\src\sessions\sessionColours.ts:56:22) {
+  status: 500,
+  serverReason: 'boom',
+  code: undefined,
+  retryable: false
+}
+
+ ✓ src/sessions/ColourLegend.test.tsx (11 tests) 685ms
+   ✓ ColourLegendButton > reads the legend from the Gateway and draws its words and pixels verbatim 308ms
+ ✓ src/settings/FleetManagerTab.test.tsx (14 tests) 1138ms
+ ✓ src/sessions/wingmanTabViews.test.tsx (12 tests) 920ms
+   ✓ the Wingman tab's views > opens on Now, fed by the Now route, with History beside it 350ms
+ ✓ src/sessions/VerdictPanel.test.tsx (24 tests) 1160ms
+stderr | src/settings/SettingsTabs.test.tsx > the Settings tab strip > offers the four shared tabs on the phone
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. 
+You can use the `v7_startTransition` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the 
+`v7_relativeSplatPath` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/sessions/WingmanErrorLine.test.tsx (11 tests) 320ms
+stderr | src/settings/TurnVerdictCard.test.tsx > the Turn verdicts card > is on the Fleet Manager tab that both shells 
+mount
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. 
+You can use the `v7_startTransition` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the 
+`v7_relativeSplatPath` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/settings/TurnVerdictCard.test.tsx (8 tests) 566ms
+stderr | src/settings/MentorReportCard.test.tsx > the Mentor report card > is on the Notifications tab that both 
+shells mount
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. 
+You can use the `v7_startTransition` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the 
+`v7_relativeSplatPath` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/settings/MentorReportCard.test.tsx (7 tests) 628ms
+ ✓ src/voice/voiceSwitchFailureIsVisible.test.tsx (3 tests) 50ms
+ ✓ src/settings/SettingsTabs.test.tsx (20 tests) 1155ms
+ ✓ src/terminal/interactive.test.ts (20 tests) 30ms
+ ✓ src/stats/statsClient.test.ts (21 tests) 70ms
+ ✓ src/sessions/ordering.test.ts (38 tests) 34ms
+ ✓ src/voice/voiceRowState.test.ts (18 tests) 8ms
+ ✓ src/terminal/stream.test.ts (10 tests) 15ms
+stderr | src/dictation/recorder.test.ts > MicRecorder.snapshotFlushed > resolves via the backstop when the flush is 
+never delivered, with what has arrived
+[MicRecorder] snapshotFlushed: no flush within 500ms; snapshotting what has arrived
+
+stderr | src/dictation/recorder.test.ts > MicRecorder.snapshotFlushed > resolves with what has arrived when 
+requestData throws (a concurrent stop)
+[MicRecorder] snapshotFlushed: requestData failed: The MediaRecorder is in an invalid state.
+
+ ✓ src/history/lineage.test.ts (20 tests) 13ms
+ ✓ src/dictation/transcriptionAccuracy.test.ts (31 tests) 19ms
+ ✓ src/recorder/ingestUpload.test.ts (12 tests) 87ms
+ ✓ src/fleet/rosterRetention.test.ts (24 tests) 17ms
+ ✓ src/sessions/tree.test.ts (17 tests) 13ms
+ ✓ src/api/stopSession.test.ts (12 tests) 12ms
+stderr | src/dictation/backgroundSend.test.ts > the empty-capture gate (an empty recording must never enter the 
+durable queue) > a recording WITH audio is untouched by the gate
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > persists the audio to the durable store 
+BEFORE any network work
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > saves the clip durably AT ONCE (baseline 
+unknown), then enriches it from the press-time snapshot before upload (issue #2478)
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > a kick landing between the first save 
+and enrichment cannot drive the unknown record (issue #2478 round three)
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > an UNKNOWN press-time baseline is FINAL 
+- persisted as unknown, no later re-read, never a fabricated zero (issue #2478)
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > passes a GENUINE zero baseline through 
+as a real reading, distinct from unknown (issue #2478)
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > a plain-number baseline (the Voice 
+screen) rides the FIRST durable write, unchanged
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > a foreign baseline promise that REJECTS 
+costs the guard, never the words
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > removes the durable copy on a terminal 
+submitted outcome (the queue does not accumulate)
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > keeps the audio and publishes a held, 
+retryable status on a non-terminal outcome - never deletes it
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > passes resumed=false on the very first 
+immediate send
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > fails loudly (no silent one-shot) when 
+durable storage is unavailable
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > parking permanently-failed clips (#1184) > parks on a permanent 
+outcome: persists the parked reason, keeps the audio, shows the saved-and-retryable message, and STOPS the auto-loop
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > parking permanently-failed clips (#1184) > an EMPTY recording parks 
+with its own honest sentence, not the too-long one
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > parking permanently-failed clips (#1184) > a transient failure still 
+auto-retries and is never parked (no regression)
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > a 
+moved-on drop stays VISIBLE, carries the transcript back, and never auto-clears
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+ ✓ src/auth/enrollCallback.test.ts (9 tests) 14ms
+stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > a 
+moved-on drop persists the words durably so they survive a reload
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > a 
+drop BEFORE transcription keeps the audio and offers a retry instead of words
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > an 
+empty clip says nothing was heard, visibly and dismissibly, with nothing to retry
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > an 
+ABANDONED outcome stays silent - the user did that on purpose
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > a 
+delivered turn still shows done and drops the audio (no regression)
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+
+ ✓ src/dictation/backgroundSend.test.ts (50 tests) 66ms
+ ✓ src/sessions/density.test.ts (8 tests) 7ms
+ ✓ src/voice/voiceColdEntryIsNotStale.test.tsx (2 tests) 32ms
+ ✓ src/auth/accountStore.test.ts (24 tests) 16ms
+ ✓ src/api/errorReporting.test.ts (14 tests) 17ms
+stderr | src/dictation/recorder.test.ts > MicRecorder.stop > stops and returns the clip even when the tail flush throws
+[MicRecorder] stop: tail flush failed: The MediaRecorder is in an invalid state.
+
+stderr | src/dictation/recorder.test.ts > MicRecorder.stop > does not ask for a flush when the recorder is no longer 
+recording
+[MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered
+
+stderr | src/dictation/recorder.test.ts > MicRecorder.stop tail > returns the delivered chunks when the recorder goes 
+inactive on its own during the tail
+[MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered
+
+ ✓ src/dictation/recorder.test.ts (27 tests) 803ms
+ ✓ src/voice/clipUrlOutlivesTheListener.test.ts (2 tests) 8ms
+ ✓ src/dictation/dictationLiveAlarm.test.tsx (5 tests) 166ms
+ ✓ src/devreports/noteControls.test.tsx (6 tests) 159ms
+ ✓ src/devreports/DevReportLanding.test.tsx (3 tests) 151ms
+ ✓ src/auth/enrollRequest.test.ts (15 tests) 10ms
+ ✓ src/history/historyLinks.test.ts (44 tests) 15ms
+ ✓ src/voice/rowVoiceInputs.test.ts (7 tests) 6ms
+ ✓ src/api/dictationUnreadableRecord.test.ts (6 tests) 13ms
+stderr | src/settings/DailyReportCard.test.tsx > the Daily report card > is on the Notifications tab that both shells 
+mount
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. 
+You can use the `v7_startTransition` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the 
+`v7_relativeSplatPath` future flag to opt-in early. For more information, see 
+https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/history/chatFilterPersistence.test.ts (5 tests) 6ms
+ ✓ src/speech/localSpeech.test.ts (20 tests) 15ms
+ ✓ src/auth/accountIsolation.test.ts (10 tests) 12ms
+ ✓ src/settings/DailyReportCard.test.tsx (5 tests) 556ms
+ ✓ src/push/enablePush.test.ts (9 tests) 12ms
+ ✓ src/stats/ThrottleWindowSelector.test.tsx (5 tests) 178ms
+ ✓ src/api/enroll.test.ts (8 tests) 11ms
+ ✓ src/api/newSession.test.ts (6 tests) 18ms
+ ✓ src/settings/tabs.test.ts (16 tests) 13ms
+ ✓ src/dictation/micQuality.test.ts (27 tests) 1947ms
+ ✓ src/stats/statsClient.contract.test.ts (8 tests) 73ms
+ ✓ src/polling/pollingStore.test.ts (7 tests) 103ms
+ ✓ src/api/client.test.ts (9 tests) 11ms
+ ✓ src/sessions/supervision.test.ts (17 tests) 10ms
+ ✓ src/api/dictationEmptyAudio.test.ts (3 tests) 11ms
+ ✓ src/sessions/tree.agreement.test.ts (64 tests) 41ms
+ ✓ src/sessions/snoozeAction.test.ts (8 tests) 8ms
+ ✓ src/dictation/composerProvenance.test.ts (9 tests) 10ms
+ ✓ src/api/dictationDedupe.test.ts (4 tests) 10ms
+ ✓ src/voice/queueTouch.test.ts (9 tests) 23ms
+ ✓ src/api/dictation402Copy.test.ts (5 tests) 10ms
+ ✓ src/history/myPromptsOnly.test.ts (9 tests) 9ms
+ ✓ src/dictation/deviceIdentity.test.ts (10 tests) 7ms
+ ✓ src/dictation/readyCue.test.ts (5 tests) 8ms
+ ✓ src/history/fileTypes.test.ts (61 tests) 11ms
+ ✓ src/history/chatView.test.ts (9 tests) 36ms
+ ✓ src/sessions/delivery.test.ts (16 tests) 9ms
+ ✓ src/voice/voiceQueue.test.ts (5 tests) 6ms
+ ✓ src/api/handover.test.ts (5 tests) 11ms
+ ✓ src/sessions/filter.test.ts (16 tests) 26ms
+ ✓ src/api/gatewayError.test.ts (8 tests) 7ms
+ ✓ src/api/voiceModeAll.test.ts (5 tests) 9ms
+ ✓ src/api/transcriptionFailureMessage.test.ts (14 tests) 8ms
+ ✓ src/fleetmanager/walkthroughActions.test.ts (6 tests) 9ms
+ ✓ src/polling/clock.test.ts (4 tests) 5ms
+ ✓ src/api/dictationCaptureHealthForward.test.ts (2 tests) 10ms
+ ✓ src/fleet/fleetClient.test.ts (10 tests) 13ms
+ ✓ src/sessions/sessionColours.test.ts (10 tests) 9ms
+ ✓ src/learning/learningClient.test.ts (5 tests) 11ms
+ ✓ src/dictation/platform.test.ts (7 tests) 7ms
+ ✓ src/sessions/wingmanNowWordsAreTheGateways.test.ts (19 tests) 7ms
+ ✓ src/connection/health.test.ts (6 tests) 10ms
+ ✓ src/api/gatewayFetchTimeout.test.ts (4 tests) 12ms
+ ✓ src/history/historyMarkdown.test.ts (10 tests) 49ms
+ ✓ src/dictation/dictionaryEdits.test.ts (10 tests) 8ms
+ ✓ src/settings/snoozeMenu.test.ts (10 tests) 9ms
+ ✓ src/dictation/qualityReport.test.ts (6 tests) 1206ms
+   ✓ measureDictationQuality > measures an ordinary dictation and reports the device it came from 375ms
+ ✓ src/recorder/uploadGate.test.ts (11 tests) 7ms
+ ✓ src/settings/snoozeFormat.test.ts (16 tests) 10ms
+ ✓ src/skills/skillsClient.test.ts (4 tests) 13ms
+ ✓ src/sessions/stampedField.test.ts (4 tests) 7ms
+ ✓ src/recordings/recordingsClient.test.ts (5 tests) 8ms
+ ✓ src/sessions/model.test.ts (5 tests) 6ms
+ ✓ src/sessions/changes.test.ts (10 tests) 6ms
+ ✓ src/terminal/lineLinks.test.ts (5 tests) 9ms
+ ✓ src/api/reasonBodyIsRead.test.ts (4 tests) 11ms
+ ✓ src/missions/missions.test.ts (6 tests) 11ms
+ ✓ src/dictation/status.test.ts (5 tests) 9ms
+ ✓ src/account/accountClient.test.ts (3 tests) 6ms
+ ✓ src/api/hold.test.ts (3 tests) 6ms
+ ✓ src/dictation/captureHealth.test.ts (5 tests) 5ms
+ ✓ src/push/register.test.ts (5 tests) 7ms
+ ✓ src/sessions/screenshotGallery.test.ts (4 tests) 4ms
+ ✓ src/sessions/wingmanStops.test.ts (3 tests) 12ms
+ ✓ src/sessions/pinning.test.ts (5 tests) 6ms
+ ✓ src/fleetmanager/handOverClient.test.ts (4 tests) 11ms
+ ✓ src/fleet/settingsEditor.test.ts (6 tests) 5ms
+ ✓ src/fleetmanager/answerCard.test.ts (4 tests) 11ms
+ ✓ src/fleet/directorEndpoint.test.ts (9 tests) 7ms
+ ✓ src/recorder/segmentRecorder.test.ts (3 tests) 4ms
+stderr | src/errors/reportClientError.test.ts > client error report rate cap > admits up to the cap within one minute, 
+then drops
+[client-errors] rate cap reached; further reports this minute stay local
+
+stderr | src/errors/reportClientError.test.ts > client error report rate cap > a new minute opens a fresh window
+[client-errors] rate cap reached; further reports this minute stay local
+
+stderr | src/errors/reportClientError.test.ts > client error report rate cap > a render-loop burst cannot exceed the 
+cap even across repeated calls
+[client-errors] rate cap reached; further reports this minute stay local
+
+ ✓ src/errors/reportClientError.test.ts (3 tests) 5ms
+ ✓ src/dictation/wav.test.ts (4 tests) 6ms
+ ✓ src/workflows/workflowsClient.test.ts (4 tests) 5ms
+ ✓ src/fleet/reachability.test.ts (4 tests) 5ms
+ ✓ src/dictation/recorderTimeout.test.ts (7 tests) 2081ms
+   ✓ startRecorderWithTimeout > says how long it waited, in seconds, so the message is actionable 2003ms
+ ✓ src/speech/oneSpeechPath.test.ts (3 tests) 4176ms
+   ✓ the browser's one speech path > lets only the sanctioned sink reach the platform's speech engine 1841ms
+   ✓ the browser's one speech path > never builds an utterance from a literal in product code 2280ms
+ ✓ src/transcription/transcriptionAnalysisClient.test.ts (4 tests) 5ms
+
+ Test Files  127 passed (127)
+      Tests  1492 passed (1492)
+   Start at  10:23:45
+   Duration  16.83s (transform 55.02s, setup 4.06s, collect 98.32s, tests 24.53s, environment 87.82s, prepare 49.11s)
+

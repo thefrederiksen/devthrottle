@@ -1,0 +1,4 @@
+tsc --noEmit in packages/client-core: exit 0
+tsc --noEmit in apps/cockpit: exit 0
+eslint on 18 changed web files:
+eslint exit=0
