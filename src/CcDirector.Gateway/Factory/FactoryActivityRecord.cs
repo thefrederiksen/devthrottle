@@ -153,9 +153,26 @@ public sealed class FactoryActivityRecord
         string? factory = null, string? factoryAgent = null, string? outcome = null,
         DateTime? fromUtc = null, DateTime? toUtc = null, bool oldestFirst = false,
         int offset = 0, int? limit = null)
+        => Query(_db.CreateContext, factory, factoryAgent, outcome, fromUtc, toUtc, oldestFirst, offset, limit, sessionIds: null);
+
+    /// <summary>
+    /// One page of rows from an account the ROUTE resolved, never the ambient one. Otherwise exactly the other
+    /// <c>Query</c>, plus <paramref name="sessionIds"/>: when given, only rows naming one of those sessions - which
+    /// is how the roster reads the "started" rows for the sessions it is showing, and no others.
+    /// </summary>
+    public FactoryActivityPage Query(
+        TenantId tenant, string? factory = null, string? factoryAgent = null, string? outcome = null,
+        DateTime? fromUtc = null, DateTime? toUtc = null, bool oldestFirst = false,
+        int offset = 0, int? limit = null, IReadOnlyCollection<string>? sessionIds = null)
+        => Query(() => _db.CreateContext(tenant), factory, factoryAgent, outcome, fromUtc, toUtc, oldestFirst, offset, limit, sessionIds);
+
+    private FactoryActivityPage Query(
+        Func<GatewayDbContext> open, string? factory, string? factoryAgent, string? outcome,
+        DateTime? fromUtc, DateTime? toUtc, bool oldestFirst, int offset, int? limit,
+        IReadOnlyCollection<string>? sessionIds)
     {
         FileLog.Write($"[FactoryActivityRecord] Query: factory={factory}, agent={factoryAgent}, outcome={outcome}, " +
-                      $"from={fromUtc:o}, to={toUtc:o}, oldestFirst={oldestFirst}, offset={offset}, limit={limit}");
+                      $"from={fromUtc:o}, to={toUtc:o}, oldestFirst={oldestFirst}, offset={offset}, limit={limit}, sessions={sessionIds?.Count.ToString() ?? "-"}");
 
         if (offset < 0)
             throw new FactoryActivityValidationException("offset cannot be negative.");
@@ -175,8 +192,14 @@ public sealed class FactoryActivityRecord
 
         lock (_gate)
         {
-            using var ctx = _db.CreateContext();
+            using var ctx = open();
             IQueryable<FactoryActivityEntity> query = ctx.FactoryActivity.AsNoTracking();
+
+            if (sessionIds is not null)
+            {
+                var ids = sessionIds.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).Distinct().ToList();
+                query = query.Where(e => e.SessionId != null && ids.Contains(e.SessionId));
+            }
 
             if (!string.IsNullOrWhiteSpace(factory))
             {

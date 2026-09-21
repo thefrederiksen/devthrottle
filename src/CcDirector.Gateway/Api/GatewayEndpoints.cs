@@ -299,7 +299,10 @@ internal static class GatewayEndpoints
         // POST /sessions/{sid}/raise and /lower write it. Both null (older callers, tests without a database) means no
         // session is ever raised here: the two routes are not mapped, and every sender is limited exactly as before.
         Fleet.RaisedSessionStore? raisedSessions = null,
-        Fleet.RaisedSessionRecord? raisedRecord = null)
+        Fleet.RaisedSessionRecord? raisedRecord = null,
+        // The Website Business Factory, Screen 6: the "started" rows the roster fold stamps the factory agent chip
+        // from. Null while the Factory Agents switch is off, and then no row carries a chip.
+        Factory.FactorySessionStarts.Reader? factoryStarts = null)
     {
         if ((raisedSessions is null) != (raisedRecord is null))
             throw new ArgumentException(
@@ -1674,7 +1677,8 @@ internal static class GatewayEndpoints
                 snoozeRosterSessionIds: unfilteredWholeAccount ? SnoozeRosterIds(fleet) : null,
                 inboxLines: inboxLines,
                 fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId,
-                raisedSessions: raisedIdsFor);
+                raisedSessions: raisedIdsFor,
+                factoryStarts: factoryStarts);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -2030,7 +2034,8 @@ internal static class GatewayEndpoints
                 snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
                 inboxLines: inboxLines,
                 fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId,
-                raisedSessions: raisedIdsFor);
+                raisedSessions: raisedIdsFor,
+                factoryStarts: factoryStarts);
             return Results.Json(session);
         });
 
@@ -5593,7 +5598,11 @@ internal static class GatewayEndpoints
         Func<TenantId, string?>? fleetManagerMark = null,
         // The Fleet Manager Improvement mission, phase 1: the ids of the account's RAISED sessions, read once for the
         // whole fold. Null (or no tenant) stamps a null Raise on every row: no list was read, so nothing is claimed.
-        Func<TenantId, IReadOnlySet<string>>? raisedSessions = null)
+        Func<TenantId, IReadOnlySet<string>>? raisedSessions = null,
+        // The Website Business Factory, Screen 6: which of these sessions a factory agent started, read from the
+        // factory activity record's "started" rows for exactly the ids given. Null (the Factory Agents switch off,
+        // or no tenant) stamps a null chip on every row: nothing was read, so nothing is claimed.
+        Factory.FactorySessionStarts.Reader? factoryStarts = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5690,6 +5699,12 @@ internal static class GatewayEndpoints
             Fleet.RaisedSessionRosterFold.Stamp(all, raisedSessions(raiseTenant));
         else
             foreach (var s in all) s.Raise = null;
+        // The "factory agent" chip (Website Business Factory, Screen 6). Assigned either way, so a Director's echo
+        // never survives.
+        if (tenant is { IsValid: true } factoryTenant && factoryStarts is not null)
+            Factory.FactoryAgentsFold.StampChips(all, factoryStarts(factoryTenant, all.Select(s => s.SessionId).ToList()));
+        else
+            foreach (var s in all) s.FactoryAgent = null;
 
         // VOICE: A SESSION A LIVE SESSION OWNS IS NOT THE USER'S TO BE READ ALOUD, and now the screen says so.
         //

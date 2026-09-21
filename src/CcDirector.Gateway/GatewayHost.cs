@@ -245,6 +245,33 @@ public sealed class GatewayHost : IAsyncDisposable
     internal Factory.Triggers.TriggerService Triggers { get; }
 
     /// <summary>
+    /// What the owner's Factory Agents pages read, each in the account the route resolved. The triggers are the
+    /// trigger store's, which has not merged yet: until it does the account has no triggers, so no page offers a
+    /// Pause, and nothing can ask this to pause one.
+    /// </summary>
+    private Api.FactoryAgentsSources FactoryAgentsViewSources() => new(
+        Query: (tenant, q) => FactoryActivity.Query(tenant, q.Factory, q.Agent, q.Outcome, q.FromUtc, q.ToUtc,
+            q.OldestFirst, q.Offset, q.Limit),
+        Append: (tenant, request, actor) => FactoryActivity.Append(tenant, request, actor),
+        Triggers: _ => Array.Empty<Factory.FactoryTriggerFacts>(),
+        SetTriggerPaused: (_, triggerId, _, _) => throw new InvalidOperationException(
+            $"There is no trigger store on this Gateway yet, so trigger {triggerId} cannot be paused or resumed."),
+        LiveSessionIds: tenant => LiveSessionIdsFor(tenant),
+        TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+        NowUtc: () => DateTime.UtcNow,
+        Reports: new Factory.FactoryReportStore(_tenantSettings));
+
+    // The sessions alive in the account's roster: what every one of its Directors last pushed.
+    private IReadOnlySet<string> LiveSessionIdsFor(Core.Tenancy.TenantId tenant)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in Registry.ListDirectors(tenant))
+            foreach (var s in PushedSessions.GetLastKnown(tenant, d.DirectorId).Sessions)
+                if (!string.IsNullOrEmpty(s.SessionId)) ids.Add(s.SessionId);
+        return ids;
+    }
+
+    /// <summary>
     /// Environment override for the host-wide auth gate (issue #917). As of Phase 1 the gate is ON by
     /// default, so this variable is now a DISABLE override for debugging: set <c>CC_GATEWAY_AUTH=0</c> to
     /// turn the gate off. (Setting it to <c>1</c> is a harmless no-op since enforcement is already the
@@ -3839,6 +3866,11 @@ public sealed class GatewayHost : IAsyncDisposable
             tenantRegistry: TenantRegistry,
             raisedSessions: RaisedSessions,
             raisedRecord: RaisedSessionRecord,
+            // The Website Business Factory, Screen 6: the "factory agent" chip is read from the activity record, and
+            // only while the Factory Agents switch is on - off, no row carries one.
+            factoryStarts: FactoryAgentsEnabled
+                ? (tenant, sessionIds) => Factory.FactorySessionStarts.Read(FactoryActivity, tenant, sessionIds)
+                : null,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -4261,10 +4293,18 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // The factory activity record (Website Business Factory, product track): append-only, never pruned.
         // Behind the factory agents switch - while it is off the routes are simply not mapped, so they 404.
+        // The Cockpit asks the switch whether to show the Factory Agents area at all, so that one route is mapped
+        // either way; the owner's pages over the record are mapped only while it is on.
+        Api.FactoryAgentsViewEndpoints.MapSwitch(_app, FactoryAgentsEnabled);
         if (FactoryAgentsEnabled)
+        {
             Api.FactoryActivityEndpoints.Map(_app, FactoryActivity);
+            Api.FactoryAgentsViewEndpoints.Map(_app,
+                resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+                sources: FactoryAgentsViewSources());
+        }
         else
-            FileLog.Write("[GatewayHost] factory agents are OFF: the factory activity routes are not mapped");
+            FileLog.Write("[GatewayHost] factory agents are OFF: the factory activity routes and pages are not mapped");
 
         // The weekly Outcome Ledger (issue #1771, spine item 4): the first report that pays rent - verified
         // yield, aging WIP, and high-effort/no-outcome runs with cost + attention-burden. Read-only.
