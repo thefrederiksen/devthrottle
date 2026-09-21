@@ -159,7 +159,7 @@ public sealed class TriggerServiceTests : IDisposable
         var dto = service.ToDto(service.Store.Find(Tenant, t.Id)!);
 
         Assert.Equal(TriggerStatusKind.Red, dto.Status);
-        Assert.Equal($"session {first.SessionId} has not ended after 7 hours; no new session starts until it does", dto.StatusText);
+        Assert.Equal($"session {first.SessionId} has not ended after 7 hours; no new session starts until it does - pause and resume the trigger to release it", dto.StatusText);
         Assert.Single(_starts);
     }
 
@@ -485,5 +485,79 @@ public sealed class TriggerServiceTests : IDisposable
         Assert.Equal(FactoryActivityRecord.MaxWhatChars, row.What.Length);
         Assert.EndsWith("...", row.What);
         Assert.EndsWith(longError, run.Reason);
+    }
+
+    // ---------------------------------------------------------------------------------------------------
+    // The way out of a lock that never lets go: pause, then resume (the Tech Lead's addition to finding 1).
+    // ---------------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task PauseThenResume_ReleasesAStuckLock_RecordsWhoAndWhichSession_AndTheNextCheckStarts()
+    {
+        var service = Service();
+        var t = Add(service);
+        var first = await Report(service, t, Counted(2)); // its Director then dies: the row says Working for good
+        _now = _now.AddHours(7);
+        await Report(service, t, Counted(5));
+        Assert.Equal(TriggerStatusKind.Red, service.ToDto(service.Store.Find(Tenant, t.Id)!).Status);
+
+        service.Store.SetPaused(Tenant, t.Id, true);
+        var resumed = await service.ResumeAsync(Tenant, t.Id, "device phone p-1", CancellationToken.None);
+
+        Assert.NotNull(resumed);
+        Assert.False(resumed!.Paused);
+        Assert.Null(resumed.LastSessionId);
+        var release = Activity().Last();
+        Assert.Equal(FactoryActivityOutcome.Allowed, release.Outcome);
+        Assert.Equal("device phone p-1", release.Actor);
+        Assert.Equal(first.SessionId, release.SessionId);
+        Assert.Equal("website-new-mail", release.Subject);
+        Assert.Equal($"device phone p-1 resumed website-new-mail and released its lock, which had been waiting on session {first.SessionId}; the next check that counts work starts a new session", release.What);
+
+        _now = _now.AddMinutes(5);
+        var next = await Report(service, t, Counted(5));
+        Assert.Equal(TriggerRunOutcome.Started, next.Outcome);
+        Assert.Equal(2, _starts.Count);
+        Assert.Equal("OK", service.ToDto(service.Store.Find(Tenant, t.Id)!).StatusText);
+    }
+
+    [Fact]
+    public async Task ResumeOfATriggerThatWasNotPaused_ReleasesNothing_AndRecordsNothing()
+    {
+        var service = Service();
+        var t = Add(service);
+        var first = await Report(service, t, Counted(2));
+
+        var resumed = await service.ResumeAsync(Tenant, t.Id, "session s-1", CancellationToken.None);
+
+        Assert.Equal(first.SessionId, resumed!.LastSessionId);
+        Assert.DoesNotContain(Activity(), r => r.Outcome == FactoryActivityOutcome.Allowed);
+        _now = _now.AddMinutes(5);
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, (await Report(service, t, Counted(2))).Outcome);
+        Assert.Single(_starts);
+    }
+
+    [Fact]
+    public async Task ResumeOfAPausedTriggerWithNoSession_RecordsNothing()
+    {
+        var service = Service();
+        var t = Add(service, paused: true);
+
+        var resumed = await service.ResumeAsync(Tenant, t.Id, "session s-1", CancellationToken.None);
+
+        Assert.False(resumed!.Paused);
+        Assert.Empty(Activity());
+    }
+
+    [Fact]
+    public async Task ResumeOfATriggerInAnotherAccount_IsNotFound_AndReleasesNothing()
+    {
+        var service = Service();
+        var t = Add(service);
+        var first = await Report(service, t, Counted(2));
+        service.Store.SetPaused(Tenant, t.Id, true);
+
+        Assert.Null(await service.ResumeAsync(OtherTenant, t.Id, "session s-9", CancellationToken.None));
+        Assert.Equal(first.SessionId, service.Store.Find(Tenant, t.Id)!.LastSessionId);
     }
 }

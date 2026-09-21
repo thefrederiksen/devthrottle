@@ -88,7 +88,7 @@ public sealed class TriggerStatusFoldTests
             null, "sess-stuck", started, now);
 
         Assert.Equal(TriggerStatusKind.Red, status.Kind);
-        Assert.Equal("session sess-stuck has not ended after 6 hours; no new session starts until it does", status.Text);
+        Assert.Equal("session sess-stuck has not ended after 6 hours; no new session starts until it does - pause and resume the trigger to release it", status.Text);
     }
 
     [Fact]

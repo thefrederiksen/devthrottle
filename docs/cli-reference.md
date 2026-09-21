@@ -1718,7 +1718,10 @@ row: the trigger's factory and factory agent, the actor `trigger:<trigger id>`, 
 **Status.** `list` and `show` print the status the Gateway decided: `OK`, `RED - check failed:
 <reason>`, `RED - start failed: <reason>`, `RED - no checks ran` when no check has been recorded
 within two intervals, or `RED - session <id> has not ended after N hours` when work has waited more
-than six hours behind a session that never reported ending. Silence is never a quiet night.
+than six hours behind a session that never reported ending. Pausing and then resuming the trigger
+releases that wait: `resume` forgets the session, so the next check that counts work starts a new
+one, and it records who released it and which session it had been waiting on in the factory
+activity record (outcome `allowed`). Silence is never a quiet night.
 
 **The switch.** Triggers exist only while the Gateway's `config.json` has
 `"factoryAgents": { "enabled": true }` (default off). While it is off, every trigger command

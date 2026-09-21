@@ -106,7 +106,15 @@ internal static class TriggerEndpoints
         });
 
         app.MapPost("/triggers/{id}/pause", (string id, HttpContext ctx) => SetPaused(ctx, id, true));
-        app.MapPost("/triggers/{id}/resume", (string id, HttpContext ctx) => SetPaused(ctx, id, false));
+        // Resume also releases the one-at-a-time lock of a paused trigger, and records who did it.
+        app.MapPost("/triggers/{id}/resume", async (string id, HttpContext ctx) =>
+        {
+            FileLog.Write($"[TriggerEndpoints] POST /triggers/{id}/resume");
+            if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+            return await service.ResumeAsync(tenant, id, CallerOf(ctx), ctx.RequestAborted) is { } t
+                ? Results.Json(service.ToDto(t))
+                : NoSuchTrigger(id);
+        });
 
         IResult SetPaused(HttpContext ctx, string id, bool paused)
         {

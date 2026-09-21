@@ -144,6 +144,54 @@ public sealed class TriggerService
             .ToList();
     }
 
+    /// <summary>
+    /// Resume a trigger on the owner's word. When it was paused, this also releases the one-at-a-time lock (see
+    /// <see cref="TriggerStore.Resume"/>) and records the release as one factory activity row: <c>allowed</c>, the
+    /// caller as actor, and the session the lock had been waiting on. Taken under the same per-trigger lock as a check
+    /// report, so a release never lands in the middle of a decision. Null when there is no such trigger.
+    /// </summary>
+    public async Task<TriggerEntity?> ResumeAsync(TenantId tenant, string triggerIdOrName, string releasedBy, CancellationToken ct)
+    {
+        FileLog.Write($"[TriggerService] ResumeAsync: tenant={tenant.ToLogString()}, trigger={triggerIdOrName}, by={releasedBy}");
+        var found = _store.Find(tenant, triggerIdOrName);
+        if (found is null) return null;
+
+        var gate = _locks.GetOrAdd($"{tenant.Value}/{found.Id:D}", _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var (trigger, released) = _store.Resume(tenant, found.Id.ToString("D"));
+            if (trigger is null) return null;
+            if (released is not null)
+                _activity.Append(tenant, ReleaseActivityFor(trigger, released, releasedBy, _nowUtc()), callingActor: null);
+            return trigger;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TriggerService] ResumeAsync FAILED: trigger={triggerIdOrName}, {ex.Message}");
+            throw;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>The factory activity row for a released lock: who released it, and which session it waited on.</summary>
+    internal static AppendFactoryActivityRequest ReleaseActivityFor(TriggerEntity trigger, string releasedSessionId,
+        string releasedBy, DateTime nowUtc) => new()
+    {
+        Factory = trigger.Factory,
+        FactoryAgent = trigger.FactoryAgent,
+        SessionId = releasedSessionId,
+        What = Sentence($"{releasedBy} resumed {trigger.Name} and released its lock, which had been waiting on session " +
+                        $"{releasedSessionId}; the next check that counts work starts a new session"),
+        Outcome = FactoryActivityOutcome.Allowed,
+        Subject = trigger.Name,
+        Actor = releasedBy,
+        OccurredUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
+    };
+
     /// <summary>Read one check report, decide, start a session when there is work, and record the run.</summary>
     public async Task<TriggerReportResult> ReportCheckAsync(
         TenantId tenant, string directorId, string triggerIdOrName, TriggerCheckReport report, CancellationToken ct)

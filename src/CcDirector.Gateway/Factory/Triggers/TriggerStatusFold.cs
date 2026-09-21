@@ -18,7 +18,8 @@ public readonly record struct TriggerStatus(string Kind, string Text);
 ///    trigger started is still alive, and that session was started more than <see cref="LongRunningAfter"/> ago.
 ///    The one-at-a-time lock leans to never starting twice, so it reads a session as alive for as long as the
 ///    Gateway's last row for it says so - and a Director that died without unregistering leaves that row saying
-///    Working for good. The lock then holds forever; this is what stops it holding forever with an OK face.
+///    Working for good. The lock then holds forever; this is what stops it holding forever with an OK face, and
+///    the words name the way out: pausing and resuming the trigger releases the lock (<see cref="TriggerStore.Resume"/>).
 ///  - OK otherwise, including "waiting for the first check" for a new trigger inside its first two intervals.
 /// </summary>
 public static class TriggerStatusFold
@@ -56,7 +57,7 @@ public static class TriggerStatusFold
             var held = nowUtc - started;
             if (held > LongRunningAfter)
                 return new TriggerStatus(TriggerStatusKind.Red,
-                    $"session {lastSessionId ?? "(unknown)"} has not ended after {(int)held.TotalHours} hours; no new session starts until it does");
+                    $"session {lastSessionId ?? "(unknown)"} has not ended after {(int)held.TotalHours} hours; no new session starts until it does - pause and resume the trigger to release it");
         }
 
         return new TriggerStatus(TriggerStatusKind.Ok, "OK");

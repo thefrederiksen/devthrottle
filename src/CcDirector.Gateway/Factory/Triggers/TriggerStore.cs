@@ -144,6 +144,36 @@ public sealed class TriggerStore
         }
     }
 
+    /// <summary>
+    /// Resume a trigger, and when it was paused, release its one-at-a-time lock: forget the session it last started,
+    /// so the next check that counts work starts a new one even if the Gateway still believes that session lives.
+    /// This is the owner's way out of the RED "session ... has not ended" without deleting the trigger - pause, then
+    /// resume. Resuming a trigger that was not paused changes nothing. Returns the stored row and the session id the
+    /// lock was released from (null when nothing was released), or a null row when there is no such trigger.
+    /// </summary>
+    public (TriggerEntity? Trigger, string? ReleasedSessionId) Resume(TenantId tenant, string idOrName)
+    {
+        FileLog.Write($"[TriggerStore] Resume: tenant={tenant.ToLogString()}, trigger={idOrName}");
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = FindIn(ctx.Triggers, idOrName);
+            if (row is null) return (null, null);
+
+            string? released = null;
+            if (row.Paused && !string.IsNullOrEmpty(row.LastSessionId))
+            {
+                released = row.LastSessionId;
+                row.LastSessionId = null;
+                row.LastStartedUtc = null;
+            }
+            row.Paused = false;
+            ctx.SaveChanges();
+            FileLog.Write($"[TriggerStore] Resume: trigger={row.Name}, released={released ?? "nothing"}");
+            return (row, released);
+        }
+    }
+
     /// <summary>Delete a trigger's definition. Its run history is kept. False when there is no such trigger.</summary>
     public bool Delete(TenantId tenant, string idOrName)
     {

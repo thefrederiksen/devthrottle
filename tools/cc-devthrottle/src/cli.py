@@ -3368,7 +3368,7 @@ def trigger_pause(name: str = typer.Argument(..., help="The trigger's name or id
 
 @trigger_app.command("resume")
 def trigger_resume(name: str = typer.Argument(..., help="The trigger's name or id.")) -> None:
-    """Resume a paused trigger."""
+    """Resume a paused trigger; also releases a wait on its last session."""
     trigger_ops.set_paused(name, False)
 
 
