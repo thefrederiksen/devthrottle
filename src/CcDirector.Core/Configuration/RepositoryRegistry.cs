@@ -132,7 +132,35 @@ public class RepositoryRegistry
         }
     }
 
+    /// <summary>
+    /// Register one folder a PERSON chose - the desktop dialog's Browse button, and the <c>repo-add</c>
+    /// verb the Cockpit and the phone use.
+    ///
+    /// <para><b>A WORKTREE IS NOT A REPOSITORY, so a worktree is registered as the repository it is a
+    /// worktree OF</b> (the one-repository-list mission). Nothing here ever checked what a folder was,
+    /// and since the Director's push became the scan UNION this list, a worktree added by hand became a
+    /// row in the one repository list that the root-folder scan could never have put there - the second
+    /// door into the defect the owner reported, still shut on every machine measured on 20 September
+    /// 2026, and shut here before anyone walks through it. If its repository is already registered this
+    /// returns false, as it does for any duplicate: the repository is already in the list, which is the
+    /// true answer.</para>
+    ///
+    /// <para>A folder that cannot be positively resolved to a repository that exists is registered as
+    /// itself, exactly as before. The rule never guesses - see
+    /// <see cref="Git.LinkedWorktree.ParentRepositoryOf"/>.</para>
+    /// </summary>
     public bool TryAdd(string folderPath)
+        => TryAddExact(Git.LinkedWorktree.ParentRepositoryOf(folderPath) ?? folderPath);
+
+    /// <summary>
+    /// Register the folder AS GIVEN, asking nothing about what it is.
+    ///
+    /// <para>This is what <see cref="SeedFrom"/> uses, and the difference from <see cref="TryAdd"/> is
+    /// deliberate: seeding replays a list somebody already has, and rewriting their entries while
+    /// loading them would silently change the user's own file. A person adding a folder is a decision
+    /// being made now; a seed is a decision that was made before.</para>
+    /// </summary>
+    private bool TryAddExact(string folderPath)
     {
         var normalized = Path.GetFullPath(folderPath).TrimEnd('\\', '/');
 
@@ -242,13 +270,13 @@ public class RepositoryRegistry
     {
         // One critical section for the whole batch, not one per entry: a reader must never see half a
         // seed, and the enumerable is walked under the gate so nothing can be added between two of its
-        // entries. The lock is re-entrant, so the TryAdd calls below take it again harmlessly.
+        // entries. The lock is re-entrant, so the TryAddExact calls below take it again harmlessly.
         lock (_gate)
         {
             foreach (var repo in repos)
             {
                 if (!string.IsNullOrWhiteSpace(repo.Path))
-                    TryAdd(repo.Path);
+                    TryAddExact(repo.Path);
             }
         }
     }

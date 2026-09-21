@@ -786,8 +786,16 @@ public sealed class RepositoryMonitor
 
     /// <summary>
     /// The primary checkout owning a linked worktree: git names the shared .git directory via
-    /// rev-parse --git-common-dir; its parent is the primary working tree. Null when git cannot
-    /// answer (not a repository, or a bare repository with no primary checkout).
+    /// rev-parse --git-common-dir, and <see cref="LinkedWorktree.PrimaryWorkingTreeOf"/> says which
+    /// working tree that directory belongs to. Null when git cannot answer (not a repository), and null
+    /// for a bare repository, which has no primary checkout.
+    ///
+    /// The last step is shared with <see cref="LinkedWorktree.ParentRepositoryOf"/>, which the
+    /// one-repository-list mission uses on the session-creation path. The two reach the same question
+    /// from opposite sides - this one asks git, because it is on a background scan where a process costs
+    /// nothing and it wants git's own resolved spelling of the path; that one reads the worktree's .git
+    /// file, because a person is waiting and a machine with no git installed is supported. Which
+    /// repository a git directory belongs to is the same answer either way and is written once.
     /// </summary>
     private static async Task<string?> DefaultResolvePrimary(string path, CancellationToken ct)
     {
@@ -795,9 +803,6 @@ public sealed class RepositoryMonitor
             path, new[] { "rev-parse", "--path-format=absolute", "--git-common-dir" }, ct);
         if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
             return null;
-        var commonDir = result.Output.Trim();
-        if (!string.Equals(Path.GetFileName(commonDir.TrimEnd('/', '\\')), ".git", StringComparison.OrdinalIgnoreCase))
-            return null; // bare repository - no primary working tree
-        return Path.GetDirectoryName(commonDir.TrimEnd('/', '\\'));
+        return LinkedWorktree.PrimaryWorkingTreeOf(result.Output);
     }
 }

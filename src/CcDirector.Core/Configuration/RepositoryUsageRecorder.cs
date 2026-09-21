@@ -52,7 +52,8 @@ public sealed class RepositoryUsageRecorder : IDisposable
         if (session is null)
             throw new ArgumentNullException(nameof(session));
 
-        var repository = RepositoryUsage.StartedIn(session.RepoPath, session.PooledWorktree?.Repo);
+        var repository = RepositoryUsage.StartedIn(
+            session.RepoPath, session.PooledWorktree?.Repo, session.PrimaryRepoPath);
         FileLog.Write($"[RepositoryUsageRecorder] Record: session={session.Id}, repository={repository ?? "(none)"}");
         if (repository is null)
             return;

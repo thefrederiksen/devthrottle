@@ -621,6 +621,28 @@ public sealed class Session : IDisposable
     public Git.PooledWorktree? PooledWorktree { get; internal set; }
 
     /// <summary>
+    /// THE REPOSITORY THIS SESSION'S FOLDER IS A LINKED WORKTREE OF, resolved on this machine when the
+    /// session was created - or null, which is every session started in a repository proper and every
+    /// session whose worktree could not be resolved to a repository that exists (the
+    /// one-repository-list mission, "a worktree is not a repository").
+    ///
+    /// <para><b>It does NOT change where the session is.</b> <see cref="RepoPath"/> and
+    /// <see cref="WorkingDirectory"/> remain the worktree, because that is where the agent is working
+    /// and every consumer of those properties means "where the session is" - exactly as for a pooled
+    /// slot above. This is carried beside them, for the one question they answer wrongly: which
+    /// repository a person was USING. Using a worktree of <c>devthrottle</c> is using
+    /// <c>devthrottle</c>.</para>
+    ///
+    /// <para><b>ONLY THIS MACHINE CAN ANSWER IT</b>, because the answer is written inside the folder,
+    /// so it is stamped here and travels up to the Gateway on the session. The Gateway must never infer
+    /// it: it is a Linux container holding paths from Windows and macOS Directors and is never the
+    /// machine a path describes. The rule is <see cref="Git.LinkedWorktree.ParentRepositoryOf"/>, and
+    /// it is read by <see cref="Configuration.RepositoryUsage.StartedIn"/> - the one rule both
+    /// repository catalogues resolve a session through.</para>
+    /// </summary>
+    public string? PrimaryRepoPath { get; internal set; }
+
+    /// <summary>
     /// Why cc-worktrees did NOT take the pooled worktree back when this session closed, in the tool's
     /// own words - or null when there was nothing to return or it came back free.
     ///
