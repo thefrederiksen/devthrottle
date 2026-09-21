@@ -120,6 +120,23 @@ public sealed class TriggerRunDto
     public string DirectorId { get; set; } = "";
 }
 
+/// <summary>
+/// The 202 answer to a check report that counted work and began a session start. The start runs on the Gateway's
+/// own lifetime, not the report's request, so this comes back at once; the check's run row - <c>started</c> with
+/// the session id, or <c>failed</c> - is written when the start returns, and <c>GET /triggers/{id}/runs</c> shows it.
+/// </summary>
+public sealed class TriggerStartAccepted
+{
+    /// <summary>The trigger as the report named it (its id or its name).</summary>
+    public string TriggerId { get; set; } = "";
+
+    /// <summary>What the check counted.</summary>
+    public int Count { get; set; }
+
+    /// <summary>Always true: a session start was begun and holds the trigger's one-at-a-time lock.</summary>
+    public bool Starting { get; set; } = true;
+}
+
 /// <summary>The answer to <c>GET /triggers/{id}/runs</c>, newest first.</summary>
 public sealed class TriggerRunListResponse
 {

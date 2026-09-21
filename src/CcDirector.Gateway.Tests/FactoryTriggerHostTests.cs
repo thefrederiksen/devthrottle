@@ -174,12 +174,18 @@ public sealed class FactoryTriggerHostTests : IAsyncLifetime
             new TriggerCheckReport { CheckedAtUtc = DateTime.UtcNow, ExitCode = 0, Output = "{\"count\": 2}" }, CancellationToken.None));
         await http.PostAsync("triggers/website-new-mail/resume", null);
 
-        // Work, resumed: the Gateway goes to start a session. No Director is on the tunnel, so the start fails in
-        // the spawner's own words - recorded, and red.
+        // Work, resumed: the Gateway takes the lock, answers the Director at once, and starts a session off the
+        // request. No Director is on the tunnel, so the start fails in the spawner's own words - recorded when the
+        // start returns, and red.
         Assert.Null(await client.ReportTriggerCheckAsync(_directorId, assigned.Id,
             new TriggerCheckReport { CheckedAtUtc = DateTime.UtcNow, ExitCode = 0, Output = "{\"count\": 2}" }, CancellationToken.None));
 
-        var runs = (await http.GetFromJsonAsync<TriggerRunListResponse>("triggers/website-new-mail/runs"))!.Runs;
+        List<TriggerRunDto> runs = new();
+        for (var waited = 0; waited < 300 && runs.Count < 4; waited++)
+        {
+            runs = (await http.GetFromJsonAsync<TriggerRunListResponse>("triggers/website-new-mail/runs"))!.Runs;
+            if (runs.Count < 4) await Task.Delay(100);
+        }
         Assert.Equal(new[] { TriggerRunOutcome.Failed, TriggerRunOutcome.Paused, TriggerRunOutcome.Failed, TriggerRunOutcome.NothingToDo },
             runs.Select(r => r.Outcome).ToArray());
         Assert.StartsWith(Factory.Triggers.TriggerStatusFold.StartFailedPrefix, runs[0].Reason);
@@ -191,6 +197,36 @@ public sealed class FactoryTriggerHostTests : IAsyncLifetime
         var list = (await http.GetFromJsonAsync<TriggerListResponse>("triggers"))!;
         var listed = Assert.Single(list.Triggers);
         Assert.StartsWith("start failed: ", listed.StatusText);
+    }
+
+    [Fact]
+    public async Task SwitchOn_AReportThatBeginsAStart_IsAnswered202AtOnce_AndTheStartWritesTheRowAfter()
+    {
+        // The live check, 2026-09-21: a Director gives its report 10 seconds and a real start takes 10 to 16. The
+        // route must answer before the start returns, and the check's one row must still be written by the start.
+        using var http = Http(_on);
+        Assert.Equal(HttpStatusCode.Created, (await http.PostAsJsonAsync("triggers", Definition())).StatusCode);
+        using var client = DirectorClient(_on);
+        Assert.Single((await client.FetchTriggersAsync(_directorId, CancellationToken.None)).Triggers);
+
+        var answer = await http.PostAsJsonAsync($"directors/{_directorId}/triggers/website-new-mail/checks",
+            new TriggerCheckReport { CheckedAtUtc = DateTime.UtcNow, ExitCode = 0, Output = "{\"count\": 1}" });
+
+        Assert.Equal(HttpStatusCode.Accepted, answer.StatusCode);
+        var accepted = (await answer.Content.ReadFromJsonAsync<TriggerStartAccepted>())!;
+        Assert.True(accepted.Starting);
+        Assert.Equal(1, accepted.Count);
+        Assert.Equal("website-new-mail", accepted.TriggerId);
+
+        List<TriggerRunDto> runs = new();
+        for (var waited = 0; waited < 300 && runs.Count == 0; waited++)
+        {
+            runs = (await http.GetFromJsonAsync<TriggerRunListResponse>("triggers/website-new-mail/runs"))!.Runs;
+            if (runs.Count == 0) await Task.Delay(100);
+        }
+        var run = Assert.Single(runs);
+        Assert.Equal(TriggerRunOutcome.Failed, run.Outcome); // no Director on the tunnel in this host
+        Assert.Equal(1, run.Count);
     }
 
     [Fact]

@@ -28,6 +28,9 @@ public sealed class TriggerServiceTests : IDisposable
     private string? _startError;
     private int _nextSession;
     private TaskCompletionSource? _holdStart;
+    private Exception? _startThrows;
+    private readonly List<CancellationToken> _startTokens = new();
+    private readonly CancellationTokenSource _lifetime = new();
 
     public void Dispose() => _harness.Dispose();
 
@@ -39,8 +42,11 @@ public sealed class TriggerServiceTests : IDisposable
         return new TriggerService(store, new FactoryActivityRecord(_harness.Open()),
             async (machine, request, ct) =>
             {
-                lock (_starts) _starts.Add((machine, request));
+                lock (_starts) { _starts.Add((machine, request)); _startTokens.Add(ct); }
                 if (_holdStart is not null) await _holdStart.Task;
+                // Like the real create command: a cancelled token cuts the start off mid-create.
+                ct.ThrowIfCancellationRequested();
+                if (_startThrows is not null) throw _startThrows;
                 if (_startError is not null) return (null, _startError);
                 var id = $"aaaaaaaa-0000-4000-8000-{++_nextSession:D12}";
                 _sessions[id] = new SessionDto { SessionId = id, ActivityState = "Working" };
@@ -48,7 +54,8 @@ public sealed class TriggerServiceTests : IDisposable
             },
             findSession: (_, sid) => _sessions.TryGetValue(sid, out var s) ? s : null,
             timeZone: _ => TimeZoneInfo.Utc,
-            nowUtc: () => _now);
+            nowUtc: () => _now,
+            startLifetime: _lifetime.Token);
     }
 
     private static TriggerEntityRef Add(TriggerService service, bool paused = false, TenantId? tenant = null)
@@ -69,7 +76,9 @@ public sealed class TriggerServiceTests : IDisposable
     {
         var result = await service.ReportCheckAsync(tenant ?? Tenant, director, t.Id, report, CancellationToken.None);
         Assert.Equal(TriggerReportRefusal.None, result.Refusal);
-        return TriggerService.ToDto(result.Run!);
+        // A check that begins a start has no row until the start returns; wait for it, as the history would.
+        var run = result.Starting is { } starting ? await starting : result.Run;
+        return TriggerService.ToDto(run!);
     }
 
     /// <summary>The factory activity rows the account holds, oldest first, read as that account.</summary>
@@ -273,13 +282,185 @@ public sealed class TriggerServiceTests : IDisposable
         var t = Add(service);
         _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var first = service.ReportCheckAsync(Tenant, Director, t.Id, Counted(2), CancellationToken.None);
-        var second = service.ReportCheckAsync(Tenant, Director, t.Id, Counted(2), CancellationToken.None);
-        await Task.Delay(100);
+        var results = await Task.WhenAll(
+            service.ReportCheckAsync(Tenant, Director, t.Id, Counted(2), CancellationToken.None),
+            service.ReportCheckAsync(Tenant, Director, t.Id, Counted(2), CancellationToken.None));
         _holdStart.SetResult();
-        var outcomes = (await Task.WhenAll(first, second)).Select(r => r.Run!.Outcome).OrderBy(o => o).ToList();
 
-        Assert.Equal(new[] { TriggerRunOutcome.SkippedRunning, TriggerRunOutcome.Started }, outcomes);
+        var starting = Assert.Single(results, r => r.Starting is not null);
+        var skipped = Assert.Single(results, r => r.Starting is null);
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, skipped.Run!.Outcome);
+        Assert.Equal(TriggerRunOutcome.Started, (await starting.Starting!)!.Outcome);
+        Assert.Single(_starts);
+    }
+
+    // ---------------------------------------------------------------------------------------------------
+    // A start outlives the report (the live check, 2026-09-21): a real session start takes 10 to 16 seconds and the
+    // Director waits 10 for its report's answer. The report must answer at once, the lock must hold from before the
+    // start, and the start must run on the Gateway's lifetime, never the request's.
+    // ---------------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ASlowStartThatOutlivesTheReportRequest_EndsAsOneStartedRow_WithTheLockHeld()
+    {
+        var service = Service();
+        var t = Add(service);
+        _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var request = new CancellationTokenSource();
+
+        // The report comes back while the start is still running: no row yet, a start under way.
+        var result = await service.ReportCheckAsync(Tenant, Director, t.Id, Counted(1), request.Token);
+        Assert.Equal(TriggerReportRefusal.None, result.Refusal);
+        Assert.Null(result.Run);
+        Assert.NotNull(result.Starting);
+        Assert.False(result.Starting!.IsCompleted);
+        Assert.Equal(1, result.StartingCount);
+        Assert.Empty(service.Store.ListRuns(Tenant, Guid.Parse(t.Id), 10));
+
+        // The Director gives up on its request - what cut every live start off. The start must not care: the fake
+        // starter throws on a cancelled token exactly as the real create command does.
+        request.Cancel();
+        _holdStart.SetResult();
+        var run = await result.Starting;
+
+        Assert.NotNull(run);
+        Assert.Equal(TriggerRunOutcome.Started, run!.Outcome);
+        Assert.Equal(1, run.Count);
+        Assert.NotNull(run.SessionId);
+        Assert.Equal(_lifetime.Token, Assert.Single(_startTokens));
+        Assert.Equal(run.Id, Assert.Single(service.Store.ListRuns(Tenant, Guid.Parse(t.Id), 10)).Id);
+        var started = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityOutcome.Started, started.Outcome);
+        Assert.Equal(run.SessionId, started.SessionId);
+
+        // The lock is that session: the next interval is skipped, and nothing else started.
+        Assert.Equal(run.SessionId, service.Store.Find(Tenant, t.Id)!.LastSessionId);
+        _now = _now.AddMinutes(1);
+        var next = await Report(service, t, Counted(1));
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, next.Outcome);
+        Assert.Equal(run.SessionId, next.SessionId);
+        Assert.Single(_starts);
+    }
+
+    [Fact]
+    public async Task ACheckWhileAStartIsStillRunning_IsSkipped_AndStartsNothing()
+    {
+        var service = Service();
+        var t = Add(service);
+        _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = await service.ReportCheckAsync(Tenant, Director, t.Id, Counted(1), CancellationToken.None);
+        Assert.NotNull(first.Starting);
+
+        _now = _now.AddMinutes(1);
+        var second = await Report(service, t, Counted(1));
+
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, second.Outcome);
+        Assert.Null(second.SessionId);
+        Assert.Single(_starts);
+        var skipped = Assert.Single(Activity());
+        Assert.Equal(FactoryActivityOutcome.Skipped, skipped.Outcome);
+        Assert.Equal("Checked website-new-mail - counted 1, but its session is still being started, so nothing started", skipped.What);
+        Assert.Equal("OK", service.ToDto(service.Store.Find(Tenant, t.Id)!).StatusText);
+
+        _holdStart.SetResult();
+        Assert.Equal(TriggerRunOutcome.Started, (await first.Starting!)!.Outcome);
+        Assert.Single(_starts);
+    }
+
+    [Fact]
+    public async Task AFailedSlowStart_ReleasesTheLock_TurnsTheTriggerRed_AndTheNextCheckStartsAgain()
+    {
+        var service = Service();
+        var t = Add(service);
+        _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _startError = "machine SOREN_NORTH is off";
+        var first = await service.ReportCheckAsync(Tenant, Director, t.Id, Counted(2), CancellationToken.None);
+        Assert.NotNull(service.Store.Find(Tenant, t.Id)!.LastStartedUtc); // the lock is held while it runs
+
+        _holdStart.SetResult();
+        var failed = await first.Starting!;
+
+        Assert.Equal(TriggerRunOutcome.Failed, failed!.Outcome);
+        Assert.Equal(2, failed.Count);
+        Assert.Null(failed.SessionId);
+        var trigger = service.Store.Find(Tenant, t.Id)!;
+        Assert.Null(trigger.LastSessionId);
+        Assert.Null(trigger.LastStartedUtc);
+        var dto = service.ToDto(trigger);
+        Assert.Equal(TriggerStatusKind.Red, dto.Status);
+        Assert.Equal("start failed: machine SOREN_NORTH is off", dto.StatusText);
+
+        _holdStart = null;
+        _startError = null;
+        _now = _now.AddMinutes(1);
+        Assert.Equal(TriggerRunOutcome.Started, (await Report(service, t, Counted(2))).Outcome);
+        Assert.Equal(2, _starts.Count);
+    }
+
+    [Fact]
+    public async Task AStartThatThrows_IsAFailedRow_AndReleasesTheLock()
+    {
+        var service = Service();
+        var t = Add(service);
+        _startThrows = new InvalidOperationException("the tunnel to SOREN_NORTH dropped");
+
+        var run = await Report(service, t, Counted(2));
+
+        Assert.Equal(TriggerRunOutcome.Failed, run.Outcome);
+        Assert.Equal(TriggerStatusFold.StartFailedPrefix + "the tunnel to SOREN_NORTH dropped", run.Reason);
+        Assert.Null(service.Store.Find(Tenant, t.Id)!.LastStartedUtc);
+    }
+
+    [Fact]
+    public async Task AStartCutOffByTheGatewayStopping_SaysSo_AndReleasesTheLock()
+    {
+        var service = Service();
+        var t = Add(service);
+        _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var result = await service.ReportCheckAsync(Tenant, Director, t.Id, Counted(2), CancellationToken.None);
+
+        _lifetime.Cancel();
+        _holdStart.SetResult();
+        var run = await result.Starting!;
+
+        Assert.Equal(TriggerRunOutcome.Failed, run!.Outcome);
+        Assert.Equal(TriggerStatusFold.StartFailedPrefix + "the Gateway stopped while the session was being started", run.Reason);
+        Assert.Null(service.Store.Find(Tenant, t.Id)!.LastStartedUtc);
+    }
+
+    [Fact]
+    public async Task APendingStartLeftByAGatewayThatStopped_LapsesAfterTheGrace()
+    {
+        // BeginStart took the lock, and the Gateway stopped before the start could write its row. The lock must not
+        // hold for good: inside the grace it holds, after it the next check starts.
+        var service = Service();
+        var t = Add(service);
+        Assert.True(service.Store.BeginStart(Tenant, Guid.Parse(t.Id), Director, _now));
+
+        _now = _now.AddMinutes(1);
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, (await Report(service, t, Counted(2))).Outcome);
+        Assert.Empty(_starts);
+
+        _now = _now.Add(TriggerService.StartGrace);
+        Assert.Equal(TriggerRunOutcome.Started, (await Report(service, t, Counted(2))).Outcome);
+        Assert.Single(_starts);
+    }
+
+    [Fact]
+    public async Task ABrokenCheckWhileAStartIsRunning_DoesNotReleaseTheLock()
+    {
+        var service = Service();
+        var t = Add(service);
+        _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = await service.ReportCheckAsync(Tenant, Director, t.Id, Counted(2), CancellationToken.None);
+
+        _now = _now.AddMinutes(1);
+        await Report(service, t, new TriggerCheckReport { CheckedAtUtc = _now, ExitCode = 1, ErrorOutput = "not signed in" });
+        _now = _now.AddMinutes(1);
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, (await Report(service, t, Counted(2))).Outcome);
+
+        _holdStart.SetResult();
+        await first.Starting!;
         Assert.Single(_starts);
     }
 

@@ -247,6 +247,55 @@ public sealed class TriggerStore
     public TriggerCheckRecorded? RecordCheck(
         TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int? count,
         string? sessionId, string? reason, DateTime nowUtc)
+        => Record(tenant, triggerId, directorId, checkedUtc, outcome, count, sessionId, reason, nowUtc,
+            endsPendingStart: false);
+
+    /// <summary>
+    /// Take the one-at-a-time lock BEFORE a session start begins: the trigger now has a start time and no session
+    /// yet, which <see cref="TriggerService.IsLastSessionAlive"/> reads as a start in flight. Also brings the
+    /// last-check time and the reporting Director's claim up to date, as recording a check does, so the trigger does
+    /// not read as silent while its start runs. No run row is written here: the start's own result writes it, once.
+    /// Returns false when the trigger no longer exists.
+    /// </summary>
+    public bool BeginStart(TenantId tenant, Guid triggerId, string directorId, DateTime nowUtc)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var trigger = ctx.Triggers.FirstOrDefault(t => t.Id == triggerId);
+            if (trigger is null) return false;
+
+            var now = Utc(nowUtc);
+            trigger.LastCheckUtc = now;
+            trigger.ClaimedByDirectorId = Cap(directorId, 64);
+            trigger.ClaimedUtc = now;
+            trigger.LastSessionId = null;
+            trigger.LastStartedUtc = now;
+            ctx.SaveChanges();
+            FileLog.Write($"[TriggerStore] BeginStart: trigger={triggerId}, director={directorId}, lock taken with no session yet");
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Record what a start begun by <see cref="BeginStart"/> came to - the one run row of the check that asked for
+    /// it. A <see cref="TriggerRunOutcome.Started"/> row makes its session the lock; a
+    /// <see cref="TriggerRunOutcome.Failed"/> row releases the pending lock, so the next check that counts work
+    /// tries again. Returns null when the trigger no longer exists.
+    /// </summary>
+    public TriggerCheckRecorded? RecordStartResult(
+        TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int count,
+        string? sessionId, string? reason, DateTime nowUtc)
+    {
+        if (outcome != TriggerRunOutcome.Started && outcome != TriggerRunOutcome.Failed)
+            throw new ArgumentException($"a start ends as '{TriggerRunOutcome.Started}' or '{TriggerRunOutcome.Failed}', not '{outcome}'", nameof(outcome));
+        return Record(tenant, triggerId, directorId, checkedUtc, outcome, count, sessionId, reason, nowUtc,
+            endsPendingStart: true);
+    }
+
+    private TriggerCheckRecorded? Record(
+        TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int? count,
+        string? sessionId, string? reason, DateTime nowUtc, bool endsPendingStart)
     {
         if (Array.IndexOf(TriggerRunOutcome.All, outcome) < 0)
             throw new ArgumentException($"'{outcome}' is not a trigger run outcome", nameof(outcome));
@@ -281,6 +330,12 @@ public sealed class TriggerStore
             {
                 trigger.LastSessionId = sessionId;
                 trigger.LastStartedUtc = now;
+            }
+            else if (endsPendingStart && string.IsNullOrEmpty(trigger.LastSessionId))
+            {
+                // The start failed: release the lock BeginStart took. Only a pending lock - no session - is released;
+                // the owner may have resumed the trigger meanwhile, and there is nothing else to undo.
+                trigger.LastStartedUtc = null;
             }
             ctx.SaveChanges();
 
