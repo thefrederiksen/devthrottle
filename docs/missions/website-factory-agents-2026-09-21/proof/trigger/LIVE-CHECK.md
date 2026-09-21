@@ -10,7 +10,86 @@ devthrottle main at `761a45383`, isolated from the owner's own Gateway and Direc
 | Empty mailbox: at least three consecutive empty runs, no session started | **PASS** - nine consecutive "nothing to do" runs, no session |
 | Broken check: RED in the history and in the Cockpit | **PASS** - every run "failed" with the reason, RED "check failed" in the Cockpit |
 | Pause: records "paused", starts nothing; resume works | **PASS** - four "paused" runs, no session; resume turned the next check into a start attempt |
-| One start: exactly ONE visible session, then "skipped" on the next interval while it runs | **FAIL - defect found** (below) |
+| One start: exactly ONE visible session, then "skipped" on the next interval while it runs | **FAIL on main `761a45383`** (below). **After the fix `19ed0ba84`: the report is answered at once and a start that returns is ONE started row with the lock held and the next interval skipped - but a start that outlives the Gateway's own 30-second spawn wait still double-starts** (see "The fix, live") |
+
+## The fix, live (second seat, 2026-09-21 evening)
+
+### 1. What changed (commit `19ed0ba84`, the Tech Lead's decision)
+
+- The check route decides and answers the Director at once. When the check counted work and nothing stands in
+  the way, it answers **202** (`TriggerStartAccepted`: trigger, count, `starting: true`) and never waits on the
+  session start.
+- The one-at-a-time lock is taken **before** the start begins: `TriggerStore.BeginStart` sets the trigger's
+  start time with no session yet. `TriggerService.IsLastSessionAlive` reads a start time with no session as a
+  start in flight, alive inside the 5-minute start grace, so a check that arrives meanwhile records
+  `skipped-running` ("its session is still being started"). If the Gateway stops mid-start, that lock lapses
+  after the grace instead of holding for good.
+- The start runs on the Gateway's own lifetime (`GatewayHost._triggerStartLifetime`, cancelled only in
+  `StopAsync`), never on the request's. When it returns it writes the check's ONE run row and ONE activity row:
+  `started` with the session id (the lock is now that session), or `failed`, which releases the pending lock
+  (`TriggerStore.RecordStartResult`) and turns the trigger RED "start failed: ...". A start that throws, or is
+  cut off by the Gateway stopping, ends the same way with the reason said.
+- The Director is unchanged: it treats any 2xx as recorded.
+
+Tests (`TriggerServiceTests`, `FactoryTriggerHostTests`): a slow start that outlives a cancelled report request
+ends as one `started` row with the lock held and the next check `skipped-running`, and the start ran on the
+lifetime token, not the request's; a check during a pending start is `skipped-running` and starts nothing; a
+failed slow start releases the lock, is RED "start failed", and the next check starts again; a start that throws
+and one cut off by the Gateway stopping are failed rows that release the lock; a pending lock left by a stopped
+Gateway lapses after the grace; a broken check during a pending start does not release it; over the real host,
+a report that begins a start is answered 202 and the start writes its row afterwards. The fake session starter
+throws on a cancelled token, exactly as the real create command does, so the old code could not pass the first
+of these. That is by construction, not a revert run: the new tests call the new members, so they do not
+compile against the old code.
+
+Gate (`gate-results.md` has the older runs): `.\scripts\test-local.ps1` - every suite green except the two
+Launcher restart-signal tests known red (issue 3242: `Describing_the_launcher_asks_the_signal_and_never_raises_it`,
+`An_unarmed_launcher_declares_no_restart_signal_and_that_is_a_NO_not_an_unknown`). `dotnet test
+src\CcDirector.Gateway.UnitTests`: 7157 passed, 0 failed, 8 skipped. `CcDirector.Gateway.Tests` filtered to
+`Trigger|Factory`: 14 passed, 0 failed. No migration was touched, so the PostgreSQL proofs were not run.
+
+### 2. Live again on the rebuilt stack
+
+The rig Gateway was republished from the worktree at `19ed0ba84` to `%TEMP%\wbf-live\gw-stage2` and restarted
+through its own scheduled task (`/healthz` version `2.9.0+19ed0ba84...`). Its old process outlived its stopped
+task, so that one process (the rig's own `gw-stage\devthrottle-gateway.exe`, checked by path) was stopped by its
+id. The Director was not rebuilt (unchanged) and reconnected by itself. Two rig changes, both to make the
+one-start case observable: the scratch repository folder was marked trusted in Claude Code's own settings (the
+first seat's sessions exited on the folder-trust question), and the stub trigger's prompt asks the session to
+run a 100-second `ping`, so it is still running at the next interval.
+
+Stub trigger `b132120e` resumed at 19:34:55 UTC. Rows: `live-rows/05-after-fixed-start-runs-b132120e.json` and
+`05-after-fixed-start-activity.json` (before: `04-before-fixed-start-*`); the ten-second watch of the runs and
+the session list: `live-rows/05-fixed-start-watch.txt`; both logs: `live-rows/06-fixed-start-log-excerpt.txt`.
+
+| Check (UTC) | Director's report answered | Start | Row | Session actually created |
+|---|---|---|---|---|
+| 19:35:33.66 | 19:35:33.85, no timeout | lock taken 19:35:33.74; the Gateway's spawn wait gave up at 19:36:04.04 (30 s): "The Director did not answer within 30 seconds. It is not known whether the command was carried out." | `failed`, count 1, no session; lock released | `7748ec0f` - create received 19:35:35.1, then 27 s re-installing skills, Claude Code launched 19:36:02.3 |
+| 19:36:38.34 | 19:36:38.72, no timeout | lock taken 19:36:38.72; returned in 10.2 s | `started`, count 1, session `de8b16e7`, recorded 19:36:48.88 | `de8b16e7` |
+| 19:38:00.39 | 19:38:00.44 | none | **`skipped-running`, session `de8b16e7`** | none |
+
+**What this proves.** The defect the first seat found is gone: the report no longer times out (every report
+answered in under a quarter of a second, against 10 seconds and a timeout before), a start that returns is
+recorded `started` with its session, and the lock then holds - the next interval was `skipped-running` on that
+session and started nothing.
+
+**What it also found - a second way to start twice.** The spawn itself has a 30-second wait on the Director's
+answer (`DirectorCommandRouter`). The first start after the Gateway restart took 29 seconds on the Director, 27 of
+them re-installing skills, so the Gateway's wait ran out; the spawner answered "it is not known whether the
+command was carried out"; by the rule "a failed spawn releases the lock", the row went `failed` and the lock was
+released; and the Director did create the session. The next interval then started a second one. The spawner
+gives no structured "outcome unknown" signal - it is only in the sentence - so the fix cannot tell a definite
+failure from an unknown one. Put to the Tech Lead at 19:44 UTC with a recommendation: an outcome-unknown start
+keeps the pending lock, adopts the session when the Director reports one with the start's unique name, and lets
+the lock lapse after the start grace only if none appears; a definite failure still releases at once.
+
+Screenshots: `screens/03-fixed-start-1.png` (Front Desk: the stub trigger, the failed start row with the
+"not known" reason), `screens/03-fixed-start-2.png` (Activity for Website Business after the two starts).
+Both stub sessions were then stopped (`cc-devthrottle session stop ... --reason`), after the stub trigger was
+paused again.
+
+Session `7748ec0f` stayed "waiting for input" with no turn - its opening prompt did not arrive - while
+`de8b16e7` ran its turn. Not chased here; it is the lost create answer's other side.
 
 ## The defect: every start on a real Director is recorded as failed, and the lock is never set
 
@@ -52,10 +131,9 @@ question, and the Director's retype after a missed prompt echo answered it with 
 `EchoVerifiedSubmit: composer echo not seen ... clearing the composer and retyping`, then `ProcessExited ...
 exitCode=0`).
 
-**Not fixed here.** The mandate says to stop and tell the Tech Lead before fixing a defect the live check
-finds. The Tech Lead was told at 15:14 UTC (message `d8b59d4b`, with two ways to fix it: start the session off
-the request's cancellation and answer the report without waiting on the start, or give the report a longer
-timeout) and did not answer by the one-hour deadline, so this pull request carries the finding and no fix.
+**Fixed in this pull request by the second seat** (the Tech Lead's decision: answer at once, lock before the
+spawn, spawn on the Gateway's lifetime) - see "The fix, live" above. The first seat stopped at the finding, as
+its mandate said.
 
 **Also seen.** After the stub trigger was paused again, its status went back to plain PAUSED and the start
 failures now show only in the history (`screens/02-start-failed-2.png`), because the status follows the last
@@ -146,6 +224,10 @@ Director's whole data tree follows `CC_DIRECTOR_ROOT`, the Gateway's too, and ne
 
 ## Not covered
 
-- The "one start then skipped" case, because of the defect above.
+- A start that outlives the Gateway's own 30-second spawn wait still double-starts (see "The fix, live"); the
+  Tech Lead decides the fix.
+- The end-to-end reply (the real check starting a real Front Desk session that leaves a Gmail draft): no
+  allowlisted test address has a business thread to insert a reply on (wftest1 is suppressed; wftest2 and wftest3
+  have no thread), so it waits on the Tech Lead's word on how to make one.
 - The real `mail-waiting` against the live-test record with work waiting: it counted 1 when run by hand at 14:55
   but was not wired to a running trigger, so no Front Desk session was started from it.
