@@ -123,12 +123,14 @@ describe("the Cockpit session address", () => {
     expect(screen.getByTestId("fake-report-viewer").textContent).toBe(OTHER_REPORT);
   });
 
-  it("still selects the other tabs from the address, and Terminal when it says nothing", () => {
+  it("still selects the other tabs from the address, and Chat when it says nothing", () => {
     mountAt(`/session/${SID}?tab=wingman`);
     expect(screen.getByRole("tab", { name: "Wingman" }).getAttribute("aria-selected")).toBe("true");
     cleanup();
 
+    // Chat, not Terminal (owner ruling, 2026-09-20): the command line is the thing this product is
+    // trying to stop people having to look at, so a session does not open on it.
     mountAt(`/session/${SID}`);
-    expect(screen.getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Chat" }).getAttribute("aria-selected")).toBe("true");
   });
 });

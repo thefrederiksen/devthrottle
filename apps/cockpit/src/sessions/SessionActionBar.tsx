@@ -1,51 +1,56 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  sendClearContext,
-  sendCompactContext,
-  sendEscape,
-  sendHistoryPicker,
-  sendInterrupt,
-} from "@devthrottle/client-core/api/client";
-import { ConfirmDialog } from "../components";
+import { sendEscape, sendInterrupt, type SessionDto } from "@devthrottle/client-core/api/client";
+import { classifyOrNull } from "@devthrottle/client-core/sessions/ordering";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 // The surface label on every client-error report from this bar, so the Gateway log and
 // GET /client-errors/recent name where the user was standing (issue #2189).
 const SURFACE = "cockpit-session-actions";
 
-// The driver action bar (issue #972) - the React port of the Blazor Cockpit action bar / desktop
-// SessionActionBar. Each button is rendered from the SELECTED session's declared driver capabilities
-// (verbatim - a verb the tool lacks is simply absent, never guessed), and acts on the session through
-// the shared Gateway client:
+// THE STRIP UNDER THE COMPOSER (owner ruling, 2026-09-20). This was a row of five driver buttons drawn
+// at the same weight as Send, sitting under every conversation whether or not any of them could do
+// anything. Three of them have moved to the session menu, under a "Context" heading, because they are
+// rare and one of them destroys the conversation:
+//
+//   Compact (CompactContext cap)     -> SessionMenu
+//   Clear context (ClearContext cap) -> SessionMenu
+//   History (History cap)            -> SessionMenu
+//
+// What is left here is the one verb that is urgent, and its escalation:
 //
 //   Stop (Cancel cap)          -> POST /sessions/{sid}/escape    (the driver's soft cancel - Esc)
 //   Interrupt (Interrupt cap)  -> POST /sessions/{sid}/interrupt (hard Ctrl+C, stronger than Stop)
-//   Compact (CompactContext cap) -> POST /sessions/{sid}/compact-context (summarize in place)
-//   Clear context (ClearContext cap) -> POST /sessions/{sid}/clear-context (/clear in place)
-//   History (History cap)      -> POST /sessions/{sid}/history-picker (the in-terminal history picker)
+//
+// STOP IS DRAWN WHENEVER THE DRIVER DECLARES IT, not only while the Gateway says the session is
+// working. The design called for it to appear only mid-turn, and that is the nicer screen - but the
+// two failures are not the same size. A Stop shown while nothing is running costs a wasted Esc; a Stop
+// hidden while something IS running leaves a person watching a runaway session with no button. The
+// Gateway's bucket decides the WORDS beside it and whether the harder verb is offered, never whether
+// the button exists.
+//
+// INTERRUPT IS AN ESCALATION, NOT A SYNONYM. It is not drawn until Stop has been pressed and the
+// session is still working, which is the only moment the difference between the two means anything.
 
 export interface SessionActionBarProps {
   sessionId: string | undefined;
   /** The selected session's SessionDto.driverCapabilities; a button shows only if its verb is listed. */
   capabilities: string[] | undefined;
+  /** The selected session, for the Gateway's own working/waiting ruling. Undefined on a cold deep link. */
+  session: SessionDto | undefined;
 }
 
-export function SessionActionBar({ sessionId, capabilities }: SessionActionBarProps) {
+export function SessionActionBar({ sessionId, capabilities, session }: SessionActionBarProps) {
   const [acting, setActing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Clear context resets the session's whole conversation in place; it is destructive, so it asks
-  // through the shared ConfirmDialog (issue #1244) instead of firing on the first click.
-  const [confirmClear, setConfirmClear] = useState(false);
-  // Compaction asks too (issue #2167). Note the dialogs deliberately READ DIFFERENTLY: clearing
-  // destroys the conversation, compaction preserves it. Two confirmations worded alike would train one
-  // reflex for two opposite outcomes, which is worse than one.
-  const [confirmCompact, setConfirmCompact] = useState(false);
-  // A compaction is a language model summarizing a whole conversation - it routinely runs past a
-  // minute. The other verbs return in milliseconds, so the shared `acting` flag alone would leave the
-  // bar looking dead for the entire wait with nothing to explain it.
-  const [compacting, setCompacting] = useState(false);
+  // Set when Stop has been pressed on this session. It is what turns the harder verb on - see the note
+  // above. Reset whenever the session changes, so an escalation never carries over to a different one.
+  const [stopTried, setStopTried] = useState(false);
   const statusTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    setStopTried(false);
+  }, [sessionId]);
 
   useEffect(() => {
     return () => {
@@ -84,122 +89,59 @@ export function SessionActionBar({ sessionId, capabilities }: SessionActionBarPr
   // A cold deep link into a session (the roster has not arrived yet, so the selected session and its
   // declared capabilities are still undefined) used to render an empty button row. Show a small loading
   // state instead until the capabilities resolve (issue #1247). An empty array - a session that loaded
-  // and genuinely declares no driver verbs - is NOT loading, so it correctly renders no buttons.
+  // and genuinely declares no driver verbs - is NOT loading, so it correctly renders no strip.
   if (capabilities === undefined) {
     return (
-      <div className="action-bar">
+      <div className="action-strip">
         <span className="action-loading">Loading session...</span>
       </div>
     );
   }
 
+  // The Gateway's own ruling, read - never re-derived from a timer or a byte count here. Null means it
+  // did not say, and this control renders that absence by staying quiet rather than by guessing. It is
+  // deliberately the non-throwing door onto the same rule: an unstamped session must not take the whole
+  // composer area down with it, which is exactly what the throwing one did.
+  const working = session !== undefined && classifyOrNull(session) === "active";
+  const canStop = has("Cancel");
+  const canEscalate = stopTried && working && has("Interrupt");
+
+  // Nothing to say and nothing to press: draw nothing at all rather than an empty strip.
+  if (!canStop && status === null && error === null && !working) return null;
+
   return (
-    <div className="action-bar">
-      {has("Cancel") && (
+    <div className="action-strip">
+      {working && <span className="action-working">Working</span>}
+      {canStop && (
         <button
           type="button"
-          className="act-btn act-stop"
+          className="act-stop"
           disabled={acting}
-          onClick={() => sessionId && void act(() => sendEscape(sessionId), "turn stopped", "stop the turn")}
+          onClick={() => {
+            setStopTried(true);
+            if (sessionId) void act(() => sendEscape(sessionId), "turn stopped", "stop the turn");
+          }}
           title="Stop the current turn (the driver's soft cancel - Esc)"
         >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <rect x="4.5" y="4.5" width="7" height="7" rx="1.4" fill="currentColor" />
+          </svg>
           Stop
         </button>
       )}
-      {has("Interrupt") && (
+      {canEscalate && (
         <button
           type="button"
-          className="act-btn"
+          className="act-escalate"
           disabled={acting}
           onClick={() => sessionId && void act(() => sendInterrupt(sessionId), "interrupted", "interrupt the session")}
-          title="Hard interrupt (Ctrl+C) - stronger than Stop"
+          title="Still going? Ctrl+C, which is stronger than Stop"
         >
-          Interrupt
-        </button>
-      )}
-      {has("CompactContext") && (
-        <button
-          type="button"
-          className="act-btn"
-          disabled={acting}
-          onClick={() => setConfirmCompact(true)}
-          title="Summarize the conversation - frees context window, keeps what the session has learned"
-        >
-          {compacting ? "Compacting..." : "Compact"}
-        </button>
-      )}
-      {has("ClearContext") && (
-        <button
-          type="button"
-          className="act-btn"
-          disabled={acting}
-          onClick={() => setConfirmClear(true)}
-          title="Reset the conversation in place (/clear) - the process keeps running"
-        >
-          Clear context
-        </button>
-      )}
-      {has("History") && (
-        <button
-          type="button"
-          className="act-btn"
-          disabled={acting}
-          onClick={() => sessionId && void act(() => sendHistoryPicker(sessionId), "history picker opened (Esc closes)", "open the history picker")}
-          title="Open the in-terminal history picker (Claude's double-Esc)"
-        >
-          History
+          Force interrupt
         </button>
       )}
       {status !== null && <span className="action-status">{status}</span>}
       {error !== null && <span className="action-error">{error}</span>}
-
-      <ConfirmDialog
-        open={confirmCompact}
-        title="Compact this session's context?"
-        message={
-          "This summarizes the conversation so far, freeing room in the context window. The session keeps " +
-          "what it has learned, and stays where it is - nothing is sent to it. It can take a minute or two."
-        }
-        confirmLabel="Compact"
-        busyLabel="Compacting..."
-        onConfirm={async () => {
-          if (sessionId === undefined) return;
-          setCompacting(true);
-          try {
-            // Compact ONLY - no follow-up prompt. The button frees room in the context window and
-            // stops there; deciding what the session should do next is the person's, and they are
-            // sitting right here with a composer. Compact-and-continue is a separate verb, for the
-            // command line, where a supervising agent rescuing a stuck session has nobody to type
-            // the next prompt.
-            const result = await sendCompactContext(sessionId);
-            // Render the Gateway's own sentence verbatim. It is the only thing that knows whether the
-            // compaction was watched to completion or merely submitted, and composing a second message
-            // here is how "Compacted" ends up on screen for a compaction nobody observed.
-            flash(result.detail);
-          } finally {
-            setCompacting(false);
-          }
-        }}
-        onClose={() => setConfirmCompact(false)}
-      />
-
-      <ConfirmDialog
-        open={confirmClear}
-        title="Clear this session's context?"
-        message={
-          "This resets the conversation in place (/clear). The running process keeps going, but the " +
-          "agent loses the current conversation. This cannot be undone."
-        }
-        confirmLabel="Clear context"
-        busyLabel="Clearing..."
-        onConfirm={async () => {
-          if (sessionId === undefined) return;
-          // Let a failure throw so the dialog surfaces it (fail loudly); flash on success.
-          await sendClearContext(sessionId);
-          flash("context cleared");
-        }}
-        onClose={() => setConfirmClear(false)}
-      />
     </div>
   );
 }

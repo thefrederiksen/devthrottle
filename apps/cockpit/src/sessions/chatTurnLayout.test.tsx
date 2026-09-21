@@ -114,15 +114,30 @@ describe("the Chat tab's turn layout", () => {
     expect(copies[2].textContent).toBe("Copy");
   });
 
-  it("keeps each Show: choice a real checkbox inside its pill", () => {
+  // The three "Show:" checkboxes became ONE switch with three positions (owner ruling, 2026-09-20),
+  // which also drives the session cards in the rail. The checkboxes asked WHICH machinery; the switch
+  // asks HOW MUCH, which is the question a person actually has.
+  it("offers one detail switch in place of the three machinery checkboxes", () => {
     render(<ChatTab sessionId={SID} />);
 
-    const thinking = screen.getByLabelText("Thinking");
-    expect(thinking).toBeInstanceOf(HTMLInputElement);
-    expect((thinking as HTMLInputElement).type).toBe("checkbox");
-    expect(thinking.closest(".chat-filter-pill")).not.toBeNull();
+    expect(screen.queryByLabelText("Thinking")).toBeNull();
+    expect(screen.queryByLabelText("Tool calls")).toBeNull();
+    expect(document.querySelectorAll(".chat-density-btn").length).toBe(3);
+    // "My prompts only" was never one of the three - it takes the conversation away rather than adding
+    // machinery to it - so the switch does not swallow it.
+    expect(screen.getByLabelText("My prompts only")).toBeInstanceOf(HTMLInputElement);
+  });
 
-    fireEvent.click(thinking);
-    expect(setFilter).toHaveBeenCalledWith({ showToolCalls: false, showToolResults: false, showThinking: true, myPromptsOnly: false });
+  it("asks for every kind of machinery when the switch is moved to Everything", () => {
+    render(<ChatTab sessionId={SID} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Everything" }));
+
+    expect(setFilter).toHaveBeenCalledWith({
+      showToolCalls: true,
+      showToolResults: true,
+      showThinking: true,
+      myPromptsOnly: false,
+    });
   });
 });

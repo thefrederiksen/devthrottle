@@ -4,6 +4,11 @@ import { render, cleanup, fireEvent, screen, within } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { resetCrewExpandedForTests } from "@devthrottle/client-core/sessions/tree";
+// THE CARD'S DETAIL IS BEHIND THE ONE DENSITY SWITCH (owner ruling, 2026-09-20): a card is three lines
+// at "clean", and the machine line is drawn at "everything". Setting the switch here is not a
+// workaround - it names the position the fact belongs to, and it is the only thing that proves the
+// switch reaches the rail at all.
+import { resetDensityForTests, setDensity } from "@devthrottle/client-core/sessions/density";
 
 // THE LIST IS ALWAYS THE OWNERSHIP TREE (owner ruling, 2026-09-14). A session that another session
 // started sits UNDER that session, collapsed by default, in both views. The collapsed parent carries
@@ -64,6 +69,11 @@ function rowNames(root: HTMLElement): string[] {
 
 beforeEach(() => resetCrewExpandedForTests());
 afterEach(() => cleanup());
+
+beforeEach(() => {
+  resetDensityForTests();
+  setDensity("everything");
+});
 
 describe("the Cockpit roster is the ownership tree", () => {
   it("nests supervised sessions under their parent, collapsed, with the crew line, in My order", () => {
