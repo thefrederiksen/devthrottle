@@ -74,6 +74,9 @@ public sealed class ControlApiHost : IAsyncDisposable
     // Cancels the injected-text refresh poll (started in StartAsync) when the host stops.
     private readonly CancellationTokenSource _injectedTextRefreshCts = new();
 
+    // Cancels the factory trigger runner (started in StartAsync) when the host stops.
+    private readonly CancellationTokenSource _triggerRunnerCts = new();
+
     // How often a connected Director re-downloads the Gateway-owned injected text, so a Cockpit save
     // reaches its next session launch without a reconnect or restart. The connect-triggered refresh gives
     // immediacy on reconnect; this bounds staleness while already connected.
@@ -677,6 +680,16 @@ public sealed class ControlApiHost : IAsyncDisposable
         // heartbeat, and dial the tunnel. Disabled (no-op) when local-only.
         _gatewayClient = BuildGatewayClient(gatewayConfig);
         _gatewayClient.Start();
+
+        // The factory triggers (the Website Business Factory mission, product track): run the model-free checks the
+        // Gateway hands this Director, and report each result. Reads the client FIELD on every poll, so a settings
+        // change that replaces it is picked up. A Gateway with factory agents off hands out nothing, so nothing runs.
+        if (gatewayConfig.IsEnabled)
+        {
+            var triggerRunner = new Triggers.DirectorTriggerRunner(DirectorId, () => _gatewayClient,
+                Triggers.DirectorTriggerRunner.RunCheckAsync, () => DateTime.UtcNow);
+            _ = Task.Run(() => triggerRunner.RunAsync(_triggerRunnerCts.Token));
+        }
         _turnPusher = BuildTurnPusher(gatewayConfig);
         _streamClient = BuildStreamClient(gatewayConfig);
         _streamClient?.Start();
@@ -1845,6 +1858,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         // Stop the injected-text refresh poll first so it does not tick against a tearing-down host.
         try { _injectedTextRefreshCts.Cancel(); _injectedTextRefreshCts.Dispose(); }
         catch (Exception ex) { FileLog.Write($"[ControlApiHost] injected-text poll cancel error: {ex.Message}"); }
+        try { _triggerRunnerCts.Cancel(); _triggerRunnerCts.Dispose(); }
+        catch (Exception ex) { FileLog.Write($"[ControlApiHost] trigger runner cancel error: {ex.Message}"); }
 
         // Let go of the session manager's creation event, so a host that is stopped and replaced
         // (the settings reapply path, and every test that stands one up) leaves no handler behind

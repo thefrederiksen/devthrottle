@@ -1,3 +1,4 @@
+using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
@@ -68,6 +69,17 @@ public sealed class FactoryActivityRecord
     /// <see cref="FactoryActivityValidationException"/> - and writes nothing - when the row is refused.
     /// </summary>
     public FactoryActivityDto Append(AppendFactoryActivityRequest request, string? callingActor)
+        => AppendIn(() => _db.CreateContext(), request, callingActor);
+
+    /// <summary>
+    /// Append one row for an EXPLICITLY named tenant, never the ambient one - for a Gateway component that
+    /// writes on its own account's behalf (the trigger service records every check it decides). Same rules,
+    /// same refusals, as the route's <see cref="Append(AppendFactoryActivityRequest, string?)"/>.
+    /// </summary>
+    public FactoryActivityDto Append(TenantId tenant, AppendFactoryActivityRequest request, string? callingActor)
+        => AppendIn(() => _db.CreateContext(tenant), request, callingActor);
+
+    private FactoryActivityDto AppendIn(Func<GatewayDbContext> openContext, AppendFactoryActivityRequest request, string? callingActor)
     {
         FileLog.Write($"[FactoryActivityRecord] Append: factory={request?.Factory}, agent={request?.FactoryAgent}, outcome={request?.Outcome}");
         if (request is null)
@@ -95,7 +107,7 @@ public sealed class FactoryActivityRecord
 
         lock (_gate)
         {
-            using var ctx = _db.CreateContext();
+            using var ctx = openContext();
 
             if (request.CorrectsId is { } correctsId
                 && !ctx.FactoryActivity.AsNoTracking().Any(e => e.Id == correctsId))

@@ -18,6 +18,7 @@ from . import fleet_manager_ops
 from . import fleet_ops
 from . import mission_ops
 from . import schedule_ops
+from . import trigger_ops
 from . import settings_ops
 from . import setup_ops
 from . import skill_ops
@@ -119,6 +120,12 @@ factory_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+trigger_app = typer.Typer(
+    cls=AxiGroup,
+    help="Checks with no model that start a session when there is work.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 workflow_app = typer.Typer(
     cls=AxiGroup,
     help="Read and author the fleet's shared Workflows on the Gateway.",
@@ -182,6 +189,7 @@ app.add_typer(fleet_manager_app, name="fleet-manager")
 app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(factory_app, name="factory")
+app.add_typer(trigger_app, name="trigger")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(skill_app, name="skill")
 app.add_typer(setup_app, name="setup")
@@ -927,6 +935,57 @@ _ACTIONS = [
         "command": "cc-devthrottle factory activity",
         "mutatesState": False,
         "args": [],
+    },
+    {
+        "id": "trigger-add",
+        "description": "Add a factory trigger: a model-free check that starts a named session when it counts work.",
+        "command": "cc-devthrottle trigger add --name <name> --factory <factory> --agent <factory-agent> --machine <machine> --repo <repo> --check <command> --every <interval> --prompt <prompt>",
+        "mutatesState": True,
+        "args": [
+            {"name": "name", "required": True},
+            {"name": "factory", "required": True},
+            {"name": "agent", "required": True},
+            {"name": "machine", "required": True},
+            {"name": "repo", "required": True},
+            {"name": "check", "required": True},
+            {"name": "every", "required": True},
+            {"name": "prompt", "required": True},
+        ],
+    },
+    {
+        "id": "trigger-list",
+        "description": "List factory triggers with the status the Gateway decided.",
+        "command": "cc-devthrottle trigger list",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "trigger-show",
+        "description": "Show one factory trigger in full.",
+        "command": "cc-devthrottle trigger show <name>",
+        "mutatesState": False,
+        "args": [{"name": "name", "required": True}],
+    },
+    {
+        "id": "trigger-pause",
+        "description": "Pause a factory trigger: its checks still run and are recorded, but it starts nothing.",
+        "command": "cc-devthrottle trigger pause <name>",
+        "mutatesState": True,
+        "args": [{"name": "name", "required": True}],
+    },
+    {
+        "id": "trigger-resume",
+        "description": "Resume a paused factory trigger.",
+        "command": "cc-devthrottle trigger resume <name>",
+        "mutatesState": True,
+        "args": [{"name": "name", "required": True}],
+    },
+    {
+        "id": "trigger-runs",
+        "description": "Show a factory trigger's check history, newest first.",
+        "command": "cc-devthrottle trigger runs <name>",
+        "mutatesState": False,
+        "args": [{"name": "name", "required": True}],
     },
     {
         "id": "skill-list",
@@ -3251,6 +3310,76 @@ def factory_activity(
 ) -> None:
     """Read the factory activity record, newest first."""
     factory_ops.activity(factory, agent, outcome, since, until, oldest_first, offset, limit, json_output)
+
+
+@trigger_app.callback()
+def trigger_main(
+    gateway: Optional[str] = typer.Option(
+        None,
+        "--gateway",
+        help="Override the Gateway base URL.",
+    ),
+) -> None:
+    """Checks with no model that start a session when there is work."""
+    trigger_ops.set_gateway_override(gateway)
+
+
+@trigger_app.command("add")
+def trigger_add(
+    name: str = typer.Option(..., "--name", help="The trigger's name, unique in the account."),
+    factory: str = typer.Option(..., "--factory", help="The factory it belongs to."),
+    agent: str = typer.Option(..., "--agent", help="The factory agent a started session is; it leads the name."),
+    machine: str = typer.Option(..., "--machine", help="The machine whose Director runs the check."),
+    repo: str = typer.Option(..., "--repo", help="The repository the session starts in; the check runs there too."),
+    check: str = typer.Option(
+        ..., "--check", help="The check: a command that exits 0 and prints JSON with an integer count."
+    ),
+    every: str = typer.Option(..., "--every", help="How often the check runs: 90s, 5m, 1h. At least one minute."),
+    prompt: str = typer.Option(..., "--prompt", help="The session's first prompt; {count} becomes the count."),
+    paused: bool = typer.Option(False, "--paused", help="Create it paused."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the created trigger as JSON."),
+) -> None:
+    """Add a trigger that starts a session when its check counts work."""
+    trigger_ops.add(name, factory, agent, machine, repo, check, every, prompt, paused, json_output)
+
+
+@trigger_app.command("list")
+def trigger_list(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """List every trigger with its status: OK, or RED and why."""
+    trigger_ops.list_triggers(json_output)
+
+
+@trigger_app.command("show")
+def trigger_show(
+    name: str = typer.Argument(..., help="The trigger's name or id."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show one trigger in full."""
+    trigger_ops.show(name, json_output)
+
+
+@trigger_app.command("pause")
+def trigger_pause(name: str = typer.Argument(..., help="The trigger's name or id.")) -> None:
+    """Pause a trigger; its checks still run and are recorded."""
+    trigger_ops.set_paused(name, True)
+
+
+@trigger_app.command("resume")
+def trigger_resume(name: str = typer.Argument(..., help="The trigger's name or id.")) -> None:
+    """Resume a paused trigger; also releases a wait on its last session."""
+    trigger_ops.set_paused(name, False)
+
+
+@trigger_app.command("runs")
+def trigger_runs(
+    name: str = typer.Argument(..., help="The trigger's name or id."),
+    count: int = typer.Option(trigger_ops.DEFAULT_RUN_LIMIT, "--count", "-n", help="Largest number of checks to show, newest first."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show a trigger's checks, newest first, whatever each came to."""
+    trigger_ops.runs(name, count, json_output)
 
 
 @setup_app.command("status")

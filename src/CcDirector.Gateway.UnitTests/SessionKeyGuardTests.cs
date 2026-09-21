@@ -204,6 +204,15 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/cron/jobs/cj_abc")]
     [InlineData("POST", "/cron/jobs/cj_abc/run")]
     [InlineData("GET", "/cron/jobs/cj_abc/runs")]
+    // Factory triggers: `cc-devthrottle trigger add|list|show|pause|resume|runs`.
+    [InlineData("GET", "/triggers")]
+    [InlineData("POST", "/triggers")]
+    [InlineData("GET", "/triggers/website-new-mail")]
+    [InlineData("PUT", "/triggers/website-new-mail")]
+    [InlineData("DELETE", "/triggers/website-new-mail")]
+    [InlineData("POST", "/triggers/website-new-mail/pause")]
+    [InlineData("POST", "/triggers/website-new-mail/resume")]
+    [InlineData("GET", "/triggers/website-new-mail/runs")]
     public void The_methods_and_paths_the_shipped_clients_send_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is what the shipped client sends; refusing it returns 403 to every agent");
@@ -228,6 +237,19 @@ public sealed class SessionKeyGuardTests
     public void Workspace_shapes_the_Gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a routed workspace shape and must not be authorized");
+
+    [Theory]
+    // A check report decides whether a session starts, so a session that could forge one could start sessions at
+    // will. Only a Director's own key reports; the guard refuses both of the Director's trigger routes to a session.
+    [InlineData("GET", "/directors/dir-north-1/triggers")]
+    [InlineData("POST", "/directors/dir-north-1/triggers/website-new-mail/checks")]
+    // And the trigger shapes that are not routed.
+    [InlineData("POST", "/triggers/website-new-mail/runs")]
+    [InlineData("GET", "/triggers/website-new-mail/pause")]
+    [InlineData("POST", "/triggers/website-new-mail/checks")]
+    public void Trigger_shapes_a_session_may_not_call_are_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
+            $"{method} {path} must not be open to a session key");
 
     // The Fleet Manager mission, step 3: the Fleet Manager is a session, and files, answers and reads its
     // records with its own key.

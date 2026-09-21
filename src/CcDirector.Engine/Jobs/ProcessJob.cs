@@ -23,15 +23,7 @@ public sealed class ProcessJob : IJob
     {
         FileLog.Write($"[ProcessJob] Executing: name={Name}, command={_command}");
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = $"/c {_command}",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
+        var startInfo = ShellFor(_command);
 
         if (!string.IsNullOrEmpty(_workingDir))
             startInfo.WorkingDirectory = _workingDir;
@@ -55,7 +47,8 @@ public sealed class ProcessJob : IJob
             KillProcess(process);
             var stdout = await ReadSafe(stdoutTask);
             var stderr = await ReadSafe(stderrTask);
-            return new JobResult(false, stdout, $"Timed out after {_timeoutSeconds} seconds. {stderr}", TimedOut: true);
+            return new JobResult(false, stdout, $"Timed out after {_timeoutSeconds} seconds. {stderr}", TimedOut: true,
+                ErrorOutput: stderr);
         }
 
         var finalStdout = await ReadSafe(stdoutTask);
@@ -67,8 +60,39 @@ public sealed class ProcessJob : IJob
         return new JobResult(
             Success: exitCode == 0,
             Output: finalStdout,
-            Error: exitCode != 0 ? $"Exit code {exitCode}. {finalStderr}" : null
+            Error: exitCode != 0 ? $"Exit code {exitCode}. {finalStderr}" : null,
+            ExitCode: exitCode,
+            ErrorOutput: finalStderr
         );
+    }
+
+    /// <summary>
+    /// The shell a command line runs under: <c>cmd.exe /c</c> on Windows, <c>/bin/sh -c</c> everywhere else. A
+    /// Director runs on Linux too, and a command handed to <c>cmd.exe</c> there does not run at all.
+    /// </summary>
+    internal static ProcessStartInfo ShellFor(string command)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        if (OperatingSystem.IsWindows())
+        {
+            startInfo.FileName = "cmd.exe";
+            startInfo.Arguments = $"/c {command}";
+        }
+        else
+        {
+            startInfo.FileName = "/bin/sh";
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add(command);
+        }
+
+        return startInfo;
     }
 
     // Kill may race with natural exit -- InvalidOperationException is expected

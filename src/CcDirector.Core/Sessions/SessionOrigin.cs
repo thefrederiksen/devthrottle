@@ -73,13 +73,17 @@ public static class SessionOriginSurfaces
     /// <summary>A work-list / workflow runner opening a session for an item.</summary>
     public const string Workflow = "workflow";
 
+    /// <summary>A factory trigger on the Gateway: a check with no model in it found work, so the Gateway
+    /// started a session to do it (the Website Business Factory mission, product track).</summary>
+    public const string Trigger = "trigger";
+
     /// <summary>A direct API call that named no more specific surface.</summary>
     public const string Api = "api";
 
     /// <summary>The create path did not say.</summary>
     public const string Unknown = "unknown";
 
-    public static readonly string[] All = { Desktop, Cockpit, Phone, Cli, Cron, Workflow, Api, Unknown };
+    public static readonly string[] All = { Desktop, Cockpit, Phone, Cli, Cron, Workflow, Trigger, Api, Unknown };
 
     /// <summary>The canonical lowercase token for a supplied value, or null when blank or unknown.</summary>
     public static string? Normalize(string? value)
@@ -140,6 +144,11 @@ public readonly record struct SessionOrigin(string Kind, string Surface, Guid? P
     /// <summary>A work-list / workflow runner opening a session for an item.</summary>
     public static SessionOrigin Workflow =>
         new(SessionOriginKinds.Schedule, SessionOriginSurfaces.Workflow);
+
+    /// <summary>A factory trigger whose check found work. Nobody was at a keyboard and no session asked, so
+    /// the kind is <see cref="SessionOriginKinds.Schedule"/>, the same as a cron firing.</summary>
+    public static SessionOrigin Trigger =>
+        new(SessionOriginKinds.Schedule, SessionOriginSurfaces.Trigger);
 
     /// <summary>An agent session asked, from the given surface.</summary>
     public static SessionOrigin AgentFrom(Guid parentSessionId, string surface) =>

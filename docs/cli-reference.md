@@ -1670,6 +1670,67 @@ The Gateway stamps the calling session as the actor and as the row's session.
 `activity` reads newest first; `--from` is inclusive and `--to` exclusive. `--count` defaults to 50
 (at most 1000); when more rows match it says which `--offset` shows the next page.
 
+### Trigger
+
+A trigger is a check with no model in it that a Director runs on an interval. When the check counts
+work, the Gateway starts a named session; when it counts nothing, nothing starts. Every check is
+recorded, whatever it came to.
+
+```
+USAGE: cc-devthrottle trigger [--gateway URL] COMMAND [ARGS]...
+
+COMMANDS:
+  add --name NAME --factory FACTORY --agent "FACTORY AGENT" --machine MACHINE --repo REPO
+      --check "COMMAND" --every INTERVAL --prompt "PROMPT" [--paused]
+  list
+  show NAME
+  pause NAME
+  resume NAME
+  runs NAME [--count N | -n N]
+```
+
+`--json` is available on `add`, `list`, `show`, and `runs`. `NAME` is the trigger's name or its id.
+`--every` takes `90s`, `5m`, `1h`, or a number of seconds, and is at least one minute.
+
+**The check contract.** The check is any command that exits 0 and prints JSON with an integer
+`count`, for example `{"count": 2}`. It runs in the `--repo` folder on the `--machine`, with a
+timeout of half the interval (at most five minutes). A check that exits non-zero, times out,
+prints something that is not JSON, or prints no integer `count` is a failed check, and its reason
+is recorded. The product knows nothing about any particular tool; this is all it asks of one.
+
+**What a check comes to.** Each check writes one run, shown by `runs`:
+
+- `nothing-to-do` - the count was 0; no session was started.
+- `started` - the count was above 0; one session was started, named
+  `<factory agent> - <trigger name> - <time>`, with `--prompt` as its first prompt and every
+  `{count}` in it replaced by the count.
+- `paused` - there was work, but the trigger is paused; nothing was started.
+- `skipped-running` - there was work, but the session this trigger last started is still alive.
+  A trigger never has two sessions running at once; the next start waits until that session has
+  ended.
+- `failed` - the check broke the contract, or the session could not be started, with the reason.
+
+Every check is also written to the factory activity record (`cc-devthrottle factory activity`) as one
+row: the trigger's factory and factory agent, the actor `trigger:<trigger id>`, the outcome
+(`nothing-to-do`, `started` with the session id, `paused`, `skipped` for `skipped-running`, or
+`failed`), and one plain sentence such as `Checked website-new-mail - nothing to do`.
+
+**Status.** `list` and `show` print the status the Gateway decided: `OK`, `RED - check failed:
+<reason>`, `RED - start failed: <reason>`, `RED - no checks ran` when no check has been recorded
+within two intervals, or `RED - session <id> has not ended after N hours` when work has waited more
+than six hours behind a session that never reported ending. Pausing and then resuming the trigger
+releases that wait: `resume` forgets the session, so the next check that counts work starts a new
+one, and it records who released it and which session it had been waiting on in the factory
+activity record (outcome `allowed`). Silence is never a quiet night.
+
+**The switch.** Triggers exist only while the Gateway's `config.json` has
+`"factoryAgents": { "enabled": true }` (default off). While it is off, every trigger command
+fails with HTTP 404 and says so, and no Director runs any check.
+
+A session key may add, read, pause and resume triggers. Only a Director's own key reports a
+check: the Director's routes (`GET /directors/{id}/triggers` and
+`POST /directors/{id}/triggers/{trigger}/checks`) are refused to a session key.
+
 ### Setup
 
 ```

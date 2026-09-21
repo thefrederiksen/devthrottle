@@ -31,6 +31,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260920021757_AddDiscoveredRepositories",
         "20260920052924_AddRaisedSessions",
         "20260921081600_AddFactoryActivity",
+        "20260921105211_AddFactoryTriggers",
     })]
     [InlineData("postgres", new[]
     {
@@ -44,6 +45,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260920021806_AddDiscoveredRepositories",
         "20260920053001_AddRaisedSessions",
         "20260921084515_AddFactoryActivity",
+        "20260921105238_AddFactoryTriggers",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -71,8 +73,9 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         // Five advice columns, then three answer columns and their index, then the verdict's answer column, then the
         // record's two stop columns, then the narration call's six trace columns, then the repository catalog's
         // nullable last-used time and its two discovered columns, then the raised sessions table and its two indexes,
-        // then the factory activity table and its four indexes: an empty comparison proves nothing.
-        Assert.Equal(29, changes);
+        // then the factory activity table and its four indexes, then the factory triggers' two tables and their four
+        // indexes: an empty comparison proves nothing.
+        Assert.Equal(35, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>
