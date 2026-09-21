@@ -153,13 +153,31 @@ public sealed class UsageLimitStopsAttentionDto : MorningAttentionItemDto
     public override string Type => MorningAttentionTypes.UsageLimitStops;
 
     public List<UsageLimitStopDto> Sessions { get; set; } = new();
+
+    /// <summary>How many stopped sessions the Gateway can no longer see, and so cannot name. Counted, never
+    /// listed, and ABSENT rather than zero when there are none - same rule as the waiting rows, and for the
+    /// same reason: the reader is told to go and resume each one, which he cannot do from an identifier.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? LostContactCount { get; set; }
 }
 
-/// <summary>One stopped session: its friendly name when the Gateway can see it live, otherwise its id -
-/// never blank - and when the limit was hit.</summary>
+/// <summary>One stopped session: how a person knows it - its number, its name and its repository - plus its
+/// id for a link into the Cockpit, and when the limit was hit. Only sessions the Gateway can currently see
+/// get here, so the name is a real name and never an identifier wearing one's clothes.</summary>
 public sealed class UsageLimitStopDto
 {
     public string Session { get; set; } = "";
+
+    /// <summary>The session's id, for a link into the Cockpit. Present on every row: a stop the Gateway
+    /// cannot see is counted rather than listed, so a row here always has one.</summary>
+    public string SessionId { get; set; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Repo { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Number { get; set; }
+
     public DateTime StoppedUtc { get; set; }
 }
 
