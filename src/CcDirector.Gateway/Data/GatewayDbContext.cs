@@ -936,6 +936,8 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Prompt).HasMaxLength(8192);
             b.Property(e => e.CreatedBy).HasMaxLength(256);
             b.Property(e => e.LastSessionId).HasMaxLength(64);
+            // "<factory agent> - <trigger name> - yyyy-MM-dd HH:mm": two 128-character fields and 22 more.
+            b.Property(e => e.LastStartName).HasMaxLength(320);
             b.Property(e => e.ClaimedByDirectorId).HasMaxLength(64);
             b.Property(e => e.LastOutcome).HasMaxLength(32);
             b.Property(e => e.LastReason).HasMaxLength(1024);

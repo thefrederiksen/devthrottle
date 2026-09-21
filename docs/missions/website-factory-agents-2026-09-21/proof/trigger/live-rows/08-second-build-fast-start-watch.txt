@@ -1,0 +1,71 @@
+16:03:47 RUN checked 2026-09-21T19:34:03.921362Z recorded 2026-09-21T19:34:03.9252786Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:35:33.6617146Z recorded 2026-09-21T19:36:04.0413408Z | failed | count 1 | session None | the session could not be started: The Director did not answer within 30 seconds. It is not known whether the command was carried out.
+16:03:47 RUN checked 2026-09-21T19:36:38.3360623Z recorded 2026-09-21T19:36:48.8819032Z | started | count 1 | session de8b16e7-c9b6-4ba6-b659-ea5a9229de2a | None
+16:03:47 RUN checked 2026-09-21T19:38:00.3925659Z recorded 2026-09-21T19:38:00.4010516Z | skipped-running | count 1 | session de8b16e7-c9b6-4ba6-b659-ea5a9229de2a | None
+16:03:47 RUN checked 2026-09-21T19:39:30.1024853Z recorded 2026-09-21T19:39:30.1055694Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:41:00.1357057Z recorded 2026-09-21T19:41:00.1372604Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:42:37.8926195Z recorded 2026-09-21T19:42:37.9218622Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:44:00.224953Z recorded 2026-09-21T19:44:00.2275891Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:45:30.0875901Z recorded 2026-09-21T19:45:30.0898803Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:47:00.1281791Z recorded 2026-09-21T19:47:00.129215Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:48:30.3961433Z recorded 2026-09-21T19:48:30.4007227Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:50:00.2068332Z recorded 2026-09-21T19:50:00.2078341Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:51:30.0754259Z recorded 2026-09-21T19:51:30.076346Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:53:00.1146801Z recorded 2026-09-21T19:53:00.1167203Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:54:30.6136853Z recorded 2026-09-21T19:54:30.6156385Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:56:00.0961701Z recorded 2026-09-21T19:56:00.0976185Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:57:30.0926777Z recorded 2026-09-21T19:57:30.0936742Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T19:59:00.1119417Z recorded 2026-09-21T19:59:00.1131585Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T20:00:30.0700756Z recorded 2026-09-21T20:00:30.0708034Z | paused | count 1 | session None | None
+16:03:47 RUN checked 2026-09-21T20:02:00.0700251Z recorded 2026-09-21T20:02:00.0715205Z | paused | count 1 | session None | None
+16:03:47 STATUS ok | OK | lastSession None
+16:03:47 sessions: []
+16:03:57 STATUS ok | OK | lastSession None
+16:03:57 sessions: []
+16:04:07 RUN checked 2026-09-21T20:04:00.0779699Z recorded 2026-09-21T20:04:03.7110762Z | started | count 1 | session c060b632-e558-4119-bdb6-5335f84b0957 | None
+16:04:07 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:04:07 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:04:17 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:04:17 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:04:27 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:04:27 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:04:37 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:04:37 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:04:47 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:04:47 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:04:57 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:04:57 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:05:07 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:05:07 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:05:17 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:05:17 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:05:27 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:05:27 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:05:37 RUN checked 2026-09-21T20:05:30.1819026Z recorded 2026-09-21T20:05:30.184928Z | skipped-running | count 1 | session c060b632-e558-4119-bdb6-5335f84b0957 | None
+16:05:37 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:05:37 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:05:48 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:05:48 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:05:58 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:05:58 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'Working')]
+16:06:08 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:06:08 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:06:18 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:06:18 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:06:28 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:06:28 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:06:38 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:06:38 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:06:48 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:06:48 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:06:58 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:06:58 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:07:08 RUN checked 2026-09-21T20:07:00.1649034Z recorded 2026-09-21T20:07:00.1659211Z | skipped-running | count 1 | session c060b632-e558-4119-bdb6-5335f84b0957 | None
+16:07:08 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:07:08 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:07:18 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:07:18 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:07:28 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:07:28 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]
+16:07:38 STATUS ok | OK | lastSession c060b632-e558-4119-bdb6-5335f84b0957
+16:07:38 sessions: [('c060b632', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:04', 'WaitingForInput')]

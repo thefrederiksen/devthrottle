@@ -166,6 +166,7 @@ public sealed class TriggerStore
                 released = row.LastSessionId;
                 row.LastSessionId = null;
                 row.LastStartedUtc = null;
+                row.LastStartName = null;
             }
             row.Paused = false;
             ctx.SaveChanges();
@@ -247,6 +248,84 @@ public sealed class TriggerStore
     public TriggerCheckRecorded? RecordCheck(
         TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int? count,
         string? sessionId, string? reason, DateTime nowUtc)
+        => Record(tenant, triggerId, directorId, checkedUtc, outcome, count, sessionId, reason, nowUtc,
+            endsPendingStart: false);
+
+    /// <summary>
+    /// Take the one-at-a-time lock BEFORE a session start begins: the trigger now has a start time and no session
+    /// yet, which <see cref="TriggerService.IsLastSessionAlive"/> reads as a start in flight. Also brings the
+    /// last-check time and the reporting Director's claim up to date, as recording a check does, so the trigger does
+    /// not read as silent while its start runs. No run row is written here: the start's own result writes it, once.
+    /// <paramref name="startName"/> is the exact name the start gives its session, stored with the lock so a start
+    /// whose outcome is not known can find its session by it. Returns false when the trigger no longer exists.
+    /// </summary>
+    public bool BeginStart(TenantId tenant, Guid triggerId, string directorId, DateTime nowUtc, string startName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(startName);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var trigger = ctx.Triggers.FirstOrDefault(t => t.Id == triggerId);
+            if (trigger is null) return false;
+
+            var now = Utc(nowUtc);
+            trigger.LastCheckUtc = now;
+            trigger.ClaimedByDirectorId = Cap(directorId, 64);
+            trigger.ClaimedUtc = now;
+            trigger.LastSessionId = null;
+            trigger.LastStartedUtc = now;
+            trigger.LastStartName = Cap(startName, 320);
+            ctx.SaveChanges();
+            FileLog.Write($"[TriggerStore] BeginStart: trigger={triggerId}, director={directorId}, name={trigger.LastStartName}, lock taken with no session yet");
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Record what a start begun by <see cref="BeginStart"/> came to - the one run row of the check that asked for
+    /// it. A <see cref="TriggerRunOutcome.Started"/> row makes its session the lock; a
+    /// <see cref="TriggerRunOutcome.Failed"/> row releases the pending lock, so the next check that counts work
+    /// tries again - unless <paramref name="holdLock"/>, for a start whose outcome is not known: the Director may have
+    /// created the session, so the lock stays until that session is found or the start grace ends. Returns null when
+    /// the trigger no longer exists.
+    /// </summary>
+    public TriggerCheckRecorded? RecordStartResult(
+        TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int count,
+        string? sessionId, string? reason, DateTime nowUtc, bool holdLock)
+    {
+        if (outcome != TriggerRunOutcome.Started && outcome != TriggerRunOutcome.Failed)
+            throw new ArgumentException($"a start ends as '{TriggerRunOutcome.Started}' or '{TriggerRunOutcome.Failed}', not '{outcome}'", nameof(outcome));
+        return Record(tenant, triggerId, directorId, checkedUtc, outcome, count, sessionId, reason, nowUtc,
+            endsPendingStart: !holdLock);
+    }
+
+    /// <summary>
+    /// A start whose outcome was not known turned out to have created <paramref name="sessionId"/>: add a new
+    /// <see cref="TriggerRunOutcome.Started"/> row with it, and make it the lock. The count is not repeated - the
+    /// check that asked for the start already recorded it. Returns null when the trigger no longer exists.
+    /// </summary>
+    public TriggerCheckRecorded? AdoptStart(TenantId tenant, Guid triggerId, string directorId, string sessionId, DateTime nowUtc)
+    {
+        FileLog.Write($"[TriggerStore] AdoptStart: trigger={triggerId}, session={sessionId}");
+        return Record(tenant, triggerId, directorId, nowUtc, TriggerRunOutcome.Started, count: null, sessionId,
+            reason: null, nowUtc, endsPendingStart: true);
+    }
+
+    /// <summary>
+    /// A start whose outcome was not known produced no session within the start grace: add a
+    /// <see cref="TriggerRunOutcome.Failed"/> row with <paramref name="reason"/> and release the lock. Returns null when
+    /// the trigger no longer exists.
+    /// </summary>
+    public TriggerCheckRecorded? LapseStart(TenantId tenant, Guid triggerId, string directorId, string reason, DateTime nowUtc)
+    {
+        FileLog.Write($"[TriggerStore] LapseStart: trigger={triggerId}");
+        return Record(tenant, triggerId, directorId, nowUtc, TriggerRunOutcome.Failed, count: null, sessionId: null,
+            reason, nowUtc, endsPendingStart: true);
+    }
+
+    private TriggerCheckRecorded? Record(
+        TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int? count,
+        string? sessionId, string? reason, DateTime nowUtc, bool endsPendingStart)
     {
         if (Array.IndexOf(TriggerRunOutcome.All, outcome) < 0)
             throw new ArgumentException($"'{outcome}' is not a trigger run outcome", nameof(outcome));
@@ -281,6 +360,13 @@ public sealed class TriggerStore
             {
                 trigger.LastSessionId = sessionId;
                 trigger.LastStartedUtc = now;
+            }
+            else if (endsPendingStart && string.IsNullOrEmpty(trigger.LastSessionId))
+            {
+                // The start failed: release the lock BeginStart took. Only a pending lock - no session - is released;
+                // the owner may have resumed the trigger meanwhile, and there is nothing else to undo.
+                trigger.LastStartedUtc = null;
+                trigger.LastStartName = null;
             }
             ctx.SaveChanges();
 

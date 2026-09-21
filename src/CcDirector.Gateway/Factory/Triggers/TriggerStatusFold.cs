@@ -13,7 +13,8 @@ public readonly record struct TriggerStatus(string Kind, string Text);
 ///    trigger never checked, of its creation. A Director that stopped running the check reads as red, because
 ///    silence is never a quiet night. This is checked first: a newer silence outranks an older failure.
 ///  - RED "check failed: reason" when the last check broke the check contract, and RED "start failed: reason"
-///    when the check counted work but the session could not be started.
+///    when the check counted work but the session could not be started. RED "start outcome unknown - waiting for
+///    the session" when the Gateway could not know whether the start worked; the lock is held meanwhile.
 ///  - RED "session ... has not ended" when the last check counted work and was skipped because the session this
 ///    trigger started is still alive, and that session was started more than <see cref="LongRunningAfter"/> ago.
 ///    The one-at-a-time lock leans to never starting twice, so it reads a session as alive for as long as the
@@ -27,6 +28,13 @@ public static class TriggerStatusFold
     /// <summary>The prefix a failed start's reason carries, so the status can say which half failed.</summary>
     public const string StartFailedPrefix = "the session could not be started: ";
 
+    /// <summary>The prefix the reason of a start whose outcome is not known carries: the Gateway stopped waiting, or
+    /// the tunnel dropped mid-command, so the Director may have created the session. The lock is held meanwhile.</summary>
+    public const string StartUnknownPrefix = "the session start outcome is not known: ";
+
+    /// <summary>The status while a start whose outcome is not known holds the lock.</summary>
+    public const string StartUnknownStatus = "start outcome unknown - waiting for the session";
+
     /// <summary>How long a started session may hold the lock, while there is work waiting, before the status turns
     /// red. Deliberately generous: a trigger's session doing a long piece of work is normal, and this only has to
     /// catch the lock that never lets go.</summary>
@@ -34,12 +42,17 @@ public static class TriggerStatusFold
 
     public static TriggerStatus For(
         DateTime createdUtc, int intervalSeconds, DateTime? lastCheckUtc, string? lastOutcome, string? lastReason,
-        string? lastSessionId, DateTime? lastStartedUtc, DateTime nowUtc)
+        string? lastSessionId, DateTime? lastStartedUtc, DateTime nowUtc, bool startOutcomeUnknown = false)
     {
         var silenceLimit = TimeSpan.FromSeconds(intervalSeconds * 2.0);
         var since = lastCheckUtc ?? createdUtc;
         if (nowUtc - since > silenceLimit)
             return new TriggerStatus(TriggerStatusKind.Red, "no checks ran");
+
+        // Held by a start whose outcome is not known: red whatever the checks since have come to, until the session
+        // is found and adopted or the lock lapses.
+        if (startOutcomeUnknown)
+            return new TriggerStatus(TriggerStatusKind.Red, StartUnknownStatus);
 
         if (lastCheckUtc is null)
             return new TriggerStatus(TriggerStatusKind.Ok, "waiting for the first check");
@@ -47,6 +60,8 @@ public static class TriggerStatusFold
         if (lastOutcome == TriggerRunOutcome.Failed)
         {
             var reason = string.IsNullOrWhiteSpace(lastReason) ? "no reason was recorded" : lastReason;
+            if (reason.StartsWith(StartUnknownPrefix, StringComparison.Ordinal))
+                return new TriggerStatus(TriggerStatusKind.Red, StartUnknownStatus);
             return reason.StartsWith(StartFailedPrefix, StringComparison.Ordinal)
                 ? new TriggerStatus(TriggerStatusKind.Red, "start failed: " + reason[StartFailedPrefix.Length..])
                 : new TriggerStatus(TriggerStatusKind.Red, "check failed: " + reason);

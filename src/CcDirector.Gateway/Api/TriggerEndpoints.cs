@@ -29,7 +29,9 @@ namespace CcDirector.Gateway.Api;
 /// The Director's half - never a session key's, since <see cref="SessionKeyGuard"/> lists neither:
 ///
 ///   GET    /directors/{directorId}/triggers                -> TriggerAssignmentResponse | 404
-///   POST   /directors/{directorId}/triggers/{id}/checks    body TriggerCheckReport -> TriggerRunDto | 404 | 409
+///   POST   /directors/{directorId}/triggers/{id}/checks    body TriggerCheckReport -> TriggerRunDto
+///                                                          | 202 TriggerStartAccepted (a session start was begun; its
+///                                                            run row is written when it returns) | 404 | 409
 ///
 /// The Director names itself in the path, and its MACHINE is read from its own registration in the caller's
 /// account - never taken from the request - so a caller cannot ask for another machine's checks.
@@ -153,7 +155,12 @@ internal static class TriggerEndpoints
             var (report, bad) = await ReadBody<TriggerCheckReport>(ctx, "a check report");
             if (bad is not null) return bad;
 
+            // The request's cancellation reaches only the decision. A session start the check begins runs on the
+            // Gateway's own lifetime, and this answers without waiting for it: a start outlasts the Director's wait.
             var result = await service.ReportCheckAsync(tenant, directorId, id, report!, ctx.RequestAborted);
+            if (result is { Refusal: TriggerReportRefusal.None, Starting: not null })
+                return Results.Json(new TriggerStartAccepted { TriggerId = id, Count = result.StartingCount!.Value },
+                    statusCode: StatusCodes.Status202Accepted);
             return result.Refusal switch
             {
                 TriggerReportRefusal.None => Results.Json(TriggerService.ToDto(result.Run!)),

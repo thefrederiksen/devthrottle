@@ -1,0 +1,53 @@
+16:51:15 RUN checked 2026-09-21T20:22:00.063101Z recorded 2026-09-21T20:22:00.0637464Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:23:30.1537196Z recorded 2026-09-21T20:23:30.1545256Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:25:00.0665801Z recorded 2026-09-21T20:25:00.0681137Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:26:30.177015Z recorded 2026-09-21T20:26:30.1782267Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:28:00.1377849Z recorded 2026-09-21T20:28:00.1387297Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:29:30.2628688Z recorded 2026-09-21T20:29:30.2637833Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:31:00.0701248Z recorded 2026-09-21T20:31:00.0716733Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:32:30.0742908Z recorded 2026-09-21T20:32:30.0754547Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:34:00.0724631Z recorded 2026-09-21T20:34:00.0731975Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:35:30.1791758Z recorded 2026-09-21T20:35:30.1800656Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:37:00.0570825Z recorded 2026-09-21T20:37:00.0580702Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:38:31.9627827Z recorded 2026-09-21T20:38:31.9739217Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:40:00.250847Z recorded 2026-09-21T20:40:00.2525396Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:41:30.073656Z recorded 2026-09-21T20:41:30.074664Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:43:00.1733464Z recorded 2026-09-21T20:43:00.178321Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:44:30.083023Z recorded 2026-09-21T20:44:30.0837249Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:46:00.0724764Z recorded 2026-09-21T20:46:00.0733514Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:47:30.3234332Z recorded 2026-09-21T20:47:30.3254047Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:49:00.6708695Z recorded 2026-09-21T20:49:00.6718438Z | paused | count 1 | session None | None
+16:51:15 RUN checked 2026-09-21T20:50:30.0714399Z recorded 2026-09-21T20:51:00.1009536Z | failed | count 1 | session None | the session start outcome is not known: The Director did not answer within 30 seconds. It is not known whether the command was carried out. The lock is held until a session named 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50' shows up, or for 5 minutes.
+16:51:15 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:51:15 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'WaitingForInput')]
+16:51:25 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:51:25 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:51:35 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:51:35 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:51:45 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:51:45 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:51:55 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:51:55 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:52:05 RUN checked 2026-09-21T20:52:00.8111946Z recorded 2026-09-21T20:52:00.8111946Z | started | count None | session f66d3fee-36e1-4fe4-908c-f49b1116ac89 | None
+16:52:05 RUN checked 2026-09-21T20:52:00.8099549Z recorded 2026-09-21T20:52:00.8166101Z | skipped-running | count 1 | session f66d3fee-36e1-4fe4-908c-f49b1116ac89 | None
+16:52:05 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:52:05 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:52:15 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:52:15 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:52:25 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:52:25 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:52:35 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:52:35 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:52:45 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:52:45 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:52:55 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:52:55 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:53:05 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:53:05 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:53:15 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:53:15 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'Working')]
+16:53:25 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:53:25 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'WaitingForInput')]
+16:53:35 RUN checked 2026-09-21T20:53:30.5027727Z recorded 2026-09-21T20:53:30.5191166Z | skipped-running | count 1 | session f66d3fee-36e1-4fe4-908c-f49b1116ac89 | None
+16:53:35 STATUS ok | OK | lastSession f66d3fee-36e1-4fe4-908c-f49b1116ac89
+16:53:35 sessions: [('f66d3fee', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:50', 'WaitingForInput')]

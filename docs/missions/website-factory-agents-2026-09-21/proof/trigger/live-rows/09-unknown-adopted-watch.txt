@@ -1,0 +1,63 @@
+16:10:44 RUN checked 2026-09-21T19:41:00.1357057Z recorded 2026-09-21T19:41:00.1372604Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:42:37.8926195Z recorded 2026-09-21T19:42:37.9218622Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:44:00.224953Z recorded 2026-09-21T19:44:00.2275891Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:45:30.0875901Z recorded 2026-09-21T19:45:30.0898803Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:47:00.1281791Z recorded 2026-09-21T19:47:00.129215Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:48:30.3961433Z recorded 2026-09-21T19:48:30.4007227Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:50:00.2068332Z recorded 2026-09-21T19:50:00.2078341Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:51:30.0754259Z recorded 2026-09-21T19:51:30.076346Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:53:00.1146801Z recorded 2026-09-21T19:53:00.1167203Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:54:30.6136853Z recorded 2026-09-21T19:54:30.6156385Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:56:00.0961701Z recorded 2026-09-21T19:56:00.0976185Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:57:30.0926777Z recorded 2026-09-21T19:57:30.0936742Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T19:59:00.1119417Z recorded 2026-09-21T19:59:00.1131585Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T20:00:30.0700756Z recorded 2026-09-21T20:00:30.0708034Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T20:02:00.0700251Z recorded 2026-09-21T20:02:00.0715205Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T20:04:00.0779699Z recorded 2026-09-21T20:04:03.7110762Z | started | count 1 | session c060b632-e558-4119-bdb6-5335f84b0957 | None
+16:10:44 RUN checked 2026-09-21T20:05:30.1819026Z recorded 2026-09-21T20:05:30.184928Z | skipped-running | count 1 | session c060b632-e558-4119-bdb6-5335f84b0957 | None
+16:10:44 RUN checked 2026-09-21T20:07:00.1649034Z recorded 2026-09-21T20:07:00.1659211Z | skipped-running | count 1 | session c060b632-e558-4119-bdb6-5335f84b0957 | None
+16:10:44 RUN checked 2026-09-21T20:08:30.1769386Z recorded 2026-09-21T20:08:30.178034Z | paused | count 1 | session None | None
+16:10:44 RUN checked 2026-09-21T20:10:00.1593977Z recorded 2026-09-21T20:10:30.1678822Z | failed | count 1 | session None | the session start outcome is not known: The Director did not answer within 30 seconds. It is not known whether the command was carried out. The lock is held until a session named 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10' shows up, or for 5 minutes.
+16:10:44 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:10:44 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'WaitingForInput')]
+16:10:54 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:10:54 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:11:04 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:11:04 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:11:14 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:11:14 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:11:24 STATUS red | start outcome unknown - waiting for the session | lastSession None
+16:11:24 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:11:34 RUN checked 2026-09-21T20:11:30.0620991Z recorded 2026-09-21T20:11:30.0620991Z | started | count None | session c8aeafb3-316e-4d57-81af-75b76a30f8c8 | None
+16:11:34 RUN checked 2026-09-21T20:11:30.0611084Z recorded 2026-09-21T20:11:30.0656033Z | skipped-running | count 1 | session c8aeafb3-316e-4d57-81af-75b76a30f8c8 | None
+16:11:34 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:11:34 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:11:44 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:11:44 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:11:54 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:11:54 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:12:04 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:12:04 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:12:14 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:12:14 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:12:24 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:12:24 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:12:34 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:12:34 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:12:44 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:12:44 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'Working')]
+16:12:54 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:12:54 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'WaitingForInput')]
+16:13:04 RUN checked 2026-09-21T20:13:00.1374356Z recorded 2026-09-21T20:13:00.1384941Z | skipped-running | count 1 | session c8aeafb3-316e-4d57-81af-75b76a30f8c8 | None
+16:13:04 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:13:04 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'WaitingForInput')]
+16:13:14 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:13:14 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'WaitingForInput')]
+16:13:25 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:13:25 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'WaitingForInput')]
+16:13:35 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:13:35 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'WaitingForInput')]
+16:13:45 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:13:45 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'WaitingForInput')]
+16:13:55 STATUS ok | OK | lastSession c8aeafb3-316e-4d57-81af-75b76a30f8c8
+16:13:55 sessions: [('c8aeafb3', 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10', 'WaitingForInput')]

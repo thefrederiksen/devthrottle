@@ -995,6 +995,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // The lifetime a claimed dev report send runs on: cancelled in StopAsync, never by a request (phase 2 inspection,
     // Medium 1 - a browser that goes away must not strand the owner's items mid-send).
     private readonly CancellationTokenSource _devReportSendLifetime = new();
+    // The lifetime a factory trigger's session start runs on: cancelled in StopAsync, never by the Director's check
+    // report - a start takes longer than the Director waits for that answer (the trigger's live check, 2026-09-21).
+    private readonly CancellationTokenSource _triggerStartLifetime = new();
     private readonly DevReports.DevReportTurnEndLauncher _devReportLauncher;
     private readonly DevReports.DevReportSettleSweep _devReportSettleSweep;
     private System.Threading.Timer? _devReportSettleTimer;
@@ -1981,12 +1984,19 @@ public sealed class GatewayHost : IAsyncDisposable
             FactoryActivity,
             async (machine, request, ct) =>
             {
-                var (ok, dto, error, _) = await _machineSessionSpawner.SpawnOnMachineAsync(machine, request, ct);
-                return ok && dto is not null ? (dto.SessionId, null) : (null, error);
+                var r = await _machineSessionSpawner.SpawnOnMachineWithOutcomeAsync(machine, request, ct);
+                if (r.Ok && r.Dto is not null) return Factory.Triggers.TriggerStartAttempt.Started(r.Dto.SessionId);
+                var error = r.Error ?? "the machine did not return a session";
+                return r.OutcomeUnknown
+                    ? Factory.Triggers.TriggerStartAttempt.Unknown(error)
+                    : Factory.Triggers.TriggerStartAttempt.Failed(error);
             },
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            findSessionByName: (tenant, name) =>
+                GatewayEndpoints.LastKnownTriggerSessionByName(Registry, PushedSessions, tenant, name),
             timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
-            nowUtc: () => DateTime.UtcNow);
+            nowUtc: () => DateTime.UtcNow,
+            startLifetime: _triggerStartLifetime.Token);
 
         // The activity ledger's 30-day retention, on the same per-tenant worker seam.
         _activityRetentionSweep = new Activity.ActivityRetentionSweep(_tenantBoundary, TenantRegistry, _activityEvents);
@@ -5891,6 +5901,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _sessionHistoryTimer = null;
         try { _devReportSettleTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report settle timer dispose error: {ex.Message}"); }
         try { _devReportSendLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report send lifetime cancel error: {ex.Message}"); }
+        try { _triggerStartLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] trigger start lifetime cancel error: {ex.Message}"); }
         _devReportSettleTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;

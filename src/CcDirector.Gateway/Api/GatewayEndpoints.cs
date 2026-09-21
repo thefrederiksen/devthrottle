@@ -5399,6 +5399,25 @@ internal static class GatewayEndpoints
     }
 
     /// <summary>
+    /// The last row any Director of the account reported for a session a factory trigger started with exactly this
+    /// name, or null. How a trigger start whose outcome was not known finds the session the Director created anyway:
+    /// the name carries the trigger and the minute of the start, and the origin surface narrows it to trigger starts.
+    /// </summary>
+    internal static SessionDto? LastKnownTriggerSessionByName(
+        DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant, string name)
+    {
+        if (pushedSessions is null || string.IsNullOrEmpty(name)) return null;
+        foreach (var d in registry.ListDirectors(tenant))
+        {
+            var row = pushedSessions.GetLastKnown(tenant, d.DirectorId).Sessions
+                .FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal)
+                                     && string.Equals(s.OriginSurface, CcDirector.Core.Sessions.SessionOriginSurfaces.Trigger, StringComparison.Ordinal));
+            if (row is not null) return row;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Resolve a request's tenant for a session READ (Hosted Multi-Tenancy, session-serving PR1). Null means
     /// the caller must be DENIED (403): on the hosted Gateway an authenticated request whose device key has no
     /// bound tenant is refused, NEVER served the Local partition (which would be a wrong-tenant read waiting to

@@ -70,6 +70,53 @@ public sealed class MachineSessionSpawnerTests
         Assert.Equal("MACHINE_A", resolver.LastMachine);
     }
 
+    // The factory trigger's live check, 2026-09-21: a create the Gateway stopped waiting for, or whose tunnel dropped
+    // mid-command, may still have been carried out. The spawner must say so as a flag - read from the router's
+    // status through the real verb client, never parsed from the sentence - and must never say it of an answer.
+
+    [Fact]
+    public async Task Spawn_TheTunnelDropsMidCreate_FailsWithTheOutcomeUnknown()
+    {
+        var resolver = new StubResolver(new DirectorTargetResult("d-1", null));
+        var spawner = new MachineSessionSpawner(resolver, (CcDirector.Gateway.Api.DirectorCommandRouter.SendDirectorCommandAsync)(
+            (directorId, command, ct) => throw new InvalidOperationException("Invocation canceled by the server.")));
+
+        var r = await spawner.SpawnOnMachineWithOutcomeAsync("MACHINE_A", new NewSessionRequest(), CancellationToken.None);
+
+        Assert.False(r.Ok);
+        Assert.True(r.OutcomeUnknown);
+        Assert.Contains("It is not known whether the command was carried out.", r.Error);
+    }
+
+    [Fact]
+    public async Task Spawn_TheDirectorAnswersWithAnError_FailsWithTheOutcomeKnown()
+    {
+        var resolver = new StubResolver(new DirectorTargetResult("d-1", null));
+        var spawner = new MachineSessionSpawner(resolver, (CcDirector.Gateway.Api.DirectorCommandRouter.SendDirectorCommandAsync)(
+            (directorId, command, ct) => Task.FromResult<DirectorCommandResult?>(
+                DirectorCommandResult.Fail(DirectorCommandStatus.Error, "the repository folder does not exist"))));
+
+        var r = await spawner.SpawnOnMachineWithOutcomeAsync("MACHINE_A", new NewSessionRequest(), CancellationToken.None);
+
+        Assert.False(r.Ok);
+        Assert.False(r.OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task Spawn_TheMachineIsOff_FailsWithTheOutcomeKnown_AndNothingIsSent()
+    {
+        var resolver = new StubResolver(new DirectorTargetResult(null, "machine MACHINE_A is off"));
+        var sends = 0;
+        var spawner = new MachineSessionSpawner(resolver, (CcDirector.Gateway.Api.DirectorCommandRouter.SendDirectorCommandAsync)(
+            (directorId, command, ct) => { sends++; return Task.FromResult<DirectorCommandResult?>(null); }));
+
+        var r = await spawner.SpawnOnMachineWithOutcomeAsync("MACHINE_A", new NewSessionRequest(), CancellationToken.None);
+
+        Assert.False(r.Ok);
+        Assert.False(r.OutcomeUnknown);
+        Assert.Equal(0, sends);
+    }
+
     // The Fleet Manager mission, step 5: a caller may refuse the RESOLVED Director before anything is sent to it -
     // the only moment a Director the launcher just started is known.
     [Fact]

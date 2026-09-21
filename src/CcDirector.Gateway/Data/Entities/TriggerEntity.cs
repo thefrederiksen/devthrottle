@@ -26,8 +26,14 @@ public sealed class TriggerEntity : GatewayMintedKeyEntity
     /// <summary>The session this trigger last started, or null. The lock: no second start while it lives.</summary>
     public string? LastSessionId { get; set; }
 
-    /// <summary>When <see cref="LastSessionId"/> was started (UTC), or null.</summary>
+    /// <summary>When <see cref="LastSessionId"/> was started (UTC), or null. Set with no session while a start is
+    /// pending - the lock is taken before the start begins.</summary>
     public DateTime? LastStartedUtc { get; set; }
+
+    /// <summary>The exact name the last start gave its session, stored with the lock when the start begins, or null.
+    /// A start whose outcome is not known finds its session by THIS name - never a name worked out again later from
+    /// the trigger's name, its factory agent or the account's time zone, any of which the owner can change meanwhile.</summary>
+    public string? LastStartName { get; set; }
 
     /// <summary>When the Gateway last recorded a check of this trigger (UTC), or null when it never has.</summary>
     public DateTime? LastCheckUtc { get; set; }

@@ -21,6 +21,26 @@ public sealed class TriggerStatusFoldTests
     }
 
     [Fact]
+    public void For_ALockHeldByAStartWhoseOutcomeIsUnknown_IsRed_WhateverTheLastCheckCameTo()
+    {
+        var lastCheck = Created.AddMinutes(1);
+        var status = TriggerStatusFold.For(Created, FiveMinutes, lastCheck, TriggerRunOutcome.SkippedRunning, null, null,
+            lastCheck, lastCheck.AddMinutes(1), startOutcomeUnknown: true);
+
+        Assert.Equal(new TriggerStatus(TriggerStatusKind.Red, TriggerStatusFold.StartUnknownStatus), status);
+    }
+
+    [Fact]
+    public void For_Silence_OutranksAStartWhoseOutcomeIsUnknown()
+    {
+        var lastCheck = Created.AddMinutes(1);
+        var status = TriggerStatusFold.For(Created, FiveMinutes, lastCheck, TriggerRunOutcome.Failed, null, null,
+            lastCheck, lastCheck.AddMinutes(11), startOutcomeUnknown: true);
+
+        Assert.Equal(new TriggerStatus(TriggerStatusKind.Red, "no checks ran"), status);
+    }
+
+    [Fact]
     public void For_ExactlyTwoIntervals_IsStillOk()
     {
         var lastCheck = Created.AddMinutes(1);

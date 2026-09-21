@@ -44,7 +44,8 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             Assert.Equal("20260921081600_AddFactoryActivity", all[index + 5]);
             Assert.Equal("20260921105211_AddFactoryTriggers", all[index + 6]);
             Assert.Equal("20260921131049_IndexFactoryActivityReads", all[index + 7]); // the only migrations after it
-            Assert.Equal(index + 8, all.Count);
+            Assert.Equal("20260921203243_AddTriggerStartName", all[index + 8]);
+            Assert.Equal(index + 9, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());

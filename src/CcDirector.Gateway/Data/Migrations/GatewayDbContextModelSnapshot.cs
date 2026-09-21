@@ -2443,6 +2443,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("LastStartName")
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("LastStartedUtc")
                         .HasColumnType("TEXT");
 

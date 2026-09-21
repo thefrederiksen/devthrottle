@@ -1,0 +1,93 @@
+# Gateway log (isolated Gateway, port 7898): every start attempt of the stub trigger
+2026-09-21 11:02:06.839 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=paused, count=1, session=none
+2026-09-21 11:02:06.915 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (192ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:02:06.916 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (296ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:02:07.330 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (34ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:03:36.103 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (8ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:03:36.130 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=paused, count=1, session=none
+2026-09-21 11:03:36.156 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (33ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:03:36.471 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (10ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:05:06.078 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (5ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:05:06.091 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=paused, count=1, session=none
+2026-09-21 11:05:06.092 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (4ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:05:07.256 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (5ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:06:36.045 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (12ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:06:36.128 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=paused, count=1, session=none
+2026-09-21 11:06:36.129 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (35ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:06:36.855 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (46ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:08:06.302 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (7ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:08:06.327 [MachineSessionSpawner] SpawnOnMachineAsync: machine=SOREN_NORTH, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, repo=C:\Users\soren\AppData\Local\Temp\wbf-live\repo
+2026-09-21 11:08:06.637 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (5ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:08:15.101 [FleetSessionNumberAllocator] Allocate: 100 -> 9a734428-7931-43e0-b952-34444ae01f9d (director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, 1 in use, tenant=local)
+2026-09-21 11:08:15.102 [DirectorEvents] tenant=local director=5453e038-f4c3-491d-a3a2-34f02fc0e34e session=9a734428-7931-43e0-b952-34444ae01f9d event=session-created state=WaitingForInput
+2026-09-21 11:08:16.330 [DirectorCommandRouter] create sid= director=5453e038-f4c3-491d-a3a2-34f02fc0e34e: TUNNEL DROPPED mid-command: Invocation canceled by the server.
+2026-09-21 11:08:16.333 [MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine=SOREN_NORTH, error=The connection to the Director dropped while the command was being sent. It is not known whether the command was carried out.
+2026-09-21 11:08:16.342 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=failed, count=1, session=none
+2026-09-21 11:08:16.351 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (10040ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:08:51.183 [DirectorEvents] tenant=local director=5453e038-f4c3-491d-a3a2-34f02fc0e34e session=9a734428-7931-43e0-b952-34444ae01f9d event=session-exited state=Exited
+2026-09-21 11:08:54.436 [FleetSessionNumberAllocator] Release: freed 100 from 9a734428-7931-43e0-b952-34444ae01f9d (0 in use, tenant=local)
+2026-09-21 11:09:36.051 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (9ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:09:36.598 [MachineSessionSpawner] SpawnOnMachineAsync: machine=SOREN_NORTH, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, repo=C:\Users\soren\AppData\Local\Temp\wbf-live\repo
+2026-09-21 11:09:37.234 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (9ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:09:46.603 [DirectorCommandRouter] create sid= director=5453e038-f4c3-491d-a3a2-34f02fc0e34e: TUNNEL DROPPED mid-command: Invocation canceled by the server.
+2026-09-21 11:09:46.603 [MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine=SOREN_NORTH, error=The connection to the Director dropped while the command was being sent. It is not known whether the command was carried out.
+2026-09-21 11:09:46.606 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=failed, count=1, session=none
+2026-09-21 11:09:46.608 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (10012ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:09:49.986 [DirectorEvents] tenant=local director=5453e038-f4c3-491d-a3a2-34f02fc0e34e session=1b4585fd-5a43-40fb-abf4-e0c0d7211867 event=session-created state=WaitingForInput
+2026-09-21 11:09:50.016 [FleetSessionNumberAllocator] Allocate: 100 -> 1b4585fd-5a43-40fb-abf4-e0c0d7211867 (director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, 1 in use, tenant=local)
+2026-09-21 11:10:24.906 [DirectorEvents] tenant=local director=5453e038-f4c3-491d-a3a2-34f02fc0e34e session=1b4585fd-5a43-40fb-abf4-e0c0d7211867 event=session-exited state=Exited
+2026-09-21 11:10:27.921 [FleetSessionNumberAllocator] Release: freed 100 from 1b4585fd-5a43-40fb-abf4-e0c0d7211867 (0 in use, tenant=local)
+2026-09-21 11:11:06.924 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (5ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:11:09.335 [MachineSessionSpawner] SpawnOnMachineAsync: machine=SOREN_NORTH, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, repo=C:\Users\soren\AppData\Local\Temp\wbf-live\repo
+2026-09-21 11:11:15.387 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (18ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:11:19.378 [DirectorCommandRouter] create sid= director=5453e038-f4c3-491d-a3a2-34f02fc0e34e: TUNNEL DROPPED mid-command: Invocation canceled by the server.
+2026-09-21 11:11:19.378 [MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine=SOREN_NORTH, error=The connection to the Director dropped while the command was being sent. It is not known whether the command was carried out.
+2026-09-21 11:11:19.388 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=failed, count=1, session=none
+2026-09-21 11:11:20.435 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (11102ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:11:25.171 [DirectorEvents] tenant=local director=5453e038-f4c3-491d-a3a2-34f02fc0e34e session=df6c14a1-b502-4f4e-b68a-bbc4726c2ed0 event=session-created state=WaitingForInput
+2026-09-21 11:11:25.180 [FleetSessionNumberAllocator] Allocate: 100 -> df6c14a1-b502-4f4e-b68a-bbc4726c2ed0 (director=5453e038-f4c3-491d-a3a2-34f02fc0e34e, 1 in use, tenant=local)
+2026-09-21 11:12:00.584 [DirectorEvents] tenant=local director=5453e038-f4c3-491d-a3a2-34f02fc0e34e session=df6c14a1-b502-4f4e-b68a-bbc4726c2ed0 event=session-exited state=Exited
+2026-09-21 11:12:03.796 [FleetSessionNumberAllocator] Release: freed 100 from df6c14a1-b502-4f4e-b68a-bbc4726c2ed0 (0 in use, tenant=local)
+2026-09-21 11:12:37.208 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (9ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:12:37.788 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=paused, count=1, session=none
+2026-09-21 11:12:37.789 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (6ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:12:38.915 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (4ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:14:06.069 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b9a1456f-146f-464a-933c-218ad38d6a22/checks -> 200 (5ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:14:06.105 [TriggerStore] RecordCheck: trigger=b132120e-d995-491f-aca5-611435880f2b, outcome=paused, count=1, session=none
+2026-09-21 11:14:06.107 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/b132120e-d995-491f-aca5-611435880f2b/checks -> 200 (7ms) client=127.0.0.1 host=127.0.0.1:7898
+2026-09-21 11:14:07.415 [GatewayHost] POST /directors/5453e038-f4c3-491d-a3a2-34f02fc0e34e/triggers/a3c1fcdf-485a-49c0-97ca-4861c2b52769/checks -> 200 (6ms) client=127.0.0.1 host=127.0.0.1:7898
+
+# Director log (slot 21): the same attempts
+2026-09-21 11:08:06.441 [GatewayStreamClient] Command received: verb=create, sid=, cmdId=5119331ebc5442a8b14c5d6b93e92862
+2026-09-21 11:08:06.445 [SessionCommandExecutor] DispatchAsync: verb=create, sid=, cmdId=5119331ebc5442a8b14c5d6b93e92862, source=UserInput, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e
+2026-09-21 11:08:06.707 [Session] 9a734428-7931-43e0-b952-34444ae01f9d origin stamped: kind=schedule surface=trigger parent=(none)
+2026-09-21 11:08:15.862 [CcDirector] Session 9a734428-7931-43e0-b952-34444ae01f9d created for repo C:\Users\soren\AppData\Local\Temp\wbf-live\repo (Agent=ClaudeCode, PID 52784, Backend=ConPty, ClaudeSessionId=56bef1a1...).
+2026-09-21 11:08:16.066 [SessionCommandExecutor] DispatchAsync result: verb=create, sid=, status=Ok
+2026-09-21 11:08:16.320 [GatewayClient] ReportTriggerCheckAsync FAILED: trigger=b132120e-d995-491f-aca5-611435880f2b, The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+2026-09-21 11:08:16.320 [DirectorTriggerRunner] report NOT recorded: trigger=Website mail - stub count 1, The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+2026-09-21 11:08:50.754 [ClaudeCode] EchoVerifiedSubmit: composer echo not seen on attempt 1 (len=97, evidence=Absent, the machine has memory to spare) - clearing the composer and retyping. [echo-miss] needleLen=75, tailNeedle="hthesinglewordOK", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screenRows=40, screenLen=325, screenHasNeedle=False, screenHasTail=False, screenTail="Acc
+2026-09-21 11:08:51.134 [Session] ProcessExited: session=9a734428-7931-43e0-b952-34444ae01f9d, exitCode=0, pid=52784, uptime=44.4s
+2026-09-21 11:08:55.393 [ClaudeCode] EchoVerifiedSubmit: composer echo not seen on attempt 2 (len=97, evidence=Absent, the machine has memory to spare) - clearing the composer and retyping. [echo-miss] needleLen=75, tailNeedle="hthesinglewordOK", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screenRows=40, screenLen=338, screenHasNeedle=False, screenHasTail=False, screenTail="Acc
+2026-09-21 11:08:55.721 [PromptDeliveryFailures] FAILED DELIVERY: session=9a734428-7931-43e0-b952-34444ae01f9d, source=Framework, len=97, reason=[ClaudeCode] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=75, tailNeedle="hthes
+2026-09-21 11:08:55.722 [SessionCommandExecutor] PrePrompt FAILED: [ClaudeCode] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=75, tailNeedle="hthesinglewordOK", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", 
+2026-09-21 11:09:36.599 [GatewayStreamClient] Command received: verb=create, sid=, cmdId=46666d2236ad41138c229d8e820d8ff9
+2026-09-21 11:09:36.599 [SessionCommandExecutor] DispatchAsync: verb=create, sid=, cmdId=46666d2236ad41138c229d8e820d8ff9, source=UserInput, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e
+2026-09-21 11:09:36.602 [Session] 1b4585fd-5a43-40fb-abf4-e0c0d7211867 origin stamped: kind=schedule surface=trigger parent=(none)
+2026-09-21 11:09:46.601 [GatewayClient] ReportTriggerCheckAsync FAILED: trigger=b132120e-d995-491f-aca5-611435880f2b, The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+2026-09-21 11:09:46.601 [DirectorTriggerRunner] report NOT recorded: trigger=Website mail - stub count 1, The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+2026-09-21 11:09:49.925 [CcDirector] Session 1b4585fd-5a43-40fb-abf4-e0c0d7211867 created for repo C:\Users\soren\AppData\Local\Temp\wbf-live\repo (Agent=ClaudeCode, PID 61180, Backend=ConPty, ClaudeSessionId=a4befbe1...).
+2026-09-21 11:09:49.927 [SessionCommandExecutor] DispatchAsync result: verb=create, sid=, status=Ok
+2026-09-21 11:10:24.419 [ClaudeCode] EchoVerifiedSubmit: composer echo not seen on attempt 1 (len=97, evidence=Absent, the machine has memory to spare) - clearing the composer and retyping. [echo-miss] needleLen=75, tailNeedle="hthesinglewordOK", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screenRows=40, screenLen=325, screenHasNeedle=False, screenHasTail=False, screenTail="Acc
+2026-09-21 11:10:24.883 [Session] ProcessExited: session=1b4585fd-5a43-40fb-abf4-e0c0d7211867, exitCode=0, pid=61180, uptime=48.3s
+2026-09-21 11:10:29.078 [ClaudeCode] EchoVerifiedSubmit: composer echo not seen on attempt 2 (len=97, evidence=Absent, the machine has memory to spare) - clearing the composer and retyping. [echo-miss] needleLen=75, tailNeedle="hthesinglewordOK", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screenRows=40, screenLen=387, screenHasNeedle=False, screenHasTail=False, screenTail="Acc
+2026-09-21 11:10:29.770 [PromptDeliveryFailures] FAILED DELIVERY: session=1b4585fd-5a43-40fb-abf4-e0c0d7211867, source=Framework, len=97, reason=[ClaudeCode] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=75, tailNeedle="hthes
+2026-09-21 11:10:29.774 [SessionCommandExecutor] PrePrompt FAILED: [ClaudeCode] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not accepting input (a modal, a picker, or a composer still initializing). the machine has memory to spare. [echo-miss] needleLen=75, tailNeedle="hthesinglewordOK", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", 
+2026-09-21 11:11:09.544 [GatewayStreamClient] Command received: verb=create, sid=, cmdId=ccc8cafbe0604007b90e508b64ffe517
+2026-09-21 11:11:09.544 [SessionCommandExecutor] DispatchAsync: verb=create, sid=, cmdId=ccc8cafbe0604007b90e508b64ffe517, source=UserInput, director=5453e038-f4c3-491d-a3a2-34f02fc0e34e
+2026-09-21 11:11:09.547 [Session] df6c14a1-b502-4f4e-b68a-bbc4726c2ed0 origin stamped: kind=schedule surface=trigger parent=(none)
+2026-09-21 11:11:19.378 [GatewayClient] ReportTriggerCheckAsync FAILED: trigger=b132120e-d995-491f-aca5-611435880f2b, The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+2026-09-21 11:11:19.378 [DirectorTriggerRunner] report NOT recorded: trigger=Website mail - stub count 1, The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+2026-09-21 11:11:24.867 [CcDirector] Session df6c14a1-b502-4f4e-b68a-bbc4726c2ed0 created for repo C:\Users\soren\AppData\Local\Temp\wbf-live\repo (Agent=ClaudeCode, PID 61912, Backend=ConPty, ClaudeSessionId=095eff8d...).
+2026-09-21 11:11:24.867 [SessionCommandExecutor] DispatchAsync result: verb=create, sid=, status=Ok
+2026-09-21 11:11:59.708 [ClaudeCode] EchoVerifiedSubmit: composer echo not seen on attempt 1 (len=97, evidence=Absent, the machine has memory to spare) - clearing the composer and retyping. [echo-miss] needleLen=75, tailNeedle="hthesinglewordOK", byteLen=0, byteHasNeedle=False, byteHasTail=False, byteTail="", screenRows=40, screenLen=325, screenHasNeedle=False, screenHasTail=False, screenTail="Acc
+2026-09-21 11:12:00.560 [Session] ProcessExited: session=df6c14a1-b502-4f4e-b68a-bbc4726c2ed0, exitCode=0, pid=61912, uptime=51.0s

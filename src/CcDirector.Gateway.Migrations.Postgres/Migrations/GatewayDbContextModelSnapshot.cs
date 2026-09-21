@@ -2495,6 +2495,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("LastStartName")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
                     b.Property<DateTime?>("LastStartedUtc")
                         .HasColumnType("timestamp with time zone");
 

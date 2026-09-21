@@ -80,7 +80,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20260921105238_AddFactoryTriggers", all[index + 6]);
             // The factory activity record's read indexes (the Factory Agents pages) after that.
             Assert.Equal("20260921131114_IndexFactoryActivityReads", all[index + 7]);
-            Assert.Equal(index + 8, all.Count);
+            // The name a trigger's pending start used, stored with its lock (the trigger's live check) after that.
+            Assert.Equal("20260921203258_AddTriggerStartName", all[index + 8]);
+            Assert.Equal(index + 9, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
