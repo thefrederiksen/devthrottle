@@ -218,7 +218,22 @@ jobs:
             echo "       Do not keep re-pinning images in the hope that one starts."
             exit 1
           fi
-          echo "Recovered: production is serving commit $TARGET again."
+          # Did this run actually WATCH the old container go away, or did it only find the right commit
+          # answering? With last-known-good, and with any rollback to the commit already live, every sample
+          # can carry the target from the first moment - so a pass here proves production is healthy on the
+          # wanted commit, and proves nothing about the restart. Say which of the two happened.
+          OTHER=$(awk -v t="$TARGET" '$2=="200" && $3!=t {n++} END {print n+0}' "$LOG")
+          DOWN=$(awk '$2!="200" {n++} END {print n+0}' "$LOG")
+          if [ "$OTHER" -gt 0 ] || [ "$DOWN" -gt 0 ]; then
+            echo "Recovered: production is serving commit $TARGET again, and this run watched it change"
+            echo "(samples on another commit: $OTHER; samples with no answer: $DOWN)."
+          else
+            echo "Production is serving commit $TARGET and answered every single sample."
+            echo "THE RESTART ITSELF WAS NOT OBSERVED: no sample carried a different commit and none failed,"
+            echo "so this run cannot say the pinned image is what is serving - production may have been on"
+            echo "$TARGET the whole time. Check the image now pinned, below, against what /healthz reports,"
+            echo "and if this was meant to CHANGE the running code, treat it as unconfirmed."
+          fi
           curl -s -m 15 "${GATEWAY_URL}/healthz"; echo
 
       - name: Report

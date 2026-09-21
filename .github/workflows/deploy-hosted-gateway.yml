@@ -113,6 +113,7 @@ jobs:
       digest: ${{ steps.digest.outputs.digest }}
       readiness_outcome: ${{ steps.readiness.outputs.outcome }}
       restart_gap_seconds: ${{ steps.readiness.outputs.restart_gap_seconds }}
+      restart_observed: ${{ steps.readiness.outputs.restart_observed }}
       time_to_healthy_seconds: ${{ steps.readiness.outputs.time_to_healthy_seconds }}
 
     steps:
@@ -371,17 +372,36 @@ jobs:
             first_new=$(date +%s.%N)
             echo "NOTE: the poller had not yet logged a sample on $TARGET; timing from now instead."
           fi
+
+          # A ZERO HERE MUST NEVER BE A NULL RESULT WEARING A NUMBER (issue #2383, and the reviewer's
+          # finding on this change). With no sample carrying the OLD commit there is nothing to measure the
+          # gap FROM: either the poller never caught the old container, or this is a redeploy of the commit
+          # that was already live, in which case every sample carries the target and the restart is
+          # invisible to a check that identifies containers by commit. Writing 0.0 in that case produces a
+          # metrics row indistinguishable from a deploy that genuinely cost nothing, which is the exact
+          # confusion this pipeline refuses everywhere else. Say unmeasured, and carry it to the ledger.
           if [ -n "$last_old" ]; then
             outage=$(awk -v a="$last_old" -v b="$first_new" 'BEGIN{d=b-a; if(d<0)d=0; printf "%.1f", d}')
+            observed=yes
           else
-            outage=0
+            outage=unmeasured
+            observed=no
           fi
           tth=$(( $(printf '%.0f' "$first_new") - t_deploy ))
           echo "restart_gap_seconds=$outage" >> "$GITHUB_OUTPUT"
+          echo "restart_observed=$observed" >> "$GITHUB_OUTPUT"
           echo "time_to_healthy_seconds=$tth" >> "$GITHUB_OUTPUT"
           echo "outcome=healthy" >> "$GITHUB_OUTPUT"
-          echo "New image ${TARGET} live in production after ${tth}s. Gap from the old commit to the new: ~${outage}s."
-          echo "That is the restart this deploy costs; the watch job measures anything that follows it."
+          if [ "$observed" = "yes" ]; then
+            echo "New image ${TARGET} live in production after ${tth}s. Gap from the old commit to the new: ~${outage}s."
+            echo "That is the restart this deploy costs; the watch job measures anything that follows it."
+          else
+            echo "New image ${TARGET} is being served by production after ${tth}s."
+            echo "THE RESTART ITSELF WAS NOT OBSERVED: no sample carried a different commit, so this run"
+            echo "cannot say whether the old container was ever replaced, nor what the change cost. The"
+            echo "gap is recorded as 'unmeasured', not as zero. The watch job still measures availability"
+            echo "for the next ten minutes, and that number is real."
+          fi
           curl -s -m 15 "${GATEWAY_URL}/healthz"; echo
 
       # The watch job runs on a DIFFERENT runner, so it cannot see this runner's /tmp or reach into the
@@ -988,6 +1008,11 @@ jobs:
               OUTCOME="superseded"
             elif [ "$SUPERSEDED" = "unknown" ]; then
               OUTCOME="healthy-but-unverified"
+            elif [ "$RESTART_OBS" = "no" ]; then
+              # Production is serving the shipped commit and stayed available, but nothing in the record
+              # shows the old container being replaced - a same-commit redeploy, or a poller that never
+              # caught the old one. The deploy is not in doubt; the MEASUREMENT of it is.
+              OUTCOME="healthy-restart-unobserved"
             fi
           fi
 
@@ -999,7 +1024,8 @@ jobs:
             *)       ROLLBACK="not-measured" ;;
           esac
           BUILD_S="${{ needs.deploy.outputs.build_seconds }}"; BUILD_S="${BUILD_S:-}"
-          RESTART_S="${{ needs.deploy.outputs.restart_gap_seconds }}"
+          RESTART_S="${{ needs.deploy.outputs.restart_gap_seconds }}"; RESTART_S="${RESTART_S:-not-measured}"
+          RESTART_OBS="${{ needs.deploy.outputs.restart_observed }}"; RESTART_OBS="${RESTART_OBS:-not-measured}"
           OUTAGE_S="${{ steps.outage.outputs.true_outage_seconds }}"
           TOTAL_S="${{ steps.outage.outputs.total_unavailable_seconds }}"
           STATE_LEFT="${{ steps.outage.outputs.site_state_left_running }}"; STATE_LEFT="${STATE_LEFT:-not-measured}"
@@ -1019,6 +1045,7 @@ jobs:
             "build_seconds": "${BUILD_S}",
             "external_outage_seconds": "${OUTAGE_S}",
             "restart_gap_seconds": "${RESTART_S}",
+            "restart_observed": "${RESTART_OBS}",
             "total_unavailable_seconds": "${TOTAL_S}",
             "site_state_left_running": "${STATE_LEFT}",
             "time_to_healthy_seconds": "${TTH_S}",
@@ -1040,7 +1067,8 @@ jobs:
             echo "| build | ${BUILD_S:-?}s |"
             echo "| external outage (longest, watched 10 min past the deploy) | ${OUTAGE_S:-not measured}s |"
             echo "| total unavailable | ${TOTAL_S:-not measured}s |"
-            echo "| gap from the old commit to the new | ${RESTART_S:-?}s |"
+            echo "| gap from the old commit to the new | ${RESTART_S} |"
+            echo "| restart observed | ${RESTART_OBS} |"
             echo "| site left Running | ${STATE_LEFT} |"
             echo "| time-to-healthy | ${TTH_S:-?}s |"
             echo "| migration | $MIG |"
