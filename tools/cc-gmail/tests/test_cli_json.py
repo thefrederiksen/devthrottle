@@ -413,8 +413,12 @@ def _gmail_message_without(msg_id, thread_id, missing):
 
 @pytest.fixture
 def split_runner():
-    """A runner that keeps stderr apart from stdout, so a test can see which one carried the text."""
-    return CliRunner(mix_stderr=False)
+    """A runner whose result keeps stderr apart from stdout, so a test can see which one carried the text.
+
+    Click 8.2 (the declared floor, and what Typer vendors from 0.17 on) always captures the two
+    separately: result.stdout is stdout alone, result.output is both.
+    """
+    return CliRunner()
 
 
 class _ExplodingMessages(_Messages):

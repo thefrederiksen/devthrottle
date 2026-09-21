@@ -5,6 +5,7 @@ Supports two authentication methods:
   - OAuth (Gmail API) -- Full Setup, required when IMAP is blocked
 """
 
+import functools
 import json
 import logging
 import sys
@@ -15,7 +16,6 @@ from typing import Optional, List, Tuple
 # Suppress Google's file_cache warning before importing googleapiclient
 logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
 
-import click
 import typer
 from googleapiclient.errors import HttpError
 from rich.console import Console
@@ -499,19 +499,25 @@ def _draft_json(result: dict) -> dict:
     return draft_json
 
 
-def _json_messages_to_stderr(json_output: bool) -> None:
+def _json_messages_to_stderr(command):
     """In --json mode, send every console message (errors, refusals) to stderr.
 
     The contract is that stdout holds the one JSON document and nothing else, and
-    that a failure leaves stdout empty with its message on stderr. Call this as the
-    first statement of a --json command, before anything can print. The switch is
-    undone when the command's context closes, so the plain output of the next
-    invocation in the same process is untouched.
+    that a failure leaves stdout empty with its message on stderr. The switch
+    covers the whole command, account resolution included, and is undone when it
+    returns or fails, so the plain output of the next invocation in the same
+    process is untouched.
     """
-    if not json_output:
-        return
-    console.stderr = True
-    click.get_current_context().call_on_close(lambda: setattr(console, "stderr", False))
+    @functools.wraps(command)
+    def run(*args, **kwargs):
+        if not kwargs.get("json_output"):
+            return command(*args, **kwargs)
+        console.stderr = True
+        try:
+            return command(*args, **kwargs)
+        finally:
+            console.stderr = False
+    return run
 
 
 def _require_oauth_for_draft_json(auth_method: str, command: str) -> None:
@@ -1039,6 +1045,7 @@ def auth(
 # =============================================================================
 
 @app.command("list")
+@_json_messages_to_stderr
 def list_emails(
     label: str = typer.Option("INBOX", "-l", "--label", help="Label/folder to list"),
     count: int = typer.Option(10, "-n", "--count", help="Number of emails to show"),
@@ -1047,7 +1054,6 @@ def list_emails(
     json_output: bool = typer.Option(False, "--json", help="Output a JSON array: id, thread_id, from, to, subject, date, labels"),
 ):
     """List recent emails from a label/folder."""
-    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
 
     label_ids = [label.upper()]
@@ -1110,13 +1116,13 @@ def list_emails(
 
 
 @app.command()
+@_json_messages_to_stderr
 def read(
     message_id: str = typer.Argument(..., help="Message ID to read"),
     raw: bool = typer.Option(False, "--raw", help="Show raw message data"),
     json_output: bool = typer.Option(False, "--json", help="Output a JSON object: id, thread_id, from, to, subject, date, labels, body"),
 ):
     """Read a specific email. Marks it as read, with or without --json."""
-    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
 
     try:
@@ -1226,6 +1232,7 @@ def send(
 
 
 @app.command()
+@_json_messages_to_stderr
 def draft(
     to: str = typer.Option(..., "-t", "--to", help="Recipient email"),
     subject: str = typer.Option(..., "-s", "--subject", help="Email subject"),
@@ -1236,7 +1243,6 @@ def draft(
     json_output: bool = typer.Option(False, "--json", help="Output a JSON object: draft_id, message_id, thread_id (OAuth accounts only)"),
 ):
     """Create a draft email."""
-    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
     if json_output:
         _require_oauth_for_draft_json(auth_method, "draft")
@@ -1286,6 +1292,7 @@ def draft(
 
 
 @app.command()
+@_json_messages_to_stderr
 def reply(
     message_id: str = typer.Argument(..., help="Message ID to reply to"),
     body: str = typer.Option(None, "-b", "--body", help="Reply body"),
@@ -1296,7 +1303,6 @@ def reply(
     json_output: bool = typer.Option(False, "--json", help="Draft mode only: output a JSON object: draft_id, message_id, thread_id (OAuth accounts only)"),
 ):
     """Create a reply to an existing email (draft or send)."""
-    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
     if json_output:
         if send_flag:
@@ -1413,6 +1419,7 @@ def drafts(
 
 
 @app.command()
+@_json_messages_to_stderr
 def search(
     query: str = typer.Argument(..., help="Gmail search query"),
     count: int = typer.Option(10, "-n", "--count", help="Number of results"),
@@ -1420,7 +1427,6 @@ def search(
     json_output: bool = typer.Option(False, "--json", help="Output a JSON array: id, thread_id, from, to, subject, date, labels"),
 ):
     """Search emails using Gmail query syntax."""
-    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
 
     try:
