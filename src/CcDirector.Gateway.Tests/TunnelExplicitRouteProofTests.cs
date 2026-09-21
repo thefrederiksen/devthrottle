@@ -62,6 +62,15 @@ public sealed class TunnelExplicitRouteProofTests : IAsyncLifetime
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
 
+        // THE SESSION SUPERVISOR IS SWITCHED OFF. Pushing a session that has stopped is a turn end, and the
+        // supervisor answers every turn end with one "screen-grid" read of that session's screen, looking for a
+        // dropped connection. It runs on its own task, so its read reaches the tunnel at an unpredictable moment
+        // and was captured here as the command a route sent: the build failed with "expected handover, actual
+        // screen-grid", on a different route each run. Every route proof below asserts which verb rode the
+        // tunnel, so none of them can share the tunnel with a read they did not make.
+        _gateway.TenantSettingsResolver.SetSessionSupervisorEnabled(
+            CcDirector.Core.Tenancy.TenantId.Local, false, DateTime.UtcNow);
+
         // A REAL session so the Director-side handlers (which validate the session exists) run the real code.
         _sm = new SessionManager(new AgentOptions());
         _session = _sm.CreateEmbeddedSession(Path.GetTempPath(), null, new ExecuteActionTestBackend());

@@ -16,14 +16,22 @@ namespace CcDirector.Reclaim.Tests;
 /// </summary>
 public class DiskCleanupRuleTests
 {
+    /// <summary>
+    /// The account this test runs as. The rule decides "inside the account" against the RUNNING
+    /// account's profile folder, so a folder written out as one machine's own path - C:\Users\soren
+    /// - is inside the account on that machine and outside it everywhere else, which counted one
+    /// more category as needing an administrator on the build machine than on the author's.
+    /// </summary>
+    private static readonly string Account = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
     [Fact]
     public void Examine_TheCategoriesTheMachineHolds_AreCountedAndSeparatedByAdministrator()
     {
         var rule = new DiskCleanupRule(
             new StubSource(
                 Category("BranchCache", [@"C:\ProgramData\BranchCache"]),
-                Category("DownloadsFolder", [@"C:\Users\soren\Downloads"]),
-                Category("Temporary Files", [@"C:\Users\soren\AppData\Local\Temp", @"C:\WINDOWS\Temp"]),
+                Category("DownloadsFolder", [Path.Combine(Account, "Downloads")]),
+                Category("Temporary Files", [Path.Combine(Account, @"AppData\Local\Temp"), @"C:\WINDOWS\Temp"]),
                 Category("Thumbnail Cache")),
             @"C:\");
 

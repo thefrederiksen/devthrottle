@@ -378,12 +378,18 @@ public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await _http.SendAsync(zoneSet)).StatusCode);
 
         // Last week, so the week is complete and well inside the thirty days the ledger keeps.
-        var now = DateTime.UtcNow;
-        var lastWeek = now.AddDays(-7);
+        //
+        // WHICH week is worked out in the TENANT'S ZONE, not in UTC. A week here runs Monday 00:00
+        // Toronto to Monday 00:00 Toronto, so between Monday 00:00 UTC and Monday 00:00 Toronto -
+        // the small hours of Sunday night in Toronto - UTC has already turned the week over and
+        // Toronto has not. Taking "seven days ago" in UTC then picks the week that is still RUNNING,
+        // whose end is in the future, and two of the four rows below are then stamped after "now".
+        // The build machine runs in UTC and hit that window: the count came back 3 rather than 2.
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
+        var lastWeek = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone).AddDays(-7);
         var year = ISOWeek.GetYear(lastWeek);
         var number = ISOWeek.GetWeekOfYear(lastWeek);
         var week = $"{year}-W{number:00}";
-        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
         var monday = ISOWeek.ToDateTime(year, number, DayOfWeek.Monday).Date;
         var expectedFrom = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(monday, DateTimeKind.Unspecified), zone);
         var expectedTo = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(monday.AddDays(7), DateTimeKind.Unspecified), zone);

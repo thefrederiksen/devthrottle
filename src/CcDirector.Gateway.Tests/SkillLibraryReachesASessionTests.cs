@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway;
+using CcDirector.Gateway.Skills;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -105,9 +106,16 @@ public sealed class SkillLibraryReachesASessionTests : IAsyncLifetime
         Assert.True(body.Length > 2000, "the move-session body should be substantial - if it is not, " +
                                         "this test is no longer measuring anything.");
         Assert.DoesNotContain("# Move Session", preamble);
-        // And the whole block stays a handful of lines, not a page.
-        var skillLines = preamble.Split('\n').Count(l => l.TrimStart().StartsWith("- "));
-        Assert.True(skillLines <= 10, $"the skill index rendered {skillLines} entry lines");
+
+        // And the block costs ONE LINE PER SKILL, not a page. The bound is drawn from the shipped
+        // list rather than a fixed ceiling: it used to read "at most 10" and failed when the product
+        // shipped its eleventh skill, which is the list growing as intended and not a briefing that
+        // has bloated. What would be a real failure is a skill costing more than its line, so the
+        // count is held to the number of skills exactly, and each line to a summary's length.
+        var skillLines = preamble.Split('\n').Where(l => l.TrimStart().StartsWith("- ")).ToArray();
+        Assert.Equal(BuiltInSkills.All().Count, skillLines.Length);
+        Assert.All(skillLines, line => Assert.True(line.Length <= 200,
+            $"a skill index entry ran to {line.Length} characters - a body may be riding the briefing: {line}"));
     }
 
     [Fact]

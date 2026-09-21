@@ -72,6 +72,15 @@ public sealed class WingmanMenuGuardProofTests : IAsyncLifetime
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
 
+        // THE SESSION SUPERVISOR IS SWITCHED OFF. Pushing a session that has stopped is a turn end, and the
+        // supervisor answers every turn end with one read of that session's live screen, looking for a dropped
+        // connection to recover from. That read is the "screen-grid" verb every assertion here counts, so with
+        // the supervisor on, "the guard never reads the screen" failed on a read the guard did not make, and
+        // "the guard reads the screen" could pass on one it did not make either. Switched off, every screen
+        // read left in this Gateway is the menu guard's own.
+        _gateway.TenantSettingsResolver.SetSessionSupervisorEnabled(
+            CcDirector.Core.Tenancy.TenantId.Local, false, DateTime.UtcNow);
+
         _gateway.Registry.Upsert(new DirectorRegistrationRequest
         {
             DirectorId = DirectorId,
