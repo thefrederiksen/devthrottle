@@ -10,7 +10,7 @@ devthrottle main at `761a45383`, isolated from the owner's own Gateway and Direc
 | Empty mailbox: at least three consecutive empty runs, no session started | **PASS** - nine consecutive "nothing to do" runs, no session |
 | Broken check: RED in the history and in the Cockpit | **PASS** - every run "failed" with the reason, RED "check failed" in the Cockpit |
 | Pause: records "paused", starts nothing; resume works | **PASS** - four "paused" runs, no session; resume turned the next check into a start attempt |
-| One start: exactly ONE visible session, then "skipped" on the next interval while it runs | **FAIL on main `761a45383`** (below). **After the fix `19ed0ba84`: the report is answered at once and a start that returns is ONE started row with the lock held and the next interval skipped - but a start that outlives the Gateway's own 30-second spawn wait still double-starts** (see "The fix, live") |
+| One start: exactly ONE visible session, then "skipped" on the next interval while it runs | **FAIL on main `761a45383`** (below). **PASS after the fixes** `19ed0ba84` (report answered at once, lock before the spawn) and `d5f81154f` (a start whose outcome is unknown keeps the lock and adopts its session): one session, then `skipped-running` - including a start that outlived the Gateway's 30-second wait (see "The fix, live") |
 
 ## The fix, live (second seat, 2026-09-21 evening)
 
@@ -79,9 +79,10 @@ them re-installing skills, so the Gateway's wait ran out; the spawner answered "
 command was carried out"; by the rule "a failed spawn releases the lock", the row went `failed` and the lock was
 released; and the Director did create the session. The next interval then started a second one. The spawner
 gives no structured "outcome unknown" signal - it is only in the sentence - so the fix cannot tell a definite
-failure from an unknown one. Put to the Tech Lead at 19:44 UTC with a recommendation: an outcome-unknown start
-keeps the pending lock, adopts the session when the Director reports one with the start's unique name, and lets
-the lock lapse after the start grace only if none appears; a definite failure still releases at once.
+failure from an unknown one. Put to the Tech Lead at about 19:40 UTC with a recommendation: an outcome-unknown
+start keeps the pending lock, adopts the session when the Director reports one with the start's unique name, and
+lets the lock lapse after the start grace only if none appears; a definite failure still releases at once. The
+Tech Lead said yes at 19:41 - built and proven in section 3 below.
 
 Screenshots: `screens/03-fixed-start-1.png` (Front Desk: the stub trigger, the failed start row with the
 "not known" reason), `screens/03-fixed-start-2.png` (Activity for Website Business after the two starts).
@@ -90,6 +91,66 @@ paused again.
 
 Session `7748ec0f` stayed "waiting for input" with no turn - its opening prompt did not arrive - while
 `de8b16e7` ran its turn. Not chased here; it is the lost create answer's other side.
+
+### 3. A start whose outcome is unknown keeps the lock (commit `d5f81154f`, the Tech Lead's ruling)
+
+**What changed.**
+
+- The create's outcome travels as a flag, never read from the sentence. `SessionVerbClient.CreateSessionWithOutcomeAsync`
+  sets it from the command router's own status (`Timeout` or `TunnelDropped`), and
+  `MachineSessionSpawner.SpawnOnMachineWithOutcomeAsync` carries it (`MachineSpawnResult.OutcomeUnknown`) to the
+  trigger's starter (`TriggerStartAttempt`). A failure before the create was sent - machine off, a refused
+  Director - and a Director that answered with an error are definite.
+- An unknown outcome writes a `failed` row whose reason says so and says the lock is held:
+  "the session start outcome is not known: <the router's sentence> The lock is held until a session named '<name>'
+  shows up, or for 5 minutes." The pending lock stays. The trigger reads RED "start outcome unknown - waiting for
+  the session" for as long as that lock holds, whatever the checks since have come to.
+- At each later check, while no start of the trigger runs on this Gateway, the session is looked up by the start's
+  unique name (computed from the lock's own start time, so nothing new is stored), among the sessions the
+  Directors report with origin surface `trigger`. Found: a NEW `started` row with its id, the lock is that session,
+  and the status clears. Not found once the 5-minute grace is over: the lock lapses with a `failed` row saying "no
+  session named '<name>' showed up within 5 minutes of a start whose outcome was not known; the lock is released".
+- A definite failure still releases the lock at once. A start cut off by the Gateway stopping is now an unknown
+  outcome too (the create may already be on its way), so the next Gateway adopts or lapses it rather than
+  starting again.
+
+Tests: `TriggerServiceTests` - an unknown outcome keeps the lock, is RED, writes the failed row with that reason,
+and the next check inside the grace is skipped and starts nothing; an unknown outcome whose session shows up is
+adopted as a new `started` row, the lock is on it, the status is OK, and once it ends the next check starts; with
+no session inside the grace the lock lapses with its row and the next check starts; a start still running is not
+taken for an unknown one; a start cut off by the Gateway stopping keeps the lock. `MachineSessionSpawnerTests`,
+through the real verb client: a tunnel dropped mid-create is an unknown outcome; a Director's error answer and a
+machine that is off are not. `TriggerStatusFoldTests`: the unknown lock is RED whatever the last check was, and
+silence still outranks it. Gate: `dotnet test src\CcDirector.Gateway.UnitTests` 7166 passed, 0 failed, 8 skipped;
+`CcDirector.Gateway.Tests` filtered to Trigger, Factory and the three host tests that build the spawner
+(`DirectorSpawnMissionAndSeat`, `MachineSpawnOriginStamp`, `HostedTenantMachineControl`): 67 passed, 0 failed;
+`.\scripts\test-local.ps1`: every suite green except the same two Launcher tests (issue 3242).
+
+**Live.** The rig Gateway was republished at `d5f81154f` to `gw-stage3` and restarted the same way (`/healthz`
+`2.9.0+d5f81154f...`). The first start after the restart was fast this time (3.6 seconds): one `started` row for
+`c060b632` and `skipped-running` on it at the next two checks (`live-rows/08-second-build-fast-start-watch.txt`).
+The slow case did not recur by itself, so it was made to happen: `live-rig/slow-director.ps1` watches the rig
+Director's log for the next create and suspends that ONE process - the rig's own slot-21 Director, which the
+script checks by path - for 40 seconds, then resumes it. Suspended, never killed. The Gateway's 30-second wait
+runs out while the Director, resumed, still carries the create out. That is the live defect, on purpose.
+
+| Time (UTC) | What happened | Row |
+|---|---|---|
+| 20:10:00.16 | check counted 1; lock taken; create sent; the Director received it and was suspended at 20:10:00.29 | none yet |
+| 20:10:30.17 | the router: "TIMED OUT after 30 seconds"; the spawner: `outcomeUnknown=True` | `failed`, count 1: "the session start outcome is not known: The Director did not answer within 30 seconds. ... The lock is held until a session named 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10' shows up, or for 5 minutes." Status **RED "start outcome unknown - waiting for the session"** |
+| 20:10:40.33 | the Director resumed, reconnected, and finished the create: session `c8aeafb3`, its agent launched 20:10:44 | none |
+| 20:11:30.06 | next check: the session was found by its name and adopted | a NEW **`started`** row, session `c8aeafb3`; then this check's own **`skipped-running`** on `c8aeafb3`. Status **OK** |
+| 20:13:00.14 | next check | `skipped-running` on `c8aeafb3` |
+
+Exactly one session for that start. Rows: `live-rows/09-after-unknown-adopted-runs-b132120e.json` and
+`09-after-unknown-adopted-activity.json` (before: `07-before-unknown-fix-*`); the ten-second watch with the status
+at each tick: `live-rows/09-unknown-adopted-watch.txt`; both logs: `live-rows/10-unknown-adopted-log-excerpt.txt`.
+Screenshots: `screens/04-unknown-adopted-1.png` (Front Desk, the stub trigger OK "work waiting, its last session
+still running") and `screens/04-unknown-adopted-2.png` (Activity). The RED status while the lock waited shows in
+the watch (20:10:44 to 20:11:24), not in a screenshot. The stub trigger was then paused and `c8aeafb3` stopped.
+
+Not proven live: the lapse after 5 minutes with no session (it needs a create that is lost outright; the unit
+test covers it), and adoption after a Gateway restart mid-start.
 
 ## The defect: every start on a real Director is recorded as failed, and the lock is never set
 
@@ -224,8 +285,6 @@ Director's whole data tree follows `CC_DIRECTOR_ROOT`, the Gateway's too, and ne
 
 ## Not covered
 
-- A start that outlives the Gateway's own 30-second spawn wait still double-starts (see "The fix, live"); the
-  Tech Lead decides the fix.
 - The end-to-end reply (the real check starting a real Front Desk session that leaves a Gmail draft): no
   allowlisted test address has a business thread to insert a reply on (wftest1 is suppressed; wftest2 and wftest3
   have no thread), so it waits on the Tech Lead's word on how to make one.

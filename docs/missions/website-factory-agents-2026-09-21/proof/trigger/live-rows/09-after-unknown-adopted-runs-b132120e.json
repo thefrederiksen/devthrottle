@@ -1,0 +1,225 @@
+{
+  "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+  "runs": [
+    {
+      "id": "7e74a226-826b-4eb2-90fb-3b587a267e0d",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:13:00.1374356Z",
+      "recordedUtc": "2026-09-21T20:13:00.1384941Z",
+      "outcome": "skipped-running",
+      "count": 1,
+      "sessionId": "c8aeafb3-316e-4d57-81af-75b76a30f8c8",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "e251f949-93f3-48ee-bfbe-1f9f923cec67",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:11:30.0611084Z",
+      "recordedUtc": "2026-09-21T20:11:30.0656033Z",
+      "outcome": "skipped-running",
+      "count": 1,
+      "sessionId": "c8aeafb3-316e-4d57-81af-75b76a30f8c8",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "10e1a4fe-950d-40ef-8099-740e63a4fb7a",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:11:30.0620991Z",
+      "recordedUtc": "2026-09-21T20:11:30.0620991Z",
+      "outcome": "started",
+      "count": null,
+      "sessionId": "c8aeafb3-316e-4d57-81af-75b76a30f8c8",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "047de226-87f6-4f32-bfdf-65b531dd7e62",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:10:00.1593977Z",
+      "recordedUtc": "2026-09-21T20:10:30.1678822Z",
+      "outcome": "failed",
+      "count": 1,
+      "sessionId": null,
+      "reason": "the session start outcome is not known: The Director did not answer within 30 seconds. It is not known whether the command was carried out. The lock is held until a session named 'front-desk - Website mail - stub count 1 - 2026-09-21 16:10' shows up, or for 5 minutes.",
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "bb61c3b1-b7dc-40d0-b80d-4b95042a5b5b",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:08:30.1769386Z",
+      "recordedUtc": "2026-09-21T20:08:30.178034Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "55fe8341-7d35-4d3c-bb8d-3591d05143c5",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:07:00.1649034Z",
+      "recordedUtc": "2026-09-21T20:07:00.1659211Z",
+      "outcome": "skipped-running",
+      "count": 1,
+      "sessionId": "c060b632-e558-4119-bdb6-5335f84b0957",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "70b3e706-85bc-4e4d-bdaf-53c108394f79",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:05:30.1819026Z",
+      "recordedUtc": "2026-09-21T20:05:30.184928Z",
+      "outcome": "skipped-running",
+      "count": 1,
+      "sessionId": "c060b632-e558-4119-bdb6-5335f84b0957",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "677274bd-b302-4a56-a68d-16f35c751ff2",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:04:00.0779699Z",
+      "recordedUtc": "2026-09-21T20:04:03.7110762Z",
+      "outcome": "started",
+      "count": 1,
+      "sessionId": "c060b632-e558-4119-bdb6-5335f84b0957",
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "71e03da1-44aa-4ebb-8b14-f533e4625a23",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:02:00.0700251Z",
+      "recordedUtc": "2026-09-21T20:02:00.0715205Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "6e08f4d5-cfb3-41e1-9cb2-b174333c0ef1",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T20:00:30.0700756Z",
+      "recordedUtc": "2026-09-21T20:00:30.0708034Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "43baf633-b5c8-4985-860b-b78388c64464",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:59:00.1119417Z",
+      "recordedUtc": "2026-09-21T19:59:00.1131585Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "b3369e38-ab16-456a-a05b-9def2d605cd5",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:57:30.0926777Z",
+      "recordedUtc": "2026-09-21T19:57:30.0936742Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "7a47c3cb-e4eb-4ca5-9dd6-d49e8c1a5629",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:56:00.0961701Z",
+      "recordedUtc": "2026-09-21T19:56:00.0976185Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "20db562d-06b4-470e-8394-024c329338af",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:54:30.6136853Z",
+      "recordedUtc": "2026-09-21T19:54:30.6156385Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "451a1787-f333-4efc-a00f-180883023b3e",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:53:00.1146801Z",
+      "recordedUtc": "2026-09-21T19:53:00.1167203Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "eeaecd07-2c68-4935-b999-797e08fdeb9c",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:51:30.0754259Z",
+      "recordedUtc": "2026-09-21T19:51:30.076346Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "58305aa9-c6c9-447f-8edc-502e404c6691",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:50:00.2068332Z",
+      "recordedUtc": "2026-09-21T19:50:00.2078341Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "f8f23156-1477-41c0-bb2d-0172e0d83ca9",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:48:30.3961433Z",
+      "recordedUtc": "2026-09-21T19:48:30.4007227Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "b5ca52e3-12ff-4ba0-af53-fb6482278d1a",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:47:00.1281791Z",
+      "recordedUtc": "2026-09-21T19:47:00.129215Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    },
+    {
+      "id": "f183ad9e-a7b9-452e-922e-bc838422dbcf",
+      "triggerId": "b132120e-d995-491f-aca5-611435880f2b",
+      "checkedUtc": "2026-09-21T19:45:30.0875901Z",
+      "recordedUtc": "2026-09-21T19:45:30.0898803Z",
+      "outcome": "paused",
+      "count": 1,
+      "sessionId": null,
+      "reason": null,
+      "directorId": "5453e038-f4c3-491d-a3a2-34f02fc0e34e"
+    }
+  ]
+}

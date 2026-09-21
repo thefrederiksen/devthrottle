@@ -21,6 +21,8 @@ while time.time() < end:
         seen.add(r["id"])
         print(time.strftime("%H:%M:%S"), "RUN checked", r["checkedUtc"], "recorded", r["recordedUtc"], "|", r["outcome"],
               "| count", r["count"], "| session", r["sessionId"], "|", r["reason"], flush=True)
+    t = get(f"/triggers/{trigger}")
+    print(time.strftime("%H:%M:%S"), "STATUS", t["status"], "|", t["statusText"], "| lastSession", t["lastSessionId"], flush=True)
     sessions = get("/sessions")
     rows = sessions if isinstance(sessions, list) else sessions.get("sessions", [])
     live = [(s.get("sessionId", "")[:8], s.get("name") or s.get("customName"), s.get("activityState")) for s in rows]
