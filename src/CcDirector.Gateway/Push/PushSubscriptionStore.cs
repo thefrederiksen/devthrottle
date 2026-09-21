@@ -33,15 +33,18 @@ public sealed class PushSubscriptionStore
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
     private readonly string _legacyJsonPath;
+    private readonly Func<DateTime> _utcNow;
 
     /// <param name="db">The Gateway EF database this store reads and writes through.</param>
     /// <param name="legacyJsonPath">The legacy <c>push-subscriptions.json</c> path to import ONCE if it
     /// exists and the table is empty. REQUIRED (no silent default).</param>
     /// <exception cref="ArgumentNullException">The database is null.</exception>
     /// <exception cref="ArgumentException">The legacy path is null/empty/whitespace.</exception>
-    public PushSubscriptionStore(GatewayDatabase db, string legacyJsonPath)
+    /// <param name="utcNow">The clock a held count's age is measured on; the system clock when omitted.</param>
+    public PushSubscriptionStore(GatewayDatabase db, string legacyJsonPath, Func<DateTime>? utcNow = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
         if (string.IsNullOrWhiteSpace(legacyJsonPath))
             throw new ArgumentException("legacy json path is required", nameof(legacyJsonPath));
         _legacyJsonPath = legacyJsonPath;
@@ -50,11 +53,38 @@ public sealed class PushSubscriptionStore
             ImportLegacyJsonIfNeeded();
     }
 
-    /// <summary>The number of registered subscriptions.</summary>
+    /// <summary>
+    /// The number of registered subscriptions in the current account.
+    ///
+    /// HELD, NOT COUNTED EACH TIME (devthrottle_internal#2199). The needs-you notifier asks this for every account
+    /// every few seconds before it does anything else - a database round trip every time to learn a number that
+    /// changes when a phone subscribes. The count is held per account and discarded by every write
+    /// through this store (<see cref="Add"/>, <see cref="Remove"/>, the legacy import). The age ceiling covers the
+    /// one writer this process cannot hear: a second Gateway process during a deploy, which could accept a
+    /// subscription this one would otherwise never count.
+    /// </summary>
     public int Count
     {
-        get { lock (_gate) { using var ctx = _db.CreateContext(); return ctx.PushSubscriptions.Count(); } }
+        get
+        {
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext();
+                var tenant = ctx.ActiveTenant ?? "";
+                var now = _utcNow();
+                if (_counts.TryGetValue(tenant, out var held) && now - held.ReadAtUtc < CountMaxAge)
+                    return held.Count;
+                var count = ctx.PushSubscriptions.Count();
+                _counts[tenant] = (count, now);
+                return count;
+            }
+        }
     }
+
+    /// <summary>The longest a held count is served without asking the database. See <see cref="Count"/>.</summary>
+    internal static readonly TimeSpan CountMaxAge = TimeSpan.FromSeconds(30);
+
+    private readonly Dictionary<string, (int Count, DateTime ReadAtUtc)> _counts = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Record (or refresh) a subscription. A repeat of the same endpoint replaces the prior keys and
@@ -96,6 +126,7 @@ public sealed class PushSubscriptionStore
                 existing.CreatedAtUtc = DateTime.UtcNow;
             }
             ctx.SaveChanges();
+            _counts.Clear();
             FileLog.Write($"[PushSubscriptionStore] {(isNew ? "Added" : "Refreshed")} a subscription, total={ctx.PushSubscriptions.Count()}");
             return isNew;
         }
@@ -115,6 +146,7 @@ public sealed class PushSubscriptionStore
                 return false;
             ctx.PushSubscriptions.Remove(existing);
             ctx.SaveChanges();
+            _counts.Clear();
             FileLog.Write($"[PushSubscriptionStore] Removed a subscription, total={ctx.PushSubscriptions.Count()}");
             return true;
         }
@@ -212,6 +244,7 @@ public sealed class PushSubscriptionStore
         }
         ctx.SaveChanges();
         tx.Commit();
+        _counts.Clear();
 
         FileLog.Write($"[PushSubscriptionStore] Import: {toImport.Count} subscription(s) imported from {_legacyJsonPath}");
     }

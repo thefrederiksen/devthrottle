@@ -111,4 +111,43 @@ public sealed class TenantRegistryTests : IDisposable
         Assert.NotNull(looked);
         Assert.Equal(minted.Value, looked!.Value.Value);
     }
+
+    // ----- the held census (devthrottle_internal#2199: every sweep re-read it every cycle) -----
+
+    [Fact]
+    public void AllTenantIds_IsHeld_AndAMintIsSeenAtOnce()
+    {
+        var registry = new TenantRegistry(_harness.Open());
+        var alice = registry.MintOrLookupBySubject("sub-alice", null);
+        Assert.Equal(new[] { alice }, registry.AllTenantIds());
+
+        using (var counter = new ReaderCommandCounter(_harness.DbPath))
+        {
+            registry.AllTenantIds();
+            registry.AllTenantIds();
+            Assert.Equal(0, counter.Reads);
+        }
+
+        var bob = registry.MintOrLookupBySubject("sub-bob", null);
+        Assert.Equal(new[] { alice, bob }.OrderBy(t => t.Value), registry.AllTenantIds().OrderBy(t => t.Value));
+    }
+
+    /// <summary>An account another Gateway process minted (a deploy overlap) is swept once the held census is older
+    /// than its ceiling, and not before.</summary>
+    [Fact]
+    public void AllTenantIds_SeesAnotherProcesssMint_AfterItsCeiling()
+    {
+        var now = new DateTime(2026, 9, 21, 12, 0, 0, DateTimeKind.Utc);
+        var db = _harness.Open();
+        var registry = new TenantRegistry(db, () => now);
+        var other = new TenantRegistry(db, () => now);
+        Assert.Empty(registry.AllTenantIds());
+
+        var minted = other.MintOrLookupBySubject("sub-carol", null);
+
+        now += TenantRegistry.CensusMaxAge - TimeSpan.FromSeconds(1);
+        Assert.Empty(registry.AllTenantIds());
+        now += TimeSpan.FromSeconds(1);
+        Assert.Equal(new[] { minted }, registry.AllTenantIds());
+    }
 }

@@ -106,10 +106,26 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
 
-    public FleetMessageStore(GatewayDatabase db)
+    private readonly Func<DateTime> _utcNow;
+
+    /// <param name="utcNow">The clock the held unread counts' age is measured on; the system clock when omitted.</param>
+    public FleetMessageStore(GatewayDatabase db, Func<DateTime>? utcNow = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
+
+    /// <summary>The longest held unread counts are served without asking the database. See
+    /// <see cref="UnreadCountsByRecipient"/>.</summary>
+    internal static readonly TimeSpan CountsMaxAge = TimeSpan.FromSeconds(30);
+
+    private sealed record UnreadGroup(string RecipientSessionId, string Kind, bool Stuck, int Count, DateTime Oldest);
+    private sealed record HeldCounts(long Version, DateTime ReadAtUtc, List<UnreadGroup> Groups);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _countVersions = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, HeldCounts> _counts = new(StringComparer.Ordinal);
+
+    /// <summary>Called after every committed write that can change what <see cref="UnreadCountsByRecipient"/> counts.</summary>
+    private void CountsChanged(TenantId tenant) => _countVersions.AddOrUpdate(tenant.Value, 1L, (_, v) => v + 1);
 
     /// <summary>The hash stored beside a message's text, used to find an unread identical message.</summary>
     public static string HashText(string text) =>
@@ -151,6 +167,7 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             var row = NewRow(ctx, draft, hash, now);
             ctx.FleetMessages.Add(row);
             ctx.SaveChanges();
+            CountsChanged(tenant);
             return (verdict, row);
         }
     }
@@ -220,6 +237,7 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             ctx.FleetMessages.Add(row);
             original.RepliedAtUtc ??= now;
             ctx.SaveChanges();
+            CountsChanged(tenant);
             return new FleetReplyResult(FleetReplyMiss.None, verdict, row, original);
         }
     }
@@ -352,7 +370,11 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
                 // inbox - it was true when it was written - and no second notice is sent.
                 m.StuckAtUtc = null;
             }
-            if (unread.Count > 0) ctx.SaveChanges();
+            if (unread.Count > 0)
+            {
+                ctx.SaveChanges();
+                CountsChanged(tenant);
+            }
             return new FleetInboxRead(unread, recent, Math.Max(recentTotal, recent.Count),
                 OriginalsFor(ctx, recipient, unread.Concat(recent)));
         }
@@ -439,6 +461,7 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             if (result.Count == 0) return result;
             BeforeOverdueSave?.Invoke();
             ctx.SaveChanges();
+            CountsChanged(tenant);
             return result;
         }
     }
@@ -480,15 +503,36 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
     /// Every session's UNREAD messages in this tenant, counted for the row line (slice 4), in ONE grouped query:
     /// no text, no rows, only a count per recipient, kind and stuck mark, and the oldest write time of each group.
     /// Reads, changes nothing. A session with nothing unread is absent from the answer.
+    ///
+    /// HELD UNTIL THE NEXT WRITE (devthrottle_internal#2199). This runs in the roster fold - every roster poll,
+    /// display sweep and Director push, many times a second across a fleet - and the groups only change when a
+    /// message is written, read, marked overdue or stuck, or purged, all through this store. The groups are held per
+    /// account and discarded by each of those writes; a ring (<see cref="MarkRung"/>) changes no column counted
+    /// here and leaves them. The age ceiling covers a second Gateway process during a deploy.
     /// </summary>
     public IReadOnlyDictionary<string, FleetInboxCounts> UnreadCountsByRecipient(TenantId tenant)
     {
-        using var ctx = _db.CreateContext(tenant);
-        var groups = ctx.FleetMessages.AsNoTracking()
-            .Where(m => m.ReadAtUtc == null)
-            .GroupBy(m => new { m.RecipientSessionId, m.Kind, Stuck = m.StuckAtUtc != null })
-            .Select(g => new { g.Key.RecipientSessionId, g.Key.Kind, g.Key.Stuck, Count = g.Count(), Oldest = g.Min(m => m.CreatedAtUtc) })
-            .ToList();
+        if (!tenant.IsValid) throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
+        var now = _utcNow();
+        var version = _countVersions.GetOrAdd(tenant.Value, 0L);
+        List<UnreadGroup> groups;
+        if (_counts.TryGetValue(tenant.Value, out var held) && held.Version == version && now - held.ReadAtUtc < CountsMaxAge)
+        {
+            groups = held.Groups;
+        }
+        else
+        {
+            using var ctx = _db.CreateContext(tenant);
+            groups = ctx.FleetMessages.AsNoTracking()
+                .Where(m => m.ReadAtUtc == null)
+                .GroupBy(m => new { m.RecipientSessionId, m.Kind, Stuck = m.StuckAtUtc != null })
+                .Select(g => new { g.Key.RecipientSessionId, g.Key.Kind, g.Key.Stuck, Count = g.Count(), Oldest = g.Min(m => m.CreatedAtUtc) })
+                .ToList()
+                .Select(g => new UnreadGroup(g.RecipientSessionId, g.Kind, g.Stuck, g.Count, g.Oldest))
+                .ToList();
+            // Held under the version read BEFORE the query: a write that lands meanwhile makes it stale at once.
+            _counts[tenant.Value] = new HeldCounts(version, now, groups);
+        }
 
         var byRecipient = new Dictionary<string, FleetInboxCounts>(StringComparer.Ordinal);
         foreach (var g in groups)
@@ -717,6 +761,7 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             if (result.Count == 0) return result;
             BeforeStuckSave?.Invoke();
             ctx.SaveChanges();
+            CountsChanged(tenant);
             return result;
         }
     }
@@ -742,6 +787,7 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             if (old.Count == 0) return 0;
             ctx.FleetMessages.RemoveRange(old);
             ctx.SaveChanges();
+            CountsChanged(tenant);
             return old.Count;
         }
     }

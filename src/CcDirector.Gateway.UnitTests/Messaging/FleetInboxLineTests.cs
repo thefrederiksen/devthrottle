@@ -175,6 +175,70 @@ public sealed class FleetInboxLineTests : IDisposable
         Assert.Single(store.UnreadCountsByRecipient(TenantA));
     }
 
+    // ---------- The held counts (devthrottle_internal#2199: this ran on every roster fold) ----------
+
+    [Fact]
+    public void The_counts_asked_again_with_no_write_do_not_ask_the_database()
+    {
+        var store = new FleetMessageStore(_harness.Open());
+        Enqueue(store, TenantA, Manager, WorkerA, FleetMessageKinds.Message, "hello", T0);
+        Assert.Single(store.UnreadCountsByRecipient(TenantA));
+
+        using var counter = new ReaderCommandCounter(_harness.DbPath);
+        for (var i = 0; i < 5; i++) Assert.Equal(Counts(waiting: 1), store.UnreadCountsByRecipient(TenantA)[WorkerA]);
+
+        Assert.Equal(0, counter.Reads);
+    }
+
+    /// <summary>Every write that changes what is counted reaches the next fold at once: a new message, a stuck
+    /// mark, a read inbox, and the purge. A ring changes nothing counted and does not cost a read.</summary>
+    [Fact]
+    public void Every_write_that_changes_a_count_is_seen_at_once_and_a_ring_costs_nothing()
+    {
+        var store = new FleetMessageStore(_harness.Open());
+        var first = Enqueue(store, TenantA, Manager, WorkerA, FleetMessageKinds.Message, "one", T0.AddMinutes(-30));
+        Assert.Equal(Counts(waiting: 1), store.UnreadCountsByRecipient(TenantA)[WorkerA]);
+
+        Enqueue(store, TenantA, Manager, WorkerA, FleetMessageKinds.Message, "two", T0.AddMinutes(-20));
+        Assert.Equal(Counts(waiting: 2), store.UnreadCountsByRecipient(TenantA)[WorkerA]);
+
+        using (var counter = new ReaderCommandCounter(_harness.DbPath))
+        {
+            Assert.Equal(1, store.MarkRung(TenantA, WorkerA, new[] { first }, T0.AddMinutes(-15), ringCap: 3));
+            var reads = counter.Reads;   // the ring reads its own rows; only the fold's reads are asserted
+            Assert.Equal(Counts(waiting: 2), store.UnreadCountsByRecipient(TenantA)[WorkerA]);
+            Assert.Equal(reads, counter.Reads);
+        }
+
+        Assert.Single(store.MarkStuck(TenantA, T0.AddMinutes(-10), m => m.MessageId == first));
+        Assert.Equal(Counts(waiting: 1, stuck: 1, oldestStuck: T0.AddMinutes(-30)), store.UnreadCountsByRecipient(TenantA)[WorkerA]);
+
+        store.ReadInbox(TenantA, WorkerA, T0, includeRecent: false);
+        Assert.Empty(store.UnreadCountsByRecipient(TenantA));
+
+        Enqueue(store, TenantA, Manager, WorkerB, FleetMessageKinds.Message, "three", T0.AddMinutes(-5));
+        Assert.Single(store.UnreadCountsByRecipient(TenantA));
+    }
+
+    /// <summary>A message another Gateway process wrote (a deploy overlap) is counted once the held counts are older
+    /// than their ceiling, and not before.</summary>
+    [Fact]
+    public void Another_processs_message_is_counted_after_the_ceiling()
+    {
+        var now = T0;
+        var db = _harness.Open();
+        var store = new FleetMessageStore(db, () => now);
+        var other = new FleetMessageStore(db, () => now);
+        Assert.Empty(store.UnreadCountsByRecipient(TenantA));
+
+        Enqueue(other, TenantA, Manager, WorkerA, FleetMessageKinds.Message, "hello", T0);
+
+        now += FleetMessageStore.CountsMaxAge - TimeSpan.FromSeconds(1);
+        Assert.Empty(store.UnreadCountsByRecipient(TenantA));
+        now += TimeSpan.FromSeconds(1);
+        Assert.Single(store.UnreadCountsByRecipient(TenantA));
+    }
+
     // ---------- The stamp ----------
 
     private sealed class FakeSource : IFleetInboxLineSource

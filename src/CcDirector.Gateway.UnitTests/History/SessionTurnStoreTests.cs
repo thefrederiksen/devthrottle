@@ -2,6 +2,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.History;
@@ -251,6 +252,128 @@ public sealed class SessionTurnStoreTests : IDisposable
 
         Assert.Equal(1, removed);                 // the left-behind generation A row only
         Assert.Equal(new[] { "new" }, Texts(store, "s1"));
+    }
+
+    // ----- the held conversations (devthrottle_internal#2199): a read asks only for the turns it does not hold -----
+
+    /// <summary>
+    /// The proof that a read carries only the new tail: the first two stored rows are deleted from the database
+    /// behind the store's back, a third turn is pushed, and the next read still answers all three. A store that
+    /// re-read the whole prefix would answer only the third. (Nothing in production deletes a held prefix - retention
+    /// never cuts a live session from the middle - so the deletion here is only the instrument.)
+    /// </summary>
+    [Fact]
+    public void AHeldConversation_ReadsOnlyTheTurnsPastWhatItHolds()
+    {
+        var db = _harness.Open();
+        var store = new SessionTurnStore(db);
+        store.Append("d1", A("s1", 0, Turn("User", "one", 0), Turn("Assistant", "two", 1)), Now);
+        Assert.Equal(new[] { "one", "two" }, Texts(store, "s1"));
+
+        using (var ctx = db.CreateContext())
+            ctx.SessionTurns.Where(t => t.SessionId == "s1" && t.Ordinal < 2).ExecuteDelete();
+        store.Append("d1", A("s1", 2, Turn("User", "three", 2)), Now.AddSeconds(5));
+
+        Assert.Equal(new[] { "one", "two", "three" }, Texts(store, "s1"));
+    }
+
+    /// <summary>Every change the head describes reaches the next read: a continuation, a generation switch (a new
+    /// conversation replaces the held one entirely), and a session that retention removed and that came back
+    /// shorter than what was held.</summary>
+    [Fact]
+    public void AHeldConversation_FollowsEveryChangeTheHeadDescribes()
+    {
+        var store = Store();
+        store.Append("d1", A("s1", 0, Turn("User", "a0", 0), Turn("Assistant", "a1", 1)), Now.AddDays(-100));
+        Assert.Equal(new[] { "a0", "a1" }, Texts(store, "s1"));
+
+        store.Append("d1", A("s1", 2, Turn("User", "a2", 2)), Now.AddDays(-100));
+        Assert.Equal(new[] { "a0", "a1", "a2" }, Texts(store, "s1"));
+
+        // Retention removes the whole session; it comes back with one turn of the same generation.
+        store.PurgeOlderThan(Now.AddDays(-90));
+        Assert.Null(store.ReadCurrent("s1"));
+        store.Append("d1", A("s1", 0, Turn("User", "again", 0)), Now);
+        Assert.Equal(new[] { "again" }, Texts(store, "s1"));
+
+        // A later generation replaces what is held.
+        store.Append("d1", B("s1", 0, Turn("User", "b0", 0)), Now.AddMinutes(1));
+        Assert.Equal(new[] { "b0" }, Texts(store, "s1"));
+    }
+
+    /// <summary>A read with nothing new asks the database for the head alone - one command, where the whole
+    /// conversation used to come back on every 2.5-second Chat poll.</summary>
+    [Fact]
+    public void AReadWithNothingNew_ReadsOnlyTheHead()
+    {
+        var store = Store();
+        store.Append("d1", A("s1", 0, Turn("User", "one", 0), Turn("Assistant", "two", 1)), Now);
+        Assert.Equal(2, store.ReadCurrent("s1")!.Value.Messages.Count);
+
+        using var counter = new ReaderCommandCounter(_harness.DbPath);
+        var again = store.ReadCurrent("s1");
+
+        Assert.Equal(new[] { "one", "two" }, again!.Value.Messages.Select(m => m.Parts[0].Text));
+        Assert.Equal(1, counter.Reads);
+    }
+
+    /// <summary>Readers change what they are handed; the next reader must not see it.</summary>
+    [Fact]
+    public void EachReadHandsOutItsOwnMessages()
+    {
+        var store = Store();
+        store.Append("d1", A("s1", 0, Turn("User", "one", 0)), Now);
+
+        var first = store.ReadCurrent("s1")!.Value.Messages;
+        first[0].Parts[0].Text = "changed by a caller";
+        first.Clear();
+
+        Assert.Equal(new[] { "one" }, Texts(store, "s1"));
+    }
+
+    /// <summary>Two accounts can hold a session with the same id; each reads its own conversation through one
+    /// store, whichever read first.</summary>
+    [Fact]
+    public void AHeldConversation_BelongsToOneAccount()
+    {
+        var other = new TenantId("11111111-1111-1111-1111-111111111111");
+        var ambient = new SwitchableTenantContext(TenantId.Local);
+        var store = Store(ambient);
+        store.Append("d1", A("s1", 0, Turn("User", "mine", 0)), Now);
+        Assert.Equal(new[] { "mine" }, Texts(store, "s1"));
+
+        ambient.Current = other;
+        Assert.Null(store.ReadCurrent("s1"));
+        store.Append("d9", A("s1", 0, Turn("User", "theirs", 0), Turn("Assistant", "theirs 2", 1)), Now);
+        Assert.Equal(new[] { "theirs", "theirs 2" }, Texts(store, "s1"));
+
+        ambient.Current = TenantId.Local;
+        Assert.Equal(new[] { "mine" }, Texts(store, "s1"));
+    }
+
+    /// <summary>A conversation nobody reads is let go after the idle limit, so the held rows cannot grow without
+    /// bound.</summary>
+    [Fact]
+    public void AnIdleConversation_IsLetGo()
+    {
+        var clock = Now;
+        var store = new SessionTurnStore(_harness.Open(), () => clock);
+        store.Append("d1", A("s1", 0, Turn("User", "one", 0), Turn("Assistant", "two", 1)), Now);
+        store.Append("d1", A("s2", 0, Turn("User", "x", 0)), Now);
+        store.ReadCurrent("s1");
+        Assert.Equal(2, store.HeldTurnCount);
+
+        clock += SessionTurnStore.HeldIdleLimit;
+        store.ReadCurrent("s2");
+
+        Assert.Equal(1, store.HeldTurnCount);   // s1 let go; s2 held
+        Assert.Equal(new[] { "one", "two" }, Texts(store, "s1"));   // and still read correctly afterwards
+    }
+
+    private sealed class SwitchableTenantContext : ITenantContext
+    {
+        public SwitchableTenantContext(TenantId tenant) => Current = tenant;
+        public TenantId Current { get; set; }
     }
 
     [Fact]

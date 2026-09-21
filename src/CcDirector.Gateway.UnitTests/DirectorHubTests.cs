@@ -128,7 +128,9 @@ public sealed class DirectorHubTests : IDisposable
         hubB.Hello(Hello("dir-B"));
         hubB.PushTurns(1, Turns("s3", "gen-c", 0, 1));
 
-        var again = hubA.Hello(Hello("dir-A"));
+        // dir-A reconnects: a NEW connection, which is when the watermarks are handed back.
+        var (hubA2, _) = NewHub("conn-3", turns);
+        var again = hubA2.Hello(Hello("dir-A"));
 
         Assert.NotNull(again);
         var marks = again.TurnWatermarks.OrderBy(m => m.SessionId).ToList();
@@ -137,6 +139,40 @@ public sealed class DirectorHubTests : IDisposable
         Assert.Equal(new[] { "gen-a", "gen-b" }, marks.Select(m => m.Generation));
         Assert.Contains("PushTurns", again.HubMethods);
         Assert.True(again.TurnWatermarksKnown);
+    }
+
+    /// <summary>
+    /// A Director says Hello on every re-push (every ten seconds), not only when it connects. Reading its
+    /// watermarks each time re-read them all for nothing (devthrottle_internal#2199), so a repeat Hello on
+    /// the SAME connection answers "not read" - the Director keeps what it has - and only a new connection reads
+    /// them again. The repeat is proved to answer "not read" rather than an empty list, because an empty list the
+    /// Gateway vouches for would make the Director push every conversation from the start.
+    /// </summary>
+    [Fact]
+    public void Hello_HandsBackTheWatermarks_OncePerConnection()
+    {
+        var turns = new CcDirector.Gateway.History.SessionTurnStore(Db);
+        var (hub, _) = NewHub("conn-1", turns);
+        var first = hub.Hello(Hello("dir-A"));
+        Assert.NotNull(first);
+        Assert.True(first.TurnWatermarksKnown);
+        hub.PushTurns(1, Turns("s1", "gen-a", 0, 2));
+
+        var repeat = hub.Hello(Hello("dir-A"));
+
+        Assert.NotNull(repeat);
+        Assert.False(repeat.TurnWatermarksKnown);
+        Assert.Empty(repeat.TurnWatermarks);
+        Assert.Contains("PushTurns", repeat.HubMethods);   // the rest of the answer is unchanged
+
+        var (reconnected, _) = NewHub("conn-2", turns);
+        var afterReconnect = reconnected.Hello(Hello("dir-A"));
+
+        Assert.NotNull(afterReconnect);
+        Assert.True(afterReconnect.TurnWatermarksKnown);
+        var mark = Assert.Single(afterReconnect.TurnWatermarks);
+        Assert.Equal("s1", mark.SessionId);
+        Assert.Equal(2, mark.Count);
     }
 
     [Fact]

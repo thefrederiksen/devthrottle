@@ -613,62 +613,139 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.Equal(1, counter.Reads);
     }
 
-    /// <summary>
-    /// Counts the reader commands the framework actually issues against one database file, so "one query" is
-    /// measured rather than asserted about code somebody read.
-    ///
-    /// It listens to the framework's own diagnostic events rather than adding a command interceptor, because
-    /// the public store opens its contexts from the database's pooled factory and there is no seam to add an
-    /// interceptor there - and adding one to production code only so a test can count would be a second path.
-    /// A counter that sees nothing reads zero, which fails the assertion of one: this cannot pass by not
-    /// listening.
-    /// </summary>
-    private sealed class ReaderCommandCounter
-        : IObserver<DiagnosticListener>, IObserver<KeyValuePair<string, object?>>, IDisposable
+    // ----- the held snapshot (devthrottle_internal#2199: this read runs on every roster fold) -----
+
+    private sealed class ManualClock
     {
-        private readonly string _databaseDirectory;
-        private readonly List<IDisposable> _subscriptions = new();
-        private readonly IDisposable _allListeners;
-        private int _reads;
+        public DateTime Now { get; set; } = new(2026, 9, 21, 12, 0, 0, DateTimeKind.Utc);
+    }
 
-        public ReaderCommandCounter(string dbPath)
+    /// <summary>A second fold with nothing written in between is answered without touching the database. This is
+    /// the whole saving: the fold runs on every roster poll, display sweep and Director push, and the rows only
+    /// change when the store writes.</summary>
+    [Fact]
+    public void A_second_snapshot_with_no_write_in_between_reads_nothing()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        for (var s = 0; s < 3; s++) store.Store(TenantA, $"sid-{s}", Verdict(t0, verdictId: $"tv-{s}"));
+
+        using var counter = new ReaderCommandCounter(_harness.DbPath);
+        var first = store.SnapshotLatest(TenantA);
+        var second = store.SnapshotLatest(TenantA);
+
+        Assert.Equal(1, counter.Reads);
+        Assert.Equal(3, first.Count);
+        Assert.Equal(3, second.Count);
+        Assert.Equal("tv-2", second["sid-2"].VerdictId);
+    }
+
+    /// <summary>Every kind of write reaches the next fold: a new verdict, a supersede, and the retention purge.
+    /// Each is followed by exactly one read, so the held answer was discarded rather than served.</summary>
+    [Fact]
+    public void Every_write_is_seen_by_the_next_snapshot()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(t0, verdictId: "tv-old"));
+        Assert.Equal("tv-old", store.SnapshotLatest(TenantA)["sid-1"].VerdictId);
+
+        using var counter = new ReaderCommandCounter(_harness.DbPath);
+
+        store.Store(TenantA, "sid-1", Verdict(t0.AddMinutes(1), verdictId: "tv-new"));
+        var reads = counter.Reads;   // the write reads the row it replaces; only the fold's reads are asserted
+        Assert.Equal("tv-new", store.SnapshotLatest(TenantA)["sid-1"].VerdictId);
+        Assert.Equal(reads + 1, counter.Reads);
+
+        store.Invalidate(TenantA, "sid-1", t0.AddMinutes(2));
+        Assert.False(store.SnapshotLatest(TenantA).ContainsKey("sid-1"));
+
+        store.Store(TenantA, "sid-2", Verdict(t0.AddMinutes(3), verdictId: "tv-2"));
+        Assert.True(store.SnapshotLatest(TenantA).ContainsKey("sid-2"));
+        store.PurgeOlderThan(TenantA, t0.AddDays(1));
+        Assert.Empty(store.SnapshotLatest(TenantA));
+    }
+
+    /// <summary>A write in one account does not discard, and never answers from, another account's held
+    /// snapshot.</summary>
+    [Fact]
+    public void A_held_snapshot_belongs_to_one_account()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(t0, verdictId: "tv-a"));
+        store.Store(TenantB, "sid-1", Verdict(t0, verdictId: "tv-b"));
+        Assert.Equal("tv-a", store.SnapshotLatest(TenantA)["sid-1"].VerdictId);
+        Assert.Equal("tv-b", store.SnapshotLatest(TenantB)["sid-1"].VerdictId);
+
+        store.Store(TenantB, "sid-2", Verdict(t0, verdictId: "tv-b2"));
+        // Counted after the write, because the write reads the row it replaces.
+        using var counter = new ReaderCommandCounter(_harness.DbPath);
+        Assert.Equal("tv-a", store.SnapshotLatest(TenantA)["sid-1"].VerdictId);
+        Assert.Equal(0, counter.Reads);
+        Assert.Equal(2, store.SnapshotLatest(TenantB).Count);
+        Assert.Equal(1, counter.Reads);
+    }
+
+    /// <summary>A write this process cannot hear - another Gateway on the same database during a deploy - is seen
+    /// once the held snapshot is older than its bound, and not before.</summary>
+    [Fact]
+    public void A_held_snapshot_is_read_again_once_it_is_older_than_its_bound()
+    {
+        var clock = new ManualClock();
+        var db = _harness.Open();
+        var store = new TurnVerdictStore(db, () => clock.Now);
+        var other = new TurnVerdictStore(db, () => clock.Now);   // a second writer the first cannot hear
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(t0, verdictId: "tv-old"));
+        Assert.Equal("tv-old", store.SnapshotLatest(TenantA)["sid-1"].VerdictId);
+
+        other.Store(TenantA, "sid-1", Verdict(t0.AddMinutes(1), verdictId: "tv-new"));
+
+        clock.Now += TurnVerdictStore.SnapshotMaxAge - TimeSpan.FromSeconds(1);
+        Assert.Equal("tv-old", store.SnapshotLatest(TenantA)["sid-1"].VerdictId);
+        clock.Now += TimeSpan.FromSeconds(1);
+        Assert.Equal("tv-new", store.SnapshotLatest(TenantA)["sid-1"].VerdictId);
+    }
+
+    /// <summary>Callers change what they are handed (the fold stamps rows from these objects), so a held snapshot
+    /// hands out new objects every time: one caller's change never reaches the next caller.</summary>
+    [Fact]
+    public void Each_snapshot_hands_out_its_own_objects()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(t0, verdictId: "tv-1"));
+
+        var first = store.SnapshotLatest(TenantA)["sid-1"];
+        first.Label = "changed by a caller";
+        first.SupersededAtUtc = t0;
+
+        var second = store.SnapshotLatest(TenantA)["sid-1"];
+        Assert.NotSame(first, second);
+        Assert.Equal("Finished the migration", second.Label);
+        Assert.Null(second.SupersededAtUtc);
+    }
+
+    /// <summary>The snapshot reads only what the fold uses. The owner's answer is the widest column on an answered
+    /// row and the fold never reads it, so it does not leave the database on this read - while the answer route's
+    /// own read still has it.</summary>
+    [Fact]
+    public void The_snapshot_query_does_not_carry_the_owners_answer()
+    {
+        var db = _harness.Open();
+        var store = new TurnVerdictStore(db);
+        var judgedAt = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-1"));
+        Assert.True(store.MarkAnswered(TenantA, AnswerTo("tv-1", judgedAt), judgedAt.AddMinutes(1)));
+
+        using (var ctx = db.CreateContext(TenantA))
         {
-            // The harness directory name is a fresh identifier per test, so matching on it cannot count
-            // another test's commands.
-            _databaseDirectory = Path.GetFileName(Path.GetDirectoryName(dbPath)!);
-            _allListeners = DiagnosticListener.AllListeners.Subscribe(this);
+            var row = Assert.Single(TurnVerdictStore.SnapshotLatestCore(ctx));
+            Assert.Null(row.AnswerJson);
+            Assert.False(string.IsNullOrEmpty(row.VerdictJson));
+            Assert.Equal("sid-1", row.SessionId);
         }
-
-        public int Reads => Volatile.Read(ref _reads);
-
-        void IObserver<DiagnosticListener>.OnNext(DiagnosticListener listener)
-        {
-            if (listener.Name != DbLoggerCategory.Name) return;
-            lock (_subscriptions) _subscriptions.Add(listener.Subscribe(this));
-        }
-
-        void IObserver<KeyValuePair<string, object?>>.OnNext(KeyValuePair<string, object?> evt)
-        {
-            if (evt.Key != RelationalEventId.CommandExecuting.Name) return;
-            if (evt.Value is not CommandEventData data || data.ExecuteMethod != DbCommandMethod.ExecuteReader) return;
-            var source = data.Command.Connection?.DataSource ?? "";
-            if (!source.Contains(_databaseDirectory, StringComparison.OrdinalIgnoreCase)) return;
-            Interlocked.Increment(ref _reads);
-        }
-
-        void IObserver<DiagnosticListener>.OnCompleted() { }
-        void IObserver<DiagnosticListener>.OnError(Exception error) { }
-        void IObserver<KeyValuePair<string, object?>>.OnCompleted() { }
-        void IObserver<KeyValuePair<string, object?>>.OnError(Exception error) { }
-
-        public void Dispose()
-        {
-            _allListeners.Dispose();
-            lock (_subscriptions)
-            {
-                foreach (var subscription in _subscriptions) subscription.Dispose();
-                _subscriptions.Clear();
-            }
-        }
+        Assert.NotNull(store.FindById(TenantA, "tv-1")!.Answer);
     }
 }

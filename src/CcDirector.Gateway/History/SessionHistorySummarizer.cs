@@ -127,7 +127,9 @@ public sealed class SessionHistorySummarizer
     public async Task<int> RefreshRollupsAsync(TenantId tenant, DateTime fromDayUtc, DateTime toDayUtc,
         int maxRollups, CancellationToken ct)
     {
-        var groups = RollupGroups(_store.ReadRange(fromDayUtc.Date, toDayUtc.Date.AddDays(1).AddTicks(-1)),
+        // Staleness is decided from the narrow read; only a group that is rewritten has its full records read
+        // (devthrottle_internal#2199 - this pass runs every two minutes for every account).
+        var groups = RollupGroups(_store.ReadRollupInputs(fromDayUtc.Date, toDayUtc.Date.AddDays(1).AddTicks(-1)),
             fromDayUtc.Date, toDayUtc.Date);
         if (groups.Count == 0) return 0;
 
@@ -151,8 +153,9 @@ public sealed class SessionHistorySummarizer
 
             try
             {
+                var full = WithFullRecords(group);
                 using var brain = await _brainFactory(tenant, ct).ConfigureAwait(false);
-                var reply = await brain.AskAsync(RollupPrompt(group), ct).ConfigureAwait(false);
+                var reply = await brain.AskAsync(RollupPrompt(full), ct).ConfigureAwait(false);
                 var text = reply.Text?.Trim();
                 if (string.IsNullOrWhiteSpace(text))
                     throw new InvalidOperationException("the model returned an empty roll-up");
@@ -171,6 +174,23 @@ public sealed class SessionHistorySummarizer
             }
         }
         return written;
+    }
+
+    /// <summary>
+    /// The group with its sessions' full records, in the group's own order, for the prompt. The hash stays the one
+    /// the staleness decision was made on, so what is saved is exactly what the next pass compares against. A
+    /// session whose record went between the two reads (retention) is left out of the prompt; the next pass sees a
+    /// different input set and writes the roll-up again.
+    /// </summary>
+    private RollupGroup WithFullRecords(RollupGroup group)
+    {
+        var byId = _store.ReadMany(group.Sessions.Select(s => s.SessionId).ToList())
+            .ToDictionary(s => s.SessionId, StringComparer.Ordinal);
+        var sessions = group.Sessions
+            .Where(s => byId.ContainsKey(s.SessionId))
+            .Select(s => byId[s.SessionId])
+            .ToList();
+        return group with { Sessions = sessions };
     }
 
     // ----- roll-up grouping (shared with the report endpoint via RollupGroups/InputHash) -----
