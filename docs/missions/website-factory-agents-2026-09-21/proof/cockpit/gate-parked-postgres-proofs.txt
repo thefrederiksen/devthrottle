@@ -1,0 +1,28 @@
+﻿Starting a throwaway PostgreSQL for this run (instance run5a94c9fd, port 50547)...
+PostgreSQL ready. It is destroyed when this run ends.
+  PASS  CcDirector.Core.UnitTests  (no summary line - see 
+  PASS  CcDirector.Avalonia.Tests  (no summary line - see 
+  PASS  CcDirector.Engine.Tests  (no summary line - see 
+  PASS  CcDirector.HostedAgent.Tests  (no summary line - see 
+  PASS  CcDirector.Launcher.Tests  (no summary line - see 
+  PASS  CcDirector.Terminal.Avalonia.Tests  (no summary line - see 
+  PASS  CcDirector.Reclaim.Tests  (no summary line - see 
+  PASS  cc-director-setup.Tests  (no summary line - see 
+  PASS  cc-director-setup-engine.Tests  (no summary line - see 
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed:     0, Passed:    46, Skipped:     4, Total:    50, Duration: 43 
+  PASS  CcDirector.Core.Tests  (no summary line - see 
+  PASS  CcDirector.Gateway.UnitTests  Passed!  - Failed:     0, Passed:    26, Skipped:     1, Total:    27, Duration: 
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=0      executed=0
+  CcDirector.Avalonia.Tests                outcome=Completed    total=0      executed=0
+  CcDirector.Engine.Tests                  outcome=Completed    total=0      executed=0
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=0      executed=0
+  CcDirector.Launcher.Tests                outcome=Completed    total=0      executed=0
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=0      executed=0
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=0      executed=0
+  cc-director-setup.Tests                  outcome=Completed    total=0      executed=0
+  cc-director-setup-engine.Tests           outcome=Completed    total=0      executed=0
+  CcDirector.Gateway.Tests                 outcome=Completed    total=50     executed=46
+  CcDirector.Core.Tests                    outcome=Completed    total=0      executed=0
+  CcDirector.Gateway.UnitTests             outcome=Completed    total=27     executed=26
+RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.

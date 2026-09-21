@@ -1,0 +1,6 @@
+﻿Starting a throwaway PostgreSQL for this run (instance runcd6f7a4f, port 53396)...
+PostgreSQL ready. It is destroyed when this run ends.
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     6, Passed:  2738, Skipped:     8, Total:  2752, Duration: 1 h 
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=2752   executed=2744
+RESULT: FAILED in 1 project(s):

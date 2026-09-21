@@ -1,0 +1,21 @@
+  PASS  CcDirector.Core.UnitTests  Passed!  - Failed:     0, Passed:   793, Skipped:     0, Total:   793, Duration: 23 
+  PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:   800, Skipped:     0, Total:   800, Duration: 1 
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    63, Skipped:     0, Total:    63, Duration: 3 s 
+  PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    88, Skipped:     0, Total:    88, Duration: 
+  FAIL  CcDirector.Launcher.Tests  Failed!  - Failed:     2, Passed:   195, Skipped:     0, Total:   197, Duration: 12 
+  PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:    30, Skipped:     0, Total:    30, 
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   310, Skipped:     0, Total:   310, Duration: 6 s 
+  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 2 s 
+  PASS  cc-director-setup-engine.Tests  Passed!  - Failed:     0, Passed:   619, Skipped:     0, Total:   619, 
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=793    executed=793
+  CcDirector.Avalonia.Tests                outcome=Completed    total=800    executed=800
+  CcDirector.Engine.Tests                  outcome=Completed    total=63     executed=63
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Failed       total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=30     executed=30
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=619    executed=619
+COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+RESULT: FAILED in 1 project(s):
