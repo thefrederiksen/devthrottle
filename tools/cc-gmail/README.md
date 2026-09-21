@@ -308,9 +308,10 @@ cc-gmail draft -t "to@example.com" -s "Subject" -b "Body" --json   # {draft_id, 
 cc-gmail reply <message_id> -b "Reply text" --json               # {draft_id, message_id, thread_id}
 ```
 
-- Header values are the raw headers (not truncated); a missing header is `null`.
+- Header values are the raw headers (not truncated); a missing header is `""`, never `null`.
   Non-ASCII is escaped (`\u00e9`), so the output is ASCII.
 - An empty result is `[]`.
+- On failure the exit code is non-zero, the message is on stderr, and stdout is empty.
 - `read` marks the message as read, with or without `--json`.
 - `draft --json` and `reply --json` need an OAuth account: an App Password (IMAP)
   account cannot return Gmail draft, message and thread ids, so the command

@@ -15,6 +15,7 @@ from typing import Optional, List, Tuple
 # Suppress Google's file_cache warning before importing googleapiclient
 logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
 
+import click
 import typer
 from googleapiclient.errors import HttpError
 from rich.console import Console
@@ -464,16 +465,17 @@ def _message_json(msg: dict) -> dict:
 
     Header values are NOT sanitized or truncated here, unlike the plain output:
     a consumer matches on them. json.dumps escapes non-ASCII, so the printed
-    text stays ASCII. A header the message does not carry is null.
+    text stays ASCII. A header the message does not carry is "", never null:
+    the contract promises a string in every field.
     """
     headers = msg.get("headers", {})
     return {
         "id": msg.get("id"),
         "thread_id": msg.get("thread_id"),
-        "from": headers.get("from"),
-        "to": headers.get("to"),
-        "subject": headers.get("subject"),
-        "date": headers.get("date"),
+        "from": headers.get("from", ""),
+        "to": headers.get("to", ""),
+        "subject": headers.get("subject", ""),
+        "date": headers.get("date", ""),
         "labels": list(msg.get("labels", [])),
     }
 
@@ -495,6 +497,21 @@ def _draft_json(result: dict) -> dict:
     if missing:
         raise ValueError(f"Gmail draft response is missing {', '.join(missing)}: {result}")
     return draft_json
+
+
+def _json_messages_to_stderr(json_output: bool) -> None:
+    """In --json mode, send every console message (errors, refusals) to stderr.
+
+    The contract is that stdout holds the one JSON document and nothing else, and
+    that a failure leaves stdout empty with its message on stderr. Call this as the
+    first statement of a --json command, before anything can print. The switch is
+    undone when the command's context closes, so the plain output of the next
+    invocation in the same process is untouched.
+    """
+    if not json_output:
+        return
+    console.stderr = True
+    click.get_current_context().call_on_close(lambda: setattr(console, "stderr", False))
 
 
 def _require_oauth_for_draft_json(auth_method: str, command: str) -> None:
@@ -1030,6 +1047,7 @@ def list_emails(
     json_output: bool = typer.Option(False, "--json", help="Output a JSON array: id, thread_id, from, to, subject, date, labels"),
 ):
     """List recent emails from a label/folder."""
+    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
 
     label_ids = [label.upper()]
@@ -1098,6 +1116,7 @@ def read(
     json_output: bool = typer.Option(False, "--json", help="Output a JSON object: id, thread_id, from, to, subject, date, labels, body"),
 ):
     """Read a specific email. Marks it as read, with or without --json."""
+    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
 
     try:
@@ -1217,6 +1236,7 @@ def draft(
     json_output: bool = typer.Option(False, "--json", help="Output a JSON object: draft_id, message_id, thread_id (OAuth accounts only)"),
 ):
     """Create a draft email."""
+    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
     if json_output:
         _require_oauth_for_draft_json(auth_method, "draft")
@@ -1276,6 +1296,7 @@ def reply(
     json_output: bool = typer.Option(False, "--json", help="Draft mode only: output a JSON object: draft_id, message_id, thread_id (OAuth accounts only)"),
 ):
     """Create a reply to an existing email (draft or send)."""
+    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
     if json_output:
         if send_flag:
@@ -1399,6 +1420,7 @@ def search(
     json_output: bool = typer.Option(False, "--json", help="Output a JSON array: id, thread_id, from, to, subject, date, labels"),
 ):
     """Search emails using Gmail query syntax."""
+    _json_messages_to_stderr(json_output)
     acct, auth_method = _resolve_and_get_auth()
 
     try:

@@ -6,6 +6,7 @@ JSON. No real mailbox is touched.
 """
 
 import json
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -137,6 +138,18 @@ def _invoke(runner, service, args):
         return runner.invoke(cli.app, args)
 
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _text(output):
+    """The printed text without terminal color codes.
+
+    Continuous integration runs this suite with FORCE_COLOR=1, so Rich styles the
+    plain output there; the words are what must stay unchanged.
+    """
+    return _ANSI_ESCAPE.sub("", output)
+
+
 def _call_names(service):
     return [name for name, _ in service.calls]
 
@@ -205,7 +218,7 @@ class TestSearchJson:
         result = _invoke(runner, svc, ["search", "in:inbox"])
 
         assert result.exit_code == 0, result.output
-        assert result.output == (
+        assert _text(result.output) == (
             "\n"
             "Search: in:inbox (consulting)\n"
             "\n"
@@ -226,7 +239,7 @@ class TestSearchJson:
         svc = FakeGmailService(MESSAGES)
         result = _invoke(runner, svc, ["search", "subject:nothing-matches-this"])
 
-        assert result.output == "No messages matching: subject:nothing-matches-this\n"
+        assert _text(result.output) == "No messages matching: subject:nothing-matches-this\n"
 
 
 # -- list --json --
@@ -252,7 +265,7 @@ class TestListJson:
         svc = FakeGmailService({"m1": MESSAGES["m1"]})
         result = _invoke(runner, svc, ["list"])
 
-        assert result.output == (
+        assert _text(result.output) == (
             "\n"
             "Messages in INBOX (consulting)\n"
             "\n"
@@ -328,7 +341,7 @@ class TestDraftJson:
         svc = FakeGmailService(MESSAGES, draft_answer=DRAFT_ANSWER)
         result = _invoke(runner, svc, ["draft", "-t", "ann@prospect.example", "-s", "Hi", "-b", "Body"])
 
-        assert result.output == "Draft created. ID: r-123\n"
+        assert _text(result.output) == "Draft created. ID: r-123\n"
 
 
 # -- reply --json --
@@ -376,9 +389,124 @@ class TestReplyJson:
         svc = FakeGmailService(MESSAGES, draft_answer=REPLY_DRAFT_ANSWER)
         result = _invoke(runner, svc, ["reply", "m1", "-b", "Thanks"])
 
-        assert result.output == (
+        assert _text(result.output) == (
             "Reply draft created.\n"
             "  To: Ann Prospect <ann@prospect.example>\n"
             "  Subject: Re: Your website\n"
             "  Draft ID: r-456\n"
         )
+
+
+# -- the contract's rules for every --json command --
+# CC-GMAIL-JSON-CONTRACT.md (cc-consult, website-factory-phase0): a missing header is "",
+# never null; on failure the message is on stderr and NOTHING is on stdout.
+
+
+def _gmail_message_without(msg_id, thread_id, missing):
+    """A Gmail message that does not carry the named headers (e.g. an automated reply)."""
+    msg = _gmail_message(msg_id, thread_id, "Mailer <mailer@example.com>", "Out of office", ["INBOX"])
+    msg["payload"]["headers"] = [
+        h for h in msg["payload"]["headers"] if h["name"].lower() not in missing
+    ]
+    return msg
+
+
+@pytest.fixture
+def split_runner():
+    """A runner that keeps stderr apart from stdout, so a test can see which one carried the text."""
+    return CliRunner(mix_stderr=False)
+
+
+class _ExplodingMessages(_Messages):
+    def get(self, userId, id, format):
+        raise ValueError("gmail exploded mid-list")
+
+
+class ExplodingGmailService(FakeGmailService):
+    def messages(self):
+        return _ExplodingMessages(self)
+
+
+class TestMissingHeaderIsEmptyString:
+    def test_search_json_missing_headers_are_empty_strings(self, runner):
+        svc = FakeGmailService({"m9": _gmail_message_without("m9", "t9", {"to", "subject", "date"})})
+        result = _invoke(runner, svc, ["search", "in:inbox", "--json"])
+
+        assert result.exit_code == 0, result.output
+        message = json.loads(result.output)[0]
+        assert message["to"] == ""
+        assert message["subject"] == ""
+        assert message["date"] == ""
+        assert message["from"] == "Mailer <mailer@example.com>"
+
+    def test_read_json_missing_headers_are_empty_strings(self, runner):
+        svc = FakeGmailService({"m9": _gmail_message_without("m9", "t9", {"from", "to"})})
+        result = _invoke(runner, svc, ["read", "m9", "--json"])
+
+        assert result.exit_code == 0, result.output
+        message = json.loads(result.output)
+        assert message["from"] == ""
+        assert message["to"] == ""
+        assert message["thread_id"] == "t9"
+
+
+class TestFailureGoesToStderrNotStdout:
+    @pytest.mark.parametrize("args", [
+        ["search", "in:inbox", "--json"],
+        ["list", "--json"],
+        ["read", "m1", "--json"],
+    ])
+    def test_api_failure_message_is_on_stderr_and_stdout_is_empty(self, split_runner, args):
+        svc = ExplodingGmailService(MESSAGES)
+        result = _invoke(split_runner, svc, args)
+
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "gmail exploded mid-list" in _text(result.stderr)
+
+    def test_draft_json_bad_response_is_on_stderr_and_stdout_is_empty(self, split_runner):
+        svc = FakeGmailService(MESSAGES, draft_answer={"id": "r-123", "message": {"id": "dm1"}})
+        result = _invoke(split_runner, svc, ["draft", "-t", "a@b.example", "-s", "Hi", "-b", "Body", "--json"])
+
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "missing thread_id" in _text(result.stderr)
+
+    def test_reply_json_with_send_refusal_is_on_stderr_and_stdout_is_empty(self, split_runner):
+        svc = FakeGmailService(MESSAGES, draft_answer=REPLY_DRAFT_ANSWER)
+        result = _invoke(split_runner, svc, ["reply", "m1", "-b", "Thanks", "--send", "--json"])
+
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "cannot be combined with --send" in _text(result.stderr)
+
+    def test_app_password_refusal_is_on_stderr_and_stdout_is_empty(self, split_runner):
+        with patch.object(cli, "_resolve_and_get_auth", return_value=("personal", "app_password")), \
+                patch.object(cli, "_get_imap_client", return_value=MagicMock()):
+            result = split_runner.invoke(cli.app, ["draft", "-t", "a@b.example", "-s", "Hi", "-b", "Body", "--json"])
+
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "needs an OAuth account" in _text(result.stderr)
+
+    def test_account_resolution_failure_is_on_stderr_and_stdout_is_empty(self, split_runner):
+        # _resolve_and_get_auth runs before anything else in the command and prints its own error.
+        def fail_resolution():
+            cli.console.print("[red]Error:[/red] No account configured.")
+            raise cli.typer.Exit(1)
+
+        with patch.object(cli, "_resolve_and_get_auth", side_effect=fail_resolution):
+            result = split_runner.invoke(cli.app, ["search", "in:inbox", "--json"])
+
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "No account configured." in _text(result.stderr)
+
+    def test_plain_failure_still_prints_on_stdout_after_a_json_run(self, split_runner):
+        # The switch to stderr lasts for one --json invocation only; plain output is unchanged.
+        _invoke(split_runner, ExplodingGmailService(MESSAGES), ["search", "in:inbox", "--json"])
+        result = _invoke(split_runner, ExplodingGmailService(MESSAGES), ["search", "in:inbox"])
+
+        assert result.exit_code == 1
+        assert _text(result.stdout).endswith("Error: gmail exploded mid-list\n")
+        assert result.stderr == ""
