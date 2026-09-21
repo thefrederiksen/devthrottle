@@ -25,8 +25,15 @@ vi.mock("@devthrottle/client-core/fleetmanager/pageClient", () => ({
   getFleetManagerPage: vi.fn(async () => ({ waitingCount: page.waitingCount })),
 }));
 
+// The Gateway says whether the Factory Agents area is on; the rail only follows it (rule 7).
+const factory = vi.hoisted(() => ({ enabled: false }));
+vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => ({
+  getFactoryAgentsSwitch: vi.fn(async () => ({ enabled: factory.enabled })),
+}));
+
 import { screen, waitFor } from "@testing-library/react";
 import { AppShell } from "./AppShell";
+import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
 
 function railLabels(): string[] {
   const list = document.querySelector(".nav-list:not(.nav-list-foot)");
@@ -39,6 +46,8 @@ describe("Cockpit left rail", () => {
     // This project runs vitest without globals, so testing-library's automatic cleanup is not
     // registered - without this, each render leaks into the next test's document.
     cleanup();
+    factory.enabled = false;
+    resetFactorySwitchCache();
   });
 
   it("opens with the Fleet Manager, then Sessions, then Fleet Map", () => {
@@ -116,5 +125,32 @@ describe("Cockpit left rail", () => {
       "Transcription",
       "Network",
     ]);
+  });
+
+  // Website Business Factory: Factory Agents sits after Fleet Map and before History - only while the Gateway's
+  // factoryAgents.enabled switch is on. Off, the rail is exactly what it was.
+  it("shows Factory Agents after Fleet Map and before History when the Gateway says the area is on", async () => {
+    factory.enabled = true;
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(railLabels()).toContain("Factory Agents"));
+    expect(railLabels().slice(0, 5)).toEqual(["Fleet Manager", "Sessions", "Fleet Map", "Factory Agents", "History"]);
+    expect(screen.getByRole("link", { name: /Factory Agents/ }).getAttribute("href")).toBe("/factory-agents");
+  });
+
+  it("has no Factory Agents item when the Gateway says the area is off", async () => {
+    factory.enabled = false;
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(railLabels()).not.toContain("Factory Agents");
   });
 });

@@ -1,0 +1,385 @@
+/* The Factory Agents area (Website Business Factory, product track). Colours are the palette tokens in
+   styles.css only. A "tone" arrives from the Gateway; .fa-tone-* is the one place it becomes a colour. */
+
+.fa-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fa-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin: 4px 0 8px;
+}
+
+.fa-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--text-dim);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fa-tab:hover:not(.active) {
+  color: var(--text);
+}
+
+.fa-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.fa-tab-body,
+.fa-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fa-card,
+.fa-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fa-card-head,
+.fa-agent-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fa-card-title {
+  font-size: 16px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fa-card-sub,
+.fa-dim,
+.fa-window-note,
+.fa-window-label,
+.fa-subject {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.fa-card-actions,
+.fa-agent-actions,
+.fa-toolbar,
+.fa-inline-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fa-agent-head .ui-page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.fa-ask {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.fa-crumbs {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.fa-crumbs a,
+.fa-link {
+  color: var(--accent-text);
+}
+
+.fa-section-title {
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+
+.fa-definition {
+  margin: 0;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.fa-numbers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fa-number-link {
+  text-decoration: none;
+}
+
+.fa-number {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.fa-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* The tones. Chips and numbers read the same tone the same way. */
+.fa-chip.fa-tone-ok,
+.fa-chip.fa-tone-working {
+  color: var(--ok-text);
+  border-color: var(--ok);
+}
+.fa-chip.fa-tone-blue {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+.fa-chip.fa-tone-amber,
+.fa-number.fa-tone-amber {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.fa-chip.fa-tone-red,
+.fa-number.fa-tone-red {
+  color: var(--danger-text);
+  border-color: var(--attention);
+  background: var(--needsyou-bg);
+}
+.fa-chip.fa-tone-paused,
+.fa-number.fa-tone-paused {
+  color: var(--needsyou-fyi-text);
+  border-color: var(--pin-mark-border);
+  background: var(--needsyou-fyi-bg);
+}
+.fa-chip.fa-tone-grey,
+.fa-chip.fa-tone-idle,
+.fa-number.fa-tone-grey {
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+
+.fa-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+}
+
+.fa-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fa-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.fa-table a {
+  color: var(--accent-text);
+}
+
+.fa-table .mono,
+.mono {
+  font-family: "Cascadia Mono", Consolas, Menlo, monospace;
+  font-size: 12px;
+}
+
+.fa-row-collapsed td {
+  color: var(--text-dim);
+  background: var(--panel-deep);
+}
+
+.fa-note {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.fa-num {
+  text-align: right;
+}
+
+.fa-total td {
+  font-weight: 700;
+  border-top: 2px solid var(--border);
+}
+
+.fa-faults {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fa-fault {
+  background: var(--needsyou-bg);
+  color: var(--needsyou-text);
+  border: 1px solid var(--attention);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.fa-warn {
+  background: var(--needsyou-fyi-bg);
+  color: var(--needsyou-fyi-text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.fa-error {
+  color: var(--danger-text);
+  font-size: 12px;
+}
+
+.fa-filters {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.fa-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.fa-filters select,
+.fa-filters input,
+.fa-save-form input {
+  background: var(--code-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+.fa-filters select:focus,
+.fa-filters input:focus,
+.fa-save-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.fa-save-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fa-footnote {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin: 0;
+}
+
+.fa-woken {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fa-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fa-waiting-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fa-waiting-head,
+.fa-waiting-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fa-waiting-foot a {
+  color: var(--accent-text);
+}
+
+.fa-saved {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fa-saved a {
+  color: var(--accent-text);
+}
+
+/* The chip on a session row (Screen 6). */
+.fa-session-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--pin-mark-border);
+  background: var(--pin-bg);
+  color: var(--accent-text);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.roster-factory-agent-text {
+  color: var(--text-dim);
+  font-size: 11px;
+}

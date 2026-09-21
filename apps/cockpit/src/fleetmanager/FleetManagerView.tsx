@@ -74,7 +74,9 @@ export function FleetManagerView() {
   const chat = useSessionChat(sessionId ?? undefined);
   const items = mergeConversation(chat.bubbles, page.data?.cards ?? []);
 
-  const [text, setText] = useState("");
+  // "Ask the Fleet Manager to change it" on a factory agent's page opens this page with the request written in the
+  // box (?ask=...). It only fills the box; nothing is sent until the owner presses send.
+  const [text, setText] = useState(() => search.get("ask") ?? "");
   const [quickBusy, setQuickBusy] = useState<string | null>(null);
   const [quickError, setQuickError] = useState<string | null>(null);
   const [startBusy, setStartBusy] = useState(false);

@@ -525,6 +525,14 @@ function RosterRow({
                 {session.pin.mark}
               </span>
             )}
+            {/* Screen 6 of the Website Business Factory: which factory agent started this session, in the Gateway's
+                words. It only says where the session came from; nothing about how the row behaves changes. */}
+            {session.factoryAgent && (
+              <span className="roster-factory-agent" title={session.factoryAgent.title} data-testid="roster-factory-agent">
+                <span className="fa-session-chip">{session.factoryAgent.label}</span>{" "}
+                <span className="roster-factory-agent-text">{session.factoryAgent.text}</span>
+              </span>
+            )}
           </span>
           {/* Line 2: the Gateway-stamped status, on its own line so it is never squeezed to "Wor...". */}
           <span className="roster-state">{contextLine(session)}</span>

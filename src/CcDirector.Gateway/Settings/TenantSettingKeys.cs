@@ -241,6 +241,12 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FleetManagerReplacementStartingAt = "fleet_manager_replacement_starting_at";
 
+    /// <summary>
+    /// The reports kept on the Factory Agents Reports tab (Website Business Factory, product track): a JSON list of
+    /// saved filters, each reopening the same view. A saved filter, not a scheduled report - nothing runs by itself.
+    /// </summary>
+    public const string FactoryReports = "factory_reports";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -256,5 +262,6 @@ public static class TenantSettingKeys
         FleetManagerSuccessorSessionId, FleetManagerSuccessorReplaces,
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
+        FactoryReports,
     };
 }
