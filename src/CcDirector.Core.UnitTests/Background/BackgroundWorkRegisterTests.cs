@@ -14,7 +14,7 @@ namespace CcDirector.Core.UnitTests.Background;
 /// triggers it, how often it may run, how stale its answer may be, which thread it runs on and
 /// what switches it off. This test keeps the register and the code in step: every source file in
 /// the Director that constructs a timer, a periodic timer or a file watcher, runs a loop until it
-/// is cancelled, or runs a forever loop that sleeps, delays or waits between its turns, must have a row naming that file and the number of
+/// is cancelled, or runs any loop that sleeps, delays or waits between its turns, must have a row naming that file and the number of
 /// such sites in it, and every row must still point at a file that has that many. A new timer
 /// without a row fails the build; so does a row left behind after its job was removed. A row with
 /// a site count of zero is a job that has moved onto the scheduler (BackgroundJobs) and constructs
@@ -36,14 +36,18 @@ public sealed class BackgroundWorkRegisterTests
         @"new\s+(DispatcherTimer|System\.Threading\.Timer|Timer|PeriodicTimer|FileSystemWatcher)\s*(\(|\{|$)",
         RegexOptions.Compiled);
 
-    // A loop that runs until it is cancelled is a standing job by its own declaration. A while(true)
-    // loop is one when its body sleeps, delays or waits between turns.
+    // A loop that runs until it is cancelled is a standing job by its own declaration. ANY other
+    // loop - while, do, for(;;) - is one when its body sleeps, delays or waits between turns: a
+    // forever loop, a boolean-flag loop, a stopwatch-bounded loop, a state-condition loop alike.
+    // A delay reached through a delegate (await _delay(...), await retryDelay(...)) is still a
+    // delay, so anything named like one counts. The second review of this test found each of
+    // those shapes standing in this tree with no row.
     private static readonly Regex UntilCancelledLoopPattern = new(
         @"while\s*\(\s*!\s*[\w\.]*IsCancellationRequested", RegexOptions.Compiled);
-    private static readonly Regex ForeverLoopPattern = new(
-        @"while\s*\(\s*true\s*\)", RegexOptions.Compiled);
+    private static readonly Regex AnyLoopPattern = new(
+        @"(^|[\s;}])(while\s*\(|do\s*\{?\s*$|for\s*\(\s*;\s*;)", RegexOptions.Compiled);
     private static readonly Regex WaitInsideLoopPattern = new(
-        @"Task\.Delay\(|Thread\.Sleep\(|WaitOne\(|WaitForNextTickAsync\(",
+        @"[Dd]elay\w*\s*\(|Sleep\s*\(|Wait(One|Any|All)\s*\(|WaitForNextTickAsync\s*\(",
         RegexOptions.Compiled);
 
     private static readonly Regex ProjectReferencePattern = new(@"<ProjectReference\s+Include=""([^""]+)""", RegexOptions.Compiled);
@@ -121,7 +125,7 @@ public sealed class BackgroundWorkRegisterTests
             if (line.TrimStart().StartsWith("//", StringComparison.Ordinal)) continue;
             if (ConstructionPattern.IsMatch(line)) sites++;
             else if (UntilCancelledLoopPattern.IsMatch(line)) sites++;
-            else if (ForeverLoopPattern.IsMatch(line) && LoopBodyWaits(lines, i)) sites++;
+            else if (AnyLoopPattern.IsMatch(line) && LoopBodyWaits(lines, i)) sites++;
         }
         return sites;
     }
