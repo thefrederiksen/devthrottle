@@ -40,7 +40,7 @@ public sealed class FleetDoorbellRingerTests
 
         public bool Exited { get { Events.Add("exited?"); return ExitedOnRead(++_exitedReads); } }
         public bool DirectorSaysWorking { get { Events.Add("working?"); return WorkingOnRead(++_workingReads); } }
-        public bool HasTerminalGrid => true;
+        public bool HasTerminalGrid { get; set; } = true;
         public bool ProductMayHaveLeftText => false;
 
         public ScreenFrame TakeFrame()
@@ -112,6 +112,75 @@ public sealed class FleetDoorbellRingerTests
     {
         var f = DoorbellCaptures.WithRow(Idle, TranscriptRow, "❯ " + line);
         return composer.Length == 0 ? f : DoorbellCaptures.WithRow(f, PromptRow, "❯ " + composer);
+    }
+
+    // ---------- An unreadable screen gets one frame and no pause ----------
+
+    /// <summary>A pause that counts how often the ringer waited between frames.</summary>
+    private sealed class CountingPause
+    {
+        public int Calls { get; private set; }
+        public Task Wait() { Calls++; return Task.CompletedTask; }
+    }
+
+    [Fact]
+    public async Task A_session_with_no_terminal_grid_is_deferred_as_unreadable_after_exactly_one_frame()
+    {
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle) { HasTerminalGrid = false };
+        var pause = new CountingPause();
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, pause.Wait);
+
+        Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
+        Assert.Equal("screen-unreadable", answer.Reason);
+        Assert.Equal("the session has no rendered terminal to check", answer.Detail);
+        Assert.Equal(1, target.Events.Count(e => e == "frame"));
+        Assert.Equal(0, pause.Calls);
+        Assert.Empty(target.SentLines);
+    }
+
+    [Fact]
+    public async Task A_first_frame_with_no_rows_is_deferred_as_unreadable_after_exactly_one_frame()
+    {
+        var empty = new ScreenFrame([], 0, 0, false);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, empty, Idle, Idle);
+        var pause = new CountingPause();
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, pause.Wait);
+
+        Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
+        Assert.Equal("screen-unreadable", answer.Reason);
+        Assert.Equal(1, target.Events.Count(e => e == "frame"));
+        Assert.Equal(0, pause.Calls);
+        Assert.Empty(target.SentLines);
+    }
+
+    [Fact]
+    public async Task An_exited_session_with_no_grid_is_still_deferred_as_exited()
+    {
+        // The check tests "exited" before "unreadable"; taking one frame must not change which answer wins.
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle) { HasTerminalGrid = false, ExitedOnRead = _ => true };
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, new CountingPause().Wait);
+
+        Assert.Equal("exited", answer.Reason);
+        Assert.Equal(1, target.Events.Count(e => e == "frame"));
+    }
+
+    [Fact]
+    public async Task A_readable_screen_still_gets_two_frames_with_the_pause_between_them()
+    {
+        // The one-frame shortcut is only for a screen the check cannot read. A readable one - here a working
+        // screen, deferred on its frames - still takes the first frame, the pause, then the second frame.
+        var working = DoorbellCaptures.Load("claude-working");
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, working, working);
+        var pause = new CountingPause();
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, pause.Wait);
+
+        Assert.Equal("working", answer.Reason);
+        Assert.Equal(2, target.Events.Count(e => e == "frame"));
+        Assert.Equal(1, pause.Calls);
     }
 
     // ---------- Ruling 1: the last look, immediately before the first byte ----------
