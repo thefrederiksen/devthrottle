@@ -2002,7 +2002,7 @@ public partial class FirstRunWizardDialog : Window
     /// </summary>
     private static BrowserKind PickBrowserKind()
     {
-        var installed = BrowserLauncher.DetectBrowsers();
+        var installed = BrowserLauncher.DetectBrowsers(forceProbe: true);
         if (installed.Count > 0) return installed[0].Kind;
         throw new InvalidOperationException(
             $"None of the browsers DevThrottle can drive ({string.Join(", ", Enum.GetNames<BrowserKind>())}) "

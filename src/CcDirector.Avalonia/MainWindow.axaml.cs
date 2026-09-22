@@ -3449,6 +3449,14 @@ public partial class MainWindow : Window
     {
     }
 
+    // Each verification run joins the whole scrollback into one string on the screen thread, and it is
+    // asked for on every terminal scroll change - many times a second while an agent streams - so the
+    // gate lets one run through every two seconds. A request that arrives inside the interval is not
+    // dropped: the trailing timer runs the check once when the interval ends, so a session whose output
+    // stops right after its start-up burst is still verified.
+    private readonly TerminalVerificationGate _terminalVerificationGate = new(TimeSpan.FromSeconds(2));
+    private DispatcherTimer? _terminalVerificationTrailingTimer;
+
     private void CheckTerminalVerification()
     {
         if (_activeSession == null) return;
@@ -3456,6 +3464,18 @@ public partial class MainWindow : Window
         var status = _activeSession.TerminalVerificationStatus;
         if (status == TerminalVerificationStatus.Matched)
             return;
+        if (_activeSession.Session.TerminalVerificationExhausted)
+            return;
+
+        var wait = _terminalVerificationGate.Admit(System.Diagnostics.Stopwatch.GetTimestamp());
+        if (wait > TimeSpan.Zero)
+        {
+            ScheduleTrailingTerminalVerification(wait);
+            return;
+        }
+        // This request was admitted, so a trailing check still waiting for the same interval is now
+        // owed nothing: stop it, or it would run once more and spend a confirmation attempt.
+        _terminalVerificationTrailingTimer?.Stop();
 
         var session = _activeSession;
         var terminalText = TerminalHost.GetAllTerminalText();
@@ -3503,6 +3523,31 @@ public partial class MainWindow : Window
                 FileLog.Write($"[MainWindow] CheckTerminalVerification FAILED: {ex.Message}");
             }
         });
+    }
+
+    /// <summary>
+    /// Runs <see cref="CheckTerminalVerification"/> once more when the gate's interval ends. One timer,
+    /// restarted only when it is not already waiting, so a burst of scroll changes inside the interval
+    /// costs exactly one trailing check. It reads the active session when it fires, so a session switch
+    /// inside the interval is verified too.
+    /// </summary>
+    private void ScheduleTrailingTerminalVerification(TimeSpan wait)
+    {
+        if (_terminalVerificationTrailingTimer is { IsEnabled: true })
+            return;
+        if (_terminalVerificationTrailingTimer is null)
+        {
+            _terminalVerificationTrailingTimer = new DispatcherTimer(DispatcherPriority.Background);
+            _terminalVerificationTrailingTimer.Tick += (_, _) =>
+            {
+                _terminalVerificationTrailingTimer.Stop();
+                CheckTerminalVerification();
+            };
+        }
+        _terminalVerificationTrailingTimer.Interval = wait < TerminalVerificationGate.MinimumTrailingWait
+            ? TerminalVerificationGate.MinimumTrailingWait
+            : wait;
+        _terminalVerificationTrailingTimer.Start();
     }
 
     private async void BtnRelink_Click(object? sender, RoutedEventArgs e)

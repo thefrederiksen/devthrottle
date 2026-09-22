@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CcDirector.Core.Utilities;
@@ -173,22 +174,69 @@ public static class BrowserLauncher
     /// Returns the Chromium browsers found at their standard install locations, in a stable order
     /// (Chrome, Edge, Brave, Opera - most-used first, which is also the order the pickers show and the
     /// first-run wizard prefers). A browser is "installed" when one of its candidate exe paths exists.
+    /// The answer is cached for <see cref="DetectCacheLifetime"/>: the browsers rail asks for it every
+    /// 30 seconds and installations rarely change while the Director runs. A path where a person has
+    /// just installed or removed a browser and asked to look again calls <see cref="DetectBrowsers(bool)"/>
+    /// with <c>forceProbe: true</c>.
     /// </summary>
-    public static IReadOnlyList<BrowserInfo> DetectBrowsers()
+    public static IReadOnlyList<BrowserInfo> DetectBrowsers() => DetectBrowsers(forceProbe: false);
+
+    /// <summary>
+    /// As <see cref="DetectBrowsers()"/>; with <paramref name="forceProbe"/> true the disk is read now and
+    /// the cache replaced, so a browser installed or removed a moment ago is seen immediately.
+    /// </summary>
+    public static IReadOnlyList<BrowserInfo> DetectBrowsers(bool forceProbe)
     {
-        FileLog.Write("[BrowserLauncher] DetectBrowsers");
+        if (!forceProbe && TryReadFreshCache(out var cached))
+            return cached;
 
-        var found = new List<BrowserInfo>();
-        foreach (var (kind, displayName, exeCandidates, userDataDir) in Candidates())
+        lock (DetectLock)
         {
-            var exe = exeCandidates.FirstOrDefault(File.Exists);
-            if (exe is not null)
-                found.Add(new BrowserInfo(kind, displayName, exe, userDataDir));
-        }
+            if (!forceProbe && TryReadFreshCache(out cached))
+                return cached;
 
-        FileLog.Write($"[BrowserLauncher] DetectBrowsers: found={found.Count}");
-        return found;
+            FileLog.Write($"[BrowserLauncher] DetectBrowsers: probing (forced={forceProbe})");
+
+            var found = new List<BrowserInfo>();
+            foreach (var (kind, displayName, exeCandidates, userDataDir) in Candidates())
+            {
+                var exe = exeCandidates.FirstOrDefault(ExeExists);
+                if (exe is not null)
+                    found.Add(new BrowserInfo(kind, displayName, exe, userDataDir));
+            }
+
+            FileLog.Write($"[BrowserLauncher] DetectBrowsers: found={found.Count}");
+            IReadOnlyList<BrowserInfo> result = found.AsReadOnly();
+            // The timestamp is published before the list, so a reader that sees the new list sees its time.
+            Volatile.Write(ref _detectedAtTimestamp, Stopwatch.GetTimestamp());
+            Volatile.Write(ref _detectedBrowsers, result);
+            return result;
+        }
     }
+
+    private static bool TryReadFreshCache([NotNullWhen(true)] out IReadOnlyList<BrowserInfo>? cached)
+    {
+        cached = Volatile.Read(ref _detectedBrowsers);
+        if (cached is null)
+            return false;
+        var detectedAt = Volatile.Read(ref _detectedAtTimestamp);
+        if (Stopwatch.GetElapsedTime(detectedAt) >= DetectCacheLifetime)
+        {
+            cached = null;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>How long a detection answer is reused before the disk is read again.</summary>
+    public static readonly TimeSpan DetectCacheLifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>The exists check the probe uses; tests swap it to simulate an install or a removal.</summary>
+    internal static Func<string, bool> ExeExists = File.Exists;
+
+    private static readonly object DetectLock = new();
+    private static IReadOnlyList<BrowserInfo>? _detectedBrowsers;
+    private static long _detectedAtTimestamp;
 
     /// <summary>
     /// Reads <paramref name="browser"/>'s <c>Local State</c> and returns its profiles, sorted with

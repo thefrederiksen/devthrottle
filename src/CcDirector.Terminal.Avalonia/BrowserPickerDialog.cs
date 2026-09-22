@@ -235,7 +235,7 @@ public sealed class BrowserPickerDialog : Window
             var loaded = await Task.Run(() =>
             {
                 var browsers = new List<(BrowserInfo, IReadOnlyList<BrowserProfile>)>();
-                foreach (var browser in BrowserLauncher.DetectBrowsers())
+                foreach (var browser in BrowserLauncher.DetectBrowsers(forceProbe: true))
                     browsers.Add((browser, BrowserLauncher.GetProfiles(browser)));
                 return (Browsers: browsers, Current: BrowserDefaultStore.Resolve(repoPath));
             });
