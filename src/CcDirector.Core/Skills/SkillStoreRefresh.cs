@@ -81,8 +81,20 @@ public sealed class SkillStoreRefresh
         var store = StoreRoot();
         Directory.CreateDirectory(store);
 
+        int unchanged = 0, refreshed = 0;
         foreach (var row in wanted)
         {
+            // The register names the version the Gateway serves, and a version is immutable once
+            // published: the same version with the same content hash IS the same bytes. When the
+            // store already holds exactly that, there is nothing to download and nothing to rewrite.
+            // Until 22 September 2026 every enabled skill was fetched and its directory deleted and
+            // rewritten on every cycle, sixty times an hour, whether or not anything had changed.
+            if (IsAlreadyMaterialized(store, row))
+            {
+                unchanged++;
+                continue;
+            }
+
             var detail = await GetAsync<VersionDetail>(
                 $"{baseUrl}/gateway/skills/{Uri.EscapeDataString(row.Id)}/versions/{row.Version}", token, ct)
                 .ConfigureAwait(false);
@@ -96,6 +108,7 @@ public sealed class SkillStoreRefresh
             }
 
             SkillDirectoryInstaller.Materialize(store, ToBundle(row.Id, detail));
+            refreshed++;
         }
 
         // Anything in the store the register no longer serves is gone: switched off, archived, or
@@ -111,8 +124,47 @@ public sealed class SkillStoreRefresh
             }
         }
 
-        FileLog.Write($"[SkillStoreRefresh] RefreshAsync: store now holds {wanted.Count} skills");
+        FileLog.Write($"[SkillStoreRefresh] RefreshAsync: store now holds {wanted.Count} skills " +
+                      $"({unchanged} already at the served version, {refreshed} downloaded)");
         return wanted.Count;
+    }
+
+    /// <summary>
+    /// True when the store already holds <paramref name="row"/>'s id at the served version, and at the
+    /// served content hash when the register states one. The marker is written LAST by
+    /// <see cref="SkillDirectoryInstaller.Materialize"/>, so its presence means the directory was
+    /// completed. A missing marker, a version that differs, or a hash that differs all mean "fetch".
+    /// </summary>
+    internal static bool IsAlreadyMaterialized(string store, RegisterRow row)
+    {
+        var marker = Path.Combine(store, row.Id, SkillDirectoryInstaller.MarkerFileName);
+        if (!File.Exists(marker))
+            return false;
+
+        string[] lines;
+        try
+        {
+            lines = File.ReadAllLines(marker);
+        }
+        catch (IOException ex)
+        {
+            FileLog.Write($"[SkillStoreRefresh] could not read the marker for '{row.Id}' ({ex.Message}) - fetching it again");
+            return false;
+        }
+        if (lines.Length < 2)
+            return false;
+
+        if (!string.Equals(lines[0].Trim(), row.Id, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!int.TryParse(lines[1].Trim(), out var installedVersion) || installedVersion != row.Version)
+            return false;
+
+        var installedHash = lines.Length >= 3 ? lines[2].Trim() : "";
+        if (!string.IsNullOrWhiteSpace(row.ContentHash)
+            && !string.Equals(installedHash, row.ContentHash.Trim(), StringComparison.Ordinal))
+            return false;
+
+        return true;
     }
 
     private static SkillBundle ToBundle(string id, VersionDetail detail)
@@ -174,11 +226,14 @@ public sealed class SkillStoreRefresh
         [JsonPropertyName("skills")] public List<RegisterRow>? Skills { get; set; }
     }
 
-    private sealed class RegisterRow
+    internal sealed class RegisterRow
     {
         public string Id { get; set; } = "";
         public int Version { get; set; }
         public bool Enabled { get; set; } = true;
+        /// <summary>The served version's content hash, when the Gateway states it. Empty on a Gateway
+        /// that does not, in which case the version alone decides.</summary>
+        public string? ContentHash { get; set; }
     }
 
     private sealed class VersionDetail
