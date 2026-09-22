@@ -6019,6 +6019,9 @@ public partial class MainWindow : Window
     /// </summary>
     private DispatcherTimer? _updateStatusTimer;
 
+    // The read (two files and a process lookup) runs on the pool; only the painting runs here.
+    private UpdateStatusPanelRefresher? _updateStatusRefresher;
+
     /// <summary>Start painting the update status, and keep it current. Called once from startup.</summary>
     private void StartUpdateStatusDisplay()
     {
@@ -6029,13 +6032,22 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Ask for the current status and render it, field for field. The only judgement here is layout.
+    /// Ask for the current status and render it, field for field. Returns at once; the panel repaints
+    /// when the status has been read off the window's thread.
     /// </summary>
     public void RefreshUpdateStatus()
     {
+        _updateStatusRefresher ??= new UpdateStatusPanelRefresher(
+            () => CcDirector.Core.Update.UpdateStatusBoard.Current(),
+            RenderUpdateStatus);
+        _updateStatusRefresher.Refresh();
+    }
+
+    /// <summary>Paint one status, field for field. The only judgement here is layout.</summary>
+    private void RenderUpdateStatus(CcDirector.Core.Update.UpdateStatusView? status)
+    {
         try
         {
-            var status = CcDirector.Core.Update.UpdateStatusBoard.Current();
             if (status is null)
             {
                 // The updater has not been constructed yet - a window or two of startup. Say nothing
@@ -6072,7 +6084,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] RefreshUpdateStatus FAILED: {ex.Message}");
+            FileLog.Write($"[MainWindow] RenderUpdateStatus FAILED: {ex.Message}");
         }
     }
 
