@@ -79,6 +79,7 @@ function mockFetch(sessions: SessionDto[]) {
   return vi.fn(async (): Promise<Response> => ({
     ok: true,
     status: 200,
+    headers: new Headers(),
     json: async () => ({
       sessions,
       machineErrors: [],

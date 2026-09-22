@@ -187,18 +187,54 @@ export function bannerFromMachineErrors(errors: MachineError[]): string | null {
 // GET /sessions?envelope=true - the roster plus the unreachable-machine list and per-Director
 // reachability. Throws GatewayError on non-2xx so the page surfaces the failure rather than showing a
 // silently empty roster.
+//
+// TRAFFIC OPTIMIZATION, PHASE 2: the roster is asked for WITHOUT its clock fields (clockFields=absolute), so an
+// unchanged roster is byte-identical from one poll to the next and the Gateway answers 304 with no body. The
+// Gateway used to recompute two fields from its own clock on every read - sessions[].idleSeconds and
+// directors[].lastSeenAgeSeconds - so no two polls ever matched. Those two are rebuilt here by
+// restoreRosterClockFields, from the absolute timestamps the answer carries and the X-Gateway-Time header: the
+// instant the Gateway measured them against. So every reader of this envelope sees the same values it always
+// did, computed by the same rule, and none of them depends on this device's clock being right.
+//
+// This function makes the conditional request ITSELF (its own If-None-Match, cache "no-store") instead of leaving
+// it to the browser's HTTP cache, because the Gateway time must be the one on THIS answer - a 304 carries its own
+// - and what a page sees of a 304's headers through the browser cache varies by browser.
+export const ROSTER_PATH = "/sessions?envelope=true&clockFields=absolute";
+export const GATEWAY_TIME_HEADER = "X-Gateway-Time";
+
+let rosterHeld: { etag: string; body: Partial<SessionsEnvelope> } | null = null;
+
+/** Forget the held roster body (tests, and a sign-out that wants nothing of the last account kept). */
+export function resetRosterHeld(): void {
+  rosterHeld = null;
+}
+
 export async function getSessionsEnvelope(signal?: AbortSignal): Promise<SessionsEnvelope> {
   // The mobile roster polls this every couple of seconds; cap it so a hung request cannot leave the
   // health signal stuck "good" during an outage (mobile-resilience mission, Phase 4).
-  const res = await gatewayFetch("/sessions?envelope=true", {
+  const held = rosterHeld;
+  const headers = new Headers(authHeaders());
+  headers.set("Accept", "application/json");
+  if (held) headers.set("If-None-Match", held.etag);
+  const res = await gatewayFetch(ROSTER_PATH, {
     method: "GET",
-    headers: { Accept: "application/json", ...authHeaders() },
+    headers,
+    cache: "no-store",
     signal,
   }, { timeoutMs: POLL_TIMEOUT_MS });
-  if (!res.ok) {
-    throw new GatewayError(res.status, `GET /sessions?envelope=true failed: ${res.status}`);
+  let raw: Partial<SessionsEnvelope>;
+  if (res.status === 304 && held) {
+    // "What you hold is what I would send you": the ETag is the hash of the exact bytes, so this is the answer.
+    raw = held.body;
+  } else {
+    if (!res.ok) {
+      throw new GatewayError(res.status, `GET /sessions?envelope=true failed: ${res.status}`);
+    }
+    raw = (await res.json()) as Partial<SessionsEnvelope>;
+    const etag = res.headers.get("ETag");
+    rosterHeld = etag ? { etag, body: raw } : null;
   }
-  const body = (await res.json()) as Partial<SessionsEnvelope>;
+  const body = restoreRosterClockFields(raw, res.headers.get(GATEWAY_TIME_HEADER));
   const machineErrors = body.machineErrors ?? [];
   return {
     sessions: body.sessions ?? [],
@@ -211,6 +247,53 @@ export async function getSessionsEnvelope(signal?: AbortSignal): Promise<Session
     unreachableBanner:
       body.unreachableBanner !== undefined ? body.unreachableBanner : bannerFromMachineErrors(machineErrors),
   };
+}
+
+// Seconds since the Unix epoch for an ISO 8601 timestamp as the Gateway writes it (to the tick, e.g.
+// "2026-09-21T12:00:04.1234567Z"), or null when it does not parse. Parsed by hand rather than with Date.parse,
+// which keeps only milliseconds and whose handling of more than three fraction digits is not specified. A
+// timestamp with no zone is read as UTC: every one the Gateway sends is UTC.
+export function isoToEpochSeconds(iso: string | null | undefined): number | null {
+  if (typeof iso !== "string") return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.exec(iso.trim());
+  if (!m) return null;
+  const whole = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) / 1000;
+  const fraction = m[7] ? Number(m[7]) : 0;
+  let offset = 0;
+  if (m[8] && m[8] !== "Z") {
+    const sign = m[8][0] === "-" ? -1 : 1;
+    offset = sign * (Number(m[8].slice(1, 3)) * 3600 + Number(m[8].slice(4, 6)) * 60);
+  }
+  return whole + fraction - offset;
+}
+
+/**
+ * Rebuild the two clock fields the roster was asked to leave out, exactly as the Gateway computes them
+ * (PushedSessionStore.RecomputeClocks and the /sessions reachability fold), against the instant in `gatewayTime`:
+ *   - a session with lastActivityAt and no idleSeconds: idleSeconds = gatewayTime - lastActivityAt, never below 0;
+ *   - a director with no lastSeenAgeSeconds: gatewayTime - lastSeenUtc, never below 0, and null when lastSeenUtc is.
+ * With no gatewayTime the answer came from a Gateway that did not take the parameter and still carries the old
+ * fields, so it is returned as it is. The body given is never changed; held copies stay as they arrived.
+ */
+export function restoreRosterClockFields(
+  body: Partial<SessionsEnvelope>,
+  gatewayTime: string | null,
+): Partial<SessionsEnvelope> {
+  const now = isoToEpochSeconds(gatewayTime);
+  if (now === null) return body;
+  const sessions = body.sessions?.map((s) => {
+    if (s.idleSeconds !== undefined) return s;
+    const last = isoToEpochSeconds(s.lastActivityAt as string | null | undefined);
+    if (last === null) return s;
+    const idle = now - last;
+    return { ...s, idleSeconds: idle > 0 ? idle : 0 };
+  });
+  const directors = body.directors?.map((d) => {
+    if (d.lastSeenAgeSeconds !== undefined) return d;
+    const seen = isoToEpochSeconds(d.lastSeenUtc);
+    return { ...d, lastSeenAgeSeconds: seen === null ? null : Math.max(0, now - seen) };
+  });
+  return { ...body, sessions, directors };
 }
 
 // Join a session to its Director's reachability (issue #1215). Returns undefined when the envelope

@@ -47,9 +47,15 @@ public static class ConditionalJson
     {
         ArgumentNullException.ThrowIfNull(ctx);
         ArgumentNullException.ThrowIfNull(value);
-        var options = ctx.RequestServices.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+        return Serve(ctx, value, HostOptions(ctx));
+    }
+
+    /// <summary>The host's own JSON options - the ones <c>Results.Json</c> uses.</summary>
+    public static JsonSerializerOptions HostOptions(HttpContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        return ctx.RequestServices.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
             .Value.SerializerOptions;
-        return Serve(ctx, value, options);
     }
 
     /// <summary>The same, with the serializer options given explicitly.</summary>

@@ -51,6 +51,7 @@ function mockFetch(body: unknown) {
   return vi.fn(async (): Promise<Response> => ({
     ok: true,
     status: 200,
+    headers: new Headers(),
     json: async () => body,
   }) as Response);
 }
@@ -89,7 +90,7 @@ describe("mobile roster card agent tool", () => {
     expect(screen.getByTitle("Agent tool").textContent).toBe("Claude Code");
     expect(screen.queryByText("gpt-5.6-sol")).toBeNull();
     expect(fetch).toHaveBeenCalledWith(
-      "/sessions?envelope=true",
+      "/sessions?envelope=true&clockFields=absolute",
       expect.objectContaining({ method: "GET" }),
     );
   });

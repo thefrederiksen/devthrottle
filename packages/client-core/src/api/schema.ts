@@ -980,6 +980,7 @@ export interface paths {
                     includeExited?: boolean;
                     q?: string;
                     envelope?: boolean;
+                    clockFields?: string;
                 };
                 header?: never;
                 path?: never;

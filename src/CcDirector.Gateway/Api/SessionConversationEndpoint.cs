@@ -1,4 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Streaming;
 using Microsoft.AspNetCore.Builder;
@@ -78,10 +81,60 @@ public static class SessionConversationEndpoint
             // must not write a line each time - that is how a log stops being readable.
             if (dto.Messages.Count == 0)
                 FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: {dto.Status} ({dto.EmptyText})");
+            // Traffic optimization, phase 2: a client that sends the cursor it was handed gets only the messages
+            // after it, when the Gateway can prove it holds exactly that start (ConversationTail). A request with
+            // NO cursor parameter at all is an older Cockpit or phone, and gets exactly the answer it always got.
+            if (ctx.Request.Query.TryGetValue(CursorParameter, out var cursorValues))
+            {
+                var options = ConditionalJson.HostOptions(ctx);
+                var answer = ConversationTail.Decide(
+                    cursorValues.ToString(), tenant.Value.Value, sid, stored?.Head.Generation ?? "", dto.Messages, options);
+                // Logged only when a cursor the client DID send could not be honoured - a generation switch, a
+                // shorter conversation, a changed turn. The first read (no cursor yet) is the normal case.
+                if (answer.TailFrom == 0 && !string.IsNullOrEmpty(cursorValues.ToString()))
+                    FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: answered in full ({answer.Reason})");
+                return ConditionalJson.Serve(ctx, TailBody(dto, answer, options), options);
+            }
+
             // Traffic optimization, phase 1: a poll whose answer has not changed is a 304 with no body. The tag
             // is computed from the exact bytes, so a new turn, a verdict, the stale notice or the history state
             // all change it. See ConditionalJson.
             return ConditionalJson.Serve(ctx, dto);
         });
     }
+
+    /// <summary>The query parameter a newer client sends: the cursor from its last answer, or empty when it
+    /// holds nothing yet. Its PRESENCE is what opts the request into the tail form.</summary>
+    public const string CursorParameter = "cursor";
+
+    /// <summary>
+    /// The tail form of the answer: every field of the full answer - folded over the WHOLE conversation, so the
+    /// stale notice, the empty text, the history state and the status are exactly the full answer's - with
+    /// <c>messages</c> holding only the tail, plus <c>tailFrom</c> (how many messages the client keeps; 0 means
+    /// this is the whole conversation) and <c>cursor</c> (what to send next).
+    /// </summary>
+    internal static JsonObject TailBody(SessionHistoryDto full, ConversationTail.Answer answer, JsonSerializerOptions options)
+    {
+        var shaped = new SessionHistoryDto
+        {
+            SessionId = full.SessionId,
+            DirectorId = full.DirectorId,
+            Agent = full.Agent,
+            IsSupported = full.IsSupported,
+            IsRawText = full.IsRawText,
+            HistoryState = full.HistoryState,
+            Messages = answer.Messages,
+            StaleNotice = full.StaleNotice,
+            EmptyText = full.EmptyText,
+            Status = full.Status,
+            Error = full.Error,
+        };
+        var body = JsonSerializer.SerializeToNode(shaped, options)!.AsObject();
+        body[Name(options, "TailFrom")] = answer.TailFrom;
+        body[Name(options, "Cursor")] = answer.Cursor;
+        return body;
+    }
+
+    private static string Name(JsonSerializerOptions options, string property) =>
+        options.PropertyNamingPolicy?.ConvertName(property) ?? property;
 }
