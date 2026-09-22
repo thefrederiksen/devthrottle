@@ -7,12 +7,13 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
-namespace CcDirector.Gateway.Tests;
+namespace CcDirector.Gateway.Tests.Api;
 
 /// <summary>
 /// Issue #3311, end to end over real HTTP: the Director's own reporter posts a logged error to the real
 /// route, and the account read returns it - then again from a NEW store over the same folder, which is what
 /// a redeployed Gateway is. Self-host shape (no hosted boundary, so the account is the Local one).
+/// It lives in this unlocked suite because it touches only its own temporary folder and a loopback port.
 /// </summary>
 public sealed class DirectorErrorEndToEndTests : IDisposable
 {
@@ -37,7 +38,6 @@ public sealed class DirectorErrorEndToEndTests : IDisposable
     [Fact]
     public async Task A_logged_Director_error_reaches_the_Gateway_and_survives_a_redeploy()
     {
-        DirectorErrorEndpoints.ResetForTests();
         var (app, url) = await StartAsync(new ErrorReportStore(_root));
         try
         {
