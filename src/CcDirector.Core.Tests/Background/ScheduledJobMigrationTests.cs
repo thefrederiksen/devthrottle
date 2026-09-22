@@ -91,6 +91,23 @@ public sealed class ScheduledJobMigrationTests : IDisposable
     }
 
     [Fact]
+    public void TheWatchersReconciliation_RegistersUnderItsRegisterName_WithItsFiveMinuteCadence_AndLeavesWhenDisposed()
+    {
+        var jobs = new BackgroundJobs();
+        var monitor = new CcDirector.Core.Git.RepositoryMonitor(enumerate: _ => Array.Empty<string>());
+        var watcher = new CcDirector.Core.Git.RepositoryWatcher(monitor, jobs: jobs);
+
+        var row = Assert.Single(jobs.Snapshot());
+        Assert.Equal("Repository watcher: full reconciliation", row.Name);
+        Assert.Equal(TimeSpan.FromMinutes(5), row.Cadence);
+        Assert.Equal(BackgroundJobTier.SlowAndSteady, row.Tier);
+        Assert.Equal(12, row.CeilingPerHour);
+
+        watcher.Dispose();
+        Assert.Empty(jobs.Snapshot());
+    }
+
+    [Fact]
     public void ThePointerSweep_RegistersUnderItsRegisterName_WithItsTwoSecondCadence_AndLeavesWhenDisposed()
     {
         var jobs = new BackgroundJobs();
