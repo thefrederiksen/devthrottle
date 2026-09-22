@@ -44,7 +44,8 @@ internal sealed record FactoryAgentsSources(
 ///   POST /gateway/factory-agents/factories/{factory}/pause|resume
 ///   POST /gateway/factory-agents/factories/{factory}/agents/{agent}/pause|resume
 ///
-/// Only the switch route is mapped while <c>factoryAgents.enabled</c> is off: the rest answer 404. These are the
+/// Every route but the switch sits behind <see cref="FactoryAgentsGate"/>: for an account the Factory Agents switch
+/// is not on for (see <c>Factory.FactoryAgentsSwitch</c>) the rest answer 404, as if unmapped. These are the
 /// OWNER's pages: a session key is refused (SessionKeyGuard names none of them).
 /// </summary>
 internal static class FactoryAgentsViewEndpoints
@@ -58,10 +59,23 @@ internal static class FactoryAgentsViewEndpoints
 
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
-    public static void MapSwitch(IEndpointRouteBuilder app, bool enabled)
+    /// <summary>
+    /// The Cockpit's question: is the Factory Agents area on FOR THE CALLING ACCOUNT? Always mapped, and never behind
+    /// <see cref="FactoryAgentsGate"/>, because it is how the Cockpit learns the answer. It is asked through the same
+    /// gate test the routes use, so the rail item shows exactly when the routes answer.
+    /// </summary>
+    public static void MapSwitch(IEndpointRouteBuilder app, Factory.FactoryAgentsSwitch factorySwitch,
+        Func<HttpContext, TenantId?> resolveTenant)
     {
-        app.MapGet(Prefix + "/switch", () => Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled }));
-        FileLog.Write($"[FactoryAgentsViewEndpoints] mapped {Prefix}/switch (enabled={enabled})");
+        ArgumentNullException.ThrowIfNull(factorySwitch);
+        ArgumentNullException.ThrowIfNull(resolveTenant);
+        app.MapGet(Prefix + "/switch", (HttpContext ctx) =>
+        {
+            var enabled = FactoryAgentsGate.IsOnFor(ctx, factorySwitch, resolveTenant, out var why);
+            FileLog.Write($"[FactoryAgentsViewEndpoints] GET switch: enabled={enabled} ({why})");
+            return Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled });
+        });
+        FileLog.Write($"[FactoryAgentsViewEndpoints] mapped {Prefix}/switch (machine switch={(factorySwitch.MachineWide ? "on" : "off")}, per account otherwise)");
     }
 
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, FactoryAgentsSources sources)

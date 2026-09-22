@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factoryAgentsClient";
 
-// Whether the Factory Agents area is on. The GATEWAY decides (its `factoryAgents.enabled` switch) and tells the
-// Cockpit; the Cockpit never decides it (rule 7). Asked once per page load and shared by the rail item and the
-// routes, so the rail and the pages can never disagree.
+// Whether the Factory Agents area is on FOR THE SIGNED-IN ACCOUNT. The GATEWAY decides (its machine switch in
+// config.json, or this account's own switch set by an administrator) and tells the Cockpit; the Cockpit never
+// decides it (rule 7). Asked once per page load and shared by the rail item and the routes, so the rail and the pages
+// can never disagree. Switching account reloads the whole app (accountActions), so the cached answer is always the
+// answer for the account on screen.
 //
 // "unknown" while the answer is on its way, and when the Gateway could not be asked: the rail item stays hidden
 // and the page says it could not reach the Gateway, rather than guessing either way.

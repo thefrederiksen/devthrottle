@@ -202,6 +202,9 @@ internal static class AuthMiddleware
         // the decisions behind it; it never reads or returns captured terminal content, so an exempted route
         // here cannot be used to dredge anybody's screen out of the corpus.
         Api.AdminTurnLogEndpoint.Path,
+        // The administrator factory agents switch, exempt for the same reason and behind the same gate. It moves one
+        // account's boolean and reads one account's decision; it returns no session or terminal content.
+        Api.AdminFactoryAgentsEndpoint.Path,
         // The administrator account lookup, exempt for the same reason and behind the same gate. It answers
         // about ONE account the caller names - there is no leg that enumerates accounts - and it returns no
         // session or terminal content, only an account id, the email already recorded at mint time, and the

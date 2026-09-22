@@ -36,8 +36,8 @@ namespace CcDirector.Gateway.Api;
 /// The Director names itself in the path, and its MACHINE is read from its own registration in the caller's
 /// account - never taken from the request - so a caller cannot ask for another machine's checks.
 ///
-/// MAPPED ONLY WHILE THE SWITCH IS ON (<c>factoryAgents.enabled</c> in the Gateway's config.json, default off).
-/// While it is off none of these routes exist, so each answers 404 and a Director asking for its checks gets none.
+/// BEHIND THE FACTORY AGENTS SWITCH, PER ACCOUNT (<see cref="FactoryAgentsGate"/>, default off): for an account the
+/// switch is not on for, every route here answers 404 as if unmapped, so its Directors are handed no checks.
 /// </summary>
 internal static class TriggerEndpoints
 {

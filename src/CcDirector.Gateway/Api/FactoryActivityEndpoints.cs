@@ -17,8 +17,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET   /gateway/factory/activity   ?factory=&amp;agent=&amp;outcome=&amp;from=&amp;to=&amp;order=newest|oldest&amp;offset=&amp;limit=
 ///                                     -> FactoryActivityPage | 400
 ///
-/// MAPPED ONLY WHILE THE SWITCH IS ON (<c>factoryAgents.enabled</c> in the Gateway's config.json, default
-/// off). While it is off these paths are not mapped at all and answer 404 - see GatewayHost.
+/// BEHIND THE FACTORY AGENTS SWITCH, PER ACCOUNT (<see cref="FactoryAgentsGate"/>, default off): for an account the
+/// switch is not on for, these paths answer 404 as if unmapped - see <c>Factory.FactoryAgentsSwitch</c>.
 ///
 /// A session key may call both (SessionKeyGuard). The Gateway stamps the calling session as the actor, and as
 /// the row's session, when the caller did not name them.
