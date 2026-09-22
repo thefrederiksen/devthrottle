@@ -35,7 +35,7 @@ name: Deploy hosted Gateway
 # THE IMAGE IS BUILT ON THE GITHUB RUNNER, NOT BY ACR TASKS (changed 2026-09-22). It used to run
 # `az acr build`, which uploads the source and has the registry build it on Azure machines as a
 # registry task - while this runner only waited. The repository is public, so runner time is free:
-# the runner now builds with Docker Buildx (layers cached in the GitHub Actions cache) and pushes to the
+# the runner now builds with Docker Buildx (no layer cache - see the build step) and pushes to the
 # same registry, same repository, same ci-<commit> tag. The image purge near the end runs the same
 # `acr purge` tool in a container on the runner for the same reason, instead of `az acr run`. Nothing
 # in this workflow should start a registry task; if `az acr task list-runs` shows one from a deploy,
@@ -252,6 +252,13 @@ jobs:
         id: build_start
         run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
+      # NO LAYER CACHE, on measurement. The first run of this step used the GitHub Actions cache with
+      # mode=max: the build and push took 3m04s cold, and exporting the cache then took another 4m52s.
+      # `COPY . .` sits before the publish in the Dockerfile, so every commit invalidates every layer after
+      # it; the only layers a cache could ever reuse are the two apt/Node installs, which took 26s. Paying
+      # nearly five minutes a deploy to save half a minute is a loss, so there is no cache-from/cache-to.
+      # Revisit only if the Dockerfile gains a dependency-restore layer that survives an ordinary commit.
+      #
       # provenance and sbom are OFF so the push is a single-platform image manifest - the shape
       # `az acr build` produced - and the digest below is exactly the manifest App Service pulls.
       - name: Build image on the runner and push it
@@ -264,8 +271,6 @@ jobs:
           build-args: COCKPIT_COMMIT=${{ steps.short.outputs.short }}
           provenance: false
           sbom: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Stop the build clock
         id: build
