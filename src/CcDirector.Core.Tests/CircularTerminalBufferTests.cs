@@ -132,6 +132,92 @@ public class CircularTerminalBufferTests
     }
 
     [Fact]
+    public void DumpTail_HoldsFewerThanMax_ReturnsAllWrittenBytes()
+    {
+        using var buffer = new CircularTerminalBuffer(64);
+        var data = "Hello"u8.ToArray();
+        buffer.Write(data);
+
+        var tail = buffer.DumpTail(10);
+
+        Assert.Equal(data, tail);
+    }
+
+    [Fact]
+    public void DumpTail_HoldsMoreThanMax_ReturnsOnlyTheLastBytes()
+    {
+        using var buffer = new CircularTerminalBuffer(64);
+        buffer.Write("Hello World"u8.ToArray());
+
+        var tail = buffer.DumpTail(5);
+
+        Assert.Equal("World"u8.ToArray(), tail);
+    }
+
+    [Fact]
+    public void DumpTail_ExactCapacity_ReturnsAllBytes()
+    {
+        using var buffer = new CircularTerminalBuffer(8);
+        var data = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+        buffer.Write(data);
+
+        Assert.Equal(data, buffer.DumpTail(8));
+        Assert.Equal(data, buffer.DumpTail(100));
+        Assert.Equal(new byte[] { 6, 7, 8 }, buffer.DumpTail(3));
+    }
+
+    [Fact]
+    public void DumpTail_Wrapped_ReturnsLatestBytesAcrossTheSeam()
+    {
+        using var buffer = new CircularTerminalBuffer(8);
+        buffer.Write(new byte[] { 1, 2, 3, 4, 5, 6 }); // 6 bytes
+        buffer.Write(new byte[] { 7, 8, 9, 10 });       // 4 more -> wraps, head at 2
+
+        // Whole ring equals DumpAll; a tail crossing the seam is contiguous and in order.
+        Assert.Equal(buffer.DumpAll(), buffer.DumpTail(8));
+        Assert.Equal(new byte[] { 3, 4, 5, 6, 7, 8, 9, 10 }, buffer.DumpTail(8));
+        Assert.Equal(new byte[] { 6, 7, 8, 9, 10 }, buffer.DumpTail(5));
+        Assert.Equal(new byte[] { 9, 10 }, buffer.DumpTail(2));
+    }
+
+    [Fact]
+    public void DumpTail_LargerThanCapacityWrite_ReturnsLastBytes()
+    {
+        using var buffer = new CircularTerminalBuffer(4);
+        buffer.Write(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
+
+        Assert.Equal(new byte[] { 5, 6, 7, 8 }, buffer.DumpTail(10));
+        Assert.Equal(new byte[] { 7, 8 }, buffer.DumpTail(2));
+    }
+
+    [Fact]
+    public void DumpTail_EmptyBufferOrZero_ReturnsEmpty()
+    {
+        using var buffer = new CircularTerminalBuffer(8);
+        Assert.Empty(buffer.DumpTail(4));
+
+        buffer.Write(new byte[] { 1, 2 });
+        Assert.Empty(buffer.DumpTail(0));
+    }
+
+    [Fact]
+    public void DumpTail_NegativeMax_Throws()
+    {
+        using var buffer = new CircularTerminalBuffer(8);
+        Assert.Throws<ArgumentOutOfRangeException>(() => buffer.DumpTail(-1));
+    }
+
+    [Fact]
+    public void DumpTail_AfterDispose_ReturnsEmpty()
+    {
+        var buffer = new CircularTerminalBuffer(8);
+        buffer.Write(new byte[] { 1, 2, 3 });
+        buffer.Dispose();
+
+        Assert.Empty(buffer.DumpTail(4));
+    }
+
+    [Fact]
     public void GetWrittenSince_FromZero_ReturnsAllWritten()
     {
         using var buffer = new CircularTerminalBuffer(64);
