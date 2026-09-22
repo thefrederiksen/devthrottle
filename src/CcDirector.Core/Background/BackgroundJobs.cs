@@ -39,7 +39,13 @@ public sealed record BackgroundJobSpec(
         : null;
 }
 
-/// <summary>One job's state, as the Background work page and the log read it.</summary>
+/// <summary>
+/// One job's state, as the Background work page and the log read it. A job kind may have several
+/// instances at once (one deletion reaper per session manager, one heartbeat per host); the
+/// registry's snapshot folds them into one row per name, with <paramref name="Instances"/> saying
+/// how many, and the counts summed. The ceiling is per instance, so a kind with three instances
+/// is over its ceiling when its runs exceed three times the ceiling.
+/// </summary>
 public sealed record BackgroundJobSnapshot(
     string Name,
     BackgroundJobTier Tier,
@@ -51,9 +57,10 @@ public sealed record BackgroundJobSnapshot(
     int SkippedOff,
     int SkippedTooSoon,
     int Failures,
-    bool Running)
+    bool Running,
+    int Instances = 1)
 {
-    public bool OverCeiling => CeilingPerHour is { } ceiling && RunsInLastHour > ceiling;
+    public bool OverCeiling => CeilingPerHour is { } ceiling && RunsInLastHour > ceiling * Math.Max(1, Instances);
 }
 
 /// <summary>
@@ -81,7 +88,7 @@ public sealed class BackgroundJobs
 
     private readonly SemaphoreSlim _slots;
     private readonly Func<DateTime> _nowUtc;
-    private readonly ConcurrentDictionary<string, BackgroundJob> _jobs = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<BackgroundJob, byte> _jobs = new();
 
     public BackgroundJobs(int parallelism = 4, Func<DateTime>? nowUtc = null)
     {
@@ -92,9 +99,10 @@ public sealed class BackgroundJobs
     }
 
     /// <summary>
-    /// Register a job. Its name must be unique in this registry; registering a name twice is a
-    /// programming error, not a second job. The job does nothing until it is triggered or its timer
-    /// is started.
+    /// Register a job. The name is the job's row in docs/BackgroundWork.md; a kind that exists once
+    /// per session manager or per host registers once per instance under the same name, and the
+    /// snapshot folds the instances into one row. The job does nothing until it is triggered or its
+    /// timer is started.
     /// </summary>
     public BackgroundJob Register(BackgroundJobSpec spec, Func<CancellationToken, Task> run)
     {
@@ -103,17 +111,30 @@ public sealed class BackgroundJobs
         if (string.IsNullOrWhiteSpace(spec.Name)) throw new ArgumentException("a job needs a name", nameof(spec));
 
         var job = new BackgroundJob(this, spec, run);
-        if (!_jobs.TryAdd(spec.Name, job))
-            throw new InvalidOperationException($"a background job named '{spec.Name}' is already registered");
+        _jobs.TryAdd(job, 0);
         FileLog.Write($"[BackgroundJobs] registered '{spec.Name}': {spec.Tier}, cadence={(spec.Cadence is { } c ? c.ToString() : "on change")}, off switch: {spec.OffSwitch}");
         return job;
     }
 
-    /// <summary>Every registered job's state, for the Background work page and for tests.</summary>
+    /// <summary>One row per job name, instances folded, for the Background work page and for tests.</summary>
     public IReadOnlyList<BackgroundJobSnapshot> Snapshot() =>
-        _jobs.Values.Select(j => j.Snapshot()).OrderBy(s => s.Name, StringComparer.Ordinal).ToList();
+        _jobs.Keys.Select(j => j.Snapshot())
+            .GroupBy(s => s.Name, StringComparer.Ordinal)
+            .Select(g => g.Count() == 1 ? g.First() : g.First() with
+            {
+                Instances = g.Count(),
+                LastRunUtc = g.Max(s => s.LastRunUtc),
+                LastDuration = g.OrderByDescending(s => s.LastRunUtc).First().LastDuration,
+                RunsInLastHour = g.Sum(s => s.RunsInLastHour),
+                SkippedOff = g.Sum(s => s.SkippedOff),
+                SkippedTooSoon = g.Sum(s => s.SkippedTooSoon),
+                Failures = g.Sum(s => s.Failures),
+                Running = g.Any(s => s.Running),
+            })
+            .OrderBy(s => s.Name, StringComparer.Ordinal)
+            .ToList();
 
-    internal void Forget(BackgroundJob job) => _jobs.TryRemove(job.Spec.Name, out _);
+    internal void Forget(BackgroundJob job) => _jobs.TryRemove(job, out _);
     internal Func<DateTime> NowUtc => _nowUtc;
     internal SemaphoreSlim Slots => _slots;
 }

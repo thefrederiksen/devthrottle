@@ -205,12 +205,27 @@ public sealed class BackgroundJobsTests
     }
 
     [Fact]
-    public void ANameRegisteredTwice_IsAProgrammingError()
+    public async Task TwoInstancesOfOneJobKind_ShareOneRow_WithTheirCountsFolded()
     {
         var jobs = new BackgroundJobs();
-        jobs.Register(new BackgroundJobSpec("one", BackgroundJobTier.OnChange, null, "test ends"), _ => Task.CompletedTask);
-        Assert.Throws<InvalidOperationException>(() =>
-            jobs.Register(new BackgroundJobSpec("one", BackgroundJobTier.OnChange, null, "test ends"), _ => Task.CompletedTask));
+        var spec = new BackgroundJobSpec("reaper", BackgroundJobTier.SlowAndSteady, TimeSpan.FromMinutes(1), "manager disposed");
+        var first = jobs.Register(spec, _ => Task.CompletedTask);
+        var second = jobs.Register(spec, _ => Task.CompletedTask);
+
+        first.Trigger();
+        second.Trigger();
+        await WaitUntil(() => jobs.Snapshot().Single().RunsInLastHour == 2, "both instances to run");
+
+        var row = jobs.Snapshot().Single();
+        Assert.Equal("reaper", row.Name);
+        Assert.Equal(2, row.Instances);
+        Assert.Equal(60, row.CeilingPerHour);
+        Assert.False(row.OverCeiling); // the ceiling is per instance
+
+        first.Dispose();
+        Assert.Equal(1, jobs.Snapshot().Single().Instances);
+        second.Dispose();
+        Assert.Empty(jobs.Snapshot());
     }
 
     [Fact]
