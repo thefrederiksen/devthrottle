@@ -1602,6 +1602,9 @@ public sealed class GatewayHost : IAsyncDisposable
             _accessRevoker = new Tenancy.TenantAccessRevoker(Devices, _directorConnections);
             _accessLeases = new Tenancy.HostedAccessLeaseService(EntitlementRegistry, TenantRegistry, _accessRevoker);
             _leaseMonitor = new Tenancy.EntitlementLeaseMonitor(_accessLeases);
+            // Give back the keys the withdrawn "trial ended = cut off" rule cancelled (owner ruling 2026-09-22).
+            // Before any request is served, so a reinstated Director's next knock is simply accepted. Idempotent.
+            Tenancy.PreFreeTierKeyReinstatement.Run(Devices, TenantRegistry, EntitlementRegistry, DateTime.UtcNow);
             // TEST ONLY: a hosted gateway that is NOT a real hosted image (a test forcing hosted mode via env,
             // with no baked image marker) auto-provisions the entitlement production requires at the paid
             // enrollment endpoint - which the low-level test enroll paths bypass - so the request-path cutoff
