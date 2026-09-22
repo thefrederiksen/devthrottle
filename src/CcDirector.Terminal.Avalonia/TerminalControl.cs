@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -410,6 +411,9 @@ public class TerminalControl : Control
     /// </summary>
     private void RebuildFromBuffer()
     {
+        // Timed, because on a wrapped two megabyte ring this replay is a large block of screen-thread work
+        // on every session switch; the elapsed time in the log line below is how that cost is measured.
+        long startedAt = Stopwatch.GetTimestamp();
         EnsureCellsMatchGrid();
         _scrollback.Clear();
         _scrollOffset = 0;
@@ -456,7 +460,7 @@ public class TerminalControl : Control
         // first live poll computes a delta of zero, not the whole replayed history (issue #761).
         _lastScrollTotal = _parser?.TotalLinesScrolled ?? 0;
 
-        FileLog.Write($"[TerminalControl] RebuildFromBuffer: cols={_cols}, rows={_rows}, replayedBytes={replayedBytes}, segments={replaySegments}, scrollback={_scrollback.Count}");
+        FileLog.Write($"[TerminalControl] RebuildFromBuffer: cols={_cols}, rows={_rows}, replayedBytes={replayedBytes}, segments={replaySegments}, scrollback={_scrollback.Count}, elapsedMs={Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:F0}");
     }
 
     /// <summary>

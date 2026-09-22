@@ -118,6 +118,7 @@ public partial class MainWindow : Window
     // Rail refresh timers. The git-status probe that used to ride the first of these now runs on the
     // Director (Core.Git.SessionGitStatusMonitor) so the count reaches every surface, not just this one.
     private global::Avalonia.Threading.DispatcherTimer? _sessionGitTimer;
+    private global::Avalonia.Threading.DispatcherTimer? _uiThreadProbeTimer;
     private global::Avalonia.Threading.DispatcherTimer? _dictationLockTimer;
 
     /// <summary>
@@ -484,6 +485,19 @@ public partial class MainWindow : Window
             RebuildRail();
         };
         _sessionGitTimer.Start();
+
+        // THE SCREEN-THREAD PROBE (terminal slowdown plan, step 1). A background-priority timer runs only
+        // when the screen thread has nothing more urgent to do, so how late it fires is how long the screen
+        // thread was busy. UiThreadLatenessProbe turns that into "[UiThread] late by N ms" lines and a summary
+        // a minute - the one number every later slowdown change is measured against.
+        var probeClock = global::System.Diagnostics.Stopwatch.StartNew();
+        var probe = new UiThreadLatenessProbe(FileLog.Write, probeClock.ElapsedMilliseconds);
+        _uiThreadProbeTimer = new global::Avalonia.Threading.DispatcherTimer(global::Avalonia.Threading.DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(UiThreadLatenessProbe.IntervalMs),
+        };
+        _uiThreadProbeTimer.Tick += (_, _) => probe.Tick(probeClock.ElapsedMilliseconds);
+        _uiThreadProbeTimer.Start();
 
         // Issue #1181, Task 3b: refresh each session's "receiving a dictation" flag once a second so the
         // rail can paint it orange while a phone dictation is inbound. The Session raises a change event
@@ -6666,6 +6680,7 @@ public partial class MainWindow : Window
 
         // Stop git status polling
         _sessionGitTimer?.Stop();
+        _uiThreadProbeTimer?.Stop();
 
         // Stop repainting the update status
         _updateStatusTimer?.Stop();
