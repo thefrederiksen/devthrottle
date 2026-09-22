@@ -88,7 +88,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private long _sequence;
     private int _started;
     private int _rePushInFlight;
-    private Timer? _rePushTimer;
+    private readonly CcDirector.Core.Background.BackgroundJobs _jobs;
+    private CcDirector.Core.Background.BackgroundJob? _rePushJob;
     private volatile bool _disposed;
 
     /// <summary>Reconnect backoff between long-outage restart attempts once auto-reconnect has given up.</summary>
@@ -120,8 +121,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Func<List<SessionKeyRegistration>>? sessionKeys = null,
         Func<List<string>>? pendingRevocations = null,
         Action<string>? onRevocationConfirmed = null,
-        Action<GatewayCapabilities>? onHello = null)
+        Action<GatewayCapabilities>? onHello = null,
+        CcDirector.Core.Background.BackgroundJobs? jobs = null)
     {
+        _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
         _onHello = onHello;
         _sessionKeys = sessionKeys;
         _pendingRevocations = pendingRevocations;
@@ -164,7 +167,14 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // too (issue #2818). Without this a Director that comes up on a machine already under pressure
         // reports its first, worst tick as on time.
         Interlocked.Exchange(ref _lastRePushTickUtcTicks, DateTime.UtcNow.Ticks);
-        _rePushTimer = new Timer(_ => RePushTick(), null, _rePushInterval, _rePushInterval);
+        // A slow-and-steady job on the scheduler (docs/BackgroundWork.md): first after one interval, then
+        // every interval. The tick's own in-flight guard and its skip lines are unchanged; the scheduler
+        // only owns when the tick fires.
+        _rePushJob = _jobs.Register(
+            new CcDirector.Core.Background.BackgroundJobSpec("Tunnel re-push of the full snapshot",
+                CcDirector.Core.Background.BackgroundJobTier.SlowAndSteady, _rePushInterval, "the stream client stops"),
+            _ => { RePushTick(); return Task.CompletedTask; });
+        _rePushJob.StartTimer();
     }
 
     // Timer callback (a boundary): re-push the full snapshot so a quiet session's pushed cache stays fresh.
@@ -1015,10 +1025,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     public async Task StopAsync()
     {
         _disposed = true;
-        if (_rePushTimer is not null)
+        if (_rePushJob is { } rePush)
         {
-            await _rePushTimer.DisposeAsync();
-            _rePushTimer = null;
+            _rePushJob = null;
+            await rePush.StopAsync();
         }
         if (_connection is not null)
         {
@@ -1034,10 +1044,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _disposed = true;
-        if (_rePushTimer is not null)
+        if (_rePushJob is { } rePush)
         {
-            await _rePushTimer.DisposeAsync();
-            _rePushTimer = null;
+            _rePushJob = null;
+            await rePush.StopAsync();
         }
         if (_connection is not null)
         {

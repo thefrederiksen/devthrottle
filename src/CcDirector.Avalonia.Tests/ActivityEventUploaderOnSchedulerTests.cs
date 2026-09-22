@@ -56,6 +56,25 @@ public sealed class ActivityEventUploaderOnSchedulerTests
     }
 
     [Fact]
+    public async Task TheTunnelRePush_RegistersUnderItsRegisterName_WithItsInterval_AndLeavesWhenStopped()
+    {
+        var jobs = new BackgroundJobs();
+        var config = new CcDirector.Core.Configuration.GatewayConfig { Url = "http://127.0.0.1:1", Token = "t", StreamMode = true }; // unreachable on purpose
+        var client = new GatewayStreamClient(config, "dir-test", "0.0.0", () => new List<CcDirector.Gateway.Contracts.SessionDto>(),
+            rePushInterval: TimeSpan.FromSeconds(10), jobs: jobs);
+
+        client.Start();
+
+        var row = Assert.Single(jobs.Snapshot());
+        Assert.Equal("Tunnel re-push of the full snapshot", row.Name);
+        Assert.Equal(TimeSpan.FromSeconds(10), row.Cadence);
+        Assert.Equal(360, row.CeilingPerHour);
+
+        await client.StopAsync();
+        Assert.Empty(jobs.Snapshot());
+    }
+
+    [Fact]
     public void TheRegistrationHeartbeat_RegistersUnderItsRegisterName_WithItsFifteenSecondCadence_AndLeavesWhenDisposed()
     {
         var jobs = new BackgroundJobs();
