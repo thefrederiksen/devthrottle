@@ -226,14 +226,22 @@ public sealed class GatewayHost : IAsyncDisposable
     public bool AuthEnabled { get; }
 
     /// <summary>
-    /// The factory agents switch (Website Business Factory, product track): <c>factoryAgents.enabled</c> in
+    /// The MACHINE factory agents switch (Website Business Factory, product track): <c>factoryAgents.enabled</c> in
     /// config.json, default OFF, or the explicit constructor override a test passes. Resolved once, at
-    /// construction, the way the stream switch was (issue #1176). While it is off the factory surface -
-    /// today the activity record at <see cref="Api.FactoryActivityEndpoints.Route"/>, the triggers at
-    /// <c>/triggers</c> and the Director's <c>/directors/{id}/triggers</c> - is not mapped at all, so it answers
-    /// 404 and a Director asking for its checks is given none.
+    /// construction, the way the stream switch was (issue #1176). On, it switches the area on for every account on
+    /// this Gateway. Off, each account is on only when an administrator switched it on - see
+    /// <see cref="FactoryAgentsSwitch"/>, which is the one answer every factory route reads.
     /// </summary>
     public bool FactoryAgentsEnabled { get; }
+
+    /// <summary>
+    /// Whether the factory agents area is on FOR ONE ACCOUNT: the machine switch above, or that account's own
+    /// recorded decision. Every factory route - the activity record at <see cref="Api.FactoryActivityEndpoints.Route"/>,
+    /// the triggers at <c>/triggers</c>, the Director's <c>/directors/{id}/triggers</c>, and the owner's pages - sits
+    /// behind <see cref="Api.FactoryAgentsGate"/>, so for an account that is off each answers 404 and a Director of
+    /// that account asking for its checks is given none.
+    /// </summary>
+    internal Factory.FactoryAgentsSwitch FactoryAgentsSwitch { get; }
 
     /// <summary>The append-only factory activity record. Constructed whatever the switch says, so the
     /// database shape does not depend on it; only the routes do.</summary>
@@ -1831,6 +1839,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // until the owner explicitly overrides one.
         _tenantSettings = new Settings.TenantSettingsStore(_gatewayDb);
         _tenantSettingsResolver = new Settings.TenantSettingsResolver(_tenantSettings);
+        // The factory agents switch per account: the machine switch, or the account's own recorded decision, which
+        // lives in the per-tenant settings just built - so no new table, and the administrator route writes it.
+        FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
@@ -3885,10 +3896,10 @@ public sealed class GatewayHost : IAsyncDisposable
             raisedSessions: RaisedSessions,
             raisedRecord: RaisedSessionRecord,
             // The Website Business Factory, Screen 6: the "factory agent" chip is read from the activity record, and
-            // only while the Factory Agents switch is on - off, no row carries one.
-            factoryStarts: FactoryAgentsEnabled
-                ? (tenant, sessionIds) => Factory.FactorySessionStarts.Read(FactoryActivity, tenant, sessionIds)
-                : null,
+            // only for an account the Factory Agents switch is on for - off, no row carries one.
+            factoryStarts: (tenant, sessionIds) => FactoryAgentsSwitch.IsOn(tenant)
+                ? Factory.FactorySessionStarts.Read(FactoryActivity, tenant, sessionIds)
+                : Factory.FactorySessionStarts.None,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -4310,19 +4321,20 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.GovernanceAuditEndpoints.Map(_app, _governanceAudit);
 
         // The factory activity record (Website Business Factory, product track): append-only, never pruned.
-        // Behind the factory agents switch - while it is off the routes are simply not mapped, so they 404.
-        // The Cockpit asks the switch whether to show the Factory Agents area at all, so that one route is mapped
-        // either way; the owner's pages over the record are mapped only while it is on.
-        Api.FactoryAgentsViewEndpoints.MapSwitch(_app, FactoryAgentsEnabled);
-        if (FactoryAgentsEnabled)
-        {
-            Api.FactoryActivityEndpoints.Map(_app, FactoryActivity);
-            Api.FactoryAgentsViewEndpoints.Map(_app,
-                resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-                sources: FactoryAgentsViewSources());
-        }
-        else
-            FileLog.Write("[GatewayHost] factory agents are OFF: the factory activity routes and pages are not mapped");
+        // Behind the factory agents switch PER ACCOUNT: every route is mapped into the gate's group, which answers 404
+        // (as if unmapped) for an account the switch is not on for. The Cockpit asks the switch whether to show the
+        // Factory Agents area at all, so that one route is outside the gate and answers for the calling account.
+        Api.FactoryAgentsViewEndpoints.MapSwitch(_app, FactoryAgentsSwitch,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
+        var factoryGate = Api.FactoryAgentsGate.Group(_app, FactoryAgentsSwitch,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
+        Api.FactoryActivityEndpoints.Map(factoryGate, FactoryActivity);
+        Api.FactoryAgentsViewEndpoints.Map(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: FactoryAgentsViewSources());
+        // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
+        // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
+        Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);
 
         // The weekly Outcome Ledger (issue #1771, spine item 4): the first report that pays rent - verified
         // yield, aging WIP, and high-effort/no-outcome runs with cost + attention-burden. Read-only.
@@ -4683,18 +4695,17 @@ public sealed class GatewayHost : IAsyncDisposable
         CronRunEndpoints.Map(_app, _cronEngine, _cronRuns);
 
         // Factory triggers (Website Business Factory, product track): the definitions, the run history, and the
-        // Director's half - fetch its checks, report each result. Behind the factory agents switch: while it is
-        // off none of these routes is mapped, so each answers 404 and a Director is handed no checks to run.
-        if (FactoryAgentsEnabled)
-            TriggerEndpoints.Map(_app,
-                resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-                service: Triggers,
-                directorMachine: (tenant, directorId) => Registry.ListDirectors(tenant)
-                    .FirstOrDefault(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
-                    ?.MachineName,
-                nowUtc: () => DateTime.UtcNow);
-        else
-            FileLog.Write("[GatewayHost] factory agents are OFF: the trigger routes are not mapped");
+        // Director's half - fetch its checks, report each result. Behind the factory agents switch PER ACCOUNT: for
+        // an account it is not on for, each route answers 404 and that account's Directors are handed no checks.
+        TriggerEndpoints.Map(
+            Api.FactoryAgentsGate.Group(_app, FactoryAgentsSwitch,
+                resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary)),
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            service: Triggers,
+            directorMachine: (tenant, directorId) => Registry.ListDirectors(tenant)
+                .FirstOrDefault(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+                ?.MachineName,
+            nowUtc: () => DateTime.UtcNow);
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,

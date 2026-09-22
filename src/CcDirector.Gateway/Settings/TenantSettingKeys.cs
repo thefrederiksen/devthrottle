@@ -247,6 +247,14 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FactoryReports = "factory_reports";
 
+    /// <summary>
+    /// Whether the Factory Agents area is switched on for this account (Website Business Factory, product track): a
+    /// JSON decision - enabled, who switched it, why, and when. Written ONLY by the administrator route
+    /// <c>POST /gateway/admin/factory-agents</c>, never by the account's own settings page. See
+    /// <c>Factory.FactoryAgentsSwitch</c> for how it combines with the machine switch in config.json.
+    /// </summary>
+    public const string FactoryAgentsSwitch = "factory_agents_switch";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -262,6 +270,6 @@ public static class TenantSettingKeys
         FleetManagerSuccessorSessionId, FleetManagerSuccessorReplaces,
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
-        FactoryReports,
+        FactoryReports, FactoryAgentsSwitch,
     };
 }

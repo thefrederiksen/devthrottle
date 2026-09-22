@@ -13,7 +13,8 @@ public static class FactorySessionStarts
     /// <summary>For an account and the session ids on screen: the row that started each one a factory agent started.</summary>
     public delegate IReadOnlyDictionary<string, FactoryActivityDto> Reader(TenantId tenant, IReadOnlyCollection<string> sessionIds);
 
-    private static readonly IReadOnlyDictionary<string, FactoryActivityDto> None =
+    /// <summary>No session started by a factory agent: what the roster reads for an account the switch is off for.</summary>
+    public static readonly IReadOnlyDictionary<string, FactoryActivityDto> None =
         new Dictionary<string, FactoryActivityDto>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
