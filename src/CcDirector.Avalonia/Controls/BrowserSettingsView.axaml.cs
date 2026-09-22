@@ -76,7 +76,7 @@ public partial class BrowserSettingsView : UserControl
             await Task.Run(() =>
             {
                 harnessInstalled = AutomationBrowserViewFold.IsHarnessInstalled();
-                installed = BrowserLauncher.DetectBrowsers();
+                installed = BrowserLauncher.DetectBrowsers(forceProbe: true);
                 views = AutomationBrowserViewFold.ListPending(previous);
             });
 
