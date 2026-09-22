@@ -40,6 +40,24 @@ public static class Program
 
         FileLog.Write($"[Program] CC Launcher starting, log: {FileLog.CurrentLogPath}");
 
+        // LINUX RUNS HEADLESS BY INTENT, NOT AS A FALLBACK.
+        //
+        // The launcher is a tray application on Windows and macOS. On Linux there is no dependable tray
+        // to be in - a GNOME desktop has not drawn a legacy tray icon for years without an extension -
+        // and NEITHER OF THE LAUNCHER'S TWO JOBS NEEDS A WINDOW: it stages its own update, and it
+        // installs the Director's when the Director is idle (issue #1033).
+        //
+        // So Linux goes straight to the same core the degraded path below runs, and says "headless"
+        // rather than "degraded" in the registration file, because nothing here failed. Trying Avalonia
+        // first and falling back would report every healthy Linux launcher as degraded, and would make
+        // the launcher's startup depend on a desktop session it does not need - the systemd user unit
+        // that starts it (LauncherSystemdAutostart) names no display for exactly that reason.
+        if (OperatingSystem.IsLinux())
+        {
+            FileLog.Write("[Program] Linux: running HEADLESS by design (no tray) - registration, stream and self-update");
+            return RunHeadless("headless");
+        }
+
         // TRAY MODE MUST ANSWER SIGTERM TOO.
         //
         // Headless mode has handled it from the start (see RunHeadless), and tray mode never did -
@@ -76,7 +94,7 @@ public static class Program
             // running app still exits loudly below.
             FileLog.Write($"[Program] User-interface platform failed to initialize: {ex.Message}");
             FileLog.Write("[Program] DEGRADED: running HEADLESS (no tray icon) - Gateway stream + registration only");
-            return RunHeadless();
+            return RunHeadless("degraded");
         }
         catch (Exception ex)
         {
@@ -144,11 +162,17 @@ public static class Program
     }
 
     /// <summary>
-    /// Headless degraded mode: everything except the tray icon. Runs until the shutdown
-    /// lifecycle signal is raised or the process receives SIGTERM/SIGINT (launchd
-    /// bootout sends SIGTERM; the graceful stop unregisters from the Gateway).
+    /// Headless mode: everything except the tray icon. Runs until the shutdown lifecycle signal is
+    /// raised or the process receives SIGTERM/SIGINT (launchd bootout and <c>systemctl --user stop</c>
+    /// both send SIGTERM; the graceful stop unregisters from the Gateway).
+    ///
+    /// Two callers, and the difference matters to whoever reads the registration file:
+    /// <paramref name="userInterfaceState"/> is "headless" when this is the intended mode for the
+    /// platform (Linux), and "degraded" when a tray platform could not start its user interface and
+    /// fell back here. Reporting the Linux launcher as degraded would make its normal, healthy state
+    /// look like a fault on every machine.
     /// </summary>
-    private static int RunHeadless()
+    private static int RunHeadless(string userInterfaceState)
     {
         var shutdown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task RequestShutdown() { shutdown.TrySetResult(); return Task.CompletedTask; }
@@ -164,7 +188,7 @@ public static class Program
         var core = new LauncherCore(LauncherCore.ReadVersion());
         try
         {
-            core.StartAsync(RequestShutdown, userInterfaceState: "degraded").GetAwaiter().GetResult();
+            core.StartAsync(RequestShutdown, userInterfaceState).GetAwaiter().GetResult();
             LauncherCore.RegisterAutostartSafe();
             if (LauncherAppOptions.Managed)
                 _ = LauncherCore.RunUpdateLoopAsync(lifetime.Token);
