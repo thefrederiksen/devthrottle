@@ -128,6 +128,9 @@ public partial class MainWindow : Window
     /// and the pool thread.
     /// </summary>
     private int _dictationLockReadInFlight;
+    // The lock set the dictation tick last applied, and the session list version it was applied to.
+    private IReadOnlySet<string>? _dictationLockLastApplied;
+    private int _dictationLockLastAppliedListVersion;
 
     // Interactive TUI mode
     private bool _isInteractiveTuiMode;
@@ -378,14 +381,10 @@ public partial class MainWindow : Window
         if (SidebarConfig.Collapsed)
             SetSidebarCollapsed(true, persist: false);
 
-        // Keep group brackets/headers (issue #225) correct after any add/remove/restore.
-        // Cheap flag recompute; the drop handler also calls it explicitly after a reorder.
-        _sessions.CollectionChanged += (_, _) => RecomputeGroupPositions();
-
-        // Keep the "N need you" header count instant: recompute whenever a session is
-        // added/removed or ANY session's status color flips (e.g. a background session goes
-        // red while you are on another). The 15s timer remains a backstop.
-        _sessions.CollectionChanged += OnSessionsCollectionChanged;
+        // From here on a change to the session list also recomputes the group brackets/headers (issue #225)
+        // and keeps the "N need you" header count instant. Both run inside the ONE list handler that
+        // BindSessionRail subscribed above - see OnSessionListChanged for why it is one pass, not three.
+        _sessionListWindowWired = true;
 
         // Subscribe to session registration for ClaudeSessionId persistence
         _sessionManager.OnClaudeSessionRegistered += OnClaudeSessionRegistered;
@@ -530,6 +529,9 @@ public partial class MainWindow : Window
         {
             if (Interlocked.CompareExchange(ref _dictationLockReadInFlight, 1, 0) != 0) return;
 
+            // Read on the UI thread, where the session list is changed, before the read leaves it.
+            var sessionListVersion = _sessionListVersion;
+
             _ = Task.Run(() =>
             {
                 IReadOnlySet<string> lockedSessionIds;
@@ -546,11 +548,27 @@ public partial class MainWindow : Window
                     return;
                 }
 
+                // Nothing to post when the lock set is the one last applied and no session has joined the list
+                // since: every session already holds the right flag, so the loop below would change nothing.
+                // That is almost every tick, so an idle Director now costs the UI thread nothing at all here,
+                // rather than one post a second. The in-flight flag orders these reads, so the last-applied
+                // fields are never read while the post that writes them is still pending.
+                if (_dictationLockLastApplied is not null
+                    && sessionListVersion == _dictationLockLastAppliedListVersion
+                    && lockedSessionIds.SetEquals(_dictationLockLastApplied))
+                {
+                    Interlocked.Exchange(ref _dictationLockReadInFlight, 0);
+                    return;
+                }
+
                 global::Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     try
                     {
+                        // RefreshReceivingDictation changes and raises only for a session whose value flipped.
                         foreach (var vm in _sessions) vm.Session.RefreshReceivingDictation(lockedSessionIds);
+                        _dictationLockLastApplied = lockedSessionIds;
+                        _dictationLockLastAppliedListVersion = sessionListVersion;
                     }
                     finally
                     {
@@ -708,7 +726,7 @@ public partial class MainWindow : Window
     {
         // Seed the gateway host the box shows on line 1 from config NOW. Without this a configured-Director
         // startup would briefly paint line 1 empty (looking brand-new) before the monitor attaches.
-        RefreshGatewayConfigFields();
+        _ = RefreshGatewayConfigFieldsThenPaintAsync();
 
         // Line 2 of the box (account signed-in) is fed by a heartbeat poll of the Gateway's
         // GET /account/status; line 1 (Gateway reachable) is fed by the GatewayConnectionMonitor
@@ -724,14 +742,32 @@ public partial class MainWindow : Window
         TryAttachGatewayMonitor();
     }
 
-    // Read the configured gateway right now so line 1 of the box knows WHICH gateway to name before any
-    // network read returns. Cheap config-file read (same one RefreshAccountStatusAsync does on the UI
-    // thread); account fields are left untouched - the poll owns those.
-    private void RefreshGatewayConfigFields()
+    // Counts the config reads started below, so a read that finishes after a newer one cannot overwrite it.
+    // Only touched on the UI thread.
+    private int _gatewayConfigReadGeneration;
+
+    /// <summary>
+    /// Read the configured gateway so line 1 of the box knows WHICH gateway to name, then repaint the box. The
+    /// config file is read on the thread pool; only the two fields and the repaint happen on the UI thread.
+    /// The repaint waits for the read, never runs ahead of it, so a gateway change can never paint the new
+    /// verdict beside the previous gateway host. Account fields are left untouched - the poll owns those.
+    /// Fire-and-forget from UI-thread callers, so this is the catching boundary.
+    /// </summary>
+    private async Task RefreshGatewayConfigFieldsThenPaintAsync()
     {
-        var config = GatewayConfig.Load();
-        _boxGatewayConfigured = config.IsEnabled;
-        _boxGatewayHost = SafeHost(config.Url);
+        try
+        {
+            var generation = ++_gatewayConfigReadGeneration;
+            var config = await Task.Run(GatewayConfig.Load);
+            if (generation != _gatewayConfigReadGeneration) return; // a newer read owns the fields
+            _boxGatewayConfigured = config.IsEnabled;
+            _boxGatewayHost = SafeHost(config.Url);
+            UpdateGatewayStatusBox();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] RefreshGatewayConfigFieldsThenPaintAsync FAILED: {ex}");
+        }
     }
 
     private global::Avalonia.Threading.DispatcherTimer? _settleRepaintTimer;
@@ -792,8 +828,9 @@ public partial class MainWindow : Window
                 // ReapplyGatewayAsync resets this same monitor after loading the new config. Refresh the
                 // display identity before repainting so a change or disconnect can never pair the new verdict
                 // with the previous gateway host. The account poll deliberately does not own these fields.
-                RefreshGatewayConfigFields();
-                UpdateGatewayStatusBox();
+                // The config is read on the thread pool and the box is repainted only when that read comes
+                // back, so the new verdict is painted beside the new host, never the old one.
+                _ = RefreshGatewayConfigFieldsThenPaintAsync();
                 // The rail's offline floor (SessionViewModel.EffectiveColor) renders blue/red from local activity
                 // whenever the tunnel is not Connected, and Connected's stamp otherwise. A connect/disconnect
                 // carries none of the per-session events a row hears, so repaint every row from here - the one
@@ -815,8 +852,7 @@ public partial class MainWindow : Window
 
         _gatewayAttachTimer?.Stop();
         _gatewayAttachTimer = null;
-        RefreshGatewayConfigFields();
-        UpdateGatewayStatusBox();
+        _ = RefreshGatewayConfigFieldsThenPaintAsync();
         FileLog.Write("[MainWindow] Gateway status box attached to GatewayConnectionMonitor");
     }
 
@@ -1036,9 +1072,13 @@ public partial class MainWindow : Window
         _accountReadInFlight = true;
         try
         {
-            // Snapshot the config on the UI thread, then do the network read off it.
-            var config = GatewayConfig.Load();
-            var status = await Task.Run(() => new GatewayAccountStatusClient().GetStatusAsync(config));
+            // Both the config file read and the network read run off the UI thread; only the result comes
+            // back to it. This poll runs every 30 seconds for the life of the window.
+            var (config, status) = await Task.Run(async () =>
+            {
+                var loaded = GatewayConfig.Load();
+                return (loaded, await new GatewayAccountStatusClient().GetStatusAsync(loaded));
+            });
             Dispatcher.UIThread.Post(() => ApplyAccountStatus(config, status));
         }
         finally
@@ -2162,7 +2202,7 @@ public partial class MainWindow : Window
     /// from _sessions before calling RemoveSession, so for that this finds no VM and
     /// no-ops.
     /// </summary>
-    private void OnExternalSessionRemoved(Session session)
+    internal void OnExternalSessionRemoved(Session session)
     {
         Dispatcher.UIThread.Post(() =>
         {
@@ -2180,6 +2220,7 @@ public partial class MainWindow : Window
                     vm.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
                     vm.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
                     vm.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
+                    vm.Session.OnIsTranscribingChanged -= OnActiveSessionTranscribingChanged;
                     TerminalHost.Detach();
                     SourceControlView.Detach();
                     _activeSession = null;
@@ -2429,7 +2470,7 @@ public partial class MainWindow : Window
         // repository monitor's model - the same brain as the Repositories home.
         if (global::Avalonia.Application.Current is App scApp)
             SourceControlView.Attach(scApp.RepositoryMonitor, vm.Session.RepoPath);
-        UpdateSourceControlTabVisibility(vm.Session.RepoPath);
+        _ = UpdateSourceControlTabVisibilityAsync(vm.Session.RepoPath);
 
         // Show prompt bar
         PromptBarBorder.IsVisible = true;
@@ -4094,8 +4135,9 @@ public partial class MainWindow : Window
         // A session added, removed or reordered changes the tree, so the rows are re-projected. It lives
         // here rather than with the window's other subscriptions because it belongs to the binding
         // directly above it: a list box pointed at a projection that nothing refreshes shows the roster
-        // as it was when the window opened.
-        _sessions.CollectionChanged += (_, _) => RebuildRail();
+        // as it was when the window opened. The window's other list work rides the same one handler once
+        // MainWindow_Loaded has wired it.
+        _sessions.CollectionChanged += OnSessionListChanged;
 
         // The rail's own remembered state: which order the switch is on, and which crews are open.
         _railOrder = SessionRailConfig.Order == SessionRailConfig.Attention
@@ -4978,6 +5020,36 @@ public partial class MainWindow : Window
     private NeedsYouWatcher? _needsYouWatcher;
     private NeedsYouWatcher NeedsYouRecountWatcher => _needsYouWatcher ??= new NeedsYouWatcher(UpdateNeedsYouCount);
 
+    // Set by MainWindow_Loaded once the window-wide half of the session list handler may run. A headless
+    // test that only calls BindSessionRail gets the rail rebuild alone, exactly as before the merge.
+    private bool _sessionListWindowWired;
+
+    // Bumped on every change to the session list. The dictation lock tick compares it to decide whether a
+    // newly added session might need its flag set even when the lock set itself has not changed.
+    private int _sessionListVersion;
+
+    /// <summary>
+    /// The ONE handler on the session list. It used to be three separate subscriptions, and each add or remove
+    /// paid three dispatches; the work and its order are unchanged. The order is the order they were
+    /// subscribed in: the rail rebuild (subscribed in BindSessionRail, which Loaded calls first), then the group
+    /// brackets and headers, then the needs-you bookkeeping and the home page.
+    /// </summary>
+    private void OnSessionListChanged(object? sender, global::System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        _sessionListVersion++;
+        RebuildRail();
+        if (!_sessionListWindowWired) return;
+
+        // Keep group brackets/headers (issue #225) correct after any add/remove/restore.
+        // Cheap flag recompute; the drop handler also calls it explicitly after a reorder.
+        RecomputeGroupPositions();
+
+        // Keep the "N need you" header count instant: recompute whenever a session is
+        // added/removed or ANY session's status color flips (e.g. a background session goes
+        // red while you are on another). The 15s timer remains a backstop.
+        OnSessionsCollectionChanged(sender, e);
+    }
+
     private void OnSessionsCollectionChanged(object? sender, global::System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         if (e.Action == global::System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
@@ -5189,10 +5261,38 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateSourceControlTabVisibility(string repoPath)
+    // Counts the tab-visibility checks started, so the answer for a session the user has already switched
+    // away from cannot land on the one now showing. Only touched on the UI thread.
+    private int _sourceControlTabCheckGeneration;
+
+    /// <summary>
+    /// Show the Source Control tab only when the session's folder is a git repository. The two file system
+    /// probes run on the thread pool, because a slow or disconnected drive must not stall the thread that
+    /// paints; the answer is applied on the UI thread, so the tab can appear a frame after the session is
+    /// selected. Fire-and-forget from <see cref="SelectSession"/>, so this is the catching boundary. Internal
+    /// so a headless test can await it.
+    /// </summary>
+    internal async Task UpdateSourceControlTabVisibilityAsync(string repoPath)
     {
-        var gitDir = Path.Combine(repoPath, ".git");
-        var hasGit = Directory.Exists(gitDir) || File.Exists(gitDir);
+        try
+        {
+            var generation = ++_sourceControlTabCheckGeneration;
+            var hasGit = await Task.Run(() =>
+            {
+                var gitDir = Path.Combine(repoPath, ".git");
+                return Directory.Exists(gitDir) || File.Exists(gitDir);
+            });
+            if (generation != _sourceControlTabCheckGeneration) return; // a newer session was selected meanwhile
+            ApplySourceControlTabVisibility(hasGit);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] UpdateSourceControlTabVisibilityAsync FAILED: {ex}");
+        }
+    }
+
+    private void ApplySourceControlTabVisibility(bool hasGit)
+    {
         SourceControlTabButton.IsVisible = hasGit;
 
         // If Source Control tab was selected but is now hidden, switch to Terminal
