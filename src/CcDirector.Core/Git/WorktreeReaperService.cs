@@ -142,6 +142,12 @@ public sealed class WorktreeReaperService
                 return ReapResult.Failure($"could not refresh remote state (git fetch failed) - reap aborted so nothing is removed on stale merge signals: {fetch.Error.Trim()}");
             }
 
+            // The upstream-gone signal is read from the tracking ref of whatever remote a branch is
+            // configured to, so every OTHER configured remote is refreshed too. One that cannot be
+            // reached does not abort the reap - its branches simply cannot be inspected and are left
+            // alone, exactly as a failed live query left them before.
+            var otherRemotes = await ConfiguredRemoteRefresh.PruneOtherRemotesAsync(_git, repositoryPath, "origin", ct);
+
             // ...THEN read the authoritative live-session roster. Any failure aborts - never a silent
             // fall-through to "no sessions". Cancellation is the caller superseding us and propagates.
             IReadOnlyList<LiveSessionRef> liveSessions;
@@ -163,7 +169,7 @@ public sealed class WorktreeReaperService
             // Recompute safety WITH the roster in hand (never session-blind). fetchPrune is false
             // because we already pruned above; doing so before reading the roster would have frozen
             // it too early.
-            var inventory = await _inventory.GetInventoryAsync(repositoryPath, fetchPrune: false, liveSessions, ct);
+            var inventory = await _inventory.GetInventoryAsync(repositoryPath, fetchPrune: false, liveSessions, ct, unrefreshedRemotes: otherRemotes.Failed);
             if (!inventory.Success)
                 return ReapResult.Failure($"could not enumerate worktrees: {inventory.Error}");
 

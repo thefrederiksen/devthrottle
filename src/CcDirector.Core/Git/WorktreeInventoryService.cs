@@ -31,7 +31,11 @@ public sealed class WorktreeInventoryService
     /// to this machine and to genuinely-alive sessions) lets a git-safe worktree that a session is
     /// running in be classified "in use" rather than "safe to reap".
     /// </summary>
-    public async Task<WorktreeInventory> GetInventoryAsync(string repositoryPath, bool fetchPrune = true, IReadOnlyList<LiveSessionRef>? liveSessions = null, CancellationToken ct = default)
+    /// <param name="unrefreshedRemotes">Remotes the CALLER tried and failed to refresh before asking
+    /// (the reaper fetches for itself). Branches tracking one of them fail closed.</param>
+    public async Task<WorktreeInventory> GetInventoryAsync(
+        string repositoryPath, bool fetchPrune = true, IReadOnlyList<LiveSessionRef>? liveSessions = null,
+        CancellationToken ct = default, IReadOnlyCollection<string>? unrefreshedRemotes = null)
     {
         FileLog.Write($"[WorktreeInventoryService] GetInventoryAsync: repo={repositoryPath}, fetchPrune={fetchPrune}, liveSessions={liveSessions?.Count ?? 0}");
         try
@@ -40,10 +44,17 @@ public sealed class WorktreeInventoryService
                 return Failure(repositoryPath, $"repository path not found: {repositoryPath}");
 
             // Learn which origin branches were deleted (delete-branch-on-merge => gone == merged).
+            var stale = new HashSet<string>(unrefreshedRemotes ?? Array.Empty<string>(), StringComparer.Ordinal);
             if (fetchPrune)
+            {
                 // Fetch ORIGIN by name (inspection): a bare fetch follows the current branch's
                 // upstream, which can be a different remote and leave origin/main stale.
                 await _git.RunAsync(repositoryPath, new[] { "fetch", "--prune", "origin" }, ct);
+                // And every other remote a branch tracks, because the upstream-gone verdict is read
+                // from that remote's tracking ref. One that cannot be refreshed fails its branches closed.
+                var others = await ConfiguredRemoteRefresh.PruneOtherRemotesAsync(_git, repositoryPath, "origin", ct);
+                stale.UnionWith(others.Failed);
+            }
 
             var mainRef = await ResolveMainRefAsync(repositoryPath, ct);
             var sessionsByPath = BuildSessionMap(liveSessions);
@@ -79,7 +90,7 @@ public sealed class WorktreeInventoryService
                 bool isPrimary = !primaryAssigned;
                 primaryAssigned = true;
 
-                worktrees.Add(await BuildInfoAsync(repositoryPath, entry, isPrimary, mainRef, sessionsByPath, poolSlotDirectories, ct));
+                worktrees.Add(await BuildInfoAsync(repositoryPath, entry, isPrimary, mainRef, sessionsByPath, poolSlotDirectories, stale, ct));
             }
 
             var safeCount = worktrees.Count(w => w.Safety == WorktreeSafety.SafeToReap);
@@ -99,7 +110,7 @@ public sealed class WorktreeInventoryService
         }
     }
 
-    private async Task<WorktreeInfo> BuildInfoAsync(string repositoryPath, RawWorktreeEntry entry, bool isPrimary, string? mainRef, IReadOnlyDictionary<string, List<string>> sessionsByPath, IReadOnlyList<string> poolSlotDirectories, CancellationToken ct)
+    private async Task<WorktreeInfo> BuildInfoAsync(string repositoryPath, RawWorktreeEntry entry, bool isPrimary, string? mainRef, IReadOnlyDictionary<string, List<string>> sessionsByPath, IReadOnlyList<string> poolSlotDirectories, IReadOnlyCollection<string> unrefreshedRemotes, CancellationToken ct)
     {
         // A cc-worktrees pool slot, by either of that tool's own markers: its records, or the layout it
         // creates. Decided before any git question, because the answer does not depend on one.
@@ -137,7 +148,7 @@ public sealed class WorktreeInventoryService
                 // never-pushed branch has no upstream, and treating that absence as proof-of-merge
                 // would mark unpushed work safe to delete. The probe asks the configured remote for
                 // the configured ref name, both of which can differ from origin/<local-name>.
-                var upstream = await ConfiguredUpstreamProbe.ProbeAsync(_git, repositoryPath, entry.Branch, ct);
+                var upstream = await ConfiguredUpstreamProbe.ProbeAsync(_git, repositoryPath, entry.Branch, ct, unrefreshedRemotes);
                 inspectionOk &= upstream.InspectionSucceeded;
                 originGone = upstream.HasConfiguredUpstream && upstream.UpstreamGone;
 

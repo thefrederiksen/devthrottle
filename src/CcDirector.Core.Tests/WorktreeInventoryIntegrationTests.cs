@@ -115,6 +115,43 @@ public sealed class WorktreeInventoryIntegrationTests : IDisposable
     }
 
     // -------------------------------------------------------------------------------------------
+    // An explicit refresh (fetchPrune: true) refreshes every remote a branch tracks, not only
+    // origin, so a branch re-created on another remote after this clone pruned it is not read as
+    // "gone" from the stale tracking ref (review of pull request 3308).
+    // -------------------------------------------------------------------------------------------
+    [Fact]
+    public async Task ExplicitRefresh_RefreshesTheOtherRemoteToo_SoAStaleGoneIsNotTrusted()
+    {
+        var other = Path.Combine(_root, "other.git");
+        RunGit(_root, "-c", "init.defaultBranch=main", "init", "--bare", other);
+        RunGit(_primary, "remote", "add", "other", other);
+
+        var wt = Path.Combine(_root, "wt-other");
+        RunGit(_primary, "worktree", "add", "-b", "on-other", wt, "main");
+        WriteFile(wt, "other.txt", "unmerged\n");
+        RunGit(wt, "add", "-A");
+        RunGit(wt, "commit", "-m", "unmerged work");
+        RunGit(wt, "push", "-u", "other", "on-other");
+
+        var elsewhere = Path.Combine(_root, "elsewhere");
+        RunGit(_root, "-c", "init.defaultBranch=main", "clone", other, elsewhere);
+        RunGit(elsewhere, "branch", "kept", "origin/on-other"); // the commit survives the remote deletion here
+        RunGit(elsewhere, "push", "origin", "--delete", "on-other");
+        RunGit(_primary, "fetch", "--prune", "other");
+        RunGit(elsewhere, "push", "origin", "kept:refs/heads/on-other");
+
+        var stale = await new WorktreeInventoryService().GetInventoryAsync(_primary, fetchPrune: false);
+        var fresh = await new WorktreeInventoryService().GetInventoryAsync(_primary, fetchPrune: true);
+
+        // Without a refresh the tracking ref is stale and the branch reads as gone - that is the
+        // documented last-known answer of a scan. With one, the branch is seen and the work is kept.
+        Assert.Equal(WorktreeSafetyReason.OriginBranchGone, Assert.Single(stale.Worktrees, w => w.Branch == "on-other").Reason);
+        var refreshed = Assert.Single(fresh.Worktrees, w => w.Branch == "on-other");
+        Assert.Equal(WorktreeSafety.NeedsAttention, refreshed.Safety);
+        Assert.Equal(WorktreeSafetyReason.NotProvenMerged, refreshed.Reason);
+    }
+
+    // -------------------------------------------------------------------------------------------
     // A branch whose commits are all in origin/main (real merge, branch still on origin) is safe
     // via the contained-in-main (C3) signal.
     // -------------------------------------------------------------------------------------------

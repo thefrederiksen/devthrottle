@@ -456,6 +456,74 @@ public sealed class WorktreeReaperServiceTests : IDisposable
     // follows the current branch's configured upstream, which can be a different remote, leaving
     // origin/main - the ref the containment proof trusts - stale.
     // ---------------------------------------------------------------------------------------
+    /// <summary>
+    /// The review of pull request 3308: the upstream-gone verdict is read from the tracking ref of
+    /// whatever remote a branch is configured to, and the reaper refreshed origin only. A branch on
+    /// ANOTHER remote, pruned here and then re-created there, had no tracking ref while the branch
+    /// existed - read as "gone", a clean worktree with unmerged commits was deleted on a false proof
+    /// of merge. The reaper now refreshes every configured remote before it trusts the verdict.
+    /// </summary>
+    [Fact]
+    public async Task Reap_DoesNotRemoveAWorktreeOnAnotherRemote_WhoseGoneVerdictIsStale()
+    {
+        var other = Path.Combine(_root, "other.git");
+        RunGit(_root, "-c", "init.defaultBranch=main", "init", "--bare", other);
+        RunGit(_primary, "remote", "add", "other", other);
+
+        // Unmerged work on a branch that tracks the OTHER remote.
+        var wt = Path.Combine(_root, "wt-elsewhere");
+        RunGit(_primary, "worktree", "add", "-b", "elsewhere", wt, "main");
+        WriteFile(wt, "elsewhere.txt", "unmerged\n");
+        RunGit(wt, "add", "-A");
+        RunGit(wt, "commit", "-m", "unmerged work");
+        RunGit(wt, "push", "-u", "other", "elsewhere");
+
+        // Someone deletes the branch on that remote; this clone prunes; then it is re-created there.
+        var elsewhere = Path.Combine(_root, "elsewhere-clone");
+        RunGit(_root, "-c", "init.defaultBranch=main", "clone", other, elsewhere);
+        RunGit(elsewhere, "branch", "kept", "origin/elsewhere"); // the commit survives the remote deletion here
+        RunGit(elsewhere, "push", "origin", "--delete", "elsewhere");
+        RunGit(_primary, "fetch", "--prune", "other");
+        Assert.False(Directory.Exists(Path.Combine(_primary, ".git", "refs", "remotes", "other", "elsewhere"))
+                     || RefExists(_primary, "refs/remotes/other/elsewhere"), "the tracking ref must be gone for the test to mean anything");
+        RunGit(elsewhere, "push", "origin", "kept:refs/heads/elsewhere"); // exists again, remotely only
+
+        var result = await new WorktreeReaperService(leftovers: _leftovers, utcNow: Later).ReapAsync(_primary, NoSessions);
+
+        Assert.True(result.Success, result.Error);
+        Assert.True(Directory.Exists(wt), "a worktree whose branch still exists on its remote must not be removed");
+        Assert.Equal(0, result.RemovedCount);
+    }
+
+    [Fact]
+    public async Task Reap_WhenAnotherRemoteCannotBeRefreshed_LeavesItsWorktreeAlone_AndStillReapsTheRest()
+    {
+        var safe = AddSafeWorktree("safe");
+
+        var other = Path.Combine(_root, "other.git");
+        RunGit(_root, "-c", "init.defaultBranch=main", "init", "--bare", other);
+        RunGit(_primary, "remote", "add", "other", other);
+        var wt = Path.Combine(_root, "wt-unreachable");
+        RunGit(_primary, "worktree", "add", "-b", "unreachable", wt, "main");
+        RunGit(wt, "push", "-u", "other", "unreachable");
+        RunGit(_primary, "remote", "set-url", "other", Path.Combine(_root, "no-such-remote.git"));
+
+        var result = await new WorktreeReaperService(leftovers: _leftovers, utcNow: Later).ReapAsync(_primary, NoSessions);
+
+        Assert.True(result.Success, result.Error);
+        Assert.False(Directory.Exists(safe), "the safe worktree on origin is still reaped");
+        Assert.True(Directory.Exists(wt), "a worktree on a remote that could not be refreshed cannot be inspected, so it stays");
+    }
+
+    private static bool RefExists(string repo, string refName)
+    {
+        var psi = new ProcessStartInfo("git") { WorkingDirectory = repo, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        psi.ArgumentList.Add("show-ref"); psi.ArgumentList.Add("--verify"); psi.ArgumentList.Add("--quiet"); psi.ArgumentList.Add(refName);
+        using var p = Process.Start(psi)!;
+        p.WaitForExit();
+        return p.ExitCode == 0;
+    }
+
     [Fact]
     public async Task Reap_FetchesOriginByName_NotJustTheCurrentBranchUpstream()
     {

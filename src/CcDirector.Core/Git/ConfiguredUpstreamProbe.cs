@@ -10,19 +10,40 @@ namespace CcDirector.Core.Git;
 /// be one other than origin. Either mismatch makes a live upstream look deleted, which would
 /// rule real unmerged work "merged and safe to delete". If either config value is missing the
 /// branch has no configured upstream and C2 does not apply at all.
+///
+/// The answer comes from the LOCAL remote-tracking ref, never from the network. It is the same
+/// answer <c>git branch -vv</c> gives when it prints <c>[gone]</c>: the configured upstream is
+/// mapped through the remote's fetch refspec to <c>refs/remotes/&lt;remote&gt;/&lt;name&gt;</c>,
+/// and "gone" means that ref is absent. So the verdict is exactly as fresh as the last
+/// <c>git fetch --prune</c> of that remote - which is what the callers that must be current
+/// (the reaper, and an explicit refresh) run first, for origin and for every other remote a
+/// branch is configured to (<see cref="ConfiguredRemoteRefresh"/>), and what the callers that
+/// scan a whole machine deliberately do not. Until 22 September 2026 this probe ran <c>git ls-remote</c>
+/// instead, one network round trip to the hosting provider per branch per inventory; on one
+/// Director that was 51,864 calls in a day, none of them asked for by a person.
 /// </summary>
 public static class ConfiguredUpstreamProbe
 {
     /// <summary>
     /// <paramref name="HasConfiguredUpstream"/>: both branch.&lt;name&gt;.remote and
-    /// branch.&lt;name&gt;.merge are set. <paramref name="UpstreamGone"/>: the configured ref no
-    /// longer exists on the configured remote (only meaningful when a configured upstream exists).
-    /// <paramref name="InspectionSucceeded"/>: false when the remote could not be queried - the
+    /// branch.&lt;name&gt;.merge are set. <paramref name="UpstreamGone"/>: the remote-tracking ref
+    /// for the configured upstream is absent locally (only meaningful when a configured upstream
+    /// exists). <paramref name="InspectionSucceeded"/>: false when git could not answer - the
     /// caller must fail closed.
     /// </summary>
     public readonly record struct UpstreamVerdict(bool HasConfiguredUpstream, bool UpstreamGone, bool InspectionSucceeded);
 
-    public static async Task<UpstreamVerdict> ProbeAsync(GitCommandRunner git, string repoPath, string branch, CancellationToken ct)
+    // One tab-separated line: the resolved upstream ref (empty when git cannot map the configured
+    // upstream to a remote-tracking ref), then the tracking state without brackets, which is the
+    // word "gone" when the remote-tracking ref does not exist.
+    private const string UpstreamFormat = "%(upstream)%09%(upstream:track,nobracket)";
+
+    /// <param name="unrefreshedRemotes">Remotes the caller tried and failed to refresh. A branch
+    /// configured to one of them cannot be inspected: its tracking ref may be stale in the direction
+    /// that reads as "gone", which on a destructive path would be a false proof of merge.</param>
+    public static async Task<UpstreamVerdict> ProbeAsync(
+        GitCommandRunner git, string repoPath, string branch, CancellationToken ct,
+        IReadOnlyCollection<string>? unrefreshedRemotes = null)
     {
         var remote = await git.RunAsync(repoPath, new[] { "config", "--get", $"branch.{branch}.remote" }, ct);
         // --get-all, not --get: git permits MULTIPLE merge values (an octopus pull), and --get
@@ -45,19 +66,45 @@ public static class ConfiguredUpstreamProbe
             return new UpstreamVerdict(HasConfiguredUpstream: false, UpstreamGone: false, InspectionSucceeded: true);
         }
 
-        var mergeRef = mergeRefs[0];
-
-        // The merge ref is a full ref name (refs/heads/...), so the ls-remote pattern is exact.
-        var lsRemote = await git.RunAsync(repoPath, new[] { "ls-remote", remoteName, mergeRef }, ct);
-        if (!lsRemote.Success)
+        if (unrefreshedRemotes is not null && unrefreshedRemotes.Contains(remoteName))
         {
-            FileLog.Write($"[ConfiguredUpstreamProbe] ls-remote {remoteName} {mergeRef} FAILED for branch {branch}: {lsRemote.Error}");
+            FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch} tracks {remoteName}, which could not be refreshed - cannot inspect");
+            return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
+        }
+
+        // Ask git for the branch's own view of its upstream. This reads refs on disk only.
+        var tracking = await git.RunAsync(repoPath, new[] { "for-each-ref", $"--format={UpstreamFormat}", $"refs/heads/{branch}" }, ct);
+        if (!tracking.Success)
+        {
+            FileLog.Write($"[ConfiguredUpstreamProbe] for-each-ref FAILED for branch {branch}: {tracking.Error}");
+            return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
+        }
+
+        var line = tracking.Output.Trim('\r', '\n', ' ');
+        if (line.Length == 0)
+        {
+            // The branch has upstream configuration but no ref of its own - git prints nothing.
+            // Nothing can be said about it, so say so rather than guess.
+            FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch} has an upstream configured but refs/heads/{branch} does not exist - cannot inspect");
+            return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
+        }
+
+        var tab = line.IndexOf('\t');
+        var upstreamRef = tab < 0 ? line : line[..tab];
+        var track = tab < 0 ? "" : line[(tab + 1)..].Trim();
+
+        if (upstreamRef.Length == 0)
+        {
+            // Configured, but git cannot map it to a remote-tracking ref (a remote with no fetch
+            // refspec, or a merge value outside refs/heads). The ref cannot be read locally, so
+            // the inspection fails closed - never "gone", which would be a false proof of merge.
+            FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch}: git cannot map {remoteName}/{mergeRefs[0]} to a remote-tracking ref - cannot inspect");
             return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
         }
 
         return new UpstreamVerdict(
             HasConfiguredUpstream: true,
-            UpstreamGone: string.IsNullOrWhiteSpace(lsRemote.Output),
+            UpstreamGone: string.Equals(track, "gone", StringComparison.Ordinal),
             InspectionSucceeded: true);
     }
 }
