@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -134,34 +135,82 @@ public class SessionViewModel : INotifyPropertyChanged
     /// of the seven defects review found on pull request 1598. Raising four extra cheap getters on an
     /// unrelated input costs nothing measurable; a list that can be missed costs a row that lies.
     /// </summary>
+    /// <remarks>
+    /// RAISES ONLY WHAT CHANGED. The list above is still the one list, and every handler still calls this
+    /// one method, so nothing can be missed. What changed is that the fifteen values are read ONCE, against
+    /// one fresh fold, and compared with what the previous raise told the bindings; a property whose value
+    /// is the same is not raised. Raising it anyway made every bound getter re-read the fold, and with forty
+    /// sessions a Gateway fold sweep turned into hundreds of rebuilds of the wire object on the screen thread.
+    /// The first raise has nothing to compare with, so it raises all fifteen.
+    /// </remarks>
     private void RaiseFoldProjection()
     {
-        OnPropertyChanged(nameof(StatusColorBrush));
-        OnPropertyChanged(nameof(ColourHover));
-        OnPropertyChanged(nameof(ActivityLabel));
-        OnPropertyChanged(nameof(NeedsYou));
-        OnPropertyChanged(nameof(HasWaitingDuration));
-        OnPropertyChanged(nameof(WaitingDurationLabel));
-        OnPropertyChanged(nameof(HasHoldTime));
-        OnPropertyChanged(nameof(HoldTimeLabel));
-        OnPropertyChanged(nameof(IsSnoozeEnded));
-        OnPropertyChanged(nameof(ResolvedRole));
-        OnPropertyChanged(nameof(HasRoleGlyph));
-        OnPropertyChanged(nameof(RoleGlyphText));
-        OnPropertyChanged(nameof(RoleTooltip));
-        OnPropertyChanged(nameof(InboxLine));
-        OnPropertyChanged(nameof(HasInboxLine));
+        _fold = null;
+        var now = ReadFoldProjection();
+        var first = _lastProjection is null;
+        var old = _lastProjection.GetValueOrDefault();
+        _lastProjection = now;
+
+        _raisingFromCachedFold = true;
+        try
+        {
+            if (first || old.Colour != now.Colour) OnPropertyChanged(nameof(StatusColorBrush));
+            if (first || old.ColourHover != now.ColourHover) OnPropertyChanged(nameof(ColourHover));
+            if (first || old.ActivityLabel != now.ActivityLabel) OnPropertyChanged(nameof(ActivityLabel));
+            if (first || old.NeedsYou != now.NeedsYou) OnPropertyChanged(nameof(NeedsYou));
+            RaiseTimeLabelsChangedSince(first, old, now);
+            if (first || old.IsSnoozeEnded != now.IsSnoozeEnded) OnPropertyChanged(nameof(IsSnoozeEnded));
+            if (first || old.ResolvedRole != now.ResolvedRole) OnPropertyChanged(nameof(ResolvedRole));
+            if (first || old.HasRoleGlyph != now.HasRoleGlyph) OnPropertyChanged(nameof(HasRoleGlyph));
+            if (first || old.RoleGlyphText != now.RoleGlyphText) OnPropertyChanged(nameof(RoleGlyphText));
+            if (first || old.RoleTooltip != now.RoleTooltip) OnPropertyChanged(nameof(RoleTooltip));
+            if (first || old.InboxLine != now.InboxLine) OnPropertyChanged(nameof(InboxLine));
+            if (first || old.HasInboxLine != now.HasInboxLine) OnPropertyChanged(nameof(HasInboxLine));
+        }
+        finally
+        {
+            _raisingFromCachedFold = false;
+        }
     }
+
+    /// <summary>The four clock-driven labels, raised when they differ from the previous raise. Shared by
+    /// <see cref="RaiseFoldProjection"/> and <see cref="RefreshTimeLabels"/>, which both keep
+    /// <see cref="_lastProjection"/> current - if the timer raised a label without recording it, a later
+    /// fold raise would compare against a value the screen no longer shows and could skip a real change.</summary>
+    private void RaiseTimeLabelsChangedSince(bool first, FoldProjection old, FoldProjection now)
+    {
+        if (first || old.WaitingDurationLabel != now.WaitingDurationLabel) OnPropertyChanged(nameof(WaitingDurationLabel));
+        if (first || old.HasWaitingDuration != now.HasWaitingDuration) OnPropertyChanged(nameof(HasWaitingDuration));
+        if (first || old.HoldTimeLabel != now.HoldTimeLabel) OnPropertyChanged(nameof(HoldTimeLabel));
+        if (first || old.HasHoldTime != now.HasHoldTime) OnPropertyChanged(nameof(HasHoldTime));
+    }
+
+    /// <summary>The fifteen values <see cref="RaiseFoldProjection"/> projects, read against one fold. The
+    /// dot is compared by its colour NAME: the brush is that name looked up in the one palette.</summary>
+    private readonly record struct FoldProjection(
+        string Colour, string ColourHover, string ActivityLabel, bool NeedsYou,
+        bool HasWaitingDuration, string WaitingDurationLabel, bool HasHoldTime, string HoldTimeLabel,
+        bool IsSnoozeEnded, string? ResolvedRole, bool HasRoleGlyph, string RoleGlyphText, string RoleTooltip,
+        string InboxLine, bool HasInboxLine);
+
+    private FoldProjection ReadFoldProjection() => new(
+        EffectiveColor, ColourHover, ActivityLabel, NeedsYou,
+        HasWaitingDuration, WaitingDurationLabel, HasHoldTime, HoldTimeLabel,
+        IsSnoozeEnded, ResolvedRole, HasRoleGlyph, RoleGlyphText, RoleTooltip,
+        InboxLine, HasInboxLine);
+
+    /// <summary>What the last raise told the bindings, or null before the first raise.</summary>
+    private FoldProjection? _lastProjection;
 
     /// <summary>A fold input changed and carries nothing else - re-read the projection. Serves the three
     /// transient overlays (background task, dictation, auto-explain).</summary>
-    private void OnFoldInputChangedVm(bool _) => Dispatcher.UIThread.Post(RaiseFoldProjection);
+    private void OnFoldInputChangedVm(bool _) => PostChange(RaiseFoldProjection);
 
     // Issue #1181, Task 3b: the session started or stopped receiving a phone dictation - repaint the
     // rail strip (orange while receiving) and refresh its reason text.
     private void OnReceivingDictationChangedVm(bool receiving)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             RaiseFoldProjection();
         });
@@ -169,7 +218,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     private void OnStatusColorChanged(string oldColor, string newColor, string reason)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             RaiseFoldProjection();
         });
@@ -179,10 +228,14 @@ public class SessionViewModel : INotifyPropertyChanged
     /// The live session projected into the wire DTO the shared presentation fold reads, via the ONE mapper
     /// that already builds it for the Gateway - so the rail folds exactly the same inputs the phone does.
     ///
-    /// Deliberately NOT cached. Map is pure property reads with no I/O, and the rail re-reads only when a
-    /// change event raises a property, not in a loop. A cache here would buy nothing measurable and would
-    /// add an invalidation obligation across nine change handlers, where missing one means the rail quietly
-    /// shows stale state - the precise failure this whole change exists to remove.
+    /// CACHED, AND INVALIDATED IN ONE PLACE. This used to be rebuilt on every read, on the reasoning that a
+    /// cache would need an invalidation list across every change handler. It turned out not to be cheap:
+    /// one Gateway stamp raised fifteen properties, each bound getter mapped again, and with forty sessions a
+    /// fold sweep was hundreds of full wire-object builds on the screen thread. The cache needs no list:
+    /// <see cref="OnPropertyChanged"/> clears it before every notification, and every change path in this
+    /// class already raises a property, so every change path already invalidates. A read more than
+    /// <see cref="FoldMaxAge"/> old rebuilds too, because the wire object carries clock values (the idle
+    /// seconds) that move with no event at all; that bounds any staleness to one second.
     /// </summary>
     /// <remarks>
     /// INTERNAL, not private, because the rail's row projection (<see cref="SessionRailTree"/>) builds the
@@ -190,7 +243,49 @@ public class SessionViewModel : INotifyPropertyChanged
     /// than reaching into <see cref="Session"/> for a supervisor id of its own, so the tree the Director draws
     /// is built from exactly the fields the Cockpit and the phone build theirs from.
     /// </remarks>
-    internal SessionDto FoldInput => ControlEndpoints.Map(Session, directorId: "");
+    internal SessionDto FoldInput
+    {
+        get
+        {
+            if (_fold is { } fold && Stopwatch.GetElapsedTime(_foldBuiltAt) <= FoldMaxAge)
+                return fold;
+            _fold = ControlEndpoints.Map(Session, directorId: "");
+            _foldBuiltAt = Stopwatch.GetTimestamp();
+            FoldMapCount++;
+            return _fold;
+        }
+    }
+
+    /// <summary>How old a cached <see cref="FoldInput"/> may be before a read rebuilds it.</summary>
+    private static readonly TimeSpan FoldMaxAge = TimeSpan.FromSeconds(1);
+
+    private volatile SessionDto? _fold;
+    private long _foldBuiltAt;
+
+    /// <summary>
+    /// True only while <see cref="RaiseFoldProjection"/> or <see cref="RefreshTimeLabels"/> is raising against
+    /// a fold it built a moment ago for exactly that raise. Without it the first raise would clear the fold and
+    /// every following getter would map again, which is the cost the cache exists to remove.
+    /// </summary>
+    private bool _raisingFromCachedFold;
+
+    /// <summary>
+    /// How every session event reaches this row: clear the cached <see cref="FoldInput"/> NOW, on the thread
+    /// that raised the event, then post the raise to the screen thread. Clearing only in the posted raise
+    /// would leave a window, between the change and the raise, in which a read returns the old wire object;
+    /// clearing here closes it, so a change is visible to the very next read as it was before the cache.
+    /// Every handler in this class posts through this and nothing else - SessionViewModelFoldCacheTests
+    /// reads the source to keep it that way.
+    /// </summary>
+    private void PostChange(Action raise)
+    {
+        _fold = null;
+        Dispatcher.UIThread.Post(raise);
+    }
+
+    /// <summary>How many times this row has built its wire object. A test seam: it lets a test prove one
+    /// Gateway stamp costs one build, which is the whole point of the cache.</summary>
+    internal int FoldMapCount { get; private set; }
 
     /// <summary>
     /// The presentation colour the rail renders - the GATEWAY'S folded answer, stamped down onto this
@@ -357,7 +452,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// The offline floor in <see cref="EffectiveColor"/> reads the connection status, and that status change
     /// carries none of the per-session events the row already hears - so MainWindow, which owns the one
     /// <see cref="GatewayConnectionMonitor"/> subscription, calls this on every row when the status changes.</summary>
-    public void RefreshGatewayFloor() => Dispatcher.UIThread.Post(RaiseFoldProjection);
+    public void RefreshGatewayFloor() => PostChange(RaiseFoldProjection);
 
     /// <summary>
     /// The sidebar colour strip's brush: the shared fold's colour, mapped through the ONE palette.
@@ -442,7 +537,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// thread. Both properties move together; they read the same fold.</summary>
     private void OnPromptDeliveryChangedVm()
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             OnPropertyChanged(nameof(HasUndeliveredPrompt));
             OnPropertyChanged(nameof(UndeliveredPromptTooltip));
@@ -451,7 +546,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     private void OnPendingDeletionChangedVm(bool _)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             OnPropertyChanged(nameof(IsPendingDeletion));
             OnPropertyChanged(nameof(PendingDeletionTooltip));
@@ -472,7 +567,7 @@ public class SessionViewModel : INotifyPropertyChanged
     // Match OnStatusColorChanged and OnActivityStateChanged between them - the same fold, the same reads.
     private void OnGatewayResolvedRoleChangedVm(string? _)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             RaiseFoldProjection();
         });
@@ -487,7 +582,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// </summary>
     private void OnGatewayDisplayStateChangedVm()
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             RaiseFoldProjection();
         });
@@ -538,7 +633,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     private void OnHoldChangedVm(bool onHold)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             RaiseFoldProjection();
             // IsOnHold is a RAW flag the rail renders directly (the snooze glyph), not a fold output - so
@@ -554,12 +649,12 @@ public class SessionViewModel : INotifyPropertyChanged
 
     private void OnViewModeChangedVm(MobileViewMode oldMode, MobileViewMode newMode)
     {
-        Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(IsVoiceMode)));
+        PostChange(() => OnPropertyChanged(nameof(IsVoiceMode)));
     }
 
     private void OnCachedExplainChangedVm()
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             // The waiting duration is proxied from CachedExplainAt, which this briefing just
             // set. When a session is already red and its first briefing lands, HasWaitingDuration
@@ -624,12 +719,33 @@ public class SessionViewModel : INotifyPropertyChanged
 
     /// <summary>Re-raise time-derived list labels; called periodically so the waiting duration and the
     /// snooze countdown tick without an event.</summary>
+    /// <remarks>Reads a fresh fold once and raises only the labels whose text moved, recording what it raised
+    /// so the next fold raise compares against what the screen really shows.</remarks>
     public void RefreshTimeLabels()
     {
-        OnPropertyChanged(nameof(WaitingDurationLabel));
-        OnPropertyChanged(nameof(HasWaitingDuration));
-        OnPropertyChanged(nameof(HoldTimeLabel));
-        OnPropertyChanged(nameof(HasHoldTime));
+        _fold = null;
+        var first = _lastProjection is null;
+        var old = _lastProjection.GetValueOrDefault();
+        var now = ReadFoldProjection();
+        // Only the four clock labels are raised here, so only they are recorded; the other eleven keep the
+        // values the last fold raise told the bindings.
+        _lastProjection = first ? null : old with
+        {
+            HasWaitingDuration = now.HasWaitingDuration,
+            WaitingDurationLabel = now.WaitingDurationLabel,
+            HasHoldTime = now.HasHoldTime,
+            HoldTimeLabel = now.HoldTimeLabel,
+        };
+
+        _raisingFromCachedFold = true;
+        try
+        {
+            RaiseTimeLabelsChangedSince(first, old, now);
+        }
+        finally
+        {
+            _raisingFromCachedFold = false;
+        }
     }
 
     public string DisplayName => Session.CustomName
@@ -647,7 +763,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// rail badge on the UI thread so the number appears when it arrives.</summary>
     private void OnNumberChangedVm()
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             OnPropertyChanged(nameof(NumberBadge));
             OnPropertyChanged(nameof(HasNumber));
@@ -658,7 +774,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// Posted to the UI thread: the monitor raises this from a background poll.</summary>
     private void OnUncommittedCountChangedVm(int? _)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             OnPropertyChanged(nameof(UncommittedCount));
             OnPropertyChanged(nameof(HasUncommittedChanges));
@@ -794,7 +910,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// watcher raises this from a background read.</summary>
     private void OnCurrentModelChangedVm()
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             OnPropertyChanged(nameof(ModelLabel));
             OnPropertyChanged(nameof(IsModelAbsent));
@@ -1119,7 +1235,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     private void OnQueueChanged()
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             QueueCount = Session.PromptQueue?.Count ?? 0;
         });
@@ -1127,7 +1243,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     private void OnActivityStateChanged(ActivityState oldState, ActivityState newState)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             // Raised three and missed the waiting timer: ActivityState drives EffectiveColor through
             // SessionOrdering.RawActivityColor, and HasWaitingDuration gates on that - so a red row with a
@@ -1138,7 +1254,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     private void OnVerificationStatusChanged(SessionVerificationStatus status)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             OnPropertyChanged(nameof(IsVerified));
             OnPropertyChanged(nameof(HasVerificationWarning));
@@ -1149,7 +1265,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     private void OnTerminalVerificationStatusChanged(TerminalVerificationStatus status)
     {
-        Dispatcher.UIThread.Post(() =>
+        PostChange(() =>
         {
             OnPropertyChanged(nameof(TerminalVerificationStatus));
             OnPropertyChanged(nameof(TerminalVerificationStatusText));
@@ -1185,6 +1301,16 @@ public class SessionViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    /// <summary>
+    /// Every notification this row sends goes through here, so this is the ONE place the cached
+    /// <see cref="FoldInput"/> is cleared: a property is raised because something changed, and the next read
+    /// must see the change. The only raises that keep the fold are the projection raises, which built it fresh
+    /// for exactly that raise.
+    /// </summary>
     private void OnPropertyChanged([CallerMemberName] string? name = null)
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    {
+        if (!_raisingFromCachedFold)
+            _fold = null;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 }
