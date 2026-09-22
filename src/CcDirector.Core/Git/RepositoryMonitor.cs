@@ -861,8 +861,16 @@ public sealed class RepositoryMonitor
         return result;
     }
 
+    /// <summary>
+    /// One merge-signal cache for every compute this process runs, because each compute builds its own
+    /// status service: a cache per service would never be read twice. A working-tree edit then costs a
+    /// <c>git status</c> per worktree instead of every merge question again (plan step 7d).
+    /// </summary>
+    private static readonly WorktreeMergeSignalCache SharedSignalCache = new();
+
     private static async Task<RepositoryStatus> DefaultCompute(string path, IReadOnlyList<LiveSessionRef>? sessions, CancellationToken ct)
-        => await new RepositoryStatusService().GetStatusAsync(path, sessions, fetchPrune: false, ct);
+        => await new RepositoryStatusService(worktrees: new WorktreeInventoryService(signalCache: SharedSignalCache))
+            .GetStatusAsync(path, sessions, fetchPrune: false, ct);
 
     /// <summary>A path is a repository when it exists and holds a .git directory (a primary
     /// checkout) or a .git file (a linked worktree).</summary>
