@@ -122,4 +122,33 @@ public sealed class InstallReportEndpointsTests : IDisposable
         Assert.Equal(StatusCodes.Status429TooManyRequests,
             Status(InstallReportEndpoints.Handle(Post(installId: "route-limit-overflow"), Now)));
     }
+
+    [Fact]
+    public void Handle_WithTheStore_KeepsTheReportDurablyUnderNoAccount()
+    {
+        // The FileLog line is NOT durable on hosted - the process log lives on the container's temporary
+        // disk - so the report must reach the store on the durable root, where a deploy does not touch it.
+        var root = Path.Combine(Path.GetTempPath(), "install-store-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new ErrorReportStore(root, () => Now);
+
+            var result = InstallReportEndpoints.Handle(Post(diagnostics: "state = spawn scheduled"), Now, store);
+
+            Assert.Equal(StatusCodes.Status202Accepted, Status(result));
+            var afterDeploy = new ErrorReportStore(root, () => Now);
+            var record = Assert.Single(afterDeploy.Query(new ErrorReportQuery(Now.AddHours(-1), Now.AddMinutes(1),
+                Component: CcDirector.Core.ErrorReports.ErrorReportLimits.Install)).Records);
+            Assert.Equal("", record.Account);
+            Assert.Equal("start", record.Step);
+            Assert.Equal("state = spawn scheduled", record.Diagnostics);
+            // An account's own read can never see an installer report: it belongs to no account yet.
+            Assert.Empty(afterDeploy.Query(new ErrorReportQuery(Now.AddHours(-1), Now.AddMinutes(1),
+                Account: "11111111-1111-1111-1111-111111111111")).Records);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch (IOException) { }
+        }
+    }
 }

@@ -216,6 +216,10 @@ internal static class AuthMiddleware
         // service-token gate. Both exact-match.
         Api.InstallReportEndpoints.Path,
         Api.InstallReportEndpoints.AdminPath,
+        // Issue #3311: the administrator read of every account's Director, launcher and installer errors.
+        // Exempt for the same reason as the admin routes above and behind the same service-token gate. The
+        // report route and the account read are NOT exempt: they need the device's own credential.
+        Api.DirectorErrorEndpoints.AdminPath,
         // The administrator read of the corrections people made to the Wingman's verdicts (the
         // Wingman-on-every-turn mission, slice G), exempt for the same reason and behind the same gate: the
         // daily corpus pull is a job with no device key on this Gateway. It names ONE account - a blank one is

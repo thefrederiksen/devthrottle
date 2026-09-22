@@ -177,7 +177,14 @@ fleet_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+errors_app = typer.Typer(
+    cls=AxiGroup,
+    help="Read the errors Directors, launchers and installers reported to the Gateway.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 app.add_typer(session_app, name="session")
+app.add_typer(errors_app, name="errors")
 app.add_typer(repo_app, name="repo")
 app.add_typer(worktree_app, name="worktree")
 worktree_app.add_typer(pool_app, name="pool")
@@ -1577,6 +1584,56 @@ def session_list(
 ) -> None:
     """List every session in the fleet: id, name, state and repository."""
     list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields)
+
+
+@errors_app.command("list")
+def errors_list(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output the Gateway's answer as JSON: every field, stacks included. Filters still apply."
+    ),
+    all_accounts: bool = typer.Option(
+        False,
+        "--all-accounts",
+        help="Every account and every installer failure. Needs ADMIN_SERVICE_TOKEN: "
+        "cc-secrets run admin-service-token -- cc-devthrottle errors list --all-accounts",
+    ),
+    account: str = typer.Option(None, "--account", help="Only this account id (implies --all-accounts)."),
+    email: str = typer.Option(None, "--email", help="Only the account recorded against this email (implies --all-accounts)."),
+    since: str = typer.Option(None, "--since", help="From this time: ISO 8601, or an age such as 30m, 6h, 7d. Default 24h."),
+    until: str = typer.Option(None, "--until", help="Up to this time: ISO 8601, or an age. Default now."),
+    machine: str = typer.Option(None, "--machine", help="Only this machine, by its name (only a hash of it is stored)."),
+    version: str = typer.Option(None, "--version", help="Only product versions starting with this, e.g. 2.8."),
+    component: str = typer.Option(None, "--component", help="Only director, launcher or install."),
+    limit: int = typer.Option(100, "--limit", "-n", help="At most this many, newest first (1 to 500)."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: time,component,machine,message. Valid: time, component, "
+        "machine, version, os, arch, source, kind, exception, repeats, message, account, device, step.",
+    ),
+    full: bool = typer.Option(False, "--full", help="Show whole messages instead of a preview."),
+    gateway_url: str = typer.Option(
+        None, "--gateway", help="Read from this Gateway instead of CC_GATEWAY_URL, e.g. the hosted one."
+    ),
+) -> None:
+    """List reported errors, newest first: this account's, or every account's with --all-accounts."""
+    from .errors_ops import list_errors
+
+    list_errors(
+        json_output=json_output,
+        all_accounts=all_accounts,
+        account=account,
+        email=email,
+        since=since,
+        until=until,
+        machine=machine,
+        version=version,
+        component=component,
+        limit=limit,
+        fields=fields,
+        full=full,
+        gateway_url=gateway_url,
+    )
 
 
 @repo_app.command("list")

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Avalonia;
+using CcDirector.Core.ErrorReports;
 using CcDirector.Core.Utilities;
 using CcDirector.Setup.Engine;
 
@@ -19,6 +20,21 @@ public static class Program
     public static int Main(string[] args)
     {
         FileLog.Start();
+
+        // Nothing recorded an exception that escaped a background thread or a task before this, so a
+        // launcher that died left no reason behind. Both are logged now, and every error the launcher
+        // logs also goes to the Gateway, bounded and non-blocking (issue #3311).
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            FileLog.Write($"[Program] UNHANDLED ({(e.IsTerminating ? "terminating" : "non-terminating")}): {e.ExceptionObject}");
+            if (e.IsTerminating) ErrorReporter.FlushBeforeExit(TimeSpan.FromSeconds(3));
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            FileLog.Write($"[Program] UNOBSERVED TASK: {e.Exception}");
+            e.SetObserved();
+        };
+        ErrorReporter.Start(ErrorReportLimits.Launcher);
 
         // Detached self-update helper mode: this process is a STAGED copy of the new Launcher exe.
         // It asks the running tray app to exit (the shutdown lifecycle signal), swaps itself into the

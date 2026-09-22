@@ -4461,8 +4461,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // The bridge between an administrator's world (emails) and the Gateway's (account ids, Directors).
         // Without it the turn-log switch above can only be addressed for the administrator's OWN fleet.
         AdminAccountLookupEndpoint.Map(_app, TenantRegistry, Registry);
-        // Issue #3311: installer failure reports - public (no credential exists yet at install time), bounded.
-        InstallReportEndpoints.Map(_app);
+        // Issue #3311: installer failure reports - public (no credential exists yet at install time), bounded -
+        // and Director and launcher errors through the device credential. Both land in ONE durable store on
+        // the Gateway's storage root (on hosted, the share a deploy does not touch).
+        var errorReports = new ErrorReportStore(Path.Combine(CcDirector.Core.Storage.CcStorage.Root(), "error-reports"));
+        InstallReportEndpoints.Map(_app, errorReports);
+        DirectorErrorEndpoints.Map(_app, errorReports, _tenantBoundary, TenantRegistry);
         // The corrections the Wingman's verdicts were given (the Wingman-on-every-turn mission, slice G). The
         // labelled corpus lives in another repository and is pulled by a job holding no account credential, so
         // this is the only path an owner label has out of the database.

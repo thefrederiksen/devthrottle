@@ -27,6 +27,12 @@ public partial class App : Application
     {
         FrameworkInitialized = true;
 
+        // Record a user-interface thread exception before Avalonia acts on it, so it reaches the log and,
+        // through the error reporter, the Gateway (issue #3311). Deliberately NOT marked handled: what the
+        // launcher does with such an exception is unchanged, only its record is new.
+        global::Avalonia.Threading.Dispatcher.UIThread.UnhandledException += (_, args) =>
+            FileLog.Write($"[App] UNHANDLED UI-THREAD EXCEPTION: {args.Exception}");
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // The launcher has no main window: it lives in the tray and must NOT exit when

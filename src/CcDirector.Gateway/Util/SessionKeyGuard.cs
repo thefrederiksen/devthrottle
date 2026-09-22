@@ -281,6 +281,10 @@ public static class SessionKeyGuard
                 // The factory activity record (Website Business Factory). A business tool reads back what its
                 // factory did; the route is only mapped while the factory agents switch is on.
                 case "gateway/factory/activity":
+                // The errors this account's Directors and launchers reported (issue #3311), so an agent can
+                // look before it asks the owner. The route files the read under the key's own account; only
+                // the READ is here - reporting is a device's, never an agent's.
+                case "gateway/director-errors":
                     return true;
             }
 
