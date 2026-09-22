@@ -351,30 +351,7 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers
     // that turns a failure into a clear error, per the no-fallback rule.
 
     /// <summary>
-    /// Relay the Gateway's aggregated fleet session list (GET /sessions) so a session can
-    /// discover every other session across the fleet. Throws when the Gateway is disabled or
-    /// the call fails.
-    /// </summary>
-    public async Task<List<SessionDto>> ListFleetSessionsAsync(CancellationToken ct = default)
-    {
-        if (!_config.IsEnabled)
-            throw new InvalidOperationException("Gateway is not configured; cannot list the fleet.");
-
-        FileLog.Write("[GatewayClient] ListFleetSessionsAsync: GET /sessions");
-        using var resp = await _http.GetAsync("sessions", ct);
-        if (!resp.IsSuccessStatusCode)
-            throw await RelayFailureAsync(resp, "GET /sessions", ct);
-
-        var list = await resp.Content.ReadFromJsonAsync<List<SessionDto>>(ct);
-        if (list is null)
-            throw new InvalidOperationException("Gateway GET /sessions returned an unparsable body.");
-
-        FileLog.Write($"[GatewayClient] ListFleetSessionsAsync: {list.Count} session(s)");
-        return list;
-    }
-
-    /// <summary>
-    /// Like <see cref="ListFleetSessionsAsync"/> but asks for the envelope (GET /sessions?envelope=true),
+    /// The Gateway's aggregated fleet session list, asked for as the envelope (GET /sessions?envelope=true),
     /// which also carries per-Director reachability (Online / Wobbly / Offline). The plain list
     /// silently DROPS an unreachable Director's sessions while still returning 200, so a caller that
     /// must not act on a partial roster - the destructive worktree reaper - needs the reachability to

@@ -48,7 +48,7 @@ public static class DesktopHostedAiCta
         var baseUrl = CockpitUrlResolver.ResolveCockpitBase(GatewayConfig.Load());
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            using var http = new HttpClient(CcDirector.Core.Network.GatewayHttp.Handler()) { Timeout = TimeSpan.FromSeconds(8) };
             var info = await http.GetFromJsonAsync<CockpitInfoDto>(baseUrl + "/cockpit", ct).ConfigureAwait(false);
             return info?.Url;
         }

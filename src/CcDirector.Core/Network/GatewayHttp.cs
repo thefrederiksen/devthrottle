@@ -63,14 +63,32 @@ public static class GatewayHttp
     /// lives on inside the returned websocket, so tearing the handler down per-connect would rip the
     /// transport out from under a live connection.
     /// </summary>
-    private static readonly HttpMessageInvoker WebSocketInvoker = new(Handler(), disposeHandler: true);
+    private static readonly HttpMessageInvoker WebSocketInvoker = new(DialingHandler(), disposeHandler: true);
 
     /// <summary>
-    /// A handler whose connect callback applies the local-name-friendly address ordering. The pooled
-    /// connection lifetime is capped so a long-lived client re-resolves the gateway name within a
-    /// couple of minutes of its address changing (a name is the only stable thing on a home network).
+    /// The encodings every Gateway request advertises and every Gateway answer is decoded from. The
+    /// Gateway compresses its JSON answers (GatewayResponseCompression), but only for a client that says
+    /// it can decode them - and this handler never said so, so every answer, the whole fleet roster
+    /// included, crossed the wire uncompressed.
     /// </summary>
-    public static SocketsHttpHandler Handler() => new()
+    public const DecompressionMethods Decompression = DecompressionMethods.GZip | DecompressionMethods.Brotli;
+
+    /// <summary>
+    /// A handler whose connect callback applies the local-name-friendly address ordering, and which
+    /// advertises and decodes compressed answers (<see cref="Decompression"/>). The pooled connection
+    /// lifetime is capped so a long-lived client re-resolves the gateway name within a couple of minutes
+    /// of its address changing (a name is the only stable thing on a home network).
+    /// </summary>
+    public static SocketsHttpHandler Handler()
+    {
+        var handler = DialingHandler();
+        handler.AutomaticDecompression = Decompression;
+        return handler;
+    }
+
+    // The dialing behaviour alone. The websocket invoker uses it without decompression: an upgrade
+    // answer has no body to decode, and the frames that follow are not HTTP content.
+    private static SocketsHttpHandler DialingHandler() => new()
     {
         ConnectCallback = ConnectAsync,
         PooledConnectionLifetime = TimeSpan.FromMinutes(2),

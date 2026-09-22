@@ -164,27 +164,6 @@ public sealed class ControlApiHost : IAsyncDisposable
            ?? Task.FromResult(KnownRepositoryListResult.NotConfigured(
                "no Gateway is configured on this Director"));
 
-    /// <summary>
-    /// Issue #1627: the FLEET-WIDE session roster - every session on every machine - as the desktop fleet
-    /// map's source. Backed by the live <see cref="GatewayClient"/>, which already holds the resolved
-    /// Gateway address and fleet token, so it reuses the Director's existing outbound Gateway connection.
-    ///
-    /// This is an outbound HTTP GET, NOT a tunnel call, and that is deliberate: the tunnel is push-only
-    /// (the Director pushes its own sessions up; there is no verb on DirectorHub that returns a roster).
-    /// "Tunnel-only" means the Gateway never DIALS the Director - it does not mean the Director stopped
-    /// calling out. GatewayClient survives for exactly these on-demand outbound operations.
-    ///
-    /// The returned sessions arrive with the Gateway's own answers already stamped - SessionRole,
-    /// EffectiveColor, StateLabel - because the Gateway folds them across the whole fleet before
-    /// responding. The desktop READS those; it must not recompute them (only the Gateway can see a
-    /// controller that lives on another machine).
-    ///
-    /// Null when no Gateway is configured - the caller shows "not connected" rather than an empty fleet,
-    /// which would be a lie.
-    /// </summary>
-    public Task<List<Gateway.Contracts.SessionDto>>? ListFleetSessionsAsync(CancellationToken ct = default)
-        => _gatewayClient?.ListFleetSessionsAsync(ct);
-
     /// <summary>The fleet roster WITH per-Director reachability, so a caller that must not act on a
     /// partial roster (the destructive reaper) can fail closed when the fleet view is incomplete.</summary>
     public Task<(List<Gateway.Contracts.SessionDto> Sessions, List<Gateway.Contracts.DirectorReachabilityDto> Reachability)>? ListFleetSessionsWithReachabilityAsync(CancellationToken ct = default)

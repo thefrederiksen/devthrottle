@@ -3267,7 +3267,7 @@ public partial class MainWindow : Window
         FileLog.Write($"[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL, request={requestUrl}");
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+            using var http = new HttpClient(CcDirector.Core.Network.GatewayHttp.Handler()) { Timeout = TimeSpan.FromSeconds(4) };
             // The entire fetch -> select -> OPEN decision lives in OpenCockpitAsync, off this async-void
             // handler: it fetches the DTO, and when the Gateway hands back a URL it opens THAT url verbatim
             // through the injected OpenUrlInBrowser. This handler keeps NO cockpit-URL logic and makes NO
@@ -5163,37 +5163,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The live sessions on THIS machine and their working directories, used so the Worktrees page
-    /// can flag a worktree a session is running in. Prefers the Gateway's fleet list (which spans
-    /// every Director slot on the machine, closing the cross-slot gap); falls back to this Director's
-    /// own sessions when no Gateway is connected. Best-effort - never throws.
+    /// The live sessions on THIS machine and their working directories, used so the Repository screen
+    /// can label a worktree a session is running in. This Director's own sessions come from memory;
+    /// the other Director slots on the machine come from the rosters they keep on disk
+    /// (<see cref="Core.Sessions.MachineLiveSessions"/>). It makes NO Gateway call: it runs on every
+    /// repository recompute, and it used to download the whole fleet list each time to learn what is
+    /// already on the local disk. The destructive reaper does not use this - it keeps the fail-closed
+    /// Gateway roster in <see cref="GetAuthoritativeLiveSessionsAsync"/>.
     /// </summary>
-    private async Task<IReadOnlyList<Core.Git.LiveSessionRef>> GetLiveSessionsOnThisMachineAsync(CancellationToken ct)
+    private Task<IReadOnlyList<Core.Git.LiveSessionRef>> GetLiveSessionsOnThisMachineAsync(CancellationToken ct)
     {
-        var machine = Environment.MachineName;
-        try
-        {
-            var app = global::Avalonia.Application.Current as App;
-            var fleetTask = app?.ControlApiHost?.ListFleetSessionsAsync(ct);
-            if (fleetTask != null)
-            {
-                var fleet = await fleetTask;
-                var refs = fleet
-                    .Where(s => IsSessionAlive(s)
-                                && string.Equals(s.MachineName, machine, StringComparison.OrdinalIgnoreCase)
-                                && !string.IsNullOrWhiteSpace(s.RepoPath))
-                    .Select(s => new Core.Git.LiveSessionRef { RepoPath = s.RepoPath, Label = FleetSessionLabel(s) })
-                    .ToList();
-                return refs;
-            }
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[MainWindow] GetLiveSessionsOnThisMachineAsync fleet query failed, using local sessions: {ex.Message}");
-        }
-
-        // No Gateway (or the fleet call failed): fall back to this Director's own sessions.
-        return _sessions
+        var own = _sessions
             .Where(vm => !string.IsNullOrWhiteSpace(vm.Session.RepoPath))
             .Select(vm => new Core.Git.LiveSessionRef
             {
@@ -5201,12 +5181,15 @@ public partial class MainWindow : Window
                 Label = vm.Session.Number is int n ? $"{vm.DisplayName} (#{n})" : vm.DisplayName,
             })
             .ToList();
+
+        return Task.FromResult(Core.Sessions.MachineLiveSessions.OnThisMachine(
+            own, CcDirector.Core.Storage.CcStorage.MachineRoot(), Environment.ProcessId, Core.Sessions.MachineLiveSessions.IsProcessAlive));
     }
 
     /// <summary>
     /// The AUTHORITATIVE machine-wide live-session roster for the destructive worktree reaper
-    /// (issue 516). Unlike <see cref="GetLiveSessionsOnThisMachineAsync"/> - which is best-effort for
-    /// display and silently downgrades a fleet failure to this Director's own sessions - this one
+    /// (issue 516). Unlike <see cref="GetLiveSessionsOnThisMachineAsync"/> - the display source, which
+    /// reads the machine's Director rosters from disk and never asks the Gateway - this one
     /// FAILS CLOSED: it requires the fleet source and lets a fleet-query failure propagate, so the
     /// reaper aborts rather than act on a partial roster that omits sessions in other Director slots
     /// on this machine. This Director's own sessions are always included as a floor, because they are
