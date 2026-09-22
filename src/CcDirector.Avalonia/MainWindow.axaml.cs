@@ -4749,6 +4749,12 @@ public partial class MainWindow : Window
         view.Menu.Items.Add(new NativeMenuItemSeparator());
         view.Menu.Items.Add(Item("Toggle Right Panel", () => RightPanelToggle_Click(this, new RoutedEventArgs())));
         view.Menu.Items.Add(Item("Reset Terminal View", () => TabBarRefreshButton_Click(this, new RoutedEventArgs())));
+        view.Menu.Items.Add(new NativeMenuItemSeparator());
+        view.Menu.Items.Add(Item("Background work...", () =>
+        {
+            FileLog.Write("[MainWindow] Menu: Background work");
+            new BackgroundWorkDialog().ShowDialog(this);
+        }));
         menu.Items.Add(view);
 
         // ===== Browsers =====
