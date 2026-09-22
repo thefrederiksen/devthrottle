@@ -61,7 +61,6 @@ public partial class App : Application
     public NulFileWatcher? NulFileWatcher { get; private set; }
     public BackupCleaner BackupCleaner { get; private set; } = null!;
     public ClaudeAccountStore ClaudeAccountStore { get; private set; } = null!;
-    public ClaudeUsageService ClaudeUsageService { get; private set; } = null!;
     public EngineHost? EngineHost { get; private set; }
     public ControlApiHost? ControlApiHost { get; private set; }
     public UpdateService? Updater { get; private set; }
@@ -437,10 +436,6 @@ public partial class App : Application
         ClaudeAccountStore = new ClaudeAccountStore();
         ClaudeAccountStore.Load();
         log($"Claude accounts loaded: {ClaudeAccountStore.Accounts.Count}");
-
-        ClaudeUsageService = new ClaudeUsageService(ClaudeAccountStore);
-        ClaudeUsageService.Start();
-        log("Claude usage service started");
 
         // Gateway Centralization Phase 2 migration (issue #642), with the two-step install exception
         // (Slice A): the deletion of the Director's own credential blob is GATED on gateway presence.
@@ -1018,7 +1013,6 @@ public partial class App : Application
             try { _shutdownSignal?.Dispose(); _updateCheckSignal?.Dispose(); }
             catch (Exception ex) { log($"Lifecycle signal stop error: {ex.Message}"); }
 
-            ClaudeUsageService?.Dispose();
             BackupCleaner?.Dispose();
             NulFileWatcher?.Dispose();
             SessionManager?.Dispose();
