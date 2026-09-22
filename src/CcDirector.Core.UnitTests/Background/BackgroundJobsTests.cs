@@ -229,6 +229,28 @@ public sealed class BackgroundJobsTests
     }
 
     [Fact]
+    public async Task StopAsync_WaitsOutTheRunInFlight_SoStoppedMeansStopped()
+    {
+        var jobs = new BackgroundJobs();
+        var release = new TaskCompletionSource();
+        var finished = false;
+        var job = jobs.Register(new BackgroundJobSpec("winding", BackgroundJobTier.OnChange, null, "stopped"),
+            async _ => { await release.Task; finished = true; });
+
+        job.Trigger();
+        await WaitUntil(() => job.Snapshot().Running, "the run to start");
+
+        var stopping = job.StopAsync();
+        await Task.Delay(100);
+        Assert.False(stopping.IsCompleted, "StopAsync must wait for the run in flight");
+        Assert.Empty(jobs.Snapshot()); // but the job has already left the registry
+
+        release.SetResult();
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(finished);
+    }
+
+    [Fact]
     public void AJobWithoutACadence_CannotBeArmed()
     {
         var jobs = new BackgroundJobs();

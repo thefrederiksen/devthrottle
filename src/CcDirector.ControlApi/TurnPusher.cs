@@ -79,7 +79,8 @@ public sealed class TurnPusher : IAsyncDisposable
     private readonly ConcurrentDictionary<Guid, SessionState> _states = new();
     private readonly CancellationTokenSource _stopping = new();
     private readonly TimeSpan _sweepInterval;
-    private Task? _sweepLoop;
+    private readonly CcDirector.Core.Background.BackgroundJobs _jobs;
+    private CcDirector.Core.Background.BackgroundJob? _sweepJob;
 
     /// <param name="sessionIds">The live sessions to sweep.</param>
     /// <param name="snapshot">The session's conversation now, or null when the session is gone.</param>
@@ -93,8 +94,10 @@ public sealed class TurnPusher : IAsyncDisposable
         Func<TurnPushBatch, CancellationToken, Task<TurnWatermark?>> push,
         Func<bool> canPush,
         Func<DateTime>? clock = null,
-        TimeSpan? sweepInterval = null)
+        TimeSpan? sweepInterval = null,
+        CcDirector.Core.Background.BackgroundJobs? jobs = null)
     {
+        _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
         _sessionIds = sessionIds ?? throw new ArgumentNullException(nameof(sessionIds));
         _snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
         _push = push ?? throw new ArgumentNullException(nameof(push));
@@ -153,21 +156,15 @@ public sealed class TurnPusher : IAsyncDisposable
     /// <summary>Fire-and-forget: bring one session current. Coalesces with a run already in progress.</summary>
     public void Trigger(Guid sessionId) => _ = PushSessionAsync(sessionId, _stopping.Token);
 
-    /// <summary>Start the safety sweep.</summary>
+    /// <summary>Start the safety sweep: a slow-and-steady job on the scheduler (docs/BackgroundWork.md),
+    /// first after one interval, then every interval, never overlapping.</summary>
     public void Start()
     {
-        if (_sweepLoop is not null) return;
-        _sweepLoop = Task.Run(async () =>
-        {
-            try
-            {
-                using var timer = new PeriodicTimer(_sweepInterval);
-                while (await timer.WaitForNextTickAsync(_stopping.Token).ConfigureAwait(false))
-                    await SweepAsync(_stopping.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex) { FileLog.Write($"[TurnPusher] sweep loop FAILED: {ex.Message}"); }
-        });
+        if (_sweepJob is not null) return;
+        _sweepJob = _jobs.Register(
+            new CcDirector.Core.Background.BackgroundJobSpec("Turn sweep", CcDirector.Core.Background.BackgroundJobTier.SlowAndSteady, _sweepInterval, "the pusher is disposed"),
+            _ => SweepAsync(_stopping.Token));
+        _sweepJob.StartTimer();
     }
 
     /// <summary>Bring every live session current, one after another. Never throws into a timer.</summary>
@@ -442,9 +439,13 @@ public sealed class TurnPusher : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _stopping.Cancel();
-        if (_sweepLoop is not null)
+        // Wait out a sweep in flight, as the loop this replaced was awaited: the host nulls its
+        // stream client at the top of its own stop, and a sweep that outlived this call would push
+        // at nothing and log a stopped-stream line per remaining session.
+        if (_sweepJob is { } job)
         {
-            try { await _sweepLoop.ConfigureAwait(false); } catch (Exception) { }
+            _sweepJob = null;
+            await job.StopAsync().ConfigureAwait(false);
         }
         _stopping.Dispose();
     }

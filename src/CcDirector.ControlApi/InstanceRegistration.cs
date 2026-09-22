@@ -28,15 +28,17 @@ public sealed class InstanceRegistration : IDisposable
 
     private readonly string _instancesDirectory;
     private bool _disposed;
-    private Timer? _heartbeat;
+    private readonly CcDirector.Core.Background.BackgroundJobs _jobs;
+    private CcDirector.Core.Background.BackgroundJob? _heartbeat;
 
     /// <param name="instancesDirectory">
     /// Override the shared instances directory. Tests pass an isolated temp directory so test
     /// Directors never appear in a real Gateway's discovery (and vice versa). Production omits it.
     /// </param>
     public InstanceRegistration(string directorId, string version, string? instancesDirectory = null,
-        string? displayName = null)
+        string? displayName = null, CcDirector.Core.Background.BackgroundJobs? jobs = null)
     {
+        _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
         DirectorId = directorId;
         _instancesDirectory = instancesDirectory ?? InstancesDirectory;
         FilePath = Path.Combine(_instancesDirectory, $"{directorId}.json");
@@ -78,7 +80,11 @@ public sealed class InstanceRegistration : IDisposable
             throw;
         }
 
-        _heartbeat = new Timer(_ => HeartbeatTick(), null, HeartbeatInterval, HeartbeatInterval);
+        // A slow-and-steady job on the scheduler (docs/BackgroundWork.md): re-writes the file only when it is missing.
+        _heartbeat = _jobs.Register(
+            new CcDirector.Core.Background.BackgroundJobSpec("Instance registration heartbeat", CcDirector.Core.Background.BackgroundJobTier.SlowAndSteady, HeartbeatInterval, "the registration is disposed"),
+            _ => { HeartbeatTick(); return Task.CompletedTask; });
+        _heartbeat.StartTimer();
     }
 
     private void WriteOnce()
