@@ -1,0 +1,49 @@
+name: install-mac smoke
+
+# Runs the one-line macOS installer end to end on a real Apple Silicon runner,
+# against the latest published release, on a Mac whose developer tools are
+# broken. A user hit exactly that: /usr/bin/python3 is only a stub that hands
+# off to Xcode, his Xcode was broken, and the installer died before it could
+# verify the download. The installer must never depend on developer tools.
+
+on:
+  pull_request:
+    paths:
+      - scripts/install-mac.sh
+      - .github/workflows/install-mac-smoke.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/install-mac.sh
+      - .github/workflows/install-mac-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: macos-14
+    env:
+      # Point the developer tools at a folder that does not exist, so every
+      # Xcode stub (python3, git, xcodebuild) fails the way a broken Xcode does.
+      DEVELOPER_DIR: /nonexistent/Xcode.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove the developer tools are broken on this runner
+        run: |
+          if /usr/bin/python3 -c 'print(1)'; then
+            echo "ERROR: /usr/bin/python3 still works, so this run does not reproduce a Mac with broken developer tools."
+            exit 1
+          fi
+          echo "OK: /usr/bin/python3 fails, as on a Mac with broken developer tools."
+
+      - name: Run the installer
+        run: DEVTHROTTLE_NO_OPEN=1 bash scripts/install-mac.sh
+
+      - name: Check the wizard was installed
+        run: |
+          app="$HOME/Applications/DevThrottle Setup.app"
+          [[ -d "$app" ]] || { echo "ERROR: $app was not installed."; exit 1; }
+          echo "OK: $app is installed."
