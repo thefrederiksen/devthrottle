@@ -118,6 +118,30 @@ public sealed class AiCallTagTests : IDisposable
         Assert.True(GatewayAiCallTags.AttributionReady(hosted: true));
     }
 
+    /// <summary>A value the website would refuse is not a credential: a placeholder left during a rotation must
+    /// fail the deploy's subsystem check and refuse the call here, not pass both and draw a 403 per call.</summary>
+    [Fact]
+    public void AShortCredential_IsTreatedAsMissing()
+    {
+        Environment.SetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar,
+            new string('x', GatewayAiCallTags.MinServiceTokenLength - 1));
+        Assert.False(GatewayAiCallTags.AttributionReady(hosted: true));
+        Assert.Throws<InvalidOperationException>(() => GatewayAiCallTags.For(Account, AiFeature.TurnVerdict));
+
+        Environment.SetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar,
+            "  " + new string('x', GatewayAiCallTags.MinServiceTokenLength) + "  ");
+        Assert.True(GatewayAiCallTags.AttributionReady(hosted: true));
+        Assert.Equal(new string('x', GatewayAiCallTags.MinServiceTokenLength),
+            Header(RequestWith(GatewayAiCallTags.For(Account, AiFeature.TurnVerdict)), AiCallTag.ServiceTokenHeader));
+    }
+
+    private static HttpRequestMessage RequestWith(AiCallTag tag)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, "https://devthrottle.com/api/v1/chat/completions");
+        tag.ApplyTo(req);
+        return req;
+    }
+
     [Fact]
     public void AnAccount_CannotBeNamed_WithoutTheCredential_AndABadFeatureNameIsRefused()
     {
