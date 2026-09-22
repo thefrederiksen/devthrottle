@@ -91,8 +91,8 @@ public sealed class BatchTranscriptionPipeline : IDisposable
     /// <param name="transcoder">Turns a non-WAV clip too large to send into a splittable PCM WAV (issue
     /// #1139). Defaults to the bundled-ffmpeg transcoder; tests inject a stub. ffmpeg is resolved lazily,
     /// so this default never touches disk unless a clip actually needs transcoding.</param>
-    /// <summary>What this pipeline's transcription calls are for and which account (devthrottle_internal #2213);
-    /// null sends no tag, which the API records as untagged.</summary>
+    /// <summary>What this pipeline's transcription calls are for and which account; null sends no tag, which the
+    /// API records as untagged.</summary>
     private readonly CcDirector.Core.HostedAi.AiCallTag? _tag;
 
     public BatchTranscriptionPipeline(HttpClient? httpClient = null, string? cleanupModel = null,

@@ -200,8 +200,8 @@ internal static class TtsSynthesis
     /// exposed as a static test hook on purpose - a process-global switch would be shared by every host in the
     /// process and is exactly the kind of seam that blocks running these tests in parallel. Null in production,
     /// where the length-derived deadline is the only one.</param>
-    /// <param name="tag">What the speech is for and which account (devthrottle_internal #2213), sent on every
-    /// attempt so each one the API records carries it. Required: every speech call is a cost someone owns.</param>
+    /// <param name="tag">What the speech is for and which account, sent on every attempt so each one the API
+    /// records carries it. Required: every speech call is usage someone owns.</param>
     public static async Task<HttpResponseMessage> PostAsync(HttpClient http, string url, string key, object payload, int inputChars, bool preferBackup, CancellationToken ct, Core.HostedAi.AiCallTag tag, TimeSpan? deadlineOverride = null)
     {
         ArgumentNullException.ThrowIfNull(tag);

@@ -21,10 +21,9 @@ public sealed class AiCallTagEnvCollection
 }
 
 /// <summary>
-/// Every hosted AI call says what it is FOR and, on the hosted Gateway, which account it is for
-/// (devthrottle_internal #2213). The API records both on the call's usage row; these prove the Gateway
-/// side: the headers that go on the wire, the one rule deciding the account, and that no production call
-/// site builds a client without a tag.
+/// Every hosted AI call says what it is FOR and, on the hosted Gateway, which account it is for. The API
+/// records both on the call's usage row; these prove the Gateway side: the headers that go on the wire, the
+/// one rule deciding the account, and that no production call site builds a client without a tag.
 /// </summary>
 [Collection(AiCallTagEnvCollection.Name)]
 public sealed class AiCallTagTests : IDisposable

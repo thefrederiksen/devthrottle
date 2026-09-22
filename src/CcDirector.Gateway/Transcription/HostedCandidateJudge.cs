@@ -85,7 +85,7 @@ public sealed class HostedCandidateJudge : ICandidateJudge
 
     private readonly CcDirector.Core.HostedAi.AiCallTag? _tag;
 
-    /// <summary>The tag every ruling request carries (devthrottle_internal #2213).</summary>
+    /// <summary>The tag every ruling request carries.</summary>
     internal CcDirector.Core.HostedAi.AiCallTag? Tag => _tag;
 
     /// <summary>

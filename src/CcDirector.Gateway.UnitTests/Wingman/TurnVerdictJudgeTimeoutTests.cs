@@ -16,7 +16,7 @@ public sealed class TurnVerdictJudgeTimeoutTests
     private static readonly AiCallTag JudgeTag = new(AiFeature.TurnVerdict);
 
     /// <summary>The judge is the largest single use of the model, so its calls must say they are the judge's -
-    /// the daily cost report groups by this name (devthrottle_internal #2213).</summary>
+    /// the daily usage report groups by this name.</summary>
     [Fact]
     public void TurnVerdictJudge_BuildBrain_CarriesTheJudgesTag()
     {

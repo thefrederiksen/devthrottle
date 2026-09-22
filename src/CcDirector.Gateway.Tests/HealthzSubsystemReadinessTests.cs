@@ -52,8 +52,8 @@ public sealed class HealthzSubsystemReadinessTests
         Assert.True(health.Subsystems!.ContainsKey("statistics"),
             "the readiness block must name the statistics subsystem - the deploy step keys off it");
         Assert.Equal("available", health.Subsystems["statistics"]);
-        // devthrottle_internal #2213: the AI-call credential is reported beside it, so a hosted deploy that lost
-        // the setting fails the same step. Its hosted/unset branch is proven in AiCallTagTests.
+        // The AI-call credential is reported beside it, so a hosted deploy that lost the setting fails the same
+        // step. Its hosted/unset branch is proven in AiCallTagTests.
         Assert.Equal("available", health.Subsystems["ai-attribution"]);
         _out.WriteLine(raw);
     }
