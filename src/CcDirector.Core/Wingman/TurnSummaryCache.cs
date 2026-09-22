@@ -150,7 +150,11 @@ public sealed class TurnSummaryCache : IDisposable
     private static string SnapshotTerminalTail(CircularTerminalBuffer? buffer, int maxChars = 16000)
     {
         if (buffer is null) return string.Empty;
-        var bytes = buffer.DumpAll();
+        // 16000 readable characters need far fewer raw bytes than the whole 2 megabyte ring:
+        // across 60 real session logs of at least 600 kilobytes, a 256 kilobyte tail gave the
+        // identical 16000 characters every time (128 kilobytes: 59 of 60).
+        const int tailBytes = 256 * 1024;
+        var bytes = buffer.DumpTail(tailBytes);
         if (bytes.Length == 0) return string.Empty;
         var text = TerminalOutputParser.StripAnsi(Encoding.UTF8.GetString(bytes));
         if (text.Length > maxChars) text = text[^maxChars..];

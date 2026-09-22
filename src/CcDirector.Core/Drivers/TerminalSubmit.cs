@@ -835,9 +835,15 @@ public static class TerminalSubmit
         return needle.Length > tailLength ? needle[^tailLength..] : null;
     }
 
+    /// <summary>
+    /// The last 500 readable characters of the buffer, for diagnostic log lines. Reads only the
+    /// last 64 kilobytes rather than the whole ring: across 60 real session logs of at least
+    /// 600 kilobytes, a 64 kilobyte tail gave the identical 500 characters every time.
+    /// </summary>
     private static string TailOf(CircularTerminalBuffer buffer)
     {
-        var text = NormalizeWhitespace(StripAnsi(Encoding.UTF8.GetString(buffer.DumpAll())));
+        const int tailBytes = 64 * 1024;
+        var text = NormalizeWhitespace(StripAnsi(Encoding.UTF8.GetString(buffer.DumpTail(tailBytes))));
         const int maxChars = 500;
         return text.Length <= maxChars ? text : text[^maxChars..];
     }
