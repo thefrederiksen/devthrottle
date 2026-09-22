@@ -1,4 +1,4 @@
-using Avalonia.Headless.XUnit;
+﻿using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Backends;
@@ -18,18 +18,15 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class RailRaiseCoalescingTests
 {
+    /// <summary>Drives <see cref="NeedsYouWatcher"/>, the class MainWindow subscribes every rail row through, so
+    /// a return to one posted recount per row turns this red.</summary>
     [AvaloniaFact]
     public void TenSessionsChangingInOneBurst_RunTheRecountOnce()
     {
         var recounts = 0;
-        var recount = new CoalescedUiAction(() => recounts++);
+        var watcher = new NeedsYouWatcher(() => recounts++);
         var rows = Enumerable.Range(0, 10).Select(_ => NewRow()).ToList();
-        // Subscribed the way MainWindow.SubscribeNeedsYou subscribes the header.
-        foreach (var (_, vm) in rows)
-            vm.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName is null or nameof(SessionViewModel.NeedsYou)) recount.Request();
-            };
+        foreach (var (_, vm) in rows) watcher.Watch(vm);
 
         foreach (var (session, _) in rows)
             session.ApplyGatewayDisplayState("red", "Needs you", "needsYou", DateTime.UtcNow, null, false);
@@ -38,6 +35,41 @@ public sealed class RailRaiseCoalescingTests
         Assert.Equal(1, recounts);
         // CONTROL: all ten really moved, so one recount is a coalesced ten and not one change.
         Assert.All(rows, r => Assert.True(r.Vm.NeedsYou));
+    }
+
+    [AvaloniaFact]
+    public void ARowNoLongerWatched_DoesNotAskForARecount()
+    {
+        var recounts = 0;
+        var watcher = new NeedsYouWatcher(() => recounts++);
+        var (session, vm) = NewRow();
+        watcher.Watch(vm);
+        watcher.Unwatch(vm);
+
+        session.ApplyGatewayDisplayState("red", "Needs you", "needsYou", DateTime.UtcNow, null, false);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, recounts);
+        Assert.True(vm.NeedsYou);   // CONTROL: the row did move
+    }
+
+    [AvaloniaFact]
+    public void WatchOnly_DropsEveryRowNotInTheNewList()
+    {
+        var recounts = 0;
+        var watcher = new NeedsYouWatcher(() => recounts++);
+        var (goneSession, gone) = NewRow();
+        var (keptSession, kept) = NewRow();
+        watcher.Watch(gone);
+        watcher.WatchOnly(new[] { kept });
+
+        goneSession.ApplyGatewayDisplayState("red", "Needs you", "needsYou", DateTime.UtcNow, null, false);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, recounts);
+
+        keptSession.ApplyGatewayDisplayState("red", "Needs you", "needsYou", DateTime.UtcNow, null, false);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, recounts);
     }
 
     [AvaloniaFact]
