@@ -35,7 +35,7 @@ public sealed class RepositoryWatcher : IDisposable
     private readonly Dictionary<string, FileSystemWatcher> _rootWatchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FileSystemWatcher> _repoWatchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CancellationTokenSource> _pending = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Timer _reconcileTimer;
+    private readonly Background.BackgroundJob _reconcileTimer;
     private bool _disposed;
 
     /// <summary>Raised after a debounced change triggered a recompute (test observability).</summary>
@@ -49,11 +49,16 @@ public sealed class RepositoryWatcher : IDisposable
     /// </summary>
     public event Action? ReconciliationRequested;
 
-    public RepositoryWatcher(RepositoryMonitor monitor, TimeSpan? reconcileInterval = null)
+    public RepositoryWatcher(RepositoryMonitor monitor, TimeSpan? reconcileInterval = null, Background.BackgroundJobs? jobs = null)
     {
         _monitor = monitor;
         var interval = reconcileInterval ?? TimeSpan.FromMinutes(5);
-        _reconcileTimer = new Timer(_ => RaiseReconciliation("periodic reconciliation"), null, interval, interval);
+        // A slow-and-steady job on the scheduler (docs/BackgroundWork.md): the safety net behind the
+        // file events, on the cadence it always had.
+        _reconcileTimer = (jobs ?? Background.BackgroundJobs.Default).Register(
+            new Background.BackgroundJobSpec("Repository watcher: full reconciliation", Background.BackgroundJobTier.SlowAndSteady, interval, "the watcher is disposed"),
+            _ => { RaiseReconciliation("periodic reconciliation"); return Task.CompletedTask; });
+        _reconcileTimer.StartTimer();
     }
 
     /// <summary>

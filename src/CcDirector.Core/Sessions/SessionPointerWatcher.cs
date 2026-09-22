@@ -59,7 +59,8 @@ public sealed class SessionPointerWatcher : IDisposable
 
     private readonly SessionManager _sessions;
     private readonly string _directory;
-    private readonly CancellationTokenSource _sweepCts = new();
+    private readonly Background.BackgroundJobs _jobs;
+    private Background.BackgroundJob? _sweepJob;
     private FileSystemWatcher? _watcher;
     private bool _disposed;
 
@@ -72,8 +73,9 @@ public sealed class SessionPointerWatcher : IDisposable
 
     /// <param name="sessions">The roster a drop is applied to.</param>
     /// <param name="directory">Tests pin the drop box; production uses the storage root.</param>
-    public SessionPointerWatcher(SessionManager sessions, string? directory = null)
+    public SessionPointerWatcher(SessionManager sessions, string? directory = null, Background.BackgroundJobs? jobs = null)
     {
+        _jobs = jobs ?? Background.BackgroundJobs.Default;
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _directory = string.IsNullOrWhiteSpace(directory) ? Storage.CcStorage.SessionPointers() : directory;
     }
@@ -107,33 +109,16 @@ public sealed class SessionPointerWatcher : IDisposable
             _watcher.EnableRaisingEvents = true;
         }
 
-        _ = Task.Run(() => SweepLoopAsync(_sweepCts.Token));
+        // The sweep is a slow-and-steady job on the scheduler (docs/BackgroundWork.md): the delivery
+        // guarantee behind the watcher, on the cadence it always had, best-effort per tick.
+        _sweepJob = _jobs.Register(
+            new Background.BackgroundJobSpec("Session pointer sweep", Background.BackgroundJobTier.SlowAndSteady, SweepInterval, "the watcher is disposed"),
+            _ => { Sweep(); return Task.CompletedTask; });
+        _sweepJob.StartTimer();
 
         FileLog.Write($"[SessionPointerWatcher] watching {_directory} for session-pointer drops " +
                       $"(sweeping every {SweepInterval.TotalSeconds:0.#}s; notifications " +
                       $"{(SuppressWatcherForTests ? "SUPPRESSED for a test" : "on")})");
-    }
-
-    /// <summary>
-    /// Sweep the box on a short timer for as long as this watcher runs. This is what makes delivery a
-    /// guarantee rather than a hope - see the class comment for the measurement behind it. Best-effort per
-    /// tick, so one bad tick never ends the loop.
-    /// </summary>
-    private async Task SweepLoopAsync(CancellationToken ct)
-    {
-        using var timer = new PeriodicTimer(SweepInterval);
-        try
-        {
-            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
-            {
-                try { Sweep(); }
-                catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] sweep FAILED: {ex.Message}"); }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // The watcher is stopping - a clean end, not a failure.
-        }
     }
 
     /// <summary>
@@ -345,8 +330,8 @@ public sealed class SessionPointerWatcher : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        _sweepCts.Cancel();
-        _sweepCts.Dispose();
+        _sweepJob?.Dispose();
+        _sweepJob = null;
 
         if (_watcher is not null)
         {
