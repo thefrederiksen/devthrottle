@@ -164,7 +164,7 @@ public sealed class SessionManager : IDisposable
     /// <summary>Periodic deletion reaper (issue: self-requested session teardown). Disposed in
     /// <see cref="Dispose"/>. Distinct from the event-driven clean-exit reaper
     /// (<see cref="WireSessionReaper"/>), which fires off a process exit rather than a flag.</summary>
-    private readonly System.Threading.Timer _deletionReaper;
+    private readonly Background.BackgroundJob _deletionReaper;
 
     /// <summary>Machine-local reservations: while a session is alive its working directory is
     /// reserved so the worktree reaper (in this or any Director slot on this machine) never removes
@@ -188,15 +188,20 @@ public sealed class SessionManager : IDisposable
         Action<string>? log = null,
         Git.WorktreeReservationStore? reservations = null,
         Git.IWorktreePool? worktreePool = null,
-        Func<string, Git.WorktreePoolSetting>? worktreePoolSetting = null)
+        Func<string, Git.WorktreePoolSetting>? worktreePoolSetting = null,
+        Background.BackgroundJobs? jobs = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _log = log;
         _reservations = reservations ?? new Git.WorktreeReservationStore();
         _worktreePool = worktreePool ?? new Git.CcWorktreesPool();
         _worktreePoolSetting = worktreePoolSetting ?? Git.WorktreePoolSettings.For;
-        _deletionReaper = new System.Threading.Timer(
-            _ => ReapPendingDeletions(), null, DeletionReaperIntervalMs, DeletionReaperIntervalMs);
+        // A slow-and-steady job on the scheduler (docs/BackgroundWork.md), one per manager.
+        var reaperInterval = TimeSpan.FromMilliseconds(DeletionReaperIntervalMs);
+        _deletionReaper = (jobs ?? Background.BackgroundJobs.Default).Register(
+            new Background.BackgroundJobSpec("Deletion reaper", Background.BackgroundJobTier.SlowAndSteady, reaperInterval, "the session manager is disposed"),
+            _ => { ReapPendingDeletions(); return Task.CompletedTask; });
+        _deletionReaper.StartTimer();
     }
 
     /// <summary>
