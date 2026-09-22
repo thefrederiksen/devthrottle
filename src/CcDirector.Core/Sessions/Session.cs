@@ -114,6 +114,12 @@ public sealed class Session : IDisposable
     private TerminalCell[,]? _htmlCells;
     private List<TerminalCell[]>? _htmlScrollback;
     private AnsiParser? _htmlParser;
+
+    // Copies of the parser's alternate-screen and bracketed-paste modes, written by the feed inside
+    // _htmlParserLock after every parse. IsAlternateScreen and BracketedPasteEnabled read these
+    // without taking the lock, so a screen-thread reader never waits behind a slow parse.
+    private volatile bool _isAlternateScreen;
+    private volatile bool _bracketedPaste;
     private Action<byte[]>? _htmlParserFeed;
 
     // ===== Live-attach terminal emulator (the WebSocket stream's attach snapshot) =====
@@ -868,6 +874,13 @@ public sealed class Session : IDisposable
 
     /// <summary>Max confirmation attempts before giving up permanently.</summary>
     private const int MaxConfirmationAttempts = 5;
+
+    /// <summary>
+    /// True once every confirmation attempt has been used, so terminal verification will never run
+    /// again for this session. Lets a caller skip building the terminal text for a check that would
+    /// return immediately.
+    /// </summary>
+    public bool TerminalVerificationExhausted => _confirmationAttempts >= MaxConfirmationAttempts;
 
     /// <summary>Guard to prevent concurrent verification runs.</summary>
     private int _verificationRunning;
@@ -2234,6 +2247,8 @@ public sealed class Session : IDisposable
         _htmlCells = new TerminalCell[HtmlGridCols, HtmlGridRows];
         _htmlScrollback = new List<TerminalCell[]>();
         _htmlParser = new AnsiParser(_htmlCells, HtmlGridCols, HtmlGridRows, _htmlScrollback, HtmlMaxScrollback);
+        _isAlternateScreen = _htmlParser.IsAlternateScreen;
+        _bracketedPaste = _htmlParser.BracketedPasteEnabled;
 
         // The live-attach parser tracks the real PTY size so its screen matches what a browser
         // xterm at the same geometry shows. It starts at the current PTY dimensions and is resized
@@ -2251,7 +2266,12 @@ public sealed class Session : IDisposable
             Volatile.Write(ref _lastOutputTicks, DateTime.UtcNow.Ticks);
             lock (_htmlParserLock)
             {
-                _htmlParser?.Parse(data);
+                if (_htmlParser is not null)
+                {
+                    _htmlParser.Parse(data);
+                    _isAlternateScreen = _htmlParser.IsAlternateScreen;
+                    _bracketedPaste = _htmlParser.BracketedPasteEnabled;
+                }
                 _streamParser?.Parse(data);
                 _streamBytesReflected += data.Length;
             }
@@ -2356,28 +2376,14 @@ public sealed class Session : IDisposable
     /// parser state at the moment of the call; it flips as the agent enters and leaves the
     /// alternate screen. False for Embedded sessions that have no server-side parser.
     /// </summary>
-    public bool IsAlternateScreen
-    {
-        get
-        {
-            lock (_htmlParserLock)
-                return _htmlParser?.IsAlternateScreen ?? false;
-        }
-    }
+    public bool IsAlternateScreen => _isAlternateScreen;
 
     /// <summary>
     /// True when the terminal application has requested bracketed paste mode (DEC private mode
     /// ?2004). This is read-only parser state; submit strategies can use it as a gate before
     /// sending bracketed paste delimiters.
     /// </summary>
-    public bool BracketedPasteEnabled
-    {
-        get
-        {
-            lock (_htmlParserLock)
-                return _htmlParser?.BracketedPasteEnabled ?? false;
-        }
-    }
+    public bool BracketedPasteEnabled => _bracketedPaste;
 
     /// <summary>
     /// Like <see cref="SnapshotScreenRows"/> but also returns the live cursor cell
@@ -4091,6 +4097,8 @@ public sealed class Session : IDisposable
         _backend.StatusChanged -= OnBackendStatusChanged;
         if (_htmlParserFeed is not null && _backend.Buffer is not null)
             _backend.Buffer.OnBytesWritten -= _htmlParserFeed;
+        _isAlternateScreen = false;
+        _bracketedPaste = false;
         // Nothing can render this session's row any more, so its delivery tally has no reader left. The
         // fleet-wide recent ring keeps the history; only the per-session counters are dropped.
         PromptDeliveryFailures.Forget(Id);

@@ -3449,6 +3449,12 @@ public partial class MainWindow : Window
     {
     }
 
+    // Minimum time between two verification runs. Each run joins the whole scrollback into one
+    // string on the screen thread, and this is called on every terminal scroll change - many times a
+    // second while an agent streams - so it is rate limited.
+    private static readonly TimeSpan TerminalVerificationInterval = TimeSpan.FromSeconds(2);
+    private long _lastTerminalVerificationTimestamp;
+
     private void CheckTerminalVerification()
     {
         if (_activeSession == null) return;
@@ -3456,6 +3462,14 @@ public partial class MainWindow : Window
         var status = _activeSession.TerminalVerificationStatus;
         if (status == TerminalVerificationStatus.Matched)
             return;
+        if (_activeSession.Session.TerminalVerificationExhausted)
+            return;
+
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (_lastTerminalVerificationTimestamp != 0
+            && System.Diagnostics.Stopwatch.GetElapsedTime(_lastTerminalVerificationTimestamp, now) < TerminalVerificationInterval)
+            return;
+        _lastTerminalVerificationTimestamp = now;
 
         var session = _activeSession;
         var terminalText = TerminalHost.GetAllTerminalText();

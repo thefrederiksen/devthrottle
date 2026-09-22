@@ -173,22 +173,39 @@ public static class BrowserLauncher
     /// Returns the Chromium browsers found at their standard install locations, in a stable order
     /// (Chrome, Edge, Brave, Opera - most-used first, which is also the order the pickers show and the
     /// first-run wizard prefers). A browser is "installed" when one of its candidate exe paths exists.
+    /// The disk is probed once per process and the result is cached: browser installations do not
+    /// change while the Director runs, and the browsers rail asks for this every 30 seconds.
     /// </summary>
     public static IReadOnlyList<BrowserInfo> DetectBrowsers()
     {
-        FileLog.Write("[BrowserLauncher] DetectBrowsers");
+        var cached = Volatile.Read(ref _detectedBrowsers);
+        if (cached is not null)
+            return cached;
 
-        var found = new List<BrowserInfo>();
-        foreach (var (kind, displayName, exeCandidates, userDataDir) in Candidates())
+        lock (DetectLock)
         {
-            var exe = exeCandidates.FirstOrDefault(File.Exists);
-            if (exe is not null)
-                found.Add(new BrowserInfo(kind, displayName, exe, userDataDir));
-        }
+            if (_detectedBrowsers is not null)
+                return _detectedBrowsers;
 
-        FileLog.Write($"[BrowserLauncher] DetectBrowsers: found={found.Count}");
-        return found;
+            FileLog.Write("[BrowserLauncher] DetectBrowsers");
+
+            var found = new List<BrowserInfo>();
+            foreach (var (kind, displayName, exeCandidates, userDataDir) in Candidates())
+            {
+                var exe = exeCandidates.FirstOrDefault(File.Exists);
+                if (exe is not null)
+                    found.Add(new BrowserInfo(kind, displayName, exe, userDataDir));
+            }
+
+            FileLog.Write($"[BrowserLauncher] DetectBrowsers: found={found.Count}");
+            IReadOnlyList<BrowserInfo> result = found.AsReadOnly();
+            Volatile.Write(ref _detectedBrowsers, result);
+            return result;
+        }
     }
+
+    private static readonly object DetectLock = new();
+    private static IReadOnlyList<BrowserInfo>? _detectedBrowsers;
 
     /// <summary>
     /// Reads <paramref name="browser"/>'s <c>Local State</c> and returns its profiles, sorted with
