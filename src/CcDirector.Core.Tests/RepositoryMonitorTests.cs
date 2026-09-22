@@ -480,6 +480,110 @@ public class RepositoryMonitorTests
     }
 
     // ---------------------------------------------------------------------------------------
+    // The git storm (plan step 7c): requests for a repository that arrive while its recompute runs
+    // are COALESCED into exactly one follow-up. The per-repository semaphore alone ran one full
+    // compute per queued request - five requests during one compute became five more computes.
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public async Task RecomputeOne_ManyRequestsDuringARunningCompute_CoalesceIntoExactlyOneFollowUp()
+    {
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccd-coalesce-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(System.IO.Path.Combine(dir, ".git"));
+        try
+        {
+            int computeCalls = 0, running = 0, maxRunning = 0;
+            var firstComputeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseFirstCompute = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var monitor = new RepositoryMonitor(
+                enumerate: _ => new[] { dir },
+                compute: async (p, _, _) =>
+                {
+                    int call = Interlocked.Increment(ref computeCalls);
+                    int now = Interlocked.Increment(ref running);
+                    InterlockedMax(ref maxRunning, now);
+                    if (call == 1)
+                    {
+                        firstComputeEntered.SetResult();
+                        await releaseFirstCompute.Task;
+                    }
+                    Interlocked.Decrement(ref running);
+                    return Status(p) with { UncommittedCount = call, IsClean = false };
+                }) { LiveSessionsProvider = NoSessions };
+
+            var first = monitor.RecomputeOneAsync(dir);
+            await firstComputeEntered.Task;
+            var joiners = Enumerable.Range(0, 5).Select(_ => monitor.RecomputeOneAsync(dir)).ToArray();
+            await Task.Delay(100);
+            Assert.All(joiners, j => Assert.False(j.IsCompleted)); // they wait for the follow-up, not return early
+
+            releaseFirstCompute.SetResult();
+            await Task.WhenAll(joiners.Append(first));
+
+            Assert.Equal(2, Volatile.Read(ref computeCalls)); // the first, and ONE follow-up for all five
+            Assert.Equal(1, Volatile.Read(ref maxRunning));   // never two in parallel
+            Assert.Equal(2, Assert.Single(monitor.Snapshot()).UncommittedCount); // the follow-up's result stands
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Never a dropped change: a request that arrives while the FOLLOW-UP itself is running is owed
+    // one more run, and its await ends only after that run has published.
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public async Task RecomputeOne_RequestDuringTheFollowUp_IsOwedOneMoreRun()
+    {
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccd-coalesce2-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(System.IO.Path.Combine(dir, ".git"));
+        try
+        {
+            int computeCalls = 0;
+            var entered = new[] { new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+            var release = new[] { new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+            var monitor = new RepositoryMonitor(
+                enumerate: _ => new[] { dir },
+                compute: async (p, _, _) =>
+                {
+                    int call = Interlocked.Increment(ref computeCalls);
+                    if (call <= 2)
+                    {
+                        entered[call - 1].SetResult();
+                        await release[call - 1].Task;
+                    }
+                    return Status(p) with { UncommittedCount = call, IsClean = false };
+                }) { LiveSessionsProvider = NoSessions };
+
+            var first = monitor.RecomputeOneAsync(dir);
+            await entered[0].Task;
+            var duringFirst = monitor.RecomputeOneAsync(dir);
+            release[0].SetResult();
+
+            await entered[1].Task; // the follow-up is now running
+            var duringFollowUp = monitor.RecomputeOneAsync(dir);
+            release[1].SetResult();
+
+            await duringFirst;
+            await Task.WhenAll(first, duringFollowUp);
+
+            Assert.Equal(3, Volatile.Read(ref computeCalls));
+            Assert.Equal(3, Assert.Single(monitor.Snapshot()).UncommittedCount);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        int seen;
+        while ((seen = Volatile.Read(ref target)) < value && Interlocked.CompareExchange(ref target, value, seen) != seen) { }
+    }
+
+    // ---------------------------------------------------------------------------------------
     // REGRESSION (inspection round 2, ruling R2-5, boundary ordering 1): a single-repository
     // recompute that started BEFORE a newer scan can only publish AFTER that scan removed the
     // repository from the model. Newest compute wins at the publish: the older recompute's
