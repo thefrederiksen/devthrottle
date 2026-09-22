@@ -577,6 +577,230 @@ public class RepositoryMonitorTests
         }
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Review of pull request 3337: a change must not be dropped by a STALE status write. The first
+    // recompute's status read has already seen the pre-change tree when the change arrives; the
+    // watcher then invalidates the status cache (exactly as RepositoryWatcher does) and asks for a
+    // recompute, which joins the follow-up. The first read finishes AFTER the invalidation and tries
+    // to cache its pre-change answer. The follow-up must run a fresh status read and publish the
+    // post-change count, not take the stale write as a cache hit.
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public async Task RecomputeOne_AStatusReadInvalidatedWhileItRan_CannotHandTheFollowUpItsStaleAnswer()
+    {
+        using var repo = new FakeRepoDir("ccd-stalestatus-");
+        var firstReadEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int statusRuns = 0;
+        var provider = new GitStatusProvider
+        {
+            RunStatusOverride = async (_, _) =>
+            {
+                int run = Interlocked.Increment(ref statusRuns);
+                if (run == 1)
+                {
+                    firstReadEntered.SetResult();
+                    await releaseFirstRead.Task;
+                    return ("", null, 0);              // the tree as it was: clean
+                }
+                return (" M changed.txt\n", null, 0);  // the tree after the change: one changed file
+            },
+        };
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => new[] { repo.Path },
+            compute: async (p, _, ct) =>
+            {
+                var count = await provider.GetCountAsync(p, ct);
+                return Status(p) with { UncommittedCount = count.Count, IsClean = count.Count == 0 };
+            }) { LiveSessionsProvider = NoSessions };
+        GitStatusProvider.InvalidateCache(repo.Path);
+
+        var first = monitor.RecomputeOneAsync(repo.Path);
+        await firstReadEntered.Task;
+
+        // The change lands; the watcher invalidates, then asks - and joins the follow-up.
+        GitStatusProvider.InvalidateCache(repo.Path);
+        var afterChange = monitor.RecomputeOneAsync(repo.Path);
+
+        releaseFirstRead.SetResult(); // the stale read finishes after the invalidation
+        await Task.WhenAll(first, afterChange);
+
+        Assert.Equal(2, Volatile.Read(ref statusRuns)); // the follow-up ran git, not a stale cache hit
+        Assert.Equal(1, Assert.Single(monitor.Snapshot()).UncommittedCount);
+        GitStatusProvider.InvalidateCache(repo.Path);
+    }
+
+    // The owner's own compute throws: the owner sees ITS exception, the caller who joined sees the
+    // follow-up succeed, and the repository is not left stuck - a later request runs normally.
+    [Fact]
+    public async Task RecomputeOne_OwnerComputeThrows_JoinerGetsTheFollowUp_AndLaterRequestsRun()
+    {
+        using var repo = new FakeRepoDir("ccd-ownerfault-");
+        var probe = new ComputeProbe(call => call == 1 ? ComputeProbe.Behavior.HoldThenThrow : ComputeProbe.Behavior.Succeed);
+        var monitor = probe.Monitor(repo.Path);
+
+        var owner = monitor.RecomputeOneAsync(repo.Path);
+        await probe.Entered(1);
+        var joiner = monitor.RecomputeOneAsync(repo.Path);
+        probe.Release(1);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => owner);
+        Assert.Equal("compute 1 failed", ex.Message);
+        await joiner; // the follow-up ran and succeeded
+        Assert.Equal(2, Assert.Single(monitor.Snapshot()).UncommittedCount);
+
+        await monitor.RecomputeOneAsync(repo.Path); // nothing stranded: a later request runs its own compute
+        Assert.Equal(3, probe.Calls);
+        Assert.Equal(1, probe.MaxRunning);
+    }
+
+    // The OWNING request is cancelled mid-compute: the owner sees the cancellation, the joiner's
+    // follow-up still runs (it belongs to no single requester), and a later request runs normally.
+    [Fact]
+    public async Task RecomputeOne_OwnerCancelled_JoinerStillGetsTheFollowUp()
+    {
+        using var repo = new FakeRepoDir("ccd-ownercancel-");
+        var probe = new ComputeProbe(call => call == 1 ? ComputeProbe.Behavior.HoldUntilCancelled : ComputeProbe.Behavior.Succeed);
+        var monitor = probe.Monitor(repo.Path);
+        using var ownerCts = new CancellationTokenSource();
+
+        var owner = monitor.RecomputeOneAsync(repo.Path, ownerCts.Token);
+        await probe.Entered(1);
+        var joiner = monitor.RecomputeOneAsync(repo.Path);
+        ownerCts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => owner);
+        await joiner;
+        Assert.Equal(2, Assert.Single(monitor.Snapshot()).UncommittedCount);
+
+        await monitor.RecomputeOneAsync(repo.Path);
+        Assert.Equal(3, probe.Calls);
+        Assert.Equal(1, probe.MaxRunning);
+    }
+
+    // A JOINER that gives up stops waiting - and only it: the follow-up still runs for everyone else.
+    [Fact]
+    public async Task RecomputeOne_CancelledJoiner_StopsWaiting_TheFollowUpStillRuns()
+    {
+        using var repo = new FakeRepoDir("ccd-joinercancel-");
+        var probe = new ComputeProbe(_ => ComputeProbe.Behavior.HoldThenSucceed);
+        var monitor = probe.Monitor(repo.Path);
+        using var joinerCts = new CancellationTokenSource();
+
+        var owner = monitor.RecomputeOneAsync(repo.Path);
+        await probe.Entered(1);
+        var cancelledJoiner = monitor.RecomputeOneAsync(repo.Path, joinerCts.Token);
+        var patientJoiner = monitor.RecomputeOneAsync(repo.Path);
+        joinerCts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledJoiner);
+        Assert.False(patientJoiner.IsCompleted);
+
+        probe.Release(1);
+        await probe.Entered(2); // the follow-up runs even though one of its requesters left
+        probe.Release(2);
+        await Task.WhenAll(owner, patientJoiner);
+
+        Assert.Equal(2, probe.Calls);
+        Assert.Equal(2, Assert.Single(monitor.Snapshot()).UncommittedCount);
+        Assert.Equal(1, probe.MaxRunning);
+    }
+
+    // The FOLLOW-UP fails: its joiners see that failure, the owner (whose own compute succeeded)
+    // does not, and the repository is not left stuck.
+    [Fact]
+    public async Task RecomputeOne_FailedFollowUp_ReachesItsJoiners_NotTheOwner()
+    {
+        using var repo = new FakeRepoDir("ccd-followupfault-");
+        var probe = new ComputeProbe(call => call switch
+        {
+            1 => ComputeProbe.Behavior.HoldThenSucceed,
+            2 => ComputeProbe.Behavior.Throw,
+            _ => ComputeProbe.Behavior.Succeed,
+        });
+        var monitor = probe.Monitor(repo.Path);
+
+        var owner = monitor.RecomputeOneAsync(repo.Path);
+        await probe.Entered(1);
+        var joinerA = monitor.RecomputeOneAsync(repo.Path);
+        var joinerB = monitor.RecomputeOneAsync(repo.Path);
+        probe.Release(1);
+
+        await owner; // its own compute succeeded
+        Assert.Equal("compute 2 failed", (await Assert.ThrowsAsync<InvalidOperationException>(() => joinerA)).Message);
+        Assert.Equal("compute 2 failed", (await Assert.ThrowsAsync<InvalidOperationException>(() => joinerB)).Message);
+        Assert.Equal(1, Assert.Single(monitor.Snapshot()).UncommittedCount); // the failed run published nothing
+
+        await monitor.RecomputeOneAsync(repo.Path);
+        Assert.Equal(3, probe.Calls);
+        Assert.Equal(3, Assert.Single(monitor.Snapshot()).UncommittedCount);
+        Assert.Equal(1, probe.MaxRunning);
+    }
+
+    /// <summary>A temporary folder holding a .git directory, so the monitor treats it as a repository.</summary>
+    private sealed class FakeRepoDir : IDisposable
+    {
+        public string Path { get; }
+
+        public FakeRepoDir(string prefix)
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(System.IO.Path.Combine(Path, ".git"));
+        }
+
+        public void Dispose() => Directory.Delete(Path, recursive: true);
+    }
+
+    /// <summary>
+    /// An injected compute whose Nth call behaves as the test says: succeed, throw, or hold until the
+    /// test releases it (or its token is cancelled). Tracks calls and the most computes ever running at
+    /// once. A successful call N publishes UncommittedCount = N.
+    /// </summary>
+    private sealed class ComputeProbe
+    {
+        public enum Behavior { Succeed, Throw, HoldThenSucceed, HoldThenThrow, HoldUntilCancelled }
+
+        private readonly Func<int, Behavior> _behavior;
+        private readonly ConcurrentDictionary<int, TaskCompletionSource> _entered = new();
+        private readonly ConcurrentDictionary<int, TaskCompletionSource> _release = new();
+        private int _calls, _running, _maxRunning;
+
+        public ComputeProbe(Func<int, Behavior> behavior) => _behavior = behavior;
+
+        public int Calls => Volatile.Read(ref _calls);
+        public int MaxRunning => Volatile.Read(ref _maxRunning);
+
+        public Task Entered(int call) => Gate(_entered, call).Task.WaitAsync(TimeSpan.FromSeconds(10));
+        public void Release(int call) => Gate(_release, call).TrySetResult();
+
+        private static TaskCompletionSource Gate(ConcurrentDictionary<int, TaskCompletionSource> map, int call)
+            => map.GetOrAdd(call, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        public RepositoryMonitor Monitor(string path) => new(
+            enumerate: _ => new[] { path },
+            compute: async (p, _, ct) =>
+            {
+                int call = Interlocked.Increment(ref _calls);
+                InterlockedMax(ref _maxRunning, Interlocked.Increment(ref _running));
+                try
+                {
+                    Gate(_entered, call).TrySetResult();
+                    var behavior = _behavior(call);
+                    if (behavior is Behavior.HoldThenSucceed or Behavior.HoldThenThrow)
+                        await Gate(_release, call).Task;
+                    if (behavior == Behavior.HoldUntilCancelled)
+                        await Task.Delay(Timeout.Infinite, ct);
+                    if (behavior is Behavior.Throw or Behavior.HoldThenThrow)
+                        throw new InvalidOperationException($"compute {call} failed");
+                    return Status(p) with { UncommittedCount = call, IsClean = false };
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _running);
+                }
+            }) { LiveSessionsProvider = NoSessions };
+    }
+
     private static void InterlockedMax(ref int target, int value)
     {
         int seen;

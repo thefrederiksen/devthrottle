@@ -55,13 +55,48 @@ public class GitStatusProvider
     private static readonly Dictionary<string, CacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object _cacheLock = new();
 
+    /// <summary>
+    /// Per-repository cache generation, bumped by every <see cref=InvalidateCache/>. A status read
+    /// records the generation when it STARTS and may store its result only if the generation is
+    /// unchanged when it finishes. Without this, a read that began before a change and finished after
+    /// the change's invalidation wrote its pre-change answer back into the cache, and the recompute
+    /// the change asked for then took that stale hit and published the tree as it was before - the
+    /// change was dropped (review of pull request 3337).
+    /// </summary>
+    private static readonly Dictionary<string, long> _generations = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Replaces the git process for this instance. A TEST SEAM only: a test holds a status read open,
+    /// invalidates underneath it, and proves the stale answer is not cached. Production never sets it.
+    /// </summary>
+    internal Func<string, CancellationToken, Task<(string Output, string? Error, int ExitCode)>>? RunStatusOverride { get; init; }
+
+    private static long GenerationLocked(string repoPath)
+        => _generations.TryGetValue(repoPath, out var g) ? g : 0;
+
+    /// <summary>Stores a result only if no invalidation happened since the read began.</summary>
+    private static void StoreIfCurrent(string repoPath, long startedAtGeneration, CacheEntry entry)
+    {
+        lock (_cacheLock)
+        {
+            if (GenerationLocked(repoPath) != startedAtGeneration)
+            {
+                FileLog.Write($"[GitStatusProvider] status for {repoPath} was invalidated while it ran - not cached");
+                return;
+            }
+            _cache[repoPath] = entry;
+        }
+    }
+
     public async Task<GitStatusResult> GetStatusAsync(string repoPath, CancellationToken ct = default)
     {
         FileLog.Write($"[GitStatusProvider] GetStatusAsync: repoPath={repoPath}");
 
         // Check cache first
+        long generation;
         lock (_cacheLock)
         {
+            generation = GenerationLocked(repoPath);
             if (_cache.TryGetValue(repoPath, out var cached)
                 && DateTime.UtcNow - cached.Timestamp < CacheTtl)
             {
@@ -78,10 +113,7 @@ public class GitStatusProvider
 
         var result = ParsePorcelainOutput(rawOutput);
 
-        lock (_cacheLock)
-        {
-            _cache[repoPath] = new CacheEntry(rawOutput, result, DateTime.UtcNow);
-        }
+        StoreIfCurrent(repoPath, generation, new CacheEntry(rawOutput, result, DateTime.UtcNow));
 
         FileLog.Write($"[GitStatusProvider] GetStatusAsync: staged={result.StagedChanges.Count}, unstaged={result.UnstagedChanges.Count}");
         return result;
@@ -96,9 +128,11 @@ public class GitStatusProvider
     {
         FileLog.Write($"[GitStatusProvider] GetCountAsync: repoPath={repoPath}");
 
-        // Check cache — if we have a full result, derive count from it
+        // Check cache - if we have a full result, derive count from it
+        long generation;
         lock (_cacheLock)
         {
+            generation = GenerationLocked(repoPath);
             if (_cache.TryGetValue(repoPath, out var cached)
                 && DateTime.UtcNow - cached.Timestamp < CacheTtl)
             {
@@ -122,10 +156,7 @@ public class GitStatusProvider
 
         // Parse full result and cache it so subsequent GetStatusAsync calls benefit
         var result = ParsePorcelainOutput(rawOutput);
-        lock (_cacheLock)
-        {
-            _cache[repoPath] = new CacheEntry(rawOutput, result, DateTime.UtcNow);
-        }
+        StoreIfCurrent(repoPath, generation, new CacheEntry(rawOutput, result, DateTime.UtcNow));
 
         FileLog.Write($"[GitStatusProvider] GetCountAsync: count={count}");
         return new GitCountResult(Success: true, Count: count);
@@ -140,6 +171,7 @@ public class GitStatusProvider
         lock (_cacheLock)
         {
             _cache.Remove(repoPath);
+            _generations[repoPath] = GenerationLocked(repoPath) + 1;
         }
     }
 
@@ -162,6 +194,8 @@ public class GitStatusProvider
 
     private async Task<(string Output, string? Error, int ExitCode)> RunGitStatusAsync(string repoPath, CancellationToken ct)
     {
+        if (RunStatusOverride != null)
+            return await RunStatusOverride(repoPath, ct);
         try
         {
             // ProcessRunner drains stdout and stderr concurrently and honors cancellation by killing
