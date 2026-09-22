@@ -248,6 +248,27 @@ public class CircularTerminalBufferTests
     }
 
     [Fact]
+    public void Write_TwoSubscribers_ReceiveTheSameArrayInstanceWithIdenticalContent()
+    {
+        using var buffer = new CircularTerminalBuffer(64);
+        byte[]? first = null;
+        byte[]? second = null;
+        byte[]? firstContent = null;
+        byte[]? secondContent = null;
+        buffer.OnBytesWritten += data => { first = data; firstContent = data.ToArray(); };
+        buffer.OnBytesWritten += data => { second = data; secondContent = data.ToArray(); };
+        var written = new byte[] { 1, 2, 3, 4, 5 };
+
+        buffer.Write(written);
+
+        Assert.NotNull(first);
+        Assert.Same(first, second);
+        Assert.NotSame(written, first);
+        Assert.Equal(written, firstContent);
+        Assert.Equal(written, secondContent);
+    }
+
+    [Fact]
     public void Constructor_InvalidCapacity_Throws()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new CircularTerminalBuffer(0));
