@@ -956,10 +956,26 @@ public class SessionViewModel : INotifyPropertyChanged
     /// property, for the same reason <see cref="RaiseFoldProjection"/> exists: a per-caller list of what
     /// to raise is a private chance to miss one, and a half-updated row looks deliberate, so the reader
     /// believes the wrong half.
+    ///
+    /// RAISES ONLY WHAT CHANGED. RebuildRail stamps every row every fifteen seconds and on every roster
+    /// change, and almost every stamp is the same as the last one. Each incoming value is compared with the
+    /// stored one and only a property whose value moved is raised, together with everything derived from it.
+    /// The list of properties is still written once, here; the compare only makes the unchanged raises free.
+    /// The crew squares compare by the brush each square holds, which is the one shared palette brush for
+    /// its colour, so the same colours in the same order are the same squares.
     /// </summary>
     internal void ApplyRailRow(int depth, bool hasCrew, bool isExpanded, string crewLine, string crewAge,
                                IReadOnlyList<ISolidColorBrush> crewColors, string sectionHeader, bool sectionIsNeedsYou)
     {
+        var depthChanged = _railDepth != depth;
+        var hasCrewChanged = _hasCrew != hasCrew;
+        var expandedChanged = _isCrewExpanded != isExpanded;
+        var crewLineChanged = !string.Equals(_crewLineText, crewLine, StringComparison.Ordinal);
+        var crewAgeChanged = !string.Equals(_crewAgeText, crewAge, StringComparison.Ordinal);
+        var crewColorsChanged = !_crewColorBrushes.SequenceEqual(crewColors);
+        var headerChanged = !string.Equals(_sectionHeaderText, sectionHeader, StringComparison.Ordinal);
+        var headerNeedsYouChanged = _sectionIsNeedsYou != sectionIsNeedsYou;
+
         _railDepth = depth;
         _hasCrew = hasCrew;
         _isCrewExpanded = isExpanded;
@@ -969,18 +985,24 @@ public class SessionViewModel : INotifyPropertyChanged
         _sectionHeaderText = sectionHeader;
         _sectionIsNeedsYou = sectionIsNeedsYou;
 
-        OnPropertyChanged(nameof(RailDepth));
-        OnPropertyChanged(nameof(RailIndentWidth));
-        OnPropertyChanged(nameof(IsRailChild));
-        OnPropertyChanged(nameof(HasCrew));
-        OnPropertyChanged(nameof(IsCrewExpanded));
-        OnPropertyChanged(nameof(ShowCrewLine));
-        OnPropertyChanged(nameof(CrewLineText));
-        OnPropertyChanged(nameof(CrewAgeText));
-        OnPropertyChanged(nameof(CrewColorBrushes));
-        OnPropertyChanged(nameof(ShowSectionHeader));
-        OnPropertyChanged(nameof(SectionHeaderText));
-        OnPropertyChanged(nameof(SectionHeaderBrush));
+        if (depthChanged)
+        {
+            OnPropertyChanged(nameof(RailDepth));
+            OnPropertyChanged(nameof(RailIndentWidth));
+            OnPropertyChanged(nameof(IsRailChild));
+        }
+        if (hasCrewChanged) OnPropertyChanged(nameof(HasCrew));
+        if (expandedChanged) OnPropertyChanged(nameof(IsCrewExpanded));
+        if (hasCrewChanged || expandedChanged) OnPropertyChanged(nameof(ShowCrewLine));
+        if (crewLineChanged) OnPropertyChanged(nameof(CrewLineText));
+        if (crewAgeChanged) OnPropertyChanged(nameof(CrewAgeText));
+        if (crewColorsChanged) OnPropertyChanged(nameof(CrewColorBrushes));
+        if (headerChanged)
+        {
+            OnPropertyChanged(nameof(ShowSectionHeader));
+            OnPropertyChanged(nameof(SectionHeaderText));
+        }
+        if (headerNeedsYouChanged) OnPropertyChanged(nameof(SectionHeaderBrush));
     }
 
     // ===== Group membership (issue #225) =====

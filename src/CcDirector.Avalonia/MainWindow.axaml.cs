@@ -4918,6 +4918,11 @@ public partial class MainWindow : Window
     // that can move the verdict, so subscribing to the property is what makes the count prompt.
     private readonly Dictionary<SessionViewModel, global::System.ComponentModel.PropertyChangedEventHandler> _needsYouHandlers = new();
 
+    // One recount per dispatcher pass, however many sessions raised NeedsYou in it: a fold sweep across N
+    // sessions used to queue N recounts of N sessions each (terminal slowdown plan, step 4).
+    // Created on first use because a field initializer cannot name an instance method.
+    private CoalescedUiAction? _needsYouRecount;
+
     private void OnSessionsCollectionChanged(object? sender, global::System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         if (e.Action == global::System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
@@ -4945,7 +4950,7 @@ public partial class MainWindow : Window
         global::System.ComponentModel.PropertyChangedEventHandler h = (_, args) =>
         {
             if (args.PropertyName is not (null or nameof(SessionViewModel.NeedsYou))) return;
-            Dispatcher.UIThread.Post(UpdateNeedsYouCount);
+            (_needsYouRecount ??= new CoalescedUiAction(UpdateNeedsYouCount)).Request();
         };
         _needsYouHandlers[vm] = h;
         vm.PropertyChanged += h;
