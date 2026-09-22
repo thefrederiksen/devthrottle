@@ -245,12 +245,14 @@ public class SessionViewModel : INotifyPropertyChanged
     /// </remarks>
     /// <remarks>
     /// THREADS. The cache is read on the screen thread but invalidated from whatever thread raised the session
-    /// event, so the getter never hands out a shared field it might lose. Each invalidation bumps
-    /// <see cref="_foldGeneration"/>. A read notes the generation, builds, and publishes the build only if the
-    /// generation has not moved; if it moved, the session changed while the build was reading it, so the build
-    /// is thrown away and made again. The build, its time and its generation are published together as one
-    /// immutable <see cref="CachedFold"/>, and the getter returns its own local - so it never returns null and
-    /// never returns a build made before an invalidation that happened before the read began.
+    /// event. The whole cache is ONE immutable <see cref="FoldCache"/> in ONE field, and invalidation and
+    /// publication both change it only by an atomic swap of that reference, so they contend on the same
+    /// reference. Every invalidation swaps in a new, empty record. A read takes the record
+    /// it saw, builds, and publishes by swapping its build in ONLY if that same record is still there; if any
+    /// invalidation landed at any point after the read looked - during the build or after it - the swap fails,
+    /// the build is thrown away, and the read builds again. So a read never publishes, and never returns, a build
+    /// made from state an invalidation has already replaced. The fast path is one reference read, so the
+    /// build, its time and its validity are always seen together.
     /// </remarks>
     internal SessionDto FoldInput
     {
@@ -258,18 +260,16 @@ public class SessionViewModel : INotifyPropertyChanged
         {
             while (true)
             {
-                var generation = Interlocked.Read(ref _foldGeneration);
-                var cached = _fold;
-                if (cached is not null && cached.Generation == generation
-                    && Stopwatch.GetElapsedTime(cached.BuiltAt) <= FoldMaxAge)
-                    return cached.Dto;
+                var seen = Volatile.Read(ref _fold);
+                if (seen.Dto is not null && Stopwatch.GetElapsedTime(seen.BuiltAt) <= FoldMaxAge)
+                    return seen.Dto;
 
                 var built = FoldMapper(Session);
                 Interlocked.Increment(ref _foldMapCount);
-                if (Interlocked.Read(ref _foldGeneration) != generation)
-                    continue;
-                _fold = new CachedFold(built, Stopwatch.GetTimestamp(), generation);
-                return built;
+                BeforeFoldPublish?.Invoke();
+                var published = new FoldCache(built, Stopwatch.GetTimestamp());
+                if (ReferenceEquals(Interlocked.CompareExchange(ref _fold, published, seen), seen))
+                    return built;
             }
         }
     }
@@ -277,19 +277,21 @@ public class SessionViewModel : INotifyPropertyChanged
     /// <summary>How old a cached <see cref="FoldInput"/> may be before a read rebuilds it.</summary>
     private static readonly TimeSpan FoldMaxAge = TimeSpan.FromSeconds(1);
 
-    /// <summary>One published build: the wire object, when it was built, and the invalidation generation it was
-    /// built under. Immutable, so a reader sees all three from one reference read.</summary>
-    private sealed record CachedFold(SessionDto Dto, long BuiltAt, long Generation);
+    /// <summary>The whole cache as one immutable value: the published wire object and when it was built, or
+    /// no wire object after an invalidation. Every change makes a new record, so reference identity alone says
+    /// whether anything changed since a read looked.</summary>
+    private sealed record FoldCache(SessionDto? Dto, long BuiltAt);
 
-    private volatile CachedFold? _fold;
-
-    /// <summary>Bumped by every invalidation. A cached build is valid only while this still equals the
-    /// generation it was built under.</summary>
-    private long _foldGeneration;
+    private FoldCache _fold = new(null, 0);
 
     /// <summary>Drops the cached <see cref="FoldInput"/>, from any thread: the next read builds again, and a
-    /// build already in progress on another thread is not published.</summary>
-    internal void InvalidateFold() => Interlocked.Increment(ref _foldGeneration);
+    /// build already in progress on another thread fails to publish and builds again.</summary>
+    internal void InvalidateFold() => Interlocked.Exchange(ref _fold, new FoldCache(null, 0));
+
+    /// <summary>Runs after a read has built its wire object and before it publishes it. A test seam, so a
+    /// test can land an invalidation in exactly that gap and prove the build is never published or returned.
+    /// Null in production.</summary>
+    internal Action? BeforeFoldPublish { get; set; }
 
     /// <summary>Stamps this session's place in the rail's drag list as its desktop order. The order is carried
     /// in the cached <see cref="FoldInput"/>, so a stamp that moves the session drops the cache; a stamp that

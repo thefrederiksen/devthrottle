@@ -131,8 +131,7 @@ public sealed class SessionViewModelFoldCacheTests
             builds.Add(dto);
             if (builds.Count == 1)
             {
-                // The change arrives on a background thread after this build read the session and before
-                // the getter publishes it - the exact window the review found.
+                // The change arrives on a background thread while this build is still inside the mapper.
                 var t = new Thread(() =>
                     session.ApplyGatewayDisplayState("red", "Needs you", "needsYou", DateTime.UtcNow, null, false));
                 t.Start();
@@ -145,6 +144,50 @@ public sealed class SessionViewModelFoldCacheTests
         var read = vm.FoldInput;
 
         Assert.NotNull(read);
+        Assert.Equal(2, builds.Count);
+        Assert.Equal("blue", builds[0].EffectiveColor);   // CONTROL: the first build really was the old one
+        Assert.NotSame(builds[0], read);
+        Assert.Equal("red", read.EffectiveColor);
+        // The second build was published: the next read shares it.
+        Assert.Same(read, vm.FoldInput);
+        Assert.Equal(2, builds.Count);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>
+    /// THE CHECK-THEN-PUBLISH GAP. The mapper has returned and the read is about to publish when a session event
+    /// lands on another thread. Nothing inside the mapper can reach this gap, so the test lands the change through
+    /// the seam that runs between the build and the publication. That build read the session before the change:
+    /// it must fail to publish, must not be returned, and the read must build again.
+    /// </summary>
+    [AvaloniaFact]
+    public void AnInvalidationAfterTheBuildAndBeforeThePublish_FailsThePublish_AndTheReadBuildsAgain()
+    {
+        var (session, vm) = NewRow();
+        session.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false);
+        Dispatcher.UIThread.RunJobs();
+
+        var builds = new List<SessionDto>();
+        var real = vm.FoldMapper;
+        vm.FoldMapper = s =>
+        {
+            var dto = real(s);
+            builds.Add(dto);
+            return dto;
+        };
+        var landed = 0;
+        vm.BeforeFoldPublish = () =>
+        {
+            if (landed++ > 0) return;
+            var t = new Thread(() =>
+                session.ApplyGatewayDisplayState("red", "Needs you", "needsYou", DateTime.UtcNow, null, false));
+            t.Start();
+            t.Join();
+        };
+        vm.InvalidateFold();
+
+        var read = vm.FoldInput;
+
         Assert.Equal(2, builds.Count);
         Assert.Equal("blue", builds[0].EffectiveColor);   // CONTROL: the first build really was the old one
         Assert.NotSame(builds[0], read);
