@@ -110,6 +110,24 @@ public class TimerLatenessTests
     }
 
     [Fact]
+    public void Describe_MillisecondsLate_SaysNothing_BecauseThatIsHowTimersWork()
+    {
+        // The line prints lateness to a tenth of a second. Until 22 September 2026 any positive
+        // lateness produced it, so a tick two milliseconds behind schedule logged "0.0s later" -
+        // about three thousand times a day on one Director, none of them a stall.
+        Assert.Null(TimerLateness.Describe(TimeSpan.FromMilliseconds(2), Cadence, StalenessWindow, TimeSpan.FromSeconds(10)));
+        Assert.Null(TimerLateness.Describe(TimeSpan.FromMilliseconds(500), Cadence, StalenessWindow, TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact]
+    public void Describe_ASecondLate_IsReported()
+    {
+        var text = TimerLateness.Describe(TimerLateness.WorthReporting, Cadence, StalenessWindow, TimeSpan.FromSeconds(11));
+        Assert.NotNull(text);
+        Assert.Contains("1.0s later", text!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Describe_SaysTheMemoryReadingDoesNotCoverTheDelay()
     {
         // A probe read at the END of a stall describes the machine now, not during the stall. The line
