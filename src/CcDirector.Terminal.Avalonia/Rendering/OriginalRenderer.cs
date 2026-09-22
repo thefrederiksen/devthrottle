@@ -1,15 +1,18 @@
-using System.Globalization;
+﻿using System.Globalization;
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.TextFormatting;
 using CcDirector.Terminal.Core;
 using CcDirector.Terminal.Core.Rendering;
 
 namespace CcDirector.Terminal.Avalonia.Rendering;
 
 /// <summary>
-/// Original terminal renderer - exact copy of the existing OnRender logic.
-/// This is the safe fallback that preserves current behavior.
+/// Original terminal renderer - the one the Director uses. It draws text in runs of same-style printable
+/// ASCII rather than one text object per character, with every glyph still on its own cell; the pixels are
+/// pinned against the old per-character drawing by OriginalRendererRunTests.
 /// </summary>
 public class OriginalRenderer : ITerminalRenderer
 {
@@ -46,6 +49,7 @@ public class OriginalRenderer : ITerminalRenderer
         var linkColor = Color.FromRgb(0x6C, 0xB6, 0xFF);
         var linkBrush = GetBrush(linkColor);
         var underlinePen = new Pen(linkBrush, 1);
+        var runText = new StringBuilder();
 
         for (int row = 0; row < rows; row++)
         {
@@ -80,42 +84,114 @@ public class OriginalRenderer : ITerminalRenderer
                 }
             }
 
-            // Second pass: draw characters
+            // Second pass: draw characters, in runs.
+            //
+            // A RUN IS CONTIGUOUS PRINTABLE ASCII OF ONE STYLE, drawn as ONE text layout instead of one
+            // FormattedText per character - a streaming agent repaints this grid up to twenty times a second,
+            // and per character that was thousands of text objects per frame on the screen thread. Each glyph
+            // still lands on its own cell: the cell is the glyph's advance rounded UP, so a plain string would
+            // pack the letters tighter than the grid, and the letter spacing makes up exactly that difference.
+            // Anything that is not printable ASCII - wide glyphs, emoji, box drawing - ends the run and is
+            // drawn by itself exactly as before, because its width in the font is not the cell's.
+            int runStart = -1;
+            Color runFg = default;
+            bool runBold = false;
+            bool runItalic = false;
+            bool runIsLink = false;
+            runText.Clear();
+
             for (int col = 0; col < cols; col++)
             {
                 TerminalCell cell = GetCell(cells, cols, rows, col, row, ctx);
 
                 char ch = cell.Character;
-                if (ch == '\0' || ch == ' ') continue;
+                if (ch == '\0' || ch == ' ')
+                {
+                    FlushRun();
+                    continue;
+                }
 
                 // Check if this position is inside a link region
                 bool isLink = IsInLinkRegion(col, row, cellWidth, cellHeight, ctx.LinkRegions);
-
                 var fg = isLink ? linkColor : (cell.Foreground == default ? Colors.LightGray : cell.Foreground.ToAvalonia());
-                double charX = col * cellWidth;
-                double charY = rowY;
 
-                var brush = isLink ? linkBrush : GetBrush(fg);
-                var tf = GetTypeface(cell.Bold, cell.Italic);
+                if (!IsRunCharacter(ch))
+                {
+                    FlushRun();
+                    DrawSingleCell(dc, ch, col, rowY, fg, isLink, cell.Bold, cell.Italic);
+                    continue;
+                }
 
-                var formattedText = new FormattedText(
-                    ch.ToString(),
-                    CultureInfo.InvariantCulture,
-                    FlowDirection.LeftToRight,
+                if (runStart >= 0 && (fg != runFg || cell.Bold != runBold || cell.Italic != runItalic || isLink != runIsLink))
+                    FlushRun();
+
+                if (runStart < 0)
+                {
+                    runStart = col;
+                    runFg = fg;
+                    runBold = cell.Bold;
+                    runItalic = cell.Italic;
+                    runIsLink = isLink;
+                }
+                runText.Append(ch);
+            }
+            FlushRun();
+
+            void FlushRun()
+            {
+                if (runStart < 0) return;
+
+                var brush = runIsLink ? linkBrush : GetBrush(runFg);
+                var tf = GetTypeface(runBold, runItalic);
+                double runX = runStart * cellWidth;
+                var layout = new TextLayout(
+                    runText.ToString(),
                     tf,
                     ctx.FontSize,
-                    brush);
+                    brush,
+                    letterSpacing: cellWidth - GlyphAdvance(tf, ctx.FontSize));
+                layout.Draw(dc, new Point(runX, rowY));
 
-                dc.DrawText(formattedText, new Point(charX, charY));
-
-                // Draw underline for links
-                if (isLink)
+                // Draw underline for links: one line under the whole run, the same pixels the per-cell
+                // segments drew side by side.
+                if (runIsLink)
                 {
-                    double underlineY = charY + cellHeight - 2;
+                    double underlineY = rowY + cellHeight - 2;
                     dc.DrawLine(underlinePen,
-                        new Point(charX, underlineY),
-                        new Point(charX + cellWidth, underlineY));
+                        new Point(runX, underlineY),
+                        new Point(runX + runText.Length * cellWidth, underlineY));
                 }
+
+                runText.Clear();
+                runStart = -1;
+            }
+        }
+
+        void DrawSingleCell(DrawingContext context, char ch, int col, double rowY, Color fg, bool isLink, bool bold, bool italic)
+        {
+            double charX = col * cellWidth;
+            double charY = rowY;
+
+            var brush = isLink ? linkBrush : GetBrush(fg);
+            var tf = GetTypeface(bold, italic);
+
+            var formattedText = new FormattedText(
+                ch.ToString(),
+                CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                tf,
+                ctx.FontSize,
+                brush);
+
+            context.DrawText(formattedText, new Point(charX, charY));
+
+            // Draw underline for links
+            if (isLink)
+            {
+                double underlineY = charY + cellHeight - 2;
+                context.DrawLine(underlinePen,
+                    new Point(charX, underlineY),
+                    new Point(charX + cellWidth, underlineY));
             }
         }
 
@@ -205,6 +281,35 @@ public class OriginalRenderer : ITerminalRenderer
                 BrushCache[color] = brush;
             }
             return brush;
+        }
+    }
+
+    /// <summary>
+    /// True for a character that may join a run: printable ASCII (0x21 to 0x7E; the space is never drawn and
+    /// ends a run). In the monospaced terminal font every one of these has the same advance, which is what
+    /// lets a run place each of them on its own cell. Everything else is drawn one cell at a time.
+    /// </summary>
+    internal static bool IsRunCharacter(char ch) => ch > ' ' && ch <= '~';
+
+    private static readonly Dictionary<(Typeface Typeface, double FontSize), double> AdvanceCache = new();
+    private static readonly object AdvanceCacheLock = new();
+
+    /// <summary>
+    /// The natural advance of one glyph in <paramref name="typeface"/> at <paramref name="fontSize"/>, measured
+    /// on "M" exactly as TerminalControl measures the cell before rounding it up. The cell minus this is the
+    /// letter spacing that puts each glyph of a run on its own cell. Measured once per typeface and size.
+    /// </summary>
+    internal static double GlyphAdvance(Typeface typeface, double fontSize)
+    {
+        lock (AdvanceCacheLock)
+        {
+            if (!AdvanceCache.TryGetValue((typeface, fontSize), out var advance))
+            {
+                advance = new FormattedText("M", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                    typeface, fontSize, Brushes.White).Width;
+                AdvanceCache[(typeface, fontSize)] = advance;
+            }
+            return advance;
         }
     }
 
