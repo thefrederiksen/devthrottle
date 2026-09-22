@@ -5,7 +5,10 @@ using CcDirector.Core.Configuration;
 namespace CcDirector.Setup.Engine;
 
 /// <summary>The outcome of a Launcher tray-app install, with the steps taken (for logs / UI).</summary>
-public sealed record LauncherInstallResult(bool Success, string Message, IReadOnlyList<string> Steps);
+/// <remarks><see cref="Diagnostics"/> is what the step gathered about WHY it failed (on macOS: what launchd says
+/// about the job and the tail of the launcher's own error log) - shown in the installer's log and sent with the
+/// failure report, so a failure never reaches us as a bare sentence again.</remarks>
+public sealed record LauncherInstallResult(bool Success, string Message, IReadOnlyList<string> Steps, string? Diagnostics = null);
 
 /// <summary>
 /// Performs the post-download step the generic <see cref="UpdateRunner"/> cannot: the runner places

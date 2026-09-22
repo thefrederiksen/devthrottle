@@ -31,8 +31,37 @@ APP_NAME="DevThrottle Setup.app"
 DESTINATION_DIR="$HOME/Applications"
 BASE_URL="https://github.com/$REPO/releases/latest/download"
 
+GATEWAY_URL="${DEVTHROTTLE_HOSTED_GATEWAY_URL:-https://gateway.devthrottle.com}"
+
 log()  { printf '%s\n' "$*"; }
-fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+# Send a failed step to DevThrottle (issue #3311), so the failure is not only on this screen. No sign-in
+# exists yet, and none is needed. It sends the error text (home folder reduced to "~"), the macOS version,
+# the architecture, and the same per-machine install id the setup wizard uses. The install has already
+# failed when this runs, so a report that cannot be delivered changes nothing: the error above stands.
+report_failure() {
+    local message="$1" id_dir="$HOME/Library/Application Support/cc-director" id=""
+    if [[ -s "$id_dir/install-id" ]]; then
+        id="$(cat "$id_dir/install-id")"
+    else
+        id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+        { mkdir -p "$id_dir" && printf '%s' "$id" > "$id_dir/install-id"; } 2>/dev/null || true
+    fi
+    # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
+    local tilde='~'
+    message="${message//"$HOME"/$tilde}"
+    message="${message//$'\n'/ }"
+    message="${message//$'\t'/ }"
+    message="${message//\\/\\\\}"
+    message="${message//\"/\\\"}"
+    local body
+    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"download\",\"message\":\"$message\",\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
+    if curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1; then
+        printf 'A report of this failure was sent to DevThrottle.\n' >&2
+    fi
+}
+
+fail() { printf 'ERROR: %s\n' "$*" >&2; report_failure "$*"; exit 1; }
 
 # ----------------------------------------------------------------------------
 # Preconditions: Apple Silicon Mac.

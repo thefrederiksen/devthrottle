@@ -49,6 +49,45 @@ public class LauncherMacInstallerTests : IDisposable
         Assert.Contains("not present", result.Message);
     }
 
+    [Fact]
+    public async Task InstallAsync_LaunchdReportsNoProcess_SaysWhyAndCarriesTheDiagnostics()
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+
+        // A registered agent whose launcher dies at start-up: launchd answers, but with no pid - the state
+        // a user hit on 22 Sep 2026 and was told only "launchd did not report which process is running".
+        var binary = _layout.PathFor(ComponentRegistry.Launcher);
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+        File.WriteAllText(binary, "");
+        File.WriteAllText(_plistPath, "<plist/>");
+        var logDir = Path.Combine(_layout.LogsDir, "launcher");
+        Directory.CreateDirectory(logDir);
+        File.WriteAllText(Path.Combine(logDir, "launchd-stderr.log"), "Unhandled exception. System.Exception: boom\n");
+
+        const string crashed = "state = not running\nruns = 2\nlast exit code = 134: Abort trap\njob state = exited\n";
+        var installer = new LauncherMacInstaller(_layout,
+            runCommand: (exe, args) => exe switch
+            {
+                "/usr/bin/id" => (0, "501"),
+                "/bin/launchctl" when args.StartsWith("print", StringComparison.Ordinal) => (0, crashed),
+                _ => (0, ""),
+            },
+            startProcess: (_, _, _) => 1234,
+            launchAgentPlistPath: _plistPath,
+            healthTimeout: TimeSpan.FromSeconds(1),
+            registrationPath: _registrationPath,
+            launchdPidWait: TimeSpan.FromSeconds(1));
+
+        var result = await installer.InstallAsync();
+
+        Assert.False(result.Success);
+        Assert.Contains("exited with code 134: Abort trap", result.Message);
+        Assert.Contains("Go to Folder", result.Message);
+        Assert.NotNull(result.Diagnostics);
+        Assert.Contains("last exit code = 134: Abort trap", result.Diagnostics);
+        Assert.Contains("Unhandled exception. System.Exception: boom", result.Diagnostics);
+    }
+
     // RETIRED, deliberately: two tests here pinned the behaviour that broke a Mac.
     //
     // InstallAsync_FirstInstall_StartsDirectlyAndVerifiesPlist asserted that a first install starts the
