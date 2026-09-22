@@ -516,6 +516,23 @@ public class TerminalControl : Control
         FileLog.Write($"[TerminalControl] ForceRefresh complete: cols={_cols}, rows={_rows}, scrollback={_scrollback.Count}");
     }
 
+    /// <summary>The grid size the control is laid out at right now, in columns and rows.</summary>
+    public (int Cols, int Rows) GridSize => (_cols, _rows);
+
+    /// <summary>
+    /// Run <see cref="ForceRefresh"/> only when the grid is no longer the size given - the size it had when the
+    /// host hid the terminal. A return to an unchanged terminal keeps its parser and grid as they are, because
+    /// the poll kept parsing while it was hidden. Returns whether the replay ran.
+    /// </summary>
+    public bool RefreshIfGridChangedSince(int cols, int rows)
+    {
+        bool changed = _cols != cols || _rows != rows;
+        FileLog.Write($"[TerminalControl] RefreshIfGridChangedSince: was={cols}x{rows}, now={_cols}x{_rows}, replay={changed}");
+        if (changed)
+            ForceRefresh();
+        return changed;
+    }
+
     /// <summary>
     /// Dump comprehensive terminal diagnostic data to disk for debugging.
     /// Captures raw PTY bytes, parser state, cell grid, and screenshot.
