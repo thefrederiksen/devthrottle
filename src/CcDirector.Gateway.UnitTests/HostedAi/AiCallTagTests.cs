@@ -104,6 +104,20 @@ public sealed class AiCallTagTests : IDisposable
         Assert.Contains(AccountNotifyByTenantClient.ServiceTokenEnvVar, ex.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>The same condition, reported ONCE: /healthz carries it as the ai-attribution subsystem, and the
+    /// deploy fails on any subsystem that is not available - so a Gateway that lost the setting fails its deploy
+    /// instead of degrading every AI feature call by call.</summary>
+    [Fact]
+    public void AttributionReadiness_IsFalse_OnlyForAHostedGatewayWithoutTheCredential()
+    {
+        Environment.SetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar, null);
+        Assert.False(GatewayAiCallTags.AttributionReady(hosted: true));
+        Assert.True(GatewayAiCallTags.AttributionReady(hosted: false));
+
+        Environment.SetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar, Token);
+        Assert.True(GatewayAiCallTags.AttributionReady(hosted: true));
+    }
+
     [Fact]
     public void AnAccount_CannotBeNamed_WithoutTheCredential_AndABadFeatureNameIsRefused()
     {

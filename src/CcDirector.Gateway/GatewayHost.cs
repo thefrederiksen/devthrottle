@@ -1569,6 +1569,10 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             _hostedTenant = new Core.Tenancy.AsyncLocalTenantContext();
             _tenantContext = _hostedTenant;
+            // devthrottle_internal #2213: every AI call for an account tenant needs the service credential. Say
+            // so once, here, rather than only on each call; /healthz reports it so a deploy fails on it too.
+            if (!HostedAi.GatewayAiCallTags.AttributionReady(hosted: true))
+                FileLog.Write(HostedAi.GatewayAiCallTags.MissingCredentialMessage);
         }
         else
         {
@@ -3942,6 +3946,10 @@ public sealed class GatewayHost : IAsyncDisposable
             subsystems: () => new Dictionary<string, string>
             {
                 ["statistics"] = InputStatsHandle.IsAvailable ? "available" : "unavailable",
+                // devthrottle_internal #2213: a hosted Gateway without the service credential cannot make an AI
+                // call for any account, so a deploy that lost the setting must fail here, not per call.
+                ["ai-attribution"] = HostedAi.GatewayAiCallTags.AttributionReady(GatewayHostedMode.IsHosted)
+                    ? "available" : "unavailable",
             },
             knownRepositories: _knownRepositories,
             // Store injection points: hand the phone-recorder ingest (RecordingEndpoints) the host's single

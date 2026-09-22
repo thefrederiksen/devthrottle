@@ -27,12 +27,21 @@ public static class GatewayAiCallTags
 
         var token = AccountNotifyByTenantClient.ResolveServiceToken();
         if (token is null)
-            throw new InvalidOperationException(
-                $"This Gateway serves account tenants but has no {AccountNotifyByTenantClient.ServiceTokenEnvVar} setting, " +
-                "so it cannot record which account an AI call is for. Set it to the same secret as the website's " +
-                "GATEWAY_SERVICE_TOKEN.");
+            throw new InvalidOperationException(MissingCredentialMessage);
         return new AiCallTag(feature, tenant.Value, token);
     }
+
+    /// <summary>The one message for a hosted Gateway without the credential: thrown per call, logged at startup.</summary>
+    public static string MissingCredentialMessage =>
+        $"This Gateway serves account tenants but has no {AccountNotifyByTenantClient.ServiceTokenEnvVar} setting, " +
+        "so it cannot record which account an AI call is for and makes no AI call for an account. Set it to the " +
+        "same secret as the website's GATEWAY_SERVICE_TOKEN.";
+
+    /// <summary>Whether AI calls can be made for account tenants: always on a self-hosted Gateway (it names no
+    /// account), and on a hosted one only with the service credential. /healthz reports it as a subsystem, so
+    /// the deploy fails on a Gateway that lost the setting instead of every AI feature failing call by call.</summary>
+    public static bool AttributionReady(bool hosted)
+        => !hosted || AccountNotifyByTenantClient.ResolveServiceToken() is not null;
 
     /// <summary>The tag for a call with an optional tenant: null means the self-host single tenant.</summary>
     public static AiCallTag For(TenantId? tenant, string feature)
