@@ -56,12 +56,19 @@ curl -fsSL -o "$WORK_DIR/$MANIFEST" "$BASE_URL/$MANIFEST" \
 # ----------------------------------------------------------------------------
 # Verify the download against the SHA-256 hash recorded in the manifest.
 # ----------------------------------------------------------------------------
+# The manifest is parsed with JavaScript for Automation (osascript), which is
+# part of every macOS install. Do NOT use /usr/bin/python3 here: it is only a
+# stub that hands off to the Xcode developer tools, so on a Mac with no
+# developer tools - or a broken Xcode - it fails and the install stops.
 log "Verifying the download against the release manifest..."
-expected_hash="$(/usr/bin/python3 -c "
-import json, sys
-manifest = json.load(open('$WORK_DIR/$MANIFEST'))
-print(manifest['assets']['$ASSET']['sha256'].lower())
-")" || fail "Could not read the SHA-256 hash for $ASSET from $MANIFEST."
+expected_hash="$(osascript -l JavaScript -e '
+ObjC.import("Foundation");
+function run(argv) {
+    const text = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null);
+    return JSON.parse(ObjC.unwrap(text)).assets[argv[1]].sha256.toLowerCase();
+}' "$WORK_DIR/$MANIFEST" "$ASSET")" || fail "Could not read the SHA-256 hash for $ASSET from $MANIFEST."
+[[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]] \
+    || fail "The SHA-256 hash for $ASSET in $MANIFEST is not a 64-character hex string: '$expected_hash'."
 actual_hash="$(shasum -a 256 "$WORK_DIR/$ASSET" | cut -d' ' -f1)"
 [[ "$actual_hash" == "$expected_hash" ]] \
     || fail "SHA-256 mismatch for $ASSET: expected $expected_hash, got $actual_hash. Do not run this download - try again."
