@@ -3473,6 +3473,9 @@ public partial class MainWindow : Window
             ScheduleTrailingTerminalVerification(wait);
             return;
         }
+        // This request was admitted, so a trailing check still waiting for the same interval is now
+        // owed nothing: stop it, or it would run once more and spend a confirmation attempt.
+        _terminalVerificationTrailingTimer?.Stop();
 
         var session = _activeSession;
         var terminalText = TerminalHost.GetAllTerminalText();

@@ -220,7 +220,9 @@ public static class BrowserDefaultStore
         if (string.IsNullOrWhiteSpace(exePath))
             throw new ArgumentException("Exe path is required", nameof(exePath));
 
-        var match = BrowserLauncher.DetectBrowsers()
+        // The remembered browser is about to be started: read the disk now rather than trust a
+        // cached probe, so a browser removed since then is refused instead of launched.
+        var match = BrowserLauncher.DetectBrowsers(forceProbe: true)
             .FirstOrDefault(b => string.Equals(b.ExePath, exePath, StringComparison.OrdinalIgnoreCase));
 
         if (match is null)

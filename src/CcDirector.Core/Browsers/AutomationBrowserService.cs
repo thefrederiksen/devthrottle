@@ -254,7 +254,9 @@ public static class AutomationBrowserService
     /// <summary>Resolve the installed <see cref="BrowserInfo"/> for a kind, or THROW naming the browser.</summary>
     private static BrowserInfo ResolveInstalled(BrowserKind kind)
     {
-        var found = BrowserLauncher.DetectBrowsers().FirstOrDefault(b => b.Kind == kind);
+        // A launch is explicit and rare: read the disk now, so a browser installed or removed since
+        // the last cached probe is seen at the moment it matters.
+        var found = BrowserLauncher.DetectBrowsers(forceProbe: true).FirstOrDefault(b => b.Kind == kind);
         if (found is null)
             throw new InvalidOperationException(
                 $"{kind} is not installed on this machine, so a {kind} automation browser cannot be created.");
