@@ -99,8 +99,7 @@ public partial class GitChangesView : UserControl
     {
         try
         {
-            if (!IsVisible) return;
-            await RefreshAsync();
+            await PollTickAsync();
         }
         catch (Exception ex)
         {
@@ -112,13 +111,50 @@ public partial class GitChangesView : UserControl
     {
         try
         {
-            bool shouldFetch = (DateTime.UtcNow - _lastFetchTime).TotalSeconds >= 60;
-            await RefreshSyncAsync(fetch: shouldFetch);
+            await SyncTickAsync(DateTime.UtcNow);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[GitChangesView] SyncTimer_Tick FAILED: {ex.Message}");
         }
+    }
+
+    // A PAGE NOBODY IS LOOKING AT DOES NO WORK. Both ticks ask whether this view is EFFECTIVELY
+    // visible - attached, and every ancestor visible - not merely whether its own IsVisible flag is
+    // set. The host hides the whole Source Control panel when another tab is chosen and never
+    // touches this control's own flag, so until 22 September 2026 the poll's IsVisible check let it
+    // run git status every 15 seconds and the sync tick ran a network git fetch every 60 seconds
+    // for as long as a session was attached, tab hidden or not. What the owner sees is unchanged:
+    // the host calls Shown() the moment the tab is chosen, so the page refreshes at once instead of
+    // waiting for its next tick.
+
+    /// <summary>One status poll, if the page is being looked at. Returns false when it was skipped.</summary>
+    internal async Task<bool> PollTickAsync()
+    {
+        if (!IsEffectivelyVisible) return false;
+        await RefreshAsync();
+        return true;
+    }
+
+    /// <summary>One sync refresh, fetching when the last fetch is a minute old, if the page is being
+    /// looked at. Returns false when it was skipped. <paramref name="nowUtc"/> is passed in so a test
+    /// can make the minute elapse.</summary>
+    internal async Task<bool> SyncTickAsync(DateTime nowUtc)
+    {
+        if (!IsEffectivelyVisible) return false;
+        bool shouldFetch = (nowUtc - _lastFetchTime).TotalSeconds >= 60;
+        await RefreshSyncAsync(fetch: shouldFetch);
+        return true;
+    }
+
+    /// <summary>The host just made this page visible: refresh now rather than at the next tick, so
+    /// the owner never sees status that went stale while the page was hidden.</summary>
+    public void Shown()
+    {
+        if (_repoPath == null) return;
+        FileLog.Write("[GitChangesView] Shown: refreshing now");
+        _ = RefreshAsync();
+        _ = RefreshSyncAsync(fetch: (DateTime.UtcNow - _lastFetchTime).TotalSeconds >= 60);
     }
 
     private async Task RefreshSyncAsync(bool fetch = false)
