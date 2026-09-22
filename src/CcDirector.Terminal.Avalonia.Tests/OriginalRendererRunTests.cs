@@ -20,14 +20,13 @@ namespace CcDirector.Terminal.Avalonia.Tests;
 /// OriginalRenderer used to draw one FormattedText per character. It now draws one text layout per run of
 /// same-style printable ASCII. The owner's condition was that nothing on the screen changes, so each test here
 /// renders the same grid twice in the real control - once through a copy of the old per-character drawing
-/// kept below as the reference, once through the shipped renderer - and compares the frames byte for byte,
-/// with the same 0.001 tolerance the idle-frame test in TerminalRenderTests uses.
+/// kept below as the reference, once through the shipped renderer - and compares the frames byte for byte:
+/// the two frames come from one process and one grid, so not a single byte may differ.
 /// </summary>
 public sealed class OriginalRendererRunTests
 {
     private const int WindowWidth = 1200;
     private const int WindowHeight = 760;
-    private const double SameFrameTolerance = 0.001;
 
     [AvaloniaFact]
     public void AsciiText_WithColoursBoldItalicAndLinks_DrawsTheSamePixelsAsPerCharacter()
@@ -38,6 +37,9 @@ public sealed class OriginalRendererRunTests
         sb.Append("\u001b[31mred\u001b[32mgreen\u001b[33myellow\u001b[34mblue\u001b[0m adjacent colours, no gaps\r\n");
         sb.Append("\u001b[41m on a red background \u001b[0m and \u001b[7m reversed \u001b[0m\r\n");
         sb.Append("a link in a line: https://example.com/some/path?query=1 and after it\r\n");
+        // A link that begins INSIDE a same-style run: the comma and the letters before it share the link's
+        // style, so the run must break at the link boundary, not only at a space.
+        sb.Append("prefix,https://example.com/mid-run,suffix and \u001b[1mbold,https://example.com/bold-run\u001b[0m\r\n");
         for (int i = 0; i < 20; i++)
             sb.Append($"row {i:D2}: The quick brown fox jumps over the lazy dog 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n");
 
@@ -103,9 +105,10 @@ public sealed class OriginalRendererRunTests
         long diff = 0;
         for (int i = 0; i < reference.Length; i++)
             if (reference[i] != runs[i]) diff++;
-        double diffFraction = (double)diff / reference.Length;
-        Assert.True(diffFraction < SameFrameTolerance,
-            $"drawing in runs changed the frame (diffFraction={diffFraction:F5}, {diff} bytes of {reference.Length})");
+        // Both frames are drawn in one process by one headless renderer from one grid, so they are
+        // deterministic: not one byte may differ. A tolerance would let a link underline move or a glyph
+        // shift by a cell without failing.
+        Assert.True(diff == 0, $"drawing in runs changed the frame ({diff} bytes of {reference.Length} differ)");
     }
 
     private static byte[] CaptureRaw(Window window)
