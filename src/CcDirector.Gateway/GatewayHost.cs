@@ -3455,6 +3455,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // the C# DTOs stay the single source of truth for the front-end.
         builder.Services.AddOpenApi();
 
+        // Traffic optimization, phase 1: Brotli and gzip for the Gateway's JSON and text answers, never for the
+        // event stream or the SignalR hubs. See GatewayResponseCompression for what is excluded and why.
+        GatewayResponseCompression.AddTo(builder.Services);
+
         // Issue #1176 (Phase 1a): the Director-push stream. The hub and its two collaborators are
         // registered as singletons so the hub (constructed per-invocation by SignalR's container) and the
         // /sessions aggregation (wired explicitly below) share the one PushedSessionStore instance.
@@ -3651,6 +3655,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 }
             }
         });
+
+        // Traffic optimization, phase 1: compress every answer below this point except the live streams. Placed
+        // after the access log so the log still records the status of every request, and before everything that
+        // writes a body - auth refusals, the Cockpit and phone shells and their assets, and every endpoint.
+        GatewayResponseCompression.Use(_app);
 
         // Dev reports phase 3b (issue #3025): ONE printed address per report, /r/{reportId}. It decides only
         // WHICH APP opens the report and 302s to that app's own report landing - it looks nothing up, it

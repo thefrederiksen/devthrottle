@@ -78,7 +78,10 @@ public static class SessionConversationEndpoint
             // must not write a line each time - that is how a log stops being readable.
             if (dto.Messages.Count == 0)
                 FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: {dto.Status} ({dto.EmptyText})");
-            return Results.Json(dto);
+            // Traffic optimization, phase 1: a poll whose answer has not changed is a 304 with no body. The tag
+            // is computed from the exact bytes, so a new turn, a verdict, the stale notice or the history state
+            // all change it. See ConditionalJson.
+            return ConditionalJson.Serve(ctx, dto);
         });
     }
 }
