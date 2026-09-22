@@ -201,6 +201,64 @@ public sealed class SessionRailWindowTests
         Assert.True(vms[1].IsCrewExpanded);
     }
 
+    /// <summary>
+    /// The window subscribes to the active session's transcribing event when the session is selected. When
+    /// that session is removed from outside (a Cockpit or command-line stop), the teardown must take that
+    /// subscription off too, or the session's event keeps the whole window alive. Read through the event's
+    /// backing field, because what matters is who is still on the invocation list, not what the screen shows.
+    /// </summary>
+    [AvaloniaFact]
+    public void RemovingTheActiveSessionExternally_LeavesItsTranscribingEventWithNoWindowSubscriber()
+    {
+        var (window, architect, _, _) = Rig();
+        window.SelectSession(architect);
+        Assert.Contains(TranscribingSubscribers(architect.Session), d => ReferenceEquals(d.Target, window));
+
+        window.OnExternalSessionRemoved(architect.Session);
+        global::Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain(window._sessions, vm => ReferenceEquals(vm, architect)); // the removal really ran
+        Assert.DoesNotContain(TranscribingSubscribers(architect.Session), d => ReferenceEquals(d.Target, window));
+    }
+
+    /// <summary>
+    /// The Source Control tab's git probe runs on the thread pool and its answer is applied on the window's
+    /// thread. Both answers must still arrive: shown for a folder holding a .git directory, hidden for one
+    /// without. Each is started from a state where the answer would change the tab, so a check that never
+    /// applied anything fails.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task TheSourceControlTabVisibility_ResolvesFromAProbeOffTheWindowThread()
+    {
+        var window = new MainWindow();
+        var root = Path.Combine(Path.GetTempPath(), "cc-scm-tab-" + Guid.NewGuid().ToString("N"));
+        var withGit = Path.Combine(root, "with-git");
+        var withoutGit = Path.Combine(root, "without-git");
+        Directory.CreateDirectory(Path.Combine(withGit, ".git"));
+        Directory.CreateDirectory(withoutGit);
+        try
+        {
+            window.SourceControlTabButton.IsVisible = false;
+            await window.UpdateSourceControlTabVisibilityAsync(withGit);
+            Assert.True(window.SourceControlTabButton.IsVisible);
+
+            await window.UpdateSourceControlTabVisibilityAsync(withoutGit);
+            Assert.False(window.SourceControlTabButton.IsVisible);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static Delegate[] TranscribingSubscribers(Session session)
+    {
+        var field = typeof(Session).GetField("OnIsTranscribingChanged",
+            global::System.Reflection.BindingFlags.Instance | global::System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(field); // a renamed event must fail here, not pass with an empty list
+        return (field!.GetValue(session) as Delegate)?.GetInvocationList() ?? Array.Empty<Delegate>();
+    }
+
     /// <summary>An inert backend: the Session needs one, these tests never run a process.</summary>
     private sealed class InertBackend : ISessionBackend
     {
