@@ -78,7 +78,7 @@ internal static class GatewayWingmanVoiceEndpoint
     /// exactly the kind of ambiguity that made the 2026-07-15 stall so hard to read. One timeout, one
     /// owner. Callers must go through TtsSynthesis, which always supplies the bound.
     /// </summary>
-    private static readonly HttpClient SharedTtsHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
+    private static readonly HttpClient SharedTtsHttp = Traffic.OutboundTraffic.CreateClient(Timeout.InfiniteTimeSpan);
 
     /// <summary>413 with a reason the client can show and a support engineer can read.</summary>
     private static IResult TooLarge(string error) =>

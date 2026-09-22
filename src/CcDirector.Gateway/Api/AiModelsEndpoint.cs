@@ -58,7 +58,7 @@ namespace CcDirector.Gateway.Api;
 internal static class AiModelsEndpoint
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private static readonly HttpClient Http = Traffic.OutboundTraffic.CreateClient(TimeSpan.FromSeconds(30));
 
     /// <summary>The single error string the hosted refusal serves, held here so a test asserts the exact
     /// string served rather than a copy that could drift.</summary>

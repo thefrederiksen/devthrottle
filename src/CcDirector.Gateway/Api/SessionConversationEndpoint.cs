@@ -93,12 +93,14 @@ public static class SessionConversationEndpoint
                 // shorter conversation, a changed turn. The first read (no cursor yet) is the normal case.
                 if (answer.TailFrom == 0 && !string.IsNullOrEmpty(cursorValues.ToString()))
                     FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: answered in full ({answer.Reason})");
+                Traffic.TrafficMiddleware.MarkHistoryAnswer(ctx, tail: answer.TailFrom > 0);
                 return ConditionalJson.Serve(ctx, TailBody(dto, answer, options), options);
             }
 
             // Traffic optimization, phase 1: a poll whose answer has not changed is a 304 with no body. The tag
             // is computed from the exact bytes, so a new turn, a verdict, the stale notice or the history state
             // all change it. See ConditionalJson.
+            Traffic.TrafficMiddleware.MarkHistoryAnswer(ctx, tail: false);
             return ConditionalJson.Serve(ctx, dto);
         });
     }

@@ -47,7 +47,7 @@ public sealed class HostedCandidateJudge : ICandidateJudge
 
     /// <summary>Shared client with an infinite timeout: the deadline is owned per call by a linked
     /// token, so the client never imposes a second, racing bound (the HostedInferenceBrain lesson).</summary>
-    private static readonly HttpClient SharedHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
+    private static readonly HttpClient SharedHttp = Traffic.OutboundTraffic.CreateClient(Timeout.InfiniteTimeSpan);
 
     private readonly HttpClient _http;
     private readonly string _chatUrl;
