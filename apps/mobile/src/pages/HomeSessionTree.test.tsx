@@ -79,6 +79,8 @@ function mockFetch(sessions: SessionDto[]) {
   return vi.fn(async (): Promise<Response> => ({
     ok: true,
     status: 200,
+    // The Gateway's time for this answer, as it sends on every roster answer in the clock-free form.
+    headers: new Headers({ "X-Gateway-Time": new Date().toISOString() }),
     json: async () => ({
       sessions,
       machineErrors: [],

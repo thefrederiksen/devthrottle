@@ -3,6 +3,7 @@ import { getSessionHistory } from "../api/client";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import type { HistoryBubbleFilter } from "./bubbleMapper";
 import type { SessionHistoryDto } from "./types";
+import { applyHistoryPage, type HeldConversation } from "./conversationTail";
 import {
   buildChatSignature,
   loadChatFilter,
@@ -46,6 +47,9 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
 
   const signatureRef = useRef("");
   const lastHistoryRef = useRef<SessionHistoryDto | null>(null);
+  // The whole conversation held for the session on screen, and the cursor that names it (traffic optimization,
+  // phase 2). Keyed by session, so a switch to another session starts again from a full read.
+  const heldRef = useRef<HeldConversation | null>(null);
   const filterRef = useRef(filter);
   filterRef.current = filter;
 
@@ -74,8 +78,25 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
     async (signal: AbortSignal) => {
       if (!sessionId) return;
       try {
-        const history = await getSessionHistory(sessionId, signal);
+        // Traffic optimization, phase 2: ask only for what is new since the conversation already held, and
+        // assemble the whole one here, so the renderer below is handed exactly what a full read would give it.
+        const before = heldRef.current;
+        const held = before !== null && before.sessionId === sessionId ? before : null;
+        const sent = held?.cursor ?? "";
+        let next = applyHistoryPage(held, sessionId, sent, await getSessionHistory(sessionId, signal, sent));
         if (signal.aborted) return;
+        if (next === null) {
+          // The tail does not fit what is held (it should not happen - the Gateway only tails a cursor it
+          // verified). Never guess: throw away what is held and read the whole conversation.
+          next = applyHistoryPage(null, sessionId, "", await getSessionHistory(sessionId, signal, ""));
+          if (signal.aborted) return;
+          if (next === null) throw new Error("The Gateway answered a whole-conversation read with a partial one.");
+        }
+        // Two polls can be in flight at once on a slow link. Only the first answer built on what is held may
+        // replace it; a later one built on the same, now superseded, copy is dropped - the next poll catches up.
+        if (heldRef.current !== before) return;
+        heldRef.current = next;
+        const history = next.history;
         setLoadFailed(false);
         setLoadError(null);
         lastHistoryRef.current = history;

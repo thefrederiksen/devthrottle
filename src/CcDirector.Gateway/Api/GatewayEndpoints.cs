@@ -1230,7 +1230,7 @@ internal static class GatewayEndpoints
 
         app.MapGet("/sessions", (HttpContext ctx, string? director, string? agent, string? state,
                                        string? statusColor, string? machine,
-                                       bool? includeExited, string? q, bool? envelope) =>
+                                       bool? includeExited, string? q, bool? envelope, string? clockFields) =>
         {
             // Hosted Multi-Tenancy (session-serving PR1): serve THIS request's tenant's roster, resolved from
             // its authenticated device key. On hosted a request with no bound tenant is DENIED (403), never
@@ -1755,7 +1755,7 @@ internal static class GatewayEndpoints
                 // Traffic optimization, phase 1: both roster shapes answer an unchanged poll with a 304 and no
                 // body (ConditionalJson) - the tag is the hash of these exact bytes, so any field that changes
                 // is a full answer.
-                return ConditionalJson.Serve(ctx, new
+                var envelopeBody = new
                 {
                     sessions = all,
                     machineErrors,
@@ -1764,9 +1764,10 @@ internal static class GatewayEndpoints
                     rosterComplete,
                     rosterIncompleteReason,
                     rosterStaleAnswerCaution = RosterCompleteness.StaleAnswerCaution(reachability),
-                });
+                };
+                return ServeRoster(ctx, envelopeBody, clockFields, rosterNow);
             }
-            return ConditionalJson.Serve(ctx, all);
+            return ServeRoster(ctx, all, clockFields, rosterNow);
         })
         // Issue #806: advertise the default response shape (a SessionDto array) in the OpenAPI
         // document so the mobile app's openapi-typescript codegen generates a typed roster client.
@@ -5418,6 +5419,21 @@ internal static class GatewayEndpoints
             if (row is not null) return row;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Serve a roster answer (traffic optimization, phase 2). A request that asked for <c>clockFields=absolute</c>
+    /// gets the answer without the fields recomputed from the clock on every read, plus the instant they would
+    /// have been measured against in <see cref="RosterClockFields.GatewayTimeHeader"/> - so an unchanged roster can
+    /// be a 304. Any other request gets exactly the answer it always got. See <see cref="RosterClockFields"/>.
+    /// </summary>
+    private static IResult ServeRoster(HttpContext ctx, object roster, string? clockFields, DateTime rosterNow)
+    {
+        if (!RosterClockFields.Requested(clockFields))
+            return ConditionalJson.Serve(ctx, roster);
+        var options = ConditionalJson.HostOptions(ctx);
+        ctx.Response.Headers[RosterClockFields.GatewayTimeHeader] = RosterClockFields.FormatTime(rosterNow);
+        return ConditionalJson.Serve(ctx, RosterClockFields.Strip(roster, options), options);
     }
 
     /// <summary>

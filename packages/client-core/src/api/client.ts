@@ -8,7 +8,7 @@
 // signs in on devthrottle.com and the device enrolls with the Gateway.
 import type { components } from "./schema";
 import type { SpokenSpan } from "../dictation/composerProvenance";
-import type { SessionHistoryDto } from "../history/types";
+import type { SessionHistoryPage } from "../history/conversationTail";
 import { planUploadChunks } from "./chunking";
 import { getDeviceKey } from "../auth/deviceKey";
 import { listAccounts, removeAccount } from "../auth/accountStore";
@@ -793,12 +793,18 @@ export async function listSessions(signal?: AbortSignal): Promise<SessionDto[]> 
 // in the OpenAPI schema (it rides the generic per-session proxy), so it is read with the narrow
 // local SessionHistoryDto type. A 404 (old Director / unknown session) is surfaced as a
 // GatewayError so the caller can treat it as "nothing yet" rather than a hard failure.
+//
+// Traffic optimization, phase 2: pass `cursor` (the one the last answer carried, or "" when nothing is held yet)
+// and the Gateway may answer with only the messages after it - a SessionHistoryPage, applied to what is held by
+// history/conversationTail.ts. Without `cursor` the request and its answer are exactly what they always were.
 export async function getSessionHistory(
   sessionId: string,
   signal?: AbortSignal,
-): Promise<SessionHistoryDto> {
+  cursor?: string,
+): Promise<SessionHistoryPage> {
   const sid = encodeURIComponent(sessionId);
-  const res = await gatewayFetch(`/sessions/${sid}/history`, {
+  const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+  const res = await gatewayFetch(`/sessions/${sid}/history${query}`, {
     method: "GET",
     headers: { Accept: "application/json", ...authHeaders() },
     signal,
@@ -806,7 +812,7 @@ export async function getSessionHistory(
   if (!res.ok) {
     throw await GatewayError.from(res, "load the conversation history");
   }
-  return (await res.json()) as SessionHistoryDto;
+  return (await res.json()) as SessionHistoryPage;
 }
 
 // Write text (or a raw key escape sequence) to the session's PTY. appendEnter=true submits a typed
