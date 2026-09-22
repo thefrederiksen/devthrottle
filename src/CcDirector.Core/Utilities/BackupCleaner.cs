@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CcDirector.Core.Background;
 
 namespace CcDirector.Core.Utilities;
 
@@ -14,7 +15,8 @@ public sealed class BackupCleaner : IDisposable
     private readonly HashSet<string> _processedFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly TimeSpan _scanInterval;
     private readonly TimeSpan _minFileAge;
-    private Timer? _timer;
+    private readonly BackgroundJobs _jobs;
+    private BackgroundJob? _job;
     private bool _disposed;
 
     /// <summary>Raised when a corrupted backup file is successfully deleted.</summary>
@@ -30,12 +32,15 @@ public sealed class BackupCleaner : IDisposable
     /// <param name="scanInterval">Override scan interval (for testing). Default 60 seconds.</param>
     /// <param name="minFileAge">Override minimum file age before processing (for testing). Default 5 seconds.</param>
     /// <param name="log">Optional logging callback.</param>
+    /// <param name="jobs">The scheduler the scan registers with; the process-wide one when null.</param>
     public BackupCleaner(
         string? backupsDir = null,
         TimeSpan? scanInterval = null,
         TimeSpan? minFileAge = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        BackgroundJobs? jobs = null)
     {
+        _jobs = jobs ?? BackgroundJobs.Default;
         _backupsDir = backupsDir
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "backups");
         _scanInterval = scanInterval ?? TimeSpan.FromSeconds(60);
@@ -49,7 +54,12 @@ public sealed class BackupCleaner : IDisposable
     public void Start()
     {
         _log?.Invoke($"[BackupCleaner] Starting periodic scan of {_backupsDir} (interval={_scanInterval.TotalSeconds}s)");
-        _timer = new Timer(_ => ScanOnce(), null, TimeSpan.Zero, _scanInterval);
+        // A slow-and-steady job on the scheduler (docs/BackgroundWork.md): once at start, then every
+        // scan interval, never overlapping, off the window's thread.
+        _job = _jobs.Register(
+            new BackgroundJobSpec("Backup cleaner", BackgroundJobTier.SlowAndSteady, _scanInterval, "the cleaner is disposed"),
+            _ => { ScanOnce(); return Task.CompletedTask; });
+        _job.StartTimer(TimeSpan.Zero);
     }
 
     /// <summary>
@@ -213,7 +223,7 @@ public sealed class BackupCleaner : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        _timer?.Dispose();
-        _timer = null;
+        _job?.Dispose();
+        _job = null;
     }
 }
