@@ -5170,6 +5170,8 @@ public partial class MainWindow : Window
         TerminalPanel.IsVisible = tab == "Terminal";
         SourceControlPanel.IsVisible = tab == "SourceControl";
         DocumentPanel.IsVisible = isDocTab;
+        if (tab == "SourceControl")
+            SourceControlView.Shown(); // its pages idle while hidden; refresh now, not at the next tick
 
         // The shared prompt bar belongs to the terminal-style tabs.
         if (_activeSession != null)

@@ -55,6 +55,14 @@ public partial class SourceControlView : UserControl
         WorktreesPage.Attach(monitor, repoPath);
     }
 
+    /// <summary>The host just switched to the Source Control tab. The Changes page stops polling
+    /// while it cannot be seen, so it is told to refresh at once when it can be again.</summary>
+    public void Shown()
+    {
+        if (ChangesPage.IsVisible)
+            ChangesPage.Shown();
+    }
+
     /// <summary>Tear down both pages when the session context goes away.</summary>
     public void Detach()
     {
@@ -69,8 +77,11 @@ public partial class SourceControlView : UserControl
 
     private void ShowPage(bool worktrees)
     {
+        bool changesWasHidden = !ChangesPage.IsVisible;
         ChangesPage.IsVisible = !worktrees;
         WorktreesPage.IsVisible = worktrees;
+        if (!worktrees && changesWasHidden)
+            ChangesPage.Shown();
 
         SetActive(ChangesRailButton, !worktrees);
         SetActive(WorktreesRailButton, worktrees);
