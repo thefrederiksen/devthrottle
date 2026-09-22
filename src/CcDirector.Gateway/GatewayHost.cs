@@ -121,6 +121,12 @@ public sealed class GatewayHost : IAsyncDisposable
     public Streaming.GatewayStreamRegistry StreamRegistry { get; }
 
     /// <summary>
+    /// Traffic optimization, phase 3: the in-memory traffic counters - per route template, client kind, hub
+    /// method and outbound host, in hourly buckets for 48 hours, per account. Read at /gateway/admin/traffic.
+    /// </summary>
+    public Traffic.TrafficMeter TrafficCounters { get; } = new();
+
+    /// <summary>
     /// DevThrottle Stats: the aggregate of every session's input tally (turns + character volume by
     /// modality and surface). Fed by the director-stream hub from the pushed
     /// <see cref="Contracts.SessionDto.InputStats"/> and read by the private Gateway dashboard at
@@ -3489,6 +3495,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 o.KeepAliveInterval = Contracts.DirectorStreamLimits.KeepAlivePing;
                 o.ClientTimeoutInterval = Contracts.DirectorStreamLimits.SilenceTolerance;
             });
+        // Traffic optimization, phase 3: count every hub message by method, both directions, with its exact size in
+        // the transport. Wraps the JSON and MessagePack protocols registered just above and changes nothing they
+        // produce or accept.
+        Traffic.CountingHubProtocol.DecorateAll(builder.Services, TrafficCounters,
+            Traffic.CountingHubProtocol.HubMethods(typeof(Streaming.DirectorHub), typeof(Streaming.LauncherHub)));
+        Traffic.OutboundTraffic.Meter = TrafficCounters;
         builder.Services.AddSingleton(PushedSessions);
         builder.Services.AddSingleton(PushedRepositories);
         builder.Services.AddSingleton(RepoHistory);
@@ -3607,6 +3619,13 @@ public sealed class GatewayHost : IAsyncDisposable
             ctx.Response.ContentType = "application/json; charset=utf-8";
             await ctx.Response.WriteAsync("{\"error\":\"starting\",\"detail\":\"The Gateway is listening but not ready to serve yet.\"}");
         });
+
+        // Traffic optimization, phase 3: count every request - route template, client kind, account, body bytes out
+        // AFTER compression (so it must sit outside the compressor below), body bytes in, 304s and conversation
+        // tails. Outside the access log's exception boundary too, so a request that threw is still counted with
+        // the 500 the boundary wrote. It never buffers and never changes a response.
+        Traffic.TrafficMiddleware.UseRequestCounting(_app, TrafficCounters,
+            ctx => Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary)?.Value);
 
         // Access log + single top-level exception boundary. Every request leaves one
         // line (method, path, status, elapsed, client, host) so a phone-side problem is
@@ -3736,6 +3755,12 @@ public sealed class GatewayHost : IAsyncDisposable
         _app.UseWebSockets();
 
         _app.UseRouting();
+
+        // Traffic optimization, phase 3: after routing (the route template is known) and after authentication and
+        // the tenant scope (the account is known): count WebSocket frames - the terminal stream and the hubs'
+        // transport - and name the account a hub message belongs to.
+        Traffic.TrafficMiddleware.UseConnectionCounting(_app, TrafficCounters,
+            ctx => Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary)?.Value);
 
         // Issue #1176 (Phase 1a): the Director-push stream endpoint (the tunnel). The tunnel/hubs are
         // mandatory and always mapped. Mapped after the host-wide auth middleware above, so the handshake
@@ -4440,6 +4465,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // labelled corpus lives in another repository and is pulled by a job holding no account credential, so
         // this is the only path an owner label has out of the database.
         AdminTurnVerdictFeedbackEndpoint.Map(_app, _turnVerdicts, TenantRegistry);
+        // The traffic counters (traffic optimization, phase 3), behind the same administrator service token.
+        AdminTrafficEndpoint.Map(_app, TrafficCounters);
 
         // The Fleet Manager's stored news, its standing preferences, and its start-of-conversation digest (the
         // Fleet Manager mission, step 3). Account-scoped client routes under /gateway, gated by the host-wide

@@ -214,6 +214,11 @@ internal static class AuthMiddleware
         // identifiers and the note the person typed. No screen, no reply, no label, no summary: the line the
         // turn-log switch draws holds here too, so an exempted route cannot dredge a terminal out of an account.
         Api.AdminTurnVerdictFeedbackEndpoint.Path,
+        // The administrator read of the traffic counters (traffic optimization, phase 3), exempt for the same
+        // reason and behind the same gate. It returns counts and byte sizes by route template, hub method and
+        // destination host - no body, token, query string or path identifier is ever recorded, so an exempted
+        // route here cannot read anybody's work.
+        Api.AdminTrafficEndpoint.Path,
     };
 
     /// <summary>

@@ -372,7 +372,7 @@ public sealed class WingmanVoiceService
     /// a linked CancellationTokenSource, plus one retry). A second, slower client-level timeout racing
     /// it would only make a stall harder to read. One timeout, one owner.
     /// </summary>
-    private static readonly HttpClient SharedTtsHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
+    private static readonly HttpClient SharedTtsHttp = Traffic.OutboundTraffic.CreateClient(Timeout.InfiniteTimeSpan);
 
     // THERE IS DELIBERATELY NO FLEET-WIDE GATE OR CONCURRENCY CAP HERE (owner's call, 2026-07-17).
     //

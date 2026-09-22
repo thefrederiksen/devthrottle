@@ -52,7 +52,7 @@ public sealed class HostedInferenceBrain : IAgentBrain
 
     /// <summary>Shared client: the deadline is owned per-call by a linked token (see
     /// <see cref="DefaultCallTimeout"/>), so the client itself never imposes a second, racing bound.</summary>
-    private static readonly HttpClient SharedHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
+    private static readonly HttpClient SharedHttp = Traffic.OutboundTraffic.CreateClient(Timeout.InfiniteTimeSpan);
 
     private readonly HttpClient _http;
     private readonly string _chatUrl;

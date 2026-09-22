@@ -101,7 +101,7 @@ public sealed class BatchTranscriptionPipeline : IDisposable
         _transcoder = transcoder ?? new FfmpegAudioTranscoder();
         if (httpClient is null)
         {
-            _http = new HttpClient { Timeout = TranscribeTimeout };
+            _http = Traffic.OutboundTraffic.CreateClient(TranscribeTimeout);
             _ownsHttp = true;
         }
         else
