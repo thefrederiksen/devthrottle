@@ -1890,7 +1890,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 var key = _keyVault.Get(ep.KeyName) ?? "";
                 var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Core.Configuration.WingmanModelRole.Thinking);
                 CcDirector.AgentBrain.IAgentBrain brain = new Wingman.HostedInferenceBrain(
-                    ep.BaseUrl, key, model, log: FileLog.Write, callTimeout: TimeSpan.FromMinutes(3));
+                    ep.BaseUrl, key, model, log: FileLog.Write, callTimeout: TimeSpan.FromMinutes(3),
+                    tag: HostedAi.GatewayAiCallTags.For(tenant, Core.HostedAi.AiFeature.DictionarySuggestions));
                 return Task.FromResult((brain, model.Value));
             });
         // The daily-email block composer. It folds the tenant's "Suggestions in my daily email" choice,
@@ -2137,7 +2138,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 var key = _keyVault.Get(ep.KeyName) ?? "";
                 var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Core.Configuration.WingmanModelRole.Fast);
                 CcDirector.AgentBrain.IAgentBrain brain = new Wingman.HostedInferenceBrain(
-                    ep.BaseUrl, key, model, log: FileLog.Write, callTimeout: TimeSpan.FromSeconds(90));
+                    ep.BaseUrl, key, model, log: FileLog.Write, callTimeout: TimeSpan.FromSeconds(90),
+                    tag: HostedAi.GatewayAiCallTags.For(tenant, Core.HostedAi.AiFeature.SessionHistorySummary));
                 return Task.FromResult(brain);
             });
         _sessionHistorySweep = new History.SessionHistorySweep(
@@ -2907,14 +2909,17 @@ public sealed class GatewayHost : IAsyncDisposable
     internal string ResolveWingmanModel(TenantId tenant, Core.Configuration.WingmanModelRole role)
         => _tenantSettingsResolver.WingmanModel(tenant, Core.Configuration.TranscriptionModeConfig.Get(), role).Value;
 
-    private Task<CcDirector.AgentBrain.IAgentBrain> WingmanBrainAsync(TenantId tenant, Core.Configuration.WingmanModelRole role, CancellationToken ct)
+    /// <param name="feature">What the call is for (<see cref="Core.HostedAi.AiFeature"/>), recorded on its usage row
+    /// together with the account it is for (<see cref="HostedAi.GatewayAiCallTags"/>).</param>
+    private Task<CcDirector.AgentBrain.IAgentBrain> WingmanBrainAsync(TenantId tenant, Core.Configuration.WingmanModelRole role, string feature, CancellationToken ct)
     {
         var mode = Core.Configuration.TranscriptionModeConfig.Get();
         var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
         var key = _keyVault.Get(ep.KeyName) ?? "";
         var model = _tenantSettingsResolver.WingmanModel(tenant, mode, role);
         CcDirector.AgentBrain.IAgentBrain brain =
-            new Wingman.HostedInferenceBrain(ep.BaseUrl, key, model, log: FileLog.Write);
+            new Wingman.HostedInferenceBrain(ep.BaseUrl, key, model, log: FileLog.Write,
+                tag: HostedAi.GatewayAiCallTags.For(tenant, feature));
         return Task.FromResult(brain);
     }
 
@@ -2986,7 +2991,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
                 var key = _keyVault.Get(ep.KeyName) ?? "";
                 var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Wingman.TurnVerdictJudge.Role);
-                return Wingman.TurnVerdictJudge.BuildBrain(ep.BaseUrl, key, model, settings);
+                return Wingman.TurnVerdictJudge.BuildBrain(ep.BaseUrl, key, model, settings,
+                    HostedAi.GatewayAiCallTags.For(tenant, Core.HostedAi.AiFeature.TurnVerdict));
             },
             judgeModel: tenant => ResolveWingmanModel(tenant, Wingman.TurnVerdictJudge.Role),
             store: _turnVerdicts,

@@ -67,7 +67,8 @@ internal static class TranscriptionCleanupEndpoint
             // caller rather than substitute it into anyone's dictation, so shadowing it would make the
             // evaluation surface unable to evaluate. Live dictation keeps whatever the deployment says.
             var outcome = await new CleanupOrchestrator(
-                    judge: DictationJudgeFactory.FromVault(vault),
+                    judge: DictationJudgeFactory.FromVault(vault,
+                        new CcDirector.Core.HostedAi.AiCallTag(CcDirector.Core.HostedAi.AiFeature.DictationJudgeEvaluation)),
                     mode: UnlistedCorrectionMode.Enforce)
                 .CleanAsync(req.Text, dictionary, "default", ctx.RequestAborted);
 

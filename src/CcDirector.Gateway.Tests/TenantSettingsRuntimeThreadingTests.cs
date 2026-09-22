@@ -104,8 +104,8 @@ public sealed class TenantSettingsRuntimeThreadingTests : IAsyncLifetime
         var vault = new KeyVault(Path.Combine(_root, "narration.vault"));
         vault.Set("OPENAI_API_KEY", "test-key");
         vault.Set("DEVTHROTTLE_API_KEY", "test-key");
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> unusedBrain =
-            (_, _, _) => throw new InvalidOperationException("StoreSpokenAsync must not call the model.");
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> unusedBrain =
+            (_, _, _, _) => throw new InvalidOperationException("StoreSpokenAsync must not call the model.");
         var service = new WingmanVoiceService(
             unusedBrain,
             vault,

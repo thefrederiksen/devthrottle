@@ -407,7 +407,7 @@ public sealed class WingmanVoiceService
     /// store; a null resolver (or one returning null for an unknown session) simply means no title is
     /// spoken, which is the correct degrade - a narration with no title is worth far more than none.</param>
     public WingmanVoiceService(
-        Func<TenantId, Core.Configuration.WingmanModelRole, CancellationToken, Task<IAgentBrain>> brainProvider,
+        Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         KeyVault vault,
         TenantSettingsResolver tenantSettings,
         string? persistPath = null,
@@ -1912,7 +1912,8 @@ public sealed class WingmanVoiceService
         var sw = Stopwatch.StartNew();
         try
         {
-            using var resp = await TtsSynthesis.PostAsync(http, url, key, new { model, voice = spoken.Voice, input = spoken.Text, response_format = "mp3" }, spoken.Length, preferBackup, ct);
+            using var resp = await TtsSynthesis.PostAsync(http, url, key, new { model, voice = spoken.Voice, input = spoken.Text, response_format = "mp3" }, spoken.Length, preferBackup, ct,
+                HostedAi.GatewayAiCallTags.For(tenant, Core.HostedAi.AiFeature.VoiceSpeech));
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct);

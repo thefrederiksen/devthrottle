@@ -63,13 +63,13 @@ public sealed class VoiceUploadLimitsTests : IDisposable
         var tenantSettings = new TenantSettingsResolver(new TenantSettingsStore(settingsData.Open()));
 
         var voice = new WingmanVoiceService(
-            (_, _, _) => throw new InvalidOperationException("the brain must not be reached by an upload-size test"),
+            (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by an upload-size test"),
             vault, tenantSettings, persistPath);
 
         GatewayWingmanVoiceEndpoint.Map(
             app,
             new DirectorRegistry(Path.Combine(Path.GetTempPath(), "cc-voice-limits-inst-" + Guid.NewGuid().ToString("N"))),
-            (_, _, _) => throw new InvalidOperationException("the brain must not be reached by an upload-size test"),
+            (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by an upload-size test"),
             vault,
             voice,
             tenantSettings,

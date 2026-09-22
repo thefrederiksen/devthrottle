@@ -9,6 +9,8 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Speech;
 
+using CcDirector.Core.HostedAi;
+
 namespace CcDirector.Gateway.Wingman;
 
 /// <summary>
@@ -210,7 +212,7 @@ public sealed class WingmanTranslator
     /// </summary>
     public const string DefaultInstructionsVersion = "10";
 
-    private readonly Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> _brainProvider;
+    private readonly Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> _brainProvider;
     private readonly Func<TenantId, SpokenLanguage> _languageFor;
     private readonly Action<string> _log;
     private readonly Func<string> _instructions;
@@ -231,7 +233,7 @@ public sealed class WingmanTranslator
     ///  <c>TenantSettingsResolver.SpokenLanguage</c>; a test that does not care passes
     ///  <c>_ =&gt; SpokenLanguages.English</c>, which says so out loud rather than defaulting silently.</param>
     public WingmanTranslator(
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brainProvider,
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         Func<TenantId, SpokenLanguage> languageFor,
         Action<string>? log = null,
         Func<string>? instructionsProvider = null)
@@ -319,7 +321,7 @@ public sealed class WingmanTranslator
         var language = LanguageFor(tenant);
         var prompt = BuildPrompt(language, instructions ?? FidelityPrompt, recentContext ?? "", latestReply, sessionTitle, liveScreen);
 
-        var brain = await _brainProvider(tenant, WingmanModelRole.Fast, ct);
+        var brain = await _brainProvider(tenant, WingmanModelRole.Fast, AiFeature.WingmanTranslate, ct);
         AskResult ask;
         try
         {
@@ -400,7 +402,7 @@ public sealed class WingmanTranslator
         _log($"[WingmanTranslator] AskDirectAsync: userLen={userMessage.Length}, language={language.Code}");
         var prompt = BuildDirectPrompt(language, userMessage);
 
-        var brain = await _brainProvider(tenant, WingmanModelRole.Thinking, ct);
+        var brain = await _brainProvider(tenant, WingmanModelRole.Thinking, AiFeature.WingmanAsk, ct);
         AskResult ask;
         try
         {
@@ -437,7 +439,7 @@ public sealed class WingmanTranslator
         _log($"[WingmanTranslator] AskAboutDevThrottleAsync: questionLen={question.Length}, language={language.Code}");
         var prompt = BuildDevThrottlePrompt(language, question);
 
-        var brain = await _brainProvider(tenant, WingmanModelRole.Thinking, ct);
+        var brain = await _brainProvider(tenant, WingmanModelRole.Thinking, AiFeature.WingmanAskDevThrottle, ct);
         AskResult ask;
         try
         {
@@ -505,7 +507,7 @@ public sealed class WingmanTranslator
         var language = LanguageFor(tenant);
         _log($"[WingmanTranslator] DetectMenuAsync: terminalLen={terminalText.Length}, language={language.Code}");
 
-        var brain = await _brainProvider(tenant, WingmanModelRole.Fast, ct);
+        var brain = await _brainProvider(tenant, WingmanModelRole.Fast, AiFeature.WingmanMenuDetect, ct);
         AskResult ask;
         try { ask = await brain.AskAsync(BuildMenuDetectPrompt(language, terminalText), ct); }
         finally { await brain.ClearAsync(CancellationToken.None); }
@@ -527,7 +529,7 @@ public sealed class WingmanTranslator
         RequireTenant(tenant);
         if (menu?.Options is null || menu.Options.Count == 0 || string.IsNullOrWhiteSpace(userText)) return -1;
 
-        var brain = await _brainProvider(tenant, WingmanModelRole.Fast, ct);
+        var brain = await _brainProvider(tenant, WingmanModelRole.Fast, AiFeature.WingmanMenuChoice, ct);
         AskResult ask;
         try { ask = await brain.AskAsync(BuildMenuMapPrompt(menu, userText), ct); }
         finally { await brain.ClearAsync(CancellationToken.None); }

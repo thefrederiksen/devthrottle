@@ -147,7 +147,8 @@ public sealed class GatewayTranscriptionService
         PartTranscript part;
         try
         {
-            part = await TranscribeCoreAsync(routing, audio, fileName, contentType, ct, language);
+            part = await TranscribeCoreAsync(routing, audio, fileName, contentType,
+                HostedAi.GatewayAiCallTags.For(tenant, CcDirector.Core.HostedAi.AiFeature.Transcription(source)), ct, language);
             swTranscribe.Stop();
         }
         catch (OperationCanceledException)
@@ -279,8 +280,11 @@ public sealed class GatewayTranscriptionService
     /// only. Throws when no key is set for the selected remote mode, which the ingest worker records as
     /// a retryable transcription failure - never a guessed URL.
     /// </summary>
+    /// <param name="tenant">The account the segment belongs to, recorded on the transcription's usage row.</param>
+    /// <param name="source">The surface, as TranscribeAsync takes it (the phone Notes recorder passes "notes").</param>
     public async Task<string> TranscribeSegmentUncorrectedAsync(
-        byte[] audio, string fileName, string contentType, CancellationToken ct = default)
+        byte[] audio, string fileName, string contentType, CancellationToken ct = default,
+        CcDirector.Core.Tenancy.TenantId? tenant = null, string? source = null)
     {
         if (audio is null) throw new ArgumentNullException(nameof(audio));
         if (audio.Length == 0) return "";
@@ -291,7 +295,8 @@ public sealed class GatewayTranscriptionService
                 "No transcription method is available: no key is set for the selected transcription mode. "
                 + "Set the key in the Cockpit Settings > Transcription tab.");
 
-        return (await TranscribeCoreAsync(routing, audio, fileName, contentType, ct)).Delivered;
+        return (await TranscribeCoreAsync(routing, audio, fileName, contentType,
+            HostedAi.GatewayAiCallTags.For(tenant, CcDirector.Core.HostedAi.AiFeature.Transcription(source)), ct)).Delivered;
     }
 
     /// <summary>
@@ -319,13 +324,14 @@ public sealed class GatewayTranscriptionService
     /// caller must surface).
     /// </summary>
     private async Task<PartTranscript> TranscribeCoreAsync(
-        GatewayTranscriptionRouting routing, byte[] audio, string fileName, string contentType, CancellationToken ct,
-        string? language = null)
+        GatewayTranscriptionRouting routing, byte[] audio, string fileName, string contentType,
+        CcDirector.Core.HostedAi.AiCallTag tag, CancellationToken ct, string? language = null)
     {
         var name = string.IsNullOrWhiteSpace(fileName) ? "audio." + ExtensionFor(contentType) : fileName;
         using var pipeline = new BatchTranscriptionPipeline(
             httpClient: _http, cleanupModel: _cleanupModel,
-            judge: DictationJudgeFactory.FromVault(_vault), judgeMode: DictationJudgeMode.Current);
+            judge: DictationJudgeFactory.FromVault(_vault, tag.WithFeature(CcDirector.Core.HostedAi.AiFeature.DictationJudge)),
+            judgeMode: DictationJudgeMode.Current, tag: tag);
         FileLog.Write($"[GatewayTranscriptionService] transcribe remote: bytes={audio.Length}, mode={routing.Mode.ToConfigString()}, model={routing.Endpoint.Model}, language={language ?? "auto"}");
         return await pipeline.TranscribeUncorrectedAsync(audio, name, routing.ToResolved(language), ct);
     }
@@ -370,7 +376,10 @@ public sealed class GatewayTranscriptionService
             return new CleanupOutcome(raw, Applied: false, Reason: "empty dictionary");
 
         var cleanup = new CleanupOrchestrator(
-            model: _cleanupModel, judge: DictationJudgeFactory.FromVault(_vault), mode: DictationJudgeMode.Current);
+            model: _cleanupModel,
+            judge: DictationJudgeFactory.FromVault(_vault,
+                HostedAi.GatewayAiCallTags.For(tenant, CcDirector.Core.HostedAi.AiFeature.DictationJudge)),
+            mode: DictationJudgeMode.Current);
         var outcome = await cleanup.CleanAsync(raw, dictionary, "default", ct);
         FileLog.Write($"[GatewayTranscriptionService] cleanup: applied={outcome.Applied}, changed={outcome.ChangedWords.Count}, reason=\"{outcome.Reason}\"");
         return outcome;

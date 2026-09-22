@@ -23,14 +23,14 @@ public static class DictationJudgeFactory
     /// unlisted correction at all, which is the correct behaviour for a self-host install with no
     /// DevThrottle key. The wrong forms the user listed by hand keep working either way.
     /// </summary>
-    public static ICandidateJudge? FromVault(KeyVault vault, Action<string>? log = null)
+    public static ICandidateJudge? FromVault(KeyVault vault, CcDirector.Core.HostedAi.AiCallTag tag, Action<string>? log = null)
     {
         var write = log ?? FileLog.Write;
         try
         {
             var endpoint = TranscriptionEndpointResolver.ResolveDictationCleanup(TranscriptionModeConfig.Get());
             var key = vault.Get(endpoint.KeyName);
-            return FromKey(endpoint.BaseUrl, key, write);
+            return FromKey(endpoint.BaseUrl, key, tag, write);
         }
         catch (Exception ex)
         {
@@ -42,7 +42,9 @@ public static class DictationJudgeFactory
 
     /// <summary>A judge from an already-resolved base URL and credential - the batch pipeline path,
     /// which has its routing in hand and no vault.</summary>
-    public static ICandidateJudge? FromKey(string? baseUrl, string? apiKey, Action<string>? log = null)
+    /// <param name="tag">The judge's tag (the dictation-judge feature and the account the dictation belongs
+    /// to), sent on every ruling request.</param>
+    public static ICandidateJudge? FromKey(string? baseUrl, string? apiKey, CcDirector.Core.HostedAi.AiCallTag tag, Action<string>? log = null)
     {
         var write = log ?? FileLog.Write;
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey))
@@ -53,6 +55,6 @@ public static class DictationJudgeFactory
         }
 
         return new HostedCandidateJudge(
-            baseUrl!, apiKey!, IncludedModelId.DictationCleanup, log: write);
+            baseUrl!, apiKey!, IncludedModelId.DictationCleanup, log: write, tag: tag);
     }
 }

@@ -37,7 +37,7 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
     private readonly IRuleReading _store;
     private readonly Func<TenantId, string, SessionVerbClient?> _route;
     private readonly Func<TenantId, string, SessionDto?> _session;
-    private readonly Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> _brainProvider;
+    private readonly Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> _brainProvider;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
 
@@ -60,7 +60,7 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
         IRuleReading store,
         Func<TenantId, string, SessionVerbClient?> route,
         Func<TenantId, string, SessionDto?> session,
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brainProvider,
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         Func<TenantId, IDisposable>? enterTenantScope = null,
         Func<DateTime>? nowUtc = null)
     {
@@ -128,7 +128,7 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
     {
         try
         {
-            using var brain = await _brainProvider(tenant, WingmanModelRole.Thinking, ct).ConfigureAwait(false);
+            using var brain = await _brainProvider(tenant, WingmanModelRole.Thinking, Core.HostedAi.AiFeature.Rules, ct).ConfigureAwait(false);
             var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
             return result?.Text;
         }

@@ -1,4 +1,5 @@
 using CcDirector.Core.Configuration;
+using CcDirector.Core.HostedAi;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Speech;
 using CcDirector.Gateway.Wingman;
@@ -12,11 +13,25 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// </summary>
 public sealed class TurnVerdictJudgeTimeoutTests
 {
+    private static readonly AiCallTag JudgeTag = new(AiFeature.TurnVerdict);
+
+    /// <summary>The judge is the largest single use of the model, so its calls must say they are the judge's -
+    /// the daily cost report groups by this name (devthrottle_internal #2213).</summary>
+    [Fact]
+    public void TurnVerdictJudge_BuildBrain_CarriesTheJudgesTag()
+    {
+        var brain = TurnVerdictJudge.BuildBrain(
+            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.WingmanFast, TurnVerdictSettings.Defaults, JudgeTag);
+
+        Assert.Same(JudgeTag, brain.Tag);
+        Assert.Equal("turn-verdict", brain.Tag!.Feature);
+    }
+
     [Fact]
     public void TurnVerdictJudge_BuildBrain_CarriesTheSettingsTimeout_NotTheBrainDefault()
     {
         var brain = TurnVerdictJudge.BuildBrain(
-            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.WingmanFast, TurnVerdictSettings.Defaults);
+            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.WingmanFast, TurnVerdictSettings.Defaults, JudgeTag);
 
         Assert.Equal(TimeSpan.FromSeconds(30), brain.CallTimeout);
         Assert.NotEqual(HostedInferenceBrain.DefaultCallTimeout, brain.CallTimeout);
@@ -27,7 +42,7 @@ public sealed class TurnVerdictJudgeTimeoutTests
     {
         var brain = TurnVerdictJudge.BuildBrain(
             "https://example.invalid/v1", "dt_live_secret", IncludedModelId.WingmanFast,
-            TurnVerdictSettings.Defaults with { JudgeTimeoutSeconds = 45 });
+            TurnVerdictSettings.Defaults with { JudgeTimeoutSeconds = 45 }, JudgeTag);
 
         Assert.Equal(TimeSpan.FromSeconds(45), brain.CallTimeout);
     }
@@ -51,7 +66,7 @@ public sealed class TurnVerdictJudgeTimeoutTests
         Assert.Equal(WingmanModelRole.Fast, TurnVerdictJudge.Role);
 
         var brain = TurnVerdictJudge.BuildBrain(
-            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.WingmanFast, TurnVerdictSettings.Defaults);
+            "https://example.invalid/v1", "dt_live_secret", IncludedModelId.WingmanFast, TurnVerdictSettings.Defaults, JudgeTag);
         Assert.False(brain.ThinkingOff, "the judge's brain must not silently change how its model answers");
     }
 

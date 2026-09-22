@@ -65,7 +65,7 @@ public sealed class GatewayRuleEnvironmentSendTests
             new UnusedStore(),
             route,
             (_, _) => new SessionDto { SessionId = SessionId },
-            (_, _, _) => Task.FromException<IAgentBrain>(
+            (_, _, _, _) => Task.FromException<IAgentBrain>(
                 new NotSupportedException("these tests never ask the model.")));
     }
 

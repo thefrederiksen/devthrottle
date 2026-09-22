@@ -288,6 +288,7 @@ public sealed class BriefBuilder : IDisposable
 
         using var req = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsEndpoint);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+        new HostedAi.AiCallTag(HostedAi.AiFeature.DirectorBrief).ApplyTo(req);
         req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 
         using var resp = await _http.SendAsync(req, ct);

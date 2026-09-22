@@ -62,8 +62,8 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?>? conversationReader = null)
     {
         // The flag methods never touch the brain; a provider that throws proves that.
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brain =
-            (_, _, _) => throw new InvalidOperationException("brain must not be called for flag state");
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
+            (_, _, _, _) => throw new InvalidOperationException("brain must not be called for flag state");
         var vaultPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".vault");
         return new WingmanVoiceService(brain, new KeyVault(vaultPath), Settings, TempPersist(),
             conversationReader: conversationReader);
@@ -199,8 +199,8 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     /// the same on-disk cache (the gateway-restart case). The empty vault means TtsAsync returns null.</summary>
     private WingmanVoiceService ServiceAt(string persistPath)
     {
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brain =
-            (_, _, _) => throw new InvalidOperationException("brain must not be called");
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
+            (_, _, _, _) => throw new InvalidOperationException("brain must not be called");
         var vaultPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".vault");
         return Warmed(new WingmanVoiceService(brain, new KeyVault(vaultPath), Settings, persistPath));
     }
@@ -778,7 +778,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         var http = new HttpClient(new TtsStubHandler(HttpStatusCode.OK, "", audio));
-        return new WingmanVoiceService((_, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
+        return new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
             ttsHttpClient: http, conversationReader: conversationReader,
             directorCannotSendConversation: directorCannotSendConversation,
             turnVerdicts: VerdictsOver(brain, conversationReader));
@@ -794,7 +794,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         var http = new HttpClient(handler);
-        return new WingmanVoiceService((_, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
+        return new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
             ttsHttpClient: http, conversationReader: conversationReader,
             turnVerdicts: VerdictsOver(brain, conversationReader));
     }
@@ -1044,8 +1044,8 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     /// the stub ignores the URL, so the mapped state depends only on the response.</summary>
     private WingmanVoiceService ServiceWithTts(HttpStatusCode status, string body, byte[]? audio = null)
     {
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brain =
-            (_, _, _) => throw new InvalidOperationException("brain must not be called for the store-spoken path");
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
+            (_, _, _, _) => throw new InvalidOperationException("brain must not be called for the store-spoken path");
         var vaultPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".vault");
         // A fresh root per CALL. Each invocation of this helper builds an independent service, so they must
         // not share state; the restart tests get their sharing by calling TempPersist() once themselves.
@@ -1129,8 +1129,8 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
     private WingmanVoiceService ServiceWithHandler(HttpMessageHandler handler)
     {
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brain =
-            (_, _, _) => throw new InvalidOperationException("brain must not be called for the store-spoken path");
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
+            (_, _, _, _) => throw new InvalidOperationException("brain must not be called for the store-spoken path");
         var vaultPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".vault");
         // A fresh root per CALL. Each invocation of this helper builds an independent service, so they must
         // not share state; the restart tests get their sharing by calling TempPersist() once themselves.
@@ -1496,7 +1496,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         var vault = new KeyVault(vaultPath);
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
-        var svc = new WingmanVoiceService((_, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
+        var svc = new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
             ttsHttpClient: new HttpClient(handler), conversationReader: conversationReader,
             turnVerdicts: VerdictsOver(brain, conversationReader));
         svc.UseClockForTest(() => clock.Now);
@@ -1697,7 +1697,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
             vault.Set("OPENAI_API_KEY", "sk-test");
             vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
             var handler = new TtsAlwaysFailsHandler(HttpStatusCode.InternalServerError);
-            var svc = new WingmanVoiceService((_, _, _) => Task.FromResult<IAgentBrain>(brain), vault, Settings,
+            var svc = new WingmanVoiceService((_, _, _, _) => Task.FromResult<IAgentBrain>(brain), vault, Settings,
                 Path.Combine(dir, "voice-sessions.json"), ttsHttpClient: new HttpClient(handler),
                 conversationReader: conversation.Reader, turnVerdicts: verdicts);
 

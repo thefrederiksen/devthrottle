@@ -103,7 +103,7 @@ internal static class WingmanInstructionsEndpoint
     /// has written yet.
     /// </summary>
     public static HostedDenyGroup Map(IEndpointRouteBuilder outer, WingmanInstructionsStore store,
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brainProvider)
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider)
     {
         FileLog.Write($"[WingmanInstructionsEndpoint] mapping {Prefix}; hosted={GatewayHostedMode.IsHosted} - on hosted the whole group is refused via the shared refusal primitive (issue #1853)");
 

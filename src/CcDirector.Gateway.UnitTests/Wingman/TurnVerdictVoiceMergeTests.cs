@@ -70,7 +70,7 @@ public sealed class TurnVerdictVoiceMergeTests : IDisposable
         // The translator the voice service still owns (the menu check uses it). Every narration it was asked
         // for before this slice is counted here, and the count must stay at zero.
         var translator = new CountingBrain(() => "a translation nobody should have asked for");
-        var voice = new WingmanVoiceService((_, _, _) => Task.FromResult<IAgentBrain>(translator), vault, settings,
+        var voice = new WingmanVoiceService((_, _, _, _) => Task.FromResult<IAgentBrain>(translator), vault, settings,
             Path.Combine(_dir, "voice-sessions.json"), ttsHttpClient: new HttpClient(speech), turnVerdicts: verdicts);
         env.VoiceSession = sid => voice.IsVoiceSession(Tenant, sid);
         return new Rig(voice, verdicts, env, speech, translator);

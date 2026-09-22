@@ -71,13 +71,13 @@ public sealed class WingmanTtsStatusPassthroughTests
         app.Lifetime.ApplicationStopped.Register(settingsData.Dispose);
         var tenantSettings = new TenantSettingsResolver(new TenantSettingsStore(settingsData.Open()));
         var voice = new WingmanVoiceService(
-            (_, _, _) => throw new InvalidOperationException("the brain must not be reached by a tts status test"),
+            (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by a tts status test"),
             vault, tenantSettings, persistPath);
 
         GatewayWingmanVoiceEndpoint.Map(
             app,
             new DirectorRegistry(Path.Combine(Path.GetTempPath(), "cc-tts-pass-inst-" + Guid.NewGuid().ToString("N"))),
-            (_, _, _) => throw new InvalidOperationException("the brain must not be reached by a tts status test"),
+            (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by a tts status test"),
             vault,
             voice,
             tenantSettings,

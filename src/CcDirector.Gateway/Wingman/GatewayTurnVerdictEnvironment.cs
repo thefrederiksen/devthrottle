@@ -64,11 +64,14 @@ internal static class TurnVerdictJudge
     /// off and defaults to leaving it alone; this builder takes the default, so the judge's request body is
     /// exactly what it was before 2026-09-20. A test asserts that an ordinary brain sends no such key at all.
     /// </summary>
-    public static HostedInferenceBrain BuildBrain(string baseUrl, string apiKey, IncludedModelId model, TurnVerdictSettings settings)
+    /// <param name="tag">The judge's tag: <see cref="Core.HostedAi.AiFeature.TurnVerdict"/> and the account the
+    /// turn belongs to. Required - the judge runs on every turn end and is the largest single use of the model.</param>
+    public static HostedInferenceBrain BuildBrain(string baseUrl, string apiKey, IncludedModelId model, TurnVerdictSettings settings, Core.HostedAi.AiCallTag tag)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(tag);
         return new HostedInferenceBrain(baseUrl, apiKey, model, log: FileLog.Write,
-            callTimeout: TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds));
+            callTimeout: TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds), tag: tag);
     }
 }
 

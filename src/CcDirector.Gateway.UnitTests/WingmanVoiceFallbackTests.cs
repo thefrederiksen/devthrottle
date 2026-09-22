@@ -49,8 +49,8 @@ public sealed class WingmanVoiceFallbackTests : IDisposable
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         // StoreSpokenAsync takes the spoken text directly, so the brain is never reached here.
-        Func<TenantId, Core.Configuration.WingmanModelRole, CancellationToken, Task<IAgentBrain>> brain =
-            (_, _, _) => throw new InvalidOperationException("the brain must not be reached by a fallback header test");
+        Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
+            (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by a fallback header test");
         return Warmed(new WingmanVoiceService(brain, vault, Settings, persistPath, ttsHttpClient: new HttpClient(handler)));
     }
 

@@ -91,10 +91,16 @@ public sealed class BatchTranscriptionPipeline : IDisposable
     /// <param name="transcoder">Turns a non-WAV clip too large to send into a splittable PCM WAV (issue
     /// #1139). Defaults to the bundled-ffmpeg transcoder; tests inject a stub. ffmpeg is resolved lazily,
     /// so this default never touches disk unless a clip actually needs transcoding.</param>
+    /// <summary>What this pipeline's transcription calls are for and which account (devthrottle_internal #2213);
+    /// null sends no tag, which the API records as untagged.</summary>
+    private readonly CcDirector.Core.HostedAi.AiCallTag? _tag;
+
     public BatchTranscriptionPipeline(HttpClient? httpClient = null, string? cleanupModel = null,
         IAudioTranscoder? transcoder = null, ICandidateJudge? judge = null,
-        UnlistedCorrectionMode judgeMode = UnlistedCorrectionMode.Shadow)
+        UnlistedCorrectionMode judgeMode = UnlistedCorrectionMode.Shadow,
+        CcDirector.Core.HostedAi.AiCallTag? tag = null)
     {
+        _tag = tag;
         _cleanupModel = string.IsNullOrWhiteSpace(cleanupModel) ? CleanupOrchestrator.DefaultModel : cleanupModel;
         _judge = judge;
         _judgeMode = judgeMode;
@@ -382,6 +388,7 @@ public sealed class BatchTranscriptionPipeline : IDisposable
 
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", routing.ApiKey);
+        _tag?.ApplyTo(request);
 
         using var form = new MultipartFormDataContent();
         var audioContent = new ByteArrayContent(audio);
@@ -478,7 +485,9 @@ public sealed class BatchTranscriptionPipeline : IDisposable
         // Listed wrong forms are corrected in-process; an UNLISTED one now needs a judge, and this
         // pipeline gets the same one live dictation uses. Without it the caller would still get a
         // successful response that could never correct anything - see DictationJudgeFactory.
-        var judge = _judge ?? DictationJudgeFactory.FromKey(routing.BaseUrl, routing.ApiKey);
+        var judge = _judge ?? DictationJudgeFactory.FromKey(routing.BaseUrl, routing.ApiKey,
+            _tag?.WithFeature(CcDirector.Core.HostedAi.AiFeature.DictationJudge)
+                ?? new CcDirector.Core.HostedAi.AiCallTag(CcDirector.Core.HostedAi.AiFeature.DictationJudge));
         var cleanup = new CleanupOrchestrator(model: _cleanupModel, judge: judge, mode: _judgeMode);
         return await cleanup.CleanAsync(raw, dictionary, profileName, ct);
     }
