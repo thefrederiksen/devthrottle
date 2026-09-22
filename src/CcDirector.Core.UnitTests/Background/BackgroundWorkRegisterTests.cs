@@ -13,55 +13,68 @@ namespace CcDirector.Core.UnitTests.Background;
 /// at docs/BackgroundWork.md is the one place that says what each recurring job costs, what
 /// triggers it, how often it may run, how stale its answer may be, which thread it runs on and
 /// what switches it off. This test keeps the register and the code in step: every source file in
-/// the Director that constructs a timer, a periodic timer, a file watcher, or runs a cancellation
-/// polling loop must have a row naming that file and the number of such sites in it, and every
-/// row must still point at a file that has that many. A new timer without a row fails the build;
-/// so does a row left behind after its job was removed.
+/// the Director that constructs a timer, a periodic timer or a file watcher, runs a loop until it
+/// is cancelled, or runs a forever loop that sleeps, delays or waits between its turns, must have a row naming that file and the number of
+/// such sites in it, and every row must still point at a file that has that many. A new timer
+/// without a row fails the build; so does a row left behind after its job was removed. A row with
+/// a site count of zero is a job that has moved onto the scheduler (BackgroundJobs) and constructs
+/// nothing of its own.
+///
+/// THE PERIMETER IS NOT A LIST. It is every project the Director application links, read from
+/// CcDirector.Avalonia.csproj's project references and theirs, so a project linked in tomorrow is
+/// scanned tomorrow (the first review of this test found a retry loop in tools/cc-director-setup-engine
+/// that a hand-kept list of six names could not see).
 ///
 /// Presence, not absence (skill checks-that-fail-open): the scan must find the files this mission
 /// measured, so a scan of the wrong tree cannot pass.
 /// </summary>
 public sealed class BackgroundWorkRegisterTests
 {
-    // Construction of a recurring mechanism. A comment line does not count.
-    private static readonly Regex SitePattern = new(
-        // The initializer brace may sit on the next line, so a bare "new DispatcherTimer" at the end
-        // of a line counts too.
-        @"new\s+(DispatcherTimer|System\.Threading\.Timer|Timer|PeriodicTimer|FileSystemWatcher)\s*(\(|\{|$)|" +
-        @"while\s*\(\s*!\s*[\w\.]*(IsCancellationRequested)",
+    // Construction of a recurring mechanism. A comment line does not count. The initializer brace
+    // may sit on the next line, so a bare "new DispatcherTimer" at the end of a line counts too.
+    private static readonly Regex ConstructionPattern = new(
+        @"new\s+(DispatcherTimer|System\.Threading\.Timer|Timer|PeriodicTimer|FileSystemWatcher)\s*(\(|\{|$)",
         RegexOptions.Compiled);
 
-    private static readonly string[] DirectorProjects =
-    {
-        "CcDirector.Core", "CcDirector.Avalonia", "CcDirector.ControlApi", "CcDirector.Engine",
-        "CcDirector.Terminal.Avalonia", "CcDirector.Terminal.Core",
-    };
+    // A loop that runs until it is cancelled is a standing job by its own declaration. A while(true)
+    // loop is one when its body sleeps, delays or waits between turns.
+    private static readonly Regex UntilCancelledLoopPattern = new(
+        @"while\s*\(\s*!\s*[\w\.]*IsCancellationRequested", RegexOptions.Compiled);
+    private static readonly Regex ForeverLoopPattern = new(
+        @"while\s*\(\s*true\s*\)", RegexOptions.Compiled);
+    private static readonly Regex WaitInsideLoopPattern = new(
+        @"Task\.Delay\(|Thread\.Sleep\(|WaitOne\(|WaitForNextTickAsync\(",
+        RegexOptions.Compiled);
+
+    private static readonly Regex ProjectReferencePattern = new(@"<ProjectReference\s+Include=""([^""]+)""", RegexOptions.Compiled);
 
     // A register row: | Job | `src/Project/Path.cs` | 2 | ... - the file cell and the site count cell.
-    private static readonly Regex RowPattern = new(@"^\|[^|]*\|\s*`(src/[^`]+\.cs)`\s*\|\s*(\d+)\s*\|", RegexOptions.Compiled);
+    private static readonly Regex RowPattern = new(@"^\|[^|]*\|\s*`((?:src|tools)/[^`]+\.cs)`\s*\|\s*(\d+)\s*\|", RegexOptions.Compiled);
 
     [Fact]
-    public void EveryTimerWatcherAndPollingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne()
+    public void EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne()
     {
         var root = FindRepositoryRoot();
         var registerPath = Path.Combine(root, "docs", "BackgroundWork.md");
         Assert.True(File.Exists(registerPath), $"the register is missing: {registerPath}");
 
+        var projects = ProjectsTheApplicationLinks(Path.Combine(root, "src", "CcDirector.Avalonia", "CcDirector.Avalonia.csproj"));
+        Assert.Contains(projects, p => p.EndsWith("CcDirector.Core.csproj", StringComparison.Ordinal));
+        Assert.Contains(projects, p => p.EndsWith("CcDirector.Setup.Engine.csproj", StringComparison.Ordinal));
+
         var inCode = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var filesScanned = 0;
-        foreach (var project in DirectorProjects)
+        foreach (var project in projects)
         {
-            var dir = Path.Combine(root, "src", project);
-            if (!Directory.Exists(dir)) continue;
+            var dir = Path.GetDirectoryName(project)!;
             foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
             {
-                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")) continue;
+                var rel = Path.GetRelativePath(root, file).Replace('\\', '/');
+                if (rel.Contains("/obj/", StringComparison.Ordinal) || rel.Contains("/bin/", StringComparison.Ordinal)) continue;
                 filesScanned++;
-                var sites = File.ReadLines(file)
-                    .Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal))
-                    .Count(line => SitePattern.IsMatch(line));
+                var sites = CountSites(File.ReadAllLines(file));
                 if (sites > 0)
-                    inCode[Path.GetRelativePath(root, file).Replace('\\', '/')] = sites;
+                    inCode[rel] = sites;
             }
         }
 
@@ -84,17 +97,77 @@ public sealed class BackgroundWorkRegisterTests
         foreach (var (file, sites) in inCode)
         {
             if (!inRegister.TryGetValue(file, out var registered))
-                problems.Add($"NOT IN THE REGISTER: {file} constructs {sites} recurring mechanism(s) - add a row saying what it is, what triggers it, how often it may run and what switches it off");
+                problems.Add($"NOT IN THE REGISTER: {file} has {sites} recurring mechanism(s) - add a row saying what it is, what triggers it, how often it may run and what switches it off");
             else if (registered != sites)
                 problems.Add($"COUNT DIFFERS: {file} has {sites} site(s) in code, the register says {registered}");
         }
-        foreach (var (file, _) in inRegister)
+        foreach (var (file, registered) in inRegister)
         {
-            if (!inCode.ContainsKey(file))
-                problems.Add($"STALE ROW: the register lists {file}, which constructs nothing any more - remove the row");
+            // A row with zero sites is a job on the scheduler; a row claiming sites that are gone is stale.
+            if (registered > 0 && !inCode.ContainsKey(file))
+                problems.Add($"STALE ROW: the register lists {file} with {registered} site(s), and it constructs nothing any more - set the count to 0 if it moved onto the scheduler, or remove the row");
         }
 
         Assert.True(problems.Count == 0, "docs/BackgroundWork.md and the code disagree:\n" + string.Join("\n", problems));
+    }
+
+    /// <summary>Constructions, plus loops whose body waits. A comment line never counts.</summary>
+    internal static int CountSites(string[] lines)
+    {
+        var sites = 0;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            if (line.TrimStart().StartsWith("//", StringComparison.Ordinal)) continue;
+            if (ConstructionPattern.IsMatch(line)) sites++;
+            else if (UntilCancelledLoopPattern.IsMatch(line)) sites++;
+            else if (ForeverLoopPattern.IsMatch(line) && LoopBodyWaits(lines, i)) sites++;
+        }
+        return sites;
+    }
+
+    /// <summary>Walks the loop's braces from its header and says whether the body sleeps, delays or waits.</summary>
+    private static bool LoopBodyWaits(string[] lines, int headerIndex)
+    {
+        var depth = 0;
+        var opened = false;
+        for (var i = headerIndex; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            if (line.TrimStart().StartsWith("//", StringComparison.Ordinal)) continue;
+            // Only text inside the body counts: from the opening brace on, and up to the closing one.
+            var bodyStart = opened ? 0 : line.IndexOf('{');
+            for (var c = 0; c < line.Length; c++)
+            {
+                var ch = line[c];
+                if (ch == '{') { depth++; opened = true; }
+                else if (ch == '}')
+                {
+                    depth--;
+                    if (opened && depth == 0)
+                        return bodyStart >= 0 && WaitInsideLoopPattern.IsMatch(line[bodyStart..c]);
+                }
+            }
+            if (opened && bodyStart >= 0 && WaitInsideLoopPattern.IsMatch(line[bodyStart..])) return true;
+            if (!opened && i > headerIndex + 2) return false; // a brace-less loop: one statement, no body to wait in
+        }
+        return false;
+    }
+
+    /// <summary>Every project the application links, transitively, from its own project references.</summary>
+    internal static IReadOnlyList<string> ProjectsTheApplicationLinks(string applicationProject)
+    {
+        var seen = new List<string>();
+        void Walk(string csproj)
+        {
+            var full = Path.GetFullPath(csproj);
+            if (seen.Contains(full, StringComparer.Ordinal)) return;
+            seen.Add(full);
+            foreach (Match m in ProjectReferencePattern.Matches(File.ReadAllText(full)))
+                Walk(Path.Combine(Path.GetDirectoryName(full)!, m.Groups[1].Value.Replace('\\', Path.DirectorySeparatorChar)));
+        }
+        Walk(applicationProject);
+        return seen;
     }
 
     private static string FindRepositoryRoot()

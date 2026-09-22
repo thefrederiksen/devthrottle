@@ -4,7 +4,12 @@ Every recurring job the Director runs - a timer, a periodic timer, a file watche
 polls until it is cancelled - has a row here. **A job may not exist without a row.**
 `BackgroundWorkRegisterTests` in `CcDirector.Core.UnitTests` fails the build when a source file
 constructs one of these and has no row, when a row's site count no longer matches the code, or when
-a row points at a file that constructs nothing any more.
+a row claims sites in a file that constructs nothing any more. A site is a constructed timer,
+periodic timer or file watcher; a loop that runs until it is cancelled; or a forever loop whose body
+sleeps, delays or waits between turns. The files scanned are every project the Director application
+links, read from its own project references, so a project linked in tomorrow is scanned tomorrow.
+A row with a site count of 0 is a job that has moved onto the scheduler (`BackgroundJobs`) and
+constructs nothing of its own.
 
 Why this document exists: on 22 September 2026 one Director ran 808,945 git commands in fourteen
 hours, 51,864 of them network calls to GitHub, flat all night with nobody working, because nothing
@@ -24,10 +29,12 @@ job, fixed the waste, and wrote this so the next stray timer has somewhere to be
 4. **Never on a timer.** Anything that leaves the machine to answer a question only a person cares
    about. On demand, cached, with a visible "last checked" time.
 
-Two more kinds appear below and are not background work in the sense above: **once, then stop**
-(a debounce or a one-shot delay that fires once after an event) and **while a process runs** (a loop
-that reads a child process's output as it arrives and ends when the process does). They are listed
-so the enforcement test can count them, and they need no cadence.
+Three more kinds appear below and are not background work in the sense above: **once, then stop**
+(a debounce or a one-shot delay that fires once after an event), **a bounded wait** (a loop that polls
+for one thing to happen and stops at a deadline - a process to exit, a lock to free, a launcher to
+report healthy), and **while a process runs** (a loop that reads a child process's output as it
+arrives and ends when the process does). They are listed so the enforcement test can count them,
+and they need no cadence.
 
 ## The rule for every row
 
@@ -65,7 +72,7 @@ tier it belongs in; what one run costs; the thread; what switches it off; what w
 | Factory trigger poll | `src/CcDirector.ControlApi/Triggers/DirectorTriggerRunner.cs` | 1 | Periodic timer | Every 30 s | Slow and steady; keep, or push down the tunnel later | One request for due triggers | Pool | Cancellation | Not separately counted |
 | Director stream producers | `src/CcDirector.ControlApi/DirectorStreamProducers.cs` | 1 | Polling loop while connected | Continuous while the stream is up | While a process runs (the stream) | Streams what changed | Pool | Cancellation | Not separately counted |
 | Tailscale serve re-assert | `src/CcDirector.ControlApi/TailscaleServeSelfProvisioner.cs` | 1 | Timer | Never started - dead code | None; proposed: delete | Nothing today | - | - | 0 |
-| Account status | `src/CcDirector.Avalonia/Controls/GatewayConnectionPanel.axaml.cs` | 1 | Polling loop | Every 30 s on a brand-new connection each time | Slow and steady; proposed: every 5 min, reusing one connection | One web request | Pool | Cancellation | 5,638 log lines (379 an hour) |
+| Sign-in wait on the Gateway connection panel | `src/CcDirector.Avalonia/Controls/GatewayConnectionPanel.axaml.cs` | 1 | A polling loop started while the panel waits for a sign-in to complete | Every **2 s** until the authenticated status read confirms signed-in (the first draft of this row said 30 s; the review corrected it) | A bounded wait in intent, unbounded in code; proposed: a backoff and a timeout on the wait, not a cadence | One status request | Pool | Cancellation | The 5,638 `GatewayAccountStatusClient` lines (379 an hour) are the account status read from the tunnel, a different caller; this loop only runs during a sign-in |
 
 ### Sessions, the terminal and the wingman
 
@@ -84,6 +91,27 @@ tier it belongs in; what one run costs; the thread; what switches it off; what w
 | Recording ingest loop | `src/CcDirector.Core/Recording/RecordingIngestService.cs` | 1 | Polling loop | While a recording is being ingested | While a process runs | Reads captured audio | Pool | Cancellation | - |
 | GitHub Actions backend run watch | `src/CcDirector.Core/Backends/GitHubActionsBackend.cs` | 1 | Polling loop while a run is watched | While a run is in flight | While a process runs (a remote run) | One status request per poll | Pool | Run ends or cancellation | 0 today |
 | Engine scheduler loop | `src/CcDirector.Engine/Scheduling/Scheduler.cs` | 1 | Polling loop | Engine's own tick | Slow and steady; keep (engine, not the Director's screen) | Dispatches due work | Pool | Cancellation | - |
+
+### The application's own cycle
+
+| Job | Source | Sites | Trigger today | Cadence today | Tier | One run costs | Thread | Off switch | Today on this Mac |
+|---|---|---|---|---|---|---|---|---|---|
+| Auto-update cycle: the Director's own release check and the tools update, on the configured cadence | `src/CcDirector.Avalonia/App.axaml.cs` | 1 | A forever loop with `Task.Delay` on the configured interval, re-reading the setting each cycle; shortened while a release has no downloads attached yet | Hourly by default (the setting `autoUpdate.intervalHours`); not started on a development slot build | Slow and steady; keep. No cancellation token: it ends with the process | One GitHub release check, and a tools check | Pool | Never while the Director runs (the setting turns the work off, not the loop) | 30 `UpdateService` and 30 `ToolAutoUpdate` lines today |
+
+### Bounded waits
+
+Loops that poll for one thing to happen and stop at a deadline. Not background work; listed because the test counts them.
+
+| Job | Source | Sites | Trigger today | Cadence today | Tier | One run costs | Thread | Off switch | Today on this Mac |
+|---|---|---|---|---|---|---|---|---|---|
+| Wait for a session's turn to end, for a chat request | `src/CcDirector.ControlApi/Chat/ChatService.cs` | 1 | A chat request | Poll interval until idle, or the request's timeout | A bounded wait | Reads the session's activity state | Pool | The turn ends, the timeout, or cancellation | - |
+| Wait for a stopped session's process to go | `src/CcDirector.ControlApi/SessionCommandExecutor.cs` | 1 | A stop command | Process exit poll interval until the settle window ends | A bounded wait | One liveness read | Pool | The process is gone, or the window ends | - |
+| Wait for the terminal to go quiet before an ask is typed | `src/CcDirector.Core/Drivers/SessionAskRunner.cs` | 1 | A session ask | Poll interval until quiet, or the ask's timeout | A bounded wait | Reads the buffer clock | Pool | Quiet, the timeout, or cancellation | - |
+| Acquire the worktree-reap lock | `src/CcDirector.Core/Git/WorktreeReservationStore.cs` | 1 | A reap | Every 15 ms until the lock is free, or the lock wait | A bounded wait | One file open | Caller's thread (blocking sleep) | The lock is taken, or the wait ends | - |
+| Append a shadow-log line under contention | `src/CcDirector.Core/Wingman/TurnDetectionShadowLog.cs` | 1 | A line to write | Retry until the append succeeds, within the contention budget | A bounded wait | One file append | Caller's thread | The write lands, or the budget ends | - |
+| Wait for the launcher to report healthy | `tools/cc-director-setup-engine/LauncherHealthProbe.cs` | 1 | A launcher start | Every 1 s until healthy, or the ceiling | A bounded wait | One registration file read | Pool | Healthy, the starter exited, cancellation, or the ceiling | - |
+| Progress poll during a tools install | `tools/cc-director-setup-engine/PythonToolsInstaller.cs` | 1 | A tools install | Every 1.5 s while the install runs | A bounded wait | One progress read | Pool | The install ends | - |
+| Standby slot provisioning retries | `tools/cc-director-setup-engine/StandbySlotProvisioner.cs` | 1 | A slot that is not yet settled | Retries until settled, with the caller's delay between attempts | A bounded wait | One provisioning attempt | Pool | Settled, or cancellation | - |
 
 ### Screens and dialogs
 
