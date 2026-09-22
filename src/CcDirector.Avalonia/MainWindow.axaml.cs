@@ -4143,13 +4143,12 @@ public partial class MainWindow : Window
     /// </summary>
     internal void RebuildRail()
     {
-        // The rail's drag order IS the desktop order. Stamping it here, from the list index, is what
-        // makes a crew's sessions come back from the fold in the order the user dragged them into -
+        // The rail's drag order IS the desktop order. Stamping it from the list index, before projecting, is
+        // what makes a crew's sessions come back from the fold in the order the user dragged them into -
         // SessionOrdering.InDesktopOrder reads SortOrder, and a stale SortOrder would order the children
-        // of a crew differently from the top-level rows right beside them.
-        for (int i = 0; i < _sessions.Count; i++) _sessions[i].Session.SortOrder = i;
-
-        var rows = SessionRailTree.Project(_sessions, _railOrder, _expandedCrews, DateTime.UtcNow);
+        // of a crew differently from the top-level rows right beside them. The stamp also drops each moved
+        // row's cached wire object, so the projection reads the new order at once.
+        var rows = SessionRailTree.ProjectInDragOrder(_sessions, _railOrder, _expandedCrews, DateTime.UtcNow);
         _railRowModel = rows;
 
         foreach (var row in rows)

@@ -1,4 +1,4 @@
-using CcDirector.Gateway.Contracts;
+﻿using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Avalonia;
 
@@ -69,6 +69,24 @@ public sealed record SessionRailRow(
 /// </summary>
 public static class SessionRailTree
 {
+    /// <summary>
+    /// What the rail runs on every rebuild: stamp each session's place in the drag list as its desktop order,
+    /// then <see cref="Project"/>. The drag order IS the desktop order - the fold orders a crew's sessions by
+    /// <see cref="Session.SortOrder"/> - and each row's wire object is cached, so a stamp that moves a session
+    /// must drop that session's cached copy or the projection right after a drag reads the old order.
+    /// <see cref="SessionViewModel.StampSortOrder"/> does both, and only when the order actually moved.
+    /// </summary>
+    public static IReadOnlyList<SessionRailRow> ProjectInDragOrder(
+        IReadOnlyList<SessionViewModel> sessions,
+        SessionRailOrder order,
+        IReadOnlyCollection<string> expandedCrewIds,
+        DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(sessions);
+        for (var i = 0; i < sessions.Count; i++) sessions[i].StampSortOrder(i);
+        return Project(sessions, order, expandedCrewIds, nowUtc);
+    }
+
     /// <summary>
     /// The rows the list box renders, in order.
     ///
