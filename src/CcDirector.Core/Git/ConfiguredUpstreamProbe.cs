@@ -16,8 +16,9 @@ namespace CcDirector.Core.Git;
 /// mapped through the remote's fetch refspec to <c>refs/remotes/&lt;remote&gt;/&lt;name&gt;</c>,
 /// and "gone" means that ref is absent. So the verdict is exactly as fresh as the last
 /// <c>git fetch --prune</c> of that remote - which is what the callers that must be current
-/// (the reaper, and an explicit refresh) run first, and what the callers that scan a whole
-/// machine deliberately do not. Until 22 September 2026 this probe ran <c>git ls-remote</c>
+/// (the reaper, and an explicit refresh) run first, for origin and for every other remote a
+/// branch is configured to (<see cref="ConfiguredRemoteRefresh"/>), and what the callers that
+/// scan a whole machine deliberately do not. Until 22 September 2026 this probe ran <c>git ls-remote</c>
 /// instead, one network round trip to the hosting provider per branch per inventory; on one
 /// Director that was 51,864 calls in a day, none of them asked for by a person.
 /// </summary>
@@ -37,7 +38,12 @@ public static class ConfiguredUpstreamProbe
     // word "gone" when the remote-tracking ref does not exist.
     private const string UpstreamFormat = "%(upstream)%09%(upstream:track,nobracket)";
 
-    public static async Task<UpstreamVerdict> ProbeAsync(GitCommandRunner git, string repoPath, string branch, CancellationToken ct)
+    /// <param name="unrefreshedRemotes">Remotes the caller tried and failed to refresh. A branch
+    /// configured to one of them cannot be inspected: its tracking ref may be stale in the direction
+    /// that reads as "gone", which on a destructive path would be a false proof of merge.</param>
+    public static async Task<UpstreamVerdict> ProbeAsync(
+        GitCommandRunner git, string repoPath, string branch, CancellationToken ct,
+        IReadOnlyCollection<string>? unrefreshedRemotes = null)
     {
         var remote = await git.RunAsync(repoPath, new[] { "config", "--get", $"branch.{branch}.remote" }, ct);
         // --get-all, not --get: git permits MULTIPLE merge values (an octopus pull), and --get
@@ -58,6 +64,12 @@ public static class ConfiguredUpstreamProbe
             // origin-gone signal, exactly as if no upstream were configured.
             FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch} has {mergeRefs.Length} configured merge values - C2 does not apply");
             return new UpstreamVerdict(HasConfiguredUpstream: false, UpstreamGone: false, InspectionSucceeded: true);
+        }
+
+        if (unrefreshedRemotes is not null && unrefreshedRemotes.Contains(remoteName))
+        {
+            FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch} tracks {remoteName}, which could not be refreshed - cannot inspect");
+            return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
         }
 
         // Ask git for the branch's own view of its upstream. This reads refs on disk only.

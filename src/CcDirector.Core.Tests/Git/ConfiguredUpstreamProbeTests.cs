@@ -170,6 +170,57 @@ public sealed class ConfiguredUpstreamProbeTests : IDisposable
     }
 
     // ------------------------------------------------------------------------------------------
+    // The fail-closed cases the change introduced: each was answered by a live query before.
+    // ------------------------------------------------------------------------------------------
+    [Fact]
+    public async Task AnUpstreamConfiguredOnABranchWhoseOwnRefDoesNotExist_CannotBeInspected()
+    {
+        RunGit(_work, "config", "branch.phantom.remote", "origin");
+        RunGit(_work, "config", "branch.phantom.merge", "refs/heads/phantom");
+
+        var verdict = await ConfiguredUpstreamProbe.ProbeAsync(new GitCommandRunner(), _work, "phantom", CancellationToken.None);
+
+        Assert.True(verdict.HasConfiguredUpstream);
+        Assert.False(verdict.InspectionSucceeded);
+        Assert.False(verdict.UpstreamGone);
+    }
+
+    [Fact]
+    public async Task AnUpstreamGitCannotMapToATrackingRef_CannotBeInspected()
+    {
+        // A remote with an address but no fetch refspec: git has no refs/remotes/<name>/ to map into.
+        RunGit(_work, "remote", "add", "bare-address", _origin);
+        RunGit(_work, "config", "--unset-all", "remote.bare-address.fetch");
+        RunGit(_work, "checkout", "-b", "unmapped");
+        RunGit(_work, "config", "branch.unmapped.remote", "bare-address");
+        RunGit(_work, "config", "branch.unmapped.merge", "refs/heads/unmapped");
+
+        var verdict = await ConfiguredUpstreamProbe.ProbeAsync(new GitCommandRunner(), _work, "unmapped", CancellationToken.None);
+
+        Assert.True(verdict.HasConfiguredUpstream);
+        Assert.False(verdict.InspectionSucceeded);
+        Assert.False(verdict.UpstreamGone);
+    }
+
+    [Fact]
+    public async Task ABranchOnARemoteTheCallerCouldNotRefresh_CannotBeInspected()
+    {
+        RunGit(_work, "checkout", "-b", "on-origin");
+        RunGit(_work, "commit", "--allow-empty", "-m", "work");
+        RunGit(_work, "push", "-u", "origin", "on-origin");
+
+        var trusted = await ConfiguredUpstreamProbe.ProbeAsync(new GitCommandRunner(), _work, "on-origin", CancellationToken.None);
+        Assert.True(trusted.InspectionSucceeded);
+
+        var untrusted = await ConfiguredUpstreamProbe.ProbeAsync(
+            new GitCommandRunner(), _work, "on-origin", CancellationToken.None, unrefreshedRemotes: new[] { "origin" });
+
+        Assert.True(untrusted.HasConfiguredUpstream);
+        Assert.False(untrusted.InspectionSucceeded);
+        Assert.False(untrusted.UpstreamGone);
+    }
+
+    // ------------------------------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------------------------------
 
