@@ -67,8 +67,13 @@ public partial class LaunchPreviewDialog : Window
 
             // Process output -> terminal. The buffer fires on a background drain thread, so the
             // Feed must be marshalled to the UI thread before touching the TerminalView.
+            // The buffer's array is shared with every subscriber and must not be kept past
+            // the handler, so the posted work carries its own copy.
             buffer.OnBytesWritten += data =>
-                Dispatcher.UIThread.Post(() => Terminal.Feed(data));
+            {
+                var own = (byte[])data.Clone();
+                Dispatcher.UIThread.Post(() => Terminal.Feed(own));
+            };
 
             // Keystrokes from the terminal -> process input.
             Terminal.InputReceived += bytes => backend.Write(bytes);

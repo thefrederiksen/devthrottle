@@ -75,12 +75,16 @@ public sealed class CircularTerminalBuffer : IDisposable
     }
 
     /// <summary>
-    /// Fires after a successful Write, on the producer thread, with a freshly
-    /// allocated copy of the data that was just written. Used by per-session
-    /// consumers (e.g. a VT emulator for the HTML view) that need every byte
-    /// in order without holding the buffer lock. The PTY drain loop is the
-    /// only producer in production, so callbacks see writes in chronological
-    /// order. Handlers must not throw; an exception is caught and logged.
+    /// Fires after a successful Write, on the producer thread, with the data that
+    /// was just written as a shared read-only array; handlers must not mutate or
+    /// retain it. Every handler receives the SAME array instance (one copy per
+    /// chunk, not one per subscriber), so a handler that writes into it corrupts
+    /// what every later handler sees, and a handler that needs the bytes after
+    /// it returns must take its own copy. Used by per-session consumers (e.g. a
+    /// VT emulator for the HTML view) that need every byte in order without
+    /// holding the buffer lock. The PTY drain loop is the only producer in
+    /// production, so callbacks see writes in chronological order. Handlers must
+    /// not throw; an exception is caught and logged.
     /// </summary>
     public event Action<byte[]>? OnBytesWritten;
 
@@ -144,6 +148,8 @@ public sealed class CircularTerminalBuffer : IDisposable
         var handler = OnBytesWritten;
         if (handler is not null)
         {
+            // One copy per chunk, shared by every subscriber: invoking the multicast
+            // delegate once hands each handler this same array.
             var copy = data.ToArray();
             try { handler(copy); }
             catch (Exception ex)
