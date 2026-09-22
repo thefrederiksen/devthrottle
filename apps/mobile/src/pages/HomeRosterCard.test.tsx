@@ -51,7 +51,8 @@ function mockFetch(body: unknown) {
   return vi.fn(async (): Promise<Response> => ({
     ok: true,
     status: 200,
-    headers: new Headers(),
+    // The Gateway's time for this answer, as it sends on every roster answer in the clock-free form.
+    headers: new Headers({ "X-Gateway-Time": new Date().toISOString() }),
     json: async () => body,
   }) as Response);
 }

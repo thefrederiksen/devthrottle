@@ -121,6 +121,17 @@ describe("restoreRosterClockFields", () => {
     expect(restoreRosterClockFields(old, null)).toBe(old);
   });
 
+  it("refuses, loudly, an answer that left the clock fields out but carries no time to rebuild them from", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => restoreRosterClockFields(newForm(), null)).toThrow(/X-Gateway-Time/);
+      expect(() => restoreRosterClockFields(newForm(), "not a time")).toThrow(/unreadable/);
+      expect(error).toHaveBeenCalledTimes(2);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("never changes the body it was given", () => {
     const body = newForm();
     const before = JSON.stringify(body);
@@ -189,6 +200,16 @@ describe("getSessionsEnvelope, conditional", () => {
 
     answers.push({ status: 304, etag: '"t2"', time: GATEWAY_NOW });
     expect(new Headers((await getSessionsEnvelope(), requests[2].init.headers)).get("If-None-Match")).toBe('"t2"');
+  });
+
+  it("a 200 without the Gateway time, when the fields were left out, fails the read instead of showing blank ages", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      answers.push({ status: 200, body: newForm(), etag: '"t1"' });
+      await expect(getSessionsEnvelope()).rejects.toThrow(/X-Gateway-Time/);
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("still fails loud on an error", async () => {

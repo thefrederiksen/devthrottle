@@ -204,7 +204,11 @@ export const GATEWAY_TIME_HEADER = "X-Gateway-Time";
 
 let rosterHeld: { etag: string; body: Partial<SessionsEnvelope> } | null = null;
 
-/** Forget the held roster body (tests, and a sign-out that wants nothing of the last account kept). */
+/**
+ * Forget the held roster body. Used by the tests. Nothing else needs to: after an account switch the held tag is
+ * sent once, and a 304 would mean the new account's roster is byte-identical to the held one - so the held body
+ * is then exactly what that account would have been sent.
+ */
 export function resetRosterHeld(): void {
   rosterHeld = null;
 }
@@ -272,15 +276,28 @@ export function isoToEpochSeconds(iso: string | null | undefined): number | null
  * (PushedSessionStore.RecomputeClocks and the /sessions reachability fold), against the instant in `gatewayTime`:
  *   - a session with lastActivityAt and no idleSeconds: idleSeconds = gatewayTime - lastActivityAt, never below 0;
  *   - a director with no lastSeenAgeSeconds: gatewayTime - lastSeenUtc, never below 0, and null when lastSeenUtc is.
- * With no gatewayTime the answer came from a Gateway that did not take the parameter and still carries the old
- * fields, so it is returned as it is. The body given is never changed; held copies stay as they arrived.
+ * With no gatewayTime the answer is taken as it came ONLY when it still carries the old fields - a Gateway that
+ * did not take the parameter. An answer that left the fields out but arrived without the time (a proxy that
+ * stripped the header, a Gateway defect) cannot be rebuilt, and is an error rather than a roster with every age
+ * quietly blank. The body given is never changed; held copies stay as they arrived.
  */
 export function restoreRosterClockFields(
   body: Partial<SessionsEnvelope>,
   gatewayTime: string | null,
 ): Partial<SessionsEnvelope> {
   const now = isoToEpochSeconds(gatewayTime);
-  if (now === null) return body;
+  if (now === null) {
+    const missing =
+      (body.sessions ?? []).some((s) => s.idleSeconds === undefined && s.lastActivityAt != null) ||
+      (body.directors ?? []).some((d) => d.lastSeenAgeSeconds === undefined);
+    if (!missing) return body;
+    const why = gatewayTime === null ? "no" : `an unreadable (${gatewayTime})`;
+    const message =
+      `The roster arrived without its idle times and last-seen ages, and with ${why} ${GATEWAY_TIME_HEADER} header ` +
+      "to compute them from. Something between this device and the Gateway may be removing that header.";
+    console.error(`[fleetClient] ${message}`);
+    throw new Error(message);
+  }
   const sessions = body.sessions?.map((s) => {
     if (s.idleSeconds !== undefined) return s;
     const last = isoToEpochSeconds(s.lastActivityAt as string | null | undefined);
