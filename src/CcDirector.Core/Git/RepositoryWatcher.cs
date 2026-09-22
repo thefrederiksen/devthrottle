@@ -10,9 +10,10 @@ namespace CcDirector.Core.Git;
 ///
 /// Watch set:
 /// - each ROOT, non-recursive, directory events only: a repo folder appearing or vanishing;
-/// - each repo, recursive: inside .git only the state signals (HEAD, packed-refs, refs/, logs/HEAD,
-///   worktrees/) fire - .git/index and .git/objects are ignored because our own status scans touch
-///   the index (self-echo) and object writes are covered by the reflog; OUTSIDE .git, any
+/// - each repo, recursive: inside .git only the state signals (HEAD, packed-refs, refs/, logs/HEAD, and
+///   each linked worktree's HEAD, logs/HEAD and locked marker) fire - .git/index, each linked
+///   worktree's index and .git/objects are ignored because our own status scans touch the indexes
+///   (self-echo) and object writes are covered by the reflog; OUTSIDE .git, any
 ///   working-tree change fires, so editing a tracked file, adding an untracked file, or deleting a
 ///   worktree file updates the repository's cleanliness and dirty-age (issue 516).
 ///
@@ -167,7 +168,28 @@ public sealed class RepositoryWatcher : IDisposable
             || p.Equals("packed-refs", StringComparison.OrdinalIgnoreCase)
             || p.StartsWith("refs\\", StringComparison.OrdinalIgnoreCase)
             || p.Equals("logs\\HEAD", StringComparison.OrdinalIgnoreCase)
-            || p.StartsWith("worktrees\\", StringComparison.OrdinalIgnoreCase);
+            || IsLinkedWorktreeSignal(p);
+    }
+
+    /// <summary>
+    /// True when a path under .git\worktrees\ is a linked worktree's state signal: its HEAD (a branch
+    /// switch or commit there), its logs\HEAD, or its locked marker. Everything else in a linked
+    /// worktree's admin folder is ignored - above all its index and index.lock, which our own status
+    /// scans rewrite in every linked worktree. Counting those made each recompute trigger the next one:
+    /// a repository with linked worktrees recomputed every ~11s forever, each time downloading the
+    /// fleet session list from the Gateway (about 55 MB an hour on a repo with 26 worktrees).
+    /// </summary>
+    private static bool IsLinkedWorktreeSignal(string p)
+    {
+        if (!p.StartsWith("worktrees\\", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var slash = p.IndexOf('\\', "worktrees\\".Length);
+        if (slash < 0)
+            return false; // the worktree's folder itself: its mtime moves whenever a lock file comes and goes
+        var inner = p[(slash + 1)..];
+        return inner.Equals("HEAD", StringComparison.OrdinalIgnoreCase)
+            || inner.Equals("logs\\HEAD", StringComparison.OrdinalIgnoreCase)
+            || inner.Equals("locked", StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnWatcherError(string context, ErrorEventArgs e)
