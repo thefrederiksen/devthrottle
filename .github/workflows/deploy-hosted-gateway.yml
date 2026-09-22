@@ -32,9 +32,15 @@ name: Deploy hosted Gateway
 # service principal (Contributor on the subscription) trusts a federated credential scoped to this
 # repo's "hosted-gateway-production" environment. One-time setup is in the repo's deploy runbook.
 #
-# Runs on ubuntu-latest on purpose: the Azure CLI's build-log renderer crashes on a Windows host
-# (colorama cp1252 cannot encode the U+2713 the build prints); on Linux it streams cleanly and
-# `az acr build` blocks until the remote build finishes, so no polling workaround is needed here.
+# THE IMAGE IS BUILT ON THE GITHUB RUNNER, NOT BY ACR TASKS (changed 2026-09-22). It used to run
+# `az acr build`, which uploads the source and has the registry build it on Azure machines as a
+# registry task - while this runner only waited. The repository is public, so runner time is free:
+# the runner now builds with Docker Buildx (layers cached in the GitHub Actions cache) and pushes to the
+# same registry, same repository, same ci-<commit> tag. The image purge near the end runs the same
+# `acr purge` tool in a container on the runner for the same reason, instead of `az acr run`. Nothing
+# in this workflow should start a registry task; if `az acr task list-runs` shows one from a deploy,
+# that is a regression. (The old reason for ubuntu-latest - the Azure CLI's build-log renderer crashing
+# on a Windows host - no longer applies, but Docker builds of this Linux image need a Linux runner.)
 #
 # TWO JOBS, ON PURPOSE. `deploy` does everything that CHANGES Azure and holds the serialisation group
 # for that long (plus the few seconds it takes to hand its poll record over); `watch` is the ten-minute
@@ -231,33 +237,62 @@ jobs:
           tenant-id: ${{ vars.AZURE_GW_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_GW_SUBSCRIPTION_ID }}
 
-      # Build the image IN Azure from this checkout (Dockerfile at the repo root builds the C# Gateway
-      # plus the mobile PWA and the React Cockpit, and runs the workspace typecheck). A per-commit tag
-      # keeps builds distinguishable; the App Service is pinned by the resulting immutable DIGEST, never
-      # the tag, so a rebuild always forces a real pull.
-      - name: Build image in ACR
-        id: build
-        run: |
-          start=$(date +%s)
-          az acr build \
-            --registry "$ACR" \
-            --image "${IMAGE_NAME}:ci-${{ steps.short.outputs.short }}" \
-            --build-arg COCKPIT_COMMIT="${{ steps.short.outputs.short }}" \
-            .
-          echo "build_seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+      # Build the image ON THIS RUNNER from this checkout (Dockerfile at the repo root builds the C# Gateway
+      # plus the mobile PWA and the React Cockpit, and runs the workspace typecheck) and push it to the
+      # registry - see the header for why this is not `az acr build`. A per-commit tag keeps builds
+      # distinguishable; the App Service is pinned by the resulting immutable DIGEST, never the tag, so a
+      # rebuild always forces a real pull. The registry login rides the OIDC Azure session above.
+      - name: Log in to the registry (OIDC session, no stored secret)
+        run: az acr login --name "$ACR"
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start the build clock
+        id: build_start
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      # provenance and sbom are OFF so the push is a single-platform image manifest - the shape
+      # `az acr build` produced - and the digest below is exactly the manifest App Service pulls.
+      - name: Build image on the runner and push it
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.ACR }}.azurecr.io/${{ env.IMAGE_NAME }}:ci-${{ steps.short.outputs.short }}
+          build-args: COCKPIT_COMMIT=${{ steps.short.outputs.short }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Stop the build clock
+        id: build
+        run: echo "build_seconds=$(( $(date +%s) - ${{ steps.build_start.outputs.start }} ))" >> "$GITHUB_OUTPUT"
+
+      # The digest is read BACK FROM THE REGISTRY, as before, and must equal the digest the push reported.
+      # A mismatch means the tag points at something other than what this run built, and nothing ships.
       - name: Read the built image digest
         id: digest
+        env:
+          PUSHED: ${{ steps.push.outputs.digest }}
         run: |
           DIGEST=$(az acr repository show \
             --name "$ACR" \
             --image "${IMAGE_NAME}:ci-${{ steps.short.outputs.short }}" \
             --query digest --output tsv)
           case "$DIGEST" in
-            sha256:*) echo "digest=$DIGEST" >> "$GITHUB_OUTPUT" ;;
+            sha256:*) ;;
             *) echo "ERROR: could not read a sha256 digest (got '$DIGEST')"; exit 1 ;;
           esac
-          echo "Built digest: $DIGEST"
+          if [ "$DIGEST" != "$PUSHED" ]; then
+            echo "ERROR: the registry holds $DIGEST for ci-${{ steps.short.outputs.short }},"
+            echo "       but this runner pushed '$PUSHED'. Refusing to deploy an image this run did not build."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Built digest: $DIGEST (the push and the registry agree)"
 
       # Read the commit the LIVE service is running BEFORE the deploy - this is the OUTGOING build, and the
       # /healthz .commit field (added alongside this workflow) is what makes it readable. Used for two
@@ -1109,8 +1144,9 @@ jobs:
       # WHY `acr purge` AND NOT A LOOP OF DELETES. This step first ran `az acr repository delete` once per
       # tag. Deleting one image that way works; dozens in a row do not - the registry answered "The
       # requested data does not exist" to nearly every call while the CLI still printed its "will delete"
-      # warning, so the loop looked like it was working and deleted almost nothing. `acr purge` runs inside
-      # the registry as a task, handles its own pacing, and reports the counts it actually deleted.
+      # warning, so the loop looked like it was working and deleted almost nothing. `acr purge` handles
+      # its own pacing and reports the counts it actually deleted. It runs in a container on this runner
+      # (it used to run as a registry task through `az acr run`; see the header for why that changed).
       - name: Keep the last three images and delete the older ones
         if: always()
         env:
@@ -1130,9 +1166,15 @@ jobs:
           echo "Tagged the live digest as 'live' so the purge cannot remove it."
 
           # --ago 0d: age is not the rule here, count is. --keep keeps the newest KEEP matching tags.
-          az acr run --registry "$ACR" --cmd \
-            "acr purge --filter '${IMAGE_NAME}:ci-.*' --keep ${KEEP} --ago 0d --untagged" \
-            /dev/null
+          # The SAME `acr purge` tool `az acr run` used to start as a registry task, run in a container on
+          # this runner instead (see the header). It signs in with a registry token minted from the OIDC
+          # session; the all-zero user name is how the registry accepts such a token.
+          ACR_TOKEN=$(az acr login --name "$ACR" --expose-token --query accessToken -o tsv)
+          echo "::add-mask::$ACR_TOKEN"
+          docker run --rm mcr.microsoft.com/acr/acr-cli:0.19 purge \
+            --registry "${ACR}.azurecr.io" \
+            --username 00000000-0000-0000-0000-000000000000 --password "$ACR_TOKEN" \
+            --filter "${IMAGE_NAME}:ci-.*" --keep "${KEEP}" --ago 0d --untagged
 
           echo "--- images that remain ---"
           az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" --orderby time_desc -o tsv
