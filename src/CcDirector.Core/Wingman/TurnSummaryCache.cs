@@ -147,14 +147,14 @@ public sealed class TurnSummaryCache : IDisposable
     /// ANSI-stripped. Used by the on-demand path where there is no per-turn cursor -
     /// we just summarise the most recent output. Returns empty when the buffer is empty.
     /// </summary>
-    private static string SnapshotTerminalTail(CircularTerminalBuffer? buffer, int maxChars = 16000)
+    internal static string SnapshotTerminalTail(CircularTerminalBuffer? buffer, int maxChars = 16000)
     {
         if (buffer is null) return string.Empty;
-        // 16000 readable characters need far fewer raw bytes than the whole 2 megabyte ring:
-        // across 60 real session logs of at least 600 kilobytes, a 256 kilobyte tail gave the
-        // identical 16000 characters every time (128 kilobytes: 59 of 60).
-        const int tailBytes = 256 * 1024;
-        var bytes = buffer.DumpTail(tailBytes);
+        // Deliberately the WHOLE buffer, not DumpTail: the last maxChars readable characters are
+        // only exact when control sequences are removed before the cut. A raw byte tail can start
+        // inside a control sequence longer than any fixed budget and turn its payload into
+        // "readable" text. This path runs on demand only, so the full copy is affordable.
+        var bytes = buffer.DumpAll();
         if (bytes.Length == 0) return string.Empty;
         var text = TerminalOutputParser.StripAnsi(Encoding.UTF8.GetString(bytes));
         if (text.Length > maxChars) text = text[^maxChars..];
