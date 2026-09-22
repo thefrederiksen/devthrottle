@@ -27,12 +27,11 @@ internal static class WingmanContextBuilder
         var bufferTail = "";
         try
         {
-            var bytes = session.Buffer?.DumpAll();
+            const int TailBytes = 8192;
+            var bytes = session.Buffer?.DumpTail(TailBytes);
             if (bytes is not null && bytes.Length > 0)
             {
-                const int TailBytes = 8192;
-                var start = Math.Max(0, bytes.Length - TailBytes);
-                var tail = Encoding.UTF8.GetString(bytes, start, bytes.Length - start);
+                var tail = Encoding.UTF8.GetString(bytes);
                 bufferTail = AnsiCleaner.Clean(tail);
                 if (bufferTail.Length > 4000) bufferTail = bufferTail[^4000..];
             }

@@ -73,4 +73,23 @@ public sealed class TurnSummaryCacheTests
         Assert.Equal(string.Empty, transcript);
         Assert.Equal(0, cursor);
     }
+
+    /// <summary>
+    /// The on-demand snapshot keeps the last readable characters of the WHOLE buffer, with
+    /// control sequences removed before the cut. A control sequence longer than any fixed raw
+    /// byte budget (here a 300 kilobyte operating-system command, ESC ] ... BEL) must still be
+    /// removed whole: cutting raw bytes first would start inside it, leave its payload as
+    /// "readable" text, and push the real latest answer out of the summary.
+    /// </summary>
+    [Fact]
+    public void SnapshotTerminalTail_longControlSequenceAcrossAnyRawCut_keepsTheReadableTail()
+    {
+        var buf = new CircularTerminalBuffer();
+        buf.Write(Encoding.UTF8.GetBytes("earlier line\nactual latest answer"));
+        buf.Write(Encoding.UTF8.GetBytes("\u001b]0;" + new string('p', 300 * 1024) + "\u0007"));
+
+        var snapshot = TurnSummaryCache.SnapshotTerminalTail(buf);
+
+        Assert.Equal("earlier line\nactual latest answer", snapshot);
+    }
 }
