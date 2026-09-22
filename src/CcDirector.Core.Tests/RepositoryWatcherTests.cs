@@ -12,7 +12,13 @@ public class RepositoryWatcherSignalTests
     [InlineData(@"refs\heads\main", true)]
     [InlineData("refs/heads/feature/x", true)]
     [InlineData(@"logs\HEAD", true)]
-    [InlineData(@"worktrees\wt1\HEAD", true)]
+    [InlineData(@"worktrees\wt1\HEAD", true)]           // a branch switch or commit in a linked worktree
+    [InlineData("worktrees/wt1/logs/HEAD", true)]
+    [InlineData(@"worktrees\wt1\locked", true)]
+    [InlineData(@"worktrees\wt1\index", false)]          // our own status scans rewrite this - echo loop
+    [InlineData(@"worktrees\wt1\index.lock", false)]     // created and removed by every status scan
+    [InlineData(@"worktrees\wt1", false)]                // the folder's mtime moves with its lock files
+    [InlineData(@"worktrees\wt1\ORIG_HEAD", false)]
     [InlineData("index", false)]                    // our own status scans touch this - echo risk
     [InlineData(@"objects\ab\cdef0123", false)]     // object writes are covered by the reflog
     [InlineData(@"logs\refs\heads\main", false)]
@@ -30,6 +36,8 @@ public class RepositoryWatcherSignalTests
     [InlineData(@".git\refs\heads\main", true)]
     [InlineData(".git/logs/HEAD", true)]
     [InlineData(@".git\index", false)]             // our own status scans touch this - echo risk
+    [InlineData(".git/worktrees/wt1/index", false)] // a linked worktree's index - the same echo
+    [InlineData(".git/worktrees/wt1/HEAD", true)]
     [InlineData(@".git\objects\ab\cdef", false)]   // object writes are covered by the reflog
     [InlineData("src/Program.cs", true)]           // a tracked working-tree file
     [InlineData("dirty.txt", true)]                // an untracked working-tree file
@@ -296,6 +304,73 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         await WaitUntilAsync(() => !monitor.Snapshot().Single().IsClean, TimeSpan.FromSeconds(10));
 
         Assert.False(monitor.Snapshot().Single().IsClean, "the recompute must reflect the new dirty state, not the cached clean count");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // REGRESSION: a status scan in a LINKED worktree rewrites its index under
+    // .git/worktrees/<name>/, inside the primary repository's watched .git. That used to count as
+    // a state change, so every recompute triggered the next - a repository with linked worktrees
+    // recomputed every ~11s forever, each time downloading the fleet session list from the Gateway.
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public async Task StatusScanInALinkedWorktree_DoesNotRecompute_ButABranchSwitchThereDoes()
+    {
+        var a = MakeRepo("echo-alpha");
+        var wt = Path.Combine(_root, "echo-alpha-wt");
+        RunGit(a, "worktree", "add", "-b", "wt-branch", wt);
+        var index = Path.Combine(a, ".git", "worktrees", "echo-alpha-wt", "index");
+
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => new[] { a },
+            compute: (p, _, _) => Task.FromResult(new RepositoryStatus { Path = p, Name = Path.GetFileName(p), IsClean = true, Success = true }))
+        { LiveSessionsProvider = NoSessions };
+        await monitor.RescanAsync(new[] { _root });
+
+        using var watcher = new RepositoryWatcher(monitor);
+        int recomputes = 0;
+        // Count only the PRIMARY repository's recomputes - the root watcher schedules any folder
+        // appearing or vanishing in the root, which is not what this test is about.
+        watcher.Recomputed += p => { if (Path.GetFileName(p) == "echo-alpha") Interlocked.Increment(ref recomputes); };
+        watcher.SyncWatches(new[] { _root }, new[] { a });
+
+        // Change a tracked file's stat info (not its content) so the status scan must refresh and
+        // rewrite the linked worktree's index - exactly what the Director's own scans do.
+        var before = File.GetLastWriteTimeUtc(index);
+        await Task.Delay(1100);
+        File.SetLastWriteTimeUtc(Path.Combine(wt, "README.md"), DateTime.UtcNow);
+        RunGit(wt, "status", "--porcelain");
+        Assert.True(File.GetLastWriteTimeUtc(index) > before,
+            "the status scan must have rewritten the linked worktree's index, or this test proves nothing");
+
+        await Task.Delay(TimeSpan.FromSeconds(4)); // two debounce windows
+        Assert.Equal(0, Volatile.Read(ref recomputes));
+
+        // A real state change in the linked worktree still recomputes: a branch switch writes its HEAD.
+        RunGit(wt, "checkout", "-b", "wt-other");
+        await WaitUntilAsync(() => Volatile.Read(ref recomputes) >= 1, TimeSpan.FromSeconds(15));
+    }
+
+    [Fact]
+    public async Task RemovingALinkedWorktree_RecomputesTheRepo()
+    {
+        var a = MakeRepo("remove-alpha");
+        var wt = Path.Combine(_root, "remove-alpha-wt");
+        RunGit(a, "worktree", "add", "-b", "wt-branch", wt);
+
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => new[] { a },
+            compute: (p, _, _) => Task.FromResult(new RepositoryStatus { Path = p, Name = Path.GetFileName(p), IsClean = true, Success = true }))
+        { LiveSessionsProvider = NoSessions };
+        await monitor.RescanAsync(new[] { _root });
+
+        using var watcher = new RepositoryWatcher(monitor);
+        int recomputes = 0;
+        // The primary's recompute, not the root watcher reporting the worktree folder vanishing.
+        watcher.Recomputed += p => { if (Path.GetFileName(p) == "remove-alpha") Interlocked.Increment(ref recomputes); };
+        watcher.SyncWatches(new[] { _root }, new[] { a });
+
+        RunGit(a, "worktree", "remove", wt);
+        await WaitUntilAsync(() => Volatile.Read(ref recomputes) >= 1, TimeSpan.FromSeconds(15));
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
