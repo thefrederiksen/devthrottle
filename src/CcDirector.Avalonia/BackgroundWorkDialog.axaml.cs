@@ -28,6 +28,9 @@ public partial class BackgroundWorkDialog : Window
     private static readonly IBrush OverBrush = new SolidColorBrush(Color.Parse("#EF4444"));
     private static readonly string[] Headers = { "Job", "Tier", "Cadence", "Last run", "Runs in the last hour", "Skipped", "Failed" };
 
+    /// <summary>How often the page re-reads the scheduler while it can be seen. The footer says this in words.</summary>
+    internal static readonly TimeSpan RefreshEvery = TimeSpan.FromSeconds(2);
+
     private readonly BackgroundJobs _jobs;
     private BackgroundJob? _refresh;
 
@@ -47,7 +50,7 @@ public partial class BackgroundWorkDialog : Window
     {
         Render(_jobs.Snapshot());
         _refresh = _jobs.Register(
-            new BackgroundJobSpec("Background work page refresh", BackgroundJobTier.OnView, TimeSpan.FromSeconds(2),
+            new BackgroundJobSpec("Background work page refresh", BackgroundJobTier.OnView, RefreshEvery,
                 "the page is closed", () => IsEffectivelyVisible),
             _ =>
             {
@@ -81,7 +84,8 @@ public partial class BackgroundWorkDialog : Window
             var name = job.Instances > 1 ? $"{job.Name} ({job.Instances} instances)" : job.Name;
             Rows.Children.Add(Cell(name, row, 0, brush));
             Rows.Children.Add(Cell(TierWords(job.Tier), row, 1, brush));
-            Rows.Children.Add(Cell(job.Cadence is { } cadence ? CadenceWords(cadence) : "on change", row, 2, brush));
+            Rows.Children.Add(Cell(job.Cadence is { } cadence ? CadenceWords(cadence)
+                : job.Tier == BackgroundJobTier.NeverOnATimer ? "on demand" : "on change", row, 2, brush));
             Rows.Children.Add(Cell(job.LastRunUtc is { } last ? AgoWords(DateTime.UtcNow - last) + (job.Running ? ", running" : "") : (job.Running ? "running" : "never"), row, 3, brush));
             Rows.Children.Add(Cell(job.CeilingPerHour is { } ceiling
                 ? $"{job.RunsInLastHour} of {ceiling * Math.Max(1, job.Instances)} allowed" + (job.OverCeiling ? " - OVER" : "")
@@ -99,7 +103,7 @@ public partial class BackgroundWorkDialog : Window
             Rows.Children.Add(none);
         }
 
-        RefreshedText.Text = $"Refreshed {DateTime.Now:HH:mm:ss}; every 2 seconds while this window is visible";
+        RefreshedText.Text = $"Refreshed {DateTime.Now:HH:mm:ss}; {CadenceWords(RefreshEvery)} while this window is visible";
     }
 
     private static TextBlock Cell(string text, int row, int column, IBrush brush, bool bold = false)
