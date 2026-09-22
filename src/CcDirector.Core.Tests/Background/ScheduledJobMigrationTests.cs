@@ -53,4 +53,23 @@ public sealed class ScheduledJobMigrationTests : IDisposable
         cleaner.Dispose();
         Assert.Empty(jobs.Snapshot());
     }
+
+    [Fact]
+    public void TheDeletionReaper_RegistersOnePerSessionManager_OnItsThirtySecondCadence_AndLeavesWhenDisposed()
+    {
+        var jobs = new BackgroundJobs();
+        var first = new CcDirector.Core.Sessions.SessionManager(new CcDirector.Core.Configuration.AgentOptions(), jobs: jobs);
+        var second = new CcDirector.Core.Sessions.SessionManager(new CcDirector.Core.Configuration.AgentOptions(), jobs: jobs);
+
+        var row = Assert.Single(jobs.Snapshot());
+        Assert.Equal("Deletion reaper", row.Name);
+        Assert.Equal(2, row.Instances);
+        Assert.Equal(TimeSpan.FromSeconds(30), row.Cadence);
+        Assert.Equal(BackgroundJobTier.SlowAndSteady, row.Tier);
+
+        first.Dispose();
+        Assert.Equal(1, jobs.Snapshot().Single().Instances);
+        second.Dispose();
+        Assert.Empty(jobs.Snapshot());
+    }
 }

@@ -31,4 +31,45 @@ public sealed class ActivityEventUploaderOnSchedulerTests
         uploader.Dispose();
         Assert.Empty(jobs.Snapshot());
     }
+
+    [Fact]
+    public async Task TheTurnSweep_RegistersUnderItsRegisterName_WithItsInterval_AndLeavesWhenDisposed()
+    {
+        var jobs = new BackgroundJobs();
+        var pusher = new TurnPusher(
+            sessionIds: () => Array.Empty<Guid>(),
+            snapshot: _ => null,
+            push: (_, _) => Task.FromResult<CcDirector.Gateway.Contracts.TurnWatermark?>(null),
+            canPush: () => false,
+            sweepInterval: TimeSpan.FromMinutes(1),
+            jobs: jobs);
+
+        pusher.Start();
+
+        var row = Assert.Single(jobs.Snapshot());
+        Assert.Equal("Turn sweep", row.Name);
+        Assert.Equal(TimeSpan.FromMinutes(1), row.Cadence);
+        Assert.Equal(60, row.CeilingPerHour);
+
+        await pusher.DisposeAsync();
+        Assert.Empty(jobs.Snapshot());
+    }
+
+    [Fact]
+    public void TheRegistrationHeartbeat_RegistersUnderItsRegisterName_WithItsFifteenSecondCadence_AndLeavesWhenDisposed()
+    {
+        var jobs = new BackgroundJobs();
+        var dir = Path.Combine(Path.GetTempPath(), "ccd-instances-" + Guid.NewGuid().ToString("N")[..8]);
+        var registration = new InstanceRegistration("director-test", "0.0.0", dir, jobs: jobs);
+
+        registration.Register();
+
+        var row = Assert.Single(jobs.Snapshot());
+        Assert.Equal("Instance registration heartbeat", row.Name);
+        Assert.Equal(InstanceRegistration.HeartbeatInterval, row.Cadence);
+
+        registration.Dispose();
+        Assert.Empty(jobs.Snapshot());
+        try { Directory.Delete(dir, recursive: true); } catch { }
+    }
 }

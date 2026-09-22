@@ -72,7 +72,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     public GatewayConnectionMonitor GatewayMonitor { get; } = new();
 
     // Cancels the injected-text refresh poll (started in StartAsync) when the host stops.
-    private readonly CancellationTokenSource _injectedTextRefreshCts = new();
+    private CcDirector.Core.Background.BackgroundJob? _refreshCycle;
 
     // Cancels the factory trigger runner (started in StartAsync) when the host stops.
     private readonly CancellationTokenSource _triggerRunnerCts = new();
@@ -532,27 +532,6 @@ public sealed class ControlApiHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Re-download the Gateway-owned injected text on a slow timer for as long as the host runs. The
-    /// connect-triggered refresh only fires when the connection state changes, so an already-connected
-    /// Director would otherwise never see a Cockpit edit until it reconnected; this closes that gap so the
-    /// setting has the same "no restart" guarantee the snooze lengths have. Best-effort - each tick keeps
-    /// the last-known cache on failure - and stops cleanly when the host cancels the token.
-    /// </summary>
-    private async Task PollInjectedTextAsync(CancellationToken ct)
-    {
-        using var timer = new PeriodicTimer(InjectedTextRefreshInterval);
-        try
-        {
-            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
-                await RefreshInjectedTextAsync().ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // The host is stopping - a clean end, not a failure.
-        }
-    }
-
-    /// <summary>
     /// Start the Director's services, write the instance registration file, and dial the Gateway.
     ///
     /// This method used to start Kestrel on a loopback port and return the port it bound. There is
@@ -649,8 +628,14 @@ public sealed class ControlApiHost : IAsyncDisposable
         // none, RefreshAsync is a no-op and polling would just log every tick.
         if (gatewayConfig.IsEnabled)
         {
-            FileLog.Write($"[ControlApiHost] starting injected-text refresh poll every {InjectedTextRefreshInterval.TotalSeconds:0}s");
-            _ = Task.Run(() => PollInjectedTextAsync(_injectedTextRefreshCts.Token));
+            FileLog.Write($"[ControlApiHost] starting the skills, workflows and injected text refresh cycle every {InjectedTextRefreshInterval.TotalSeconds:0}s");
+            // A slow-and-steady job on the scheduler (docs/BackgroundWork.md): first after one interval,
+            // then every interval, never overlapping. Each part of the cycle keeps its last-known cache on failure.
+            _refreshCycle = CcDirector.Core.Background.BackgroundJobs.Default.Register(
+                new CcDirector.Core.Background.BackgroundJobSpec("Skills, workflows and injected text refresh cycle",
+                    CcDirector.Core.Background.BackgroundJobTier.SlowAndSteady, InjectedTextRefreshInterval, "the host stops"),
+                _ => RefreshInjectedTextAsync());
+            _refreshCycle.StartTimer();
         }
 
         // Issue #1292: the Gateway is the authority for the fleet-unique session number. Wire the
@@ -1855,9 +1840,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         _stopped = true;
         FileLog.Write($"[ControlApiHost] StopAsync");
 
-        // Stop the injected-text refresh poll first so it does not tick against a tearing-down host.
-        try { _injectedTextRefreshCts.Cancel(); _injectedTextRefreshCts.Dispose(); }
-        catch (Exception ex) { FileLog.Write($"[ControlApiHost] injected-text poll cancel error: {ex.Message}"); }
+        // Stop the refresh cycle first so it does not tick against a tearing-down host.
+        try { _refreshCycle?.Dispose(); _refreshCycle = null; }
+        catch (Exception ex) { FileLog.Write($"[ControlApiHost] refresh cycle stop error: {ex.Message}"); }
         try { _triggerRunnerCts.Cancel(); _triggerRunnerCts.Dispose(); }
         catch (Exception ex) { FileLog.Write($"[ControlApiHost] trigger runner cancel error: {ex.Message}"); }
 
