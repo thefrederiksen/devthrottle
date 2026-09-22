@@ -349,6 +349,7 @@ public class TerminalControl : Control
         _lastScrollTotal = 0;
         _scrollback.Clear();
         _pathExistsCache.Clear();
+        ClearLinkMatchCache();
 
         RecalculateGridSize();
 
@@ -396,6 +397,7 @@ public class TerminalControl : Control
         _pendingLayoutAttach = false;
         _linkRegions.Clear();
         _pathExistsCache.Clear();
+        ClearLinkMatchCache();
     }
 
     /// <summary>
@@ -416,6 +418,7 @@ public class TerminalControl : Control
         _userScrolled = false;
         _lastScrollTotal = 0;
         _pathExistsCache.Clear();
+        ClearLinkMatchCache();
 
         long replayedBytes = 0;
         int replaySegments = 0;
@@ -855,6 +858,7 @@ public class TerminalControl : Control
         _userScrolled = false;
         _lastScrollTotal = 0;
         _pathExistsCache.Clear();
+        ClearLinkMatchCache();
         _parser = new AnsiParser(_cells, _cols, _rows, _scrollback, ScrollbackLines, FileLog.Write);
         if (data.Length > 0)
             _parser.Parse(data);
@@ -936,6 +940,15 @@ public class TerminalControl : Control
     /// PATH links right now. This calls <see cref="PathExistsCheckForRender"/>, so the FIRST call
     /// after the path cache is cleared returns fewer links (existing paths report missing for that
     /// frame) - that drop, repeated every Grok footer byte, is the flicker.</summary>
+    /// <summary>Harness: how many times link detection really ran rather than being answered from the
+    /// per-line cache.</summary>
+    internal int HarnessLinkDetectionCount => _linkDetectionCount;
+
+    /// <summary>Harness: how many frames painted the grid (a frame with no parser paints only background).</summary>
+    internal int HarnessRenderCount => _gridRenderCount;
+
+    private int _gridRenderCount;
+
     internal int HarnessCountPathLinks()
     {
         int n = 0;
@@ -972,6 +985,8 @@ public class TerminalControl : Control
 
         if (_parser == null)
             return;  // Background already drawn above
+
+        _gridRenderCount++;
 
         // Build link regions for this frame. A row the terminal wrapped continues on the
         // next row with no separator, so detection runs over the JOINED logical line and
@@ -1609,10 +1624,56 @@ public class TerminalControl : Control
     /// Find all link matches (paths and URLs) in a line of text.
     /// Delegates to LinkDetector with cache-backed path existence checking.
     /// </summary>
+    /// <remarks>
+    /// CACHED BY THE LINE'S TEXT. Five regular expressions ran over every row on every repaint, and a
+    /// streaming agent repaints up to twenty times a second while most of its rows stay exactly as they
+    /// were. The answer for a line depends on only three things: its text (the key), the repository its
+    /// relative paths resolve against (fixed for one attach - the cache is cleared on Attach, Detach and
+    /// every rebuild, beside the path cache), and which of its paths exist. That last one moves when a
+    /// background existence check FINDS a path it had reported missing, so each such find bumps
+    /// <see cref="_pathFoundVersion"/> and the next read here drops every cached line. A check that finds
+    /// nothing changes nothing, because a miss already rendered as no link. The cache holds at most
+    /// <see cref="LinkMatchCacheRowsFactor"/> times the visible rows and starts over when full.
+    /// A copy is handed out, because the caller trims matches cut off at the viewport bottom.
+    /// </remarks>
     private List<LinkDetector.LinkMatch> FindAllLinkMatches(string lineText)
     {
-        return LinkDetector.FindAllLinkMatches(lineText, _session?.RepoPath ?? _harnessRepoPath, PathExistsCheckForRender);
+        var pathVersion = Volatile.Read(ref _pathFoundVersion);
+        if (pathVersion != _linkMatchCacheVersion)
+        {
+            _linkMatchCache.Clear();
+            _linkMatchCacheVersion = pathVersion;
+        }
+
+        if (!_linkMatchCache.TryGetValue(lineText, out var matches))
+        {
+            if (_linkMatchCache.Count >= Math.Max(1, _rows) * LinkMatchCacheRowsFactor)
+                _linkMatchCache.Clear();
+            matches = LinkDetector.FindAllLinkMatches(lineText, _session?.RepoPath ?? _harnessRepoPath, PathExistsCheckForRender);
+            _linkDetectionCount++;
+            _linkMatchCache[lineText] = matches;
+        }
+        return new List<LinkDetector.LinkMatch>(matches);
     }
+
+    /// <summary>Link matches by logical line text. Screen-thread only.</summary>
+    private readonly Dictionary<string, List<LinkDetector.LinkMatch>> _linkMatchCache = new(StringComparer.Ordinal);
+
+    /// <summary>The cache holds at most this many lines per visible row before it starts over.</summary>
+    private const int LinkMatchCacheRowsFactor = 4;
+
+    /// <summary>Bumped whenever an existence check finds a path that was not known to exist; any cached
+    /// line may now carry a link it did not have. Written from background checks, read on the screen thread.</summary>
+    private int _pathFoundVersion;
+
+    /// <summary>The <see cref="_pathFoundVersion"/> the cached lines were detected under.</summary>
+    private int _linkMatchCacheVersion;
+
+    /// <summary>How many times link detection really ran, rather than being answered from the cache.</summary>
+    private int _linkDetectionCount;
+
+    /// <summary>Drop every cached line's links. Called wherever the path cache is cleared.</summary>
+    private void ClearLinkMatchCache() => _linkMatchCache.Clear();
 
     /// <summary>
     /// Path existence check for render context: uses cache, schedules background check on miss.
@@ -1628,6 +1689,8 @@ public class TerminalControl : Control
         {
             bool found = File.Exists(capturedPath) || Directory.Exists(capturedPath);
             _pathExistsCache[capturedPath] = found;
+            if (found)
+                Interlocked.Increment(ref _pathFoundVersion);
             if (found && Interlocked.CompareExchange(ref _pathCacheInvalidateNeeded, 1, 0) == 0)
                 Dispatcher.UIThread.Post(InvalidateVisual);
         });
@@ -1644,6 +1707,8 @@ public class TerminalControl : Control
 
         bool found = File.Exists(fullPath) || Directory.Exists(fullPath);
         _pathExistsCache[fullPath] = found;
+        if (found)
+            Interlocked.Increment(ref _pathFoundVersion);
         return found;
     }
 
