@@ -52,6 +52,12 @@ Columns: the job; the source file that constructs it (the enforcement key); how 
 watchers or polling loops that file constructs; what triggers a run today; the cadence today; the
 tier it belongs in; what one run costs; the thread; what switches it off; what was measured.
 
+### The scheduler
+
+| Job | Source | Sites | Trigger today | Cadence today | Tier | One run costs | Thread | Off switch | Today on this Mac |
+|---|---|---|---|---|---|---|---|---|---|
+| `BackgroundJobs`: the one timer every job on the scheduler ticks on | `src/CcDirector.Core/Background/BackgroundJobs.cs` | 1 | A registered job's `StartTimer`, or its `Trigger` | Each job's own declared cadence, never faster; a job whose switch is off is skipped; at most four jobs run at once | The mechanism the tiers are enforced by | Whatever the job it runs costs | Pool | Each job's `Dispose` | Runs, skips, failures and ceilings per job in `BackgroundJobs.Default.Snapshot()` |
+
 ### Repository and git
 
 | Job | Source | Sites | Trigger today | Cadence today | Tier | One run costs | Thread | Off switch | Today on this Mac |
@@ -66,7 +72,7 @@ tier it belongs in; what one run costs; the thread; what switches it off; what w
 | Tunnel re-push of the full snapshot, and the reconnect loop that re-dials the Gateway after a drop | `src/CcDirector.ControlApi/GatewayStreamClient.cs` | 2 | Timer; a loop that runs while the client is not disposed, dialling, waiting for the connection to close, delaying, dialling again | Every 10 s, changed or not; the reconnect waits its restart delay between dials | Slow and steady; proposed: send on change, a small keep-alive otherwise (#3301) | Full session list, a key registration per session, the full repository snapshot | Pool | Stream client disposed | 16,260 log lines; the "tick LATE" line is now written only for a second or more (#3315) |
 | Repository snapshot push debounce, and the injected-text, workflow-index, skill-index and skill-store refresh cycle | `src/CcDirector.ControlApi/ControlApiHost.cs` | 2 | A repository change (debounced); the periodic timer | Debounce once per burst; the refresh cycle every 60 s | Once-then-stop; slow and steady - the skill store now downloads only a changed version (#3310); proposed for the three indexes: 5 min with a not-modified check | Three index downloads; the skill bodies only when the served version or hash changed | Pool | Host disposed | 960 refresh cycles; 15 skill directories rewritten per cycle before #3310, 0 after |
 | Turn sweep | `src/CcDirector.ControlApi/TurnPusher.cs` | 1 | Periodic timer | Every 1 min | Slow and steady; keep | Push new turns; cheap when empty | Pool | Pusher disposed | Not separately counted |
-| Activity event outbox | `src/CcDirector.ControlApi/ActivityEventUploader.cs` | 1 | Timer | Every 30 s | Slow and steady; keep | Drain the outbox; cheap when empty | Pool | Uploader disposed | Not separately counted |
+| Activity event outbox | `src/CcDirector.ControlApi/ActivityEventUploader.cs` | 0 | A job on the scheduler, "Activity event outbox" | Every 30 s | Slow and steady; keep. **On the scheduler** | Drain the outbox; cheap when empty | Pool | Uploader disposed | Not separately counted |
 | Instance registration heartbeat | `src/CcDirector.ControlApi/InstanceRegistration.cs` | 1 | Timer | Heartbeat interval | Slow and steady; keep | One small request | Pool | Registration disposed | Not separately counted |
 | Repository state push, 6-hourly | `src/CcDirector.ControlApi/RepoStatePusher.cs` | 1 | Polling loop | Every 6 h | Slow and steady; keep now that the upstream probe reads locally (#3308) | Branch inventory plus worktree inventory for every repository | Pool | Cancellation | 44 log lines from the up-stream handler |
 | Factory trigger poll | `src/CcDirector.ControlApi/Triggers/DirectorTriggerRunner.cs` | 1 | Periodic timer | Every 30 s | Slow and steady; keep, or push down the tunnel later | One request for due triggers | Pool | Cancellation | Not separately counted |
@@ -150,7 +156,7 @@ Loops that poll for one thing to happen and stop at a deadline. Not background w
 
 | Job | Source | Sites | Trigger today | Cadence today | Tier | One run costs | Thread | Off switch | Today on this Mac |
 |---|---|---|---|---|---|---|---|---|---|
-| Backup cleaner | `src/CcDirector.Core/Utilities/BackupCleaner.cs` | 1 | Timer | Every 60 s | Slow and steady; keep | A directory enumeration | Pool | Cleaner disposed | Not separately counted |
+| Backup cleaner | `src/CcDirector.Core/Utilities/BackupCleaner.cs` | 0 | A job on the scheduler, "Backup cleaner" | Every 60 s | Slow and steady; keep. **On the scheduler** | A directory enumeration | Pool | Cleaner disposed | Not separately counted |
 | NUL-file watcher (Windows) | `src/CcDirector.Core/Utilities/NulFileWatcher.cs` | 1 | A file watcher per drive | On change | On change; keep | A delete when a stray NUL file appears | Pool | Watcher disposed | - |
 | Screenshot capture watcher | `src/CcDirector.Core/Storage/ScreenshotCaptureWatcher.cs` | 1 | A file watcher | On change | On change; keep | Moves one file | Pool | Watcher disposed | - |
 | Dictation dictionary reload | `src/CcDirector.Core/Dictation/DictionaryLoader.cs` | 1 | A file watcher on the dictionary file | On change | On change; keep | Reloads one file | Pool | Loader disposed | - |

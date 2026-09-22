@@ -26,28 +26,35 @@ public sealed class ActivityEventUploader : IDisposable
 
     private readonly Func<GatewayClient?> _gateway;
     private readonly ActivityEventOutbox _outbox;
-    private readonly System.Threading.Timer _timer;
+    private readonly CcDirector.Core.Background.BackgroundJobs _jobs;
+    private CcDirector.Core.Background.BackgroundJob? _job;
     private int _inFlight;
     private int _disposed;
 
-    public ActivityEventUploader(Func<GatewayClient?> gateway, ActivityEventOutbox outbox)
+    /// <param name="jobs">The scheduler the drain registers with; the process-wide one when null.</param>
+    public ActivityEventUploader(Func<GatewayClient?> gateway, ActivityEventOutbox outbox, CcDirector.Core.Background.BackgroundJobs? jobs = null)
     {
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
         _outbox = outbox ?? throw new ArgumentNullException(nameof(outbox));
-        _timer = new System.Threading.Timer(_ => OnTick(), null, Timeout.Infinite, Timeout.Infinite);
+        _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
     }
 
+    /// <summary>A slow-and-steady job on the scheduler (docs/BackgroundWork.md): first after one
+    /// interval, then every interval, never overlapping, off the window's thread.</summary>
     public void Start()
     {
-        _timer.Change(Interval, Interval);
+        _job = _jobs.Register(
+            new CcDirector.Core.Background.BackgroundJobSpec("Activity event outbox", CcDirector.Core.Background.BackgroundJobTier.SlowAndSteady, Interval, "the uploader is disposed"),
+            _ => OnTickAsync());
+        _job.StartTimer();
         FileLog.Write($"[ActivityEventUploader] started: every {Interval.TotalSeconds:0}s, batch {BatchSize}, pending {_outbox.PendingCount}");
     }
 
-    private void OnTick()
+    private Task OnTickAsync()
     {
-        if (Volatile.Read(ref _disposed) != 0) return;
-        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0) return;
-        _ = DrainAsync();
+        if (Volatile.Read(ref _disposed) != 0) return Task.CompletedTask;
+        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0) return Task.CompletedTask;
+        return DrainAsync();
     }
 
     private async Task DrainAsync()
@@ -96,6 +103,6 @@ public sealed class ActivityEventUploader : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        _timer.Dispose();
+        _job?.Dispose();
     }
 }
