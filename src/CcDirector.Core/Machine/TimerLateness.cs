@@ -63,10 +63,20 @@ public static class TimerLateness
     /// It also states that any memory reading logged beside it was taken AFTER the delay: a probe read
     /// at the end of a twenty-five second stall describes the machine now, not throughout the stall.
     /// </summary>
+    /// <summary>
+    /// Below this, a tick is on time. A timer callback is always a few milliseconds behind its
+    /// schedule - that is how timers work, not a stall - and the line below prints the lateness to a
+    /// tenth of a second, so anything under that printed as "0.0s later" and said nothing. On one
+    /// Director that was 3,016 such lines in a day, against 10 that showed any lateness at all, the
+    /// worst of them half a second. A real stall - the twenty-five second kind that takes a Director's
+    /// sessions off the air - is seconds, not milliseconds.
+    /// </summary>
+    public static readonly TimeSpan WorthReporting = TimeSpan.FromSeconds(1);
+
     public static string? Describe(
         TimeSpan lateness, TimeSpan interval, TimeSpan stalenessWindow, TimeSpan? sinceLastFullSnapshot)
     {
-        if (lateness <= TimeSpan.Zero) return null;
+        if (lateness < WorthReporting) return null;
 
         var snapshotAge = sinceLastFullSnapshot is null
             ? "no full snapshot has been pushed yet"
