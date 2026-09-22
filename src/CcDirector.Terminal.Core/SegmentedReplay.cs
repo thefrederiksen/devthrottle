@@ -42,6 +42,23 @@ public static class SegmentedReplay
         var cells = new TerminalCell[cols, rows];
         var parser = new AnsiParser(cells, cols, rows, scrollback, maxScrollback, logCallback);
 
+        cells = Continue(parser, cells, cols, rows, data, resizes, finalCols, finalRows);
+        return (cells, parser);
+    }
+
+    /// <summary>
+    /// Continue an existing replay: parse <paramref name="data"/> through <paramref name="parser"/>, whose grid
+    /// <paramref name="cells"/> is <paramref name="cols"/> x <paramref name="rows"/>, applying each entry of
+    /// <paramref name="resizes"/> (offsets relative to the start of <paramref name="data"/>, ordered) at its byte,
+    /// then resizing to <paramref name="finalCols"/> x <paramref name="finalRows"/>. This is the same segmenting
+    /// <see cref="Replay"/> does, for bytes written after a replay's end position, so they too are parsed at the
+    /// geometry in effect when they were written (issue #1304). Returns the final grid.
+    /// </summary>
+    public static TerminalCell[,] Continue(
+        AnsiParser parser, TerminalCell[,] cells, int cols, int rows,
+        byte[] data, IReadOnlyList<ReplayResize> resizes,
+        int finalCols, int finalRows)
+    {
         int position = 0;
         foreach (var resize in resizes)
         {
@@ -58,7 +75,7 @@ public static class SegmentedReplay
             parser.Parse(data[position..]);
 
         (cells, cols, rows) = ApplyResize(parser, cells, cols, rows, finalCols, finalRows);
-        return (cells, parser);
+        return cells;
     }
 
     /// <summary>
