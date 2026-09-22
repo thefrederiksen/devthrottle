@@ -80,6 +80,12 @@ public partial class MainWindow : Window
     // Internal, not private: the compose-box route test (ruling R20) adds a session here and drives the
     // real SelectSession, insert and send through it.
     internal readonly ObservableCollection<SessionViewModel> _sessions = new();
+
+    /// <summary>
+    /// Headless window tests only: show the real window without the start-up wiring in MainWindow_Loaded, which
+    /// needs the Director application (its session manager, gateway and timers) that a test does not run.
+    /// </summary>
+    internal bool SkipApplicationWiringOnLoaded { get; init; }
     private SessionViewModel? _activeSession;
 
     // ===== The rail as the ownership tree (Session List Views, slice 2) =====
@@ -369,6 +375,12 @@ public partial class MainWindow : Window
     private void MainWindow_Loaded(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] MainWindow_Loaded");
+
+        if (SkipApplicationWiringOnLoaded)
+        {
+            FileLog.Write("[MainWindow] MainWindow_Loaded: application wiring skipped (headless window test)");
+            return;
+        }
 
         var app = (App)global::Avalonia.Application.Current!;
         _sessionManager = app.SessionManager;
@@ -5259,8 +5271,9 @@ public partial class MainWindow : Window
         // was hidden. The replay was added (March 2026) as a blanket fix for a terminal that looked corrupt after
         // being hidden; it re-parses up to two megabytes on the screen thread, so doing it on every return froze
         // the window on every visit, and on a session switch that lands on the Terminal tab it was a second full
-        // replay straight after Attach's own. Posted at Loaded so the newly shown panel has been laid out and the
-        // grid reflects the size it will actually render at.
+        // replay straight after Attach's own. An unchanged return still gets the cheap half of that fix: catch up
+        // with the buffer, the same-size resize, and a repaint. Posted at Loaded so the newly shown panel has
+        // been laid out and the grid reflects the size it will actually render at.
         if (tab == "Terminal")
         {
             var sizeWhenHidden = _terminalGridWhenHidden;

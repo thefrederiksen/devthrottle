@@ -520,9 +520,10 @@ public class TerminalControl : Control
     public (int Cols, int Rows) GridSize => (_cols, _rows);
 
     /// <summary>
-    /// Run <see cref="ForceRefresh"/> only when the grid is no longer the size given - the size it had when the
-    /// host hid the terminal. A return to an unchanged terminal keeps its parser and grid as they are, because
-    /// the poll kept parsing while it was hidden. Returns whether the replay ran.
+    /// The terminal is being shown again after the host hid it. When the grid is no longer the size given - the
+    /// size it had when it was hidden - run the full <see cref="ForceRefresh"/> replay. When the size is unchanged,
+    /// keep the parser (the poll kept parsing while hidden) and do only the cheap half of that refresh: parse
+    /// anything not yet read, send the same-size resize, and repaint. Returns whether the replay ran.
     /// </summary>
     public bool RefreshIfGridChangedSince(int cols, int rows)
     {
@@ -530,7 +531,31 @@ public class TerminalControl : Control
         FileLog.Write($"[TerminalControl] RefreshIfGridChangedSince: was={cols}x{rows}, now={_cols}x{_rows}, replay={changed}");
         if (changed)
             ForceRefresh();
+        else
+            RedrawAtSameSize();
         return changed;
+    }
+
+    /// <summary>
+    /// The cheap half of <see cref="ForceRefresh"/>, without the buffer replay: catch the parser up with the
+    /// buffer, send a same-size resize so a running program is asked to redraw, and repaint. Session.Resize
+    /// drops a resize to the size the terminal already has (since May 2026), so today the resize reaches the
+    /// program only if the session's recorded size differs; the call is kept so this path asks exactly what
+    /// ForceRefresh asks.
+    /// </summary>
+    private void RedrawAtSameSize()
+    {
+        if (_session is null || Bounds.Width <= 0 || Bounds.Height <= 0)
+            return;
+
+        // With no parser there is nothing to catch up, and polling would move the read position past bytes
+        // nobody parsed.
+        if (_parser is not null)
+            PollTimer_Tick(null, EventArgs.Empty);
+
+        ResizeSession((short)_cols, (short)_rows);
+        InvalidateVisual();
+        ScrollChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -967,6 +992,9 @@ public class TerminalControl : Control
 
     /// <summary>Harness: how many frames painted the grid (a frame with no parser paints only background).</summary>
     internal int HarnessRenderCount => _gridRenderCount;
+
+    /// <summary>Harness: one poll through the real tick handler; the headless platform does not fire the poll timer.</summary>
+    internal void HarnessPollTick() => PollTimer_Tick(null, EventArgs.Empty);
 
     private int _gridRenderCount;
 

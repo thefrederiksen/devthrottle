@@ -15,6 +15,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="CcDirector.Terminal.RenderHarness" />
     <InternalsVisibleTo Include="CcDirector.Terminal.Avalonia.Tests" />
+    <InternalsVisibleTo Include="CcDirector.Avalonia.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -13,6 +13,8 @@ namespace CcDirector.Terminal.Avalonia.Tests;
 /// Returning to the Terminal tab replays the whole terminal buffer only when the grid size changed while the tab
 /// was hidden (relief plan step 8a). The replay is up to two megabytes of parsing on the screen thread, so an
 /// unchanged return must keep the parser it has; a changed size must still get the full replay it always had.
+/// These drive the control on its own; the real hide-and-show route through the window tabs is proved in
+/// TerminalTabReturnWindowTests in CcDirector.Avalonia.Tests.
 /// </summary>
 public sealed class TerminalTabReturnTests
 {
@@ -54,7 +56,7 @@ public sealed class TerminalTabReturnTests
     }
 
     [AvaloniaFact]
-    public void RefreshIfGridChangedSince_SameSize_KeepsTheParserAndDoesNotReplay()
+    public void RefreshIfGridChangedSince_SameSizeAsTheOneGiven_KeepsTheParserAndDoesNotReplay()
     {
         var (terminal, _) = AttachedTerminal();
         var hidden = terminal.GridSize;
@@ -67,7 +69,7 @@ public sealed class TerminalTabReturnTests
     }
 
     [AvaloniaFact]
-    public void RefreshIfGridChangedSince_WindowResizedWhileHidden_ReplaysTheBuffer()
+    public void RefreshIfGridChangedSince_GridSizeDiffersFromTheOneGiven_ReplaysTheBuffer()
     {
         var (terminal, window) = AttachedTerminal();
         var hidden = terminal.GridSize;
