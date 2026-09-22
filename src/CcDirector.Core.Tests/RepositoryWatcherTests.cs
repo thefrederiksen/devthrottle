@@ -70,6 +70,15 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// The settle window these tests run with. Production waits 20 seconds; the plumbing under test is
+    /// the same at 2, and the waits below are sized for it.
+    /// </summary>
+    private static readonly TimeSpan TestSettle = TimeSpan.FromSeconds(2);
+
+    private static RepositoryWatcher NewWatcher(RepositoryMonitor monitor)
+        => new(monitor, settle: TestSettle, maxWait: RepositoryWatcher.DefaultMaxWait);
+
     /// <summary>An explicit empty-session source: the monitor refuses to scan unwired (R2-8).</summary>
     private static Func<CancellationToken, Task<IReadOnlyList<LiveSessionRef>>> NoSessions
         => _ => Task.FromResult<IReadOnlyList<LiveSessionRef>>(Array.Empty<LiveSessionRef>());
@@ -106,7 +115,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         await monitor.RescanAsync(new[] { _root });
         lock (computed) computed.Clear(); // ignore the initial scan
 
-        using var watcher = new RepositoryWatcher(monitor);
+        using var watcher = NewWatcher(monitor);
         var recomputes = new List<string>();
         watcher.Recomputed += p => { lock (recomputes) recomputes.Add(Path.GetFileName(p)); };
         watcher.SyncWatches(new[] { _root }, new[] { a, b });
@@ -145,7 +154,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         { LiveSessionsProvider = NoSessions };
         await monitor.RescanAsync(new[] { _root });
 
-        using var watcher = new RepositoryWatcher(monitor);
+        using var watcher = NewWatcher(monitor);
         var recomputes = new List<string>();
         watcher.Recomputed += p => { lock (recomputes) recomputes.Add(Path.GetFileName(p)); };
         watcher.SyncWatches(new[] { _root }, new[] { a });
@@ -190,7 +199,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         { LiveSessionsProvider = NoSessions };
         await monitor.RescanAsync(new[] { _root });
 
-        using var watcher = new RepositoryWatcher(monitor);
+        using var watcher = NewWatcher(monitor);
         int recomputes = 0;
         watcher.Recomputed += _ => Interlocked.Increment(ref recomputes);
         watcher.SyncWatches(new[] { _root }, new[] { a });
@@ -243,7 +252,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
 
         await monitor.RescanAsync(new[] { _root }); // initial scan - the model knows the repo
 
-        using var watcher = new RepositoryWatcher(monitor);
+        using var watcher = NewWatcher(monitor);
         var watcherProcessed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         watcher.Recomputed += _ => watcherProcessed.TrySetResult();
         watcher.SyncWatches(new[] { _root }, new[] { repo });
@@ -292,7 +301,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         await monitor.RescanAsync(new[] { _root });
         Assert.True(monitor.Snapshot().Single().IsClean);
 
-        using var watcher = new RepositoryWatcher(monitor);
+        using var watcher = NewWatcher(monitor);
         var recomputed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         watcher.Recomputed += _ => recomputed.TrySetResult();
         watcher.SyncWatches(new[] { _root }, new[] { a });
@@ -326,7 +335,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         { LiveSessionsProvider = NoSessions };
         await monitor.RescanAsync(new[] { _root });
 
-        using var watcher = new RepositoryWatcher(monitor);
+        using var watcher = NewWatcher(monitor);
         int recomputes = 0;
         // Count only the PRIMARY repository's recomputes - the root watcher schedules any folder
         // appearing or vanishing in the root, which is not what this test is about.
@@ -363,7 +372,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         { LiveSessionsProvider = NoSessions };
         await monitor.RescanAsync(new[] { _root });
 
-        using var watcher = new RepositoryWatcher(monitor);
+        using var watcher = NewWatcher(monitor);
         int recomputes = 0;
         // The primary's recompute, not the root watcher reporting the worktree folder vanishing.
         watcher.Recomputed += p => { if (Path.GetFileName(p) == "remove-alpha") Interlocked.Increment(ref recomputes); };
@@ -371,6 +380,187 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
 
         RunGit(a, "worktree", "remove", wt);
         await WaitUntilAsync(() => Volatile.Read(ref recomputes) >= 1, TimeSpan.FromSeconds(15));
+    }
+
+    [Fact]
+    public void Defaults_SettleTwentySeconds_ForceWithinSixty()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(20), RepositoryWatcher.DefaultSettle);
+        Assert.Equal(TimeSpan.FromSeconds(60), RepositoryWatcher.DefaultMaxWait);
+    }
+
+    [Fact]
+    public void Constructor_MaxWaitShorterThanSettle_Throws()
+    {
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => Array.Empty<string>(),
+            compute: (p, _, _) => Task.FromResult(new RepositoryStatus { Path = p, Success = true }))
+        { LiveSessionsProvider = NoSessions };
+        Assert.Throws<ArgumentException>(() => new RepositoryWatcher(monitor, settle: TimeSpan.FromSeconds(20), maxWait: TimeSpan.FromSeconds(5)));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Agents write files constantly: twenty working-tree writes inside one settle window are ONE
+    // recompute, not twenty. (Before the settle window was widened, every agent edit burst paid a
+    // full git inventory - about one recompute every 3.7 seconds all day.)
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public async Task TwentyWritesInsideTheSettleWindow_ProduceOneRecompute()
+    {
+        var a = MakeRepo("twenty");
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => new[] { a },
+            compute: (p, _, _) => Task.FromResult(new RepositoryStatus { Path = p, Name = Path.GetFileName(p), IsClean = true, Success = true }))
+        { LiveSessionsProvider = NoSessions };
+        await monitor.RescanAsync(new[] { _root });
+
+        using var watcher = new RepositoryWatcher(monitor, settle: TimeSpan.FromSeconds(3), maxWait: TimeSpan.FromSeconds(60));
+        int recomputes = 0;
+        watcher.Recomputed += p => { if (Path.GetFileName(p) == "twenty") Interlocked.Increment(ref recomputes); };
+        watcher.SyncWatches(new[] { _root }, new[] { a });
+
+        for (int i = 0; i < 20; i++)
+        {
+            File.WriteAllText(Path.Combine(a, $"edit-{i % 4}.txt"), $"edit {i}");
+            await Task.Delay(50);
+        }
+        Assert.Equal(0, Volatile.Read(ref recomputes)); // still inside the window
+
+        await WaitUntilAsync(() => Volatile.Read(ref recomputes) >= 1, TimeSpan.FromSeconds(15));
+        await Task.Delay(TimeSpan.FromSeconds(4)); // longer than one more window: nothing else follows
+        Assert.Equal(1, Volatile.Read(ref recomputes));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // A repository under CONTINUOUS edits never goes quiet for a whole settle window. The maximum
+    // wait forces a recompute anyway, so its cleanliness is never left stale while agents work.
+    // Scaled down: settle 2s, maximum wait 3s, writes every 200ms for 8s.
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public async Task ContinuousWrites_StillRecomputeWithinTheMaxWait()
+    {
+        var a = MakeRepo("continuous");
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => new[] { a },
+            compute: (p, _, _) => Task.FromResult(new RepositoryStatus { Path = p, Name = Path.GetFileName(p), IsClean = true, Success = true }))
+        { LiveSessionsProvider = NoSessions };
+        await monitor.RescanAsync(new[] { _root });
+
+        var maxWait = TimeSpan.FromSeconds(3);
+        using var watcher = new RepositoryWatcher(monitor, settle: TimeSpan.FromSeconds(2), maxWait: maxWait);
+        var sw = new Stopwatch();
+        long firstRecomputeMs = -1;
+        int recomputes = 0;
+        watcher.Recomputed += p =>
+        {
+            if (Path.GetFileName(p) != "continuous") return;
+            Interlocked.CompareExchange(ref firstRecomputeMs, sw.ElapsedMilliseconds, -1);
+            Interlocked.Increment(ref recomputes);
+        };
+        watcher.SyncWatches(new[] { _root }, new[] { a });
+
+        sw.Start();
+        while (sw.Elapsed < TimeSpan.FromSeconds(8))
+        {
+            File.WriteAllText(Path.Combine(a, "busy.txt"), sw.ElapsedMilliseconds.ToString());
+            await Task.Delay(200);
+        }
+        var duringWrites = Volatile.Read(ref recomputes);
+
+        Assert.True(duringWrites >= 2, $"continuous writes for 8s with a 3s maximum wait must recompute at least twice; saw {duringWrites}");
+        var first = Interlocked.Read(ref firstRecomputeMs);
+        Assert.InRange(first, 0, (long)maxWait.TotalMilliseconds + 2000); // forced by the maximum wait, not by settling
+
+        // Let the last settle window (2s) finish, with room to spare, then bound the TOTAL exactly.
+        // Each forced recompute closes a window at least maxWait long and the windows do not overlap,
+        // so 8s of writes hold at most floor(8 / 3) = 2 forced recomputes, plus the one that runs when
+        // the writes stop and the repository settles: 3. A duplicate recompute at a window's expiry
+        // (the callback that lost its slot recomputing anyway) would push this past 3.
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        Assert.InRange(Volatile.Read(ref recomputes), 2, 3);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Callback ownership, driven deterministically through the delay seam: each settle wait is a
+    // task the test completes by hand, and it ignores cancellation - exactly the moment a wait has
+    // already expired when the replacement or the Dispose arrives.
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public async Task AReplacementAtTheMomentAWaitExpires_RecomputesExactlyOnce()
+    {
+        var a = MakeRepo("expiry-replace");
+        var (monitor, computes) = CountingMonitor(a);
+        await monitor.RescanAsync(new[] { _root });
+        Interlocked.Exchange(ref computes.Value, 0);
+
+        using var watcher = NewWatcher(monitor);
+        var waits = new List<TaskCompletionSource>();
+        watcher.DelayAsync = (_, _) =>
+        {
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (waits) waits.Add(tcs);
+            return tcs.Task; // ignores the token: this wait has "already expired" when it is replaced
+        };
+        int recomputed = 0;
+        watcher.Recomputed += _ => Interlocked.Increment(ref recomputed);
+
+        watcher.Schedule(a); // first event: wait 1
+        watcher.Schedule(a); // the replacement arrives: wait 2 now owns the change
+        TaskCompletionSource first, second;
+        lock (waits) { Assert.Equal(2, waits.Count); first = waits[0]; second = waits[1]; }
+
+        first.SetResult(); // wait 1 completes after losing its slot: it must not recompute
+        await Task.Delay(300);
+        Assert.Equal(0, Volatile.Read(ref recomputed));
+
+        second.SetResult();
+        await WaitUntilAsync(() => Volatile.Read(ref recomputed) >= 1, TimeSpan.FromSeconds(10));
+        await Task.Delay(300);
+        Assert.Equal(1, Volatile.Read(ref recomputed));
+        Assert.Equal(1, Volatile.Read(ref computes.Value));
+    }
+
+    [Fact]
+    public async Task ADisposeAtTheMomentAWaitExpires_RecomputesNothing_AndRaisesNothing()
+    {
+        var a = MakeRepo("expiry-dispose");
+        var (monitor, computes) = CountingMonitor(a);
+        await monitor.RescanAsync(new[] { _root });
+        Interlocked.Exchange(ref computes.Value, 0);
+
+        var watcher = NewWatcher(monitor);
+        var wait = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        watcher.DelayAsync = (_, _) => wait.Task;
+        int recomputed = 0;
+        watcher.Recomputed += _ => Interlocked.Increment(ref recomputed);
+
+        watcher.Schedule(a);
+        watcher.Dispose();
+        wait.SetResult(); // the wait expires after Dispose cleared the slot
+
+        await Task.Delay(500);
+        Assert.Equal(0, Volatile.Read(ref recomputed));
+        Assert.Equal(0, Volatile.Read(ref computes.Value));
+
+        watcher.Schedule(a); // an event after disposal schedules nothing
+        await Task.Delay(300);
+        Assert.Equal(0, Volatile.Read(ref computes.Value));
+    }
+
+    private sealed class Counter { public int Value; }
+
+    private (RepositoryMonitor Monitor, Counter Computes) CountingMonitor(string repo)
+    {
+        var computes = new Counter();
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => new[] { repo },
+            compute: (p, _, _) =>
+            {
+                Interlocked.Increment(ref computes.Value);
+                return Task.FromResult(new RepositoryStatus { Path = p, Name = Path.GetFileName(p), IsClean = true, Success = true });
+            })
+        { LiveSessionsProvider = NoSessions };
+        return (monitor, computes);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
