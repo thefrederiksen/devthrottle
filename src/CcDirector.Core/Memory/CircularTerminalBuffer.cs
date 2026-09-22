@@ -193,6 +193,39 @@ public sealed class CircularTerminalBuffer : IDisposable
     }
 
     /// <summary>
+    /// Return the last <paramref name="maxBytes"/> valid bytes in chronological order, in one
+    /// copy of at most that many bytes. When fewer bytes are held, returns all of them (the same
+    /// bytes <see cref="DumpAll"/> would). For readers that only need the recent end of the
+    /// output, so they stop copying the whole ring (up to 2 megabytes) to look at its tail.
+    /// </summary>
+    public byte[] DumpTail(int maxBytes)
+    {
+        if (maxBytes < 0)
+            throw new ArgumentOutOfRangeException(nameof(maxBytes), "maxBytes must not be negative.");
+        if (!TryEnterReadLock()) return Array.Empty<byte>();
+        try
+        {
+            long held = Math.Min(_totalWritten, _capacity);
+            int count = (int)Math.Min(held, maxBytes);
+            if (count == 0)
+                return Array.Empty<byte>();
+
+            // The newest byte sits just before _writeHead; the tail starts count bytes earlier.
+            var result = new byte[count];
+            int startOffset = (_writeHead - count + _capacity) % _capacity;
+            int firstPart = Math.Min(count, _capacity - startOffset);
+            Array.Copy(_buffer, startOffset, result, 0, firstPart);
+            if (firstPart < count)
+                Array.Copy(_buffer, 0, result, firstPart, count - firstPart);
+            return result;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
     /// Get bytes written since the given position.
     /// If position is stale (data has been overwritten), returns a full dump.
     /// Returns (data, newPosition) where newPosition should be passed to the next call.
