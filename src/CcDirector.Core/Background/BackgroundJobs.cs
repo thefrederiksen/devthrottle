@@ -155,6 +155,7 @@ public sealed class BackgroundJob : IDisposable
     private readonly object _gate = new();
     private readonly Queue<DateTime> _runsLastHour = new();
     private Timer? _timer;
+    private Task? _current;
     private bool _running;
     private bool _askedAgain;
     private DateTime? _lastRunUtc;
@@ -216,9 +217,8 @@ public sealed class BackgroundJob : IDisposable
                 return true;
             }
             _running = true;
+            _current = RunAsync();
         }
-
-        _ = RunAsync();
         return true;
     }
 
@@ -295,6 +295,23 @@ public sealed class BackgroundJob : IDisposable
                 Spec.Name, Spec.Tier, Spec.Cadence, Spec.CeilingPerHour,
                 _lastRunUtc, _lastDuration, _runsLastHour.Count,
                 _skippedOff, _skippedTooSoon, _failures, _running);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="Dispose"/>, then wait for a run that was in flight to finish winding down. For an
+    /// owner whose teardown must not overlap the job's last run - the turn pusher's sweep reads a
+    /// stream client its host nulls at the top of its own stop - so "stopped" means stopped.
+    /// </summary>
+    public async Task StopAsync()
+    {
+        Dispose();
+        Task? current;
+        lock (_gate) current = _current;
+        if (current is not null)
+        {
+            try { await current.ConfigureAwait(false); }
+            catch (Exception) { /* the run's own failure was logged where it happened */ }
         }
     }
 

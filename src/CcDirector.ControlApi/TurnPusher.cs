@@ -436,12 +436,17 @@ public sealed class TurnPusher : IAsyncDisposable
     private static string Short(string generation)
         => generation.Length <= 40 ? generation : "..." + generation[^40..];
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         _stopping.Cancel();
-        _sweepJob?.Dispose();
-        _sweepJob = null;
+        // Wait out a sweep in flight, as the loop this replaced was awaited: the host nulls its
+        // stream client at the top of its own stop, and a sweep that outlived this call would push
+        // at nothing and log a stopped-stream line per remaining session.
+        if (_sweepJob is { } job)
+        {
+            _sweepJob = null;
+            await job.StopAsync().ConfigureAwait(false);
+        }
         _stopping.Dispose();
-        return ValueTask.CompletedTask;
     }
 }
