@@ -4966,48 +4966,29 @@ public partial class MainWindow : Window
         SwitchLeftTab("SourceControl");
     }
 
-    // Per-session subscriptions so the needs-you count updates the instant any session's triage
-    // verdict moves, not just on the 15s timer. Keyed by VM so we can unsubscribe on remove.
-    //
-    // This listens to the VIEW-MODEL's NeedsYou property, NOT to the raw Session.OnStatusColorChanged
-    // event. The count is folded from hold + dictation + activity + overlays, and only ONE of those
-    // raises OnStatusColorChanged - so hooking that event alone left the header stale until the 15s
-    // git timer happened to fire. Snoozing a red session visibly left "1 need you" above a grey
-    // "Snoozed" row for up to fifteen seconds. SessionViewModel raises NeedsYou from every handler
-    // that can move the verdict, so subscribing to the property is what makes the count prompt.
-    private readonly Dictionary<SessionViewModel, global::System.ComponentModel.PropertyChangedEventHandler> _needsYouHandlers = new();
+    // Per-session subscriptions so the needs-you count updates the instant any session's triage verdict
+    // moves, not just on the 15s timer - one recount per dispatcher pass however many moved. The watcher
+    // owns the subscriptions and the coalescing; see NeedsYouWatcher for why it listens to the view model.
+    // Created on first use because a field initializer cannot name an instance method.
+    private NeedsYouWatcher? _needsYouWatcher;
+    private NeedsYouWatcher NeedsYouRecountWatcher => _needsYouWatcher ??= new NeedsYouWatcher(UpdateNeedsYouCount);
 
     private void OnSessionsCollectionChanged(object? sender, global::System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         if (e.Action == global::System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
         {
-            foreach (var kv in _needsYouHandlers) kv.Key.PropertyChanged -= kv.Value;
-            _needsYouHandlers.Clear();
-            foreach (var vm in _sessions) SubscribeNeedsYou(vm);
+            NeedsYouRecountWatcher.WatchOnly(_sessions);
         }
         else
         {
             if (e.OldItems != null)
-                foreach (SessionViewModel vm in e.OldItems)
-                    if (_needsYouHandlers.TryGetValue(vm, out var h)) { vm.PropertyChanged -= h; _needsYouHandlers.Remove(vm); }
+                foreach (SessionViewModel vm in e.OldItems) NeedsYouRecountWatcher.Unwatch(vm);
             if (e.NewItems != null)
-                foreach (SessionViewModel vm in e.NewItems) SubscribeNeedsYou(vm);
+                foreach (SessionViewModel vm in e.NewItems) NeedsYouRecountWatcher.Watch(vm);
         }
         UpdateNeedsYouCount();
         // The home page is the zero-sessions screen: show/hide it as the count crosses zero.
         UpdateHomeVisibility();
-    }
-
-    private void SubscribeNeedsYou(SessionViewModel vm)
-    {
-        if (_needsYouHandlers.ContainsKey(vm)) return;
-        global::System.ComponentModel.PropertyChangedEventHandler h = (_, args) =>
-        {
-            if (args.PropertyName is not (null or nameof(SessionViewModel.NeedsYou))) return;
-            Dispatcher.UIThread.Post(UpdateNeedsYouCount);
-        };
-        _needsYouHandlers[vm] = h;
-        vm.PropertyChanged += h;
     }
 
     // Count of sessions that need you, shown beside the SESSIONS header, so you get a top-level
