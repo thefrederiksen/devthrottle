@@ -145,7 +145,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// </remarks>
     private void RaiseFoldProjection()
     {
-        _fold = null;
+        InvalidateFold();
         var now = ReadFoldProjection();
         var first = _lastProjection is null;
         var old = _lastProjection.GetValueOrDefault();
@@ -243,24 +243,67 @@ public class SessionViewModel : INotifyPropertyChanged
     /// than reaching into <see cref="Session"/> for a supervisor id of its own, so the tree the Director draws
     /// is built from exactly the fields the Cockpit and the phone build theirs from.
     /// </remarks>
+    /// <remarks>
+    /// THREADS. The cache is read on the screen thread but invalidated from whatever thread raised the session
+    /// event, so the getter never hands out a shared field it might lose. Each invalidation bumps
+    /// <see cref="_foldGeneration"/>. A read notes the generation, builds, and publishes the build only if the
+    /// generation has not moved; if it moved, the session changed while the build was reading it, so the build
+    /// is thrown away and made again. The build, its time and its generation are published together as one
+    /// immutable <see cref="CachedFold"/>, and the getter returns its own local - so it never returns null and
+    /// never returns a build made before an invalidation that happened before the read began.
+    /// </remarks>
     internal SessionDto FoldInput
     {
         get
         {
-            if (_fold is { } fold && Stopwatch.GetElapsedTime(_foldBuiltAt) <= FoldMaxAge)
-                return fold;
-            _fold = ControlEndpoints.Map(Session, directorId: "");
-            _foldBuiltAt = Stopwatch.GetTimestamp();
-            FoldMapCount++;
-            return _fold;
+            while (true)
+            {
+                var generation = Interlocked.Read(ref _foldGeneration);
+                var cached = _fold;
+                if (cached is not null && cached.Generation == generation
+                    && Stopwatch.GetElapsedTime(cached.BuiltAt) <= FoldMaxAge)
+                    return cached.Dto;
+
+                var built = FoldMapper(Session);
+                Interlocked.Increment(ref _foldMapCount);
+                if (Interlocked.Read(ref _foldGeneration) != generation)
+                    continue;
+                _fold = new CachedFold(built, Stopwatch.GetTimestamp(), generation);
+                return built;
+            }
         }
     }
 
     /// <summary>How old a cached <see cref="FoldInput"/> may be before a read rebuilds it.</summary>
     private static readonly TimeSpan FoldMaxAge = TimeSpan.FromSeconds(1);
 
-    private volatile SessionDto? _fold;
-    private long _foldBuiltAt;
+    /// <summary>One published build: the wire object, when it was built, and the invalidation generation it was
+    /// built under. Immutable, so a reader sees all three from one reference read.</summary>
+    private sealed record CachedFold(SessionDto Dto, long BuiltAt, long Generation);
+
+    private volatile CachedFold? _fold;
+
+    /// <summary>Bumped by every invalidation. A cached build is valid only while this still equals the
+    /// generation it was built under.</summary>
+    private long _foldGeneration;
+
+    /// <summary>Drops the cached <see cref="FoldInput"/>, from any thread: the next read builds again, and a
+    /// build already in progress on another thread is not published.</summary>
+    internal void InvalidateFold() => Interlocked.Increment(ref _foldGeneration);
+
+    /// <summary>Stamps this session's place in the rail's drag list as its desktop order. The order is carried
+    /// in the cached <see cref="FoldInput"/>, so a stamp that moves the session drops the cache; a stamp that
+    /// changes nothing keeps it.</summary>
+    internal void StampSortOrder(int order)
+    {
+        if (Session.SortOrder == order) return;
+        Session.SortOrder = order;
+        InvalidateFold();
+    }
+
+    /// <summary>Builds the wire object - the one mapper in production. A test seam, so a test can change the
+    /// session in the middle of a build and prove that build is never published.</summary>
+    internal Func<Session, SessionDto> FoldMapper { get; set; } = session => ControlEndpoints.Map(session, directorId: "");
 
     /// <summary>
     /// True only while <see cref="RaiseFoldProjection"/> or <see cref="RefreshTimeLabels"/> is raising against
@@ -279,13 +322,15 @@ public class SessionViewModel : INotifyPropertyChanged
     /// </summary>
     private void PostChange(Action raise)
     {
-        _fold = null;
+        InvalidateFold();
         Dispatcher.UIThread.Post(raise);
     }
 
     /// <summary>How many times this row has built its wire object. A test seam: it lets a test prove one
     /// Gateway stamp costs one build, which is the whole point of the cache.</summary>
-    internal int FoldMapCount { get; private set; }
+    internal int FoldMapCount => Volatile.Read(ref _foldMapCount);
+
+    private int _foldMapCount;
 
     /// <summary>
     /// The presentation colour the rail renders - the GATEWAY'S folded answer, stamped down onto this
@@ -723,7 +768,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// so the next fold raise compares against what the screen really shows.</remarks>
     public void RefreshTimeLabels()
     {
-        _fold = null;
+        InvalidateFold();
         var first = _lastProjection is null;
         var old = _lastProjection.GetValueOrDefault();
         var now = ReadFoldProjection();
@@ -1310,7 +1355,7 @@ public class SessionViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? name = null)
     {
         if (!_raisingFromCachedFold)
-            _fold = null;
+            InvalidateFold();
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

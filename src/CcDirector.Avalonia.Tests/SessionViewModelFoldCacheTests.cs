@@ -1,9 +1,10 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
+using CcDirector.Gateway.Contracts;
 using Xunit;
 
 namespace CcDirector.Avalonia.Tests;
@@ -111,6 +112,112 @@ public sealed class SessionViewModelFoldCacheTests
     }
 
     /// <summary>
+    /// THE OVERLAP. A session event lands on another thread WHILE the screen thread is building the wire
+    /// object. That build read the session before the change, so it must never be published and never be
+    /// returned: the read throws it away and builds again, and the next read shares the second build.
+    /// </summary>
+    [AvaloniaFact]
+    public void AnInvalidationBetweenBuildAndPublish_IsNeverLost_AndTheOldBuildIsNeverReturned()
+    {
+        var (session, vm) = NewRow();
+        session.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false);
+        Dispatcher.UIThread.RunJobs();
+
+        var builds = new List<SessionDto>();
+        var real = vm.FoldMapper;
+        vm.FoldMapper = s =>
+        {
+            var dto = real(s);
+            builds.Add(dto);
+            if (builds.Count == 1)
+            {
+                // The change arrives on a background thread after this build read the session and before
+                // the getter publishes it - the exact window the review found.
+                var t = new Thread(() =>
+                    session.ApplyGatewayDisplayState("red", "Needs you", "needsYou", DateTime.UtcNow, null, false));
+                t.Start();
+                t.Join();
+            }
+            return dto;
+        };
+        vm.InvalidateFold();
+
+        var read = vm.FoldInput;
+
+        Assert.NotNull(read);
+        Assert.Equal(2, builds.Count);
+        Assert.Equal("blue", builds[0].EffectiveColor);   // CONTROL: the first build really was the old one
+        Assert.NotSame(builds[0], read);
+        Assert.Equal("red", read.EffectiveColor);
+        // The second build was published: the next read shares it.
+        Assert.Same(read, vm.FoldInput);
+        Assert.Equal(2, builds.Count);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>
+    /// The same overlap under real contention: a background thread stamps the session over and over while
+    /// the screen thread reads. No read may be null, and once the writer stops the next read shows its last
+    /// stamp - a build made before that stamp must not survive in the cache.
+    /// </summary>
+    [AvaloniaFact]
+    public void ReadsDuringABackgroundStampStorm_AreNeverNull_AndEndOnTheLastStamp()
+    {
+        var (session, vm) = NewRow();
+        session.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false);
+        Dispatcher.UIThread.RunJobs();
+
+        var stop = 0;
+        var writer = new Thread(() =>
+        {
+            var i = 0;
+            while (Volatile.Read(ref stop) == 0)
+            {
+                var colour = (i++ % 2 == 0) ? "red" : "blue";
+                session.ApplyGatewayDisplayState(colour, "Working", "active", null, null, false);
+            }
+            session.ApplyGatewayDisplayState("purple", "Working", "active", null, null, false);
+        });
+        writer.Start();
+
+        var reads = 0;
+        var until = DateTime.UtcNow.AddMilliseconds(300);
+        while (DateTime.UtcNow < until)
+        {
+            Assert.NotNull(vm.FoldInput);
+            reads++;
+        }
+        Volatile.Write(ref stop, 1);
+        writer.Join();
+
+        Assert.True(reads > 100, $"only {reads} reads overlapped the writer, so this proved nothing");
+        Assert.Equal("purple", vm.FoldInput.EffectiveColor);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>
+    /// A drag inside one crew, projected at once. The drag order is carried in the cached wire object, so the
+    /// rail's stamp must drop the cache of every row it moves; otherwise the crew comes back in its old order
+    /// until the cache ages out or the next 15 second rebuild.
+    /// </summary>
+    [AvaloniaFact]
+    public void AChildReorder_IsInTheVeryNextProjection()
+    {
+        var architect = NewRow().Vm;
+        var one = NewChild(architect, "Worker one");
+        var two = NewChild(architect, "Worker two");
+        var expanded = new[] { architect.Session.Id.ToString() };
+
+        var before = SessionRailTree.ProjectInDragOrder(new[] { architect, one, two }, SessionRailOrder.MyOrder, expanded, DateTime.UtcNow);
+        Assert.Equal(new[] { "Worker one", "Worker two" }, before.Skip(1).Select(r => r.Session.DisplayName).ToArray());
+
+        // Straight away - well inside the cache's one second - the user drags worker two above worker one.
+        var after = SessionRailTree.ProjectInDragOrder(new[] { architect, two, one }, SessionRailOrder.MyOrder, expanded, DateTime.UtcNow);
+
+        Assert.Equal(new[] { "Worker two", "Worker one" }, after.Skip(1).Select(r => r.Session.DisplayName).ToArray());
+    }
+
+    /// <summary>
     /// The guard on the one rule the cache depends on: every session event reaches the row through
     /// PostChange, which clears the cache before posting. A handler that posted directly would leave a
     /// window in which the rail reads the old wire object.
@@ -134,6 +241,15 @@ public sealed class SessionViewModelFoldCacheTests
             new InertBackend(), SessionBackendType.ConPty);
         session.IsBrandNew = false;
         return (session, new SessionViewModel(session));
+    }
+
+    private static SessionViewModel NewChild(SessionViewModel supervisor, string name)
+    {
+        var (session, vm) = NewRow();
+        session.CustomName = name;
+        session.ControllerSessionId = supervisor.Session.Id;
+        session.SetGatewayResolvedRole(SessionRoles.Worker, hasLiveSupervisor: true);
+        return vm;
     }
 
     /// <summary>Stands in for the rail's bindings: every raised property is read at once, as a binding does.</summary>
