@@ -210,6 +210,12 @@ internal static class AuthMiddleware
         // session or terminal content, only an account id, the email already recorded at mint time, and the
         // machines.
         Api.AdminAccountLookupEndpoint.Path,
+        // Issue #3311: an installer reports a failed step before the machine has ANY credential - that is
+        // the moment we were blind. The report route carries its own bounds (body cap, field caps, per-install
+        // and route-wide hourly limits, home paths scrubbed); the admin read carries the administrator
+        // service-token gate. Both exact-match.
+        Api.InstallReportEndpoints.Path,
+        Api.InstallReportEndpoints.AdminPath,
         // The administrator read of the corrections people made to the Wingman's verdicts (the
         // Wingman-on-every-turn mission, slice G), exempt for the same reason and behind the same gate: the
         // daily corpus pull is a job with no device key on this Gateway. It names ONE account - a blank one is

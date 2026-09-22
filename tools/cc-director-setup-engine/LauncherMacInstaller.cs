@@ -35,6 +35,14 @@ public sealed class LauncherMacInstaller
     private readonly string _launchAgentPlistPath;
     private readonly string _registrationPath;
     private readonly TimeSpan _healthTimeout;
+    private readonly TimeSpan _launchdPidWait;
+
+    /// <summary>
+    /// How long to wait for launchd to report a process. It was ten seconds, which is EXACTLY launchd's
+    /// respawn throttle: a launcher that died at start-up was restarted just after the window closed, so
+    /// the wait could not see it even once. Twenty-five seconds covers the first start and two respawns.
+    /// </summary>
+    public static readonly TimeSpan DefaultLaunchdPidWait = TimeSpan.FromSeconds(25);
 
     public LauncherMacInstaller(
         InstallLayout layout,
@@ -42,7 +50,8 @@ public sealed class LauncherMacInstaller
         ProcessStarter? startProcess = null,
         string? launchAgentPlistPath = null,
         TimeSpan? healthTimeout = null,
-        string? registrationPath = null)
+        string? registrationPath = null,
+        TimeSpan? launchdPidWait = null)
     {
         _layout = layout ?? throw new ArgumentNullException(nameof(layout));
         _runCommand = runCommand ?? ProcessRunner.Run;
@@ -50,7 +59,18 @@ public sealed class LauncherMacInstaller
         _launchAgentPlistPath = launchAgentPlistPath ?? DefaultLaunchAgentPlistPath();
         _registrationPath = registrationPath ?? LauncherDiscovery.DefaultPath;
         _healthTimeout = healthTimeout ?? TimeSpan.FromSeconds(20);
+        _launchdPidWait = launchdPidWait ?? DefaultLaunchdPidWait;
     }
+
+    /// <summary>The folder the launcher's launchd output goes to (its stdout and stderr files).</summary>
+    private string LauncherLogDir => Path.Combine(_layout.LogsDir, "launcher");
+
+    /// <summary>
+    /// Where to look, in words a Mac user can follow. Finder hides ~/Library, so "check this path" alone
+    /// sent a user looking for a folder he could not see.
+    /// </summary>
+    private string HowToOpenTheLogs =>
+        $"To see the logs: in Finder choose Go > Go to Folder... and paste {LauncherLogDir}";
 
     /// <summary>The user's launch agent property list for the launcher:
     /// ~/Library/LaunchAgents/com.devthrottle.cc-launcher.plist. Delegates to
@@ -131,15 +151,20 @@ public sealed class LauncherMacInstaller
         // rather than certify: a same-version orphan is the exact case that bricked a machine, and
         // "we could not check" must not read as "it is fine".
         if (startedPid == 0)
-            return Fail(steps, "launchd did not report which process is running the launcher, so this install "
-                               + "cannot verify that the registered launcher is the one just placed. "
-                               + $"Check {_layout.LogsDir} and re-run.");
+        {
+            // Say WHY. launchd knows how the job last exited, how many times it ran and whether it is still
+            // loaded; that used to be read and thrown away, leaving the person at the screen with nothing.
+            var loaded = _lastLaunchdPrintExit == 0;
+            var why = LaunchdDiagnostics.Explain(_lastLaunchdPrint, loaded)
+                      ?? $"macOS did not report the launcher running within {_launchdPidWait.TotalSeconds:0} seconds";
+            return Fail(steps, $"{why}. {HowToOpenTheLogs}");
+        }
 
         var health = await LauncherHealthProbe.WaitForHealthyAsync(_registrationPath, expectedVersion, _healthTimeout, ct, startedPid);
         if (health is null)
         {
             steps.Add("launcher registration: never appeared");
-            return Fail(steps, $"Launcher started but never wrote its registration. Check {_layout.LogsDir}.");
+            return Fail(steps, $"Launcher started but never wrote its registration. {HowToOpenTheLogs}");
         }
         if (!LauncherHealthProbe.Certifies(health, expectedVersion, startedPid))
         {
@@ -224,11 +249,14 @@ public sealed class LauncherMacInstaller
         // A freshly bootstrapped job does not have a process id the instant launchctl is asked, so a
         // single look returns 0 - and 0 means "expect nothing", which lets any responder on the port
         // certify the install. That is exactly the hole this was meant to close, so wait for it.
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        var deadline = DateTime.UtcNow + _launchdPidWait;
         while (DateTime.UtcNow < deadline)
         {
             var (printExit, printOutput) = _runCommand(
                 "/bin/launchctl", $"print gui/{uid}/{LauncherLaunchdAutostart.Label}");
+            // Kept, so a failure can say what launchd last said instead of only that it said no pid.
+            _lastLaunchdPrintExit = printExit;
+            _lastLaunchdPrint = printOutput;
             if (printExit == 0)
             {
                 var pid = ParseLaunchdPid(printOutput);
@@ -241,7 +269,7 @@ public sealed class LauncherMacInstaller
             Thread.Sleep(500);
         }
 
-        steps.Add("launchd did not report a process id for the launcher within ten seconds");
+        steps.Add($"launchd did not report a process id for the launcher within {_launchdPidWait.TotalSeconds:0} seconds");
         return 0;
     }
 
@@ -277,9 +305,55 @@ public sealed class LauncherMacInstaller
         return process.Id;
     }
 
-    private static LauncherInstallResult Fail(List<string> steps, string message)
+    // What launchctl print last answered while waiting for a process id (-1 = never asked).
+    private int _lastLaunchdPrintExit = -1;
+    private string? _lastLaunchdPrint;
+
+    private LauncherInstallResult Fail(List<string> steps, string message)
     {
         EngineLog.Write($"[LauncherMacInstaller] FAILED: {message}");
-        return new LauncherInstallResult(false, message, steps);
+        var diagnostics = GatherDiagnostics(steps);
+        EngineLog.Write($"[LauncherMacInstaller] diagnostics:\n{diagnostics}");
+        return new LauncherInstallResult(false, message, steps, diagnostics);
+    }
+
+    /// <summary>
+    /// Everything that explains a failure, gathered at the moment it happens: launchd's view of the job
+    /// (asked afresh, because the job may have changed since the wait gave up), the tail of the launcher's
+    /// launchd stderr and stdout, and the steps taken. Gathering is itself fallible - launchctl can be
+    /// missing or refuse - and when it is, the report SAYS so rather than going quiet.
+    /// </summary>
+    private string GatherDiagnostics(List<string> steps)
+    {
+        string? print = _lastLaunchdPrint;
+        var loaded = _lastLaunchdPrintExit == 0;
+        string? gatherError = null;
+        try
+        {
+            var (uidExit, uidOutput) = _runCommand("/usr/bin/id", "-u");
+            if (uidExit == 0 && int.TryParse(uidOutput.Trim(), out var uid))
+            {
+                var (printExit, printOutput) = _runCommand(
+                    "/bin/launchctl", $"print gui/{uid}/{LauncherLaunchdAutostart.Label}");
+                print = printOutput;
+                loaded = printExit == 0;
+            }
+            else
+            {
+                gatherError = $"could not resolve the user id (exit {uidExit})";
+            }
+        }
+        catch (Exception ex)
+        {
+            gatherError = $"could not ask launchd ({ex.GetType().Name}): {ex.Message}";
+        }
+
+        var composed = LaunchdDiagnostics.Compose(print, loaded,
+        [
+            ("launchd-stderr.log (last lines)", LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stderr.log"), 40)),
+            ("launchd-stdout.log (last lines)", LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stdout.log"), 15)),
+        ]);
+        var header = gatherError is null ? "" : $"launchd query failed: {gatherError}\n";
+        return header + composed + "\nsteps:\n  " + string.Join("\n  ", steps);
     }
 }

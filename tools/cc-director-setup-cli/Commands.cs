@@ -580,15 +580,30 @@ internal static class Commands
             }
 
             if (json)
-                Program.WriteJson(new { launcherTray = new { success = launcherStart.Success, message = launcherStart.Message, steps = launcherStart.Steps } });
+                Program.WriteJson(new { launcherTray = new { success = launcherStart.Success, message = launcherStart.Message, steps = launcherStart.Steps, diagnostics = launcherStart.Diagnostics } });
             else
             {
                 Console.WriteLine();
                 Console.WriteLine(launcherStart.Success ? "Launcher tray app:" : "Launcher tray app FAILED:");
                 foreach (var s in launcherStart.Steps) Console.WriteLine($"  {s}");
                 Console.WriteLine($"  {launcherStart.Message}");
+                if (!launcherStart.Success && launcherStart.Diagnostics is not null)
+                {
+                    Console.WriteLine("  Diagnostics:");
+                    foreach (var line in launcherStart.Diagnostics.Split('\n')) Console.WriteLine($"    {line}");
+                }
             }
-            if (!launcherStart.Success) return Error;
+            if (!launcherStart.Success)
+            {
+                // Issue #3311: a failed install step is sent to DevThrottle, so it is not only on this screen.
+                var sent = await new InstallFailureReporter(layout, "setup-cli")
+                    .ReportAsync("launcher", "start", launcherStart.Message, launcherStart.Diagnostics);
+                if (!json)
+                    Console.WriteLine(sent
+                        ? "  A report of this failure was sent to DevThrottle."
+                        : "  A report of this failure could NOT be sent to DevThrottle (see the setup log).");
+                return Error;
+            }
         }
 
         return result.Failed > 0 ? Error : Ok;

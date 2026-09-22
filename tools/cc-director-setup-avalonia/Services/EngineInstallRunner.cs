@@ -22,6 +22,12 @@ public sealed class EngineInstallRunner
 {
     private readonly InstallLayout _layout = InstallLayout.Default();
     private readonly ReleaseSource _source = new();
+    private readonly InstallFailureReporter _reporter;
+
+    public EngineInstallRunner()
+    {
+        _reporter = new InstallFailureReporter(_layout, "setup-wizard");
+    }
 
     /// <summary>
     /// When set (--release-dir / DEVTHROTTLE_RELEASE_DIR, parsed in Program.Main), the wizard
@@ -159,6 +165,7 @@ public sealed class EngineInstallRunner
             var res = await MacAppPlacer.PlaceAsync(_layout, prep.Release, _source,
                 m => { if (item is not null) item.Status = m; status?.Report(m); }, ct);
             if (item is not null) { item.Status = res.Success ? "Done" : "Failed"; if (!res.Success) item.StatusDetail = res.Message; }
+            if (!res.Success) await ReportFailureAsync(item, "director", "place", res.Message, null, ct);
             return res.Success;
         }
 
@@ -200,6 +207,11 @@ public sealed class EngineInstallRunner
         var ok = result.Results.Any(r => r.ComponentId == ComponentRegistry.Director.Id
             && r.Status is ApplyStatus.Installed or ApplyStatus.Updated);
         if (item is not null) item.Status = ok ? "Done" : "Failed";
+        if (!ok)
+        {
+            var error = result.Results.FirstOrDefault(r => r.ComponentId == ComponentRegistry.Director.Id)?.Error;
+            await ReportFailureAsync(item, "director", "place", error ?? "the Director was not placed", null, ct);
+        }
         return ok;
     }
 
@@ -221,6 +233,7 @@ public sealed class EngineInstallRunner
         // PythonToolsInstaller uses synchronous process calls (venv, pip); offload so the UI thread is free.
         var res = await Task.Run(() => new PythonToolsInstaller(_layout).InstallAsync(prep.Release, _source, progress, percent, ct), ct);
         if (item is not null) { item.Status = res.Success ? "Done" : "Failed"; if (!res.Success) item.StatusDetail = res.Message; }
+        if (!res.Success) await ReportFailureAsync(item, "tools", "install", res.Message, null, ct);
         return res.Success ? res.ToolCount : 0;
     }
 
@@ -276,6 +289,7 @@ public sealed class EngineInstallRunner
             var error = placeResult.Results.FirstOrDefault(r => r.ComponentId == ComponentRegistry.Launcher.Id)?.Error;
             if (item is not null) { item.Status = "Failed"; item.StatusDetail = error ?? "Placement failed"; }
             SetupLog.Write($"[EngineInstallRunner] InstallLauncherAsync FAILED to place: {error}");
+            await ReportFailureAsync(item, "launcher", "place", error ?? "Placement failed", null, ct);
             return false;
         }
 
@@ -290,7 +304,27 @@ public sealed class EngineInstallRunner
             item.Status = startResult.Success ? "Done" : "Failed";
             if (!startResult.Success) item.StatusDetail = startResult.Message;
         }
+        if (!startResult.Success)
+        {
+            if (startResult.Diagnostics is not null)
+                SetupLog.Write($"[EngineInstallRunner]   launcher diagnostics:\n{startResult.Diagnostics}");
+            await ReportFailureAsync(item, "launcher", "start", startResult.Message, startResult.Diagnostics, ct);
+        }
         return startResult.Success;
+    }
+
+    /// <summary>
+    /// Send a failed step to DevThrottle (issue #3311) so the failure is not only on this screen, and tell
+    /// the person when it arrived - then they know we have it and need not send screenshots. A report that
+    /// could not be delivered is logged by the reporter and changes nothing on screen: the reason shown is
+    /// the same either way.
+    /// </summary>
+    private async Task ReportFailureAsync(ToolDownloadItem? item, string component, string step, string message, string? diagnostics, CancellationToken ct)
+    {
+        var sent = await _reporter.ReportAsync(component, step, message, diagnostics, ct);
+        SetupLog.Write($"[EngineInstallRunner] failure report {component}/{step}: {(sent ? "sent" : "NOT sent")}");
+        if (sent && item is not null)
+            item.StatusDetail = (string.IsNullOrEmpty(item.StatusDetail) ? message : item.StatusDetail) + " A report of this failure was sent to DevThrottle.";
     }
 
     private void FinalizeInstall()
