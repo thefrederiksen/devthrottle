@@ -32,8 +32,8 @@ public sealed class SessionGitStatusMonitor : IDisposable
     private readonly TimeSpan _interval;
     private readonly Func<string, bool> _directoryExists;
 
-    private CancellationTokenSource? _cts;
-    private Task? _loop;
+    private readonly Background.BackgroundJobs _jobs;
+    private Background.BackgroundJob? _job;
 
     /// <param name="sessionManager">The live session list to walk each cycle.</param>
     /// <param name="interval">Poll interval; null uses <see cref="DefaultInterval"/>. A test seam.</param>
@@ -46,8 +46,10 @@ public sealed class SessionGitStatusMonitor : IDisposable
         SessionManager sessionManager,
         TimeSpan? interval = null,
         Func<string, CancellationToken, Task<GitCountResult>>? probe = null,
-        Func<string, bool>? directoryExists = null)
+        Func<string, bool>? directoryExists = null,
+        Background.BackgroundJobs? jobs = null)
     {
+        _jobs = jobs ?? Background.BackgroundJobs.Default;
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         var provider = new GitStatusProvider();
         _probe = probe ?? provider.GetCountAsync;
@@ -55,36 +57,16 @@ public sealed class SessionGitStatusMonitor : IDisposable
         _directoryExists = directoryExists ?? Directory.Exists;
     }
 
-    /// <summary>Start the background loop. Idempotent.</summary>
+    /// <summary>Start the probe: a slow-and-steady job on the scheduler (docs/BackgroundWork.md), at once
+    /// and then every interval, never overlapping. Idempotent.</summary>
     public void Start()
     {
-        if (_loop is not null) return;
-        _cts = new CancellationTokenSource();
-        _loop = Task.Run(() => RunAsync(_cts.Token));
+        if (_job is not null) return;
+        _job = _jobs.Register(
+            new Background.BackgroundJobSpec("Per-session uncommitted count", Background.BackgroundJobTier.SlowAndSteady, _interval, "the monitor is disposed"),
+            async ct => { await RefreshOnceAsync(ct).ConfigureAwait(false); });
+        _job.StartTimer(TimeSpan.Zero);
         FileLog.Write($"[SessionGitStatusMonitor] Start: probing every {_interval.TotalSeconds:0} seconds");
-    }
-
-    private async Task RunAsync(CancellationToken ct)
-    {
-        try
-        {
-            while (!ct.IsCancellationRequested)
-            {
-                await RefreshOnceAsync(ct).ConfigureAwait(false);
-                await Task.Delay(_interval, ct).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Ordinary shutdown.
-        }
-        catch (Exception ex)
-        {
-            // The loop itself dying is the one failure the per-session catch below cannot cover, and it would
-            // silently freeze every count for the life of the process - so it is logged as loudly as it gets.
-            FileLog.Write("[SessionGitStatusMonitor] the poll loop ENDED unexpectedly; no further uncommitted "
-                + $"counts will be reported until this Director restarts: {ex}");
-        }
     }
 
     /// <summary>
@@ -167,10 +149,8 @@ public sealed class SessionGitStatusMonitor : IDisposable
 
     public void Dispose()
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _cts = null;
-        _loop = null;
+        _job?.Dispose();
+        _job = null;
         FileLog.Write("[SessionGitStatusMonitor] Dispose: stopped");
     }
 }

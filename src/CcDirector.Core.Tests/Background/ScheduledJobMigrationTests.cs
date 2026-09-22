@@ -72,4 +72,55 @@ public sealed class ScheduledJobMigrationTests : IDisposable
         second.Dispose();
         Assert.Empty(jobs.Snapshot());
     }
+
+    [Fact]
+    public void TheUncommittedCountProbe_RegistersUnderItsRegisterName_WithItsInterval_AndLeavesWhenDisposed()
+    {
+        var jobs = new BackgroundJobs();
+        using var manager = new CcDirector.Core.Sessions.SessionManager(new CcDirector.Core.Configuration.AgentOptions(), jobs: jobs);
+        var monitor = new CcDirector.Core.Git.SessionGitStatusMonitor(manager, interval: TimeSpan.FromSeconds(15), jobs: jobs);
+
+        monitor.Start();
+
+        var row = Assert.Single(jobs.Snapshot(), r => r.Name == "Per-session uncommitted count");
+        Assert.Equal(TimeSpan.FromSeconds(15), row.Cadence);
+        Assert.Equal(BackgroundJobTier.SlowAndSteady, row.Tier);
+
+        monitor.Dispose();
+        Assert.DoesNotContain(jobs.Snapshot(), r => r.Name == "Per-session uncommitted count");
+    }
+
+    [Fact]
+    public void TheWatchersReconciliation_RegistersUnderItsRegisterName_WithItsFiveMinuteCadence_AndLeavesWhenDisposed()
+    {
+        var jobs = new BackgroundJobs();
+        var monitor = new CcDirector.Core.Git.RepositoryMonitor(enumerate: _ => Array.Empty<string>());
+        var watcher = new CcDirector.Core.Git.RepositoryWatcher(monitor, jobs: jobs);
+
+        var row = Assert.Single(jobs.Snapshot());
+        Assert.Equal("Repository watcher: full reconciliation", row.Name);
+        Assert.Equal(TimeSpan.FromMinutes(5), row.Cadence);
+        Assert.Equal(BackgroundJobTier.SlowAndSteady, row.Tier);
+        Assert.Equal(12, row.CeilingPerHour);
+
+        watcher.Dispose();
+        Assert.Empty(jobs.Snapshot());
+    }
+
+    [Fact]
+    public void ThePointerSweep_RegistersUnderItsRegisterName_WithItsTwoSecondCadence_AndLeavesWhenDisposed()
+    {
+        var jobs = new BackgroundJobs();
+        using var manager = new CcDirector.Core.Sessions.SessionManager(new CcDirector.Core.Configuration.AgentOptions(), jobs: jobs);
+        var box = Path.Combine(_root, "pointers");
+        var watcher = new CcDirector.Core.Sessions.SessionPointerWatcher(manager, box, jobs: jobs);
+
+        watcher.Start();
+
+        var row = Assert.Single(jobs.Snapshot(), r => r.Name == "Session pointer sweep");
+        Assert.Equal(TimeSpan.FromSeconds(2), row.Cadence);
+
+        watcher.Dispose();
+        Assert.DoesNotContain(jobs.Snapshot(), r => r.Name == "Session pointer sweep");
+    }
 }
