@@ -17,6 +17,13 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// The distinction these tests pin: the original verdict's ANSWER is dropped, because it claimed the session
 /// needed nothing and that is what turned out to be wrong. Its DESCRIPTION is kept, because what the session
 /// was doing is still true and is the reason the owner is being spoken to at all.
+///
+/// SAID ONCE, NOT TWICE (issue 2243, the owner's ruling of 2026-09-23). The line this file used to pin opened
+/// with "It said it would continue, and it did not." and then replayed the old reading behind "It had said:" -
+/// two sentences in a row opening "It said / It had said" - and the owner heard the stop narrated two times,
+/// on every expiry, on the live fleet. The line now says what the session was doing and CLOSES with one
+/// correction sentence; the label keeps the fact for the eye and the summary carries the description, so no
+/// surface repeats another.
 /// </summary>
 public sealed class ExpiredVerdictSaysWhatTheSessionWasDoingTests
 {
@@ -43,34 +50,54 @@ public sealed class ExpiredVerdictSaysWhatTheSessionWasDoingTests
     };
 
     [Fact]
-    public void TheSpokenLineSaysWhatTheSessionHadBeenDoing()
+    public void TheSpokenLineSaysWhatTheSessionWasDoing_ThenTheCorrectionOnce()
     {
         var expired = TurnVerdictWatchdog.Expire(CarryingOn("Slices F and G are mid-build."), JudgedAt.AddMinutes(11));
 
         Assert.Equal(
-            "It said it would continue, and it did not. It had said: Slices F and G are mid-build.",
+            "Slices F and G are mid-build. It said it would carry on by itself, and it has not worked since.",
             expired.Spoken);
     }
 
     [Fact]
-    public void TheCorrectionLeads_SoItIsNeverHeardAsTheSessionStillClaimingIt()
+    public void TheFactIsSaidOnce_NoSecondItSaidReplayingTheOldReading()
     {
-        var expired = TurnVerdictWatchdog.Expire(CarryingOn("Everything is fine."), JudgedAt.AddMinutes(11));
+        // The description is one the old shape would have quoted behind "It had said:", so this pins the
+        // doubling is gone on the very case that produced it.
+        var expired = TurnVerdictWatchdog.Expire(
+            CarryingOn("Everything is fine, and it will keep going by itself."), JudgedAt.AddMinutes(11));
 
-        Assert.StartsWith(TurnVerdictWatchdog.ExpiredSpokenLead, expired.Spoken, StringComparison.Ordinal);
-        // The past-tense attribution is what stops "Everything is fine" being heard as a live claim.
-        Assert.Contains("It had said:", expired.Spoken, StringComparison.Ordinal);
+        Assert.Equal(1, Count(expired.Spoken, "It said"));
+        Assert.DoesNotContain("It had said:", expired.Spoken, StringComparison.Ordinal);
+        // The correction CLOSES the line, so the description cannot be heard as the stalled session still
+        // asserting it: nothing follows the correction.
+        Assert.EndsWith(TurnVerdictWatchdog.ExpiredCorrection, expired.Spoken, StringComparison.Ordinal);
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void WithNothingToCarry_ItIsTheLeadAlone_NeverATrailingColon(string? summary)
+    public void WithNothingToCarry_ItIsTheCorrectionAlone_NeverADanglingFrame(string? summary)
     {
         var expired = TurnVerdictWatchdog.Expire(CarryingOn(summary), JudgedAt.AddMinutes(11));
 
-        Assert.Equal(TurnVerdictWatchdog.ExpiredSpokenLead, expired.Spoken);
+        Assert.Equal(TurnVerdictWatchdog.ExpiredCorrection, expired.Spoken);
+        Assert.Equal(TurnVerdictWatchdog.ExpiredCorrection, expired.Narration);
+    }
+
+    [Fact]
+    public void TheLabelCarriesTheFact_TheSummaryCarriesTheDescription_NeitherRepeatsTheOther()
+    {
+        var expired = TurnVerdictWatchdog.Expire(CarryingOn("Slices F and G are mid-build."), JudgedAt.AddMinutes(11));
+
+        Assert.Equal(TurnVerdictWatchdog.ExpiredLabel, expired.Label);
+        Assert.Equal("Slices F and G are mid-build.", expired.Summary);
+        // The point appears once per surface: the row's one line, then the description, then the ear's line.
+        Assert.NotEqual(expired.Label, expired.Summary);
+        Assert.DoesNotContain(TurnVerdictWatchdog.ExpiredCorrection, expired.Summary, StringComparison.Ordinal);
+        // ONE TEXT, READ OR HEARD: the ear hears the same words the record holds for the screen.
+        Assert.Equal(expired.Spoken, expired.Narration);
     }
 
     [Fact]
@@ -85,5 +112,14 @@ public sealed class ExpiredVerdictSaysWhatTheSessionWasDoingTests
         Assert.Null(expired.Menu);
         Assert.Empty(expired.Options);
         Assert.Null(expired.NextScheduledWakeUtc);
+    }
+
+    /// <summary>Honest counting, not a Contains that one hit or three would satisfy equally.</summary>
+    private static int Count(string text, string needle)
+    {
+        var count = 0;
+        for (var at = 0; (at = text.IndexOf(needle, at, StringComparison.Ordinal)) >= 0; at += needle.Length)
+            count++;
+        return count;
     }
 }

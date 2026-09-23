@@ -896,12 +896,34 @@ public sealed class TurnVerdictContractTests
         // THE MAJOR PART NAMES THE FILE: it is the SHAPE - the JSON a verdict must be, and what validation
         // accepts. The grading tool reads that file off disk by path, so renaming it moves the grader's ground
         // truth, and nothing but a shape change may do that. v3 IS a shape change: twelve fields became five.
-        Assert.Equal("v3", TurnVerdictContract.Version);
+        // v3.1 is not: it is the carrying-on wording of issue 2243 alone, so the file keeps its v3 name exactly
+        // as the v2.1 revision kept v2's.
+        Assert.Equal("v3.1", TurnVerdictContract.Version);
 
         var major = TurnVerdictContract.Version.Split('.')[0];
         Assert.Equal("v3", major);
         Assert.EndsWith($"/turn-verdict-{major}.txt", TurnVerdictContract.PromptResourcePath);
         Assert.EndsWith($".turn-verdict-{major}.txt", TurnVerdictContract.PromptResourceName);
+    }
+
+    [Fact]
+    public void ThePrompt_TeachesThatAReplyReportingItsWorkCompleteIsFinished_NeverCarryingOn()
+    {
+        // ISSUE 2243, THE WRONG READ AT ITS ROOT. A session reported its round done - drafts staged, report
+        // emailed, "this session stays open for your changes" - and the judge answered carrying-on, so the
+        // carrying-on clock later expired it and narrated that it "did not continue" over its own words saying
+        // it was finished. The prompt's carrying-on definition said "it said so, or it is plainly mid-task" and
+        // nothing more, so a session parked open for the lead's review had no state that plainly owned it. This
+        // is the sentence that closes that gap; a judge that has it cannot read a finished report as a promise
+        // to continue, and a verdict that is never carrying-on never meets the clock.
+        var prompt = TurnVerdictContract.PromptTemplate;
+
+        Assert.Contains("A REPLY THAT SAYS ITS WORK IS COMPLETE IS FINISHED, NEVER CARRYING-ON", prompt);
+        Assert.Contains("even when it stays open for the lead's later review", prompt);
+        Assert.Contains("a session that has finished and is parked is finished", prompt);
+        // And the seven state words are still the whole list: the fix teaches, it does not add a word.
+        foreach (var state in TurnVerdictVocabulary.WingmanStates)
+            Assert.Contains($"- \"{state}\":", prompt);
     }
 
     [Fact]

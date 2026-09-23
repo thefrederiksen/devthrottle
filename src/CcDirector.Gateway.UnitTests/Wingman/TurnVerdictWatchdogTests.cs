@@ -81,6 +81,35 @@ public sealed class TurnVerdictWatchdogTests
         Assert.False(TurnVerdictWatchdog.IsExpired(finished, JudgedAt.AddDays(1)));
     }
 
+    /// <summary>
+    /// ISSUE 2243'S WRONG READ CAN NEVER REACH THE REWRITE - the mechanical backstop. On the live fleet a
+    /// finished report ("This week's round is done... this session stays open for your changes") was judged
+    /// continues-alone, and the clock then expired it and said it "did not continue" over its own words saying
+    /// it was done. The read itself is fixed where it arises, in the judge's prompt (contract v3.1); this
+    /// guard is the second lock. <see cref="TurnVerdictWatchdog.Expire"/> is the only writer of the "Said it
+    /// would continue and did not" record, and it refuses anything that is not an accepted carrying-on
+    /// verdict, so a finished turn cannot be rewritten as a broken promise even by a caller that hands one
+    /// over - the rule does not depend on every caller remembering it.
+    /// </summary>
+    [Fact]
+    public void Expire_AVerdictThatIsNotAnAcceptedCarryingOn_IsRefused_NotRewritten()
+    {
+        var finished = CarryingOn();
+        finished.Verdict = TurnVerdictVocabulary.Finished;
+        finished.FinishedKind = "report";
+        var refused = CarryingOn(id: "refused");
+        refused.Failed = true;
+        var neededYou = CarryingOn(id: "needed-you");
+        neededYou.Verdict = TurnVerdictVocabulary.NeededYou;
+
+        Assert.Throws<InvalidOperationException>(
+            () => TurnVerdictWatchdog.Expire(finished, JudgedAt.AddMinutes(11)));
+        Assert.Throws<InvalidOperationException>(
+            () => TurnVerdictWatchdog.Expire(refused, JudgedAt.AddMinutes(11)));
+        Assert.Throws<InvalidOperationException>(
+            () => TurnVerdictWatchdog.Expire(neededYou, JudgedAt.AddMinutes(11)));
+    }
+
     [Fact]
     public void IsExpired_ASecondBeforeTheDeadline_IsFalse_AndAtTheDeadline_IsTrue()
     {

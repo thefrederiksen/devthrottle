@@ -82,8 +82,11 @@ public static class TurnVerdictWatchdog
     private static DateTime Later(DateTime start, DateTime? other)
         => other is { } o && o > start ? o : start;
 
-    /// <summary>The spoken lead for an expired carrying-on verdict - the correction, first and plainly.</summary>
-    public const string ExpiredSpokenLead = "It said it would continue, and it did not.";
+    /// <summary>The closing sentence for an expired carrying-on verdict - the whole correction, said once and in
+    /// plain words. It CLOSES the spoken line rather than opening it (issue 2243, the owner's ruling of 2026-09-23):
+    /// a clip that opens with the correction and then replays the old reading behind "It had said:" states the same
+    /// fact twice in a row, and the owner heard exactly that - the stop narrated two times.</summary>
+    public const string ExpiredCorrection = "It said it would carry on by itself, and it has not worked since.";
 
     /// <summary>
     /// The verdict stored in place of an expired carrying-on one: "needed-you", the expiry label, the original
@@ -96,10 +99,30 @@ public static class TurnVerdictWatchdog
     /// owner heard exactly that and nothing else: a two-second clip saying a session had stalled, with no way to
     /// tell which one or what it had been doing. Voice narrates the Wingman's output (owner's ruling,
     /// 2026-09-15), so when the Wingman's output is content-free the narration is too.
+    ///
+    /// EACH SURFACE SAYS THE FACT ONCE (issue 2243, the owner's ruling of 2026-09-23). The label carries the
+    /// fact for the eye; the summary carries the description, so the Wingman screen shows the fact and then real
+    /// content instead of the same point three times. The spoken line says what the session was doing and closes
+    /// with the correction - ONE sentence stating the fact, not the old pair that opened with "It said it would
+    /// continue, and it did not" and then replayed the reading behind "It had said:", which the owner heard as
+    /// the stop narrated twice. Closing with the correction also keeps the description from being heard as a
+    /// live claim: nothing follows the correction, so nothing can sound like the stalled session still asserting
+    /// it - the failure mode the "It had said" frame existed to prevent, held by a stronger shape instead.
     /// </summary>
     public static TurnVerdictDto Expire(TurnVerdictDto original, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(original);
+        // ONLY A CARRYING-ON VERDICT MAY BE EXPIRED. A finished or needing-you stop is not a broken promise, so
+        // the clock never rewrites it - and a caller that hands one here is a defect, not a wording choice. The
+        // wrong read of issue 2243 (a finished report judged continues-alone) is fixed where it arises, in the
+        // judge's prompt; this guard is the mechanical backstop that the "did not continue" words can only
+        // ever be written against a verdict that promised to continue.
+        if (original.Failed
+            || !string.Equals(original.Verdict, TurnVerdictVocabulary.ContinuesAlone, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Only an accepted carrying-on verdict may be expired; this one is "
+                + $"{(original.Failed ? "failed" : $"\"{original.Verdict}\"")} and carries no promise to keep.");
+        var description = original.Summary?.Trim();
         return new TurnVerdictDto
         {
             VerdictId = Guid.NewGuid().ToString("N"),
@@ -114,24 +137,24 @@ public static class TurnVerdictWatchdog
             Confidence = SessionOrdering.ConfidenceHigh,
             Evidence = original.Evidence,
             Label = ExpiredLabel,
-            Summary = "It said it would carry on by itself, and it has not worked since.",
+            // The summary carries the DESCRIPTION for the eye, so the screen shows the fact once (the label)
+            // and then what the session was doing. With nothing to carry it falls back to the correction.
+            Summary = string.IsNullOrWhiteSpace(description) ? ExpiredCorrection : description,
             AgentRecommends = null,
             AnswerVia = "reply",
             Menu = null,
             Options = new List<TurnVerdictOptionDto>(),
             Risk = TurnVerdictVocabulary.RiskNone,
-            // The correction leads, because it is the part that is news. What the session had said follows it,
-            // marked as a past claim by "It had said" so the sentence cannot be heard as the stalled session
-            // still asserting it - the failure mode of simply concatenating the two.
-            Spoken = string.IsNullOrWhiteSpace(original.Summary)
-                ? ExpiredSpokenLead
-                : $"{ExpiredSpokenLead} It had said: {original.Summary}",
+            // What the session was doing, then the correction ONCE, closing the line - see the note above.
+            Spoken = string.IsNullOrWhiteSpace(description)
+                ? ExpiredCorrection
+                : $"{description} {ExpiredCorrection}",
             // ONE TEXT, READ OR HEARD - the same rule every reading follows from contract v3. This record is
             // written by the CLOCK and no model is asked, so the words are these; carrying them in only two of
             // the three fields would leave the Wingman screen reading one thing and the ear hearing another.
-            Narration = string.IsNullOrWhiteSpace(original.Summary)
-                ? ExpiredSpokenLead
-                : $"{ExpiredSpokenLead} It had said: {original.Summary}",
+            Narration = string.IsNullOrWhiteSpace(description)
+                ? ExpiredCorrection
+                : $"{description} {ExpiredCorrection}",
             NextScheduledWakeUtc = null,
             FinishedKind = null,
         };
@@ -140,8 +163,9 @@ public static class TurnVerdictWatchdog
     /// <summary>The label on the verdict stored when an expiry is undone.</summary>
     public const string CarryingOnAgainLabel = "Carrying on - its own sessions are running";
 
-    /// <summary>The spoken lead for an undone expiry - the correction, first and plainly, exactly as the expiry
-    /// leads with its own.</summary>
+    /// <summary>The spoken lead for an undone expiry - the correction, first and plainly; the expiry's own
+    /// correction closes its line instead of opening it, and this one has nothing after it to be mistaken for
+    /// a live claim, so it opens.</summary>
     public const string CarryingOnAgainSpokenLead = "It is carrying on: its own sessions are running.";
 
     /// <summary>What an undone expiry says it is DOING, in the same place the expiry says its own sentence.</summary>
