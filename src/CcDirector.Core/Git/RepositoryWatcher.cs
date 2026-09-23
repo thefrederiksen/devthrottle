@@ -18,7 +18,10 @@ namespace CcDirector.Core.Git;
 ///   worktree file updates the repository's cleanliness and dirty-age (issue 516).
 ///
 /// Events are debounced per repository (a burst - including a build-output flood - collapses to one
-/// recompute after it settles).
+/// recompute after it settles). The settle window is 20 seconds: agents write files constantly, and a
+/// working tree that changed twenty times in twenty seconds needs one recompute, not twenty. A
+/// repository under CONTINUOUS edits never settles, so a maximum wait of 60 seconds from the first
+/// unprocessed event forces a recompute anyway - its cleanliness and dirty-age stay at most a minute old.
 ///
 /// Recovery (issue 516): a FileSystemWatcher can silently drop events on an internal-buffer overflow,
 /// and some state changes emit no event a per-repo watcher can see (a repository created by
@@ -28,15 +31,28 @@ namespace CcDirector.Core.Git;
 /// </summary>
 public sealed class RepositoryWatcher : IDisposable
 {
-    private static readonly TimeSpan Debounce = TimeSpan.FromSeconds(2);
+    /// <summary>How long a repository must be quiet before its change is recomputed.</summary>
+    public static readonly TimeSpan DefaultSettle = TimeSpan.FromSeconds(20);
+
+    /// <summary>The longest a change may wait for its repository to settle before it is recomputed anyway.</summary>
+    public static readonly TimeSpan DefaultMaxWait = TimeSpan.FromSeconds(60);
+
+    private readonly TimeSpan _settle;
+    private readonly TimeSpan _maxWait;
 
     private readonly RepositoryMonitor _monitor;
     private readonly object _gate = new();
     private readonly Dictionary<string, FileSystemWatcher> _rootWatchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FileSystemWatcher> _repoWatchers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, CancellationTokenSource> _pending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PendingChange> _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly Background.BackgroundJob _reconcileTimer;
     private bool _disposed;
+
+    /// <summary>
+    /// The settle wait. A seam for tests only: a test hands in a delay it completes by hand, so it can
+    /// land a replacement event or a Dispose at the exact moment a wait expires.
+    /// </summary>
+    internal Func<TimeSpan, CancellationToken, Task> DelayAsync { get; set; } = Task.Delay;
 
     /// <summary>Raised after a debounced change triggered a recompute (test observability).</summary>
     public event Action<string>? Recomputed;
@@ -49,9 +65,16 @@ public sealed class RepositoryWatcher : IDisposable
     /// </summary>
     public event Action? ReconciliationRequested;
 
-    public RepositoryWatcher(RepositoryMonitor monitor, TimeSpan? reconcileInterval = null, Background.BackgroundJobs? jobs = null)
+    /// <summary>A repository's scheduled recompute: its cancellation, and when its oldest unprocessed event arrived.</summary>
+    private sealed record PendingChange(CancellationTokenSource Cts, long FirstEventTicks);
+
+    public RepositoryWatcher(RepositoryMonitor monitor, TimeSpan? reconcileInterval = null, Background.BackgroundJobs? jobs = null, TimeSpan? settle = null, TimeSpan? maxWait = null)
     {
         _monitor = monitor;
+        _settle = settle ?? DefaultSettle;
+        _maxWait = maxWait ?? DefaultMaxWait;
+        if (_maxWait < _settle)
+            throw new ArgumentException($"maxWait ({_maxWait}) must not be shorter than settle ({_settle})", nameof(maxWait));
         var interval = reconcileInterval ?? TimeSpan.FromMinutes(5);
         // A slow-and-steady job on the scheduler (docs/BackgroundWork.md): the safety net behind the
         // file events, on the cadence it always had.
@@ -218,38 +241,61 @@ public sealed class RepositoryWatcher : IDisposable
         }
     }
 
-    /// <summary>Debounced per-repo: a burst of events collapses into one recompute.</summary>
-    private void Schedule(string repoPath)
+    /// <summary>
+    /// Debounced per-repo: a burst of events collapses into one recompute once the repository has been
+    /// quiet for the settle window - but never later than the maximum wait after the FIRST unprocessed
+    /// event, so continuous edits still recompute.
+    /// </summary>
+    internal void Schedule(string repoPath)
     {
         if (_disposed || string.IsNullOrWhiteSpace(repoPath))
             return;
         var key = WorktreeReaperService.NormalizePath(repoPath);
+        var now = Environment.TickCount64;
         CancellationTokenSource cts;
+        TimeSpan delay;
         lock (_gate)
         {
+            // Checked again under the lock: a Dispose that finished between the check above and here
+            // must not be followed by a freshly scheduled recompute.
+            if (_disposed)
+                return;
+            var firstEvent = now;
             if (_pending.TryGetValue(key, out var old))
-                old.Cancel();
+            {
+                old.Cts.Cancel();
+                firstEvent = old.FirstEventTicks;
+            }
+            var untilMaxWait = _maxWait - TimeSpan.FromMilliseconds(now - firstEvent);
+            delay = untilMaxWait < _settle ? untilMaxWait : _settle;
+            if (delay < TimeSpan.Zero)
+                delay = TimeSpan.Zero;
             cts = new CancellationTokenSource();
-            _pending[key] = cts;
+            _pending[key] = new PendingChange(cts, firstEvent);
         }
-        _ = DebouncedRecomputeAsync(repoPath, key, cts);
+        _ = DebouncedRecomputeAsync(repoPath, key, cts, delay);
     }
 
-    private async Task DebouncedRecomputeAsync(string repoPath, string key, CancellationTokenSource cts)
+    private async Task DebouncedRecomputeAsync(string repoPath, string key, CancellationTokenSource cts, TimeSpan delay)
     {
         try
         {
-            await Task.Delay(Debounce, cts.Token);
+            await DelayAsync(delay, cts.Token);
         }
         catch (OperationCanceledException)
         {
             return; // superseded by a newer event for the same repo
         }
 
+        // Only the callback that still OWNS the pending slot may recompute. A wait can complete at the
+        // same moment a newer event replaces it (the newer callback owns the change now) or Dispose
+        // clears it (nothing may run or be raised after disposal); in both cases this callback lost
+        // the slot and stops here. Without this check both callbacks recomputed.
         lock (_gate)
         {
-            if (_pending.TryGetValue(key, out var current) && current == cts)
-                _pending.Remove(key);
+            if (_disposed || !_pending.TryGetValue(key, out var current) || current.Cts != cts)
+                return;
+            _pending.Remove(key);
         }
 
         try
@@ -261,6 +307,8 @@ public sealed class RepositoryWatcher : IDisposable
             // reconciliation. Invalidating here makes the recompute read the tree as it is now.
             GitStatusProvider.InvalidateCache(repoPath);
             await _monitor.RecomputeOneAsync(repoPath);
+            if (_disposed)
+                return; // disposed while the recompute ran: nothing is raised after disposal
             Recomputed?.Invoke(repoPath);
         }
         catch (Exception ex)
@@ -279,7 +327,7 @@ public sealed class RepositoryWatcher : IDisposable
             foreach (var w in _repoWatchers.Values) w.Dispose();
             _rootWatchers.Clear();
             _repoWatchers.Clear();
-            foreach (var c in _pending.Values) c.Cancel();
+            foreach (var c in _pending.Values) c.Cts.Cancel();
             _pending.Clear();
         }
     }
