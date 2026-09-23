@@ -80,6 +80,12 @@ public partial class MainWindow : Window
     // Internal, not private: the compose-box route test (ruling R20) adds a session here and drives the
     // real SelectSession, insert and send through it.
     internal readonly ObservableCollection<SessionViewModel> _sessions = new();
+
+    /// <summary>
+    /// Headless window tests only: show the real window without the start-up wiring in MainWindow_Loaded, which
+    /// needs the Director application (its session manager, gateway and timers) that a test does not run.
+    /// </summary>
+    internal bool SkipApplicationWiringOnLoaded { get; init; }
     private SessionViewModel? _activeSession;
 
     // ===== The rail as the ownership tree (Session List Views, slice 2) =====
@@ -369,6 +375,12 @@ public partial class MainWindow : Window
     private void MainWindow_Loaded(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] MainWindow_Loaded");
+
+        if (SkipApplicationWiringOnLoaded)
+        {
+            FileLog.Write("[MainWindow] MainWindow_Loaded: application wiring skipped (headless window test)");
+            return;
+        }
 
         var app = (App)global::Avalonia.Application.Current!;
         _sessionManager = app.SessionManager;
@@ -5000,6 +5012,8 @@ public partial class MainWindow : Window
     // ==================== LEFT TAB SWITCHING ====================
 
     private string _activeLeftTab = "Terminal";
+    // The terminal grid size at the moment the Terminal tab was left; null while the Terminal tab is showing.
+    private (int Cols, int Rows)? _terminalGridWhenHidden;
     private static readonly IBrush TransparentBrush = Brushes.Transparent;
     private static readonly IBrush InactiveTextBrush = new SolidColorBrush(Color.Parse("#888888"));
 
@@ -5204,6 +5218,7 @@ public partial class MainWindow : Window
     private void SwitchLeftTab(string tab)
     {
         if (_activeLeftTab == tab) return;
+        var previousTab = _activeLeftTab;
         _activeLeftTab = tab;
         FileLog.Write($"[MainWindow] SwitchLeftTab: {tab}");
 
@@ -5252,12 +5267,23 @@ public partial class MainWindow : Window
                 DocumentPanel.Children.Add(activeDocTab.ViewerControl);
         }
 
-        // Force terminal refresh when switching back to Terminal tab.
-        // The terminal display corrupts while hidden (Bounds=0) and needs
-        // a full buffer re-parse + ConPTY resize to render correctly.
-        if (tab == "Terminal" && _activeSession != null)
+        // Returning to the Terminal tab replays the whole buffer only when the grid size changed while the tab
+        // was hidden. The replay was added (March 2026) as a blanket fix for a terminal that looked corrupt after
+        // being hidden; it re-parses up to two megabytes on the screen thread, so doing it on every return froze
+        // the window on every visit, and on a session switch that lands on the Terminal tab it was a second full
+        // replay straight after Attach's own. An unchanged return still gets the cheap half of that fix: catch up
+        // with the buffer, the same-size resize, and a repaint. Posted at Loaded so the newly shown panel has
+        // been laid out and the grid reflects the size it will actually render at.
+        if (tab == "Terminal")
         {
-            Dispatcher.UIThread.Post(() => TerminalHost.ForceRefresh(), DispatcherPriority.Render);
+            var sizeWhenHidden = _terminalGridWhenHidden;
+            _terminalGridWhenHidden = null;
+            if (_activeSession != null && sizeWhenHidden is { } hidden)
+                Dispatcher.UIThread.Post(() => TerminalHost.RefreshIfGridChangedSince(hidden.Cols, hidden.Rows), DispatcherPriority.Loaded);
+        }
+        else if (previousTab == "Terminal")
+        {
+            _terminalGridWhenHidden = TerminalHost.GridSize;
         }
     }
 

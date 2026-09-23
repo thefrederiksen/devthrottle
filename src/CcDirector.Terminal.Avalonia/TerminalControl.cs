@@ -334,9 +334,17 @@ public class TerminalControl : Control
     private void ResizeSession(short cols, short rows)
     {
         if (_session is null) return;
+        _resizeRequests++;
+        _lastResizeRequest = (cols, rows);
         _session.SuppressActivityFor(RepaintSuppressionWindow);
         _session.Resize(cols, rows);
     }
+
+    // Test hooks only: how many resizes this control has asked its session for, and the last size asked. They count
+    // the call where it leaves the control, because Session.Resize drops a resize to an unchanged size before the
+    // backend sees it, so the backend cannot tell a same-size request from none.
+    private int _resizeRequests;
+    private (short Cols, short Rows) _lastResizeRequest;
 
     public void Attach(Session session)
     {
@@ -514,6 +522,48 @@ public class TerminalControl : Control
         ScrollChanged?.Invoke(this, EventArgs.Empty);
 
         FileLog.Write($"[TerminalControl] ForceRefresh complete: cols={_cols}, rows={_rows}, scrollback={_scrollback.Count}");
+    }
+
+    /// <summary>The grid size the control is laid out at right now, in columns and rows.</summary>
+    public (int Cols, int Rows) GridSize => (_cols, _rows);
+
+    /// <summary>
+    /// The terminal is being shown again after the host hid it. When the grid is no longer the size given - the
+    /// size it had when it was hidden - run the full <see cref="ForceRefresh"/> replay. When the size is unchanged,
+    /// keep the parser (the poll kept parsing while hidden) and do only the cheap half of that refresh: parse
+    /// anything not yet read, send the same-size resize, and repaint. Returns whether the replay ran.
+    /// </summary>
+    public bool RefreshIfGridChangedSince(int cols, int rows)
+    {
+        bool changed = _cols != cols || _rows != rows;
+        FileLog.Write($"[TerminalControl] RefreshIfGridChangedSince: was={cols}x{rows}, now={_cols}x{_rows}, replay={changed}");
+        if (changed)
+            ForceRefresh();
+        else
+            RedrawAtSameSize();
+        return changed;
+    }
+
+    /// <summary>
+    /// The cheap half of <see cref="ForceRefresh"/>, without the buffer replay: catch the parser up with the
+    /// buffer, send a same-size resize so a running program is asked to redraw, and repaint. Session.Resize
+    /// drops a resize to the size the terminal already has (since May 2026), so today the resize reaches the
+    /// program only if the session's recorded size differs; the call is kept so this path asks exactly what
+    /// ForceRefresh asks.
+    /// </summary>
+    private void RedrawAtSameSize()
+    {
+        if (_session is null || Bounds.Width <= 0 || Bounds.Height <= 0)
+            return;
+
+        // With no parser there is nothing to catch up, and polling would move the read position past bytes
+        // nobody parsed.
+        if (_parser is not null)
+            PollTimer_Tick(null, EventArgs.Empty);
+
+        ResizeSession((short)_cols, (short)_rows);
+        InvalidateVisual();
+        ScrollChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -950,6 +1000,15 @@ public class TerminalControl : Control
 
     /// <summary>Harness: how many frames painted the grid (a frame with no parser paints only background).</summary>
     internal int HarnessRenderCount => _gridRenderCount;
+
+    /// <summary>Harness: one poll through the real tick handler; the headless platform does not fire the poll timer.</summary>
+    internal void HarnessPollTick() => PollTimer_Tick(null, EventArgs.Empty);
+
+    /// <summary>Harness: resizes this control has asked its session for, counted before Session.Resize runs.</summary>
+    internal int HarnessResizeRequests => _resizeRequests;
+
+    /// <summary>Harness: the size of the last resize this control asked its session for.</summary>
+    internal (short Cols, short Rows) HarnessLastResizeRequest => _lastResizeRequest;
 
     private int _gridRenderCount;
 
