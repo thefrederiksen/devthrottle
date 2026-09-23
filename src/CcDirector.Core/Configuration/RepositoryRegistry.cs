@@ -288,9 +288,36 @@ public class RepositoryRegistry
     }
 
     /// <summary>
-    /// Write the list through a temporary file and a single move, so no reader - in this process or in
+    /// Write the list through a temporary file and a single swap, so no reader - in this process or in
     /// another Director sharing this root - can ever see half of it, and so a crash mid-write cannot
     /// leave an unparseable file behind.
+    ///
+    /// THE SWAP IS <c>File.Replace</c>, NOT <c>File.Move</c>, AND ON WINDOWS THAT IS THE WHOLE
+    /// DIFFERENCE. A replacing move DELETES the destination and puts the new file at its name. A
+    /// reader granting <c>FileShare.Delete</c> permits that delete, but the deleted file does not go
+    /// while a handle is still open on it - it sits in Windows' delete-pending state, and for as long
+    /// as it does, every attempt to open OR recreate anything at that path is refused with
+    /// <c>ACCESS_DENIED</c>. A reader that reopens the list in a loop collides with that window, the
+    /// write throws <c>UnauthorizedAccessException</c>, and the repository the user just added is
+    /// silently not in the list. It is intermittent for exactly that reason - the collision has to
+    /// land inside the window - which is why it read as noise rather than as a defect.
+    ///
+    /// <c>File.Replace</c> is the call built for this. It does not delete and recreate: it swaps the
+    /// contents into the existing file, so the destination keeps its identity, there is no
+    /// delete-pending state to collide with, and it is still one atomic step - the half-written file
+    /// this method exists to prevent is still impossible.
+    ///
+    /// ONE WINDOW IS ACCEPTED AND SAID OUT LOUD. Replace needs its destination to exist, so this asks
+    /// first, and another process could in principle delete the list between the question and the
+    /// answer. Nothing in this product deletes that file, the in-process writers are serialised by the
+    /// gate, and the outcome would be a loud exception rather than a lost write - so this is a smaller
+    /// and noisier hazard than the one it replaces, not a free lunch.
+    ///
+    /// The promise in the paragraph above is not decorative. Several Directors really do run off one
+    /// root on the same machine, on Windows, and that is the reason this method exists at all. Until
+    /// this change it was a promise the code could not keep: the suite never caught it because Unix
+    /// does not enforce share modes, so a rename over an open file always succeeds on macOS and Linux
+    /// and <c>RepositoryRegistryConcurrencyTests</c> passed there while failing on the build machine.
     /// </summary>
     private void WriteAtomic(string json)
     {
@@ -301,6 +328,14 @@ public class RepositoryRegistry
         // A unique temporary name, because a fixed one would itself be the thing two writers race over.
         var temp = Path.Combine(dir, $".repositories.{Guid.NewGuid():N}.tmp");
         File.WriteAllText(temp, json);
-        File.Move(temp, FilePath, overwrite: true);
+
+        // Replace needs a destination to replace. The first write of a fresh root has none, and that is
+        // an ordinary state rather than a failure - so it is asked about directly instead of being
+        // discovered by catching the exception. A second writer that creates the file inside this window
+        // can only be another process (Save holds the gate), and the move below still overwrites it.
+        if (File.Exists(FilePath))
+            File.Replace(temp, FilePath, destinationBackupFileName: null);
+        else
+            File.Move(temp, FilePath, overwrite: true);
     }
 }
