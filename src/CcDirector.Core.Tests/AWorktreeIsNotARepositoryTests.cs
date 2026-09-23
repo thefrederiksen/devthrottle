@@ -30,7 +30,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
 
     public AWorktreeIsNotARepositoryTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), $"AWorktreeIsNotARepository_{Guid.NewGuid():N}");
+        _root = TestTempRoot.For("AWorktreeIsNotARepository_");
         Directory.CreateDirectory(_root);
         _registry = new RepositoryRegistry(Path.Combine(_root, "repositories.json"));
         _registry.Load();
@@ -314,12 +314,12 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
     /// <c>ResolveLinkTarget</c> answers about the last component alone.</summary>
     private static string RealPath(string path)
     {
-        var resolved = new DirectoryInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName
-                       ?? Path.GetFullPath(path);
-        var parent = Path.GetDirectoryName(resolved);
-        return string.IsNullOrEmpty(parent) || parent == resolved
-            ? resolved
-            : Path.Combine(RealPath(parent), Path.GetFileName(resolved));
+        // One implementation, in TestTempRoot, and it short-circuits Windows before it touches
+        // ResolveLinkTarget. The hand-rolled recursion that used to live here walked UP the path
+        // calling ResolveLinkTarget on every ancestor, including the volume root - and Windows
+        // throws DirectoryNotFoundException when asked to resolve "C:\", so every test through
+        // here failed on the build machine while passing on macOS.
+        return TestTempRoot.Canonical(path);
     }
 
     private static void RunGit(string workingDirectory, params string[] args)

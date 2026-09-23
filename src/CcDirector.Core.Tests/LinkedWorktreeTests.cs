@@ -25,7 +25,7 @@ public sealed class LinkedWorktreeTests : IDisposable
 
     public LinkedWorktreeTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), $"LinkedWorktreeTests_{Guid.NewGuid():N}");
+        _root = TestTempRoot.For("LinkedWorktreeTests_");
         Directory.CreateDirectory(_root);
     }
 
@@ -266,12 +266,12 @@ public sealed class LinkedWorktreeTests : IDisposable
     /// </summary>
     private static string RealPath(string path)
     {
-        var resolved = new DirectoryInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName
-                       ?? Path.GetFullPath(path);
-        var parent = Path.GetDirectoryName(resolved);
-        return string.IsNullOrEmpty(parent) || parent == resolved
-            ? resolved
-            : Path.Combine(RealPath(parent), Path.GetFileName(resolved));
+        // One implementation, in TestTempRoot, and it short-circuits Windows before it touches
+        // ResolveLinkTarget. The hand-rolled recursion that used to live here walked UP the path
+        // calling ResolveLinkTarget on every ancestor, including the volume root - and Windows
+        // throws DirectoryNotFoundException when asked to resolve "C:\", so every test through
+        // here failed on the build machine while passing on macOS.
+        return TestTempRoot.Canonical(path);
     }
 
     private static void RunGit(string workingDirectory, params string[] args)
