@@ -143,10 +143,12 @@ public sealed class RepositoryMonitor
         Func<string, IReadOnlyList<LiveSessionRef>?, CancellationToken, Task<RepositoryStatus>>? compute = null,
         string? cachePath = null,
         Func<string, CancellationToken, Task<string?>>? resolvePrimary = null,
-        Func<string, bool>? isRepository = null)
+        Func<string, bool>? isRepository = null,
+        WorktreeMergeSignalCache? signalCache = null)
     {
         _enumerate = enumerate ?? DefaultEnumerate;
-        _compute = compute ?? DefaultCompute;
+        SignalCache = signalCache ?? new WorktreeMergeSignalCache();
+        _compute = compute ?? ((path, sessions, ct) => DefaultCompute(path, sessions, SignalCache, ct));
         _cachePath = cachePath;
         _resolvePrimary = resolvePrimary ?? DefaultResolvePrimary;
         _isRepository = isRepository ?? DefaultIsRepository;
@@ -363,6 +365,18 @@ public sealed class RepositoryMonitor
                     }
                 }
             }
+            // The signal cache is brought in line with the model BEFORE any Removed subscriber runs:
+            // every repository above has already left the model, so a subscriber that throws on the
+            // first one must not leave the later ones cached. Forget each dropped repository, then
+            // sweep anything cached for a repository the model does not hold (an unseen key with no
+            // row, a root that was unregistered).
+            foreach (var r in removed)
+                SignalCache.Forget(r.Path);
+            List<string> modelPaths;
+            lock (_gate)
+                modelPaths = _byPath.Keys.ToList();
+            SignalCache.KeepRepositoriesOnly(modelPaths);
+
             foreach (var r in removed)
                 Removed?.Invoke(r);
 
@@ -512,6 +526,7 @@ public sealed class RepositoryMonitor
                 FileLog.Write($"[RepositoryMonitor] recompute: absence observation for {repoPath} is stale - a newer publish stands, yielding");
                 return;
             }
+            SignalCache.Forget(repoPath);
             if (gone != null)
             {
                 FileLog.Write($"[RepositoryMonitor] recompute: {repoPath} is gone - removed");
@@ -861,8 +876,18 @@ public sealed class RepositoryMonitor
         return result;
     }
 
-    private static async Task<RepositoryStatus> DefaultCompute(string path, IReadOnlyList<LiveSessionRef>? sessions, CancellationToken ct)
-        => await new RepositoryStatusService().GetStatusAsync(path, sessions, fetchPrune: false, ct);
+    /// <summary>
+    /// The merge-signal cache every default compute of this monitor shares (plan step 7d). It belongs to
+    /// the monitor, not the process, because the monitor is what knows when a repository leaves: every
+    /// removal forgets that repository's entries, and every completed scan sweeps the cache down to the
+    /// repositories still in the model. Each compute builds its own status service, so a cache per
+    /// service would never be read twice.
+    /// </summary>
+    internal WorktreeMergeSignalCache SignalCache { get; }
+
+    private static async Task<RepositoryStatus> DefaultCompute(string path, IReadOnlyList<LiveSessionRef>? sessions, WorktreeMergeSignalCache signalCache, CancellationToken ct)
+        => await new RepositoryStatusService(worktrees: new WorktreeInventoryService(signalCache: signalCache))
+            .GetStatusAsync(path, sessions, fetchPrune: false, ct);
 
     /// <summary>A path is a repository when it exists and holds a .git directory (a primary
     /// checkout) or a .git file (a linked worktree).</summary>

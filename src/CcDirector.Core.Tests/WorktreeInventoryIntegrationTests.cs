@@ -405,6 +405,187 @@ public sealed class WorktreeInventoryIntegrationTests : IDisposable
 
     // ----- helpers -----
 
+    // -------------------------------------------------------------------------------------------
+    // The git storm (plan step 7d): with a merge-signal cache, a second inventory whose worktree
+    // HEADs and origin/main have not moved runs ONLY "git status" in each worktree. Every merge
+    // question (merge-base, cherry, rev-list, the upstream probe's config and for-each-ref) and the
+    // last-activity questions are answered from the first inventory. The repository itself still
+    // resolves origin/main and lists its worktrees - that is how the cache knows nothing moved.
+    // -------------------------------------------------------------------------------------------
+    [Fact]
+    public async Task SecondInventory_WithUnchangedCommitIds_RunsOnlyStatusPerWorktree()
+    {
+        var (branchWt, detachedWt) = MakeBranchAndDetachedWorktrees();
+        var git = new CountingGitRunner();
+        var service = new WorktreeInventoryService(git, signalCache: new WorktreeMergeSignalCache());
+
+        var first = await service.GetInventoryAsync(_primary, fetchPrune: false);
+        Assert.True(first.Success, first.Error);
+        Assert.Contains(git.Commands, c => c.StartsWith("cherry ")); // the first inventory asked everything
+
+        git.Clear();
+        var second = await service.GetInventoryAsync(_primary, fetchPrune: false);
+        Assert.True(second.Success, second.Error);
+
+        var commands = git.Commands;
+        var statusRuns = commands.Where(c => c == "status --porcelain").ToList();
+        Assert.Equal(3, statusRuns.Count); // primary, branch worktree, detached worktree
+        var others = commands.Where(c => c != "status --porcelain").ToList();
+        Assert.Equal(new[] { "rev-parse --verify --quiet origin/main", "worktree list --porcelain" }, others);
+
+        // The reused answers are the same answers.
+        foreach (var w in first.Worktrees)
+        {
+            var again = Assert.Single(second.Worktrees, x => x.Path == w.Path);
+            Assert.Equal(w.Safety, again.Safety);
+            Assert.Equal(w.Reason, again.Reason);
+            Assert.Equal(w.AheadOfMain, again.AheadOfMain);
+            Assert.Equal(w.BehindMain, again.BehindMain);
+            Assert.Equal(w.LastActivityUtc, again.LastActivityUtc);
+        }
+        Assert.Contains(second.Worktrees, w => PathsEqual(w.Path, branchWt));
+        Assert.Contains(second.Worktrees, w => PathsEqual(w.Path, detachedWt));
+    }
+
+    [Fact]
+    public async Task SecondInventory_StillSeesAWorkingTreeEdit()
+    {
+        var (branchWt, _) = MakeBranchAndDetachedWorktrees();
+        var service = new WorktreeInventoryService(signalCache: new WorktreeMergeSignalCache());
+        await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        WriteFile(branchWt, "uncommitted.txt", "work in progress\n");
+        var second = await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        var wt = Assert.Single(second.Worktrees, w => PathsEqual(w.Path, branchWt));
+        Assert.False(wt.IsClean);
+        Assert.Equal(WorktreeSafetyReason.UncommittedChanges, wt.Reason);
+    }
+
+    [Fact]
+    public async Task ANewCommitInTheWorktree_RecomputesItsSignals()
+    {
+        var (branchWt, _) = MakeBranchAndDetachedWorktrees();
+        var git = new CountingGitRunner();
+        var service = new WorktreeInventoryService(git, signalCache: new WorktreeMergeSignalCache());
+        var first = await service.GetInventoryAsync(_primary, fetchPrune: false);
+        Assert.Equal(1, Assert.Single(first.Worktrees, w => PathsEqual(w.Path, branchWt)).AheadOfMain);
+
+        WriteFile(branchWt, "more.txt", "more\n");
+        RunGit(branchWt, "add", "-A");
+        RunGit(branchWt, "commit", "-m", "a second unmerged commit");
+        git.Clear();
+        var second = await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        Assert.Equal(2, Assert.Single(second.Worktrees, w => PathsEqual(w.Path, branchWt)).AheadOfMain);
+        Assert.Single(git.Commands, c => c.StartsWith("cherry ")); // only the worktree whose HEAD moved
+    }
+
+    [Fact]
+    public async Task OriginMainMoving_RecomputesEveryWorktreesSignals()
+    {
+        var (branchWt, detachedWt) = MakeBranchAndDetachedWorktrees();
+        var git = new CountingGitRunner();
+        var service = new WorktreeInventoryService(git, signalCache: new WorktreeMergeSignalCache());
+        var first = await service.GetInventoryAsync(_primary, fetchPrune: false);
+        Assert.Equal(0, Assert.Single(first.Worktrees, w => PathsEqual(w.Path, branchWt)).BehindMain);
+
+        WriteFile(_primary, "main-moves.txt", "x\n");
+        RunGit(_primary, "add", "-A");
+        RunGit(_primary, "commit", "-m", "main moves");
+        RunGit(_primary, "push", "origin", "main");
+        git.Clear();
+        var second = await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        Assert.Equal(1, Assert.Single(second.Worktrees, w => PathsEqual(w.Path, branchWt)).BehindMain);
+        Assert.Contains(git.Commands, c => c.StartsWith("cherry "));
+        Assert.Contains(git.Commands, c => c.StartsWith("merge-base --is-ancestor "));
+        Assert.Contains(second.Worktrees, w => PathsEqual(w.Path, detachedWt));
+    }
+
+    [Fact]
+    public async Task AnExplicitRefresh_NeverReadsTheCache()
+    {
+        MakeBranchAndDetachedWorktrees();
+        var git = new CountingGitRunner();
+        var service = new WorktreeInventoryService(git, signalCache: new WorktreeMergeSignalCache());
+        await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        git.Clear();
+        await service.GetInventoryAsync(_primary, fetchPrune: true);
+
+        Assert.Contains(git.Commands, c => c.StartsWith("cherry "));
+        Assert.Contains(git.Commands, c => c.StartsWith("merge-base --is-ancestor "));
+    }
+
+    [Fact]
+    public async Task AnEntryOlderThanTheMaximumAge_IsRecomputed()
+    {
+        MakeBranchAndDetachedWorktrees();
+        var now = DateTime.UtcNow;
+        var git = new CountingGitRunner();
+        var service = new WorktreeInventoryService(git, signalCache: new WorktreeMergeSignalCache(utcNow: () => now));
+        await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        now += WorktreeMergeSignalCache.DefaultMaxAge;
+        git.Clear();
+        await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        Assert.Contains(git.Commands, c => c.StartsWith("cherry "));
+    }
+
+    // The worktree reaper builds its inventory service with no cache: its verdicts decide what is
+    // deleted, so a service without one asks every question every time.
+    [Fact]
+    public async Task WithoutACache_EveryInventoryAsksEveryQuestion()
+    {
+        MakeBranchAndDetachedWorktrees();
+        var git = new CountingGitRunner();
+        var service = new WorktreeInventoryService(git);
+        await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        git.Clear();
+        await service.GetInventoryAsync(_primary, fetchPrune: false);
+
+        Assert.Contains(git.Commands, c => c.StartsWith("cherry "));
+        Assert.Contains(git.Commands, c => c.StartsWith("merge-base --is-ancestor "));
+    }
+
+    /// <summary>A pushed branch one commit ahead of main, and a detached worktree at main's first commit.</summary>
+    private (string BranchWorktree, string DetachedWorktree) MakeBranchAndDetachedWorktrees()
+    {
+        var initialSha = RunGit(_primary, "rev-parse", "HEAD").Trim();
+        var branchWt = Path.Combine(_root, "wt-cache-branch");
+        RunGit(_primary, "worktree", "add", "-b", "cache-branch", branchWt, "main");
+        WriteFile(branchWt, "work.txt", "work\n");
+        RunGit(branchWt, "add", "-A");
+        RunGit(branchWt, "commit", "-m", "unmerged work");
+        RunGit(branchWt, "push", "-u", "origin", "cache-branch");
+
+        var detachedWt = Path.Combine(_root, "wt-cache-detached");
+        RunGit(_primary, "worktree", "add", "--detach", detachedWt, initialSha);
+        return (branchWt, detachedWt);
+    }
+
+    private static bool PathsEqual(string a, string b)
+        => string.Equals(WorktreeReaperService.NormalizePath(a), WorktreeReaperService.NormalizePath(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Runs real git and records each command's arguments, so a test can see which questions were asked.</summary>
+    private sealed class CountingGitRunner : GitCommandRunner
+    {
+        private readonly List<string> _commands = new();
+
+        public IReadOnlyList<string> Commands { get { lock (_commands) return _commands.ToList(); } }
+
+        public void Clear() { lock (_commands) _commands.Clear(); }
+
+        public override Task<GitCommandResult> RunAsync(string workingDirectory, string[] args, CancellationToken ct = default)
+        {
+            lock (_commands) _commands.Add(string.Join(' ', args));
+            return base.RunAsync(workingDirectory, args, ct);
+        }
+    }
+
     private void ConfigureIdentity(string repo)
     {
         RunGit(repo, "config", "user.email", "test@cc-director.local");
