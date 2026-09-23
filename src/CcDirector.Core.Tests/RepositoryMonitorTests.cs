@@ -1670,4 +1670,103 @@ public class RepositoryMonitorTests
         Assert.False(only.IsClean);
         Assert.Equal(5, only.UncommittedCount);
     }
+
+    // ---------------------------------------------------------------------------------------
+    // Review of pull request 3340: the merge-signal cache must not keep a repository the monitor has
+    // dropped. It holds each repository's path, every worktree path and their signals; without
+    // eviction a repository removed from disk or from the registered roots stayed for the life of
+    // the process.
+    // ---------------------------------------------------------------------------------------
+    private static readonly WorktreeMergeSignalCache.Key AnyKey = new("0123456789abcdef", "main", false, "fedcba9876543210");
+    private static readonly WorktreeMergeSignalCache.Signals AnySignals = new(false, false, true, 0, 0, false, false, null, null);
+
+    [Fact]
+    public async Task Rescan_ARepositoryNoLongerFound_LeavesNothingInTheSignalCache()
+    {
+        var cache = new WorktreeMergeSignalCache();
+        var paths = new List<string> { "/r/a", "/r/b" };
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => paths.ToList(),
+            compute: (p, _, _) => Task.FromResult(Status(p)),
+            signalCache: cache) { LiveSessionsProvider = NoSessions };
+        await monitor.RescanAsync(new[] { "/r" });
+        cache.Store("/r/a", "/r/a", AnyKey, AnySignals);
+        cache.Store("/r/a", "/r/a-wt", AnyKey, AnySignals);
+        cache.Store("/r/b", "/r/b", AnyKey, AnySignals);
+
+        paths.Remove("/r/a"); // the repository leaves disk (or its root is unregistered)
+        await monitor.RescanAsync(new[] { "/r" });
+
+        Assert.False(cache.HoldsRepository("/r/a"));
+        Assert.True(cache.HoldsRepository("/r/b")); // a repository still in the model keeps its entries
+        Assert.Equal(1, cache.EntryCount);
+    }
+
+    [Fact]
+    public async Task RecomputeOne_ARepositoryFoundGone_LeavesNothingInTheSignalCache()
+    {
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccd-cachegone-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(System.IO.Path.Combine(dir, ".git"));
+        var cache = new WorktreeMergeSignalCache();
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => new[] { dir },
+            compute: (p, _, _) => Task.FromResult(Status(p)),
+            signalCache: cache) { LiveSessionsProvider = NoSessions };
+        await monitor.RescanAsync(new[] { System.IO.Path.GetDirectoryName(dir)! });
+        cache.Store(dir, dir, AnyKey, AnySignals);
+        cache.Store(dir, dir + "-wt", AnyKey, AnySignals);
+
+        Directory.Delete(dir, recursive: true);
+        await monitor.RecomputeOneAsync(dir);
+
+        Assert.Empty(monitor.Snapshot());
+        Assert.False(cache.HoldsRepository(dir));
+        Assert.Equal(0, cache.EntryCount);
+    }
+
+    [Fact]
+    public async Task Rescan_SweepsCacheEntriesForRepositoriesTheModelNeverHeld()
+    {
+        var cache = new WorktreeMergeSignalCache();
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => new[] { "/r/a" },
+            compute: (p, _, _) => Task.FromResult(Status(p)),
+            signalCache: cache) { LiveSessionsProvider = NoSessions };
+        cache.Store("/elsewhere/old", "/elsewhere/old", AnyKey, AnySignals); // e.g. under an unregistered root
+
+        await monitor.RescanAsync(new[] { "/r" });
+
+        Assert.False(cache.HoldsRepository("/elsewhere/old"));
+        Assert.Equal(0, cache.EntryCount);
+    }
+
+    [Fact]
+    public void SignalCache_OverItsCap_EvictsTheOldestEntries()
+    {
+        var now = DateTime.UtcNow;
+        var cache = new WorktreeMergeSignalCache(utcNow: () => now, maxEntries: 3);
+        for (int i = 0; i < 5; i++)
+        {
+            cache.Store($"/r/repo{i}", $"/r/repo{i}", AnyKey, AnySignals);
+            now = now.AddSeconds(1);
+        }
+
+        Assert.Equal(3, cache.EntryCount);
+        Assert.False(cache.HoldsRepository("/r/repo0")); // the two oldest went, with their emptied buckets
+        Assert.False(cache.HoldsRepository("/r/repo1"));
+        Assert.True(cache.HoldsRepository("/r/repo4"));
+        Assert.NotNull(cache.TryGet("/r/repo4", "/r/repo4", AnyKey));
+    }
+
+    [Fact]
+    public void SignalCache_KeepOnlyThatEmptiesARepository_RemovesItsBucket()
+    {
+        var cache = new WorktreeMergeSignalCache();
+        cache.Store("/r/a", "/r/a-wt", AnyKey, AnySignals);
+
+        cache.KeepOnly("/r/a", Array.Empty<string>());
+
+        Assert.False(cache.HoldsRepository("/r/a"));
+        Assert.Equal(0, cache.EntryCount);
+    }
 }
