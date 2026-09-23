@@ -85,11 +85,19 @@ public sealed class HostedAccountRoutesTellTheTruthTests : IAsyncLifetime
         Path.Combine(Path.GetTempPath(), "cc-984-" + Guid.NewGuid().ToString("N"));
     private string? _priorHosted;
     private string? _priorRoot;
+    private string? _priorServiceToken;
 
     public async Task InitializeAsync()
     {
         _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
+
+        // The assembly default equips hosted test gateways for account-attributed AI calls. This fixture proves
+        // the truthful refusal when owner email has no service credential, so keep that absence local to the fixture.
+        _priorServiceToken = Environment.GetEnvironmentVariable(
+            CcDirector.Core.Account.AccountNotifyByTenantClient.ServiceTokenEnvVar);
+        Environment.SetEnvironmentVariable(
+            CcDirector.Core.Account.AccountNotifyByTenantClient.ServiceTokenEnvVar, null);
 
         // Isolate the storage root so the tenant registry does not mint into the running user's real root,
         // which is shared with every other class in the assembly (issue #1911's failure shape).
@@ -117,6 +125,8 @@ public sealed class HostedAccountRoutesTellTheTruthTests : IAsyncLifetime
         await _gateway.StopAsync();
         Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
+        Environment.SetEnvironmentVariable(
+            CcDirector.Core.Account.AccountNotifyByTenantClient.ServiceTokenEnvVar, _priorServiceToken);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }
