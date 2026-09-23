@@ -334,9 +334,17 @@ public class TerminalControl : Control
     private void ResizeSession(short cols, short rows)
     {
         if (_session is null) return;
+        _resizeRequests++;
+        _lastResizeRequest = (cols, rows);
         _session.SuppressActivityFor(RepaintSuppressionWindow);
         _session.Resize(cols, rows);
     }
+
+    // Test hooks only: how many resizes this control has asked its session for, and the last size asked. They count
+    // the call where it leaves the control, because Session.Resize drops a resize to an unchanged size before the
+    // backend sees it, so the backend cannot tell a same-size request from none.
+    private int _resizeRequests;
+    private (short Cols, short Rows) _lastResizeRequest;
 
     public void Attach(Session session)
     {
@@ -995,6 +1003,12 @@ public class TerminalControl : Control
 
     /// <summary>Harness: one poll through the real tick handler; the headless platform does not fire the poll timer.</summary>
     internal void HarnessPollTick() => PollTimer_Tick(null, EventArgs.Empty);
+
+    /// <summary>Harness: resizes this control has asked its session for, counted before Session.Resize runs.</summary>
+    internal int HarnessResizeRequests => _resizeRequests;
+
+    /// <summary>Harness: the size of the last resize this control asked its session for.</summary>
+    internal (short Cols, short Rows) HarnessLastResizeRequest => _lastResizeRequest;
 
     private int _gridRenderCount;
 

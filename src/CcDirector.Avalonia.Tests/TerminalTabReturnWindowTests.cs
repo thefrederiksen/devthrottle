@@ -119,6 +119,7 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         Write(backend, "\x1b[?2026hOPEN-FRAME\r\n");
 
         int rendersBefore = window.TerminalHost.HarnessRenderCount;
+        int resizeRequestsBefore = window.TerminalHost.HarnessResizeRequests;
         Click(window.TerminalTabButton);
         Assert.True(window.TerminalPanel.IsVisible);
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
@@ -141,8 +142,13 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         Assert.False(parserBefore.InSynchronizedUpdate);
         Assert.Equal(1, Occurrences(ScreenText(window), "OPEN-FRAME"));
 
-        // The same-size resize is requested, and Session.Resize drops a resize to the size the session already
-        // has (a guard since May 2026), so nothing reaches the program. Asserted so a change to either end shows.
+        // The same-size resize is requested: the control asked its session for exactly one resize on the return,
+        // at the unchanged size. Counted where the call leaves the control, because Session.Resize drops a resize
+        // to the size the session already has (a guard since 2c12a04b6, May 2026), so nothing reaches the program
+        // and the backend alone could not tell the request from its absence. Both ends are asserted so a change to
+        // either one shows.
+        Assert.Equal(resizeRequestsBefore + 1, window.TerminalHost.HarnessResizeRequests);
+        Assert.Equal(((short)size.Cols, (short)size.Rows), window.TerminalHost.HarnessLastResizeRequest);
         Assert.Equal(resizesBefore, backend.Resizes.Count);
     }
 
