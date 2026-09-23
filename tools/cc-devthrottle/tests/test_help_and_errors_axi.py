@@ -1314,7 +1314,7 @@ SHORT_HELP_6C = {
 
 #: Top-level names added to main after steps 6b and 6c were written. Their help is checked here too,
 #: so a group that lands later is held to the same one-line summary.
-SHORT_HELP_LATER = {"fleet-manager", "fleet", "factory", "trigger"}
+SHORT_HELP_LATER = {"fleet-manager", "fleet", "factory", "trigger", "errors"}
 
 #: Top-level names whose help is not yet checked. Empty now that steps 6b and 6c are together, and
 #: nothing may be added here: a new command or group belongs in one of the sets above, and
