@@ -22,6 +22,7 @@ internal static class TurnVerdictDtoCopy
             JudgedAtUtc = v.JudgedAtUtc,
             TurnEndObservedAtUtc = v.TurnEndObservedAtUtc,
             ScreenHash = v.ScreenHash,
+            ScreenReuseHash = v.ScreenReuseHash,
             Model = v.Model,
             ContractVersion = v.ContractVersion,
             PackageKind = v.PackageKind,

@@ -235,6 +235,110 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.Equal(2, env.JudgeCalls);
     }
 
+    [Fact]
+    public async Task CosmeticFooterCursorWhitespaceAndWrapping_ReusesTheReading_ButRefreshesTheExactActionHash()
+    {
+        var env = Env();
+        var firstScreen = CosmeticScreen(
+            new[] { "The migration is complete and", "all checks pass." },
+            "❯ continue",
+            "new task? /clear to save 154k tokens");
+        var secondScreen = CosmeticScreen(
+            new[] { "  The migration is complete", "and all   checks pass.  " },
+            "❯ an unsent draft",
+            "4% until auto-compact");
+        env.Screen = () => firstScreen;
+        var service = new TurnVerdictService(env);
+
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, first.Kind);
+        var firstExactHash = first.Verdict!.ScreenHash;
+
+        env.Screen = () => secondScreen;
+        var second = await service.StartTurnEnd(Signal(at: ObservedAt.AddMinutes(1)));
+
+        Assert.Equal(TurnVerdictOutcomeKind.Reused, second.Kind);
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(first.Verdict.VerdictId, second.Verdict!.VerdictId);
+        Assert.NotEqual(firstExactHash, WingmanScreenVerdictCache.HashRows(secondScreen.Rows));
+        Assert.Equal(WingmanScreenVerdictCache.HashRows(secondScreen.Rows), env.Latest(Tenant, Sid)!.ScreenHash);
+
+        env.Screen = () => CosmeticScreen(
+            new[] { "The migration is complete and", "one check fails." },
+            "❯",
+            "4% until auto-compact");
+        var changed = await service.StartTurnEnd(Signal(at: ObservedAt.AddMinutes(2)));
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, changed.Kind);
+        Assert.Equal(2, env.JudgeCalls);
+    }
+
+    [Fact]
+    public async Task AStoredReadingWithoutAReuseFingerprint_IsJudgedOnceToSeedOne()
+    {
+        var env = Env();
+        var service = new TurnVerdictService(env);
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await service.StartTurnEnd(Signal())).Kind);
+        env.Latest(Tenant, Sid)!.ScreenReuseHash = null; // the shape of a record written before this field existed
+
+        var seeded = await service.StartTurnEnd(Signal(at: ObservedAt.AddMinutes(1)));
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, seeded.Kind);
+        Assert.Equal(2, env.JudgeCalls);
+        Assert.NotNull(seeded.Verdict!.ScreenReuseHash);
+    }
+
+    [Theory]
+    [InlineData(TurnVerdictTrigger.Voice)]
+    [InlineData(TurnVerdictTrigger.Sweep)]
+    [InlineData(TurnVerdictTrigger.OnDemand)]
+    [InlineData(TurnVerdictTrigger.SnoozeExpiry)]
+    [InlineData(TurnVerdictTrigger.Retry)]
+    public async Task CosmeticReuseFromEveryOtherTrigger_RebindsTheExactActionHash(TurnVerdictTrigger trigger)
+    {
+        var env = Env();
+        var firstScreen = CosmeticScreen(
+            new[] { "The migration is complete and", "all checks pass." },
+            "❯ continue",
+            "new task? /clear to save 154k tokens");
+        var secondScreen = CosmeticScreen(
+            new[] { "The migration is complete", "and all checks pass." },
+            "❯ an unsent draft",
+            "4% until auto-compact");
+        env.Screen = () => firstScreen;
+        var service = new TurnVerdictService(env);
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await service.StartTurnEnd(Signal())).Kind);
+
+        env.Screen = () => secondScreen;
+        var reused = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, trigger);
+
+        Assert.Equal(TurnVerdictOutcomeKind.Reused, reused.Kind);
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(WingmanScreenVerdictCache.HashRows(secondScreen.Rows), env.Latest(Tenant, Sid)!.ScreenHash);
+    }
+
+    private static ScreenGridResponse CosmeticScreen(
+        IReadOnlyList<string> content,
+        string cursor,
+        string footer)
+    {
+        var rows = content.Concat(new[]
+        {
+            "────────────────────────────────────────────────",
+            cursor,
+            "⏵⏵ bypass permissions on (shift+tab to cycle)",
+            footer,
+        }).ToList();
+        return new ScreenGridResponse
+        {
+            SessionId = Sid,
+            Rows = rows,
+            CursorRow = content.Count + 1,
+            CursorVisible = true,
+            HasGrid = true,
+        };
+    }
+
     // ================================================================= the ceiling
 
     [Theory]

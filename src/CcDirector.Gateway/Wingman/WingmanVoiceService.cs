@@ -1170,8 +1170,13 @@ public sealed class WingmanVoiceService
 
         var rows = screenGrid is { HasGrid: true, Rows.Count: > 0 } ? screenGrid.Rows : null;
         var hash = rows is null ? "" : WingmanScreenVerdictCache.HashRows(rows);
+        var reuseHash = WingmanScreenReuseFingerprint.Hash(screenGrid);
         var latest = verdicts.Latest(tenant, sid);
-        var judgeWouldBeAsked = latest is null || !string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal);
+        var judgeWouldBeAsked = latest is null
+                                || (hash.Length == 0
+                                    ? !string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
+                                    : latest.ScreenReuseHash is null
+                                      || !string.Equals(latest.ScreenReuseHash, reuseHash, StringComparison.Ordinal));
         var speechWouldBeMade = !judgeWouldBeAsked
                                 && latest is not null
                                 && (!latest.Failed || !string.IsNullOrWhiteSpace(latest.Spoken))

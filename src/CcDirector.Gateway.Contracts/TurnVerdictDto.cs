@@ -28,6 +28,14 @@ public sealed class TurnVerdictDto
     /// it, which is what makes a stale option tap refusable.</summary>
     public string ScreenHash { get; set; } = "";
 
+    /// <summary>
+    /// The persisted identity used only to decide whether another stopped screen needs a model call. Unlike
+    /// <see cref="ScreenHash"/>, it ignores terminal whitespace, wrapping, the input cursor row and known volatile
+    /// footer chrome. Null on records written before this identity existed; those are judged once to seed it.
+    /// Never use this field to authorize an answer - stale-answer refusal remains bound to the exact full grid.
+    /// </summary>
+    public string? ScreenReuseHash { get; set; }
+
     /// <summary>Which judge answered.</summary>
     public string Model { get; set; } = "";
 
