@@ -16,7 +16,7 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// The root cause these pin: a failed reading of an unchanged screen was REUSED by every automatic path, so a
 /// session whose model call failed once stayed failed until the agent wrote something new - while the card said
 /// an attempt was coming. The schedule is one minute, one, one, five, five, five, thirty, thirty, written on the
-/// stored reading itself and carried by the idle sweep through <see cref="TurnVerdictService.StartDueRetries"/>.
+/// stored reading itself and carried by the idle sweep through <see cref="TurnVerdictService.StartDueRetriesAsync"/>.
 ///
 /// Every test drives the real service through the sweep's own entry point with a clock the test moves, so what is
 /// proved is the caller's behaviour and not a hand-built record.
@@ -59,7 +59,7 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
         public async Task<int> SweepAsync()
         {
             var before = Latest().VerdictId;
-            var started = Verdicts.StartDueRetries(Tenant);
+            var started = await Verdicts.StartDueRetriesAsync(Tenant);
             if (started > 0)
                 Assert.True(await WaitUntil(() => Verdicts.Latest(Tenant, Sid) is { } l && l.VerdictId != before),
                     "the retry the sweep started never stored a record");
@@ -81,6 +81,9 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
         rig.Now = Start.AddSeconds(59);
         Assert.Equal(0, await rig.SweepAsync());
         Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(1, rig.Env.RecoveryProbeCalls);
+        Assert.Equal(TurnVerdictService.HostRecoveryProbePrompt, Assert.Single(rig.Env.RecoveryProbePrompts));
+        Assert.Equal(TurnVerdictService.HostRecoveryProbeTimeout, Assert.Single(rig.Env.RecoveryProbeTimeouts));
 
         // WHEN DUE: the same unchanged screen is asked about again. This is the line that was missing.
         rig.Now = Start.AddSeconds(61);
@@ -88,6 +91,146 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
         Assert.Equal(2, rig.Env.JudgeCalls);
         Assert.Equal(1, rig.Latest().RetriesMade);
         Assert.Equal(rig.Now.AddMinutes(1), rig.Latest().NextRetryAtUtc);
+    }
+
+    [Fact]
+    public async Task ATimeout_PausesTheBookedRetryUntilAProbeAnswers_WithoutLosingTheReading()
+    {
+        var rig = new Rig();
+        rig.Env.RecoveryProbe = (_, _) => throw new TimeoutException("the small recovery call did not answer");
+        await rig.TurnEnds();
+        var booked = rig.Latest();
+
+        Assert.NotNull(booked.NextRetryAtUtc);
+        rig.Now = booked.NextRetryAtUtc.Value.AddSeconds(1);
+        Assert.Equal(0, await rig.SweepAsync());
+
+        // The failed probe spent no retry. The same reading, count and booking remain present and due.
+        var paused = rig.Latest();
+        Assert.Equal(booked.VerdictId, paused.VerdictId);
+        Assert.Equal(booked.RetriesMade, paused.RetriesMade);
+        Assert.Equal(booked.NextRetryAtUtc, paused.NextRetryAtUtc);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(1, rig.Env.RecoveryProbeCalls);
+
+        // Another pass inside the probe interval spends nothing at all.
+        Assert.Equal(0, await rig.SweepAsync());
+        Assert.Equal(1, rig.Env.RecoveryProbeCalls);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+
+        // The next probe answers, so this same due reading is retried and succeeds.
+        rig.Now = rig.Now.Add(TurnVerdictService.HostRecoveryProbeInterval).AddSeconds(1);
+        rig.Env.RecoveryProbe = (_, _) => Task.FromResult("OK");
+        rig.JudgeFails = false;
+        Assert.Equal(1, await rig.SweepAsync());
+        Assert.Equal(2, rig.Env.RecoveryProbeCalls);
+        Assert.Equal(2, rig.Env.JudgeCalls);
+        Assert.False(rig.Latest().Failed);
+        Assert.Null(rig.Latest().NextRetryAtUtc);
+    }
+
+    [Fact]
+    public async Task ConcurrentSweepPasses_ShareOneRecoveryProbe()
+    {
+        var rig = new Rig();
+        await rig.TurnEnds();
+        rig.Now = Start.AddSeconds(30); // the retry is not due; only recovery is being tested
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.RecoveryProbe = async (_, ct) =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+            return "OK";
+        };
+
+        var first = rig.Verdicts.StartDueRetriesAsync(Tenant);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = rig.Verdicts.StartDueRetriesAsync(Tenant);
+
+        Assert.Equal(1, rig.Env.RecoveryProbeCalls);
+        release.TrySetResult();
+        Assert.Equal(0, await first);
+        Assert.Equal(0, await second);
+        Assert.Equal(1, rig.Env.RecoveryProbeCalls);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+    }
+
+    [Fact]
+    public async Task ANewerTimeout_IsNotClearedByAnOlderProbeAnswer()
+    {
+        var rig = new Rig();
+        await rig.TurnEnds();
+        rig.Now = Start.AddSeconds(30);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.RecoveryProbe = async (_, ct) =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+            return "OK";
+        };
+
+        var sweep = rig.Verdicts.StartDueRetriesAsync(Tenant);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Current work is allowed through while retries are paused. Its later timeout is newer evidence than
+        // this in-flight probe, so the older answer must not release the retry gate.
+        var current = await rig.Verdicts.VerdictForCurrentScreenAsync(
+            Tenant, "dir-1", Sid, TurnVerdictTrigger.OnDemand);
+        Assert.Equal(TurnVerdictOutcomeKind.Failed, current.Kind);
+        release.TrySetResult();
+        Assert.Equal(0, await sweep);
+
+        var judgeCallsAfterCurrentReading = rig.Env.JudgeCalls;
+        rig.Env.RecoveryProbe = (_, _) => Task.FromResult("OK");
+        Assert.Equal(0, await rig.Verdicts.StartDueRetriesAsync(Tenant));
+        Assert.Equal(2, rig.Env.RecoveryProbeCalls);
+        Assert.Equal(judgeCallsAfterCurrentReading, rig.Env.JudgeCalls);
+    }
+
+    [Fact]
+    public async Task Shutdown_CancelsTheRecoveryProbe_AndTheDrainFinishes()
+    {
+        var rig = new Rig();
+        await rig.TurnEnds();
+        rig.Now = Start.AddSeconds(30);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.RecoveryProbe = async (_, ct) =>
+        {
+            entered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return "unreachable";
+        };
+
+        var sweep = rig.Verdicts.StartDueRetriesAsync(Tenant);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        rig.Verdicts.Dispose();
+
+        Assert.Equal(0, await sweep.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(await rig.Verdicts.WaitForFlightsAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, rig.Env.RecoveryProbeCalls);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+    }
+
+    [Fact]
+    public async Task ATransportFailure_DoesNotPauseRetries()
+    {
+        var rig = new Rig();
+        var calls = 0;
+        rig.Env.Judge = (_, _) => Interlocked.Increment(ref calls) == 1
+            ? throw new HttpRequestException("the connection failed before the host could answer")
+            : Task.FromResult(Finished(ReplyText, Spoken));
+
+        await rig.TurnEnds();
+        var booked = rig.Latest();
+        Assert.NotNull(booked.NextRetryAtUtc);
+        rig.Now = booked.NextRetryAtUtc.Value.AddSeconds(1);
+
+        Assert.Equal(1, await rig.SweepAsync());
+        Assert.Equal(0, rig.Env.RecoveryProbeCalls);
+        Assert.False(rig.Latest().Failed);
     }
 
     [Fact]
@@ -166,7 +309,7 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
         Assert.Null(rig.Verdicts.Latest(Tenant, Sid));
         rig.Now = rig.Now.AddMinutes(10);
         var callsBefore = rig.Env.JudgeCalls;
-        Assert.Equal(0, rig.Verdicts.StartDueRetries(Tenant));
+        Assert.Equal(0, await rig.Verdicts.StartDueRetriesAsync(Tenant));
         Assert.Equal(callsBefore, rig.Env.JudgeCalls);
 
         // The new turn ends and fails too: its schedule starts from the first minute, not where the old one was.
@@ -324,6 +467,7 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
         narratorFails = false;
         rig.Now = Start.AddSeconds(61);
         Assert.Equal(1, await rig.SweepAsync());
+        Assert.Equal(1, rig.Env.RecoveryProbeCalls);
         Assert.Null(rig.Latest().NarrationFailureReason);
         Assert.Null(rig.Latest().NextRetryAtUtc);
         Assert.Null(WingmanErrorFold.For(rig.Latest(), agentWorking: false));
@@ -338,10 +482,12 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
 
         // The account turns the judge off and nobody is listening: no retry will ever be allowed to run.
         rig.Env.Knobs = rig.Env.Knobs with { JudgeEnabled = false };
+        rig.Env.RecoveryProbe = (_, _) => throw new TimeoutException("the model host is still stalled");
         rig.Now = Start.AddMinutes(2);
-        Assert.Equal(0, rig.Verdicts.StartDueRetries(Tenant));
+        Assert.Equal(0, await rig.Verdicts.StartDueRetriesAsync(Tenant));
 
         Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(0, rig.Env.RecoveryProbeCalls);
         Assert.Null(rig.Latest().NextRetryAtUtc);
         Assert.True(WingmanErrorFold.For(rig.Latest(), agentWorking: false)!.Exhausted);
     }

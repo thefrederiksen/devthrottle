@@ -153,7 +153,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly TimeSpan _streamStale;
     private readonly Func<TenantId, string, SessionVerbClient?> _route;
     private readonly Func<TenantId, string, StoredConversation?> _conversation;
-    private readonly Func<TenantId, TurnVerdictSettings, IAgentBrain> _judgeBrain;
+    private readonly Func<TenantId, TurnVerdictSettings, string, IAgentBrain> _judgeBrain;
     private readonly Func<TenantId, string> _judgeModel;
     private readonly TurnVerdictStore _store;
     private readonly TurnVerdictTraceWriter _traces;
@@ -166,8 +166,9 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
 
-    /// <param name="judgeBrain">Builds the judge's brain for an account. Production passes a builder that goes
-    /// through <see cref="TurnVerdictJudge.BuildBrain"/>, so the brain carries the settings' timeout.</param>
+    /// <param name="judgeBrain">Builds the judge's brain for an account and usage feature. Production passes a
+    /// builder that goes through <see cref="TurnVerdictJudge.BuildBrain"/>, so the brain carries the settings'
+    /// timeout and the call site receives its own usage tag.</param>
     /// <param name="customSpokenRules">The account's own narration instructions, or null when it uses the
     /// shipped default.</param>
     /// <param name="fleetManagerSessionId">The session an account has marked as its Fleet Manager, or null. Production
@@ -178,7 +179,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         TimeSpan streamStale,
         Func<TenantId, string, SessionVerbClient?> route,
         Func<TenantId, string, StoredConversation?> conversation,
-        Func<TenantId, TurnVerdictSettings, IAgentBrain> judgeBrain,
+        Func<TenantId, TurnVerdictSettings, string, IAgentBrain> judgeBrain,
         Func<TenantId, string> judgeModel,
         TurnVerdictStore store,
         TurnVerdictTraceWriter traces,
@@ -249,7 +250,16 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         // the single re-attempt a listened-to stop may get. Built through the same builder either way.
         var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
         var model = _judgeModel(tenant);
-        using var brain = _judgeBrain(tenant, settings);
+        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdict);
+        var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
+        return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
+    }
+
+    public async Task<TurnVerdictJudgeAnswer> AskRecoveryProbeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
+    {
+        var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
+        var model = _judgeModel(tenant);
+        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdictProbe);
         var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
         return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
     }
@@ -260,7 +270,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         // the old translator's prompt on this model, and a second provider would be a second thing to keep working.
         var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
         var model = _judgeModel(tenant);
-        using var brain = _judgeBrain(tenant, settings);
+        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdict);
         var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
         return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
     }

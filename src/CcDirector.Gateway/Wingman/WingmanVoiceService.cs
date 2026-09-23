@@ -1150,7 +1150,7 @@ public sealed class WingmanVoiceService
     /// whether that attempt would cost anything. The rule is the verdict service's own reuse rule for a sweep:
     /// a stored answer about this exact screen - accepted or refused - is used without asking the judge again,
     /// so only a changed screen, or an accepted verdict whose audio is missing and may be attempted now, reaches a
-    /// provider. A FAILED reading's retry is not this sweep's to make: TurnVerdictService.StartDueRetries carries
+    /// provider. A FAILED reading's retry is not this sweep's to make: TurnVerdictService.StartDueRetriesAsync carries
     /// it, on the same pass, for every session and not only the ones in voice mode.
     ///
     /// GAP, NOT PROVEN: THE SWEEP READS WITHOUT THE SETTLE DELAY. The turn end waits out the settle delay before

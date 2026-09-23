@@ -58,6 +58,13 @@ public interface ITurnVerdictEnvironment
     /// session may get; nothing else decides it.</param>
     Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct);
 
+    /// <summary>
+    /// Ask the same model host one minimal recovery question after a verdict or narration call timed out. This is
+    /// a separate seam so the call carries its own usage feature and can be measured independently from readings.
+    /// Any non-empty answer proves the host is answering again; the answer is never used as a verdict.
+    /// </summary>
+    Task<TurnVerdictJudgeAnswer> AskRecoveryProbeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct);
+
     /// <summary>Ask the NARRATION CALL (slice J) one question and return its raw answer: the same model as the judge,
     /// through a separate seam, because it is not a judgement and is never counted as one. Throws exactly as
     /// <see cref="AskJudgeAsync"/> does.</summary>
@@ -334,6 +341,10 @@ public sealed record TurnVerdictOutcome
 /// </summary>
 public sealed class TurnVerdictService : IDisposable
 {
+    internal const string HostRecoveryProbePrompt = "Reply with exactly OK and nothing else.";
+    internal static readonly TimeSpan HostRecoveryProbeTimeout = TimeSpan.FromSeconds(10);
+    internal static readonly TimeSpan HostRecoveryProbeInterval = TimeSpan.FromSeconds(30);
+
     private readonly ITurnVerdictEnvironment _env;
 
     private sealed class Flight
@@ -553,6 +564,17 @@ public sealed class TurnVerdictService : IDisposable
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _knownEmpty = new();
 
     private readonly object _storeGate = new();
+
+    // A timeout is evidence about the shared model host, not only the stop whose call met it. Scheduled retries
+    // stay durably due behind this process-wide gate until one small call proves the host is answering again.
+    // New stops and a person's own request do not pass through this gate: they are current work, not retries.
+    private readonly object _hostRecoveryGate = new();
+    private readonly CancellationTokenSource _hostRecoveryProbeCts = new();
+    private bool _modelHostStalled;
+    private long _modelHostStallGeneration;
+    private TenantId? _hostRecoveryTenant;
+    private DateTime _nextHostRecoveryProbeAtUtc;
+    private Task<bool>? _hostRecoveryProbe;
 
     /// <summary>Test seam: runs, with the session id, the moment an ending judgement has closed its joined list and
     /// before it writes a single joined row - the point issue #2905's two windows opened at. Null in production.</summary>
@@ -1249,7 +1271,14 @@ public sealed class TurnVerdictService : IDisposable
                     detail = rl.Message;
                     record = FailedRecord(package, tenant, observedAt, "the judge was rate limited: " + rl.Message);
                 }
-                catch (Exception ex) when (ex is TimeoutException or HttpRequestException or OperationCanceledException)
+                catch (TimeoutException ex)
+                {
+                    NoteModelHostTimeout(tenant, "judge");
+                    failure = TurnVerdictFailureKind.DidNotAnswer;
+                    detail = ex.Message;
+                    record = FailedRecord(package, tenant, observedAt, "the judge did not answer: " + ex.Message);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
                 {
                     failure = TurnVerdictFailureKind.DidNotAnswer;
                     detail = ex.Message;
@@ -1554,7 +1583,13 @@ public sealed class TurnVerdictService : IDisposable
         {
             throw;
         }
-        catch (Exception ex) when (ex is TimeoutException or HttpRequestException or OperationCanceledException
+        catch (TimeoutException ex)
+        {
+            NoteModelHostTimeout(tenant, "narration");
+            FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} FAILED ({ex.GetType().Name}): {ex.Message}");
+            return new NarrationCallResult(null, ex.Message, prompt, 0);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException
                                        or WingmanModelRateLimitedException or InvalidOperationException)
         {
             FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} FAILED ({ex.GetType().Name}): {ex.Message}");
@@ -1723,7 +1758,7 @@ public sealed class TurnVerdictService : IDisposable
     /// restraint that <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins: a stop whose
     /// narration failed is not narrated again on every pass, because the sweep comes past every forty-five seconds
     /// and a stop that keeps failing would keep costing a call. What asks again by itself is the booked retry
-    /// (<see cref="StartDueRetries"/>), eight times at most and as a new reading; a person asking is bounded by the
+    /// (<see cref="StartDueRetriesAsync"/>), eight times at most and as a new reading; a person asking is bounded by the
     /// person.
     /// </summary>
     internal bool ReleaseNarrationClaimForRequest(TenantId tenant, string sid, string verdictId)
@@ -1936,11 +1971,12 @@ public sealed class TurnVerdictService : IDisposable
     /// stored FAILED reading whose booked retry has come due is asked about again, under <see cref="TurnVerdictTrigger.Retry"/>.
     /// Returns how many retries were started.
     ///
-    /// NOTHING IS HELD IN MEMORY BETWEEN PASSES. The schedule is on the stored record, so a Gateway restart forgets no
-    /// booked retry, and a record with nothing booked is never touched here at all.
+    /// THE SCHEDULE IS NOT HELD IN MEMORY BETWEEN PASSES. It is on the stored record, so a Gateway restart forgets no
+    /// booked retry, and a record with nothing booked is never touched here at all. The model-host retry pause is
+    /// process memory: after a restart the first due retry may test the host itself, and a timeout pauses it again.
     ///
-    /// FIRE AND FORGET, like the snooze expiry: the sweep waits for no model call. The flight takes the session's one
-    /// gate, so a retry that comes due while a judgement is already running joins it instead of paying twice. A
+    /// THE SMALL RECOVERY PROBE IS AWAITED; FULL RETRIES ARE FIRE AND FORGET, like the snooze expiry. The flight takes
+    /// the session's one gate, so a retry that comes due while a judgement is already running joins it instead of paying twice. A
     /// session that cannot be read right now - held, not live, exited, working, the ceiling reached - is left with its
     /// retry still due, and the next pass asks again; nothing is spent and nothing is rebooked.
     ///
@@ -1948,11 +1984,30 @@ public sealed class TurnVerdictService : IDisposable
     /// session nobody is listening to. No retry will ever run for it, so the booking is withdrawn rather than left on
     /// the card as a promise - goal 6 of the mission: no card says an attempt is coming when none is booked.
     /// </summary>
-    public int StartDueRetries(TenantId tenant)
+    public async Task<int> StartDueRetriesAsync(TenantId tenant)
     {
         if (_disposed || !tenant.IsValid) return 0;
-        var now = _env.NowUtc();
         var settings = _env.Settings(tenant);
+
+        // Turning the judge off still withdraws every due promise even while recovery probes cannot answer. The
+        // host pause prevents spending calls; it must not leave a card promising a retry that can never run.
+        if (!settings.JudgeEnabled)
+        {
+            var withdrawalNow = _env.NowUtc();
+            foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
+                if (WingmanRetrySchedule.NeedsRetry(snapshot)
+                    && WingmanRetrySchedule.IsDue(snapshot.NextRetryAtUtc, withdrawalNow)
+                    && !_env.IsVoiceSession(tenant, sid))
+                    WithdrawBookedRetry(tenant, sid, snapshot);
+            return 0;
+        }
+
+        if (!await HostAllowsScheduledRetriesAsync().ConfigureAwait(false))
+        {
+            FileLog.Write($"[TurnVerdictService] StartDueRetriesAsync: tenant={tenant.ToLogString()} scheduled retries remain due while the model host recovery probe has not answered");
+            return 0;
+        }
+        var now = _env.NowUtc();
         var started = 0;
         foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
         {
@@ -1969,21 +2024,129 @@ public sealed class TurnVerdictService : IDisposable
             {
                 // Still booked and still due: the next pass asks again. Said out loud, because a due retry that
                 // never runs and never says why is exactly the silence this schedule exists to end.
-                FileLog.Write($"[TurnVerdictService] StartDueRetries: sid={sid} tenant={tenant.ToLogString()} a retry is due and was not started this pass ({skipCause}); it stays due");
+                FileLog.Write($"[TurnVerdictService] StartDueRetriesAsync: sid={sid} tenant={tenant.ToLogString()} a retry is due and was not started this pass ({skipCause}); it stays due");
                 continue;
             }
 
             var directorId = state.Facts?.DirectorId ?? "";
             var retryNumber = snapshot.RetriesMade + 1;
-            FileLog.Write($"[TurnVerdictService] StartDueRetries: sid={sid} tenant={tenant.ToLogString()} retry {retryNumber} of {WingmanRetrySchedule.Total} is due (failed record {snapshot.VerdictId}) - asking again");
-            started++;
-            var retry = Task.Run(() => VerdictForCurrentScreenAsync(tenant, directorId, sid, TurnVerdictTrigger.Retry));
+            Task<TurnVerdictOutcome> retry;
+            lock (_hostRecoveryGate)
+            {
+                // A different call may have timed out after this sweep's recovery check. Dispatch and timeout
+                // admission share this gate, so no retry starts after that timeout has armed the pause.
+                if (_modelHostStalled)
+                {
+                    FileLog.Write($"[TurnVerdictService] StartDueRetriesAsync: sid={sid} tenant={tenant.ToLogString()} retry {retryNumber} remains due because the model host stalled again");
+                    break;
+                }
+                FileLog.Write($"[TurnVerdictService] StartDueRetriesAsync: sid={sid} tenant={tenant.ToLogString()} retry {retryNumber} of {WingmanRetrySchedule.Total} is due (failed record {snapshot.VerdictId}) - asking again");
+                started++;
+                retry = Task.Run(() => VerdictForCurrentScreenAsync(tenant, directorId, sid, TurnVerdictTrigger.Retry));
+            }
             _ = retry.ContinueWith(
                 t => FileLog.Write($"[TurnVerdictService] retry {retryNumber} FAULTED: sid={sid}: " +
                                    $"{t.Exception?.GetBaseException().GetType().FullName}: {t.Exception?.GetBaseException().Message}"),
                 TaskContinuationOptions.OnlyOnFaulted);
         }
         return started;
+    }
+
+    /// <summary>
+    /// A real model timeout pauses all scheduled retries together. The retry booking itself stays on the
+    /// stored reading, unchanged; only the sweep is prevented from spending it while the host is stalled.
+    /// </summary>
+    private void NoteModelHostTimeout(TenantId tenant, string call)
+    {
+        var newlyStalled = false;
+        lock (_hostRecoveryGate)
+        {
+            if (!_modelHostStalled)
+            {
+                _modelHostStalled = true;
+                _nextHostRecoveryProbeAtUtc = _env.NowUtc();
+                newlyStalled = true;
+            }
+            _modelHostStallGeneration++;
+            _hostRecoveryTenant = tenant;
+        }
+        FileLog.Write(newlyStalled
+            ? $"[TurnVerdictService] {call} timed out: scheduled retries are paused until one recovery probe answers"
+            : $"[TurnVerdictService] {call} timed out while scheduled retries were already paused");
+    }
+
+    /// <summary>
+    /// True when scheduled retries may run. While the host is stalled, every caller shares one recovery probe;
+    /// after a failed probe the next one cannot start until <see cref="HostRecoveryProbeInterval"/> has passed.
+    /// </summary>
+    private async Task<bool> HostAllowsScheduledRetriesAsync()
+    {
+        Task<bool>? probe;
+        lock (_hostRecoveryGate)
+        {
+            if (!_modelHostStalled) return true;
+            if (_disposed) return false;
+            if (_hostRecoveryProbe is { IsCompleted: false } running)
+            {
+                probe = running;
+            }
+            else
+            {
+                var now = _env.NowUtc();
+                if (now < _nextHostRecoveryProbeAtUtc) return false;
+                if (_hostRecoveryTenant is not { IsValid: true } tenant)
+                    throw new InvalidOperationException("A model-host stall has no account for its recovery probe.");
+                var generation = _modelHostStallGeneration;
+                var started = ProbeModelHostAsync(tenant, generation);
+                _hostRecoveryProbe = started;
+                _ = started.ContinueWith(
+                    _ =>
+                    {
+                        lock (_hostRecoveryGate)
+                            if (ReferenceEquals(_hostRecoveryProbe, started)) _hostRecoveryProbe = null;
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+                probe = started;
+            }
+        }
+        return await probe.ConfigureAwait(false);
+    }
+
+    private async Task<bool> ProbeModelHostAsync(TenantId tenant, long generation)
+    {
+        FileLog.Write($"[TurnVerdictService] model host recovery probe starting: timeout={HostRecoveryProbeTimeout.TotalSeconds:F0}s promptLen={HostRecoveryProbePrompt.Length}");
+        try
+        {
+            var answer = await _env.AskRecoveryProbeAsync(
+                tenant, HostRecoveryProbePrompt, HostRecoveryProbeTimeout, _hostRecoveryProbeCts.Token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(answer.Raw))
+                throw new InvalidOperationException("The model host recovery probe answered with no text.");
+            lock (_hostRecoveryGate)
+            {
+                // A current reading may time out while this probe is in flight. Its newer evidence wins: an
+                // answer that arrived before that timeout cannot release the scheduled retries behind it.
+                if (_modelHostStallGeneration != generation) return false;
+                _modelHostStalled = false;
+                _hostRecoveryTenant = null;
+            }
+            FileLog.Write($"[TurnVerdictService] model host recovery probe answered in {answer.ReplySeconds:F1}s: scheduled retries resume");
+            return true;
+        }
+        catch (OperationCanceledException) when (_hostRecoveryProbeCts.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            lock (_hostRecoveryGate)
+            {
+                _nextHostRecoveryProbeAtUtc = _env.NowUtc() + HostRecoveryProbeInterval;
+            }
+            FileLog.Write($"[TurnVerdictService] model host recovery probe did not answer ({ex.GetType().Name}): {ex.Message}; scheduled retries remain paused");
+            return false;
+        }
     }
 
     /// <summary>Take the booked retry off a failed record that no retry will ever run for. Stored only while that
@@ -2652,9 +2815,9 @@ public sealed class TurnVerdictService : IDisposable
     };
 
     /// <summary>
-    /// Wait for every judgement in flight to finish - for shutdown, after <see cref="Dispose"/> has cancelled them, so a
-    /// cancelled judgement hands in its trace before the trace writer is closed. Answers false when the timeout passed
-    /// first. A flight that ended in a fault counts as finished. A flight writes every row it owes - its own, the stops
+    /// Wait for every judgement and recovery probe in flight to finish - for shutdown, after <see cref="Dispose"/>
+    /// has cancelled them, so a cancelled judgement hands in its trace before the trace writer is closed. Answers false
+    /// when the timeout passed first. A flight that ended in a fault counts as finished. A flight writes every row it owes - its own, the stops
     /// that joined it, and the stops queued behind it - before it leaves the gate, so a flight this does not find has
     /// nothing left to hand in.
     ///
@@ -2666,7 +2829,11 @@ public sealed class TurnVerdictService : IDisposable
         var deadline = Task.Delay(timeout);
         while (true)
         {
-            var pending = _inFlight.Values.Select(f => f.Done.Task).ToArray();
+            Task<bool>? probe;
+            lock (_hostRecoveryGate) probe = _hostRecoveryProbe;
+            var pending = _inFlight.Values.Select(f => (Task)f.Done.Task)
+                .Concat(probe is null ? Array.Empty<Task>() : new Task[] { probe })
+                .ToArray();
             if (pending.Length == 0) return true;
             var all = Task.WhenAll(pending);
             if (await Task.WhenAny(all, deadline).ConfigureAwait(false) != all) return false;
@@ -2686,5 +2853,6 @@ public sealed class TurnVerdictService : IDisposable
         {
             try { flight.Cts.Cancel(); } catch (ObjectDisposedException) { }
         }
+        try { _hostRecoveryProbeCts.Cancel(); } catch (ObjectDisposedException) { }
     }
 }

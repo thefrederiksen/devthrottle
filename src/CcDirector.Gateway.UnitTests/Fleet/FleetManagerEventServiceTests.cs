@@ -96,7 +96,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             streamStale: Stale,
             route: (_, directorId) => RouteServing(directorId, () => Screen("any", Evidence, "> ")),
             conversation: (_, _) => null,
-            judgeBrain: (_, _) => _brain,
+            judgeBrain: (_, _, _) => _brain,
             judgeModel: _ => FakeTurnVerdictEnvironment.Model,
             store: _verdicts,
             traces: new TurnVerdictTraceWriter((_, _) => { }),
