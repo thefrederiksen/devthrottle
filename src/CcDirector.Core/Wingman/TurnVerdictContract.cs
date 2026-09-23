@@ -70,8 +70,16 @@ public static class TurnVerdictContract
     ///
     /// WHAT DID NOT CHANGE: every rule that decides what BYTES reach a live session. The options' shape, the menu's
     /// shape, the one-option refusal, the at-most-one-recommended refusal and <see cref="ValidateExecutable"/> are
-    /// exactly as they were. Those guard a button that ACTS; the seven removed fields guarded prose.</summary>
-    public const string Version = "v3";
+    /// exactly as they were. Those guard a button that ACTS; the seven removed fields guarded prose.
+    ///
+    /// v3.1 (2026-09-23, issue devthrottle_internal#2243): PROMPT ONLY - the JSON shape is byte for byte the v3
+    /// shape, so the resource file keeps its v3 name, exactly as the v2.1 revision kept v2's. The "carrying-on"
+    /// definition gains the exclusion its wording had left open: a reply that reports the work complete is one of
+    /// the two finisheds, never carrying-on, however long the session stays open or what a later round will do.
+    /// On the live fleet a finished report ("This week's round is done... this session stays open for your
+    /// changes") was read as carrying-on, and the carrying-on clock then expired it and narrated that it "did
+    /// not continue" over its own words saying it was done.</summary>
+    public const string Version = "v3.1";
 
     /// <summary>The embedded name of the prompt template. The grading tool reads the same file off
     /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v3.txt; a test pins the two to be

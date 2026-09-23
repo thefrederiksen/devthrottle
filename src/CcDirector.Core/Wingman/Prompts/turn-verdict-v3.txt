@@ -49,6 +49,12 @@ the whole answer away.
   itself - it said so, or it is plainly mid-task with its next step already decided. Distinct from the
   two finisheds because they behave differently AFTERWARDS: a finished session staying quiet is
   correct, while one that said it would continue and then stayed quiet is stuck.
+  A REPLY THAT SAYS ITS WORK IS COMPLETE IS FINISHED, NEVER CARRYING-ON. "The round is done", "the
+  report is sent", "the drafts are staged" - a session whose own words say its work for this turn is
+  over is finished-done or finished-report, even when it stays open for the lead's later review, and
+  even when it describes what a later round will do. Carrying-on means the session ITSELF acts again
+  next, with no person involved; a session that has finished and is parked is finished, however long
+  it waits.
   A SESSION THAT OWNS OTHER SESSIONS (see "Sessions this session owns" below) is carrying on while any
   session it owns is still working. When its reply waits on its own working sessions and asks a person
   for nothing, it is carrying-on, whatever else the reply says. A session it owns that needs a person
