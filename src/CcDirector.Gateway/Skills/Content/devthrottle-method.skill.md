@@ -37,8 +37,9 @@ lives in that mission's document, and dies with it. It never carries to the next
 - **Tech Lead** - optional, one per phase, or several at once for parallel tracks, thrown away with
   the phase. Runs Developers and checks their work. Never writes code.
 - **Developer** - one task, with its tests and its proof. Never picks its own reviewer.
-- **Reviewer** - reads code it did not write, running a **different agent** (Codex, or GLM 5.3 in
-  Pi). Never builds.
+- **Reviewer** - reads code it did not write, running a **different agent**. **Codex first**; when
+  Codex cannot (out of usage, will not start, or Codex wrote the work), **Pi on GLM-5.3** at once -
+  never wait for a limit to reset. Never builds.
 - **Release Manager** - a skill per repository holding how a release is made there. Never deploys
   on its own.
 
