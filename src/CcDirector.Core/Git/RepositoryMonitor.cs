@@ -365,17 +365,20 @@ public sealed class RepositoryMonitor
                     }
                 }
             }
+            // The signal cache is brought in line with the model BEFORE any Removed subscriber runs:
+            // every repository above has already left the model, so a subscriber that throws on the
+            // first one must not leave the later ones cached. Forget each dropped repository, then
+            // sweep anything cached for a repository the model does not hold (an unseen key with no
+            // row, a root that was unregistered).
             foreach (var r in removed)
-            {
                 SignalCache.Forget(r.Path);
-                Removed?.Invoke(r);
-            }
-            // And the sweep: anything cached for a repository this completed scan left out of the model
-            // (an unseen key with no row, a root that was unregistered) goes too.
             List<string> modelPaths;
             lock (_gate)
                 modelPaths = _byPath.Keys.ToList();
             SignalCache.KeepRepositoriesOnly(modelPaths);
+
+            foreach (var r in removed)
+                Removed?.Invoke(r);
 
             // Persist the verified model so the next launch warm-starts.
             SaveCache();

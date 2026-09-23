@@ -1702,6 +1702,41 @@ public class RepositoryMonitorTests
         Assert.Equal(1, cache.EntryCount);
     }
 
+    // Review of pull request 3340, round 2: reconciliation removes every unseen repository from the
+    // model before raising Removed. A subscriber that throws on the FIRST removal must not leave the
+    // later ones - already gone from the model - in the signal cache.
+    [Fact]
+    public async Task Rescan_AThrowingRemovedSubscriber_StillLeavesNoDroppedRepositoryInTheSignalCache()
+    {
+        var cache = new WorktreeMergeSignalCache();
+        var paths = new List<string> { "/r/a", "/r/b", "/r/c", "/r/keep" };
+        var monitor = new RepositoryMonitor(
+            enumerate: _ => paths.ToList(),
+            compute: (p, _, _) => Task.FromResult(Status(p)),
+            signalCache: cache) { LiveSessionsProvider = NoSessions };
+        await monitor.RescanAsync(new[] { "/r" });
+        foreach (var p in paths)
+            cache.Store(p, p, AnyKey, AnySignals);
+        cache.Store("/elsewhere/old", "/elsewhere/old", AnyKey, AnySignals); // left for the sweep
+
+        int removedCalls = 0;
+        monitor.Removed += _ =>
+        {
+            if (Interlocked.Increment(ref removedCalls) == 1)
+                throw new InvalidOperationException("subscriber failed");
+        };
+        paths.RemoveAll(p => p != "/r/keep"); // three repositories leave at once
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => monitor.RescanAsync(new[] { "/r" }));
+
+        Assert.False(cache.HoldsRepository("/r/a"));
+        Assert.False(cache.HoldsRepository("/r/b"));
+        Assert.False(cache.HoldsRepository("/r/c"));
+        Assert.False(cache.HoldsRepository("/elsewhere/old"));
+        Assert.True(cache.HoldsRepository("/r/keep"));
+        Assert.Equal(1, cache.EntryCount);
+    }
+
     [Fact]
     public async Task RecomputeOne_ARepositoryFoundGone_LeavesNothingInTheSignalCache()
     {
