@@ -13,7 +13,7 @@ namespace CcDirector.Gateway.Tests.Data;
 /// 'SQLitePCL.sqlite3'" inside <c>SqliteConnection.Open()</c>. That is how the v2.9.2 release gate lost
 /// <c>HostedEntitlementGateTests</c>: another test class, running in parallel, disposed its own database.
 ///
-/// This test forces the same collision on purpose: one thread keeps querying database A while the test
+/// This test forces the same collision on purpose: four threads keep querying database A while the test
 /// opens and disposes database B over and over. Revert-prove: put <c>ClearAllPools()</c> back in
 /// <c>GatewayDatabase.Dispose</c> and this goes red with that exception.
 /// </summary>
@@ -36,25 +36,32 @@ public sealed class DisposingOneDatabaseLeavesAnotherWorkingTests : IDisposable
         var queries = 0;
         using var stop = new CancellationTokenSource();
 
-        var reader = new Thread(() =>
+        // Several readers, so a connection is being rented from A's pool at almost every instant a disposal of
+        // B clears the pools - the window the defect needs is narrow, and one reader missed it too often.
+        var readers = new List<Thread>();
+        for (var r = 0; r < 4; r++)
         {
-            while (!stop.IsCancellationRequested)
+            var reader = new Thread(() =>
             {
-                try
+                while (!stop.IsCancellationRequested)
                 {
-                    using var ctx = inUse.CreateUnscopedContext();
-                    _ = ctx.Tenants.Count();
-                    Interlocked.Increment(ref queries);
+                    try
+                    {
+                        using var ctx = inUse.CreateUnscopedContext();
+                        _ = ctx.Tenants.Count();
+                        Interlocked.Increment(ref queries);
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Enqueue(ex);
+                    }
                 }
-                catch (Exception ex)
-                {
-                    failures.Enqueue(ex);
-                }
-            }
-        }) { IsBackground = true, Name = "database-A-reader" };
-        reader.Start();
+            }) { IsBackground = true, Name = $"database-A-reader-{r}" };
+            readers.Add(reader);
+            reader.Start();
+        }
 
-        var deadline = DateTime.UtcNow.AddSeconds(3);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
         var disposals = 0;
         while (DateTime.UtcNow < deadline && failures.IsEmpty)
         {
@@ -66,7 +73,8 @@ public sealed class DisposingOneDatabaseLeavesAnotherWorkingTests : IDisposable
         }
 
         stop.Cancel();
-        Assert.True(reader.Join(TimeSpan.FromSeconds(30)), "the reader thread did not stop");
+        foreach (var reader in readers)
+            Assert.True(reader.Join(TimeSpan.FromSeconds(30)), $"{reader.Name} did not stop");
 
         Assert.True(failures.IsEmpty,
             $"database A failed {failures.Count} time(s) while database B was disposed {disposals} time(s); first: {failures.FirstOrDefault()}");
