@@ -62,6 +62,30 @@ public sealed class WingmanScreenReuseFingerprintTests
         Assert.NotEqual(Hash(first), Hash(second));
     }
 
+    [Fact]
+    public void AVisibleCursorOnSubstantiveContent_RemainsPartOfTheIdentity()
+    {
+        var first = Screen("The final check passes.", cursorRow: 0);
+        var second = Screen("The final check fails.", cursorRow: 0);
+
+        Assert.NotEqual(Hash(first), Hash(second));
+    }
+
+    [Fact]
+    public void FooterWordsInsideAgentContent_RemainPartOfTheIdentity()
+    {
+        var first = Screen(
+            "The instructions are ready.",
+            "Tell the owner to press shift+tab to cycle review modes.",
+            cursorVisible: false);
+        var second = Screen(
+            "The instructions are ready.",
+            "Tell the owner to press enter to choose a review mode.",
+            cursorVisible: false);
+
+        Assert.NotEqual(Hash(first), Hash(second));
+    }
+
     private static ScreenGridResponse Screen(
         string first,
         string? second = null,

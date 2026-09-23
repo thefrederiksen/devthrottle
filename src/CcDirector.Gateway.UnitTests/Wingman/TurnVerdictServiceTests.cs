@@ -288,6 +288,35 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.NotNull(seeded.Verdict!.ScreenReuseHash);
     }
 
+    [Theory]
+    [InlineData(TurnVerdictTrigger.Voice)]
+    [InlineData(TurnVerdictTrigger.Sweep)]
+    [InlineData(TurnVerdictTrigger.OnDemand)]
+    [InlineData(TurnVerdictTrigger.SnoozeExpiry)]
+    [InlineData(TurnVerdictTrigger.Retry)]
+    public async Task CosmeticReuseFromEveryOtherTrigger_RebindsTheExactActionHash(TurnVerdictTrigger trigger)
+    {
+        var env = Env();
+        var firstScreen = CosmeticScreen(
+            new[] { "The migration is complete and", "all checks pass." },
+            "❯ continue",
+            "new task? /clear to save 154k tokens");
+        var secondScreen = CosmeticScreen(
+            new[] { "The migration is complete", "and all checks pass." },
+            "❯ an unsent draft",
+            "4% until auto-compact");
+        env.Screen = () => firstScreen;
+        var service = new TurnVerdictService(env);
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await service.StartTurnEnd(Signal())).Kind);
+
+        env.Screen = () => secondScreen;
+        var reused = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, trigger);
+
+        Assert.Equal(TurnVerdictOutcomeKind.Reused, reused.Kind);
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(WingmanScreenVerdictCache.HashRows(secondScreen.Rows), env.Latest(Tenant, Sid)!.ScreenHash);
+    }
+
     private static ScreenGridResponse CosmeticScreen(
         IReadOnlyList<string> content,
         string cursor,

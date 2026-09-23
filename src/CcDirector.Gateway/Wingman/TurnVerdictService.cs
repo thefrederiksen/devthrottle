@@ -1467,15 +1467,21 @@ public sealed class TurnVerdictService : IDisposable
         ct.ThrowIfCancellationRequested();
 
         // A new stop on an unchanged screen is the same verdict about a later moment: refresh the join key so
-        // the turn-log record of THIS stop still pairs with a verdict row.
-        if (trigger == TurnVerdictTrigger.TurnEnd && !latest.Failed && latest.TurnEndObservedAtUtc != observedAt)
+        // the turn-log record of THIS stop still pairs with a verdict row. Every trigger also rebinds the action
+        // guard after a cosmetic repaint; otherwise an option displayed from a reused reading can never be tapped.
+        var refreshObservedAt = trigger == TurnVerdictTrigger.TurnEnd
+                                && !latest.Failed
+                                && latest.TurnEndObservedAtUtc != observedAt;
+        var refreshActionHash = !string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal);
+        if (refreshObservedAt || refreshActionHash)
         {
             var refreshed = Copy(latest);
-            refreshed.TurnEndObservedAtUtc = observedAt;
-            // Reuse answers the current stop, so its action guard must bind to the CURRENT exact grid rather than
-            // the cosmetically different grid on which the original reading was made.
-            refreshed.ScreenHash = hash;
-            refreshed.ScreenReuseHash = reuseHash;
+            if (refreshObservedAt) refreshed.TurnEndObservedAtUtc = observedAt;
+            if (refreshActionHash)
+            {
+                refreshed.ScreenHash = hash;
+                refreshed.ScreenReuseHash = reuseHash;
+            }
             if (!StoreIfCurrent(key, epoch, refreshed))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused",
                 settings: settings, observedAt: observedAt);

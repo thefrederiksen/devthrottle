@@ -44,7 +44,7 @@ internal static class WingmanScreenReuseFingerprint
             var inFooter = i >= footerStart;
             // The hardware cursor in the normal buffer sits in the text composer. Menus use the alternate screen
             // and draw their own selection marker, so their row remains part of the identity.
-            if (inFooter && !alternateScreen && cursorVisible && i == cursorRow) continue;
+            if (inFooter && !alternateScreen && cursorVisible && i == cursorRow && IsComposer(compact)) continue;
             if (inFooter && (IsKnownFooter(compact) || IsDecoration(compact))) continue;
 
             // No separator on purpose: wrapping moves a word between rows without changing its characters.
@@ -65,11 +65,20 @@ internal static class WingmanScreenReuseFingerprint
     private static bool IsKnownFooter(string compact)
     {
         var lower = compact.ToLowerInvariant();
-        return lower.Contains("shift+tabtocycle", StringComparison.Ordinal)
-               || (lower.Contains("newtask?/clear", StringComparison.Ordinal)
-                   && lower.Contains("tokens", StringComparison.Ordinal))
-               || (lower.Contains('%') && lower.Contains("auto-compact", StringComparison.Ordinal));
+        if (lower.StartsWith("⏵⏵", StringComparison.Ordinal)
+            && lower.EndsWith("(shift+tabtocycle)", StringComparison.Ordinal)) return true;
+        if (lower.StartsWith("newtask?/clear", StringComparison.Ordinal)
+            && lower.EndsWith("tokens", StringComparison.Ordinal)) return true;
+
+        const string compactHint = "%untilauto-compact";
+        var hintStart = lower.IndexOf(compactHint, StringComparison.Ordinal);
+        return hintStart > 0
+               && hintStart + compactHint.Length == lower.Length
+               && lower.AsSpan(0, hintStart).IndexOfAnyExceptInRange('0', '9') < 0;
     }
+
+    private static bool IsComposer(string compact)
+        => compact.StartsWith('❯') || compact.StartsWith('›');
 
     private static bool IsDecoration(string compact)
     {
