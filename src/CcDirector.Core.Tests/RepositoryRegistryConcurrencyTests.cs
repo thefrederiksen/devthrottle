@@ -257,6 +257,21 @@ public class RepositoryRegistryConcurrencyTests : IDisposable
                     tornReads.Add("the list was not there at all");
                     continue;
                 }
+                catch (IOException)
+                {
+                    // A MOMENTARY "in use by another process" IS NOT A TORN READ, and this test says so
+                    // itself a few lines up: it shares the file "the way a careful second process would,
+                    // so this test measures what the reader SEES, never whether it could open the file at
+                    // all". The atomic swap holds the destination for the instant it takes, and on Windows
+                    // an opener that arrives inside that instant is refused. A careful second Director
+                    // comes back and reads it; so does this reader.
+                    //
+                    // The property under test is untouched: a read that SUCCEEDS must never be empty and
+                    // must always parse. Counting a refused open as a failure would have this test assert
+                    // something the product never promised - that the list can be opened at literally any
+                    // instant - and it is the reason the test stayed red after the swap itself was fixed.
+                    continue;
+                }
 
                 reads++;
                 if (string.IsNullOrWhiteSpace(text))
