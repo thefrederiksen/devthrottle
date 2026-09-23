@@ -270,5 +270,5 @@ internal sealed class ErrorReportStore
         return read.ReadByte() == '\n';
     }
 
-    private static string DayName(DateTime utc) =>utc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    private static string DayName(DateTime utc) => utc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 }

@@ -141,6 +141,10 @@ public sealed class InstallReportEndpointsTests : IDisposable
             Assert.DoesNotContain("dt_live_abcdef", record.Diagnostics);
             var onDisk = string.Concat(Directory.GetFiles(root, "*.jsonl", SearchOption.AllDirectories).Select(File.ReadAllText));
             Assert.DoesNotContain("abc123secretvalue", onDisk);
+            // The Gateway's own process log line is a second place the report is kept (review round 4).
+            var logLine = InstallReportEndpoints.DurableLine(Assert.Single(InstallReportEndpoints.Recent(10)));
+            Assert.DoesNotContain("abc123secretvalue", logLine);
+            Assert.DoesNotContain("dt_live_abcdef", logLine);
         }
         finally
         {

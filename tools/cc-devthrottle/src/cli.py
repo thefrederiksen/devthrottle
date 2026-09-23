@@ -1608,7 +1608,8 @@ def errors_list(
     fields: str = typer.Option(
         None,
         "--fields",
-        help="Fields to show, comma separated. Default: time,component,machine,message. Valid: time, component, "
+        help="Fields to show, comma separated. Default: time,component,machine,message; with --all-accounts, "
+        "--account or --email, time,account,component,machine,message. Valid: time, component, "
         "machine, version, os, arch, source, kind, exception, repeats, message, account, device, step.",
     ),
     full: bool = typer.Option(False, "--full", help="Show whole messages instead of a preview."),

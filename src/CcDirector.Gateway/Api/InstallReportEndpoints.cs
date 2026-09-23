@@ -97,11 +97,6 @@ internal static class InstallReportEndpoints
 
     private static readonly Regex InstallIdShape = new("^[A-Za-z0-9-]{8,64}$", RegexOptions.CultureInvariant);
 
-    // A home folder in a path names the person. Reduced to "~" - the rest of the path stays, because the
-    // rest is what makes a report useful ("~/Library/Application Support/cc-director/logs").
-    private static readonly Regex MacHome = new(@"/Users/[^/\s""']+", RegexOptions.CultureInvariant);
-    private static readonly Regex LinuxHome = new(@"/home/[^/\s""']+", RegexOptions.CultureInvariant);
-    private static readonly Regex WindowsHome = new(@"[A-Za-z]:\\Users\\[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private static readonly JsonSerializerOptions LineJson = new() { WriteIndented = false };
 
@@ -219,12 +214,11 @@ internal static class InstallReportEndpoints
         Arch = r.Arch,
         Source = r.Component,
         Kind = "install-step",
-        // This route's own Clean only reduces home folders to "~". Everything entering the shared store gets
-        // the store's full scrub as well, so a credential in an installer's log tail is redacted like any other.
-        Message = CcDirector.Core.ErrorReports.ErrorTextScrubber.Scrub(r.Message),
+        // Already scrubbed by Clean when the record was built.
+        Message = r.Message,
         Installer = r.Installer,
         Step = r.Step,
-        Diagnostics = r.Diagnostics.Length > 0 ? CcDirector.Core.ErrorReports.ErrorTextScrubber.Scrub(r.Diagnostics) : null,
+        Diagnostics = r.Diagnostics.Length > 0 ? r.Diagnostics : null,
     };
 
     /// <summary>The one log line. JSON on one line, so newlines in diagnostics cannot forge a second
@@ -237,12 +231,13 @@ internal static class InstallReportEndpoints
         lock (RingLock) return Ring.Take(limit).ToList();
     }
 
-    /// <summary>Scrub a home folder out of a path, drop control characters other than newline and tab,
-    /// and cap the length.</summary>
+    /// <summary>Home folders to "~" and credential-shaped values redacted (the shared error scrub), control
+    /// characters other than newline and tab dropped, and the length capped. Done once, here, so the process
+    /// log line, the recent-reports ring and the store all hold the same scrubbed text.</summary>
     internal static string Clean(string? value, int max)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        var scrubbed = ScrubHomePaths(value);
+        var scrubbed = CcDirector.Core.ErrorReports.ErrorTextScrubber.Scrub(value);
         var sb = new StringBuilder(Math.Min(scrubbed.Length, max));
         foreach (var c in scrubbed)
         {
@@ -251,13 +246,6 @@ internal static class InstallReportEndpoints
             sb.Append(c);
         }
         return sb.ToString().Trim();
-    }
-
-    internal static string ScrubHomePaths(string value)
-    {
-        var s = MacHome.Replace(value, "~");
-        s = LinuxHome.Replace(s, "~");
-        return WindowsHome.Replace(s, "~");
     }
 
     /// <summary>A sliding one-hour window, per install id and for the whole route.</summary>

@@ -33,8 +33,8 @@ public static class ErrorTextScrubber
     // administrative share \\MACHINE\c$\Users\robert. The whole prefix becomes "~".
     private static readonly Regex UncHome = new(@"\\{2,4}[^\\\s""']+\\{1,2}(?:[A-Za-z]\$\\{1,2})?Users\\{1,2}[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     // A camel-case identifier - our own class and method names, optionally joined by underscores, letters only.
-    // Exempt from the key rule: a minted key is letters only AND in this exact shape about once in a thousand
-    // million, while eight real Director error lines lost their method name to the rule without it.
+    // Exempt from the key rule: a minted key is letters only AND in this exact shape about once in 190
+    // million (5.2e-9 per key, computed over the 64-character alphabet in review round 4), while eight real Director error lines lost their method name to the rule without it.
     private static readonly Regex Identifier = new(@"^[A-Z][a-z]+(?:[A-Z][a-z]+)*(?:_[A-Z][a-z]+(?:[A-Z][a-z]+)*)*$", RegexOptions.CultureInvariant);
 
     private static readonly Regex Bearer = new(@"(?i)\bbearer\s+[^\s""']+", RegexOptions.CultureInvariant);

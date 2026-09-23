@@ -413,7 +413,7 @@ public partial class ClaudeConfigDialog : Window
         if (!rules.Contains(text))
         {
             rules.Add(text);
-            FileLog.Write($"[ClaudeConfigDialog] Added rule: {text}");
+            FileLog.Write($"[ClaudeConfigDialog] Added rule: \"{text}\"");
         }
         input.Clear();
         input.Focus();

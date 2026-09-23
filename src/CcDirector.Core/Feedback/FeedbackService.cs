@@ -50,7 +50,7 @@ public sealed class FeedbackService
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("A feedback title is required.", nameof(title));
 
-        FileLog.Write($"[FeedbackService] SubmitAsync: title={title}, hasScreenshot={screenshotPng is { Length: > 0 }}");
+        FileLog.Write($"[FeedbackService] SubmitAsync: title=\"{title}\", hasScreenshot={screenshotPng is { Length: > 0 }}");
 
         var body = new StringBuilder();
         body.Append(string.IsNullOrWhiteSpace(description) ? "(no description provided)" : description.Trim());

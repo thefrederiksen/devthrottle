@@ -128,6 +128,10 @@ public sealed class ErrorTextAndLineTests
     [InlineData("[WingmanActionExecutor] performed submit: submit \"ERROR: cannot proceed, need input\"", false)]
     [InlineData("[ProactiveExplain] cached explain for s1 (model=m, headline=\"Build FAILED: 3 tests red\", ms=4)", false)]
     [InlineData("[TranscriptionComponentPreviewDialog] FULL: OnFinished(\"it FAILED, again\")", false)]
+    // A name the user typed is quoted in the line for the same reason (review round 4).
+    [InlineData("[MainWindow] SelectSession: \"Build FAILED, retry\"", false)]
+    [InlineData("[FeedbackService] SubmitAsync: title=\"FATAL\", hasScreenshot=False", false)]
+    [InlineData("[ClaudeConfigDialog] Added rule: \"Bash(rm -rf) FAILED\"", false)]
     [InlineData("[GatewayClient] heartbeat ok", false)]
     [InlineData("[Updater] failed over to the second mirror", false)]
     [InlineData("[ErrorReporter] 3 report(s) not delivered: FAILED to connect", false)]
