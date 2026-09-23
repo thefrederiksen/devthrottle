@@ -175,6 +175,8 @@ def test_long_message_is_truncated_with_a_size_hint_unless_full(calls):
         ["errors", "list", "--limit", "0"],
         ["errors", "list", "--fields", "nope"],
         ["errors", "list", "--json", "--fields", "time"],
+        # This session's key goes only to CC_GATEWAY_URL; --gateway is for the administrator read alone.
+        ["errors", "list", "--gateway", "https://elsewhere.example"],
     ],
 )
 def test_usage_errors_exit_2(calls, args):

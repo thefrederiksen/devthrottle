@@ -13,9 +13,11 @@ namespace CcDirector.Core.ErrorReports;
 ///     <c>C:\Users\robert\...</c> become <c>~/...</c>. The rest of the path stays: it is what makes the report
 ///     useful.
 ///   - anything shaped like a credential: a bearer header value, a <c>token=</c> / <c>key=</c> /
-///     <c>secret=</c> / <c>password=</c> value, and a long unbroken run of letters and digits (an API key,
-///     a device key). A GUID is NOT removed - it has hyphens, and session and Director ids are what make an
-///     error traceable.
+///     <c>secret=</c> / <c>password=</c> value, and a bare random key - a run of 32 or more URL-safe base64
+///     characters (<c>[A-Za-z0-9_-]</c>) that mixes upper case, lower case and digits. That is the shape of
+///     every key this product mints (<see cref="Security.GatewaySessionKey"/>: 43 characters, most with a
+///     hyphen in them). A GUID or a hyphenated folder or branch name does not mix all three, so session ids,
+///     Director ids and paths survive - they are what make an error traceable.
 ///   - control characters other than newline and tab.
 /// and it caps the length.
 /// </summary>
@@ -29,9 +31,9 @@ public static class ErrorTextScrubber
     private static readonly Regex NamedSecret = new(
         @"(?i)\b(token|key|apikey|api_key|secret|password|pwd|authorization)(\s*[=:]\s*)[^\s""'&,;]+",
         RegexOptions.CultureInvariant);
-    // 32 or more letters, digits, underscores with no hyphen: the shape of an API key or device key.
-    // Deliberately excludes the hyphen so a GUID (8-4-4-4-12) survives.
-    private static readonly Regex LongRun = new(@"\b[A-Za-z0-9_]{32,}\b", RegexOptions.CultureInvariant);
+    // A run of 32 or more URL-safe base64 characters, not touching another one. Whether it is a key is
+    // decided by LooksRandom, not by the pattern, so a GUID or a long lower-case path segment is kept.
+    private static readonly Regex KeyRun = new(@"(?<![A-Za-z0-9_\-])[A-Za-z0-9_\-]{32,}(?![A-Za-z0-9_\-])", RegexOptions.CultureInvariant);
 
     public const string Redacted = "<redacted>";
 
@@ -59,7 +61,21 @@ public static class ErrorTextScrubber
         s = WindowsHome.Replace(s, "~");
         s = Bearer.Replace(s, "Bearer " + Redacted);
         s = NamedSecret.Replace(s, m => m.Groups[1].Value + m.Groups[2].Value + Redacted);
-        s = LongRun.Replace(s, Redacted);
+        s = KeyRun.Replace(s, m => LooksRandom(m.Value) ? Redacted : m.Value);
         return s;
+    }
+
+    /// <summary>Upper case, lower case and a digit all present, and not a GUID.</summary>
+    internal static bool LooksRandom(string run)
+    {
+        if (Guid.TryParseExact(run, "D", out _)) return false;
+        bool upper = false, lower = false, digit = false;
+        foreach (var c in run)
+        {
+            if (c is >= 'A' and <= 'Z') upper = true;
+            else if (c is >= 'a' and <= 'z') lower = true;
+            else if (c is >= '0' and <= '9') digit = true;
+        }
+        return upper && lower && digit;
     }
 }

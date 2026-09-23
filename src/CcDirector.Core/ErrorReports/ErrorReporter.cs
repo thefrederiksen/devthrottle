@@ -22,7 +22,8 @@ namespace CcDirector.Core.ErrorReports;
 /// WHY IT CAN NEVER HURT THE DIRECTOR:
 ///   - <see cref="OnLogLine"/> runs on the logging thread and only adds to an in-memory table under a lock:
 ///     no input or output, no waiting. The table holds at most <see cref="MaxPending"/> distinct errors;
-///     beyond that, new ones are counted and dropped.
+///     beyond that, new ones are counted and dropped, and one line says so for each time it fills up.
+///     A line longer than <see cref="MaxLineChars"/> is cut before it is parsed or scrubbed.
 ///   - The same error repeated is ONE entry with a count, so an error loop costs one row, not thousands.
 ///     Digits are ignored when deciding "the same", so "retry 3" and "retry 4" collapse too.
 ///   - Sending happens on a background timer, in batches of at most
@@ -44,6 +45,7 @@ public sealed class ErrorReporter : IDisposable
     internal const int MaxPending = 200;
     internal const int MaxSentPerHour = 60;
     internal const int MaxAttempts = 3;
+    internal const int MaxLineChars = 4 * ErrorReportLimits.MaxStack;
     internal static readonly TimeSpan SendInterval = TimeSpan.FromSeconds(20);
     internal static readonly TimeSpan PauseAfterRefusal = TimeSpan.FromMinutes(10);
     internal static readonly TimeSpan PauseAfterMissingRoute = TimeSpan.FromHours(1);
@@ -69,6 +71,8 @@ public sealed class ErrorReporter : IDisposable
     private long _dropped;
     private long _sent;
     private bool _loggedNoGateway;
+    private bool _tableFullLogged;
+    private readonly bool _ownsHttp;
 
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
@@ -134,6 +138,7 @@ public sealed class ErrorReporter : IDisposable
             throw new ArgumentException($"component must be one of: {string.Join(", ", ErrorReportLimits.DeviceComponents)}", nameof(component));
         _component = component;
         _config = config ?? GatewayConfig.Load;
+        _ownsHttp = http is null;
         _http = http ?? new HttpClient(GatewayHttp.Handler()) { Timeout = TimeSpan.FromSeconds(10) };
         _clock = clock ?? (() => DateTime.UtcNow);
         _productVersion = productVersion ?? ProductVersionOf(Assembly.GetEntryAssembly() ?? typeof(ErrorReporter).Assembly);
@@ -162,6 +167,9 @@ public sealed class ErrorReporter : IDisposable
         try
         {
             if (!ErrorLine.IsError(message)) return;
+            // Cap BEFORE parsing and scrubbing: an unhandled-exception dump can run to many kilobytes, and
+            // everything past this is cut by the field caps anyway. Keeps the work on the logging thread small.
+            if (message.Length > MaxLineChars) message = message[..MaxLineChars];
             var (source, text, exceptionType, stack) = ErrorLine.Parse(message);
             Add(source, ErrorLine.KindOf(message), text, exceptionType, stack);
         }
@@ -182,8 +190,10 @@ public sealed class ErrorReporter : IDisposable
         var cleanSource = ErrorTextScrubber.Clean(source, ErrorReportLimits.MaxShortField);
         var cleanMessage = ErrorTextScrubber.Clean(message, ErrorReportLimits.MaxMessage);
         var cleanType = ErrorTextScrubber.Clean(exceptionType, ErrorReportLimits.MaxShortField);
+        var cleanStack = ErrorTextScrubber.Clean(stack, ErrorReportLimits.MaxStack);
         var signature = string.Join('|', cleanSource, kind, cleanType, Digits.Replace(cleanMessage, "#"));
         var now = _clock();
+        var announceFull = false;
 
         lock (_lock)
         {
@@ -196,21 +206,37 @@ public sealed class ErrorReporter : IDisposable
             if (_order.Count >= MaxPending)
             {
                 _dropped++;
-                return;
+                // Once per episode: the table filling up is worth one line, not one per dropped error.
+                announceFull = !_tableFullLogged;
+                _tableFullLogged = true;
             }
-            var pending = new Pending
+            else
             {
-                Signature = signature,
-                Source = cleanSource,
-                Kind = kind,
-                Message = cleanMessage,
-                ExceptionType = cleanType,
-                Stack = ErrorTextScrubber.Clean(stack, ErrorReportLimits.MaxStack),
-                FirstSeenUtc = now,
-                LastSeenUtc = now,
-            };
-            _bySignature[signature] = _order.AddLast(pending);
+                _tableFullLogged = false;
+                AddPendingLocked(signature, cleanSource, kind, cleanMessage, cleanType, cleanStack, now);
+            }
         }
+
+        // Written outside the lock: nothing is ever logged while the table is held.
+        if (announceFull)
+            FileLog.Write($"{ErrorLine.ReporterTag} {MaxPending} distinct errors are waiting to be sent; new ones are dropped until some are sent");
+    }
+
+    private void AddPendingLocked(string signature, string cleanSource, string kind, string cleanMessage,
+        string cleanType, string cleanStack, DateTime now)
+    {
+        var pending = new Pending
+        {
+            Signature = signature,
+            Source = cleanSource,
+            Kind = kind,
+            Message = cleanMessage,
+            ExceptionType = cleanType,
+            Stack = cleanStack,
+            FirstSeenUtc = now,
+            LastSeenUtc = now,
+        };
+        _bySignature[signature] = _order.AddLast(pending);
     }
 
     private void StartLoop()
@@ -400,5 +426,6 @@ public sealed class ErrorReporter : IDisposable
             Current = null;
         }
         _stop.Cancel();
+        if (_ownsHttp) _http.Dispose();
     }
 }

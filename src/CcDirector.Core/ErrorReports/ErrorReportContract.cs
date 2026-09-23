@@ -54,6 +54,10 @@ public static class ErrorReportLimits
 /// The machine id in an error report: a one-way hash of the machine's name, never the name. The same
 /// name always gives the same id, so the owner can ask "errors from devthrottle-mac-mini" by name and the
 /// Gateway hashes it to match - without the name itself ever being stored.
+///
+/// It is NOT a privacy guarantee. Machine names are short and guessable, so anyone who can read the store and
+/// holds a list of candidate names can recover the name by hashing each one. It keeps the literal name out of
+/// the record; it does not make the machine anonymous.
 /// </summary>
 public static class ErrorReportMachineId
 {

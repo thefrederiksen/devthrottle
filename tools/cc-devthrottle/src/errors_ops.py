@@ -116,6 +116,12 @@ def list_errors(
     admin = all_accounts or bool(account) or bool(email)
     if component == "install" and not admin:
         _usage_error("installer failures belong to no account yet, so they are read with --all-accounts.")
+    if gateway_url and not admin:
+        # This account's read goes out on THIS session's key, and that key belongs to CC_GATEWAY_URL alone.
+        # Sending it to a host somebody typed would hand the key to that host, for a read the host would
+        # refuse anyway. --gateway exists for the administrator read, which carries its own token.
+        _usage_error("--gateway is only for --all-accounts, --account or --email: this account's read uses "
+                     "this session's key, which is only ever sent to CC_GATEWAY_URL.")
     chosen = usage_errors.parse_fields(fields, ERROR_FIELDS, ERROR_DEFAULT_FIELDS)
 
     params: Dict[str, str] = {"limit": str(limit)}

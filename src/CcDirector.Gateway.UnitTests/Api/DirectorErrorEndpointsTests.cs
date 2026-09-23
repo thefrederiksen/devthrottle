@@ -270,12 +270,82 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void Record_SerializesWithoutNullFields()
+    public void Store_WritesNoNullFieldsForADirectorRecord()
     {
-        var json = JsonSerializer.Serialize(new ErrorReportRecord { Component = "director", Message = "x" },
-            new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
+        // Read the line the STORE wrote, so this watches the store's own serializer settings.
+        DirectorErrorEndpoints.HandlePost(NewStore(), TenantA, UniqueDevice(), Batch(Item()), Now);
 
-        Assert.DoesNotContain("diagnostics", json);
-        Assert.Contains("\"component\":\"director\"", json);
+        var line = File.ReadAllLines(Directory.GetFiles(Path.Combine(_root, "2026-09-22"), "*.jsonl").Single()).Single();
+
+        Assert.DoesNotContain("\"diagnostics\"", line);
+        Assert.DoesNotContain("\"step\"", line);
+        Assert.Contains("\"component\":\"director\"", line);
+    }
+
+    [Fact]
+    public void HandlePost_AStalledStore_AnswersBusyQuickly_AndRefundsTheAllowance()
+    {
+        // A write stuck on a stalled share holds the lock. Every other report must be refused at once rather
+        // than park a Gateway thread behind it - and must not use up the device's hourly allowance.
+        var store = NewStore();
+        var device = UniqueDevice();
+        var full = Batch(Enumerable.Range(0, ErrorReportLimits.MaxReportsPerBatch).Select(i => Item($"E{i} FAILED")).ToArray());
+        IResult result = Results.Ok();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        // The lock is thread-affine, so it is taken and released on this thread and the write runs on another.
+        using (store.HoldWriteLockForTests())
+        {
+            var writer = new Thread(() => result = DirectorErrorEndpoints.HandlePost(store, TenantA, device, full, Now));
+            writer.Start();
+            writer.Join();
+        }
+        clock.Stop();
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, Status(result));
+        Assert.True(clock.Elapsed < ErrorReportStore.WriteLockTimeout + TimeSpan.FromSeconds(3), $"took {clock.Elapsed}");
+        Assert.Empty(store.Query(Everything()).Records);
+        // The refused batch was refunded: the device still has its whole allowance.
+        var accepted = 0;
+        for (var i = 0; i < DirectorErrorEndpoints.MaxReportsPerDevicePerHour / ErrorReportLimits.MaxReportsPerBatch; i++)
+            if (Status(DirectorErrorEndpoints.HandlePost(store, TenantA, device, full, Now)) == StatusCodes.Status202Accepted) accepted++;
+        Assert.Equal(DirectorErrorEndpoints.MaxReportsPerDevicePerHour / ErrorReportLimits.MaxReportsPerBatch, accepted);
+    }
+
+    [Fact]
+    public void HandlePost_ARefusedBatch_DoesNotUseUpTheAllowance()
+    {
+        var store = NewStore();
+        var device = UniqueDevice();
+        var bad = Batch(Enumerable.Range(0, ErrorReportLimits.MaxReportsPerBatch).Select(_ => Item(component: "gateway")).ToArray());
+        for (var i = 0; i < 20; i++)
+            Assert.Equal(StatusCodes.Status400BadRequest, Status(DirectorErrorEndpoints.HandlePost(store, TenantA, device, bad, Now)));
+
+        Assert.Equal(StatusCodes.Status202Accepted, Status(DirectorErrorEndpoints.HandlePost(store, TenantA, device, Batch(Item()), Now)));
+    }
+
+    [Fact]
+    public void Append_JustBeforeMidnight_IsFiledUnderTheDayItWasReceived()
+    {
+        var lastSecond = new DateTime(2026, 9, 22, 23, 59, 59, DateTimeKind.Utc);
+        // The store's clock has already ticked into the next day; the record's own stamp has not.
+        var store = new ErrorReportStore(_root, () => lastSecond.AddSeconds(2));
+
+        DirectorErrorEndpoints.HandlePost(store, TenantA, UniqueDevice(), Batch(Item()), lastSecond);
+
+        Assert.True(Directory.Exists(Path.Combine(_root, "2026-09-22")));
+        Assert.False(Directory.Exists(Path.Combine(_root, "2026-09-23")));
+    }
+
+    [Theory]
+    [InlineData("until", "0001-01-01T00:00:00Z")]
+    [InlineData("since", "99999999d")]
+    [InlineData("since", "2019-01-01T00:00:00Z")]
+    [InlineData("until", "2099-01-01T00:00:00Z")]
+    public void TryBuildQuery_AMomentOutOfRange_IsA400NotA503(string key, string value)
+    {
+        var q = new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues> { [key] = value });
+
+        Assert.False(DirectorErrorEndpoints.TryBuildQuery(q, Now, out _, out var bad));
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(bad));
     }
 }

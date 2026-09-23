@@ -182,6 +182,71 @@ public sealed class ErrorReporterTests
     }
 
     [Fact]
+    public async Task SendPending_ServerError_KeepsTheReportForTheNextTry()
+    {
+        var (reporter, handler) = NewReporter();
+        handler.Status = () => HttpStatusCode.ServiceUnavailable;
+        reporter.OnLogLine("[X] Save FAILED: nope");
+
+        Assert.Equal(0, await reporter.SendPendingAsync(CancellationToken.None));
+        Assert.Equal(1, reporter.PendingCount);
+
+        handler.Status = () => HttpStatusCode.Accepted;
+        Assert.Equal(1, await reporter.SendPendingAsync(CancellationToken.None));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task SendPending_TheSameErrorDuringAFailedSend_IsFoldedIntoOneReport()
+    {
+        // While the batch is in flight the same error happens twice more, and then the send fails. The retry
+        // must carry ONE report counting all three, not two reports or a lost count.
+        var handler = new RepeatWhileSendingHandler();
+        var reporter = new ErrorReporter(ErrorReportLimits.Director,
+            () => new GatewayConfig { Url = "https://gateway.example", Token = "k" }, new HttpClient(handler),
+            () => _now, machineName: "M", productVersion: "v");
+        handler.Target = reporter;
+        reporter.OnLogLine("[X] Save FAILED: attempt 1");
+
+        await reporter.SendPendingAsync(CancellationToken.None);
+        Assert.Equal(1, reporter.PendingCount);
+
+        handler.Fail = false;
+        Assert.Equal(1, await reporter.SendPendingAsync(CancellationToken.None));
+        var item = Assert.Single(JsonSerializer.Deserialize<ErrorReportBatch>(handler.LastBody!)!.Reports!);
+        Assert.Equal(3, item.RepeatCount);
+    }
+
+    private sealed class RepeatWhileSendingHandler : HttpMessageHandler
+    {
+        public ErrorReporter? Target;
+        public bool Fail = true;
+        public string? LastBody;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+            if (!Fail) return new HttpResponseMessage(HttpStatusCode.Accepted);
+            Target!.OnLogLine("[X] Save FAILED: attempt 2");
+            Target!.OnLogLine("[X] Save FAILED: attempt 3");
+            throw new HttpRequestException("reset");
+        }
+    }
+
+    [Fact]
+    public async Task OnLogLine_AHugeExceptionDump_BecomesOneBoundedReport()
+    {
+        var (reporter, handler) = NewReporter();
+
+        reporter.OnLogLine("[App] UNHANDLED UI-THREAD EXCEPTION: boom\n" + string.Join("\n", Enumerable.Repeat("   at A.B()", 20000)));
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        var item = Assert.Single(Sent(handler));
+        Assert.Equal("ui-thread", item.Kind);
+        Assert.True(item.Stack!.Length <= ErrorReportLimits.MaxStack);
+    }
+
+    [Fact]
     public void Constructor_AComponentADeviceMayNotReportAs_Throws()
         => Assert.Throws<ArgumentException>(() => new ErrorReporter(ErrorReportLimits.Install));
 }

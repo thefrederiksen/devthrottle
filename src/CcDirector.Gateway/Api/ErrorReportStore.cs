@@ -38,6 +38,10 @@ internal sealed record ErrorReportRecord
     [JsonPropertyName("diagnostics")] public string? Diagnostics { get; init; }
 }
 
+/// <summary>The store could not take a write in time - the storage share is stalled or busy. The route answers
+/// 503 and the Director retries later.</summary>
+internal sealed class StoreBusyException(string message) : Exception(message);
+
 /// <summary>What to read back. Every filter is optional; an empty one matches everything.</summary>
 internal sealed record ErrorReportQuery(
     DateTime SinceUtc,
@@ -96,19 +100,37 @@ internal sealed class ErrorReportStore
 
     public string Root => _root;
 
-    /// <summary>Append records. Throws when the storage cannot be written - the route answers 503 and the
-    /// caller retries - rather than accepting a report and losing it.</summary>
+    /// <summary>How long a write waits for the one before it. Past this the share is taken to be stalled.</summary>
+    internal static readonly TimeSpan WriteLockTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Append records. Throws when the storage cannot be written - the route answers 503 and the caller
+    /// retries - rather than accepting a report and losing it.
+    ///
+    /// A STALLED SHARE MUST NOT STARVE THE GATEWAY. The write is synchronous against the Azure Files share,
+    /// which has stalled before (the reason the process log moved off it). And the moment it stalls is the
+    /// moment every Director starts logging connection errors and posting them here. So a write waits at most
+    /// <see cref="WriteLockTimeout"/> for the one ahead of it and then gives up with
+    /// <see cref="StoreBusyException"/>: at most ONE request thread is ever stuck on the share, and every other
+    /// report is refused at once and retried by its Director later.
+    /// </summary>
     public void Append(IReadOnlyCollection<ErrorReportRecord> records)
     {
         if (records.Count == 0) return;
+        // The folder is named from the records' own stamp, not a second clock read, so a batch received just
+        // before midnight is filed under the day a query for that day will open.
+        var day = records.Max(r => r.ReceivedUtc);
         var now = _clock();
         var sb = new StringBuilder();
         foreach (var r in records)
             sb.Append(JsonSerializer.Serialize(r, LineJson)).Append('\n');
 
-        lock (_writeLock)
+        if (!Monitor.TryEnter(_writeLock, WriteLockTimeout))
+            throw new StoreBusyException(
+                $"the error store did not free up within {WriteLockTimeout.TotalSeconds:0} seconds; the storage share may be stalled");
+        try
         {
-            var dir = Path.Combine(_root, DayName(now));
+            var dir = Path.Combine(_root, DayName(day));
             Directory.CreateDirectory(dir);
             var file = Path.Combine(dir, _instance + ".jsonl");
             using (var stream = new FileStream(file, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
@@ -124,6 +146,22 @@ internal sealed class ErrorReportStore
                 Prune(now);
             }
         }
+        finally
+        {
+            Monitor.Exit(_writeLock);
+        }
+    }
+
+    /// <summary>Test seam: hold the write lock, as a write stuck on a stalled share would.</summary>
+    internal IDisposable HoldWriteLockForTests()
+    {
+        Monitor.Enter(_writeLock);
+        return new Releaser(_writeLock);
+    }
+
+    private sealed class Releaser(object gate) : IDisposable
+    {
+        public void Dispose() => Monitor.Exit(gate);
     }
 
     /// <summary>Newest first. Reads only the day folders the time range touches.</summary>

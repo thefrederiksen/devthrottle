@@ -19,7 +19,11 @@ public static class ErrorLine
     /// <summary>The tag every line the reporter writes about itself starts with.</summary>
     public const string ReporterTag = "[ErrorReporter]";
 
-    private static readonly string[] Markers = { "FAILED", "UNHANDLED", "UNOBSERVED", "FATAL", "ERROR:", " ERROR " };
+    // Matched only in the HEAD of a line - the part before the first ": ", which is where the house form puts
+    // the marker ("[Class] Method FAILED: <detail>"). The detail after it can carry interpolated text - a
+    // server's answer, an action's detail - and a marker word inside THAT must not turn an ordinary line into
+    // a report, because then the leak surface would be every log line rather than the error lines.
+    private static readonly Regex Marker = new(@"\b(FAILED|UNHANDLED|UNOBSERVED|FATAL|ERROR)\b", RegexOptions.CultureInvariant);
 
     private static readonly Regex LeadingTag = new(@"^\[(?<tag>[^\]\r\n]{1,100})\]\s*", RegexOptions.CultureInvariant);
     private static readonly Regex ExceptionType = new(
@@ -31,19 +35,29 @@ public static class ErrorLine
     {
         if (string.IsNullOrEmpty(message)) return false;
         if (message.StartsWith(ReporterTag, StringComparison.Ordinal)) return false;
-        foreach (var marker in Markers)
-            if (message.Contains(marker, StringComparison.Ordinal)) return true;
-        return false;
+        return Marker.IsMatch(Head(message));
     }
 
-    /// <summary>What kind of error the line records.</summary>
+    /// <summary>What kind of error the line records, read from the head only.</summary>
     public static string KindOf(string message)
     {
-        if (message.Contains("UI-THREAD", StringComparison.Ordinal)) return "ui-thread";
-        if (message.Contains("UNOBSERVED", StringComparison.Ordinal)) return "unobserved-task";
-        if (message.Contains("UNHANDLED", StringComparison.Ordinal)) return "unhandled";
-        if (message.Contains("FATAL", StringComparison.Ordinal)) return "fatal";
+        var head = Head(message);
+        if (head.Contains("UI-THREAD", StringComparison.Ordinal)) return "ui-thread";
+        if (head.Contains("UNOBSERVED", StringComparison.Ordinal)) return "unobserved-task";
+        if (head.Contains("UNHANDLED", StringComparison.Ordinal)) return "unhandled";
+        if (head.Contains("FATAL", StringComparison.Ordinal)) return "fatal";
         return "logged";
+    }
+
+    /// <summary>The part of the first line before the first ": " (the whole first line when there is none),
+    /// capped at 300 characters so a line with no separator is not scanned end to end.</summary>
+    internal static string Head(string message)
+    {
+        var end = message.IndexOf(": ", StringComparison.Ordinal);
+        var newline = message.IndexOf('\n');
+        if (end < 0 || (newline >= 0 && newline < end)) end = newline;
+        if (end < 0) end = message.Length;
+        return message[..Math.Min(end, 300)];
     }
 
     /// <summary>

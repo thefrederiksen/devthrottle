@@ -49,6 +49,7 @@ internal static class DirectorErrorEndpoints
     internal const int MaxReportsPerDevicePerHour = 120;
     internal const int MaxReportsPerHour = 5000;
     internal static readonly TimeSpan DefaultWindow = TimeSpan.FromHours(24);
+    private const string OutOfRange = "since and until must fall within the last year (the store keeps 30 days)";
     internal static readonly TimeSpan MaxWindow = TimeSpan.FromDays(ErrorReportStore.RetentionDays);
 
     private static readonly object RateLock = new();
@@ -166,6 +167,36 @@ internal static class DirectorErrorEndpoints
         if (items.Count > ErrorReportLimits.MaxReportsPerBatch)
             return Results.BadRequest(new { error = $"a batch holds at most {ErrorReportLimits.MaxReportsPerBatch} reports" });
 
+        // Admitted BEFORE the scrubbing: every regex pass over up to 25 stacks is the expensive part, and a
+        // device over its limit must not get to spend it. Whatever does not end up stored is refunded, so a
+        // refused or failed batch does not use up the allowance its retry needs.
+        if (!TryAdmit(device, items.Count, nowUtc))
+            return Results.Json(new { recorded = false, reason = "rate limited" }, statusCode: StatusCodes.Status429TooManyRequests);
+
+        IResult? refused = null;
+        try
+        {
+            refused = BuildAndStore(store, tenant, device, items, nowUtc);
+            return refused;
+        }
+        catch (StoreBusyException ex)
+        {
+            refused = Results.Json(new { error = "the error store is busy; try again later" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            FileLog.Write($"[DirectorErrorEndpoints] store busy, batch refused: {ex.Message}");
+            return refused;
+        }
+        finally
+        {
+            if (refused is null || Status(refused) != StatusCodes.Status202Accepted)
+                Refund(device, items.Count, nowUtc);
+        }
+    }
+
+    private static int Status(IResult result) => (result as IStatusCodeHttpResult)?.StatusCode ?? 0;
+
+    private static IResult BuildAndStore(ErrorReportStore store, TenantId tenant, string device,
+        IReadOnlyList<ErrorReportItem> items, DateTime nowUtc)
+    {
         var records = new List<ErrorReportRecord>(items.Count);
         foreach (var item in items)
         {
@@ -205,9 +236,6 @@ internal static class DirectorErrorEndpoints
             });
         }
 
-        if (!TryAdmit(device, records.Count, nowUtc))
-            return Results.Json(new { recorded = false, reason = "rate limited" }, statusCode: StatusCodes.Status429TooManyRequests);
-
         store.Append(records);
         FileLog.Write($"[DirectorErrorEndpoints] recorded {records.Count} report(s): tenant={tenant.ToLogString()} device={device}");
         return Results.Json(new { recorded = records.Count }, statusCode: StatusCodes.Status202Accepted);
@@ -227,11 +255,26 @@ internal static class DirectorErrorEndpoints
             return false;
         }
 
+        // A moment outside what the store could ever hold is the caller's mistake, answered as one - not left
+        // to overflow the date arithmetic into a 503 (until=0001-01-01 did exactly that).
+        var earliest = nowUtc.AddYears(-1);
+        var latest = nowUtc.AddDays(1);
+        if (until < earliest || until > latest)
+        {
+            bad = Results.BadRequest(new { error = OutOfRange });
+            return false;
+        }
+
         var since = until - DefaultWindow;
         var sinceText = q["since"].ToString().Trim();
         if (sinceText.Length > 0 && !TryParseMoment(sinceText, nowUtc, out since))
         {
             bad = Results.BadRequest(new { error = "since must be an ISO 8601 time (2026-09-22T10:00:00Z) or an age such as 30m, 6h or 7d" });
+            return false;
+        }
+        if (since < earliest.AddDays(-1) || since > latest)
+        {
+            bad = Results.BadRequest(new { error = OutOfRange });
             return false;
         }
         if (since > until)
@@ -281,6 +324,9 @@ internal static class DirectorErrorEndpoints
         if (text.Length >= 2 && char.IsDigit(text[0]) && text[^1] is 'm' or 'h' or 'd'
             && int.TryParse(text[..^1], NumberStyles.None, CultureInfo.InvariantCulture, out var n))
         {
+            // An age of more than ten years (99999999d would reach back past the calendar) is not a moment.
+            var tenYears = text[^1] switch { 'm' => 3_650 * 24 * 60, 'h' => 3_650 * 24, _ => 3_650 };
+            if (n > tenYears) return false;
             utc = text[^1] switch
             {
                 'm' => nowUtc.AddMinutes(-n),
@@ -341,6 +387,16 @@ internal static class DirectorErrorEndpoints
                     if (queue.Count == 0 || queue.Peek().At < cutoff) DeviceWindows.TryRemove(key, out _);
 
             return true;
+        }
+    }
+
+    /// <summary>Give back an admission whose batch was not stored.</summary>
+    private static void Refund(string device, int count, DateTime nowUtc)
+    {
+        lock (RateLock)
+        {
+            RouteWindow.Enqueue((nowUtc, -count));
+            if (DeviceWindows.TryGetValue(device, out var mine)) mine.Enqueue((nowUtc, -count));
         }
     }
 

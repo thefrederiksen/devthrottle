@@ -19,7 +19,7 @@ public sealed class ErrorTextAndLineTests
     [InlineData("Authorization: Bearer dt_live_abcdef0123456789")]
     [InlineData("request failed token=abc123secretvalue&x=1")]
     [InlineData("password: hunter2")]
-    [InlineData("key AKIAABCDEFGHIJKLMNOPQRSTUVWXYZ0123456 leaked")]
+    [InlineData("key AKIAabcdEFGHijklMNOPqrstUVWX0123456 leaked")]
     public void Scrub_CredentialShapedValue_IsRedacted(string input)
     {
         var scrubbed = ErrorTextScrubber.Scrub(input);
@@ -28,7 +28,7 @@ public sealed class ErrorTextAndLineTests
         Assert.DoesNotContain("dt_live_abcdef", scrubbed);
         Assert.DoesNotContain("abc123secretvalue", scrubbed);
         Assert.DoesNotContain("hunter2", scrubbed);
-        Assert.DoesNotContain("AKIAABCDEFGHIJKLMNOPQRSTUVWXYZ0123456", scrubbed);
+        Assert.DoesNotContain("AKIAabcdEFGHijklMNOPqrstUVWX0123456", scrubbed);
     }
 
     [Fact]
@@ -39,6 +39,30 @@ public sealed class ErrorTextAndLineTests
 
         Assert.Equal(text, ErrorTextScrubber.Scrub(text));
     }
+
+    [Fact]
+    public void Scrub_EveryKeyThisProductMints_IsRedacted()
+    {
+        // The product's own key shape: 43 characters of URL-safe base64, most with a hyphen in them - which a
+        // rule that stopped at the first hyphen let through three times in four.
+        for (var i = 0; i < 500; i++)
+        {
+            var key = CcDirector.Core.Security.GatewaySessionKey.Mint();
+
+            var scrubbed = ErrorTextScrubber.Scrub($"connect FAILED with {key} at the far end");
+
+            Assert.DoesNotContain(key, scrubbed);
+            Assert.Contains(ErrorTextScrubber.Redacted, scrubbed);
+        }
+    }
+
+    [Theory]
+    [InlineData(@"D:\ReposFred\devthrottle-dev-reports-p2-gateway\src")]
+    [InlineData("branch feat/centralized-error-logging-3311-and-more-words")]
+    [InlineData("fleet-3fe6711b-da67-4315-925e-105a7992bdd7 is gone")]
+    [InlineData("MaxReportsPerDevicePerHourAndSomeMoreWords exceeded")]
+    public void Scrub_LongFolderBranchAndIdNames_AreKept(string text)
+        => Assert.Equal(text, ErrorTextScrubber.Scrub(text));
 
     [Fact]
     public void Clean_DropsControlCharactersAndCaps()
@@ -56,6 +80,9 @@ public sealed class ErrorTextAndLineTests
     [InlineData("[GatewayClient] heartbeat ok", false)]
     [InlineData("[Updater] failed over to the second mirror", false)]
     [InlineData("[ErrorReporter] 3 report(s) not delivered: FAILED to connect", false)]
+    // A marker word in the DETAIL is interpolated text, not the line's verdict: it must not make a report.
+    [InlineData("[WingmanActionExecutor] performed Summarise: the build FAILED and an ERROR followed", false)]
+    [InlineData("[GatewayRegistrationClient] registered: body={\"status\":\"FATAL\"}", false)]
     [InlineData("", false)]
     public void IsError_RecognisesTheHouseErrorForms(string line, bool expected)
         => Assert.Equal(expected, ErrorLine.IsError(line));

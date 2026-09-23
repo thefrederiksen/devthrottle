@@ -321,6 +321,9 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             FileLog.Write($"[App] UNHANDLED DOMAIN EXCEPTION (isTerminating={args.IsTerminating}): {args.ExceptionObject}");
+            // Program's hook ran first and flushed its own line; this one was queued after that flush, so it
+            // gets its own bounded moment to reach the Gateway before the process dies (issue #3311).
+            if (args.IsTerminating) CcDirector.Core.ErrorReports.ErrorReporter.FlushBeforeExit(TimeSpan.FromSeconds(3));
         };
 
         TaskScheduler.UnobservedTaskException += (_, args) =>
