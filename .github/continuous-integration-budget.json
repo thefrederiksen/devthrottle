@@ -1,0 +1,27 @@
+{
+ "format": "cc-continuous-integration-keeper/budget/1",
+ "workflow": "CI",
+ "window_days": 7,
+ "budget": {
+  "minutes": 20,
+  "share_within_budget": 0.9,
+  "minimum_runs": 10
+ },
+ "suite_growth": {
+  "share": 0.2,
+  "minimum_days_between_readings": 2
+ },
+ "repeated_red_test": {
+  "consecutive_runs": 3,
+  "branches": ["*"],
+  "events": ["*"]
+ },
+ "skipped_job": {
+  "branch": "main",
+  "minimum_runs": 2
+ },
+ "notes": [
+  "The budget is 20 minutes for nine pull request runs in ten, ruled by the owner on 19 September 2026.",
+  "repeated_red_test looks at every branch and every event here, not at main alone, because main rarely finishes a run: a newer push cancels the older one, and in the week of 16 to 19 September 2026 only 51 of 135 runs on main finished at all. The test that stayed red for 18 hours that week was named on 18 finished runs and on 9 in a row, and only one of those was a run on main. Narrow this to \"main\" once a green result is a required check there and main runs finish."
+ ]
+}

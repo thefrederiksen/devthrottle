@@ -1,0 +1,14 @@
+{
+ "id": 1152842858,
+ "node_id": "R_kgDORLb8ag",
+ "name": "devthrottle",
+ "full_name": "thefrederiksen/devthrottle",
+ "private": false,
+ "html_url": "https://github.com/thefrederiksen/devthrottle",
+ "description": "Mission control for command-line coding agents -- run a fleet of coding agents from one Windows app. Free at devthrottle.com.",
+ "fork": false,
+ "default_branch": "main",
+ "visibility": "public",
+ "archived": false,
+ "disabled": false
+}

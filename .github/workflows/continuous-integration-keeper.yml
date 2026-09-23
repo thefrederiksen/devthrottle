@@ -1,0 +1,141 @@
+name: Continuous integration keeper
+
+# READS THE RUN RECORDS ONCE A DAY AND RAISES A REPORT. IT CHANGES NOTHING.
+#
+# The keeper proposes. It never edits a workflow, never reruns anything, never opens, closes or
+# merges anything - that is the owner's ruling in the mission brief of 19 September 2026, and it is
+# why this job has no write permission of any kind.
+#
+# What it raises on is in ONE file a person edits without touching code:
+# .github/continuous-integration-budget.json. The four conditions are the budget (twenty minutes
+# for nine pull request runs in ten), a job whose test count has grown by more than a fifth inside
+# the window, the same test named red on three finished runs in a row, and a run that concluded
+# successfully while a job that runs in other runs on main was skipped.
+#
+# THE JOB FAILS WHEN SOMETHING IS RAISED, AND ALSO WHEN THE KEEPER COULD NOT MEASURE SOMETHING.
+# A condition it could not measure is not a condition it passed: a window with no pull request runs
+# says nothing about how long a pull request waits, and a failed run whose log could not be read
+# says nothing about which test was red. Both end this job red, and the summary says which it was.
+#
+# The keeper is pointed at a repository, which is an input rather than a constant: run it by hand
+# with a different owner/name and it reads that repository instead.
+#
+# WHAT IT COSTS TO READ. One request per hundred runs, one per finished run for its jobs, and one per
+# job log it needs - the failed jobs, and every job of the runs at the two ends of the window, which
+# is where the test counts come from. Over seven days of this repository that measured about 530
+# requests and six minutes. The token this job uses is allowed a thousand requests an hour against
+# one repository, so a much longer window or a much busier repository would go past it. It fails
+# LOUDLY if it does: a refused request ends the collection with the message the interface gave, and
+# this job goes red. It never returns a short list as though that were the whole window.
+
+on:
+  schedule:
+    # Daily at 12:17 Coordinated Universal Time. Not on the hour: GitHub's own documentation warns
+    # that runs scheduled on the hour are the most likely to be delayed, and a keeper that reads
+    # yesterday does not care which minute it reads it in.
+    - cron: "17 12 * * *"
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "The repository to read, as owner/name. Defaults to this one."
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  keep:
+    name: Read the run records
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The instrument is tested before it is read. These are the keeper's own tests, including the
+      # proof that a frozen week of this repository's real run records raises the events it should.
+      # They need nothing beyond pytest: the keeper imports only the standard library and the
+      # shared output helper in this repository.
+      - name: Test the keeper itself
+        run: |
+          python -m pip install --upgrade pip pytest
+          python -m pytest tools/cc-continuous-integration-keeper/tests -q
+
+      - name: Read the run records and judge them
+        id: keeper
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
+        run: |
+          set -uo pipefail
+          budget=.github/continuous-integration-budget.json
+          keeper=tools/cc-continuous-integration-keeper/main.py
+
+          # Collecting and judging are two steps on purpose: the records it read are kept beside
+          # the report, so anyone can run the same judgement again against the same week.
+          python "$keeper" collect \
+            --repository "$TARGET_REPOSITORY" \
+            --budget "$budget" \
+            --out run-records.json
+          collected=$?
+          if [ "$collected" -ne 0 ]; then
+            echo "The collection failed with exit $collected." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          python "$keeper" check --budget "$budget" --records run-records.json --full > report.txt
+          verdict=$?
+
+          {
+            echo "## Continuous integration keeper"
+            echo
+            echo "Repository read: \`$TARGET_REPOSITORY\`. Exit code $verdict."
+            echo
+            echo '```'
+            cat report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cat report.txt
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Keep the report and the records it rests on
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuous-integration-keeper-report
+          path: |
+            report.txt
+            run-records.json
+          if-no-files-found: error
+          retention-days: 90
+
+      # A separate step so the report is always uploaded, whatever the verdict was. The three
+      # outcomes are named one at a time: nothing else passes.
+      - name: Say what the keeper found
+        run: |
+          set -euo pipefail
+          case "${{ steps.keeper.outputs.verdict }}" in
+            0)
+              echo "Every condition was measured, and nothing was raised."
+              ;;
+            3)
+              echo "The keeper raised something. The report is in the job summary and in the artifact."
+              exit 1
+              ;;
+            1)
+              echo "The keeper could not measure at least one condition. That is not a pass: it means"
+              echo "the records it needed were missing. The report says which condition and why."
+              exit 1
+              ;;
+            *)
+              echo "The keeper ended with ${{ steps.keeper.outputs.verdict }}, which is not an outcome this job knows."
+              exit 1
+              ;;
+          esac

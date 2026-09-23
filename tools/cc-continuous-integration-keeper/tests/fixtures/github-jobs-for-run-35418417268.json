@@ -1,0 +1,115 @@
+{
+ "total_count": 10,
+ "jobs": [
+  {
+   "id": 105831441077,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAuitQ",
+   "name": "What changed",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-09-19T03:23:57Z",
+   "completed_at": "2026-09-19T03:24:06Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831441077"
+  },
+  {
+   "id": 105831465475,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAwCAw",
+   "name": "Build & Test (.NET)",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-09-19T03:24:09Z",
+   "completed_at": "2026-09-19T04:45:47Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831465475"
+  },
+  {
+   "id": 105831465494,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAwCFg",
+   "name": "Build & Test (web)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-09-19T03:24:09Z",
+   "completed_at": "2026-09-19T03:26:12Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831465494"
+  },
+  {
+   "id": 105831465512,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAwCKA",
+   "name": "Tool contracts (Python) (ubuntu-latest, floor)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-09-19T03:24:09Z",
+   "completed_at": "2026-09-19T03:26:12Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831465512"
+  },
+  {
+   "id": 105831465535,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAwCPw",
+   "name": "Tool contracts (Python) (windows-latest, floor)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-09-19T03:24:08Z",
+   "completed_at": "2026-09-19T03:27:22Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831465535"
+  },
+  {
+   "id": 105831465539,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAwCQw",
+   "name": "Tool contracts (Python) (ubuntu-latest, latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-09-19T03:24:09Z",
+   "completed_at": "2026-09-19T03:26:20Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831465539"
+  },
+  {
+   "id": 105831465543,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAwCRw",
+   "name": "Tool contracts (Python) (macos-latest, floor)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-09-19T03:24:15Z",
+   "completed_at": "2026-09-19T03:27:09Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831465543"
+  },
+  {
+   "id": 105831465553,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAwCUQ",
+   "name": "Tool contracts (Python) (macos-latest, latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-09-19T03:24:13Z",
+   "completed_at": "2026-09-19T03:26:37Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831465553"
+  },
+  {
+   "id": 105831465567,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpAwCXw",
+   "name": "Tool contracts (Python) (windows-latest, latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-09-19T03:24:09Z",
+   "completed_at": "2026-09-19T03:27:09Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105831465567"
+  },
+  {
+   "id": 105841716408,
+   "run_id": 35418417268,
+   "node_id": "CR_kwDORLb8as8AAAAYpKhsuA",
+   "name": "CI result",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-09-19T04:45:49Z",
+   "completed_at": "2026-09-19T04:45:52Z",
+   "html_url": "https://github.com/thefrederiksen/devthrottle/actions/runs/35418417268/job/105841716408"
+  }
+ ]
+}

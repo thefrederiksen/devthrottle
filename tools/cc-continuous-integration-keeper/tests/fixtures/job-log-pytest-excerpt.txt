@@ -1,0 +1,4 @@
+2026-09-16T22:15:50.1795300Z 40 passed in 0.07s
+2026-09-16T22:15:50.7500990Z 84 passed in 0.15s
+2026-09-16T22:17:04.6618000Z [31mFAILED[0m tests/test_session_report.py::[1mtest_a_refused_delivery_is_a_failure_not_a_shrug[0m - AssertionError: assert 'the limit is 6' in '\x1b[31mNot queued:\x1b[0m You have sent \x1b[1;36m6\x1b[0m messages in the last hour; the limit is \x1b[1;36m6\x1b[0m.\n'
+2026-09-16T22:17:04.6619780Z [31m[31m[1m1 failed[0m, [32m2158 passed[0m[31m in 73.38s (0:01:13)[0m[0m

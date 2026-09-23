@@ -381,6 +381,15 @@ jobs:
       - name: Run the shared output helper tests
         run: python -m pytest tools/cc_shared/tests/test_axi_output.py -q
 
+      # The continuous integration keeper reads this repository's own run records once a day and
+      # raises a report. Its tests run here because they are the only thing that says the keeper
+      # still works: a keeper that has quietly stopped reading anything looks exactly like a week
+      # with nothing wrong in it. They need no dependency beyond pytest - the keeper imports the
+      # standard library and tools/cc_shared and nothing else - and they read a frozen week of this
+      # repository's real run records, so they touch no network and do not depend on today's date.
+      - name: Run the continuous integration keeper tests
+        run: python -m pytest tools/cc-continuous-integration-keeper/tests -q
+
       # cc-devthrottle is itself a shipped tool and the fleet's command surface; its own tests were
       # equally unrun. Executed from the tool's directory because its tests import `src` directly.
       # FORCE_COLOR is set deliberately: the defect these tests carried only appears when Rich
