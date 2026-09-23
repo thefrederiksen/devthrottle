@@ -33,12 +33,17 @@ namespace CcDirector.Gateway.Api;
 /// typed a secret into, this input is written by our own installer: the step, its error message and the
 /// diagnostics it collected (for the macOS launcher, launchd's state for our job and the tail of our own
 /// error log). So the durable record carries the content - a record without it would leave us exactly as
-/// blind as before. It is ONE FileLog line, "[InstallReport] {json}", which on hosted lands on the
-/// persistent share where every other Gateway error goes, and survives a deploy. The in-memory ring behind
-/// the admin read is a convenience that a restart empties; the log line is the record.
+/// blind as before.
 ///
-/// No database table on purpose: a schema change is the owner's decision, and this slice is useful without
-/// one. Moving the record into the database is the next slice of #3311.
+/// THE DURABLE RECORD is <see cref="ErrorReportStore"/>, the same files on the Gateway's durable storage that
+/// Director and launcher errors go to, readable at <c>/gateway/admin/director-errors?component=install</c>.
+/// This slice first called its "[InstallReport] {json}" FileLog line the durable record, saying it landed on
+/// the persistent share. On hosted it does not: <c>GatewayEntryPoint</c> keeps the process log on the
+/// container's temporary disk, so every such line was lost on the next deploy. The line is still written,
+/// for a reader of the live log; the in-memory ring behind this route's admin read is still a convenience
+/// that a restart empties.
+///
+/// No database table on purpose: a schema change is the owner's decision.
 /// </summary>
 internal static class InstallReportEndpoints
 {
@@ -92,15 +97,10 @@ internal static class InstallReportEndpoints
 
     private static readonly Regex InstallIdShape = new("^[A-Za-z0-9-]{8,64}$", RegexOptions.CultureInvariant);
 
-    // A home folder in a path names the person. Reduced to "~" - the rest of the path stays, because the
-    // rest is what makes a report useful ("~/Library/Application Support/cc-director/logs").
-    private static readonly Regex MacHome = new(@"/Users/[^/\s""']+", RegexOptions.CultureInvariant);
-    private static readonly Regex LinuxHome = new(@"/home/[^/\s""']+", RegexOptions.CultureInvariant);
-    private static readonly Regex WindowsHome = new(@"[A-Za-z]:\\Users\\[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private static readonly JsonSerializerOptions LineJson = new() { WriteIndented = false };
 
-    public static void Map(IEndpointRouteBuilder app, Func<DateTime>? nowUtc = null)
+    public static void Map(IEndpointRouteBuilder app, ErrorReportStore? store = null, Func<DateTime>? nowUtc = null)
     {
         var clock = nowUtc ?? (() => DateTime.UtcNow);
 
@@ -125,7 +125,7 @@ internal static class InstallReportEndpoints
                     return Results.BadRequest(new { error = "the request body is not readable JSON" });
                 }
 
-                return Handle(post, clock());
+                return Handle(post, clock(), store);
             }
             catch (Exception ex)
             {
@@ -159,7 +159,7 @@ internal static class InstallReportEndpoints
 
     /// <summary>Validate, bound, scrub and record one report. Internal so every branch is testable
     /// without standing a host up.</summary>
-    internal static IResult Handle(InstallReportPost? post, DateTime nowUtc)
+    internal static IResult Handle(InstallReportPost? post, DateTime nowUtc, ErrorReportStore? store = null)
     {
         if (post is null)
             return Results.BadRequest(new { error = "the request body is empty" });
@@ -189,6 +189,7 @@ internal static class InstallReportEndpoints
             Diagnostics: Clean(post.Diagnostics, MaxDiagnostics));
 
         FileLog.Write(DurableLine(record));
+        store?.Append(new[] { ToStored(record) });
 
         lock (RingLock)
         {
@@ -199,7 +200,28 @@ internal static class InstallReportEndpoints
         return Results.Json(new { recorded = true }, statusCode: StatusCodes.Status202Accepted);
     }
 
-    /// <summary>The one durable line. JSON on one line, so newlines in diagnostics cannot forge a second
+    /// <summary>The installer report in the shape every stored error shares. It belongs to no account: the
+    /// machine has none yet.</summary>
+    internal static ErrorReportRecord ToStored(InstallReportRecord r) => new()
+    {
+        ReceivedUtc = r.AtUtc,
+        Component = CcDirector.Core.ErrorReports.ErrorReportLimits.Install,
+        Account = "",
+        Device = r.InstallId,
+        ProductVersion = r.ProductVersion,
+        Os = r.Os,
+        OsVersion = r.OsVersion,
+        Arch = r.Arch,
+        Source = r.Component,
+        Kind = "install-step",
+        // Already scrubbed by Clean when the record was built.
+        Message = r.Message,
+        Installer = r.Installer,
+        Step = r.Step,
+        Diagnostics = r.Diagnostics.Length > 0 ? r.Diagnostics : null,
+    };
+
+    /// <summary>The one log line. JSON on one line, so newlines in diagnostics cannot forge a second
     /// log entry, and so the line can be read back as data.</summary>
     internal static string DurableLine(InstallReportRecord record)
         => "[InstallReport] " + JsonSerializer.Serialize(record, LineJson);
@@ -209,12 +231,13 @@ internal static class InstallReportEndpoints
         lock (RingLock) return Ring.Take(limit).ToList();
     }
 
-    /// <summary>Scrub a home folder out of a path, drop control characters other than newline and tab,
-    /// and cap the length.</summary>
+    /// <summary>Home folders to "~" and credential-shaped values redacted (the shared error scrub), control
+    /// characters other than newline and tab dropped, and the length capped. Done once, here, so the process
+    /// log line, the recent-reports ring and the store all hold the same scrubbed text.</summary>
     internal static string Clean(string? value, int max)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        var scrubbed = ScrubHomePaths(value);
+        var scrubbed = CcDirector.Core.ErrorReports.ErrorTextScrubber.Scrub(value);
         var sb = new StringBuilder(Math.Min(scrubbed.Length, max));
         foreach (var c in scrubbed)
         {
@@ -223,13 +246,6 @@ internal static class InstallReportEndpoints
             sb.Append(c);
         }
         return sb.ToString().Trim();
-    }
-
-    internal static string ScrubHomePaths(string value)
-    {
-        var s = MacHome.Replace(value, "~");
-        s = LinuxHome.Replace(s, "~");
-        return WindowsHome.Replace(s, "~");
     }
 
     /// <summary>A sliding one-hour window, per install id and for the whole route.</summary>

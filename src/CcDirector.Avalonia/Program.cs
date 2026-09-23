@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Avalonia;
 using CcDirector.ControlApi;
+using CcDirector.Core.ErrorReports;
 using CcDirector.Core.Instances;
 using CcDirector.Core.Machine;
 using CcDirector.Core.Storage;
@@ -57,12 +58,18 @@ internal static class Program
             var ex = e.ExceptionObject as Exception;
             FileLog.Write($"[Program] UNHANDLED ({(e.IsTerminating ? "terminating" : "non-terminating")}): {ex}");
             if (e.IsTerminating && ex is not null) WriteCrashFile("unhandled", ex);
+            // The process is about to die: give the error a bounded moment to reach the Gateway (issue #3311).
+            if (e.IsTerminating) ErrorReporter.FlushBeforeExit(TimeSpan.FromSeconds(3));
         };
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             FileLog.Write($"[Program] UNOBSERVED TASK: {e.Exception}");
             e.SetObserved();
         };
+
+        // Every error this process logs - the lines above included - also goes to the Gateway, so the owner
+        // sees it without asking the user for log files (issue #3311). Bounded and non-blocking.
+        ErrorReporter.Start(ErrorReportLimits.Director);
 
         // Hidden auto-update relauncher mode, handled BEFORE the single-instance
         // guard: a freshly downloaded build is invoked as

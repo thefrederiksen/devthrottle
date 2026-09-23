@@ -257,8 +257,20 @@ class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_SameOriginRedirectHandler)
 
 
-def _request(method: str, path: str, body: Optional[dict] = None, timeout: float = 30) -> Any:
-    url = f"{gateway_base_url()}/{path.lstrip('/')}"
+def _request(
+    method: str,
+    path: str,
+    body: Optional[dict] = None,
+    timeout: float = 30,
+    *,
+    bearer: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> Any:
+    """One request to the Gateway. `bearer` and `base_url` replace this session's key and CC_GATEWAY_URL
+    for the one request - used only by a read that must present a DIFFERENT credential, the administrator
+    service token (`errors list --all-accounts`). Everything else about the request is unchanged."""
+    base = base_url.rstrip("/") if base_url else gateway_base_url()
+    url = f"{base}/{path.lstrip('/')}"
     data = json.dumps(body).encode("utf-8") if body is not None else None
 
     # Built INSIDE the try, because a CC_GATEWAY_URL that is not a URL at all ("not-a-url") raises
@@ -269,7 +281,7 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: float
         req.add_header("Accept", "application/json")
         if data is not None:
             req.add_header("Content-Type", "application/json")
-        req.add_header("Authorization", f"Bearer {session_key()}")
+        req.add_header("Authorization", f"Bearer {bearer if bearer is not None else session_key()}")
 
         with _OPENER.open(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
@@ -295,7 +307,7 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: float
         ) from err
     except urllib.error.URLError as err:
         raise GatewayError(
-            f"Cannot reach the Gateway at {gateway_base_url()}: {err.reason}. "
+            f"Cannot reach the Gateway at {base}: {err.reason}. "
             "Every fleet command goes through it and there is no local path to fall back to. "
             "Check that the Gateway is running and this machine can reach it."
         ) from err
@@ -309,7 +321,7 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: float
         # the catch above and reached the user as a traceback. Proved with a loopback server that
         # accepted the connection and never answered.
         raise GatewayError(
-            f"The Gateway at {gateway_base_url()} did not answer in time ({type(err).__name__}: {err}). "
+            f"The Gateway at {base} did not answer in time ({type(err).__name__}: {err}). "
             "Every fleet command goes through it and there is no local path to fall back to."
         ) from err
     except ValueError as err:
@@ -317,7 +329,7 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: float
         # ("not-a-url") raises ValueError out of urlopen before any request is made; and a 200 whose
         # body is not JSON reaches json.loads, which raises JSONDecodeError - a ValueError subclass.
         raise GatewayError(
-            f"The Gateway at {gateway_base_url()} did not return a usable answer ({err}). "
+            f"The Gateway at {base} did not return a usable answer ({err}). "
             "Check CC_GATEWAY_URL names the Gateway and that nothing is intercepting the request."
         ) from err
 
@@ -339,8 +351,8 @@ def path_segment(value: str) -> str:
     return urllib.parse.quote(str(value), safe="")
 
 
-def get_json(path: str, timeout: float = 30) -> Any:
-    return _request("GET", path, None, timeout=timeout)
+def get_json(path: str, timeout: float = 30, *, bearer: Optional[str] = None, base_url: Optional[str] = None) -> Any:
+    return _request("GET", path, None, timeout=timeout, bearer=bearer, base_url=base_url)
 
 
 def post_json(path: str, body: Optional[dict] = None, timeout: float = 30) -> Any:

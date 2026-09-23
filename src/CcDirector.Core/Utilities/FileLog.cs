@@ -151,6 +151,14 @@ public static class FileLog
         _writer.Start();
     }
 
+    /// <summary>
+    /// Handed every logged message that is an error line (<see cref="ErrorReports.ErrorLine.IsError"/>), after
+    /// it has been queued for the file. Set by <see cref="ErrorReports.ErrorReporter.Start"/> so the errors a
+    /// Director or launcher logs also reach its Gateway (issue #3311). The observer must not block and must
+    /// not throw; the reporter's own observer only adds to an in-memory table.
+    /// </summary>
+    public static Action<string>? ErrorObserver { get; set; }
+
     /// <summary>Log a message with a timestamp prefix.</summary>
     public static void Write(string message)
     {
@@ -159,6 +167,8 @@ public static class FileLog
         _writer.Enqueue(line);
         if (MirrorToConsole) Console.Out.WriteLine(line);
         System.Diagnostics.Debug.WriteLine(line);
+        if (ErrorObserver is { } observer && ErrorReports.ErrorLine.IsError(message))
+            observer(message);
     }
 
     /// <summary>

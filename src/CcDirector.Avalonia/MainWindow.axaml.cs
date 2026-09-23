@@ -2533,7 +2533,7 @@ public partial class MainWindow : Window
         else
             Dispatcher.UIThread.Post(() => PromptInput.Focus());
 
-        FileLog.Write($"[MainWindow] SelectSession: {vm.DisplayName}");
+        FileLog.Write($"[MainWindow] SelectSession: \"{vm.DisplayName}\"");
     }
 
     private void OnActiveSessionMetadataChanged(ClaudeSessionMetadata? metadata)
@@ -3041,7 +3041,7 @@ public partial class MainWindow : Window
 
     private async void ShowRenameDialog(SessionViewModel vm)
     {
-        FileLog.Write($"[MainWindow] ShowRenameDialog: session={vm.Session.Id}, name={vm.DisplayName}");
+        FileLog.Write($"[MainWindow] ShowRenameDialog: session={vm.Session.Id}, name=\"{vm.DisplayName}\"");
         var dialog = new RenameSessionDialog(vm.DisplayName);
         var result = await dialog.ShowDialog<bool?>(this);
 
@@ -3054,7 +3054,7 @@ public partial class MainWindow : Window
             if (_activeSession == vm)
                 UpdateSessionHeader();
 
-            FileLog.Write($"[MainWindow] ShowRenameDialog: confirmed, name={dialog.SessionName}");
+            FileLog.Write($"[MainWindow] ShowRenameDialog: confirmed, name=\"{dialog.SessionName}\"");
         }
         else
         {

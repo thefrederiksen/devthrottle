@@ -122,4 +122,62 @@ public sealed class InstallReportEndpointsTests : IDisposable
         Assert.Equal(StatusCodes.Status429TooManyRequests,
             Status(InstallReportEndpoints.Handle(Post(installId: "route-limit-overflow"), Now)));
     }
+
+    [Fact]
+    public void Handle_WithTheStore_CredentialsInTheDiagnosticsAreRedactedBeforeTheyAreKept()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "install-store-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new ErrorReportStore(root, () => Now);
+
+            InstallReportEndpoints.Handle(Post(message: "fetch FAILED token=abc123secretvalue",
+                diagnostics: "GET /x?token=abc123secretvalue\nAuthorization: Bearer dt_live_abcdef0123456789"), Now, store);
+
+            var record = Assert.Single(store.Query(new ErrorReportQuery(Now.AddHours(-1), Now.AddMinutes(1),
+                Component: CcDirector.Core.ErrorReports.ErrorReportLimits.Install)).Records);
+            Assert.DoesNotContain("abc123secretvalue", record.Message);
+            Assert.DoesNotContain("abc123secretvalue", record.Diagnostics);
+            Assert.DoesNotContain("dt_live_abcdef", record.Diagnostics);
+            var onDisk = string.Concat(Directory.GetFiles(root, "*.jsonl", SearchOption.AllDirectories).Select(File.ReadAllText));
+            Assert.DoesNotContain("abc123secretvalue", onDisk);
+            // The Gateway's own process log line is a second place the report is kept (review round 4).
+            var logLine = InstallReportEndpoints.DurableLine(Assert.Single(InstallReportEndpoints.Recent(10)));
+            Assert.DoesNotContain("abc123secretvalue", logLine);
+            Assert.DoesNotContain("dt_live_abcdef", logLine);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
+    public void Handle_WithTheStore_KeepsTheReportDurablyUnderNoAccount()
+    {
+        // The FileLog line is NOT durable on hosted - the process log lives on the container's temporary
+        // disk - so the report must reach the store on the durable root, where a deploy does not touch it.
+        var root = Path.Combine(Path.GetTempPath(), "install-store-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new ErrorReportStore(root, () => Now);
+
+            var result = InstallReportEndpoints.Handle(Post(diagnostics: "state = spawn scheduled"), Now, store);
+
+            Assert.Equal(StatusCodes.Status202Accepted, Status(result));
+            var afterDeploy = new ErrorReportStore(root, () => Now);
+            var record = Assert.Single(afterDeploy.Query(new ErrorReportQuery(Now.AddHours(-1), Now.AddMinutes(1),
+                Component: CcDirector.Core.ErrorReports.ErrorReportLimits.Install)).Records);
+            Assert.Equal("", record.Account);
+            Assert.Equal("start", record.Step);
+            Assert.Equal("state = spawn scheduled", record.Diagnostics);
+            // An account's own read can never see an installer report: it belongs to no account yet.
+            Assert.Empty(afterDeploy.Query(new ErrorReportQuery(Now.AddHours(-1), Now.AddMinutes(1),
+                Account: "11111111-1111-1111-1111-111111111111")).Records);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch (IOException) { }
+        }
+    }
 }
