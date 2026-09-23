@@ -39,6 +39,11 @@ internal static class TestEnvironment
         // The same isolation for the Fleet Manager events reconcile: a host test decides when it runs.
         CcDirector.Gateway.Fleet.FleetManagerEventSweep.Enabled = false;
         Environment.SetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE", "1");
+        // A hosted Gateway names the account on every AI call and refuses to call for a real tenant without
+        // its service credential. A test host serving real tenants is configured like the hosted one.
+        // AiCallTagTests proves the refusal with the variable cleared.
+        Environment.SetEnvironmentVariable(CcDirector.Core.Account.AccountNotifyByTenantClient.ServiceTokenEnvVar,
+            "test-gateway-service-token-0123456789abcdef");
 
         // Issue #322: pin the Director instance-discovery directory to a throwaway per-process temp
         // directory so no test can ever write an instance file into the REAL

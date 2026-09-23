@@ -69,7 +69,8 @@ public sealed class HostedCandidateJudge : ICandidateJudge
         IncludedModelId model,
         HttpClient? http = null,
         Action<string>? log = null,
-        TimeSpan? callTimeout = null)
+        TimeSpan? callTimeout = null,
+        CcDirector.Core.HostedAi.AiCallTag? tag = null)
     {
         if (string.IsNullOrWhiteSpace(baseUrl)) throw new ArgumentException("baseUrl is required", nameof(baseUrl));
         ArgumentNullException.ThrowIfNull(model);
@@ -79,7 +80,13 @@ public sealed class HostedCandidateJudge : ICandidateJudge
         _model = model.Value;
         _callTimeout = callTimeout ?? DefaultCallTimeout;
         _log = log ?? FileLog.Write;
+        _tag = tag;
     }
+
+    private readonly CcDirector.Core.HostedAi.AiCallTag? _tag;
+
+    /// <summary>The tag every ruling request carries.</summary>
+    internal CcDirector.Core.HostedAi.AiCallTag? Tag => _tag;
 
     /// <summary>
     /// Ask for a ruling. Returns null for every unhappy path - unreachable, non-success status, past the
@@ -116,6 +123,7 @@ public sealed class HostedCandidateJudge : ICandidateJudge
                 Content = new StringContent(payload, Encoding.UTF8, "application/json"),
             };
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            _tag?.ApplyTo(req);
 
             using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
                 .ConfigureAwait(false);

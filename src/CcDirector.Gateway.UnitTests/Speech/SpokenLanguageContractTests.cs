@@ -119,7 +119,7 @@ public sealed class SpokenLanguageContractTests
     {
         var brain = new RecordingBrain();
         var translator = new WingmanTranslator(
-            (_, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.French, log: _ => { });
+            (_, _, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.French, log: _ => { });
 
         await translator.TranslateAsync(TenantId.Local, "context", "an agent reply", sessionTitle: "a session");
         await translator.AskDirectAsync(TenantId.Local, "hey wingman, what is going on?");
@@ -145,7 +145,7 @@ public sealed class SpokenLanguageContractTests
         var spanish = new TenantId("tenant-spanish");
         var brain = new RecordingBrain();
         var translator = new WingmanTranslator(
-            (_, _, _) => Task.FromResult<IAgentBrain>(brain),
+            (_, _, _, _) => Task.FromResult<IAgentBrain>(brain),
             tenant => tenant == french ? SpokenLanguages.French : SpokenLanguages.Spanish,
             log: _ => { });
 
@@ -165,7 +165,7 @@ public sealed class SpokenLanguageContractTests
     public async Task A_null_language_provider_fails_loud_instead_of_guessing_English()
     {
         var translator = new WingmanTranslator(
-            (_, _, _) => Task.FromResult<IAgentBrain>(new RecordingBrain()), _ => null!, log: _ => { });
+            (_, _, _, _) => Task.FromResult<IAgentBrain>(new RecordingBrain()), _ => null!, log: _ => { });
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => translator.AskDirectAsync(TenantId.Local, "hello"));

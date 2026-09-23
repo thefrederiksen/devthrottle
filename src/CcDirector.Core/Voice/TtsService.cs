@@ -276,6 +276,9 @@ public sealed class TtsService
             : new HttpClient(_handler, disposeHandler: false);
         client.Timeout = Timeout.InfiniteTimeSpan;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        // The Director's own speech, recorded as such under the signed-in user's own key. The client is built
+        // per call and owned here, so the tag can ride its default headers.
+        client.DefaultRequestHeaders.TryAddWithoutValidation(HostedAi.AiCallTag.FeatureHeader, HostedAi.AiFeature.DirectorSpeech);
         return client;
     }
 

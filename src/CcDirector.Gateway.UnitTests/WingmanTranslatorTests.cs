@@ -65,7 +65,7 @@ public sealed class WingmanTranslatorTests
     }
 
     private static WingmanTranslator BuildTranslator(FakeBrain brain)
-        => new((_, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.English, log: _ => { });
+        => new((_, _, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.English, log: _ => { });
 
     [Fact]
     public async Task TranslateAsync_ReturnsTheSpokenTranslation_FromBetweenTheMarkers()
@@ -92,7 +92,7 @@ public sealed class WingmanTranslatorTests
         var brain = new FakeBrain(_ => "ok");
         var roles = new List<WingmanModelRole>();
         var translator = new WingmanTranslator(
-            (_, role, _) =>
+            (_, role, _, _) =>
             {
                 roles.Add(role);
                 return Task.FromResult<IAgentBrain>(brain);
@@ -123,7 +123,7 @@ public sealed class WingmanTranslatorTests
     public async Task TranslateAsync_ClearsTheContext_EvenWhenTheAskThrows()
     {
         var brain = new ThrowingBrain();
-        var translator = new WingmanTranslator((_, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.English, log: _ => { });
+        var translator = new WingmanTranslator((_, _, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.English, log: _ => { });
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => translator.TranslateAsync(TenantId.Local, "q", "some reply", sessionTitle: null));
@@ -348,7 +348,7 @@ public sealed class WingmanTranslatorTests
         // reply IS the spoken answer (it was told to output only that), so we use it rather than
         // 502 - the reliability fix for the explain/voice-turn path.
         var brain = new NoMarkersBrain();   // returns "just some text with no markers at all"
-        var translator = new WingmanTranslator((_, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.English, log: _ => { });
+        var translator = new WingmanTranslator((_, _, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.English, log: _ => { });
         var result = await translator.TranslateAsync(TenantId.Local, "q", "a reply", sessionTitle: null);
         Assert.Equal("just some text with no markers at all", result.Spoken);
     }
@@ -362,7 +362,7 @@ public sealed class WingmanTranslatorTests
         var raggedOpen = SessionAskRunner.AnswerBeginMarker.TrimEnd('=') + "==";      // "...BEGIN=="
         var raggedClose = "==" + SessionAskRunner.AnswerEndMarker.TrimStart('=');     // "==...END==="
         var brain = new FixedReplyBrain($"{raggedOpen}\nThe session started fine.\n{raggedClose}");
-        var translator = new WingmanTranslator((_, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.English, log: _ => { });
+        var translator = new WingmanTranslator((_, _, _, _) => Task.FromResult<IAgentBrain>(brain), _ => SpokenLanguages.English, log: _ => { });
 
         var result = await translator.TranslateAsync(TenantId.Local, "q", "a reply", sessionTitle: null);
 

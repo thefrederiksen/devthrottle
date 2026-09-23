@@ -200,8 +200,11 @@ internal static class TtsSynthesis
     /// exposed as a static test hook on purpose - a process-global switch would be shared by every host in the
     /// process and is exactly the kind of seam that blocks running these tests in parallel. Null in production,
     /// where the length-derived deadline is the only one.</param>
-    public static async Task<HttpResponseMessage> PostAsync(HttpClient http, string url, string key, object payload, int inputChars, bool preferBackup, CancellationToken ct, TimeSpan? deadlineOverride = null)
+    /// <param name="tag">What the speech is for and which account, sent on every attempt so each one the API
+    /// records carries it. Required: every speech call is usage someone owns.</param>
+    public static async Task<HttpResponseMessage> PostAsync(HttpClient http, string url, string key, object payload, int inputChars, bool preferBackup, CancellationToken ct, Core.HostedAi.AiCallTag tag, TimeSpan? deadlineOverride = null)
     {
+        ArgumentNullException.ThrowIfNull(tag);
         var deadline = deadlineOverride ?? DeadlineFor(inputChars);
         TimeoutException? lastTimeout = null;
         for (var attempt = 1; attempt <= Attempts; attempt++)
@@ -213,6 +216,7 @@ internal static class TtsSynthesis
                 Content = JsonContent.Create(payload),
             };
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            tag.ApplyTo(req);
             if (preferBackup)
                 req.Headers.TryAddWithoutValidation(PreferBackupHeaderName, "1");
             try

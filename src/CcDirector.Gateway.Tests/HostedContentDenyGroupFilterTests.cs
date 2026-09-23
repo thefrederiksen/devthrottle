@@ -300,7 +300,7 @@ public sealed class HostedContentDenyGroupFilterTests
         private static HostedDenyGroup MapFamily(WebApplication app, string family, string root,
             ref GatewayDbTestHarness? db)
         {
-            var brain = (TenantId _, WingmanModelRole _, CancellationToken _) =>
+            var brain = (TenantId _, WingmanModelRole _, string _, CancellationToken _) =>
                 Task.FromException<IAgentBrain>(
                     new InvalidOperationException("the brain must not be reached by a routing probe"));
 

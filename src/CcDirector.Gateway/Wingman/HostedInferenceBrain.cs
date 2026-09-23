@@ -60,6 +60,7 @@ public sealed class HostedInferenceBrain : IAgentBrain
     private readonly string _model;
     private readonly TimeSpan _callTimeout;
     private readonly bool _thinkingOff;
+    private readonly AiCallTag? _tag;
     private readonly Action<string> _log;
 
     /// <param name="baseUrl">The provider-compatible <c>/v1</c> base URL.</param>
@@ -79,7 +80,10 @@ public sealed class HostedInferenceBrain : IAgentBrain
     /// <param name="thinkingOff">Ask the model NOT to reason out loud before it answers - see
     /// <see cref="ThinkingOffTemplateArgument"/>. OFF by default, so a brain built anywhere else keeps the
     /// behaviour it has today; only a caller that has MEASURED its model both ways turns it on.</param>
-    public HostedInferenceBrain(string baseUrl, string apiKey, Core.Configuration.IncludedModelId model, HttpClient? http = null, Action<string>? log = null, TimeSpan? callTimeout = null, bool thinkingOff = false)
+    /// <param name="tag">What this brain's calls are FOR and which account they are for, sent on every call so
+    /// the API records it (see <see cref="AiCallTag"/>). Every production construction passes one - a test
+    /// pins that - and null sends no tag, which the API records as untagged.</param>
+    public HostedInferenceBrain(string baseUrl, string apiKey, Core.Configuration.IncludedModelId model, HttpClient? http = null, Action<string>? log = null, TimeSpan? callTimeout = null, bool thinkingOff = false, AiCallTag? tag = null)
     {
         if (string.IsNullOrWhiteSpace(baseUrl)) throw new ArgumentException("baseUrl is required", nameof(baseUrl));
         ArgumentNullException.ThrowIfNull(model);
@@ -89,6 +93,7 @@ public sealed class HostedInferenceBrain : IAgentBrain
         _model = model.Value;
         _callTimeout = callTimeout ?? DefaultCallTimeout;
         _thinkingOff = thinkingOff;
+        _tag = tag;
         _log = log ?? FileLog.Write;
     }
 
@@ -116,6 +121,9 @@ public sealed class HostedInferenceBrain : IAgentBrain
     /// <summary>The deadline one round trip on this brain is held to. Read by the test that pins the turn
     /// verdict judge to its measured thirty seconds rather than to <see cref="DefaultCallTimeout"/>.</summary>
     internal TimeSpan CallTimeout => _callTimeout;
+
+    /// <summary>The tag every call from this brain carries. Read by the tests that pin each call site's feature.</summary>
+    internal AiCallTag? Tag => _tag;
 
     /// <summary>Stateless - there is no agent-internal session.</summary>
     public string? SessionId => null;
@@ -148,6 +156,7 @@ public sealed class HostedInferenceBrain : IAgentBrain
         var sw = Stopwatch.StartNew();
         using var req = new HttpRequestMessage(HttpMethod.Post, _chatUrl);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+        _tag?.ApplyTo(req);
         req.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
         // Bound this one round trip (see DefaultCallTimeout). The linked source cancels on EITHER the

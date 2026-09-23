@@ -181,7 +181,10 @@ internal static class AiModelsEndpoint
 
                 // One real round-trip to the chosen model - the same path the wingman uses - so the user
                 // can prove a newly-picked model actually responds before relying on it.
-                var brain = new HostedInferenceBrain(ep.BaseUrl, key!, minted, log: FileLog.Write);
+                // Denied on hosted (see MapDeniedRoutes), so this only ever runs on a self-hosted Gateway, whose key
+                // IS the account: the tag names the feature and no account.
+                var brain = new HostedInferenceBrain(ep.BaseUrl, key!, minted, log: FileLog.Write,
+                    tag: new Core.HostedAi.AiCallTag(Core.HostedAi.AiFeature.AiModelsTest));
                 var ask = await brain.AskAsync("Reply with exactly the single word: pong. Output nothing else.", ctx.RequestAborted);
                 return Results.Json(new { ok = true, reply = ask.Text.Trim(), seconds = Math.Round(ask.ReplySeconds, 1) });
             }

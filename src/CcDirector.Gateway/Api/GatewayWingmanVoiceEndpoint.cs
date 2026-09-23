@@ -126,7 +126,7 @@ internal static class GatewayWingmanVoiceEndpoint
     public static void Map(
         IEndpointRouteBuilder app,
         DirectorRegistry registry,
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brainProvider,
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         KeyVault vault,
         WingmanVoiceService voice,
         TenantSettingsResolver tenantSettings,
@@ -485,7 +485,8 @@ internal static class GatewayWingmanVoiceEndpoint
                 // preferBackup is false here: the silent-primary backup routing (issue devthrottle_internal#405) is driven by
                 // the per-session narration path (WingmanVoiceService), which owns the sticky state this
                 // interactive read-aloud endpoint does not carry. It still gets the proxy's own failover.
-                using var resp = await TtsSynthesis.PostAsync(ttsHttp, url, key, new { model, voice = spoken.Voice, input = spoken.Text, response_format = "mp3" }, spoken.Length, preferBackup: false, ct, ttsDeadline);
+                using var resp = await TtsSynthesis.PostAsync(ttsHttp, url, key, new { model, voice = spoken.Voice, input = spoken.Text, response_format = "mp3" }, spoken.Length, preferBackup: false, ct,
+                    HostedAi.GatewayAiCallTags.For(reqTenant.Value, Core.HostedAi.AiFeature.VoiceSpeechManual), ttsDeadline);
                 if (!resp.IsSuccessStatusCode)
                 {
                     var status = (int)resp.StatusCode;

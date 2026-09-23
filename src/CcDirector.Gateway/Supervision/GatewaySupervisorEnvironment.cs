@@ -30,7 +30,7 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
     private readonly TenantSettingsResolver _settings;
     private readonly Func<TenantId, string, SessionVerbClient?> _route;
     private readonly Func<TenantId, string, string?> _activityState;
-    private readonly Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> _brainProvider;
+    private readonly Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> _brainProvider;
     private readonly ActivityEventStore? _ledger;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<string, string, CancellationToken, Task<bool>>? _sendOwnerEmail;
@@ -66,7 +66,7 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
         TenantSettingsResolver settings,
         Func<TenantId, string, SessionVerbClient?> route,
         Func<TenantId, string, string?> activityState,
-        Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> brainProvider,
+        Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         ActivityEventStore? ledger = null,
         Func<TenantId, IDisposable>? enterTenantScope = null,
         Func<string, string, CancellationToken, Task<bool>>? sendOwnerEmail = null,
@@ -136,7 +136,7 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
     {
         try
         {
-            using var brain = await _brainProvider(tenant, WingmanModelRole.Fast, ct).ConfigureAwait(false);
+            using var brain = await _brainProvider(tenant, WingmanModelRole.Fast, Core.HostedAi.AiFeature.Supervision, ct).ConfigureAwait(false);
             var result = await brain.AskAsync(SupervisorVerdict.BuildPrompt(rows), ct).ConfigureAwait(false);
             return result?.Text;
         }
