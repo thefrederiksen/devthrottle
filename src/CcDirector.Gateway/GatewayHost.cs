@@ -2693,11 +2693,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 // "IS A RETRY DUE" (mission "Wingman error and retry"): this pass is the clock for the one retry
                 // schedule the Wingman has. Every failed reading of this account whose booked retry has come due is
                 // asked about again - EVERY session, not only the ones in voice mode, because a reading that failed
-                // is an error whether or not anybody is listening. Fire and forget; the account's own ceiling
-                // bounds it, and a session that cannot be read right now is simply still due on the next pass.
+                // is an error whether or not anybody is listening. Full retries are fire and forget; the account's
+                // own ceiling bounds them, and a session that cannot be read right now is simply still due on the next pass.
                 // EnsureTurnVerdictService, not the field: the seat is built lazily, and a retry booked before a
-                // restart must still run when no stop has been seen by this process yet.
-                EnsureTurnVerdictService().StartDueRetries(tenant);
+                // restart must still run when no stop has been seen by this process yet. A model-host timeout makes
+                // this await one minimal recovery probe; the full reading retries it releases remain fire and forget.
+                await EnsureTurnVerdictService().StartDueRetriesAsync(tenant).ConfigureAwait(false);
                 var attempted = 0;                                   // this account's own, never shared
                 foreach (var sid in vs.VoiceSessionIds(tenant))
                 {
@@ -2989,14 +2990,14 @@ public sealed class GatewayHost : IAsyncDisposable
             // The tenant scope is entered inside this reader, synchronously - the judgement runs on a background
             // task and an ambient scope does not survive into its continuations.
             conversation: ReadStoredConversation,
-            judgeBrain: (tenant, settings) =>
+            judgeBrain: (tenant, settings, feature) =>
             {
                 var mode = Core.Configuration.TranscriptionModeConfig.Get();
                 var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
                 var key = _keyVault.Get(ep.KeyName) ?? "";
                 var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Wingman.TurnVerdictJudge.Role);
                 return Wingman.TurnVerdictJudge.BuildBrain(ep.BaseUrl, key, model, settings,
-                    HostedAi.GatewayAiCallTags.For(tenant, Core.HostedAi.AiFeature.TurnVerdict));
+                    HostedAi.GatewayAiCallTags.For(tenant, feature));
             },
             judgeModel: tenant => ResolveWingmanModel(tenant, Wingman.TurnVerdictJudge.Role),
             store: _turnVerdicts,

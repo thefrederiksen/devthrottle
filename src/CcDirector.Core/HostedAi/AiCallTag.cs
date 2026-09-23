@@ -102,6 +102,8 @@ public static class AiFeature
     public const string WingmanMenuChoice = "wingman.menu-choice";
     /// <summary>The judge that reads every turn end (<c>TurnVerdictJudge</c>).</summary>
     public const string TurnVerdict = "turn-verdict";
+    /// <summary>The minimal call that proves the turn-verdict model host is answering after a timeout.</summary>
+    public const string TurnVerdictProbe = "turn-verdict.probe";
     /// <summary>Supervision.</summary>
     public const string Supervision = "supervision";
     /// <summary>Session rules.</summary>

@@ -1,4 +1,5 @@
-﻿using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.HostedAi;
+using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Speech;
@@ -44,6 +45,41 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished(ReplyText, "The retention sweep. The branch is pushed and nothing is waiting on you.")),
     };
 
+    // ================================================================= the recovery probe
+
+    [Fact]
+    public async Task RecoveryProbe_UsesItsOwnUsageFeature()
+    {
+        string? feature = null;
+        var brain = new CountingBrain(() => "OK");
+        var env = new GatewayTurnVerdictEnvironment(
+            settings: _ => TurnVerdictSettings.Defaults with { JudgeEnabled = true, SettleMs = 0 },
+            pushedSessions: new PushedSessionStore(),
+            streamStale: Stale,
+            route: (_, _) => null,
+            conversation: (_, _) => null,
+            judgeBrain: (_, _, requestedFeature) =>
+            {
+                feature = requestedFeature;
+                return brain;
+            },
+            judgeModel: _ => FakeTurnVerdictEnvironment.Model,
+            store: new TurnVerdictStore(_harness.Open()),
+            traces: new TurnVerdictTraceWriter((_, _) => { }),
+            language: _ => SpokenLanguages.English,
+            customSpokenRules: () => null,
+            isVoiceSession: (_, _) => false,
+            fleetManagerSessionId: _ => null,
+            narrationPlan: _ => NarrationPlan.Allowed);
+
+        var answer = await env.AskRecoveryProbeAsync(
+            Tenant, TurnVerdictService.HostRecoveryProbePrompt,
+            TurnVerdictService.HostRecoveryProbeTimeout, CancellationToken.None);
+
+        Assert.Equal("OK", answer.Raw);
+        Assert.Equal(AiFeature.TurnVerdictProbe, feature);
+    }
+
     // ================================================================= the held check
 
     [Fact]
@@ -69,7 +105,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
             route: (_, directorId) => RouteServing(directorId, () => Screen("child-1", "Working on the migration.", "> "),
                 onRead: () => Interlocked.Increment(ref screenReads)),
             conversation: (_, _) => null,
-            judgeBrain: (_, _) => brain,
+            judgeBrain: (_, _, _) => brain,
             judgeModel: _ => FakeTurnVerdictEnvironment.Model,
             store: new TurnVerdictStore(_harness.Open()),
             traces: new TurnVerdictTraceWriter((_, _) => { }),

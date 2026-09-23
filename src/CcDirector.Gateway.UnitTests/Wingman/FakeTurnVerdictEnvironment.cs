@@ -107,6 +107,25 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
         return new TurnVerdictJudgeAnswer(raw, Model, 0.2);
     }
 
+    /// <summary>The minimal host-recovery call. Separate from <see cref="Judge"/> so a test can prove that a
+    /// paused retry spent only its probe and did not spend the full reading.</summary>
+    public Func<string, CancellationToken, Task<string>> RecoveryProbe = (_, _) => Task.FromResult("OK");
+
+    private int _recoveryProbeCalls;
+    public int RecoveryProbeCalls => _recoveryProbeCalls;
+    public readonly ConcurrentQueue<string> RecoveryProbePrompts = new();
+    public readonly ConcurrentQueue<TimeSpan> RecoveryProbeTimeouts = new();
+
+    public async Task<TurnVerdictJudgeAnswer> AskRecoveryProbeAsync(
+        TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _recoveryProbeCalls);
+        RecoveryProbePrompts.Enqueue(prompt);
+        RecoveryProbeTimeouts.Enqueue(timeout);
+        var raw = await RecoveryProbe(prompt, ct).ConfigureAwait(false);
+        return new TurnVerdictJudgeAnswer(raw, Model, 0.05);
+    }
+
     /// <summary>
     /// The narration call's answer.
     ///
