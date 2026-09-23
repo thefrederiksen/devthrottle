@@ -65,10 +65,12 @@ public static class FirstPromptGate
     /// <summary>
     /// The shortest wait the gate is given. The request's own wait (thirty seconds by default) was sized for the old
     /// rule, which typed when it ran out. The gate never types blind, so a longer limit costs a healthy machine
-    /// nothing - it returns the moment the probe comes back - and gives a loaded one, where startup was seen to take
-    /// far longer, the time it needs before the failure is reported.
+    /// nothing - it returns the moment the probe comes back - and gives a loaded one the time it needs before the
+    /// failure is reported. Measured on 23 September 2026 on a machine at 100 per cent processor: Claude Code drew its
+    /// composer 45 to 103 seconds after the spawn and read no keystroke until its SessionStart hook had run, later
+    /// still. A first limit of two minutes failed all three sessions started that way.
     /// </summary>
-    public static readonly TimeSpan MinimumWait = TimeSpan.FromMinutes(2);
+    public static readonly TimeSpan MinimumWait = TimeSpan.FromMinutes(10);
 
     /// <summary>How often the screen is read while waiting.</summary>
     public static readonly TimeSpan DefaultPoll = TimeSpan.FromMilliseconds(250);
@@ -91,6 +93,20 @@ public static class FirstPromptGate
         if (rows.Count == 0 || rows.All(string.IsNullOrWhiteSpace)) return false;
         if (DoorbellSafety.ShowsWorking(rows)) return false;
         return DoorbellSafety.ReadComposer(agent, frame) is ComposerReading.Empty or ComposerReading.HoldsText;
+    }
+
+    /// <summary>
+    /// What the last screen read showed, for the failure reason: the composer reading and the last few non-blank rows,
+    /// each cut short. The reason rides the session row, so this is what the owner sees when a first prompt fails.
+    /// </summary>
+    internal static string Describe(AgentKind agent, ScreenFrame? frame)
+    {
+        if (frame is null) return "The screen was never read.";
+        var rows = (frame.Rows ?? []).Where(r => !string.IsNullOrWhiteSpace(r)).TakeLast(4)
+            .Select(r => { var t = r.Trim(); return t.Length > 80 ? t[..80] + "..." : t; });
+        return $"Last screen: composer {DoorbellSafety.ReadComposer(agent, frame)}, cursor " +
+               $"{(frame.CursorVisible ? $"at row {frame.CursorRow} column {frame.CursorCol}" : "hidden")}; " +
+               $"bottom rows: {string.Join(" | ", rows)}";
     }
 
     /// <summary>
@@ -131,6 +147,7 @@ public static class FirstPromptGate
         string Elapsed() => $"{(clock() - started).TotalSeconds:F1}s";
 
         // Step 1: the composer is drawn, in two consecutive frames.
+        ScreenFrame? lastFrame = null;
         var drawnInARow = 0;
         while (drawnInARow < 2)
         {
@@ -138,8 +155,9 @@ public static class FirstPromptGate
             if (clock() >= deadline)
                 return new(FirstPromptGateOutcome.TimedOut,
                     $"the agent's composer was not drawn within {limit.TotalSeconds:F0}s (a dialog, a menu, or an agent still starting); " +
-                    "nothing was typed", false);
-            drawnInARow = ComposerDrawn(agent, takeFrame()) ? drawnInARow + 1 : 0;
+                    $"nothing was typed. {Describe(agent, lastFrame)}", false);
+            lastFrame = takeFrame();
+            drawnInARow = ComposerDrawn(agent, lastFrame) ? drawnInARow + 1 : 0;
             if (drawnInARow < 2) await wait(step);
         }
         FileLog.Write($"[FirstPromptGate] {agent}: composer drawn after {Elapsed()} - typing the probe");
@@ -152,11 +170,12 @@ public static class FirstPromptGate
         {
             await wait(step);
             if (exited()) return new(FirstPromptGateOutcome.Exited, "the session exited while the probe was in its composer", false);
-            if (DoorbellSafety.ComposerHoldsExactly(agent, takeFrame(), Probe)) break;
+            lastFrame = takeFrame();
+            if (DoorbellSafety.ComposerHoldsExactly(agent, lastFrame, Probe)) break;
             if (clock() >= deadline)
                 return new(FirstPromptGateOutcome.TimedOut,
                     $"the composer was drawn but the agent did not read a keystroke within {limit.TotalSeconds:F0}s " +
-                    $"(the probe character '{Probe}' never appeared); the prompt was not typed", true);
+                    $"(the probe character '{Probe}' never appeared); the prompt was not typed. {Describe(agent, lastFrame)}", true);
         }
         FileLog.Write($"[FirstPromptGate] {agent}: the probe came back after {Elapsed()} - erasing it");
 
@@ -168,12 +187,14 @@ public static class FirstPromptGate
             await wait(step);
             if (exited()) return new(FirstPromptGateOutcome.Exited, "the session exited while the probe was being erased", false);
             var frame = takeFrame();
+            lastFrame = frame;
             clearInARow = ComposerDrawn(agent, frame) && !DoorbellSafety.ComposerHoldsExactly(agent, frame, Probe)
                 ? clearInARow + 1
                 : 0;
             if (clearInARow < 2 && clock() >= deadline)
                 return new(FirstPromptGateOutcome.TimedOut,
-                    $"the agent read the probe but its Backspace was not seen within {limit.TotalSeconds:F0}s; the prompt was not typed", true);
+                    $"the agent read the probe but its Backspace was not seen within {limit.TotalSeconds:F0}s; the prompt was not typed. " +
+                    Describe(agent, lastFrame), true);
         }
         FileLog.Write($"[FirstPromptGate] {agent}: accepting input after {Elapsed()}");
         return new(FirstPromptGateOutcome.Ready, $"the agent read a keystroke after {Elapsed()}", false);
