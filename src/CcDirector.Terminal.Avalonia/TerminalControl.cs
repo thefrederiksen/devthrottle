@@ -99,13 +99,25 @@ public class TerminalControl : Control
     private AnsiParser? _parser;
     private bool _pendingLayoutAttach;
 
+    // The buffer replay on attach and refresh runs on a pool thread (relief plan step 8b). Every replay start and
+    // every detach takes a new generation; a finished replay hands over only if its generation is still current,
+    // so a switch to another session during a replay discards the old one instead of painting it.
+    private int _replayGeneration;
+    private bool _replayInFlight;
+    // Test hooks only: how many pool replays started, and how many came back to the screen thread (handed over or
+    // discarded), so a test can wait on a replay positively instead of sleeping.
+    private int _replaysStarted;
+    private int _replaysReturned;
+
     // Cell grid
     private TerminalCell[,] _cells;
     private int _cols = DefaultCols;
     private int _rows = DefaultRows;
 
     // Scrollback
-    private readonly List<TerminalCell[]> _scrollback = new();
+    // Not readonly: a replay fills a list of its own on a pool thread, and the control adopts that list at the
+    // handover rather than copying it, because the parser keeps appending to the list it was built with.
+    private List<TerminalCell[]> _scrollback = new();
     private int _scrollOffset; // 0 = bottom (current view), >0 = scrolled up
     private bool _userScrolled; // True when user has manually scrolled up (prevents auto-scroll)
 
@@ -376,23 +388,18 @@ public class TerminalControl : Control
             return;
         }
 
-        RebuildFromBuffer();
-
-        _pollTimer = new DispatcherTimer(DispatcherPriority.Render)
-        {
-            Interval = TimeSpan.FromMilliseconds(PollIntervalMs)
-        };
-        _pollTimer.Tick += PollTimer_Tick;
-        _pollTimer.Start();
+        // Paints an empty grid now and replays the buffer on a pool thread; the poll timer starts at the handover.
+        BeginRebuildFromBuffer();
 
         // Send resize so Claude Code redraws for current terminal dimensions.
         // Without this, if the window was resized while on another session,
-        // Claude Code keeps rendering at the old width.
+        // Claude Code keeps rendering at the old width. The redraw it causes lands after the replay's end
+        // position, so the handover parses it.
         ResizeSession((short)_cols, (short)_rows);
 
         InvalidateVisual();
         ScrollChanged?.Invoke(this, EventArgs.Empty);
-        FileLog.Write($"[TerminalControl] Attach complete: cols={_cols}, rows={_rows}, scrollback={_scrollback.Count}");
+        FileLog.Write($"[TerminalControl] Attach complete: cols={_cols}, rows={_rows}, replayPending={_replayInFlight}");
     }
 
     public void Detach()
@@ -404,6 +411,8 @@ public class TerminalControl : Control
         _session = null;
         _parser = null;
         _pendingLayoutAttach = false;
+        _replayGeneration++;
+        _replayInFlight = false;
         _linkRegions.Clear();
         _pathExistsCache.Clear();
         ClearLinkMatchCache();
@@ -417,51 +426,148 @@ public class TerminalControl : Control
     /// #1304): committed history keeps its original width instead of being
     /// falsely re-wrapped at today's width, and rows wider than the viewport
     /// clip at the right edge, which the renderers already handle.
-    /// Caller must guarantee Bounds and _session.Buffer are valid.
+    ///
+    /// The replay runs on a pool thread (relief plan step 8b): on a wrapped ring it is a two megabyte parse, and
+    /// on the screen thread it froze the window on every session switch. This method copies the bytes and the
+    /// resize marks, shows an empty grid, and returns; <see cref="CompleteRebuild"/> swaps the result in on the
+    /// screen thread, parses exactly the bytes written since, and only then starts the poll timer.
+    /// Caller must guarantee Bounds are valid and must be on the screen thread.
     /// </summary>
-    private void RebuildFromBuffer()
+    private void BeginRebuildFromBuffer()
     {
-        // Timed, because on a wrapped two megabyte ring this replay is a large block of screen-thread work
-        // on every session switch; the elapsed time in the log line below is how that cost is measured.
         long startedAt = Stopwatch.GetTimestamp();
+        int generation = ++_replayGeneration;
+
+        // No poll while the replay runs: a tick with no parser would advance the read position and drop bytes.
+        _pollTimer?.Stop();
+        _pollTimer = null;
+        _parser = null;
         EnsureCellsMatchGrid();
-        _scrollback.Clear();
+        _scrollback = new List<TerminalCell[]>();
         _scrollOffset = 0;
         _userScrolled = false;
         _lastScrollTotal = 0;
         _pathExistsCache.Clear();
         ClearLinkMatchCache();
 
-        long replayedBytes = 0;
-        int replaySegments = 0;
-        if (_session?.Buffer != null)
+        var session = _session;
+        var buffer = session?.Buffer;
+        if (session is null || buffer is null)
         {
-            var (data, newPos) = _session.Buffer.GetWrittenSince(0);
-            long dataStart = newPos - data.Length;
-            var (startCols, startRows, marks) = _session.Buffer.GetResizeMarksSince(dataStart);
-
-            // A buffer from before resize marks were recorded reports (0, 0):
-            // parse at the current dimensions, which is the pre-#1304 behavior.
-            int firstCols = startCols > 0 ? startCols : _cols;
-            int firstRows = startRows > 0 ? startRows : _rows;
-
-            var resizes = new List<ReplayResize>(marks.Count);
-            foreach (var mark in marks)
-                resizes.Add(new ReplayResize((int)(mark.Position - dataStart), mark.Cols, mark.Rows));
-
-            var (cells, parser) = SegmentedReplay.Replay(
-                data, firstCols, firstRows, resizes, _cols, _rows,
-                _scrollback, ScrollbackLines, FileLog.Write);
-            _cells = cells;
-            _parser = parser;
-            _bufferPosition = newPos;
-            replayedBytes = data.Length;
-            replaySegments = resizes.Count + 1;
-        }
-        else
-        {
+            _replayInFlight = false;
             _parser = new AnsiParser(_cells, _cols, _rows, _scrollback, ScrollbackLines, FileLog.Write);
+            StartPollTimer();
+            FileLog.Write($"[TerminalControl] RebuildFromBuffer: no buffer, cols={_cols}, rows={_rows}, elapsedMs={Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:F0}");
+            return;
         }
+
+        var (data, replayEnd) = buffer.GetWrittenSince(0);
+        long dataStart = replayEnd - data.Length;
+        var (startCols, startRows, marks) = buffer.GetResizeMarksSince(dataStart);
+
+        // A buffer from before resize marks were recorded reports (0, 0):
+        // parse at the current dimensions, which is the pre-#1304 behavior.
+        int firstCols = startCols > 0 ? startCols : _cols;
+        int firstRows = startRows > 0 ? startRows : _rows;
+
+        var resizes = new List<ReplayResize>(marks.Count);
+        foreach (var mark in marks)
+            resizes.Add(new ReplayResize((int)(mark.Position - dataStart), mark.Cols, mark.Rows));
+
+        var request = new ReplayRequest(generation, session, data, replayEnd, firstCols, firstRows, resizes,
+            _cols, _rows, new List<TerminalCell[]>(), startedAt, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+        _replayInFlight = true;
+        _replaysStarted++;
+        RunReplay(request);
+    }
+
+    /// <summary>Everything a pool-thread replay needs, captured on the screen thread when it starts.</summary>
+    private sealed record ReplayRequest(
+        int Generation, Session Session, byte[] Data, long ReplayEnd,
+        int FirstCols, int FirstRows, List<ReplayResize> Resizes,
+        int FinalCols, int FinalRows, List<TerminalCell[]> Scrollback,
+        long StartedAt, double StartMs);
+
+    /// <summary>
+    /// Entry point for one pool-thread replay. The await resumes on the screen thread (it is started from there,
+    /// under the toolkit's synchronization context), where <see cref="CompleteRebuild"/> does the handover.
+    /// </summary>
+    private async void RunReplay(ReplayRequest request)
+    {
+        try
+        {
+            double replayMs = 0;
+            var holdReplay = HarnessBeforeReplay;
+            var (cells, parser) = await Task.Run(() =>
+            {
+                holdReplay?.Invoke(request.Session);
+                long replayStart = Stopwatch.GetTimestamp();
+                var result = SegmentedReplay.Replay(
+                    request.Data, request.FirstCols, request.FirstRows, request.Resizes,
+                    request.FinalCols, request.FinalRows, request.Scrollback, ScrollbackLines, FileLog.Write);
+                replayMs = Stopwatch.GetElapsedTime(replayStart).TotalMilliseconds;
+                return result;
+            });
+            CompleteRebuild(request, cells, parser, replayMs);
+        }
+        catch (Exception ex)
+        {
+            if (request.Generation == _replayGeneration)
+                _replayInFlight = false;
+            FileLog.Write($"[TerminalControl] RebuildFromBuffer FAILED: sessionId={request.Session.Id}, replayedBytes={request.Data.Length}, {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The screen-thread half of a replay: adopt the replayed grid, parser and scrollback, bring the grid to the
+    /// size the control is laid out at now (the window may have been resized while the replay ran), parse exactly
+    /// the bytes the session wrote after the replay's end position, and start the poll timer from there.
+    /// </summary>
+    private void CompleteRebuild(ReplayRequest request, TerminalCell[,] cells, AnsiParser parser, double replayMs)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        _replaysReturned++;
+        if (request.Generation != _replayGeneration || !ReferenceEquals(request.Session, _session))
+        {
+            FileLog.Write($"[TerminalControl] RebuildFromBuffer discarded: sessionId={request.Session.Id}, a later attach, refresh or detach replaced it, replayMs={replayMs:F0}");
+            return;
+        }
+
+        long swapStart = Stopwatch.GetTimestamp();
+        var buffer = request.Session.Buffer!;
+        var (tail, tailEnd) = buffer.GetWrittenSince(request.ReplayEnd);
+        if (tailEnd - tail.Length != request.ReplayEnd)
+        {
+            // The ring rolled past the replay's end while the replay ran, so the bytes in between are gone and a
+            // tail would not continue the replayed stream. Replay again from what the ring holds now.
+            FileLog.Write($"[TerminalControl] RebuildFromBuffer overtaken: the ring wrapped during the replay, replayEnd={request.ReplayEnd}, now={tailEnd}; replaying again");
+            BeginRebuildFromBuffer();
+            return;
+        }
+
+        // The resize marks recorded while the replay ran (issue #1304): the window may have been resized, and the
+        // tail then holds bytes written at the old size, a mark, and bytes at the new one. Parse it segment by
+        // segment exactly as the replay does, then bring the grid to the size the control is laid out at now.
+        // Read from one byte before the end position: GetResizeMarksSince reports a mark AT the position as the
+        // starting geometry, not as a later mark, and a resize made during the replay before any tail byte sits
+        // exactly there. Asking from ReplayEnd - 1 returns it as a resize at offset 0, applied before the first
+        // tail byte is parsed. A mark at ReplayEnd that the replay already applied is applied again at the same
+        // point, which the truncate-copy makes harmless.
+        var (_, _, tailMarks) = buffer.GetResizeMarksSince(request.ReplayEnd - 1);
+        var tailResizes = new List<ReplayResize>(tailMarks.Count);
+        foreach (var mark in tailMarks)
+        {
+            if (mark.Position <= tailEnd)
+                tailResizes.Add(new ReplayResize((int)(mark.Position - request.ReplayEnd), mark.Cols, mark.Rows));
+        }
+
+        _replayInFlight = false;
+        _scrollback = request.Scrollback;
+        _parser = parser;
+        // Bytes written while the replay ran: parsed here exactly once, because the poll starts from tailEnd.
+        _cells = SegmentedReplay.Continue(parser, cells, request.FinalCols, request.FinalRows,
+            tail, tailResizes, _cols, _rows);
+        _bufferPosition = tailEnd;
 
         // After replay the parser may be on the alternate screen, drawing into its own buffer;
         // render that, not the frozen array we constructed it with.
@@ -469,9 +575,27 @@ public class TerminalControl : Control
 
         // The replay already advanced the parser's line counter; baseline our tracker to it so the
         // first live poll computes a delta of zero, not the whole replayed history (issue #761).
-        _lastScrollTotal = _parser?.TotalLinesScrolled ?? 0;
+        _lastScrollTotal = parser.TotalLinesScrolled;
 
-        FileLog.Write($"[TerminalControl] RebuildFromBuffer: cols={_cols}, rows={_rows}, replayedBytes={replayedBytes}, segments={replaySegments}, scrollback={_scrollback.Count}, elapsedMs={Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:F0}");
+        StartPollTimer();
+        InvalidateVisual();
+        ScrollChanged?.Invoke(this, EventArgs.Empty);
+
+        // elapsedMs is the screen-thread time (the start plus this handover); replayMs is the pool-thread parse;
+        // waitMs is how long the grid stood empty.
+        double swapMs = Stopwatch.GetElapsedTime(swapStart).TotalMilliseconds;
+        FileLog.Write($"[TerminalControl] RebuildFromBuffer: cols={_cols}, rows={_rows}, replayedBytes={request.Data.Length}, segments={request.Resizes.Count + 1}, tailBytes={tail.Length}, tailSegments={tailResizes.Count + 1}, scrollback={_scrollback.Count}, elapsedMs={request.StartMs + swapMs:F0}, replayMs={replayMs:F0}, waitMs={Stopwatch.GetElapsedTime(request.StartedAt).TotalMilliseconds:F0}");
+    }
+
+    private void StartPollTimer()
+    {
+        _pollTimer?.Stop();
+        _pollTimer = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            Interval = TimeSpan.FromMilliseconds(PollIntervalMs)
+        };
+        _pollTimer.Tick += PollTimer_Tick;
+        _pollTimer.Start();
     }
 
     /// <summary>
@@ -514,14 +638,14 @@ public class TerminalControl : Control
         if (Bounds.Width <= 0 || Bounds.Height <= 0)
             return;
 
-        RebuildFromBuffer();
+        BeginRebuildFromBuffer();
 
         ResizeSession((short)_cols, (short)_rows);
 
         InvalidateVisual();
         ScrollChanged?.Invoke(this, EventArgs.Empty);
 
-        FileLog.Write($"[TerminalControl] ForceRefresh complete: cols={_cols}, rows={_rows}, scrollback={_scrollback.Count}");
+        FileLog.Write($"[TerminalControl] ForceRefresh complete: cols={_cols}, rows={_rows}, replayPending={_replayInFlight}");
     }
 
     /// <summary>The grid size the control is laid out at right now, in columns and rows.</summary>
@@ -903,7 +1027,7 @@ public class TerminalControl : Control
     // Grok stream and capture frames. Not used in production.
 
     /// <summary>Harness: replay a full byte stream through a fresh parser at the current grid
-    /// size - the same work <see cref="RebuildFromBuffer"/> does on attach/tab-switch.</summary>
+    /// size - the same parse <see cref="BeginRebuildFromBuffer"/> runs on attach/tab-switch, done synchronously here.</summary>
     internal void HarnessRebuild(byte[] data)
     {
         EnsureCellsMatchGrid();
@@ -944,6 +1068,31 @@ public class TerminalControl : Control
 
     /// <summary>Harness: the live parser, for reading the active (alt-aware) grid as ground truth.</summary>
     internal AnsiParser? HarnessParser => _parser;
+
+    /// <summary>Harness: true from the moment a buffer replay starts until its handover on the screen thread.</summary>
+    internal bool HarnessReplayPending => _replayInFlight;
+
+    /// <summary>Harness: run on the pool thread before each replay parses, with the replay's session. A test blocks
+    /// here to hold a replay pending while it writes, resizes or switches; null in production.</summary>
+    internal Action<Session>? HarnessBeforeReplay { get; set; }
+
+    /// <summary>Harness: pool replays started, including a replay started again after the ring overtook one.</summary>
+    internal int HarnessReplaysStarted => _replaysStarted;
+
+    /// <summary>Harness: pool replays that came back to the screen thread, whether handed over or discarded.</summary>
+    internal int HarnessReplaysReturned => _replaysReturned;
+
+    /// <summary>Harness: the buffer position the next poll reads from.</summary>
+    internal long HarnessBufferPosition => _bufferPosition;
+
+    /// <summary>Harness: the primary scrollback list the control renders from.</summary>
+    internal IReadOnlyList<TerminalCell[]> HarnessScrollback => _scrollback;
+
+    /// <summary>Harness: whether the poll timer is running. It must be off during a replay and on after the handover.</summary>
+    internal bool HarnessPollTimerRunning => _pollTimer?.IsEnabled == true;
+
+    /// <summary>Harness: one poll, through the real tick handler. The headless platform does not fire the timer itself.</summary>
+    internal void HarnessPollOnce() => PollTimer_Tick(null, EventArgs.Empty);
 
     /// <summary>Harness: emulate a wheel scroll-up of <paramref name="lines"/> rows, exactly like the
     /// pointer-wheel handler on the normal buffer, so a test can drive the scrolled-up pin behavior
@@ -1142,14 +1291,7 @@ public class TerminalControl : Control
             _pendingLayoutAttach = false;
             FileLog.Write($"[TerminalControl] Deferred attach completing: cols={_cols}, rows={_rows}");
 
-            RebuildFromBuffer();
-
-            _pollTimer = new DispatcherTimer(DispatcherPriority.Render)
-            {
-                Interval = TimeSpan.FromMilliseconds(PollIntervalMs)
-            };
-            _pollTimer.Tick += PollTimer_Tick;
-            _pollTimer.Start();
+            BeginRebuildFromBuffer();
 
             ResizeSession((short)_cols, (short)_rows);
 
@@ -1164,21 +1306,31 @@ public class TerminalControl : Control
 
         if (_cols != oldCols || _rows != oldRows)
         {
-            var oldCells = _cells;
-            _cells = new TerminalCell[_cols, _rows];
-            InitializeCells();
-
-            int copyC = Math.Min(oldCols, _cols);
-            int copyR = Math.Min(oldRows, _rows);
-            for (int r = 0; r < copyR; r++)
-                for (int c = 0; c < copyC; c++)
-                    _cells[c, r] = oldCells[c, r];
-
-            _parser?.UpdateGrid(_cells, _cols, _rows);
+            ResizeGridPreservingCells(oldCols, oldRows);
             ResizeSession((short)_cols, (short)_rows);
             InvalidateVisual();
             ScrollChanged?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    /// <summary>
+    /// Move the grid from <paramref name="oldCols"/> x <paramref name="oldRows"/> to the current _cols/_rows,
+    /// keeping the overlapping cells, and point the parser at the new grid. The live resize path and a replay
+    /// handover after a resize both use it, so they truncate identically.
+    /// </summary>
+    private void ResizeGridPreservingCells(int oldCols, int oldRows)
+    {
+        var oldCells = _cells;
+        _cells = new TerminalCell[_cols, _rows];
+        InitializeCells();
+
+        int copyC = Math.Min(oldCols, _cols);
+        int copyR = Math.Min(oldRows, _rows);
+        for (int r = 0; r < copyR; r++)
+            for (int c = 0; c < copyC; c++)
+                _cells[c, r] = oldCells[c, r];
+
+        _parser?.UpdateGrid(_cells, _cols, _rows);
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
