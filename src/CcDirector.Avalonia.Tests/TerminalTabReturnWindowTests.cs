@@ -86,6 +86,20 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
 
     private static string ScreenText(MainWindow window) => window.TerminalHost.GetAllTerminalText();
 
+    /// <summary>Pump the screen thread until the terminal's buffer replay has handed over.</summary>
+    private static void WaitForReplayHandover(MainWindow window)
+    {
+        var deadline = System.Diagnostics.Stopwatch.StartNew();
+        while (window.TerminalHost.HarnessReplayPending)
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (deadline.Elapsed > TimeSpan.FromSeconds(60))
+                throw new TimeoutException("the replay never handed over");
+            Thread.Sleep(2);
+        }
+        Dispatcher.UIThread.RunJobs();
+    }
+
     private static int Occurrences(string text, string needle)
     {
         int count = 0;
@@ -172,6 +186,9 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         Write(backend, "WHILE-HIDDEN\r\n");
 
         Click(window.TerminalTabButton);
+        // A changed size replays the buffer on a pool thread (#3341); the new grid holds the text only
+        // once the replay has handed over on the screen thread.
+        WaitForReplayHandover(window);
 
         Assert.NotEqual(sizeBefore, window.TerminalHost.GridSize);
         Assert.NotSame(parserBefore, window.TerminalHost.HarnessParser);

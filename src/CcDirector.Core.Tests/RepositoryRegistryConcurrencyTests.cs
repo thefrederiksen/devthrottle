@@ -162,11 +162,26 @@ public class RepositoryRegistryConcurrencyTests : IDisposable
 
         var stop = false;
         var tornReads = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var readerFaults = new System.Collections.Concurrent.ConcurrentBag<string>();
         var reads = 0;
 
         // Shares the file the way a careful second process would, so this test measures what the reader
         // SEES, never whether it could open the file at all.
+        // An exception escaping this thread would crash the whole test host and lose the real failure,
+        // so anything the reader did not expect is recorded and asserted on instead.
         var reader = new Thread(() =>
+        {
+            try
+            {
+                ReadUntilStopped();
+            }
+            catch (Exception ex)
+            {
+                readerFaults.Add($"{ex.GetType().Name}: {ex.Message}");
+            }
+        }) { IsBackground = true };
+
+        void ReadUntilStopped()
         {
             while (!Volatile.Read(ref stop))
             {
@@ -201,18 +216,29 @@ public class RepositoryRegistryConcurrencyTests : IDisposable
                     tornReads.Add(text.Length > 80 ? text[..80] + "..." : text);
                 }
             }
-        }) { IsBackground = true };
+        }
+
         reader.Start();
 
-        Parallel.For(0, 4, t =>
+        // The reader is stopped and joined even when a write throws. Left running, it outlives the test,
+        // Dispose deletes the folder under it, and the host crashes instead of reporting the write failure.
+        bool readerFinished;
+        try
         {
-            for (var i = 0; i < 50; i++)
-                registry.TryAdd(Path.Combine(_tempDir, $"torn-{t}-{i}"));
-        });
+            Parallel.For(0, 4, t =>
+            {
+                for (var i = 0; i < 50; i++)
+                    registry.TryAdd(Path.Combine(_tempDir, $"torn-{t}-{i}"));
+            });
+        }
+        finally
+        {
+            Volatile.Write(ref stop, true);
+            readerFinished = reader.Join(TimeSpan.FromSeconds(30));
+        }
 
-        Volatile.Write(ref stop, true);
-        Assert.True(reader.Join(TimeSpan.FromSeconds(30)), "the reader never finished");
-
+        Assert.True(readerFinished, "the reader never finished");
+        Assert.Empty(readerFaults);
         Assert.True(reads > 0, "the reader never read the list, so this test proved nothing");
         Assert.Empty(tornReads);
     }
