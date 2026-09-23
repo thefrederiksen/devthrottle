@@ -239,10 +239,13 @@ answer you already have locally was the single largest source of dead time in th
    main with a green local run. If your change touches any of those, run `-Parked` or the
    relevant suite yourself - do not let "the gate was green" stand in for coverage it never had.
 2. **Get the change reviewed by a different agent family.** The author is the last to see the
-   defect, so the reviewer must not be the writer. Codex is the default reviewer, and it runs as
-   a real tracked session, never backgrounded and never hidden:
+   defect, so the reviewer must not be the writer. **Codex reviews first.** If Codex cannot do it -
+   it is out of usage, it will not start, or Codex wrote the change - **Pi on GLM-5.3 reviews
+   instead** (Pi's default model). Do not wait for a Codex limit to reset; switch to Pi at once.
+   Either way the reviewer runs as a real tracked session, never backgrounded and never hidden:
 
        cc-devthrottle session spawn <repo> --controlled-by self --agent Codex --prompt "<what to review>" --name "review: <what it is>"
+       cc-devthrottle session spawn <repo> --controlled-by self --agent Pi --prompt "<what to review>" --name "review: <what it is>"
 
 3. **Merge.** `gh pr merge <number> --squash --delete-branch`, then park the checkout back on main.
 
