@@ -211,9 +211,32 @@ public class AnsiParser
     /// Swap the backing grid and dimensions (called on terminal resize).
     /// The parser's cursor and scroll-region are clamped to the new size;
     /// character attributes and parser state are preserved.
+    ///
+    /// IT RESIZES BOTH BUFFERS, and that is not a nicety. On the alternate screen the caller's
+    /// array is the one being drawn into and the PRIMARY grid is held aside in <see cref="_altCells"/>
+    /// waiting to be restored. Resizing only the live one left the held grid frozen at its old size,
+    /// so leaving the alternate screen restored a grid that did not match the dimensions this parser
+    /// reports - and the control, which renders <see cref="ActiveCells"/> over its own columns and
+    /// rows, indexed straight off the end of it. That exception came out of the control's Render
+    /// inside the compositor's update pass, which is the pass that rebuilds hit-testing, and the
+    /// Director's whole window stopped routing clicks until a resize forced a fresh one.
+    ///
+    /// BOTH DOORS ONTO THIS MATTER. Dragging the window edge is the obvious one. The one the frozen
+    /// Director actually went through was ATTACHING to a session: <see cref="SegmentedReplay"/>
+    /// replays the recorded bytes and then calls this once more to land on the size of the pane the
+    /// session is about to be shown in, and for a full-screen agent that closing call is a resize on
+    /// the alternate screen. Any caller reaching here while the alternate screen is up is the same
+    /// hazard, which is why the repair belongs in this one method rather than at a call site.
+    /// See <c>AnsiParserAltScreenResizeTests</c>.
     /// </summary>
     public void UpdateGrid(TerminalCell[,] cells, int cols, int rows)
     {
+        // The held primary grid follows the live one, so a restore can only ever hand back a grid of
+        // the size this parser is about to report. The overlap is carried over: the shell's last
+        // screen is still there when the agent gives the terminal back.
+        if (_altCells is not null)
+            _altCells = ResizeGrid(_altCells, cols, rows);
+
         // If the scroll region covered the whole screen before the resize
         // (the default and overwhelmingly common case), it must continue to
         // cover the whole screen afterwards. Otherwise growing the grid
@@ -241,6 +264,22 @@ public class AnsiParser
         // The frame geometry changed; drop the repaint-diff baseline (issue #240).
         _committedFrame = null;
         _scrollbackCountAtFrame = _scrollback.Count;
+    }
+
+    /// <summary>
+    /// Copy a grid into a new one of the given size, keeping the cells the two sizes have in
+    /// common (anchored top-left, the same way the terminal control carries its own grid across
+    /// a resize). Cells outside the overlap start empty.
+    /// </summary>
+    private static TerminalCell[,] ResizeGrid(TerminalCell[,] source, int cols, int rows)
+    {
+        var resized = new TerminalCell[cols, rows];
+        int copyCols = Math.Min(source.GetLength(0), cols);
+        int copyRows = Math.Min(source.GetLength(1), rows);
+        for (int row = 0; row < copyRows; row++)
+            for (int col = 0; col < copyCols; col++)
+                resized[col, row] = source[col, row];
+        return resized;
     }
 
     public void Parse(byte[] data)
@@ -1621,11 +1660,11 @@ public class AnsiParser
             _altScrollback.Clear();
             var fresh = new TerminalCell[_cols, _rows];
             _cells = fresh;
-            // Caller can't see _cells; but our public API hands the grid to
-            // the owner ahead of time. Since we mutate _cells pointer here,
-            // renderers will see a blank grid (until UpdateGrid is called on
-            // exit). For cc-director's usage this is acceptable -- Claude Code
-            // and most CLIs do not use the alt-screen (?1049) in practice.
+            // The owner was handed its grid before this swap, so the array it holds is now the
+            // HELD primary grid and not what is being drawn into. A renderer must read
+            // ActiveCells to follow the swap - TerminalControl.SyncActiveGrid does exactly that
+            // after every parse. This is not a rare path: the full-screen agents this product
+            // hosts take the alternate screen as a matter of course.
             for (int r = 0; r < _rows; r++)
                 for (int c = 0; c < _cols; c++)
                     _cells[c, r] = new TerminalCell();
