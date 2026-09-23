@@ -77,7 +77,7 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
         try
         {
             if (Directory.Exists(_root))
-                Directory.Delete(_root, recursive: true);
+                TestTempRoot.DeleteTree(_root);
         }
         catch
         {
@@ -316,7 +316,7 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
         await using var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine);
         var repository = MakeRepository("doomed");
         var worktree = AddWorktree(repository, "orphan", "orphan");
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
 
         await director.PushSnapshotAsync(SessionIn(worktree, "thefrederiksen/doomed"));
 

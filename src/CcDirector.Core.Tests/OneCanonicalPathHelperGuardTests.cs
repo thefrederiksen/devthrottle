@@ -124,6 +124,40 @@ public class OneCanonicalPathHelperGuardTests
         Assert.Equal(root, TestTempRoot.Canonical(root));
     }
 
+    /// <summary>
+    /// The read-only file is the shape that made a recursive delete refuse on Windows, and it is what
+    /// git leaves behind in every repository a test creates. Asserted on both platforms: the attribute
+    /// is set for real, and the tree still goes.
+    /// </summary>
+    [Fact]
+    public void DeleteTree_GivenAReadOnlyFileLikeGitLeaves_RemovesTheTreeAnyway()
+    {
+        var root = TestTempRoot.For("delete-tree-guard-");
+        var nested = Path.Combine(root, "objects", "22");
+        Directory.CreateDirectory(nested);
+        var objectFile = Path.Combine(nested, "b65577e6b534890b8044f5982706fd85c592");
+        File.WriteAllText(objectFile, "not really a git object");
+        File.SetAttributes(objectFile, File.GetAttributes(objectFile) | FileAttributes.ReadOnly);
+
+        // The instrument first: if the attribute did not take, this test proves nothing.
+        Assert.True((File.GetAttributes(objectFile) & FileAttributes.ReadOnly) != 0,
+            "the read-only attribute did not take, so this test would pass vacuously");
+
+        TestTempRoot.DeleteTree(root);
+
+        Assert.False(Directory.Exists(root));
+    }
+
+    /// <summary>A missing directory is a fixture that is wrong, and the helper says so rather than
+    /// quietly succeeding - see its own summary.</summary>
+    [Fact]
+    public void DeleteTree_GivenAPathThatWasNeverThere_Throws()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), "never-existed-" + Guid.NewGuid().ToString("N"));
+
+        Assert.ThrowsAny<IOException>(() => TestTempRoot.DeleteTree(missing));
+    }
+
     private static string Relative(string root, string full)
         => Path.GetRelativePath(root, full).Replace('\\', '/');
 

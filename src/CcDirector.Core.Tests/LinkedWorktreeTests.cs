@@ -31,7 +31,7 @@ public sealed class LinkedWorktreeTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_root, recursive: true); } catch { }
+        try { TestTempRoot.DeleteTree(_root); } catch { }
     }
 
     // ---------------------------------------------------------------- the flow, with real git
@@ -93,7 +93,7 @@ public sealed class LinkedWorktreeTests : IDisposable
         // nothing to collapse it onto, so it keeps its own row exactly as the product did before.
         var repository = MakeRepository("doomed");
         var worktree = AddWorktree(repository, "orphan", "orphan");
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
 
         Assert.True(LinkedWorktree.IsOne(worktree));
         Assert.Null(LinkedWorktree.ParentRepositoryOf(worktree));

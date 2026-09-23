@@ -40,7 +40,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
     public void Dispose()
     {
         _sessions.Dispose();
-        try { Directory.Delete(_root, recursive: true); } catch { }
+        try { TestTempRoot.DeleteTree(_root); } catch { }
     }
 
     // ------------------------------------------------------------------- the stamp on the session
@@ -80,7 +80,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         // folded onto a guess. A destructive change acts only on what it can positively prove.
         var repository = MakeRepository("doomed");
         var worktree = AddWorktree(repository, "orphan", "orphan");
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
 
         using var session = NewSession(worktree);
         _sessions.RaiseSessionCreated(session);
@@ -134,7 +134,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         _sessions.RaiseSessionCreated(session);
         AssertSameFolder(repository, session.PrimaryRepoPath);
 
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
         _sessions.RaiseSessionCreated(session);
 
         Assert.Null(session.PrimaryRepoPath);
@@ -235,7 +235,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         // recorded, against itself, rather than being lost.
         var repository = MakeRepository("doomed");
         var worktree = AddWorktree(repository, "orphan", "orphan");
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
         // Registered AFTER the repository is gone, so nothing can be resolved and the worktree is
         // registered as itself - which is the product's behaviour before any of this existed.
         Assert.True(_registry.TryAdd(worktree));
