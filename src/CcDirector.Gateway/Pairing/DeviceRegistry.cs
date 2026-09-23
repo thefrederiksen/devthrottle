@@ -352,6 +352,61 @@ public sealed class DeviceRegistry : IDisposable
         return changed;
     }
 
+    /// <summary>
+    /// Put back device credentials that a WITHDRAWN rule tombstoned. Matches only rows revoked for exactly
+    /// <paramref name="reason"/> strictly before <paramref name="revokedBeforeUtc"/>, and only for a tenant
+    /// <paramref name="mayHoldHostedKeys"/> accepts today. The key hash was never cleared by the tombstone, so the
+    /// same key the Director still holds resolves active again - nothing is asked of the device's owner.
+    ///
+    /// This is NOT a general un-revoke, and it deliberately does not weaken the policy in
+    /// <see cref="Tenancy.TenantAccessRevoker"/> that a resubscribe never silently un-revokes a key. The
+    /// cutoff is what keeps it narrow: a revocation made after the rule was withdrawn is never touched, however
+    /// often this runs. Idempotent - a second run matches nothing.
+    /// </summary>
+    /// <returns>The number of credentials reinstated.</returns>
+    public int ReinstateRevokedBefore(string reason, DateTime revokedBeforeUtc, Func<TenantId, bool> mayHoldHostedKeys)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("reason is required", nameof(reason));
+        ArgumentNullException.ThrowIfNull(mayHoldHostedKeys);
+
+        var trimmed = reason.Trim();
+        using var ctx = _db.CreateUnscopedContext();
+        var tenantIds = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.Status == StatusRevoked && d.RevokedReason == trimmed
+                        && d.RevokedAtUtc != null && d.RevokedAtUtc < revokedBeforeUtc && d.TenantId != null)
+            .Select(d => d.TenantId!)
+            .Distinct()
+            .ToList();
+
+        var reinstated = 0;
+        var tenantsSkipped = 0;
+        foreach (var id in tenantIds)
+        {
+            var tenant = new TenantId(id);
+            if (!tenant.IsValid || !mayHoldHostedKeys(tenant))
+            {
+                tenantsSkipped++;
+                continue;
+            }
+
+            using var transaction = ctx.Database.BeginTransaction();
+            reinstated += ctx.DeviceCredentials
+                .Where(d => d.TenantId == id && d.Status == StatusRevoked && d.RevokedReason == trimmed
+                            && d.RevokedAtUtc != null && d.RevokedAtUtc < revokedBeforeUtc)
+                .ExecuteUpdate(setters => setters
+                    .SetProperty(d => d.Status, StatusActive)
+                    .SetProperty(d => d.RevokedAtUtc, (DateTime?)null)
+                    .SetProperty(d => d.RevokedReason, (string?)null));
+            transaction.Commit();
+        }
+
+        FileLog.Write($"[DeviceRegistry] ReinstateRevokedBefore: reason={trimmed}, tenants={tenantIds.Count}, " +
+                      $"reinstated={reinstated}, tenantsSkipped={tenantsSkipped}");
+        return reinstated;
+    }
+
     public IReadOnlyList<ChildMirrorEntry> MirrorSnapshot()
     {
         using var ctx = _db.CreateUnscopedContext();

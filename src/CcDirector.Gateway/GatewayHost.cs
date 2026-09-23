@@ -575,6 +575,15 @@ public sealed class GatewayHost : IAsyncDisposable
         using (_hostedTenant?.Enter(Core.Tenancy.TenantId.System))
         {
             Devices.Initialize();
+
+            // Give back the keys the withdrawn "trial ended = cut off" rule cancelled (owner ruling 2026-09-22).
+            // HERE and not in the constructor: it reads the database, which is not open until the listener has
+            // bound (#2383, #2585). Straight after the device authority loads and before readiness opens, so a
+            // reinstated Director's next knock is simply accepted. Idempotent, so a repeat call here is safe.
+            if (GatewayHostedMode.IsHosted)
+                ReinstatedAtStartup = Tenancy.PreFreeTierKeyReinstatement.Run(
+                    Devices, TenantRegistry, EntitlementRegistry, DateTime.UtcNow);
+
             _workLists.Initialize();
             _cronJobs.Initialize();
             _skills.Initialize();
@@ -585,6 +594,10 @@ public sealed class GatewayHost : IAsyncDisposable
 
         FileLog.Write("[GatewayHost] startup stores loaded; now serving");
     }
+
+    /// <summary>How many cancelled device keys the last <see cref="EnsureStoresReady"/> gave back (hosted only).
+    /// Exposed so a host test can prove the reinstatement runs on the real start-up path.</summary>
+    internal int ReinstatedAtStartup { get; private set; }
 
     internal bool IsReadyToServe()
         => _gatewayDb.IsOpen
