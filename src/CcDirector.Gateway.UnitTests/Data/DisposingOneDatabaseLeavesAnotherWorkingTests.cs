@@ -1,5 +1,7 @@
-using System.Collections.Concurrent;
+using System.Reflection;
 using CcDirector.Gateway.Data;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Data;
@@ -10,76 +12,89 @@ namespace CcDirector.Gateway.Tests.Data;
 /// The SQLite connection pool is process-wide. Dispose used to call <c>SqliteConnection.ClearAllPools()</c>,
 /// which disposed the native handle of a connection ANOTHER database was opening at that moment, so a query
 /// on a database nobody had closed failed with "Cannot access a disposed object. Object name:
-/// 'SQLitePCL.sqlite3'" inside <c>SqliteConnection.Open()</c>. That is how the v2.9.2 release gate lost
-/// <c>HostedEntitlementGateTests</c>: another test class, running in parallel, disposed its own database.
+/// 'SQLitePCL.sqlite3'". That is how the v2.9.2 release gate lost <c>HostedEntitlementGateTests</c>: another
+/// test class, running in parallel, disposed its own database.
 ///
-/// This test forces the same collision on purpose: four threads keep querying database A while the test
-/// opens and disposes database B over and over. Revert-prove: put <c>ClearAllPools()</c> back in
-/// <c>GatewayDatabase.Dispose</c> and this goes red with that exception.
+/// HOW THE CLEAR KILLED A CONNECTION IT DID NOT OWN (Microsoft.Data.Sqlite 9.0.2). When a connection is
+/// rented, <c>SqliteConnectionInternal.Activate</c> sets <c>_active = true</c> and only THEN binds the owning
+/// <c>SqliteConnection</c> into a weak reference. In between, the pool's <c>Leaked</c> check (active, owner not
+/// reachable) is true, and a clear of that pool reclaims the connection as leaked and disposes its handle.
+/// ClearAllPools clears every pool, so another database's disposal could land in that gap.
+///
+/// The gap is a couple of instructions wide, so a test that races threads against it only samples it (the
+/// first version of this test went red on 2 of 8 runs against the old code). This test does not race: it
+/// rents a connection on database A, puts it into exactly the mid-open state, disposes database B while it
+/// is there, and then uses the connection. Revert-prove: put <c>ClearAllPools()</c> back in
+/// <c>GatewayDatabase.Dispose</c> and this goes red on every run with that exception.
 /// </summary>
 public sealed class DisposingOneDatabaseLeavesAnotherWorkingTests : IDisposable
 {
     private readonly GatewayDbTestHarness _inUse = new();
-    private readonly GatewayDbTestHarness _disposedOverAndOver = new();
+    private readonly GatewayDbTestHarness _disposed = new();
 
     public void Dispose()
     {
         _inUse.Dispose();
-        _disposedOverAndOver.Dispose();
+        _disposed.Dispose();
     }
 
     [Fact]
-    public void Disposing_one_database_does_not_dispose_the_connections_of_another_in_use()
+    public void Disposing_one_database_does_not_dispose_a_connection_another_database_is_opening()
     {
         var inUse = _inUse.Open();
-        var failures = new ConcurrentQueue<Exception>();
-        var queries = 0;
-        using var stop = new CancellationTokenSource();
-
-        // Several readers, so a connection is being rented from A's pool at almost every instant a disposal of
-        // B clears the pools - the window the defect needs is narrow, and one reader missed it too often.
-        var readers = new List<Thread>();
-        for (var r = 0; r < 4; r++)
+        using var ctx = inUse.CreateUnscopedContext();
+        var connection = (SqliteConnection)ctx.Database.GetDbConnection();
+        connection.Open();
+        try
         {
-            var reader = new Thread(() =>
+            var owner = OwnerReferenceOf(connection);
+            Assert.True(owner.TryGetTarget(out var bound) && ReferenceEquals(bound, connection),
+                "the rented connection is not bound to its owner, so the mid-open state below would not be the one Activate leaves");
+
+            // The instant inside Activate: rented and active, owner not yet bound.
+            owner.SetTarget(null!);
+            try
             {
-                while (!stop.IsCancellationRequested)
-                {
-                    try
-                    {
-                        using var ctx = inUse.CreateUnscopedContext();
-                        _ = ctx.Tenants.Count();
-                        Interlocked.Increment(ref queries);
-                    }
-                    catch (Exception ex)
-                    {
-                        failures.Enqueue(ex);
-                    }
-                }
-            }) { IsBackground = true, Name = $"database-A-reader-{r}" };
-            readers.Add(reader);
-            reader.Start();
-        }
+                var other = _disposed.Open();
+                using (var otherCtx = other.CreateUnscopedContext())
+                    _ = otherCtx.Tenants.Count();
+                other.Dispose();
+            }
+            finally
+            {
+                owner.SetTarget(connection);
+            }
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        var disposals = 0;
-        while (DateTime.UtcNow < deadline && failures.IsEmpty)
+            var failure = Record.Exception(() => ctx.Tenants.Count());
+            Assert.True(failure is null,
+                $"database A's open connection was broken by disposing database B: {failure}");
+        }
+        finally
         {
-            var other = _disposedOverAndOver.Open();
-            using (var ctx = other.CreateUnscopedContext())
-                _ = ctx.Tenants.Count();
-            other.Dispose();
-            disposals++;
+            connection.Close();
         }
+    }
 
-        stop.Cancel();
-        foreach (var reader in readers)
-            Assert.True(reader.Join(TimeSpan.FromSeconds(30)), $"{reader.Name} did not stop");
+    /// <summary>
+    /// The weak reference from the pooled <c>SqliteConnectionInternal</c> behind <paramref name="connection"/>
+    /// to its owner. Both fields are private to Microsoft.Data.Sqlite; if an upgrade renames them this fails
+    /// by name rather than letting the test pass without reaching the state it exists to create.
+    /// </summary>
+    private static WeakReference<SqliteConnection> OwnerReferenceOf(SqliteConnection connection)
+    {
+        var innerField = typeof(SqliteConnection).GetField("_innerConnection", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.True(innerField is not null, "SqliteConnection._innerConnection not found - Microsoft.Data.Sqlite changed; re-derive this test's mid-open state");
+        var inner = innerField!.GetValue(connection);
+        Assert.True(inner is not null, "the open connection has no inner connection");
 
-        Assert.True(failures.IsEmpty,
-            $"database A failed {failures.Count} time(s) while database B was disposed {disposals} time(s); first: {failures.FirstOrDefault()}");
-        // The collision only means something if both sides actually ran.
-        Assert.True(disposals > 5, $"only {disposals} disposal(s) of database B ran");
-        Assert.True(queries > 5, $"only {queries} query(ies) on database A ran");
+        // A pool clear can only reach a connection that belongs to a pool; an unpooled one would make this
+        // test pass against the old code too.
+        var poolField = inner!.GetType().GetField("_pool", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.True(poolField is not null, "SqliteConnectionInternal._pool not found - Microsoft.Data.Sqlite changed; re-derive this test's mid-open state");
+        Assert.True(poolField!.GetValue(inner) is not null, "database A's connection is not pooled, so no pool clear could ever reach it");
+
+        var ownerField = inner!.GetType().GetField("_outerConnection", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.True(ownerField is not null, "SqliteConnectionInternal._outerConnection not found - Microsoft.Data.Sqlite changed; re-derive this test's mid-open state");
+        return (WeakReference<SqliteConnection>)ownerField!.GetValue(inner)!;
     }
 }
