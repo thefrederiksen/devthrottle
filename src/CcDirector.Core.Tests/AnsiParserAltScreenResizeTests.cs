@@ -1,3 +1,4 @@
+using System.Text;
 using CcDirector.Terminal.Core;
 using Xunit;
 using static CcDirector.Core.Tests.TerminalTestHelper;
@@ -17,7 +18,7 @@ namespace CcDirector.Core.Tests;
 /// grid smaller than the dimensions it had just been told to use.
 ///
 /// The terminal control renders whatever <see cref="AnsiParser.ActiveCells"/> points at,
-/// over its own cols and rows. An undersized grid there is an IndexOutOfRangeException
+/// over its own columns and rows. An undersized grid there is an IndexOutOfRangeException
 /// thrown out of the control's Render, INSIDE the compositor's update pass - and that pass
 /// is what rebuilds hit-testing for the whole window. The window kept painting the last
 /// frame it had and routed no clicks anywhere until a resize forced a fresh pass.
@@ -107,6 +108,67 @@ public class AnsiParserAltScreenResizeTests
 
         Assert.Equal(147, parser.ActiveCells.GetLength(0));
         Assert.Equal(41, parser.ActiveCells.GetLength(1));
+    }
+
+    /// <summary>
+    /// THE DOOR THE PRODUCTION CRASH CAME THROUGH, and it is not a window resize.
+    ///
+    /// The Director's log for the frozen window carries no resize between attaching to the session
+    /// at 18:13:08.355 and the exception at 18:13:14.681. What it carries is the attach itself:
+    /// "RebuildFromBuffer: cols=92, rows=38". Selecting a session in the rail replays its recorded
+    /// bytes through a fresh parser at the geometry each byte was written for, and then
+    /// <see cref="SegmentedReplay"/> resizes once more to the size of the pane it is about to be
+    /// shown in. A full-screen agent's recorded bytes put that parser on the alternate screen, so
+    /// that closing resize is a resize on the alternate screen - the same UpdateGrid, reached by
+    /// clicking a session rather than by dragging a window edge.
+    ///
+    /// Six seconds later the owner stopped the session, the agent left the alternate screen on its
+    /// way out, and the restored grid was the size the session had been recorded at, not the 92x38
+    /// the control was rendering.
+    /// </summary>
+    [Fact]
+    public void Replay_WhenTheRecordedStreamIsOnTheAlternateScreen_LeavesAGridMatchingTheFinalSize()
+    {
+        var scrollback = new List<TerminalCell[]>();
+        var recorded = Encoding.UTF8.GetBytes(EnterAlt + "a full screen agent drawing");
+
+        // Recorded at 80x24, shown in a 92x38 pane - the shape of the attach that preceded the freeze.
+        var (_, parser) = SegmentedReplay.Replay(
+            recorded, startCols: 80, startRows: 24,
+            resizes: Array.Empty<ReplayResize>(),
+            finalCols: 92, finalRows: 38,
+            scrollback, maxScrollback: 1000);
+
+        Assert.True(parser.IsAlternateScreen);
+
+        Parse(parser, LeaveAlt);
+
+        Assert.Equal(92, parser.ActiveCells.GetLength(0));
+        Assert.Equal(38, parser.ActiveCells.GetLength(1));
+    }
+
+    /// <summary>
+    /// The same attach with a recorded resize part way through, which is the ordinary case for a
+    /// session that has been open a while: every UpdateGrid on the way must keep the held grid in
+    /// step, not just the last one.
+    /// </summary>
+    [Fact]
+    public void Replay_WithARecordedResizeMidStream_LeavesAGridMatchingTheFinalSize()
+    {
+        var scrollback = new List<TerminalCell[]>();
+        var recorded = Encoding.UTF8.GetBytes(EnterAlt + "first" + "second");
+        var resizes = new[] { new ReplayResize(Encoding.UTF8.GetByteCount(EnterAlt + "first"), 100, 30) };
+
+        var (_, parser) = SegmentedReplay.Replay(
+            recorded, startCols: 80, startRows: 24,
+            resizes,
+            finalCols: 92, finalRows: 38,
+            scrollback, maxScrollback: 1000);
+
+        Parse(parser, LeaveAlt);
+
+        Assert.Equal(92, parser.ActiveCells.GetLength(0));
+        Assert.Equal(38, parser.ActiveCells.GetLength(1));
     }
 
     /// <summary>

@@ -214,13 +214,20 @@ public class AnsiParser
     ///
     /// IT RESIZES BOTH BUFFERS, and that is not a nicety. On the alternate screen the caller's
     /// array is the one being drawn into and the PRIMARY grid is held aside in <see cref="_altCells"/>
-    /// waiting to be restored. Resizing only the live one left the held grid frozen at the size the
-    /// window had when the full-screen agent started, so leaving the alternate screen restored a grid
-    /// that did not match the dimensions this parser reports - and the control, which renders
-    /// <see cref="ActiveCells"/> over its own cols and rows, indexed straight off the end of it.
-    /// That exception came out of the control's Render inside the compositor's update pass, which is
-    /// the pass that rebuilds hit-testing, and the Director's whole window stopped routing clicks
-    /// until a resize forced a fresh one. See <c>AnsiParserAltScreenResizeTests</c>.
+    /// waiting to be restored. Resizing only the live one left the held grid frozen at its old size,
+    /// so leaving the alternate screen restored a grid that did not match the dimensions this parser
+    /// reports - and the control, which renders <see cref="ActiveCells"/> over its own columns and
+    /// rows, indexed straight off the end of it. That exception came out of the control's Render
+    /// inside the compositor's update pass, which is the pass that rebuilds hit-testing, and the
+    /// Director's whole window stopped routing clicks until a resize forced a fresh one.
+    ///
+    /// BOTH DOORS ONTO THIS MATTER. Dragging the window edge is the obvious one. The one the frozen
+    /// Director actually went through was ATTACHING to a session: <see cref="SegmentedReplay"/>
+    /// replays the recorded bytes and then calls this once more to land on the size of the pane the
+    /// session is about to be shown in, and for a full-screen agent that closing call is a resize on
+    /// the alternate screen. Any caller reaching here while the alternate screen is up is the same
+    /// hazard, which is why the repair belongs in this one method rather than at a call site.
+    /// See <c>AnsiParserAltScreenResizeTests</c>.
     /// </summary>
     public void UpdateGrid(TerminalCell[,] cells, int cols, int rows)
     {
@@ -1653,11 +1660,11 @@ public class AnsiParser
             _altScrollback.Clear();
             var fresh = new TerminalCell[_cols, _rows];
             _cells = fresh;
-            // Caller can't see _cells; but our public API hands the grid to
-            // the owner ahead of time. Since we mutate _cells pointer here,
-            // renderers will see a blank grid (until UpdateGrid is called on
-            // exit). For cc-director's usage this is acceptable -- Claude Code
-            // and most CLIs do not use the alt-screen (?1049) in practice.
+            // The owner was handed its grid before this swap, so the array it holds is now the
+            // HELD primary grid and not what is being drawn into. A renderer must read
+            // ActiveCells to follow the swap - TerminalControl.SyncActiveGrid does exactly that
+            // after every parse. This is not a rare path: the full-screen agents this product
+            // hosts take the alternate screen as a matter of course.
             for (int r = 0; r < _rows; r++)
                 for (int c = 0; c < _cols; c++)
                     _cells[c, r] = new TerminalCell();

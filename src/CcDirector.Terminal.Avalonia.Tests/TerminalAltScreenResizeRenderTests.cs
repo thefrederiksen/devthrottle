@@ -15,17 +15,22 @@ namespace CcDirector.Terminal.Avalonia.Tests;
 /// started a brand new one while the window sat dead. Resizing the window brought clicking
 /// back instantly.
 ///
-/// WHAT IT WAS: a full-screen agent runs on the alternate screen. Resizing the window while
-/// it is up used to resize only the grid being drawn into, leaving the saved primary grid at
-/// its old size. When the agent EXITED it left the alternate screen, the parser restored that
-/// undersized grid, and this control - which renders the parser's active grid over its own
-/// cols and rows - indexed off the end of it. The exception came out of Render inside the
-/// compositor's update pass, which is the pass that rebuilds hit-testing for the window, so
-/// the window kept its last frame and routed no clicks until a resize forced a fresh pass.
+/// WHAT IT WAS: a full-screen agent runs on the alternate screen. A resize while it is up used
+/// to resize only the grid being drawn into, leaving the held primary grid at its old size.
+/// When the agent EXITED it left the alternate screen, the parser restored that undersized
+/// grid, and this control - which renders the parser's active grid over its own columns and
+/// rows - indexed off the end of it. The exception came out of Render inside the compositor's
+/// update pass, which is the pass that rebuilds hit-testing for the window, so the window kept
+/// its last frame and routed no clicks until a resize forced a fresh pass.
 ///
-/// This test walks that exact sequence and renders. Before the fix the render throws
-/// IndexOutOfRangeException; after it, the frame comes out and still has content on it.
-/// The parser-level proof is <c>AnsiParserAltScreenResizeTests</c>.
+/// THERE ARE TWO DOORS ONTO THAT RESIZE, and the window frame is only the obvious one. The one
+/// the Director actually went through was ATTACHING to the session: selecting a session in the
+/// rail replays its recorded bytes and then resizes once to the pane it is about to be shown
+/// in, and for a full-screen agent that closing resize lands on the alternate screen. The log
+/// for the freeze carries that attach and no resize at all. These tests drive the window-frame
+/// door, because it is the one a control test can drive honestly; the attach door is covered at
+/// the parser level, along with the rest of the proof, in <c>AnsiParserAltScreenResizeTests</c>.
+/// Both doors are the same UpdateGrid, which is where the fix lives.
 /// </summary>
 public sealed class TerminalAltScreenResizeRenderTests
 {
@@ -37,7 +42,7 @@ public sealed class TerminalAltScreenResizeRenderTests
     private const double NotBlackThreshold = 0.02;
 
     [AvaloniaFact]
-    public void Agent_leaving_the_alternate_screen_after_a_resize_still_renders()
+    public void Render_AgentLeavesTheAlternateScreenAfterAResize_DoesNotThrow()
     {
         var (terminal, window) = NewTerminalOnTheAlternateScreen();
 
@@ -56,7 +61,7 @@ public sealed class TerminalAltScreenResizeRenderTests
     }
 
     [AvaloniaFact]
-    public void Agent_leaving_the_alternate_screen_after_a_resize_hands_back_a_grid_of_the_right_size()
+    public void LeaveAlternateScreen_AfterAResize_HandsBackAGridTheControlCanRender()
     {
         var (terminal, window) = NewTerminalOnTheAlternateScreen();
 
@@ -73,7 +78,7 @@ public sealed class TerminalAltScreenResizeRenderTests
     }
 
     [AvaloniaFact]
-    public void The_shell_screen_is_still_there_after_an_agent_that_spanned_a_resize()
+    public void LeaveAlternateScreen_AfterAnAgentThatSpannedAResize_KeepsTheShellScreen()
     {
         var terminal = new TerminalControl();
         var window = new Window { Width = 1200, Height = 760, Content = terminal };
@@ -94,7 +99,7 @@ public sealed class TerminalAltScreenResizeRenderTests
     }
 
     /// <summary>A real window resize: the owner dragging the frame, which is what put the two
-    /// grids out of step. Bounds drive the control's own cols and rows.</summary>
+    /// grids out of step. Bounds drive the control's own columns and rows.</summary>
     private static void GrowTheWindow(Window window)
     {
         window.Width = 1600;
@@ -112,8 +117,6 @@ public sealed class TerminalAltScreenResizeRenderTests
         var window = new Window { Width = 1200, Height = 760, Content = terminal };
         window.Show();
         Dispatcher.UIThread.RunJobs();
-        if (terminal.HarnessCols < 10 || terminal.HarnessRows < 3)
-            terminal.HarnessSetGrid(160, 40);
 
         var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "grok-alt-screen.bin");
         Assert.True(File.Exists(path), $"fixture missing: {path}");
