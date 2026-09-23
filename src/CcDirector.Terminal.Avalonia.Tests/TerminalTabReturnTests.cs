@@ -51,8 +51,23 @@ public sealed class TerminalTabReturnTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
         terminal.Attach(session);
-        Dispatcher.UIThread.RunJobs();
+        WaitForReplayHandover(terminal);
+        Assert.NotNull(terminal.HarnessParser);
         return (terminal, window);
+    }
+
+    /// <summary>Pump the screen thread until the pool-thread replay has handed over; fail after 60 seconds.</summary>
+    private static void WaitForReplayHandover(TerminalControl terminal)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (terminal.HarnessReplayPending)
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (waited.Elapsed > TimeSpan.FromSeconds(60))
+                throw new TimeoutException("the terminal replay never handed over");
+            Thread.Sleep(2);
+        }
+        Dispatcher.UIThread.RunJobs();
     }
 
     [AvaloniaFact]
@@ -80,9 +95,14 @@ public sealed class TerminalTabReturnTests
         Dispatcher.UIThread.RunJobs();
         Assert.NotEqual(hidden, terminal.GridSize);
 
+        int replaysBefore = terminal.HarnessReplaysStarted;
         bool replayed = terminal.RefreshIfGridChangedSince(hidden.Cols, hidden.Rows);
 
         Assert.True(replayed);
+        Assert.Equal(replaysBefore + 1, terminal.HarnessReplaysStarted);
+        // The replay runs on a pool thread and the old parser stays on screen until it hands over.
+        WaitForReplayHandover(terminal);
+        Assert.NotNull(terminal.HarnessParser);
         Assert.NotSame(parserBefore, terminal.HarnessParser);
     }
 }

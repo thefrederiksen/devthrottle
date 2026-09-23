@@ -86,6 +86,20 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
 
     private static string ScreenText(MainWindow window) => window.TerminalHost.GetAllTerminalText();
 
+    /// <summary>Pump the screen thread until the terminal's pool-thread replay has handed over; fail after 60 seconds.</summary>
+    private static void WaitForReplayHandover(MainWindow window)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (window.TerminalHost.HarnessReplayPending)
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (waited.Elapsed > TimeSpan.FromSeconds(60))
+                throw new TimeoutException("the terminal replay never handed over");
+            Thread.Sleep(2);
+        }
+        Dispatcher.UIThread.RunJobs();
+    }
+
     private static int Occurrences(string text, string needle)
     {
         int count = 0;
@@ -103,6 +117,8 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         window._sessions.Add(vm);
         window.SelectSession(vm);
         Dispatcher.UIThread.RunJobs();
+        // The attach replays on a pool thread; the parser to compare against exists only once it hands over.
+        WaitForReplayHandover(window);
         Assert.True(window.SourceControlTabButton.IsVisible, "the repository has a .git folder, so its tab shows");
 
         var parserBefore = window.TerminalHost.HarnessParser;
@@ -161,8 +177,11 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         window._sessions.Add(vm);
         window.SelectSession(vm);
         Dispatcher.UIThread.RunJobs();
+        // The attach replays on a pool thread; the parser to compare against exists only once it hands over.
+        WaitForReplayHandover(window);
 
         var parserBefore = window.TerminalHost.HarnessParser;
+        Assert.NotNull(parserBefore);
         var sizeBefore = window.TerminalHost.GridSize;
 
         Click(window.SourceControlTabButton);
@@ -171,9 +190,33 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         Dispatcher.UIThread.RunJobs();
         Write(backend, "WHILE-HIDDEN\r\n");
 
-        Click(window.TerminalTabButton);
+        // The replay runs on a pool thread (pull request 3341). Hold it there, so what the terminal shows while a
+        // replay is in flight can be checked without racing a small buffer's replay to its handover.
+        using var releaseReplay = new ManualResetEventSlim(false);
+        window.TerminalHost.HarnessBeforeReplay = _ =>
+        {
+            if (!releaseReplay.Wait(TimeSpan.FromSeconds(60)))
+                throw new TimeoutException("the test never released the replay");
+        };
+        try
+        {
+            Click(window.TerminalTabButton);
+
+            // Until the replay hands over, the terminal keeps showing the session it already had, not a blank grid.
+            Assert.True(window.TerminalHost.HarnessReplayPending, "a return at a changed size must start a replay");
+            Assert.Same(parserBefore, window.TerminalHost.HarnessParser);
+            Assert.Equal(1, Occurrences(ScreenText(window), "FIRST-LINE"));
+        }
+        finally
+        {
+            releaseReplay.Set();
+        }
+
+        // Wait positively for the handover; this throws if the replay never lands.
+        WaitForReplayHandover(window);
 
         Assert.NotEqual(sizeBefore, window.TerminalHost.GridSize);
+        Assert.NotNull(window.TerminalHost.HarnessParser);
         Assert.NotSame(parserBefore, window.TerminalHost.HarnessParser);
         var now = window.TerminalHost.GridSize;
         Assert.Contains(((short)now.Cols, (short)now.Rows), backend.Resizes);
@@ -197,16 +240,23 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         window._sessions.Add(second);
         window.SelectSession(first);
         Dispatcher.UIThread.RunJobs();
+        WaitForReplayHandover(window);
+        Assert.NotNull(window.TerminalHost.HarnessParser);
 
         Click(window.SourceControlTabButton);
         window.SelectSession(second);
         Dispatcher.UIThread.RunJobs();
+        // The switch attaches the second session, and its replay also runs on a pool thread.
+        WaitForReplayHandover(window);
         Assert.False(window.TerminalPanel.IsVisible, "still on the Source Control tab after the switch");
 
         Write(secondBackend, "TWO-WHILE-HIDDEN\r\n");
         Write(firstBackend, "ONE-WHILE-HIDDEN\r\n");
 
         Click(window.TerminalTabButton);
+        // If the switch's attach waited for layout while the panel was hidden, its replay starts only now.
+        WaitForReplayHandover(window);
+        Assert.NotNull(window.TerminalHost.HarnessParser);
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         window.CaptureRenderedFrame();
 
