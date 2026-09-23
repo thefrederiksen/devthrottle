@@ -130,6 +130,9 @@ public sealed class GatewayDatabase : IDisposable
     // The pool-bounded Postgres connection string, parsed and validated in the constructor and used by
     // Open(). Holds credentials, so it is never logged - see RedactConnectionTarget for what is.
     private readonly string? _boundedConn;
+    // The SQLite connection string Open() built, kept so Dispose() can release THIS database's pool and
+    // no other. Null on the Postgres path and until the SQLite open runs.
+    private string? _sqliteConnectionString;
     private bool _disposed;
 
     /// <summary>The database file path (SQLite), for logging. On the Postgres path this is NOT a file - it
@@ -401,6 +404,7 @@ public sealed class GatewayDatabase : IDisposable
                 DataSource = _path,
                 ForeignKeys = true,
             }.ToString();
+            _sqliteConnectionString = connectionString;
 
             var services = new ServiceCollection();
             services.AddPooledDbContextFactory<GatewayDbContext>(o => o.WithGatewayInterceptors().UseSqlite(connectionString));
@@ -537,10 +541,19 @@ public sealed class GatewayDatabase : IDisposable
         _disposed = true;
         // Null when the database was constructed with deferOpen and Open() never ran (or threw).
         _provider?.Dispose();
-        // Release the underlying SQLite connections so a test can delete the database file. SQLite-only:
-        // the Postgres path has no local file to release and Npgsql pooling is managed by the provider.
-        if (!_usePostgres)
-            SqliteConnection.ClearAllPools();
+        // Release THIS database's pooled SQLite connections so its file can be deleted. SQLite-only: the
+        // Postgres path has no local file to release and Npgsql pooling is managed by the provider.
+        //
+        // Only this database's pool, never ClearAllPools(). The pool is PROCESS-WIDE, so clearing all of it
+        // disposed the native handle of a connection another database in the same process was opening at
+        // that moment - an ObjectDisposedException inside SqliteConnection.Open() on a database nobody had
+        // closed. Parallel tests hit it (HostedEntitlementGateTests, the v2.9.2 release gate), and the running
+        // Gateway can too whenever one database is disposed while another serves.
+        if (_sqliteConnectionString is not null)
+        {
+            using var poolKey = new SqliteConnection(_sqliteConnectionString);
+            SqliteConnection.ClearPool(poolKey);
+        }
         FileLog.Write($"[GatewayDatabase] Dispose: closed {_path}");
     }
 }

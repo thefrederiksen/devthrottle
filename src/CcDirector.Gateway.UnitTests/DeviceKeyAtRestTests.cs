@@ -52,7 +52,9 @@ public sealed class DeviceKeyAtRestTests : IDisposable
 
     private IReadOnlyList<string> StoredDatabaseValues()
     {
-        using var connection = new SqliteConnection($"Data Source={StorePath}.gateway.db");
+        // Unpooled, so closing it releases the file and Dispose() can delete the directory. A pooled
+        // connection here stays open in its own pool, which only a process-wide ClearAllPools() released.
+        using var connection = new SqliteConnection($"Data Source={StorePath}.gateway.db;Pooling=False");
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT * FROM device_credentials";
