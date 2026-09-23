@@ -86,6 +86,20 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
 
     private static string ScreenText(MainWindow window) => window.TerminalHost.GetAllTerminalText();
 
+    /// <summary>Pump the screen thread until the terminal's pool-thread replay has handed over; fail after 60 seconds.</summary>
+    private static void WaitForReplayHandover(MainWindow window)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (window.TerminalHost.HarnessReplayPending)
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (waited.Elapsed > TimeSpan.FromSeconds(60))
+                throw new TimeoutException("the terminal replay never handed over");
+            Thread.Sleep(2);
+        }
+        Dispatcher.UIThread.RunJobs();
+    }
+
     private static int Occurrences(string text, string needle)
     {
         int count = 0;
@@ -171,9 +185,33 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         Dispatcher.UIThread.RunJobs();
         Write(backend, "WHILE-HIDDEN\r\n");
 
-        Click(window.TerminalTabButton);
+        // The replay runs on a pool thread (pull request 3341). Hold it there, so what the terminal shows while a
+        // replay is in flight can be checked without racing a small buffer's replay to its handover.
+        using var releaseReplay = new ManualResetEventSlim(false);
+        window.TerminalHost.HarnessBeforeReplay = _ =>
+        {
+            if (!releaseReplay.Wait(TimeSpan.FromSeconds(60)))
+                throw new TimeoutException("the test never released the replay");
+        };
+        try
+        {
+            Click(window.TerminalTabButton);
+
+            // Until the replay hands over, the terminal keeps showing the session it already had, not a blank grid.
+            Assert.True(window.TerminalHost.HarnessReplayPending, "a return at a changed size must start a replay");
+            Assert.Same(parserBefore, window.TerminalHost.HarnessParser);
+            Assert.Equal(1, Occurrences(ScreenText(window), "FIRST-LINE"));
+        }
+        finally
+        {
+            releaseReplay.Set();
+        }
+
+        // Wait positively for the handover; this throws if the replay never lands.
+        WaitForReplayHandover(window);
 
         Assert.NotEqual(sizeBefore, window.TerminalHost.GridSize);
+        Assert.NotNull(window.TerminalHost.HarnessParser);
         Assert.NotSame(parserBefore, window.TerminalHost.HarnessParser);
         var now = window.TerminalHost.GridSize;
         Assert.Contains(((short)now.Cols, (short)now.Rows), backend.Resizes);
