@@ -30,7 +30,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
 
     public AWorktreeIsNotARepositoryTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), $"AWorktreeIsNotARepository_{Guid.NewGuid():N}");
+        _root = TestTempRoot.For("AWorktreeIsNotARepository_");
         Directory.CreateDirectory(_root);
         _registry = new RepositoryRegistry(Path.Combine(_root, "repositories.json"));
         _registry.Load();
@@ -40,7 +40,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
     public void Dispose()
     {
         _sessions.Dispose();
-        try { Directory.Delete(_root, recursive: true); } catch { }
+        try { TestTempRoot.DeleteTree(_root); } catch { }
     }
 
     // ------------------------------------------------------------------- the stamp on the session
@@ -80,7 +80,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         // folded onto a guess. A destructive change acts only on what it can positively prove.
         var repository = MakeRepository("doomed");
         var worktree = AddWorktree(repository, "orphan", "orphan");
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
 
         using var session = NewSession(worktree);
         _sessions.RaiseSessionCreated(session);
@@ -134,7 +134,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         _sessions.RaiseSessionCreated(session);
         AssertSameFolder(repository, session.PrimaryRepoPath);
 
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
         _sessions.RaiseSessionCreated(session);
 
         Assert.Null(session.PrimaryRepoPath);
@@ -235,7 +235,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         // recorded, against itself, rather than being lost.
         var repository = MakeRepository("doomed");
         var worktree = AddWorktree(repository, "orphan", "orphan");
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
         // Registered AFTER the repository is gone, so nothing can be resolved and the worktree is
         // registered as itself - which is the product's behaviour before any of this existed.
         Assert.True(_registry.TryAdd(worktree));
@@ -314,12 +314,12 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
     /// <c>ResolveLinkTarget</c> answers about the last component alone.</summary>
     private static string RealPath(string path)
     {
-        var resolved = new DirectoryInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName
-                       ?? Path.GetFullPath(path);
-        var parent = Path.GetDirectoryName(resolved);
-        return string.IsNullOrEmpty(parent) || parent == resolved
-            ? resolved
-            : Path.Combine(RealPath(parent), Path.GetFileName(resolved));
+        // One implementation, in TestTempRoot, and it short-circuits Windows before it touches
+        // ResolveLinkTarget. The hand-rolled recursion that used to live here walked UP the path
+        // calling ResolveLinkTarget on every ancestor, including the volume root - and Windows
+        // throws DirectoryNotFoundException when asked to resolve "C:\", so every test through
+        // here failed on the build machine while passing on macOS.
+        return TestTempRoot.Canonical(path);
     }
 
     private static void RunGit(string workingDirectory, params string[] args)

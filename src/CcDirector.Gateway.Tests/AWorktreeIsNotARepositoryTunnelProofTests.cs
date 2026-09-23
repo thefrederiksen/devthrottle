@@ -11,6 +11,7 @@ using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Microsoft.Data.Sqlite;
 using Xunit;
+using CcDirector.Core.Tests;   // TestTempRoot, linked into this project
 
 namespace CcDirector.Gateway.Tests;
 
@@ -44,8 +45,7 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
     private const string DirectorId = "a-worktree-is-not-a-repository-director";
     private const string Machine = "SOREN_NORTH";
 
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "cc-worktree-not-a-repository-" + Guid.NewGuid().ToString("N"));
+    private readonly string _root = TestTempRoot.For("cc-worktree-not-a-repository-");
     private string? _previousRoot;
     // Assigned by xUnit's asynchronous lifecycle before any test runs.
     private GatewayHost _gateway = null!;
@@ -77,7 +77,7 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
         try
         {
             if (Directory.Exists(_root))
-                Directory.Delete(_root, recursive: true);
+                TestTempRoot.DeleteTree(_root);
         }
         catch
         {
@@ -316,7 +316,7 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
         await using var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine);
         var repository = MakeRepository("doomed");
         var worktree = AddWorktree(repository, "orphan", "orphan");
-        Directory.Delete(repository, recursive: true);
+        TestTempRoot.DeleteTree(repository);
 
         await director.PushSnapshotAsync(SessionIn(worktree, "thefrederiksen/doomed"));
 
@@ -370,12 +370,12 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
     /// handed. Which spelling comes back is not what these tests are about.</summary>
     private static string RealPath(string path)
     {
-        var resolved = new DirectoryInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName
-                       ?? Path.GetFullPath(path);
-        var parent = Path.GetDirectoryName(resolved);
-        return string.IsNullOrEmpty(parent) || parent == resolved
-            ? resolved
-            : Path.Combine(RealPath(parent), Path.GetFileName(resolved));
+        // One implementation, in TestTempRoot, and it short-circuits Windows before it touches
+        // ResolveLinkTarget. The hand-rolled recursion that used to live here walked UP the path
+        // calling ResolveLinkTarget on every ancestor, including the volume root - and Windows
+        // throws DirectoryNotFoundException when asked to resolve "C:\", so every test through
+        // here failed on the build machine while passing on macOS.
+        return TestTempRoot.Canonical(path);
     }
 
     private static void RunGit(string workingDirectory, params string[] args)

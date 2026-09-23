@@ -27,6 +27,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The one canonical-path helper every test suite shares, so no suite hand-rolls its own and
+         crashes on the volume root the way three of them did. -->
+    <Compile Include="..\CcDirector.Core.Tests\TestTempRoot.cs" Link="TestTempRoot.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
     <ProjectReference Include="..\CcDirector.ControlApi\CcDirector.ControlApi.csproj" />
     <ProjectReference Include="..\CcDirector.Engine\CcDirector.Engine.csproj" />
