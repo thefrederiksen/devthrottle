@@ -2324,6 +2324,58 @@ public sealed class Session : IDisposable
         BackendType is SessionBackendType.ConPty && Drivers.ComposerRetention.MayHoldText(_backend);
 
     /// <summary>
+    /// True when this session's first prompt can be held until the agent is proven to read input
+    /// (<see cref="Drivers.FirstPromptGate"/>): a terminal session running an agent whose composer the Director can read.
+    /// </summary>
+    public bool CanGateFirstPrompt =>
+        BackendType is SessionBackendType.ConPty && Drivers.FirstPromptGate.CanProve(AgentKind);
+
+    /// <summary>
+    /// Deliver a new session's first prompt (issue #3290): wait through <see cref="Drivers.FirstPromptGate"/> until the
+    /// agent has read a keystroke, then submit through the ordinary path. When the gate does not open, the prompt is
+    /// NOT typed, the failure is recorded against the session - so its row says the prompt was not delivered, on every
+    /// screen - and this throws. A session that exits first is left alone; its exit is its own report.
+    /// </summary>
+    public async Task DeliverFirstPromptAsync(string text, SubmissionProvenance provenance, TimeSpan limit)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        ArgumentNullException.ThrowIfNull(provenance);
+        if (!CanGateFirstPrompt)
+            throw new InvalidOperationException(
+                $"[Session] DeliverFirstPromptAsync: session={Id} runs {AgentKind} on {BackendType}; the first-prompt gate cannot read its composer.");
+
+        FileLog.Write($"[Session] DeliverFirstPromptAsync: session={Id}, driver={Driver.Kind}, len={text.Length}, limit={limit.TotalSeconds:F0}s");
+        var gate = await Drivers.FirstPromptGate.WaitUntilAcceptingInputAsync(
+            AgentKind,
+            () =>
+            {
+                var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+                return new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible);
+            },
+            bytes => _backend.Write(bytes),
+            () => _disposed || Status is SessionStatus.Exited or SessionStatus.Failed || ActivityState == ActivityState.Exited,
+            limit,
+            BeginInputAsync);
+        FileLog.Write($"[Session] DeliverFirstPromptAsync: session={Id}, gate={gate.Outcome}: {gate.Detail}");
+
+        switch (gate.Outcome)
+        {
+            case Drivers.FirstPromptGateOutcome.Ready:
+                await SendTextAsync(text, provenance, SendSource.Framework);
+                return;
+            case Drivers.FirstPromptGateOutcome.Exited:
+                return;
+            default:
+                if (gate.ProbeMayRemain)
+                    Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), Drivers.FirstPromptGate.Probe);
+                var reason = $"The first prompt was not typed: {gate.Detail}.";
+                PromptDeliveryFailures.RecordFailedDelivery(Id, SendSource.Framework.ToString(), reason, text.Length);
+                RaisePromptDeliveryChanged();
+                throw new Drivers.ComposerNotAcceptingInputException($"[Session] DeliverFirstPromptAsync: session={Id}: {reason}");
+        }
+    }
+
+    /// <summary>
     /// Type and submit the fleet doorbell line (the Message Load mission) through
     /// <see cref="Drivers.TerminalSubmit.DoorbellSubmitAsync"/>: one Enter, no nudges, no Escape. Agent-origin -
     /// it never stamps an owner turn. Only a VERIFIED submit is recorded as a submitted turn and turns the
