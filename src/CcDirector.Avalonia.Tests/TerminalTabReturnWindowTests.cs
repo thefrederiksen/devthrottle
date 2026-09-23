@@ -117,6 +117,8 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         window._sessions.Add(vm);
         window.SelectSession(vm);
         Dispatcher.UIThread.RunJobs();
+        // The attach replays on a pool thread; the parser to compare against exists only once it hands over.
+        WaitForReplayHandover(window);
         Assert.True(window.SourceControlTabButton.IsVisible, "the repository has a .git folder, so its tab shows");
 
         var parserBefore = window.TerminalHost.HarnessParser;
@@ -175,8 +177,11 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         window._sessions.Add(vm);
         window.SelectSession(vm);
         Dispatcher.UIThread.RunJobs();
+        // The attach replays on a pool thread; the parser to compare against exists only once it hands over.
+        WaitForReplayHandover(window);
 
         var parserBefore = window.TerminalHost.HarnessParser;
+        Assert.NotNull(parserBefore);
         var sizeBefore = window.TerminalHost.GridSize;
 
         Click(window.SourceControlTabButton);
@@ -235,16 +240,23 @@ public sealed class TerminalTabReturnWindowTests : IDisposable
         window._sessions.Add(second);
         window.SelectSession(first);
         Dispatcher.UIThread.RunJobs();
+        WaitForReplayHandover(window);
+        Assert.NotNull(window.TerminalHost.HarnessParser);
 
         Click(window.SourceControlTabButton);
         window.SelectSession(second);
         Dispatcher.UIThread.RunJobs();
+        // The switch attaches the second session, and its replay also runs on a pool thread.
+        WaitForReplayHandover(window);
         Assert.False(window.TerminalPanel.IsVisible, "still on the Source Control tab after the switch");
 
         Write(secondBackend, "TWO-WHILE-HIDDEN\r\n");
         Write(firstBackend, "ONE-WHILE-HIDDEN\r\n");
 
         Click(window.TerminalTabButton);
+        // If the switch's attach waited for layout while the panel was hidden, its replay starts only now.
+        WaitForReplayHandover(window);
+        Assert.NotNull(window.TerminalHost.HarnessParser);
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         window.CaptureRenderedFrame();
 
