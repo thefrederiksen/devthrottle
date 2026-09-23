@@ -35,6 +35,13 @@ public sealed class RepositoryMonitor
     private readonly Dictionary<string, RepositoryStatus> _byPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SemaphoreSlim> _repoLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DeferredRecompute> _deferredRecomputes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Repository key -> the ONE follow-up owed to requests that arrived while that repository's
+    /// single recompute was running (null when none is owed). A key is present only while a
+    /// recompute of it runs. See <see cref="ComputeCoalescedAsync"/>.
+    /// </summary>
+    private readonly Dictionary<string, TaskCompletionSource?> _recomputesInFlight = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _cts;
     private readonly string? _cachePath;
 
@@ -528,7 +535,86 @@ public sealed class RepositoryMonitor
             targetPath = primary;
         }
 
-        var targetKey = WorktreeReaperService.NormalizePath(targetPath);
+        await ComputeCoalescedAsync(targetPath, WorktreeReaperService.NormalizePath(targetPath), ct);
+    }
+
+    /// <summary>
+    /// Computes and publishes one repository, COALESCING requests (plan step 7c). While a recompute of
+    /// this repository runs, a further request does not queue a compute of its own: it marks the
+    /// repository dirty and joins the ONE follow-up that runs when the current compute finishes. So
+    /// there are never two computes in parallel, and never a dropped change - a request that arrived
+    /// mid-compute may have been missed by it, so the follow-up always runs, and each joiner's await
+    /// ends only when the follow-up it joined has published.
+    ///
+    /// Before this, the per-repository semaphore serialized the computes but ran one full compute per
+    /// waiting request: five requests during one slow compute became five more git inventories.
+    ///
+    /// Only the compute is coalesced. The gone check and the worktree canonicalization in
+    /// <see cref="RecomputeOneAsync"/> still run per request and never wait behind a compute, so an
+    /// absence observation is not held up by a slow compute (ruling R3-4a).
+    ///
+    /// The follow-up is owed to every joiner at once and belongs to none of them, so it runs under no
+    /// requester's token; each joiner stops WAITING when its own token is cancelled.
+    /// </summary>
+    private async Task ComputeCoalescedAsync(string targetPath, string targetKey, CancellationToken ct)
+    {
+        Task? joined = null;
+        lock (_gate)
+        {
+            if (_recomputesInFlight.TryGetValue(targetKey, out var followUp))
+            {
+                followUp ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _recomputesInFlight[targetKey] = followUp;
+                joined = followUp.Task;
+            }
+            else
+            {
+                _recomputesInFlight[targetKey] = null;
+            }
+        }
+        if (joined != null)
+        {
+            FileLog.Write($"[RepositoryMonitor] recompute already running - coalesced into its follow-up: {targetPath}");
+            await joined.WaitAsync(ct);
+            return;
+        }
+
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? ownFailure = null;
+        TaskCompletionSource? completing = null;
+        var token = ct;
+        while (true)
+        {
+            try
+            {
+                await ComputeAndPublishOneAsync(targetPath, targetKey, token);
+                completing?.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                if (completing == null)
+                    ownFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
+                else
+                    completing.TrySetException(ex);
+            }
+
+            lock (_gate)
+            {
+                completing = _recomputesInFlight[targetKey];
+                if (completing == null)
+                {
+                    _recomputesInFlight.Remove(targetKey);
+                    break;
+                }
+                _recomputesInFlight[targetKey] = null; // requests from here on are owed the NEXT follow-up
+            }
+            token = CancellationToken.None;
+            FileLog.Write($"[RepositoryMonitor] running the coalesced follow-up recompute: {targetPath}");
+        }
+        ownFailure?.Throw();
+    }
+
+    private async Task ComputeAndPublishOneAsync(string targetPath, string targetKey, CancellationToken ct)
+    {
         var repoLock = GetRepoLock(targetKey);
         await repoLock.WaitAsync(ct);
         RepositoryStatus? published;
