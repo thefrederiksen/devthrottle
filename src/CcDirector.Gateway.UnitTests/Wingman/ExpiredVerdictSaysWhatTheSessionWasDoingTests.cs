@@ -20,10 +20,14 @@ namespace CcDirector.Gateway.Tests.Wingman;
 ///
 /// SAID ONCE, NOT TWICE (issue 2243, the owner's ruling of 2026-09-23). The line this file used to pin opened
 /// with "It said it would continue, and it did not." and then replayed the old reading behind "It had said:" -
-/// two sentences in a row opening "It said / It had said" - and the owner heard the stop narrated two times,
-/// on every expiry, on the live fleet. The line now says what the session was doing and CLOSES with one
-/// correction sentence; the label keeps the fact for the eye and the summary carries the description, so no
-/// surface repeats another.
+/// two sentences in a row opening "It said / It had said" - and the owner heard the stop narrated two times, on
+/// every expiry, on the live fleet. The body now opens with the correction once, and the description follows
+/// behind "Its last reading was:", attributed to the Wingman's own earlier reading rather than restated as
+/// another sentence about the promise.
+///
+/// ONE BODY, READ OR HEARD (contract v3, owner's ruling of 2026-09-18). Summary, Spoken and Narration hold
+/// the SAME text on every stored reading, a clock-written one included - a screen that shows one field while
+/// the ear hears another is the defect the v3 redesign removed. These tests pin all three to the one body.
 /// </summary>
 public sealed class ExpiredVerdictSaysWhatTheSessionWasDoingTests
 {
@@ -50,28 +54,30 @@ public sealed class ExpiredVerdictSaysWhatTheSessionWasDoingTests
     };
 
     [Fact]
-    public void TheSpokenLineSaysWhatTheSessionWasDoing_ThenTheCorrectionOnce()
+    public void TheCorrectionOpens_TheOldReadingFollows_AttributedToTheLastReading()
     {
         var expired = TurnVerdictWatchdog.Expire(CarryingOn("Slices F and G are mid-build."), JudgedAt.AddMinutes(11));
 
         Assert.Equal(
-            "Slices F and G are mid-build. It said it would carry on by itself, and it has not worked since.",
+            "It said it would continue, and it did not. Its last reading was: Slices F and G are mid-build.",
             expired.Spoken);
     }
 
     [Fact]
-    public void TheFactIsSaidOnce_NoSecondItSaidReplayingTheOldReading()
+    public void ThePromiseIsStatedOnce_NoSecondItSaidReplayingTheOldReading()
     {
-        // The description is one the old shape would have quoted behind "It had said:", so this pins the
-        // doubling is gone on the very case that produced it.
+        // The description is one the old shape quoted behind "It had said:", so this pins the doubling is gone
+        // on the very case that produced it.
         var expired = TurnVerdictWatchdog.Expire(
             CarryingOn("Everything is fine, and it will keep going by itself."), JudgedAt.AddMinutes(11));
 
-        Assert.Equal(1, Count(expired.Spoken, "It said"));
+        // The correction opens the line - the news is never delayed behind the description - and the old
+        // reading arrives exactly once, behind a frame that is not another sentence about the promise.
+        Assert.StartsWith(TurnVerdictWatchdog.ExpiredCorrection, expired.Spoken, StringComparison.Ordinal);
         Assert.DoesNotContain("It had said:", expired.Spoken, StringComparison.Ordinal);
-        // The correction CLOSES the line, so the description cannot be heard as the stalled session still
-        // asserting it: nothing follows the correction.
-        Assert.EndsWith(TurnVerdictWatchdog.ExpiredCorrection, expired.Spoken, StringComparison.Ordinal);
+        Assert.Equal(1, Count(expired.Spoken, TurnVerdictWatchdog.ExpiredReadingFrame));
+        Assert.Equal(1, Count(expired.Spoken, "It said"));
+        Assert.Equal(1, Count(expired.Spoken, "Everything is fine, and it will keep going by itself."));
     }
 
     [Theory]
@@ -83,21 +89,18 @@ public sealed class ExpiredVerdictSaysWhatTheSessionWasDoingTests
         var expired = TurnVerdictWatchdog.Expire(CarryingOn(summary), JudgedAt.AddMinutes(11));
 
         Assert.Equal(TurnVerdictWatchdog.ExpiredCorrection, expired.Spoken);
-        Assert.Equal(TurnVerdictWatchdog.ExpiredCorrection, expired.Narration);
+        Assert.DoesNotContain(TurnVerdictWatchdog.ExpiredReadingFrame, expired.Spoken, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void TheLabelCarriesTheFact_TheSummaryCarriesTheDescription_NeitherRepeatsTheOther()
+    public void OneBody_ReadOrHeard_SummarySpokenAndNarrationHoldTheSameText()
     {
         var expired = TurnVerdictWatchdog.Expire(CarryingOn("Slices F and G are mid-build."), JudgedAt.AddMinutes(11));
 
+        Assert.Equal(expired.Narration, expired.Spoken);
+        Assert.Equal(expired.Narration, expired.Summary);
+        // The row's own one line is the label; the body is what the panel shows and the ear hears.
         Assert.Equal(TurnVerdictWatchdog.ExpiredLabel, expired.Label);
-        Assert.Equal("Slices F and G are mid-build.", expired.Summary);
-        // The point appears once per surface: the row's one line, then the description, then the ear's line.
-        Assert.NotEqual(expired.Label, expired.Summary);
-        Assert.DoesNotContain(TurnVerdictWatchdog.ExpiredCorrection, expired.Summary, StringComparison.Ordinal);
-        // ONE TEXT, READ OR HEARD: the ear hears the same words the record holds for the screen.
-        Assert.Equal(expired.Spoken, expired.Narration);
     }
 
     [Fact]

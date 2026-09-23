@@ -99,9 +99,7 @@ public static class TurnVerdictVocabulary
                 + "said so, or it is plainly mid-task with its next step already decided. Distinct from finished "
                 + "because the two behave differently AFTERWARDS: a finished session staying quiet is correct, "
                 + "while one that said it would continue and then stayed quiet is stuck. Same answer to 'wake the "
-                + "owner?', different answer to 'should anything have happened next?'. A reply that reports the "
-                + "work complete is finished, never this, however long the session stays open or what a later "
-                + "round will do: carrying on means the session itself acts again next, with no person involved.",
+                + "owner?', different answer to 'should anything have happened next?'.",
             [NotATurnEnd] =
                 "The boundary fired while the session was still working - this was never the end of a turn. A "
                 + "detector error, not a session state. Counting these is how the ten-second quiet rule gets "
