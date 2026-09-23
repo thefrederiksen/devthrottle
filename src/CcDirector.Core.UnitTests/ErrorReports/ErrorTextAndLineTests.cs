@@ -69,11 +69,41 @@ public sealed class ErrorTextAndLineTests
         => Assert.Equal(text, ErrorTextScrubber.Scrub(text));
 
     [Fact]
-    public void Scrub_ALongMixedCaseRunInAMessage_IsRedacted()
+    public void Scrub_ALongMixedCaseRunWithDigitsInAMessage_IsRedacted()
     {
-        // The accepted cost of the key rule, pinned so it is a decision and not a surprise.
+        // The remaining cost of the key rule, pinned so it is a decision and not a surprise.
         Assert.Equal("value " + ErrorTextScrubber.Redacted + " rejected",
-            ErrorTextScrubber.Scrub("value MaxReportsPerDevicePerHourAndSomeMoreWords rejected"));
+            ErrorTextScrubber.Scrub("value Retry3TimesThenGiveUpOnTheServerConnection rejected"));
+    }
+
+    [Theory]
+    // The eight real Director error lines, and the one source tag, that the key rule used to blank out
+    // (review round 3 measured them). Our own names must survive: they say WHICH method failed.
+    [InlineData("[ClaudeAccountStore] RefreshActiveTokenFromCredentials FAILED: x")]
+    [InlineData("[LoadWorkspaceDialog] WorkspaceListBox_SelectionChanged FAILED: x")]
+    [InlineData("[MainWindow] RefreshGatewayConfigFieldsThenPaintAsync FAILED: x")]
+    [InlineData("[MainWindow] RefreshFleetToolReachabilityAsync FAILED: x")]
+    [InlineData("[MainWindow] OnActiveSessionPendingPromptTextChanged FAILED: x")]
+    [InlineData("[MainWindow] UpdateSourceControlTabVisibilityAsync FAILED: x")]
+    [InlineData("[SmartShutdownCoordinator] RecordForOperatingSystemShutdown FAILED: x")]
+    [InlineData("[TranscriptionComponentPreviewDialog] RunState FAILED: x")]
+    public void Scrub_OurOwnLongClassAndMethodNames_AreKept(string line)
+        => Assert.Equal(line, ErrorTextScrubber.Scrub(line));
+
+    [Theory]
+    // Doubled backslashes: a path quoted inside JSON or any escaped string.
+    [InlineData(@"open C:\\Users\\robert\\x.txt FAILED")]
+    // A network path names the machine and the person.
+    [InlineData(@"open \\SOREN_NORTH\Users\robert\x.txt FAILED")]
+    [InlineData(@"open \\SOREN_NORTH\c$\Users\robert\x.txt FAILED")]
+    [InlineData(@"{""dir"":""C:\\Users\\robert\\AppData\\Local""}")]
+    public void Scrub_EscapedAndNetworkHomePaths_LoseTheName(string input)
+    {
+        var scrubbed = ErrorTextScrubber.Scrub(input);
+
+        Assert.DoesNotContain("robert", scrubbed);
+        Assert.DoesNotContain("SOREN_NORTH", scrubbed);
+        Assert.Contains("~", scrubbed);
     }
 
     [Fact]
@@ -93,6 +123,11 @@ public sealed class ErrorTextAndLineTests
     [InlineData("[DirectorRestore] seat x: PassDevReportsAsync FAILED: timeout", true)]
     [InlineData("[ToolAutoUpdate] x: tool reconcile FAILED (ignored): y", true)]
     [InlineData("[MainWindow] InstanceTitleSuffix: registry read FAILED, falling back to none", true)]
+    // Text our own code did not write is quoted in the lines that carry it, and a marker inside the quotes must
+    // not make the line a report - that would send a prompt or a model's words to the Gateway (review round 3).
+    [InlineData("[WingmanActionExecutor] performed submit: submit \"ERROR: cannot proceed, need input\"", false)]
+    [InlineData("[ProactiveExplain] cached explain for s1 (model=m, headline=\"Build FAILED: 3 tests red\", ms=4)", false)]
+    [InlineData("[TranscriptionComponentPreviewDialog] FULL: OnFinished(\"it FAILED, again\")", false)]
     [InlineData("[GatewayClient] heartbeat ok", false)]
     [InlineData("[Updater] failed over to the second mirror", false)]
     [InlineData("[ErrorReporter] 3 report(s) not delivered: FAILED to connect", false)]

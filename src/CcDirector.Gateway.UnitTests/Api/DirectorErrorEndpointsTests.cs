@@ -191,6 +191,22 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     }
 
     [Fact]
+    public void Append_AfterALineCutShort_StartsOnAFreshLine_SoTheRetryIsKept()
+    {
+        // A write cut off part way leaves a line with no ending; the retry that follows must not be glued onto it.
+        var store = NewStore();
+        DirectorErrorEndpoints.HandlePost(store, TenantA, UniqueDevice(), Batch(Item()), Now);
+        var file = Directory.GetFiles(Path.Combine(_root, "2026-09-22"), "*.jsonl").Single();
+        File.AppendAllText(file, "{\"received_utc\":\"2026-09-22T12:00:00Z\",\"comp");
+
+        DirectorErrorEndpoints.HandlePost(store, TenantA, UniqueDevice(), Batch(Item("Retry FAILED: after the cut")), Now);
+
+        var records = store.Query(Everything()).Records;
+        Assert.Equal(2, records.Count);
+        Assert.Contains(records, r => r.Message == "Retry FAILED: after the cut");
+    }
+
+    [Fact]
     public void Append_TwoGatewayProcesses_WriteSeparateFiles()
     {
         // During a deploy two containers share the storage mount; one file each is what stops them

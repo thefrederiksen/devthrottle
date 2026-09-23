@@ -135,6 +135,11 @@ internal sealed class ErrorReportStore
             var file = Path.Combine(dir, _instance + ".jsonl");
             using (var stream = new FileStream(file, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
             {
+                // A write cut off part way (a share that dropped mid-write, a container stopped) leaves a line
+                // with no ending. Start on a fresh line, or the first record of this batch - often the retry of
+                // the one that was cut off - would be glued onto it and both would be unreadable.
+                if (stream.Length > 0 && !EndsWithNewline(file))
+                    sb.Insert(0, '\n');
                 var bytes = Encoding.UTF8.GetBytes(sb.ToString());
                 stream.Write(bytes, 0, bytes.Length);
                 stream.Flush(flushToDisk: true);
@@ -257,5 +262,13 @@ internal sealed class ErrorReportStore
         return deleted;
     }
 
-    private static string DayName(DateTime utc) => utc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    private static bool EndsWithNewline(string file)
+    {
+        using var read = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        if (read.Length == 0) return true;
+        read.Seek(-1, SeekOrigin.End);
+        return read.ReadByte() == '\n';
+    }
+
+    private static string DayName(DateTime utc) =>utc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 }

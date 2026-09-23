@@ -184,3 +184,14 @@ def test_usage_errors_exit_2(calls, args):
 
     assert result.exit_code == 2, result.output
     assert calls == []
+
+
+def test_admin_read_shows_whose_error_it_is_by_default(calls, monkeypatch):
+    monkeypatch.setenv("ADMIN_SERVICE_TOKEN", "admin-secret")
+
+    admin = runner.invoke(app, ["errors", "list", "--all-accounts"])
+    own = runner.invoke(app, ["errors", "list"])
+
+    assert admin.exit_code == 0, admin.output
+    assert "11111111-1111-1111-1111-111111111111" in admin.output
+    assert "11111111-1111-1111-1111-111111111111" not in own.output

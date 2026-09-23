@@ -58,6 +58,8 @@ ERROR_FIELDS = (
     "step",
 )
 ERROR_DEFAULT_FIELDS = ("time", "component", "machine", "message")
+# Across every account the first question is WHOSE error it is, so the account leads.
+ADMIN_DEFAULT_FIELDS = ("time", "account", "component", "machine", "message")
 
 MESSAGE_PREVIEW = 160
 
@@ -122,7 +124,7 @@ def list_errors(
         # refuse anyway. --gateway exists for the administrator read, which carries its own token.
         _usage_error("--gateway is only for --all-accounts, --account or --email: this account's read uses "
                      "this session's key, which is only ever sent to CC_GATEWAY_URL.")
-    chosen = usage_errors.parse_fields(fields, ERROR_FIELDS, ERROR_DEFAULT_FIELDS)
+    chosen = usage_errors.parse_fields(fields, ERROR_FIELDS, ADMIN_DEFAULT_FIELDS if admin else ERROR_DEFAULT_FIELDS)
 
     params: Dict[str, str] = {"limit": str(limit)}
     for key, value in (("since", since), ("until", until), ("machine", machine), ("version", version),

@@ -22,6 +22,9 @@ public sealed class ErrorLineSourceScanTests
         "src/CcDirector.Launcher",
         "src/CcDirector.ControlApi",
         "src/CcDirector.Engine",
+        "src/CcDirector.Terminal.Avalonia",
+        "src/CcDirector.TrayUi",
+        "tools/cc-director-setup-engine",
     };
 
     private static readonly Regex Template = new(@"FileLog\.Write\(\s*\$?@?""((?:[^""\\]|\\.)*)""", RegexOptions.CultureInvariant);

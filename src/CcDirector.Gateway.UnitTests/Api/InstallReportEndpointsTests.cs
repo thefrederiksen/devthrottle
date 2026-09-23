@@ -124,6 +124,31 @@ public sealed class InstallReportEndpointsTests : IDisposable
     }
 
     [Fact]
+    public void Handle_WithTheStore_CredentialsInTheDiagnosticsAreRedactedBeforeTheyAreKept()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "install-store-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new ErrorReportStore(root, () => Now);
+
+            InstallReportEndpoints.Handle(Post(message: "fetch FAILED token=abc123secretvalue",
+                diagnostics: "GET /x?token=abc123secretvalue\nAuthorization: Bearer dt_live_abcdef0123456789"), Now, store);
+
+            var record = Assert.Single(store.Query(new ErrorReportQuery(Now.AddHours(-1), Now.AddMinutes(1),
+                Component: CcDirector.Core.ErrorReports.ErrorReportLimits.Install)).Records);
+            Assert.DoesNotContain("abc123secretvalue", record.Message);
+            Assert.DoesNotContain("abc123secretvalue", record.Diagnostics);
+            Assert.DoesNotContain("dt_live_abcdef", record.Diagnostics);
+            var onDisk = string.Concat(Directory.GetFiles(root, "*.jsonl", SearchOption.AllDirectories).Select(File.ReadAllText));
+            Assert.DoesNotContain("abc123secretvalue", onDisk);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
     public void Handle_WithTheStore_KeepsTheReportDurablyUnderNoAccount()
     {
         // The FileLog line is NOT durable on hosted - the process log lives on the container's temporary

@@ -41,14 +41,24 @@ public static class ErrorLine
     {
         if (string.IsNullOrEmpty(message)) return false;
         if (message.StartsWith(ReporterTag, StringComparison.Ordinal)) return false;
-        return Marker.IsMatch(Head(message)) || VerdictMarker.IsMatch(FirstLine(message));
+        return Marker.IsMatch(Head(message)) || VerdictMarker.IsMatch(UnquotedFirstLine(message));
     }
 
-    private static string FirstLine(string message)
+    /// <summary>
+    /// The first line up to its first double quote. Text that is NOT written by our own code - a model's
+    /// headline, the words the Wingman typed, a piece of dictation - is quoted in the lines that carry it
+    /// (<c>headline="..."</c>, <c>submit "..."</c>, <c>OnFinished("...")</c>). Stopping at the quote keeps a
+    /// marker word inside that text from turning an ordinary line into a report, which would send the text
+    /// itself to the Gateway (review round 3).
+    /// </summary>
+    private static string UnquotedFirstLine(string message)
     {
-        var newline = message.IndexOf('\n');
-        var line = newline < 0 ? message : message[..newline];
-        return line.Length > 2000 ? line[..2000] : line.TrimEnd('\r');
+        var end = message.IndexOf('\n');
+        if (end < 0) end = message.Length;
+        var quote = message.IndexOf('"');
+        if (quote >= 0 && quote < end) end = quote;
+        var line = message[..Math.Min(end, 2000)];
+        return line.TrimEnd('\r');
     }
 
     /// <summary>What kind of error the line records, read from the head only.</summary>
@@ -63,12 +73,16 @@ public static class ErrorLine
     }
 
     /// <summary>The part of the first line before the first ": " (the whole first line when there is none),
-    /// capped at 300 characters so a line with no separator is not scanned end to end.</summary>
+    /// capped at 300 characters so a line with no separator is not scanned end to end. It also stops at the
+    /// first double quote: a quoted value can contain ": " itself (<c>headline="Build FAILED: 3 red"</c>), and
+    /// the head must not run on into it.</summary>
     internal static string Head(string message)
     {
         var end = message.IndexOf(": ", StringComparison.Ordinal);
         var newline = message.IndexOf('\n');
         if (end < 0 || (newline >= 0 && newline < end)) end = newline;
+        var quote = message.IndexOf('"');
+        if (quote >= 0 && (end < 0 || quote < end)) end = quote;
         if (end < 0) end = message.Length;
         return message[..Math.Min(end, 300)];
     }

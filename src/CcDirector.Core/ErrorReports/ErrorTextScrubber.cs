@@ -26,7 +26,16 @@ public static class ErrorTextScrubber
 {
     private static readonly Regex MacHome = new(@"/Users/[^/\s""']+", RegexOptions.CultureInvariant);
     private static readonly Regex LinuxHome = new(@"/home/[^/\s""']+", RegexOptions.CultureInvariant);
-    private static readonly Regex WindowsHome = new(@"[A-Za-z]:\\Users\\[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    // One or two backslashes between the parts: a path quoted inside JSON or an escaped string doubles them
+    // ("C:\\Users\\robert"), and that shape reached the store untouched before.
+    private static readonly Regex WindowsHome = new(@"[A-Za-z]:\\{1,2}Users\\{1,2}[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    // A network path to a home folder names the machine AND the person: \\MACHINE\Users\robert, or the
+    // administrative share \\MACHINE\c$\Users\robert. The whole prefix becomes "~".
+    private static readonly Regex UncHome = new(@"\\{2,4}[^\\\s""']+\\{1,2}(?:[A-Za-z]\$\\{1,2})?Users\\{1,2}[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    // A camel-case identifier - our own class and method names, optionally joined by underscores, letters only.
+    // Exempt from the key rule: a minted key is letters only AND in this exact shape about once in a thousand
+    // million, while eight real Director error lines lost their method name to the rule without it.
+    private static readonly Regex Identifier = new(@"^[A-Z][a-z]+(?:[A-Z][a-z]+)*(?:_[A-Z][a-z]+(?:[A-Z][a-z]+)*)*$", RegexOptions.CultureInvariant);
 
     private static readonly Regex Bearer = new(@"(?i)\bbearer\s+[^\s""']+", RegexOptions.CultureInvariant);
     private static readonly Regex NamedSecret = new(
@@ -59,6 +68,7 @@ public static class ErrorTextScrubber
         if (string.IsNullOrEmpty(value)) return "";
         var s = MacHome.Replace(value, "~");
         s = LinuxHome.Replace(s, "~");
+        s = UncHome.Replace(s, "~");
         s = WindowsHome.Replace(s, "~");
         s = Bearer.Replace(s, "Bearer " + Redacted);
         s = NamedSecret.Replace(s, m => m.Groups[1].Value + m.Groups[2].Value + Redacted);
@@ -76,12 +86,14 @@ public static class ErrorTextScrubber
     /// Requiring a digit as well, as the first version did, let one minted key in about 1,500 through
     /// untouched - a key with no digit in it.
     ///
-    /// The cost: a run of 32 or more letters mixing cases, such as a long method name, is redacted in a
-    /// message. Not in a stack frame - see <see cref="InStackFrame"/>.
+    /// A camel-case identifier made only of letters (a class or method name, words joined by underscores) is
+    /// kept, and so is anything on a stack frame line - see <see cref="InStackFrame"/>. The remaining cost: a
+    /// mixed-case run of 32 or more with digits inside it, which our own names rarely are, is redacted.
     /// </summary>
     internal static bool LooksLikeAKey(string run)
     {
         if (Guid.TryParseExact(run, "D", out _)) return false;
+        if (Identifier.IsMatch(run)) return false;
         bool upper = false, lower = false, digit = false;
         foreach (var c in run)
         {
