@@ -1168,6 +1168,7 @@ public sealed class TurnVerdictService : IDisposable
         var grid = await ReadScreenAsync(tenant, directorId, sid, screenReader, ct).ConfigureAwait(false);
         var rows = grid is { HasGrid: true, Rows.Count: > 0 } ? (IReadOnlyList<string>)grid.Rows : Array.Empty<string>();
         var hash = rows.Count == 0 ? "" : WingmanScreenVerdictCache.HashRows(rows);
+        var reuseHash = WingmanScreenReuseFingerprint.Hash(grid);
 
         // ---- reuse: the screen the stored verdict was formed on ----
         var latest = _env.Latest(tenant, sid);
@@ -1175,9 +1176,9 @@ public sealed class TurnVerdictService : IDisposable
         // different stops on a Director that cannot be reached would look like one screen, and the second would
         // be played the first one's words. The sweep is the exception because it comes past every pass, and
         // re-asking the judge about an unreachable session each time would be a paid call on a loop.
-        if (latest is not null && IsReusable(key, latest, hash, trigger,
+        if (latest is not null && IsReusable(key, latest, hash, reuseHash, trigger,
                 () => WingmanNarrationSource.Select(_env.ReadConversation(tenant, sid)?.Widgets, rows)?.Content))
-            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid);
+            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, reuseHash, rows, settings, facts, grid);
 
         // The source this stop is judged from, chosen ONCE, over this one screen read.
         var conversation = _env.ReadConversation(tenant, sid)
@@ -1303,6 +1304,10 @@ public sealed class TurnVerdictService : IDisposable
             }
 
             ct.ThrowIfCancellationRequested();
+
+            // The exact hash still guards every action. This second identity is persisted beside it only so a later
+            // stop can recognize the same content after footer, cursor, whitespace or wrapping repaint it.
+            record.ScreenReuseHash = reuseHash;
 
             // THE JOIN KEY IS THE LATEST OBSERVED MOMENT, found on the rig. The idle sweep began judging a stop ten
             // seconds before the detector's reconcile tick observed it; the tick's turn end was dropped by the gate
@@ -1451,6 +1456,7 @@ public sealed class TurnVerdictService : IDisposable
         DateTime observedAt,
         TurnVerdictDto latest,
         string hash,
+        string reuseHash,
         IReadOnlyList<string> rows,
         TurnVerdictSettings settings,
         SessionDto? facts,
@@ -1466,6 +1472,10 @@ public sealed class TurnVerdictService : IDisposable
         {
             var refreshed = Copy(latest);
             refreshed.TurnEndObservedAtUtc = observedAt;
+            // Reuse answers the current stop, so its action guard must bind to the CURRENT exact grid rather than
+            // the cosmetically different grid on which the original reading was made.
+            refreshed.ScreenHash = hash;
+            refreshed.ScreenReuseHash = reuseHash;
             if (!StoreIfCurrent(key, epoch, refreshed))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused",
                 settings: settings, observedAt: observedAt);
@@ -1900,7 +1910,8 @@ public sealed class TurnVerdictService : IDisposable
     /// <param name="currentSource">The source this stop would be judged from now, read only when a rate limit's wait is
     /// running for the stored record - so the wait binds the stop it was named for, and a new reply on the same
     /// unreadable screen is still a new stop.</param>
-    private bool IsReusable((TenantId Tenant, string SessionId) key, TurnVerdictDto latest, string hash, TurnVerdictTrigger trigger,
+    private bool IsReusable((TenantId Tenant, string SessionId) key, TurnVerdictDto latest, string hash, string reuseHash,
+        TurnVerdictTrigger trigger,
         Func<string?> currentSource)
     {
         // INSIDE A RATE LIMIT'S NAMED WAIT NOTHING ASKS AGAIN ABOUT THAT STOP, for every trigger and whatever the screen
@@ -1911,8 +1922,18 @@ public sealed class TurnVerdictService : IDisposable
             && _rateLimitHolds.TryGetValue(key, out var hold)
             && string.Equals(hold.SourceText, currentSource(), StringComparison.Ordinal))
             return true;
-        if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
-        if (hash.Length == 0 && trigger != TurnVerdictTrigger.Sweep) return false;
+        if (hash.Length == 0)
+        {
+            if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
+            if (trigger != TurnVerdictTrigger.Sweep) return false;
+        }
+        else
+        {
+            // A pre-upgrade record has no reusable identity. Paying once to seed one is the conservative rollout:
+            // an exact hash cannot be reversed into the screen whose cosmetic content would need normalizing.
+            if (latest.ScreenReuseHash is null
+                || !string.Equals(latest.ScreenReuseHash, reuseHash, StringComparison.Ordinal)) return false;
+        }
         // A READING WITH NO WORDS is asked again by its booked retry exactly as a failed one is. Every other trigger
         // reuses it: the judge's answer on it is good, and a person asking buys the narration call alone.
         if (!latest.Failed)

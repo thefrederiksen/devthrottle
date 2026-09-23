@@ -46,6 +46,7 @@ public sealed class TurnVerdictStoreTests : IDisposable
         // and a test that used the same value for both would pass on a store that confused them.
         TurnEndObservedAtUtc = observedAt ?? judgedAt.AddSeconds(-12),
         ScreenHash = "screen-hash-1",
+        ScreenReuseHash = "screen-reuse-v1:hash-1",
         Model = "devthrottle/wingman",
         ContractVersion = "v1",
         PackageKind = "agent-reply",
@@ -83,6 +84,7 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.Equal(DateTimeKind.Utc, read.JudgedAtUtc.Kind);
         Assert.Equal(DateTimeKind.Utc, read.TurnEndObservedAtUtc.Kind);
         Assert.Equal("screen-hash-1", read.ScreenHash);
+        Assert.Equal("screen-reuse-v1:hash-1", read.ScreenReuseHash);
         Assert.Equal(Core.Wingman.TurnVerdictVocabulary.Finished, read.Verdict);
         Assert.Equal("I have finished the migration and pushed it.", read.Evidence);
         Assert.Equal("The migration session has finished.", read.Spoken);
