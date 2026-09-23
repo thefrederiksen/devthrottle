@@ -548,7 +548,12 @@ public class TerminalControl : Control
         // The resize marks recorded while the replay ran (issue #1304): the window may have been resized, and the
         // tail then holds bytes written at the old size, a mark, and bytes at the new one. Parse it segment by
         // segment exactly as the replay does, then bring the grid to the size the control is laid out at now.
-        var (_, _, tailMarks) = buffer.GetResizeMarksSince(request.ReplayEnd);
+        // Read from one byte before the end position: GetResizeMarksSince reports a mark AT the position as the
+        // starting geometry, not as a later mark, and a resize made during the replay before any tail byte sits
+        // exactly there. Asking from ReplayEnd - 1 returns it as a resize at offset 0, applied before the first
+        // tail byte is parsed. A mark at ReplayEnd that the replay already applied is applied again at the same
+        // point, which the truncate-copy makes harmless.
+        var (_, _, tailMarks) = buffer.GetResizeMarksSince(request.ReplayEnd - 1);
         var tailResizes = new List<ReplayResize>(tailMarks.Count);
         foreach (var mark in tailMarks)
         {

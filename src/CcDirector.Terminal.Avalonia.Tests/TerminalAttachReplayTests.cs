@@ -288,6 +288,45 @@ public sealed class TerminalAttachReplayTests
     }
 
     [AvaloniaFact]
+    public void Attach_WindowResizedAtTheReplayEndBeforeAnyTailByte_TheTailIsParsedAtTheNewSize()
+    {
+        var (terminal, window) = ShownTerminal();
+        var backend = new BufferBackend();
+        backend.Buffer!.Write(Bytes("history before the switch\r\n"));
+        var session = NewSession(backend);
+        var gate = HoldReplays(terminal);
+        long replayEnd;
+        try
+        {
+            terminal.Attach(session);
+            Assert.True(terminal.HarnessReplayPending);
+            replayEnd = session.Buffer!.TotalBytesWritten;
+
+            // The window shrinks before the session writes another byte, so the resize mark sits exactly at the
+            // replay's end position - the geometry the whole tail was written for.
+            window.Width = 400;
+            Dispatcher.UIThread.RunJobs();
+            int narrowCols = terminal.HarnessCols;
+            Assert.True(terminal.HarnessReplayPending, "the resize must happen while the replay is still pending");
+            var (_, _, marksFromEnd) = session.Buffer!.GetResizeMarksSince(replayEnd - 1);
+            Assert.Contains(marksFromEnd, m => m.Position == replayEnd && m.Cols == narrowCols);
+
+            // A line longer than the new width: at the new size it wraps, and its remainder is on the next row.
+            session.Buffer!.Write(Bytes("TAIL-" + new string('t', narrowCols + 10) + "-REMAINDER\r\n"));
+        }
+        finally
+        {
+            gate.Set();
+        }
+
+        WaitForHandover(terminal);
+
+        string expected = SynchronousReplayText(session.Buffer!, terminal.HarnessCols, terminal.HarnessRows);
+        Assert.Contains("-REMAINDER", expected);
+        Assert.Equal(expected, terminal.GetAllTerminalText());
+    }
+
+    [AvaloniaFact]
     public void Attach_RingOvertakenDuringTheReplay_ReplaysAgain_AndPollsFromTheNewEnd()
     {
         var (terminal, _) = ShownTerminal();
