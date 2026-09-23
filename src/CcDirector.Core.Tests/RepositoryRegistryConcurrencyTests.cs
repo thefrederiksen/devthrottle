@@ -31,6 +31,62 @@ public class RepositoryRegistryConcurrencyTests : IDisposable
     }
 
     /// <summary>
+    /// A WRITE MUST SURVIVE A READER HOLDING THE LIST OPEN, and this states that as its own case
+    /// instead of leaving it to the concurrency stress test to stumble over.
+    ///
+    /// Several Directors run off one root on the same machine. One of them reading the list while
+    /// another adds a repository is the ordinary situation, not an edge. Until the swap became
+    /// <c>File.Replace</c> it was also the situation Windows refused: a replacing <c>File.Move</c>
+    /// will not take a destination another handle holds open, so the add failed with
+    /// "Access to the path is denied" and the user's repository silently did not appear.
+    ///
+    /// The reader here shares the file exactly as a careful second Director does. THIS TEST CANNOT
+    /// FAIL ON macOS OR LINUX, which is the point worth knowing about it: Unix does not enforce share
+    /// modes, so the old code passed here and failed on the build machine. Its verdict is the Windows
+    /// run's, and the assertion is written so that verdict is unambiguous.
+    /// </summary>
+    [Fact]
+    public void A_write_succeeds_while_a_reader_holds_the_list_open()
+    {
+        var registry = new RepositoryRegistry(_filePath);
+        Assert.True(registry.TryAdd(Folder("first")));   // the file now exists, so a swap has something to replace
+
+        using (var readerHandle = new FileStream(
+                   _filePath, FileMode.Open, FileAccess.Read,
+                   FileShare.ReadWrite | FileShare.Delete))
+        {
+            // The instrument first: the handle must really be open on the file the registry writes,
+            // or this proves nothing about replacing an open destination.
+            Assert.True(readerHandle.Length > 0, "the reader is not holding the list open");
+
+            Assert.True(registry.TryAdd(Folder("second")), "the add was refused while a reader held the list open");
+        }
+
+        var onDisk = new RepositoryRegistry(_filePath);
+        onDisk.Load();
+        Assert.Contains(onDisk.Repositories, r => r.Path.EndsWith("second", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The first write of a fresh root has no destination to replace, so it takes the other branch.
+    /// Stated on its own because that branch is the one a reader never exercises.
+    /// </summary>
+    [Fact]
+    public void The_first_write_creates_the_list_when_there_is_nothing_to_replace()
+    {
+        Assert.False(File.Exists(_filePath));
+
+        var registry = new RepositoryRegistry(_filePath);
+        Assert.True(registry.TryAdd(Folder("only")));
+
+        Assert.True(File.Exists(_filePath));
+
+        var onDisk = new RepositoryRegistry(_filePath);
+        onDisk.Load();
+        Assert.Contains(onDisk.Repositories, r => r.Path.EndsWith("only", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// The core proof, and it is decided rather than raced: one thread is parked in the middle of a
     /// write while a second thread tries to write. The seam is <see cref="RepositoryRegistry.SeedFrom"/>,
     /// which walks the enumerable it is given while holding the registry's gate - so an enumerable that
