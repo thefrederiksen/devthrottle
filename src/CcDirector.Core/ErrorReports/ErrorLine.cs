@@ -25,6 +25,12 @@ public static class ErrorLine
     // a report, because then the leak surface would be every log line rather than the error lines.
     private static readonly Regex Marker = new(@"\b(FAILED|UNHANDLED|UNOBSERVED|FATAL|ERROR)\b", RegexOptions.CultureInvariant);
 
+    // ...or ANYWHERE in the first line when the marker is in the verdict position: followed by ":", "(", ","
+    // or the end of the line - "[X] seat {name}: PassDevReportsAsync FAILED: ...", "tool reconcile FAILED
+    // (ignored)", "registry read FAILED, falling back". A word inside interpolated prose ("the build FAILED and
+    // ...") or a quoted value ("\"FATAL\"}") is not in that position and stays out.
+    private static readonly Regex VerdictMarker = new(@"\b(FAILED|UNHANDLED|UNOBSERVED|FATAL|ERROR)(?=\s*[:(,]|\s*$)", RegexOptions.CultureInvariant);
+
     private static readonly Regex LeadingTag = new(@"^\[(?<tag>[^\]\r\n]{1,100})\]\s*", RegexOptions.CultureInvariant);
     private static readonly Regex ExceptionType = new(
         @"(?<type>\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:Exception|Error))\b(?=:|\s*\r?\n|\s*$|\s*\()",
@@ -35,7 +41,14 @@ public static class ErrorLine
     {
         if (string.IsNullOrEmpty(message)) return false;
         if (message.StartsWith(ReporterTag, StringComparison.Ordinal)) return false;
-        return Marker.IsMatch(Head(message));
+        return Marker.IsMatch(Head(message)) || VerdictMarker.IsMatch(FirstLine(message));
+    }
+
+    private static string FirstLine(string message)
+    {
+        var newline = message.IndexOf('\n');
+        var line = newline < 0 ? message : message[..newline];
+        return line.Length > 2000 ? line[..2000] : line.TrimEnd('\r');
     }
 
     /// <summary>What kind of error the line records, read from the head only.</summary>

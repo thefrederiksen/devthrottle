@@ -173,26 +173,25 @@ internal static class DirectorErrorEndpoints
         if (!TryAdmit(device, items.Count, nowUtc))
             return Results.Json(new { recorded = false, reason = "rate limited" }, statusCode: StatusCodes.Status429TooManyRequests);
 
-        IResult? refused = null;
+        // The refund is for OUR failure only - the store could not take the write, so the Director's retry must
+        // not find its allowance spent. A batch the route refuses as invalid (400) stays charged: its sender has
+        // spent the scrubbing it asked for, and refunding it would let a device repeat that cost without limit.
         try
         {
-            refused = BuildAndStore(store, tenant, device, items, nowUtc);
-            return refused;
+            return BuildAndStore(store, tenant, device, items, nowUtc);
         }
         catch (StoreBusyException ex)
         {
-            refused = Results.Json(new { error = "the error store is busy; try again later" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            Refund(device, items.Count, nowUtc);
             FileLog.Write($"[DirectorErrorEndpoints] store busy, batch refused: {ex.Message}");
-            return refused;
+            return Results.Json(new { error = "the error store is busy; try again later" }, statusCode: StatusCodes.Status503ServiceUnavailable);
         }
-        finally
+        catch
         {
-            if (refused is null || Status(refused) != StatusCodes.Status202Accepted)
-                Refund(device, items.Count, nowUtc);
+            Refund(device, items.Count, nowUtc);
+            throw;
         }
     }
-
-    private static int Status(IResult result) => (result as IStatusCodeHttpResult)?.StatusCode ?? 0;
 
     private static IResult BuildAndStore(ErrorReportStore store, TenantId tenant, string device,
         IReadOnlyList<ErrorReportItem> items, DateTime nowUtc)
@@ -286,7 +285,7 @@ internal static class DirectorErrorEndpoints
 
         var limit = 100;
         var limitText = q["limit"].ToString().Trim();
-        if (limitText.Length > 0 && (!int.TryParse(limitText, NumberStyles.None, CultureInfo.InvariantCulture, out limit) || limit < 1))
+        if (limitText.Length > 0 && (!int.TryParse(limitText, NumberStyles.None, CultureInfo.InvariantCulture, out limit) || limit < 1 || limit > ErrorReportStore.MaxLimit))
         {
             bad = Results.BadRequest(new { error = $"limit must be a whole number from 1 to {ErrorReportStore.MaxLimit}" });
             return false;
@@ -313,7 +312,7 @@ internal static class DirectorErrorEndpoints
             MachineId: machineId,
             ProductVersion: version.Length > 0 ? version : null,
             Component: component.Length > 0 ? component : null,
-            Limit: Math.Min(limit, ErrorReportStore.MaxLimit));
+            Limit: limit);
         return true;
     }
 

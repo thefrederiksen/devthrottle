@@ -219,10 +219,12 @@ internal static class InstallReportEndpoints
         Arch = r.Arch,
         Source = r.Component,
         Kind = "install-step",
-        Message = r.Message,
+        // This route's own Clean only reduces home folders to "~". Everything entering the shared store gets
+        // the store's full scrub as well, so a credential in an installer's log tail is redacted like any other.
+        Message = CcDirector.Core.ErrorReports.ErrorTextScrubber.Scrub(r.Message),
         Installer = r.Installer,
         Step = r.Step,
-        Diagnostics = r.Diagnostics.Length > 0 ? r.Diagnostics : null,
+        Diagnostics = r.Diagnostics.Length > 0 ? CcDirector.Core.ErrorReports.ErrorTextScrubber.Scrub(r.Diagnostics) : null,
     };
 
     /// <summary>The one log line. JSON on one line, so newlines in diagnostics cannot forge a second

@@ -241,6 +241,7 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     [InlineData("since", "yesterday-ish")]
     [InlineData("limit", "0")]
     [InlineData("limit", "many")]
+    [InlineData("limit", "1000")]
     [InlineData("component", "gateway")]
     public void TryBuildQuery_AMalformedFilter_IsA400NotIgnored(string key, string value)
     {
@@ -312,15 +313,18 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void HandlePost_ARefusedBatch_DoesNotUseUpTheAllowance()
+    public void HandlePost_AnInvalidBatch_IsStillCharged()
     {
+        // An invalid batch was scrubbed before it was refused, so its sender has spent that cost. If it were
+        // refunded, a device could repeat it without limit and the per-device limit would never engage.
         var store = NewStore();
         var device = UniqueDevice();
-        var bad = Batch(Enumerable.Range(0, ErrorReportLimits.MaxReportsPerBatch).Select(_ => Item(component: "gateway")).ToArray());
-        for (var i = 0; i < 20; i++)
+        var bad = Batch(Enumerable.Range(0, ErrorReportLimits.MaxReportsPerBatch).Select(_ => Item(machineId: "NOT-A-HASH")).ToArray());
+        var fits = DirectorErrorEndpoints.MaxReportsPerDevicePerHour / ErrorReportLimits.MaxReportsPerBatch;
+        for (var i = 0; i < fits; i++)
             Assert.Equal(StatusCodes.Status400BadRequest, Status(DirectorErrorEndpoints.HandlePost(store, TenantA, device, bad, Now)));
 
-        Assert.Equal(StatusCodes.Status202Accepted, Status(DirectorErrorEndpoints.HandlePost(store, TenantA, device, Batch(Item()), Now)));
+        Assert.Equal(StatusCodes.Status429TooManyRequests, Status(DirectorErrorEndpoints.HandlePost(store, TenantA, device, bad, Now)));
     }
 
     [Fact]

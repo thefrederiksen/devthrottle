@@ -143,7 +143,16 @@ internal sealed class ErrorReportStore
             if (now - _lastPruneUtc > TimeSpan.FromHours(1))
             {
                 _lastPruneUtc = now;
-                Prune(now);
+                // The records are already written. Housekeeping failing must not turn a stored batch into a
+                // 503, which the Director would retry and store twice.
+                try
+                {
+                    Prune(now);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    FileLog.Write($"[ErrorReportStore] prune did not complete, will retry in an hour ({ex.GetType().Name}): {ex.Message}");
+                }
             }
         }
         finally

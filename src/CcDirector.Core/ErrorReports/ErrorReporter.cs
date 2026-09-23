@@ -123,7 +123,7 @@ public sealed class ErrorReporter : IDisposable
         try
         {
             using var cts = new CancellationTokenSource(budget);
-            reporter.SendPendingAsync(cts.Token).Wait(budget);
+            reporter.FlushAsync(cts.Token).Wait(budget);
         }
         catch (Exception ex)
         {
@@ -263,17 +263,26 @@ public sealed class ErrorReporter : IDisposable
     /// Send one batch of what is pending, if the budget and the Gateway allow. Returns how many reports the
     /// Gateway accepted. Never throws except for cancellation.
     /// </summary>
-    internal async Task<int> SendPendingAsync(CancellationToken ct)
+    internal Task<int> SendPendingAsync(CancellationToken ct) => SendAsync(ct, final: false);
+
+    /// <summary>
+    /// The last send before the process dies. Unlike the periodic send it WAITS for a send already in flight
+    /// (until <paramref name="ct"/> expires) instead of skipping, and it ignores the hourly budget and any
+    /// pause: a crash that happened after a noisy hour is exactly the one worth sending.
+    /// </summary>
+    internal Task<int> FlushAsync(CancellationToken ct) => SendAsync(ct, final: true);
+
+    private async Task<int> SendAsync(CancellationToken ct, bool final)
     {
-        if (!await _sendGate.WaitAsync(0, ct).ConfigureAwait(false)) return 0;
+        if (!await _sendGate.WaitAsync(final ? Timeout.InfiniteTimeSpan : TimeSpan.Zero, ct).ConfigureAwait(false)) return 0;
         try
         {
             var now = _clock();
             List<Pending> batch;
             lock (_lock)
             {
-                if (_order.Count == 0 || now < _pausedUntilUtc) return 0;
-                var budget = MaxSentPerHour - SentInLastHour(now);
+                if (_order.Count == 0 || (!final && now < _pausedUntilUtc)) return 0;
+                var budget = final ? ErrorReportLimits.MaxReportsPerBatch : MaxSentPerHour - SentInLastHour(now);
                 if (budget <= 0) return 0;
                 batch = _order.Take(Math.Min(budget, ErrorReportLimits.MaxReportsPerBatch)).ToList();
                 foreach (var p in batch)

@@ -45,7 +45,9 @@ public sealed class ErrorTextAndLineTests
     {
         // The product's own key shape: 43 characters of URL-safe base64, most with a hyphen in them - which a
         // rule that stopped at the first hyphen let through three times in four.
-        for (var i = 0; i < 500; i++)
+        // Ten thousand keys, so a rule that misses one key in a few thousand fails here every run rather than
+        // one run in four (review round 2 measured the first rule at one miss in 1,513).
+        for (var i = 0; i < 10_000; i++)
         {
             var key = CcDirector.Core.Security.GatewaySessionKey.Mint();
 
@@ -60,9 +62,19 @@ public sealed class ErrorTextAndLineTests
     [InlineData(@"D:\ReposFred\devthrottle-dev-reports-p2-gateway\src")]
     [InlineData("branch feat/centralized-error-logging-3311-and-more-words")]
     [InlineData("fleet-3fe6711b-da67-4315-925e-105a7992bdd7 is gone")]
-    [InlineData("MaxReportsPerDevicePerHourAndSomeMoreWords exceeded")]
+    [InlineData("abcdef0123456789abcdef0123456789abcdef01 is the commit")]
+    // A long method name in a STACK FRAME is kept: the runtime writes frames from our own names, never data.
+    [InlineData("boom\n   at CcDirector.Core.InitializeServicesAndShowTheMainWindowAsync()")]
     public void Scrub_LongFolderBranchAndIdNames_AreKept(string text)
         => Assert.Equal(text, ErrorTextScrubber.Scrub(text));
+
+    [Fact]
+    public void Scrub_ALongMixedCaseRunInAMessage_IsRedacted()
+    {
+        // The accepted cost of the key rule, pinned so it is a decision and not a surprise.
+        Assert.Equal("value " + ErrorTextScrubber.Redacted + " rejected",
+            ErrorTextScrubber.Scrub("value MaxReportsPerDevicePerHourAndSomeMoreWords rejected"));
+    }
 
     [Fact]
     public void Clean_DropsControlCharactersAndCaps()
@@ -77,6 +89,10 @@ public sealed class ErrorTextAndLineTests
     [InlineData("[App] UNHANDLED UI-THREAD EXCEPTION: System.NullReferenceException", true)]
     [InlineData("[Program] UNOBSERVED TASK: System.AggregateException", true)]
     [InlineData("[Program] FATAL: boom", true)]
+    // The marker after the first ": ", in the verdict position - real Director lines (review round 2).
+    [InlineData("[DirectorRestore] seat x: PassDevReportsAsync FAILED: timeout", true)]
+    [InlineData("[ToolAutoUpdate] x: tool reconcile FAILED (ignored): y", true)]
+    [InlineData("[MainWindow] InstanceTitleSuffix: registry read FAILED, falling back to none", true)]
     [InlineData("[GatewayClient] heartbeat ok", false)]
     [InlineData("[Updater] failed over to the second mirror", false)]
     [InlineData("[ErrorReporter] 3 report(s) not delivered: FAILED to connect", false)]

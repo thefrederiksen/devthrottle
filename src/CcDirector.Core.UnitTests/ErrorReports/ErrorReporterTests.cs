@@ -247,6 +247,54 @@ public sealed class ErrorReporterTests
     }
 
     [Fact]
+    public async Task Flush_AfterTheHourlyBudgetIsSpent_StillSendsTheCrash()
+    {
+        var (reporter, handler) = NewReporter();
+        for (var i = 0; i < ErrorReporter.MaxSentPerHour; i++)
+            reporter.OnLogLine($"[C{i}] Noise FAILED");
+        while (await reporter.SendPendingAsync(CancellationToken.None) > 0) { }
+        reporter.OnLogLine("[Program] UNHANDLED (terminating): System.InvalidOperationException: boom");
+
+        Assert.Equal(0, await reporter.SendPendingAsync(CancellationToken.None));
+        Assert.Equal(1, await reporter.FlushAsync(CancellationToken.None));
+
+        var last = JsonSerializer.Deserialize<ErrorReportBatch>(handler.Requests[^1].Body)!.Reports!;
+        Assert.Equal("unhandled", Assert.Single(last).Kind);
+    }
+
+    [Fact]
+    public async Task Flush_WaitsForASendAlreadyInFlight()
+    {
+        var gate = new TaskCompletionSource();
+        var handler = new SlowHandler(gate.Task);
+        var reporter = new ErrorReporter(ErrorReportLimits.Director,
+            () => new GatewayConfig { Url = "https://gateway.example", Token = "k" }, new HttpClient(handler),
+            () => _now, machineName: "M", productVersion: "v");
+        reporter.OnLogLine("[X] Save FAILED: one");
+        var periodic = reporter.SendPendingAsync(CancellationToken.None);
+        reporter.OnLogLine("[Program] UNHANDLED (terminating): boom");
+
+        var flush = reporter.FlushAsync(CancellationToken.None);
+        gate.SetResult();
+
+        Assert.Equal(1, await periodic);
+        Assert.Equal(1, await flush);
+        Assert.Equal(2, handler.Calls);
+    }
+
+    private sealed class SlowHandler(Task release) : HttpMessageHandler
+    {
+        public int Calls;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Interlocked.Increment(ref Calls);
+            await release;
+            return new HttpResponseMessage(HttpStatusCode.Accepted);
+        }
+    }
+
+    [Fact]
     public void Constructor_AComponentADeviceMayNotReportAs_Throws()
         => Assert.Throws<ArgumentException>(() => new ErrorReporter(ErrorReportLimits.Install));
 }

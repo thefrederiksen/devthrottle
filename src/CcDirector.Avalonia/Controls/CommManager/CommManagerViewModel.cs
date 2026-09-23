@@ -1048,7 +1048,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
 
         var error = string.IsNullOrEmpty(stderr) ? stdout : stderr;
-        FileLog.Write($"[CommManager.VM] RunToolAndMarkPostedAsync: ticket #{item.TicketNumber} FAILED via {toolName}: {error}");
+        FileLog.Write($"[CommManager.VM] RunToolAndMarkPostedAsync: ticket #{item.TicketNumber} via {toolName} FAILED: {error}");
         return false;
     }
 
