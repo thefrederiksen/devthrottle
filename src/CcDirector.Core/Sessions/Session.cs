@@ -3342,6 +3342,72 @@ public sealed class Session : IDisposable
             $"the send was abandoned ({section.AbandonReason}); the text it typed was removed from the composer and Enter was not pressed");
     }
 
+    /// <summary>Where a send's proof of arrival starts: the conversation file and its end before the send.</summary>
+    private readonly record struct ArrivalProof(string Path, long Offset);
+
+    /// <summary>How long a send waits for Claude Code's conversation file; tests shorten it.</summary>
+    internal TimeSpan ArrivalWindow { get; set; } = ClaudePromptArrival.DefaultWindow;
+
+    /// <summary>
+    /// Decide whether this send can be PROVEN to reach Claude Code through its conversation file (issue #3290), and
+    /// mark where the proof starts. Null - with the reason logged - when it cannot:
+    ///  - the agent is not Claude Code, or the text is a slash command, bash line or memory line;
+    ///  - the send is a guarded one, which is bounded in time and so cannot wait on the file or resend;
+    ///  - the session is working, so Claude Code queues the text and writes it only when the turn ends;
+    ///  - the conversation file is not known (no SessionStart hook has reported it).
+    /// </summary>
+    private ArrivalProof? BeginArrivalProof(ISessionBackend target, string text)
+    {
+        if (Driver.Kind != Agents.AgentKind.ClaudeCode || !ReferenceEquals(target, _backend)) return null;
+        if (!ClaudePromptArrival.CanProve(text)) return null;
+        var state = ActivityState;
+        if (state is not (ActivityState.WaitingForInput or ActivityState.Idle))
+        {
+            FileLog.Write($"[Session] arrival proof skipped: session={Id} is {state}; Claude Code queues a prompt sent mid-turn");
+            return null;
+        }
+        var path = ClaudeTranscriptPath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            FileLog.Write($"[Session] arrival proof UNAVAILABLE: session={Id} has no known conversation file, so this send cannot be proven");
+            return null;
+        }
+        return new ArrivalProof(path, ClaudePromptArrival.EndOf(path));
+    }
+
+    /// <summary>
+    /// Wait until Claude Code's conversation file holds the prompt, resending once when it was lost with an empty
+    /// composer (see <see cref="ClaudePromptArrival"/>). Throws <see cref="Drivers.PromptNotSubmittedException"/> when
+    /// it never arrives, so the caller records the send as NOT delivered - the terminal's output is never taken as proof.
+    /// </summary>
+    private async Task ConfirmArrivalAsync(ArrivalProof proof, string text, Func<Task> resend)
+    {
+        var label = text.Length > 60 ? text[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : text;
+        bool Arrived()
+        {
+            // A /clear or a restart moves Claude Code to a new file; that file is read from its start.
+            var path = ClaudeTranscriptPath ?? proof.Path;
+            var offset = string.Equals(path, proof.Path, StringComparison.OrdinalIgnoreCase) ? proof.Offset : 0;
+            return ClaudePromptArrival.Arrived(path, offset, text);
+        }
+        bool ComposerHoldsNothing()
+        {
+            var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+            var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
+                AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+            return ClaudePromptArrival.ComposerHoldsNothing(reading, composerText);
+        }
+
+        var outcome = await ClaudePromptArrival.ConfirmAsync(
+            Arrived, ComposerHoldsNothing, resend, mayResend: true, ArrivalWindow, label);
+        FileLog.Write($"[Session] arrival proof: session={Id}, outcome={outcome}, len={text.Length}");
+        if (outcome == PromptArrivalOutcome.NotArrived)
+            throw new Drivers.PromptNotSubmittedException(
+                $"[Session] the prompt never reached Claude Code: its conversation file has no line holding the text " +
+                $"{ArrivalWindow.TotalSeconds:F0}s after the send. The terminal's output is not proof, so the send is NOT delivered. " +
+                $"Session={Id}, len={text.Length}.");
+    }
+
     /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
     private async Task SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
     {
@@ -3370,7 +3436,8 @@ public sealed class Session : IDisposable
         {
             if (BackendType is SessionBackendType.ConPty)
             {
-                await Drivers.TerminalSubmit.SharedSubmitAsync(
+                var proof = BeginArrivalProof(target, text);
+                Task Submit() => Drivers.TerminalSubmit.SharedSubmitAsync(
                     target,
                     text,
                     Driver.Kind.ToString(),
@@ -3378,6 +3445,9 @@ public sealed class Session : IDisposable
                     requireEcho: Driver.Kind != Agents.AgentKind.Copilot,
                     screenSnapshot: SnapshotScreenRows,
                     sessionId: Id);
+                await Submit();
+                if (proof is { } p)
+                    await ConfirmArrivalAsync(p, text, Submit);
             }
             else
             {
