@@ -84,7 +84,13 @@ public sealed class HandoverInfoTunnelTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(dto.DisplayName));
         Assert.False(string.IsNullOrWhiteSpace(dto.DirectorId));
         // A working body proves the tunnel: the Director is registered UNREACHABLE.
-        Assert.Equal("handover", _director.LastCommand?.Verb);
+        //
+        // Asked as PRESENCE, not as "the last one". This used to read LastCommand, and the Gateway's own
+        // voice sweep lands a screen-grid on the same tunnel on its own schedule - so about one run in
+        // three on macOS the last command was that sweep's and not this request's, and the test failed
+        // reporting "screen-grid". What it means to assert is that the handover request went over the
+        // tunnel, which no later traffic can undo.
+        Assert.Contains("handover", _director.Commands.Select(c => c.Verb));
     }
 
     [Fact]

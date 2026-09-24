@@ -1,5 +1,6 @@
 using System.Globalization;
 using Xunit;
+using CcDirector.Core.Tests;   // WindowsOnlyFact, linked into this project
 
 namespace CcDirector.Gateway.Tests;
 
@@ -57,7 +58,7 @@ public sealed class GatewayTestSuiteLockTests
             + "run of this suite from executing alongside it and corrupting both. See GatewayTestSuiteLock.");
     }
 
-    [Fact]
+    [WindowsOnlyFact("the suite lock is an exclusive FILE OPEN, and Unix does not enforce share modes - a second open of the same file simply succeeds, so there is no refusal here to assert. The lock therefore does NOT serialise concurrent Gateway runs off Windows, which is recorded as its own defect rather than hidden by this skip")]
     public void ASecondExclusiveOpenIsRefused_WhichIsWhatBlocksAConcurrentRun()
     {
         if (GatewayTestSuiteLock.QualificationBypassActive)
@@ -110,7 +111,7 @@ public sealed class GatewayTestSuiteLockTests
     /// path was a different file and the open succeeded, which is precisely how two suites ran side by
     /// side.
     /// </summary>
-    [Fact]
+    [WindowsOnlyFact("the suite lock is an exclusive FILE OPEN, and Unix does not enforce share modes - a second open of the same file simply succeeds, so there is no refusal here to assert. The lock therefore does NOT serialise concurrent Gateway runs off Windows, which is recorded as its own defect rather than hidden by this skip")]
     public void ARunWithADifferentTemporaryDirectoryStillCollidesWithThisHeldLock()
     {
         var asAnotherRunWouldComputeIt = GatewayTestSuiteLock.ComputeLockFilePath(

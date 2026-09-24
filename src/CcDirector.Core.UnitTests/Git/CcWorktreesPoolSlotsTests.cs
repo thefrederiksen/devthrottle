@@ -42,8 +42,22 @@ public sealed class CcWorktreesPoolSlotsTests : IDisposable
     [InlineData(@"D:\Repos\devthrottle", false)]
     public void HasSlotLayout_RecognisesOnlyTheShapeThePoolCreates(string path, bool expected)
     {
-        Assert.Equal(expected, CcWorktreesPoolSlots.HasSlotLayout(path));
+        Assert.Equal(expected, CcWorktreesPoolSlots.HasSlotLayout(ForThisPlatform(path)));
     }
+
+    /// <summary>
+    /// The table above is written in Windows spelling because that is where the pool tool runs. The SHAPE
+    /// it describes - a <c>wtNN</c> leaf inside a <c>&lt;name&gt;.worktrees</c> parent - is not
+    /// platform-specific, but the reader of it is: <c>HasSlotLayout</c> goes through
+    /// <c>Path.GetFileName</c> and <c>Path.GetDirectoryName</c>, which only recognise the HOST's
+    /// separator. On macOS a backslash is an ordinary character, so every row collapsed to a single
+    /// file name with no parent and three of them failed - a test of path shape defeated by path
+    /// spelling. Translating the spelling keeps one table asserting one property on both platforms.
+    /// </summary>
+    private static string ForThisPlatform(string windowsPath) =>
+        OperatingSystem.IsWindows()
+            ? windowsPath
+            : "/" + windowsPath.Replace(@"D:\", string.Empty).Replace('\\', '/');
 
     [Fact]
     public void Owns_ASlotByItsLayout_EvenWithNoRecordsOnThisMachine()

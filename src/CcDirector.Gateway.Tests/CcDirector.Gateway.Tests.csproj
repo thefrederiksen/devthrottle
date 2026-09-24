@@ -30,6 +30,8 @@
     <!-- The one canonical-path helper every test suite shares, so no suite hand-rolls its own and
          crashes on the volume root the way three of them did. -->
     <Compile Include="..\CcDirector.Core.Tests\TestTempRoot.cs" Link="TestTempRoot.cs" />
+    <Compile Include="..\CcDirector.Core.Tests\TestShell.cs" Link="TestShell.cs" />
+    <Compile Include="..\CcDirector.Core.Tests\WindowsOnlyFactAttribute.cs" Link="WindowsOnlyFactAttribute.cs" />
   </ItemGroup>
 
   <ItemGroup>

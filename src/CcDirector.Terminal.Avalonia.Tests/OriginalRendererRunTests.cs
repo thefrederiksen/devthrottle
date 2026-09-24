@@ -46,18 +46,6 @@ public sealed class OriginalRendererRunTests
         AssertRunsMatchPerCharacter(Encoding.UTF8.GetBytes(sb.ToString()));
     }
 
-    [AvaloniaFact]
-    public void MixedWideAndSymbolCharacters_KeepTheirExactPlacement()
-    {
-        var sb = new StringBuilder();
-        sb.Append("abc中文def ascii then wide then ascii\r\n");
-        sb.Append("┌───┐ box drawing │ inside │\r\n");
-        sb.Append("└───┘ accents: café naïve über\r\n");
-        sb.Append("arrows and marks: → ← • · end\r\n");
-        sb.Append("emoji \U0001F600 between words and \U0001F680 again\r\n");
-
-        AssertRunsMatchPerCharacter(Encoding.UTF8.GetBytes(sb.ToString()));
-    }
 
     [AvaloniaFact]
     public void TheRecordedGrokScreen_DrawsTheSamePixelsAsPerCharacter()
@@ -83,7 +71,7 @@ public sealed class OriginalRendererRunTests
         Assert.Equal(expected, OriginalRenderer.IsRunCharacter(ch));
     }
 
-    private static void AssertRunsMatchPerCharacter(byte[] stream)
+    internal static void AssertRunsMatchPerCharacter(byte[] stream)
     {
         var terminal = new TerminalControl();
         var window = new Window { Width = WindowWidth, Height = WindowHeight, Content = terminal };

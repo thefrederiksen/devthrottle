@@ -40,6 +40,20 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     /// <summary>The last command the Gateway sent over the tunnel, so a test can assert the verb + payload.</summary>
     public DirectorCommand? LastCommand { get; private set; }
 
+    /// <summary>
+    /// EVERY command the Gateway sent over the tunnel, in order.
+    ///
+    /// WHY THIS EXISTS BESIDE <see cref="LastCommand"/>. A test that asserts on LastCommand is asserting
+    /// that nothing else arrived afterwards, which is not in its gift: the Gateway's own background
+    /// sweeps issue commands on their own schedule. HandoverInfoTunnelTests asserted
+    /// <c>LastCommand.Verb == "handover"</c> and failed roughly one run in three on macOS, reading
+    /// "screen-grid" - a voice sweep that landed after the request the test made. Asking whether a verb
+    /// is PRESENT is the assertion such a test actually wants, and it cannot be raced.
+    /// </summary>
+    public IReadOnlyCollection<DirectorCommand> Commands => _commands;
+
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _commands = new();
+
     private FakeTunnelDirector(string directorId, HubConnection conn, Func<DirectorCommand, DirectorCommandResult> dispatch, DeadPortReservation deadEndpoint)
     {
         DirectorId = directorId;
@@ -95,6 +109,7 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
         conn.On<DirectorCommand, DirectorCommandResult>("Command", cmd =>
         {
             fake.LastCommand = cmd;
+            fake._commands.Enqueue(cmd);
             return fake._dispatch(cmd);
         });
 
