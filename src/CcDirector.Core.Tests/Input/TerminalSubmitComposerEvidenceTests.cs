@@ -83,6 +83,9 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
     /// leaves the composer refusing to submit, so an Enter pressed on screen evidence is swallowed and
     /// the submit verifier throws for an unrelated reason.
     /// </summary>
+    private static bool TypedYet(RecordingSessionBackend backend, string text) =>
+        backend.SentTexts.Any(t => t.Contains(text)) || backend.WrittenBytes.Any(b => System.Text.Encoding.UTF8.GetString(b).Contains(text));
+
     private static RecordingSessionBackend ComposerThatEchoesSomethingElse()
     {
         var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
@@ -254,7 +257,10 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
     {
         var backend = ComposerThatEchoesSomethingElse();
 
-        await Submit(backend, "on the screen all along", screen: () => ["> on the screen all along", "footer"]);
+        // The copy appears once the text has been typed; a copy already there before typing is not an echo.
+        await Submit(backend, "on the screen all along", screen: () => TypedYet(backend, "on the screen all along")
+            ? ["> on the screen all along", "footer"]
+            : ["> ", "footer"]);
 
         Assert.False(Wrote(backend, Escape));
         Assert.Contains("on the screen all along", backend.SubmittedTexts);

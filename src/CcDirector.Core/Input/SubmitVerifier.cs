@@ -85,9 +85,14 @@ public static class SubmitVerifier
     /// <param name="throwWhenParked">False when the caller proves delivery from the agent's own conversation records
     /// (issue #3290). Output volume is then only a reason to nudge, never a verdict: it called a working Codex, reading
     /// a file quietly, "parked", and it called Claude Code's "nothing left to send" message a submitted turn.</param>
+    /// <param name="nudgeOnlyWhen">When given, a quiet beat is nudged with Enter ONLY when this answers true - the
+    /// screen shows the text still waiting in the composer (issue #3290, review finding 5). A caller that cannot read the
+    /// composer passes one that always answers false: a blind Enter on a loaded machine lands as a blank line in the
+    /// next prompt. Null keeps the original blind nudges for callers that have no screen at all.</param>
     public static async Task PressEnterAndVerifyAsync(
         CircularTerminalBuffer? buffer, Action<byte[]> write, string label,
-        TimeSpan? attemptDelay = null, Func<TimeSpan, Task>? beatDelay = null, bool throwWhenParked = true)
+        TimeSpan? attemptDelay = null, Func<TimeSpan, Task>? beatDelay = null, bool throwWhenParked = true,
+        Func<bool>? nudgeOnlyWhen = null)
     {
         var beat = attemptDelay ?? DefaultAttemptDelay;
         var wait = beatDelay ?? (b => Task.Delay(b));
@@ -135,7 +140,12 @@ public static class SubmitVerifier
                 return;
             }
 
-            if (windowDelta < QuietWindowBytes)
+            if (windowDelta < QuietWindowBytes && nudgeOnlyWhen is not null && !nudgeOnlyWhen())
+            {
+                FileLog.Write($"[SubmitVerifier] quiet window after '{label}' ({attempt}/{MaxAttempts}), but the screen does not " +
+                              "show the text waiting - no nudge");
+            }
+            else if (windowDelta < QuietWindowBytes)
             {
                 nudges++;
                 FileLog.Write($"[SubmitVerifier] dead window ({windowDelta} bytes in " +
@@ -143,13 +153,6 @@ public static class SubmitVerifier
                 write(EnterByte);
             }
             // else: settling (echo/popup repaints) - wait another beat without spamming.
-        }
-
-        if (!throwWhenParked)
-        {
-            FileLog.Write($"[SubmitVerifier] '{label}' produced under {SubmittedGrowthBytes} bytes in {MaxAttempts} beats " +
-                          $"({nudges} nudge(s) sent); the agent's own records decide whether it was delivered");
-            return;
         }
 
         throw new PromptNotSubmittedException(

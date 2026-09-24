@@ -67,7 +67,8 @@ public static class TerminalSubmit
     {
         await Task.Delay(settle);
         await SubmitVerifier.PressEnterAndVerifyAsync(
-            backend.Buffer, backend.Write, LabelFor(text, driverTag), submitVerifyBeat, throwWhenParked: throwWhenParked);
+            backend.Buffer, backend.Write, LabelFor(text, driverTag), submitVerifyBeat, throwWhenParked: throwWhenParked,
+            nudgeOnlyWhen: TextWaitsInComposer.Value);
     }
 
     /// <summary>Short, log-safe description of what was submitted.</summary>
@@ -113,13 +114,42 @@ public static class TerminalSubmit
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
         Guid sessionId = default,
-        byte[]? clearKeys = null,
+        Func<int, byte[]?>? clearKeysFor = null,
         Func<bool>? composerHoldsNothing = null,
         bool recordsProofFollows = false,
-        bool clearRetainedUnconditionally = false)
+        bool clearRetainedUnconditionally = false,
+        Func<bool>? nudgeOnlyWhen = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         var throwWhenParked = !recordsProofFollows;
+        var nudgeBefore = TextWaitsInComposer.Value;
+        TextWaitsInComposer.Value = nudgeOnlyWhen;
+        try
+        {
+            return await SharedSubmitCoreAsync(backend, text, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout,
+                pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, clearKeysFor,
+                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally);
+        }
+        finally
+        {
+            TextWaitsInComposer.Value = nudgeBefore;
+        }
+    }
+
+    /// <summary>
+    /// Whether the screen shows the send's text waiting in the composer - the rule for every Enter the send presses
+    /// again (issue #3290, review finding 5) and the sign that a paste has been taken in. Carried alongside the send
+    /// rather than through each route's parameters; <see cref="SharedSubmitAsync"/> sets it and puts the previous one
+    /// back.
+    /// </summary>
+    private static readonly AsyncLocal<Func<bool>?> TextWaitsInComposer = new();
+
+    private static async Task<string> SharedSubmitCoreAsync(
+        ISessionBackend backend, string text, string driverTag, bool bracketedPasteEnabled, bool requireEcho,
+        TimeSpan? echoTimeout, TimeSpan? pollInterval, TimeSpan? enterSettleDelay, Func<string[]>? screenSnapshot,
+        TimeSpan? submitVerifyBeat, Guid sessionId, Func<int, byte[]?>? clearKeysFor, Func<bool>? composerHoldsNothing,
+        bool throwWhenParked, bool clearRetainedUnconditionally)
+    {
 
         // RESOLVE A RETAINED COMPOSER BEFORE CHOOSING A ROUTE, NOT INSIDE ONE OF THEM (issue #2818).
         //
@@ -132,7 +162,7 @@ public static class TerminalSubmit
         // prevent, reintroduced through a route the guard did not cover.
         //
         // Every route that writes new text is downstream of this line.
-        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeys, composerHoldsNothing, clearRetainedUnconditionally);
+        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeysFor, composerHoldsNothing, clearRetainedUnconditionally);
 
         var textForCheck = text.TrimEnd('\r', '\n');
         if (ShouldUseInstructionFile(driverTag, textForCheck)
@@ -153,6 +183,17 @@ public static class TerminalSubmit
                 throwWhenParked);
             ComposerRetention.Clear(backend);
             return instruction;
+        }
+
+        // A LONG TEXT REACHES CLAUDE CODE AS A FILE, NOT A PASTE (issue #3290, measured 24 September 2026). With every core
+        // busy, Claude Code took in none of an 8 KB bracketed paste for minutes - no repaint at all - and the send was lost;
+        // idle, the same paste arrived in ten seconds. An @-reference is sixty typed characters that Claude Code reads
+        // itself, so its size no longer decides whether it arrives on a busy machine.
+        if (ShouldReferenceRatherThanPaste(driverTag, textForCheck) && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
+        {
+            var reference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked);
+            ComposerRetention.Clear(backend);
+            return reference;
         }
 
         if (LargeInputHandler.IsLargeInput(textForCheck) || ShouldPasteRatherThanType(driverTag, textForCheck))
@@ -372,10 +413,24 @@ public static class TerminalSubmit
         // composer is now reported, with the composer left as it is and marked, never typed again here.
         var cursor = buffer.TotalBytesWritten;
         var prefixBefore = ScreenPrefixLength(screenSnapshot, needle);
+        // TEXT ALREADY ON SCREEN IS NOT AN ECHO (issue #3290). Measured on 24 September 2026 under full processor load:
+        // the payload instruction sent to Codex ends in the same words every time, an earlier one was still visible in
+        // Codex's history, and its tail passed for the echo of a new instruction Codex was still taking in one letter at
+        // a time. Enter went in half way through, the prompt was lost, and the rest of it ran into the next prompt. So a
+        // tail already on screen is never used, and the whole text counts only when the screen shows it MORE often than
+        // it did before the typing.
+        var rowsBefore = screenSnapshot is null ? null : ReadScreen(screenSnapshot);
+        var needleBefore = rowsBefore is null ? 0 : CountIn(NormalizeForEcho(string.Concat(rowsBefore)), needle);
+        if (visibleTailNeedle is not null && rowsBefore is not null
+            && NormalizeForEcho(string.Concat(rowsBefore)).Contains(visibleTailNeedle, StringComparison.Ordinal))
+            visibleTailNeedle = null;
+        if (needleBefore > 0)
+            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the same text is already on screen {needleBefore} time(s); " +
+                          "only a new copy on screen counts as its echo");
         await WriteTextAsync(backend, text);
 
         if (needle.Length == 0 || await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, to, poll, cap,
-                screenSnapshot, prefixBefore))
+                screenSnapshot, prefixBefore, needleBefore))
         {
             await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
             ComposerRetention.Clear(backend);
@@ -385,7 +440,7 @@ public static class TerminalSubmit
         // The byte stream is a poor witness for input that WRAPPED across composer rows (issue #1592), so the rendered
         // screen is asked before the text is called missing. The reading is taken NOW, not before typing.
         pressure = MemoryPressure.Level(MemoryProbe.Read());
-        var evidence = await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure);
+        var evidence = await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure, needleBefore);
         if (evidence == ComposerEvidence.Present)
         {
             FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: byte-stream echo missed but the rendered screen shows the " +
@@ -404,8 +459,8 @@ public static class TerminalSubmit
             FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen (len={text.Length}) and the rendered " +
                           $"screen cannot say whether the text is there. Watching for a further {extra.TotalSeconds:F0}s. " +
                           $"{MemoryPressure.Describe(pressure)}.");
-            if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll)
-                || await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure) == ComposerEvidence.Present)
+            if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll, needleBefore: needleBefore)
+                || await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure, needleBefore) == ComposerEvidence.Present)
             {
                 FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the text arrived while waiting - pressing Enter.");
                 await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
@@ -426,12 +481,14 @@ public static class TerminalSubmit
 
         PromptDeliveryFailures.RecordComposerEchoMiss(sessionId, driverTag, 1, text.Length);
         ComposerRetention.MarkMayHoldText(backend, driverTag, text);
+        var reacted = buffer.TotalBytesWritten > cursor;
         throw new ComposerNotAcceptingInputException(
             $"[{driverTag}] EchoVerifiedSubmit: the composer never echoed the typed text (screen evidence: {evidence}). " +
             "The text was typed ONCE and was NOT cleared or retyped - clearing with Escape and retyping is what doubled " +
             $"prompts (issue #3290); it may still be sitting in the composer on screen. {MemoryPressure.Describe(pressure)}. " +
             $"{EchoMissDiagnostics(buffer, cursor, screenSnapshot, needle, visibleTailNeedle)} " +
-            $"Readable buffer tail: {TailOf(buffer)}");
+            $"Readable buffer tail: {TailOf(buffer)}")
+        { TerminalReacted = reacted };
     }
 
     private static async Task BracketedPasteSubmitAsync(
@@ -520,10 +577,12 @@ public static class TerminalSubmit
         var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
         var fileName = Path.GetFileName(tempPath);
-        var instruction = "Read file " + fileName + " in the .temp directory. Path: " + relRef +
-            ". If the path fails, search for " + fileName +
-            ". This file was explicitly created as the user-provided message payload for this turn; it is not hidden context. " +
-            "Follow the instructions in that file and reply with the requested strings only.";
+        // SHORT AND NEUTRAL (issue #3290). The instruction is typed key by key, and a Codex on a loaded machine takes
+        // about eight characters a second, so the 367-character wording took most of a minute. It also ended "reply
+        // with the requested strings only" - an order to the agent that every long prompt since July carried, whatever
+        // the prompt asked for.
+        var instruction = "The user's message for this turn is in the file " + relRef +
+            " (not hidden context). Read it and act on it as the user's prompt.";
         FileLog.Write($"[{driverTag}] SharedSubmit: payload file instruction len={text.Length}, file={relRef}");
 
         if (requireEcho)
@@ -562,9 +621,12 @@ public static class TerminalSubmit
     /// </summary>
     private static async Task ResolveRetainedComposerAsync(
         ISessionBackend backend, string driverTag, Func<string[]>? screenSnapshot,
-        byte[]? clearKeys = null, Func<bool>? composerHoldsNothing = null, bool unconditionally = false)
+        Func<int, byte[]?>? clearKeysFor = null, Func<bool>? composerHoldsNothing = null, bool unconditionally = false)
     {
         if (ComposerRetention.TakeRetainedText(backend) is not { } retained) return;
+        // SIZED BY THE TEXT THAT WAS LEFT, not the one about to be sent (review finding 8): sixty-four Backspaces cannot
+        // empty a Claude Code composer holding a 200-character line.
+        var clearKeys = clearKeysFor?.Invoke(retained.Length);
 
         var pressure = MemoryPressure.Level(MemoryProbe.Read());
         var retainedNeedle = NormalizeForEcho(retained);
@@ -587,8 +649,10 @@ public static class TerminalSubmit
             await Task.Delay(TimeSpan.FromMilliseconds(300));
             if (composerHoldsNothing is not null)
             {
+                // A loaded machine takes seconds to act on the clear, so the check runs for up to half a minute
+                // (review note) rather than five seconds that turned a slow clear into a failed send.
                 var empty = false;
-                for (var i = 0; i < 20 && !empty; i++)
+                for (var i = 0; i < 100 && !empty; i++)
                 {
                     empty = composerHoldsNothing();
                     if (empty) { await Task.Delay(BetweenScreenSamples); empty = composerHoldsNothing(); }
@@ -649,8 +713,14 @@ public static class TerminalSubmit
             var now = DateTime.UtcNow;
             var total = buffer.TotalBytesWritten;
             if (total != lastTotal) { lastTotal = total; lastChange = now; }
-            // Taken in: the agent has repainted since the paste and then gone quiet.
+            // Taken in: the agent has repainted since the paste and then gone quiet. An agent that has not repainted at
+            // all has not read the paste yet (measured on Pi under full load: thirty seconds without a byte), and an
+            // Enter written then was lost with the paste, so it is waited for up to the limit.
             if (total != startTotal && now - lastChange >= PasteQuiet) return;
+            // Where the composer can be read, the paste in it IS the proof it was taken in: Claude Code folds it into
+            // "[Pasted text]" while it is still being written, so waiting for output AFTER the writing waited two
+            // minutes for a repaint that had already happened (measured under full load, 24 September 2026).
+            if (now - lastChange >= PasteQuiet && TextWaitsInComposer.Value?.Invoke() == true) return;
             if (now - started >= PasteTakenInLimit)
             {
                 FileLog.Write($"[{driverTag}] SharedSubmit: no quiet repaint within {PasteTakenInLimit.TotalSeconds:F0}s of a " +
@@ -660,8 +730,8 @@ public static class TerminalSubmit
         }
     }
 
-    internal static readonly TimeSpan PasteQuiet = TimeSpan.FromMilliseconds(400);
-    internal static readonly TimeSpan PasteTakenInLimit = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan PasteQuiet = TimeSpan.FromSeconds(1);
+    internal static readonly TimeSpan PasteTakenInLimit = TimeSpan.FromSeconds(120);
 
     internal static readonly TimeSpan QuietBeforeClear = TimeSpan.FromSeconds(2);
     internal static readonly TimeSpan QuietBeforeClearLimit = TimeSpan.FromSeconds(15);
@@ -725,19 +795,20 @@ public static class TerminalSubmit
     /// deleted the owner's words.
     /// </summary>
     private static async Task<ComposerEvidence> ObserveComposerAsync(
-        Func<string[]>? screenSnapshot, string needle, string? visibleTailNeedle, MemoryPressureLevel pressure)
+        Func<string[]>? screenSnapshot, string needle, string? visibleTailNeedle, MemoryPressureLevel pressure,
+        int needleBefore = 0)
     {
         if (screenSnapshot is null || needle.Length == 0) return ComposerEvidence.Unknown;
 
         var first = ReadScreen(screenSnapshot);
         if (first is null) return ComposerEvidence.Unknown;
-        if (ScreenRowsShowText(first, needle, visibleTailNeedle)) return ComposerEvidence.Present;
+        if (ScreenRowsShowText(first, needle, visibleTailNeedle, needleBefore)) return ComposerEvidence.Present;
 
         await Task.Delay(BetweenScreenSamples);
 
         var second = ReadScreen(screenSnapshot);
         if (second is null) return ComposerEvidence.Unknown;
-        if (ScreenRowsShowText(second, needle, visibleTailNeedle)) return ComposerEvidence.Present;
+        if (ScreenRowsShowText(second, needle, visibleTailNeedle, needleBefore)) return ComposerEvidence.Present;
 
         // TWO NEGATIVE SAMPLES ARE NOT PROOF OF ABSENCE ON A STARVED MACHINE, and this is the sharpest
         // point the design review made. The samples are 120 milliseconds apart; a machine that is paging
@@ -779,11 +850,13 @@ public static class TerminalSubmit
     }
 
     /// <summary>Does this captured screen show the text? Split out so one capture can be asked twice.</summary>
-    private static bool ScreenRowsShowText(string[] rows, string needle, string? visibleTailNeedle)
+    private static bool ScreenRowsShowText(string[] rows, string needle, string? visibleTailNeedle, int needleBefore = 0)
     {
         if (needle.Length == 0) return false;
 
         var hay = NormalizeForEcho(string.Concat(rows));
+        if (needleBefore > 0)
+            return CountIn(hay, needle) > needleBefore;
         if (hay.Contains(needle, StringComparison.Ordinal))
             return true;
 
@@ -810,12 +883,29 @@ public static class TerminalSubmit
     internal const int ClaudeTypingLimit = 200;
 
     private static bool ShouldPasteRatherThanType(string driverTag, string text) =>
-        text.Length > ClaudeTypingLimit && driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase);
+        text.Length > ClaudeTypingLimit
+        && (driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase)
+            // Pi too (issue #3290, measured 24 September 2026 with every core busy): an 869-character line typed into Pi
+            // was not drawn for over twenty seconds, while a 292-character paste was taken in within twelve.
+            || driverTag.Equals("Pi", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The longest text pasted into Claude Code or Pi. Longer goes through a file - an @-reference for Claude Code, the
+    /// instruction line for Pi, whose @ only searches file names - because with every core busy neither took in an 8 KB
+    /// paste in time (issue #3290, measured 24 September 2026: Claude Code not at all, Pi after the three-minute window).
+    /// </summary>
+    internal const int PasteLimit = 2000;
+
+    private static bool ShouldReferenceRatherThanPaste(string driverTag, string text) =>
+        text.Length > PasteLimit && driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase);
 
     private static bool ShouldUseInstructionFile(string driverTag, string text)
     {
         if (!LargeInputHandler.IsLargeInput(text) && text.Length <= 300)
             return false;
+
+        if (text.Length > PasteLimit && driverTag.Equals("Pi", StringComparison.OrdinalIgnoreCase))
+            return true;
 
         return driverTag.Contains("Codex", StringComparison.OrdinalIgnoreCase)
                || driverTag.Contains("Copilot", StringComparison.OrdinalIgnoreCase)
@@ -829,13 +919,16 @@ public static class TerminalSubmit
     /// deadline called both "not accepting input" and cleared-and-retyped a composer that was filling up, which
     /// doubled the prompt. The deadline now runs from the LAST sign of progress, up to this limit.
     /// </summary>
-    internal static readonly TimeSpan EchoProgressCap = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan EchoProgressCap = TimeSpan.FromSeconds(120);
 
     /// <summary>How long a composer that has visibly begun taking the text may pause before the echo is called missing.</summary>
     internal static readonly TimeSpan PrefixQuietAllowance = TimeSpan.FromSeconds(30);
 
-    /// <summary>How long a terminal that has printed nothing at all since the typing is waited for.</summary>
-    internal static readonly TimeSpan NoReactionAllowance = TimeSpan.FromSeconds(20);
+    /// <summary>
+    /// How long a terminal that has printed nothing at all since the typing is waited for. Waiting costs nothing - the
+    /// keystrokes queue in the pipe - and with every core busy Pi printed nothing for over twenty seconds (issue #3290).
+    /// </summary>
+    internal static readonly TimeSpan NoReactionAllowance = TimeSpan.FromSeconds(60);
 
     private static readonly TimeSpan ScreenProgressInterval = TimeSpan.FromMilliseconds(500);
 
@@ -850,6 +943,16 @@ public static class TerminalSubmit
         var rows = ReadScreen(screenSnapshot);
         if (rows is null) return 0;
         return PrefixLengthIn(NormalizeForEcho(string.Concat(rows)), needle);
+    }
+
+    /// <summary>How many times <paramref name="needle"/> occurs in <paramref name="hay"/>, without overlap.</summary>
+    internal static int CountIn(string hay, string needle)
+    {
+        if (needle.Length == 0) return 0;
+        var count = 0;
+        for (var at = hay.IndexOf(needle, StringComparison.Ordinal); at >= 0; at = hay.IndexOf(needle, at + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     internal static int PrefixLengthIn(string hay, string needle)
@@ -872,7 +975,7 @@ public static class TerminalSubmit
     /// </summary>
     private static async Task<bool> WaitForEchoAsync(
         CircularTerminalBuffer buffer, long cursor, string needle, string? visibleTailNeedle, TimeSpan timeout, TimeSpan poll,
-        TimeSpan? hardCap = null, Func<string[]>? screenSnapshot = null, int prefixBefore = 0)
+        TimeSpan? hardCap = null, Func<string[]>? screenSnapshot = null, int prefixBefore = 0, int needleBefore = 0)
     {
         var started = DateTime.UtcNow;
         var cap = hardCap ?? timeout;
@@ -909,6 +1012,18 @@ public static class TerminalSubmit
             // whole line. The keystrokes wait in the pipe; four seconds of silence called that a miss, and the clear and
             // retype that followed ran into the characters as Pi caught up.
             var timeoutNow = hardCap is not null && total == cursor && quiet < NoReactionAllowance ? NoReactionAllowance : quiet;
+
+            // The same text already on screen: a repaint can re-send the old copy, so only the screen counting a NEW
+            // copy is an echo.
+            if (needleBefore > 0)
+            {
+                if (screenSnapshot is not null && ReadScreen(screenSnapshot) is { } rowsNow
+                    && CountIn(NormalizeForEcho(string.Concat(rowsNow)), needle) > needleBefore)
+                    return true;
+                if (now - lastProgress >= timeoutNow || now - started >= cap) return false;
+                await Task.Delay(poll);
+                continue;
+            }
 
             var (bytes, _) = buffer.GetWrittenSince(cursor);
             var hay = NormalizeForEcho(StripAnsi(Encoding.UTF8.GetString(bytes)));

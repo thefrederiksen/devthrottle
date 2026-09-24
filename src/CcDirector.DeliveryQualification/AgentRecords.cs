@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -76,13 +76,16 @@ public static class AgentRecords
                     // Anything else in the same record is a MERGE - another text run together with this one, the
                     // corruption of pull request #1513 - unless it is a wrapper the agent puts round a paste.
                     var doubled = hay.IndexOf(needle, at + Math.Max(1, needle.Length), StringComparison.Ordinal) >= 0
-                                  || Leftover(hay, needle).Length > 0;
+                                  || Leftover(hay, needle).Length > 0
+                                  || TurnsHolding(agent, sinceUtc, needle) > 1;
                     return new(true, false, doubled, false, file);
                 }
                 if (FindPayload(s, needle, repoDirs) is { } p)
                 {
-                    // The file route's record must be the instruction line alone.
-                    var merged = !Normalize(s).StartsWith("Read file input_", StringComparison.Ordinal);
+                    // The file route's record must be the instruction line alone, or (Claude Code) the @-reference alone.
+                    var record = s.Trim();
+                    var merged = !Normalize(s).StartsWith("The user's message for this turn is in the file", StringComparison.Ordinal)
+                                 && !(record.StartsWith('@') && !record.Any(char.IsWhiteSpace));
                     return new(true, true, merged, false, p);
                 }
                 if (partialWhere is null && head.Length > 0 && hay.Contains(head, StringComparison.Ordinal))
@@ -90,6 +93,51 @@ public static class AgentRecords
             }
         }
         return new(false, false, false, partialWhere is not null, partialWhere);
+    }
+
+    /// <summary>
+    /// How many USER TURNS hold the text, across every candidate file: one record kind per agent, so an agent that
+    /// writes the same prompt into two kinds of record (Codex: an event and a response item) is not counted twice.
+    /// Two turns is a prompt delivered twice - the double a resend can cause, which a check that stops at the first
+    /// hit reads as ARRIVED (review finding 3).
+    /// </summary>
+    private static int TurnsHolding(string agent, DateTime sinceUtc, string needle)
+    {
+        var turns = 0;
+        foreach (var file in CandidateFiles(agent, sinceUtc).Where(f => f.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)))
+        {
+            var raw = ReadShared(file);
+            if (raw is null) continue;
+            foreach (var line in Encoding.UTF8.GetString(raw).Split('\n'))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    if (!IsUserTurn(agent, doc.RootElement)) continue;
+                    var strings = new List<string>();
+                    Collect(doc.RootElement, strings);
+                    if (strings.Any(x => Normalize(x).Contains(needle, StringComparison.Ordinal))) turns++;
+                }
+                catch (JsonException) { }
+            }
+        }
+        return turns;
+    }
+
+    private static bool IsUserTurn(string agent, JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return false;
+        static string? Str(JsonElement e, string name) =>
+            e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        var type = Str(root, "type");
+        return agent switch
+        {
+            "claude" => type == "user" && !(root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True),
+            "codex" => type == "event_msg" && root.TryGetProperty("payload", out var p) && Str(p, "type") == "user_message",
+            "pi" => type == "message" && root.TryGetProperty("message", out var msg) && Str(msg, "role") == "user",
+            _ => false,
+        };
     }
 
     private static readonly Regex PasteWrapper = new(@"^<pasted_content id=""[^""]*"">|</pasted_content(?: id=""[^""]*"")?>$", RegexOptions.CultureInvariant);
