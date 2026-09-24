@@ -4,6 +4,15 @@ Gmail CLI: read, send, search, and manage emails from the command line.
 
 Supports **multiple Gmail accounts** with easy switching between them.
 
+**Connecting a Google account for the first time?** Read
+[Connect a Google account to cc-gmail](docs/connect-a-google-account.md) - the whole
+path, both forks (Workspace and personal Gmail), from nothing to a working mailbox.
+Or let the tool walk it with you and prove the result:
+
+```bash
+cc-gmail setup personal
+```
+
 ## Quick Start (App Password -- 2 minutes)
 
 Most users should use this method. No Google Cloud project needed.
@@ -101,57 +110,49 @@ own Google Cloud project with its own OAuth credentials.
 
 ### OAuth Setup Steps
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. **Create a new project** (one project per Gmail account is recommended)
-   - Name it `cc-gmail` or similar
-   - If using a Workspace account, create it under your organization
-3. Enable these APIs (click each link, select your project, click Enable):
-   - [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com) (required for email)
-   - [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com) (for calendar commands)
-   - [People API](https://console.cloud.google.com/apis/library/people.googleapis.com) (for contacts commands)
-4. Set up OAuth consent screen:
-   - Go to [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent)
-   - Select **External** user type (or **Internal** for Workspace)
-   - App name: `cc-gmail`, add your email
-   - Under **Test users**, add your Gmail address
-5. **Register scopes on the Data Access page** (critical step):
-   - Click **Data Access** in the left sidebar
-   - Click **Add or remove scopes**
-   - Scroll to **"Manually add scopes"** at the bottom of the panel
-   - Add each scope one at a time: type it, check the box, click **Update**
-   - Add these 6 scopes:
-     - `gmail.send`
-     - `gmail.readonly`
-     - `gmail.compose`
-     - `gmail.modify`
-     - `auth/calendar` (pick the shortest match, no suffix)
-     - `auth/contacts` (pick the shortest match, no suffix)
-   - After all 6 are added, click **Save**
-   - Without this step, Google silently drops unregistered scopes from the
-     consent screen, leading to "Insufficient Permission" errors
-   - IMPORTANT: Do NOT add `mail.google.com` -- that is a different scope
-6. Create OAuth credentials:
-   - Go to [Credentials](https://console.cloud.google.com/apis/credentials)
-   - **Create Credentials** -> **OAuth client ID** -> **Desktop app**
-   - Download the JSON file
-7. Set up the account:
+The full walk, with both forks and every trap, is in
+**[docs/connect-a-google-account.md](docs/connect-a-google-account.md)**. The
+guided command does the same walk, installs the downloaded client JSON for you,
+and refuses to claim success until a real Google call answers:
 
 ```bash
-# During account add, type 'oauth' when prompted for app password
+cc-gmail setup work
+```
+
+In outline, once per Google account:
+
+1. Create a Google Cloud project - https://console.cloud.google.com/projectcreate
+2. Enable the [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com),
+   [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
+   and [People API](https://console.cloud.google.com/apis/library/people.googleapis.com)
+3. Configure the consent screen at https://console.cloud.google.com/auth/overview -
+   **Internal** for Workspace, **External** for a personal Google Account
+4. Register all six scopes on [Data Access](https://console.cloud.google.com/auth/scopes).
+   Google drops unregistered scopes silently, and `mail.google.com` is NOT one of them.
+5. **External only: click "Publish app" on
+   [Audience](https://console.cloud.google.com/auth/audience).**
+   An External app left in Testing gets a refresh token that
+   **expires after 7 days** - everything works today and dies next week. Publishing
+   submits nothing to Google for review. Internal apps have no such step.
+6. Create an OAuth client, type **Desktop app**, and **Download JSON**. Google shows
+   you the client secret only once.
+
+Then once per computer:
+
+```bash
+# Creates the account and prints the exact path for credentials.json
 cc-gmail accounts add work
 # Email: you@company.com
-# App Password: oauth
+# App Password (or 'oauth' for advanced setup): oauth
 
-# Place credentials.json in the account folder
-# (path shown during setup)
-
-# Authenticate
+# Put the downloaded JSON at that path as credentials.json, then:
 cc-gmail -a work auth
 
-# If authenticating on a machine without a browser (e.g., remote server),
-# or if you need to use a specific browser profile:
+# On a machine without a browser, or to use a particular browser profile:
 cc-gmail -a work auth --no-browser
 ```
+
+The downloaded client JSON is the only file that moves between machines.
 
 Or switch an existing account to OAuth:
 
@@ -235,6 +236,12 @@ cc-gmail accounts remove old-account
 ### Authentication
 
 ```bash
+# Walk the whole Google setup for a new account, and prove it works
+cc-gmail setup work
+
+# Skip the console walk when you already have the client JSON
+cc-gmail setup work --client-json ~/Downloads/client_secret_....json
+
 # Authenticate current/default account
 cc-gmail auth
 
@@ -428,11 +435,31 @@ Enable the Gmail API:
 
 Wrong OAuth client type. Create a new one with type **Desktop app** (not Web application).
 
-### OAuth: "App not verified"
+### OAuth: "Google hasn't verified this app"
 
-Add yourself as a test user:
-1. Go to https://console.cloud.google.com/apis/credentials/consent
-2. Under "Test users", add your Gmail address
+Expected on a personal Google Account. Your app is yours, and it is unverified
+because you never submitted it for review - which you do not need to do. Click
+**Advanced**, then **"Go to cc-gmail (unsafe)"**.
+
+Do NOT solve this by adding yourself as a test user and leaving the app in
+Testing: an External app in Testing gets a refresh token that expires after 7
+days. Click **Publish app** on
+[Audience](https://console.cloud.google.com/auth/audience) instead. See
+[docs/connect-a-google-account.md](docs/connect-a-google-account.md).
+
+On Workspace with an Internal app this screen never appears at all.
+
+### OAuth: it worked for a week, then stopped
+
+Your app is External and still in **Testing**. Google expires that refresh token
+after 7 days. Publish the app at
+[Audience](https://console.cloud.google.com/auth/audience), then
+`cc-gmail auth --force`.
+
+### OAuth: it stopped right after you changed your Google password
+
+Expected, and unavoidable: Google invalidates a refresh token carrying Gmail
+scopes when the account password changes. Run `cc-gmail auth --force`.
 
 ### Calendar: "Calendar API is not enabled"
 
@@ -455,7 +482,7 @@ Access page. The consent screen appears to work, but the token is granted
 fewer permissions than requested.
 
 Fix:
-1. Go to [Data Access](https://console.cloud.google.com/auth/data-access)
+1. Go to [Data Access](https://console.cloud.google.com/auth/scopes)
 2. Click **Add or remove scopes**
 3. Add exactly these scopes (they must match what cc-gmail requests):
    - `https://www.googleapis.com/auth/gmail.readonly`

@@ -9,6 +9,8 @@ import functools
 import json
 import logging
 import sys
+import time
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple
@@ -117,6 +119,8 @@ try:
         adoption_notes,
         get_token_path,
     )
+    from . import setup_flow
+    from .auth import SCOPES
     from .gmail_api import GmailClient
     from .imap_client import ImapClient
     from .smtp_client import SmtpClient
@@ -153,6 +157,8 @@ except ImportError:
         adoption_notes,
         get_token_path,
     )
+    from src import setup_flow
+    from src.auth import SCOPES
     from src.gmail_api import GmailClient
     from src.imap_client import ImapClient
     from src.smtp_client import SmtpClient
@@ -925,6 +931,423 @@ def accounts_status(
                 f"\n[yellow]Re-authenticate with:[/yellow] cc-gmail --account {acct} auth --force"
             )
             console.print(f"See: {get_readme_path()}")
+
+
+# =============================================================================
+# Guided Setup
+# =============================================================================
+
+SETUP_DOC_URL = (
+    "https://github.com/thefrederiksen/devthrottle/blob/main/"
+    "tools/cc-gmail/docs/connect-a-google-account.md"
+)
+
+# The console pages, in the order they have to be visited. Google reorganised
+# these in 2026; these are the Google Auth Platform paths, not the retired
+# "APIs & Services > OAuth consent screen" ones.
+CONSOLE_PROJECT_CREATE = "https://console.cloud.google.com/projectcreate"
+CONSOLE_API_LIBRARY = {
+    "Gmail API": "https://console.cloud.google.com/apis/library/gmail.googleapis.com",
+    "Google Calendar API": "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com",
+    "Google People API": "https://console.cloud.google.com/apis/library/people.googleapis.com",
+}
+CONSOLE_AUTH_OVERVIEW = "https://console.cloud.google.com/auth/overview"
+CONSOLE_AUDIENCE = "https://console.cloud.google.com/auth/audience"
+# The Data Access page. The sidebar calls it "Data Access" and older guides link
+# /auth/data-access, which now returns "URL not found" - the page is /auth/scopes
+# (checked against the live console on 2026-09-24).
+CONSOLE_DATA_ACCESS = "https://console.cloud.google.com/auth/scopes"
+CONSOLE_CLIENTS = "https://console.cloud.google.com/auth/clients"
+
+
+def _open_console_page(url: str, open_browser: bool) -> None:
+    """Show a console URL, and open it unless the user asked us not to."""
+    console.print(f"   [cyan]{url}[/cyan]")
+    if not open_browser:
+        return
+    try:
+        webbrowser.open(url)
+    except OSError as e:
+        # Not fatal: the URL is on screen either way.
+        logger.debug(f"Could not open a browser for {url}: {e}")
+        console.print("   [yellow](could not open a browser - open the link yourself)[/yellow]")
+
+
+def _setup_step(number: int, title: str) -> None:
+    console.print()
+    console.print(f"[bold cyan]Step {number}.[/bold cyan] [bold]{title}[/bold]")
+
+
+def _confirm_fork(email_addr: str, open_browser: bool) -> str:
+    """Work out which fork the user is on and say it out loud before anything else.
+
+    Returns the user type their consent screen should be configured with.
+    """
+    domain = setup_flow.email_domain(email_addr)
+    console.print()
+    console.print("Working out which Google setup this address needs...")
+    fork = setup_flow.detect_fork(email_addr)
+
+    if fork == setup_flow.FORK_WORKSPACE:
+        console.print(
+            f"  [green]Google Workspace[/green] - {domain} has its mail hosted by Google."
+        )
+        console.print("  Your consent screen can be [bold]Internal[/bold]: no unverified-app")
+        console.print("  screen, no 100-user cap, and no 7-day token expiry.")
+    elif fork == setup_flow.FORK_PERSONAL:
+        if domain in setup_flow.PERSONAL_DOMAINS:
+            console.print(f"  [green]Personal Google Account[/green] - {domain}.")
+        else:
+            console.print(
+                f"  [green]Personal Google Account[/green] - {domain} does not have its "
+                "mail hosted by Google."
+            )
+        console.print("  Your consent screen must be [bold]External[/bold], which means one")
+        console.print("  'Google hasn't verified this app' screen, and a [bold]Publish app[/bold]")
+        console.print("  step that you must not skip.")
+    else:
+        console.print(
+            f"  [yellow]Not established[/yellow] - the DNS lookup for {domain or 'that address'} "
+            "gave no answer."
+        )
+
+    default_type = setup_flow.FORK_USER_TYPE[fork]
+    if default_type == setup_flow.USER_TYPE_UNKNOWN:
+        default_type = setup_flow.USER_TYPE_EXTERNAL
+
+    console.print()
+    chosen = typer.prompt(
+        "Which user type will you choose on the consent screen? (internal/external)",
+        default=default_type,
+    ).strip().lower()
+
+    if chosen not in (setup_flow.USER_TYPE_INTERNAL, setup_flow.USER_TYPE_EXTERNAL):
+        console.print(f"[red]Error:[/red] '{chosen}' is not a user type. Say internal or external.")
+        raise typer.Exit(1)
+
+    if chosen == setup_flow.USER_TYPE_INTERNAL and fork == setup_flow.FORK_PERSONAL:
+        console.print()
+        console.print(
+            "[yellow]Internal is only offered to a Google Cloud organisation.[/yellow]"
+        )
+        console.print(
+            "A personal Google Account has no organisation, so the console will only "
+            "let you pick External."
+        )
+        if not typer.confirm("Carry on with Internal anyway?", default=False):
+            chosen = setup_flow.USER_TYPE_EXTERNAL
+            console.print("Using External.")
+
+    return chosen
+
+
+def _walk_the_console(user_type: str, open_browser: bool) -> None:
+    """Open the console pages one at a time, saying what to do on each."""
+    _setup_step(1, "Create a Google Cloud project")
+    console.print("   One project per Google account. Name it cc-gmail.")
+    _open_console_page(CONSOLE_PROJECT_CREATE, open_browser)
+    typer.prompt("   Press Enter when the project exists", default="", show_default=False)
+
+    _setup_step(2, "Enable the three APIs this tool calls")
+    console.print("   On each page: check your new project is selected, click Enable.")
+    for api_name, url in CONSOLE_API_LIBRARY.items():
+        console.print()
+        console.print(f"   [bold]{api_name}[/bold]")
+        _open_console_page(url, open_browser)
+        typer.prompt(f"   Press Enter when {api_name} is enabled", default="", show_default=False)
+
+    _setup_step(3, "Configure the consent screen")
+    console.print(f"   Click 'Get started'. App name: cc-gmail. User type: [bold]{user_type.title()}[/bold].")
+    _open_console_page(CONSOLE_AUTH_OVERVIEW, open_browser)
+    typer.prompt("   Press Enter when the consent screen is created", default="", show_default=False)
+
+    _setup_step(4, "Register the scopes on Data Access")
+    console.print("   'Add or remove scopes' -> scroll to 'Manually add scopes' at the")
+    console.print("   bottom -> add these one at a time, then Save:")
+    for scope in SCOPES:
+        console.print(f"     [dim]{scope}[/dim]")
+    console.print()
+    console.print("   [yellow]Do NOT add https://mail.google.com/[/yellow] - it is a different")
+    console.print("   scope, and Google drops mismatched scopes silently.")
+    _open_console_page(CONSOLE_DATA_ACCESS, open_browser)
+    typer.prompt("   Press Enter when all six scopes are saved", default="", show_default=False)
+
+
+def _publish_step(user_type: str, open_browser: bool) -> Optional[bool]:
+    """The step everybody skips. Returns whether the app is published.
+
+    None means "not applicable" - an Internal app has no publishing status.
+    """
+    if user_type == setup_flow.USER_TYPE_INTERNAL:
+        _setup_step(5, "Publish the app - NOT NEEDED for an Internal app")
+        console.print("   Internal apps have no publishing status, no unverified-app screen")
+        console.print("   and no 7-day token expiry. Skipping.")
+        return None
+
+    _setup_step(5, "PUBLISH THE APP - the step that decides whether this lasts")
+    console.print(
+        Panel(
+            "An External app left in [bold]Testing[/bold] gets a refresh token that\n"
+            "[bold red]EXPIRES AFTER 7 DAYS[/bold red]. Everything will work today and\n"
+            "stop working next week, with no warning and no useful error.\n"
+            "\n"
+            "On the Audience page, click [bold]Publish app[/bold] and confirm.\n"
+            "The status must read [bold]In production[/bold].\n"
+            "\n"
+            "Publishing does NOT submit anything to Google for review. Your app\n"
+            "stays unverified, which for your own mailbox is fine: you click\n"
+            "through one warning screen the first time.",
+            title="Do not skip this",
+            border_style="red",
+        )
+    )
+    _open_console_page(CONSOLE_AUDIENCE, open_browser)
+    return typer.confirm("   Does the Audience page now say 'In production'?", default=False)
+
+
+def _obtain_client_json(
+    account: str,
+    open_browser: bool,
+    client_json: Optional[Path],
+    downloads: Optional[Path],
+    wait_seconds: int,
+) -> Path:
+    """Get the OAuth client JSON onto disk in the place this account reads it from."""
+    destination = get_credentials_path(account)
+
+    if client_json is not None:
+        source = client_json.expanduser()
+        if not source.is_file():
+            console.print(f"[red]Error:[/red] No file at {source}")
+            raise typer.Exit(1)
+    else:
+        _setup_step(6, "Create the OAuth client and download its JSON")
+        console.print("   'Create Client' -> Application type: [bold]Desktop app[/bold] ->")
+        console.print("   Create -> [bold]Download JSON[/bold].")
+        console.print()
+        console.print("   Google will not show you the client secret again, so download it now.")
+        _open_console_page(CONSOLE_CLIENTS, open_browser)
+
+        watch_dirs = [downloads.expanduser()] if downloads else setup_flow.default_download_dirs()
+        started = time.time()
+        console.print()
+        console.print(f"   Watching {', '.join(str(d) for d in watch_dirs)} for the download")
+        console.print(f"   (up to {wait_seconds}s). Matched on the file's contents, not its name.")
+
+        def wrong_type(path: Path) -> None:
+            console.print(
+                f"   [yellow]{path.name} is a Web application client.[/yellow] cc-gmail needs a "
+                "[bold]Desktop app[/bold] client - go back and create that one."
+            )
+
+        found = setup_flow.watch_for_client_json(
+            watch_dirs,
+            modified_after=started,
+            timeout=float(wait_seconds),
+            on_wrong_type=wrong_type,
+        )
+        if found is None:
+            console.print()
+            console.print("[red]Error:[/red] No Desktop client JSON appeared.")
+            console.print(f"Download it, then run:  cc-gmail setup {account} --client-json <path>")
+            raise typer.Exit(1)
+        source = found
+        console.print(f"   [green][OK][/green] Found {source.name}")
+
+    try:
+        setup_flow.install_client_json(source, destination)
+    except setup_flow.SetupError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    classified = setup_flow.classify_client_json(destination)
+    facts = setup_flow.describe_client_json(classified[1])
+    console.print(f"   [green][OK][/green] Installed to {destination}")
+    console.print(f"        project: {facts['project_id']}")
+    console.print(f"        client id ends ...{facts['client_id_tail']}")
+
+    if client_json is None and source.exists():
+        console.print()
+        console.print(
+            "   The downloaded copy still holds the client secret in your downloads folder."
+        )
+        if typer.confirm(f"   Delete {source}?", default=True):
+            source.unlink()
+            console.print("   [green][OK][/green] Deleted.")
+
+    return destination
+
+
+def _verify_setup(account: str, creds) -> bool:
+    """Prove the account works with real Google calls. Returns True if Gmail answered."""
+    _setup_step(8, "Prove it works")
+
+    gmail_ok = False
+    try:
+        facts = setup_flow.verify_gmail(GmailClient(creds))
+        gmail_ok = True
+        console.print(
+            f"   [green][OK][/green] Gmail: {facts['email']}, "
+            f"{facts['messages_total']} messages, {facts['labels']} labels"
+        )
+    except setup_flow.SetupError as e:
+        console.print(f"   [red][FAILED][/red] Gmail: {e}")
+    except HttpError as e:
+        console.print("   [red][FAILED][/red] Gmail:")
+        handle_api_error(e, account)
+
+    try:
+        facts = setup_flow.verify_calendar(CalendarClient(creds))
+        console.print(f"   [green][OK][/green] Calendar: {facts['calendars']} calendars")
+    except setup_flow.SetupError as e:
+        console.print(f"   [yellow][NOT PROVEN][/yellow] Calendar: {e}")
+    except HttpError as e:
+        console.print(f"   [yellow][NOT PROVEN][/yellow] Calendar: {e.reason if hasattr(e, 'reason') else e}")
+        console.print(f"        Enable it at {CONSOLE_API_LIBRARY['Google Calendar API']}")
+
+    try:
+        facts = setup_flow.verify_contacts(ContactsClient(creds))
+        console.print(
+            f"   [green][OK][/green] Contacts: the People API answered "
+            f"({facts['contacts_sampled']} returned from a sample of 1)"
+        )
+    except setup_flow.SetupError as e:
+        console.print(f"   [yellow][NOT PROVEN][/yellow] Contacts: {e}")
+    except HttpError as e:
+        console.print(f"   [yellow][NOT PROVEN][/yellow] Contacts: {e.reason if hasattr(e, 'reason') else e}")
+        console.print(f"        Enable it at {CONSOLE_API_LIBRARY['Google People API']}")
+
+    return gmail_ok
+
+
+@app.command()
+def setup(
+    name: str = typer.Argument("personal", help="Account name to create (e.g., 'personal', 'work')"),
+    email_addr: Optional[str] = typer.Option(None, "--email", "-e", help="The Gmail address this account signs in as"),
+    client_json: Optional[Path] = typer.Option(None, "--client-json", help="Skip the download watch; use this OAuth client JSON"),
+    downloads: Optional[Path] = typer.Option(None, "--downloads", help="Folder to watch for the download (default: ~/Downloads)"),
+    wait_seconds: int = typer.Option(600, "--wait", help="Seconds to wait for the download"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Print the console URLs instead of opening them"),
+    set_as_default: bool = typer.Option(False, "--default", "-d", help="Set as the default account"),
+):
+    """Walk the whole Google OAuth setup for one account, and prove it works.
+
+    Does the same walk as the setup document, one page at a time, watches your
+    downloads folder for the OAuth client JSON, and refuses to report success
+    until a real Google call answers.
+    """
+    try:
+        open_browser = not no_browser
+
+        console.print()
+        console.print(Panel(
+            f"Setting up cc-gmail account [bold]{name}[/bold].\n"
+            "\n"
+            "Google has no API that creates a Desktop OAuth client, so part of this\n"
+            "happens in a browser. DevThrottle publishes no Google app: the project\n"
+            "and the client are yours, in your own Google Cloud account.\n"
+            "\n"
+            f"The same walk, written down: {SETUP_DOC_URL}",
+            title="cc-gmail setup",
+        ))
+
+        existing = load_account_config(name)
+        if existing.get("auth_method") == "oauth" and credentials_exist(name):
+            console.print()
+            console.print(f"[yellow]Account '{name}' already has an OAuth client installed.[/yellow]")
+            if not typer.confirm("Set it up again from the start?", default=False):
+                console.print(f"Nothing changed. To re-authenticate: cc-gmail --account {name} auth --force")
+                return
+
+        if not email_addr:
+            email_addr = typer.prompt("Email address this account signs in as")
+
+        user_type = _confirm_fork(email_addr, open_browser)
+
+        save_account_config(name, {"email": email_addr, "auth_method": "oauth"})
+
+        if client_json is None:
+            _walk_the_console(user_type, open_browser)
+            published = _publish_step(user_type, open_browser)
+        else:
+            console.print()
+            console.print("[dim]--client-json given: skipping the console walk.[/dim]")
+            published = None if user_type == setup_flow.USER_TYPE_INTERNAL else typer.confirm(
+                "Is the app published (Audience page says 'In production')?", default=False
+            )
+
+        _obtain_client_json(name, open_browser, client_json, downloads, wait_seconds)
+
+        _setup_step(7, "Authorise this computer")
+        console.print("   A browser opens on Google's consent screen. Sign in as")
+        console.print(f"   [bold]{email_addr}[/bold] and click Allow.")
+        if user_type == setup_flow.USER_TYPE_EXTERNAL:
+            console.print("   You will see 'Google hasn't verified this app' first: click")
+            console.print("   Advanced, then 'Go to cc-gmail (unsafe)'. It is your own app.")
+        console.print("   [yellow]Do not close this window until it says authorised.[/yellow]")
+        console.print()
+
+        try:
+            creds = authenticate(name, force=True, open_browser=open_browser)
+        except (ValueError, OSError) as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+        console.print("   [green][OK][/green] Google returned a token.")
+
+        gmail_ok = _verify_setup(name, creds)
+
+        config = load_account_config(name)
+        config.update({
+            "email": email_addr,
+            "auth_method": "oauth",
+            "user_type": user_type,
+            "published": published,
+        })
+        save_account_config(name, config)
+
+        if set_as_default or not get_default_account():
+            set_default_account(name)
+
+        console.print()
+        severity, note = setup_flow.token_lifetime_note(user_type, published, name)
+        console.print(Panel(
+            note,
+            title="How long this will last",
+            border_style="red" if severity == "warning" else "green",
+        ))
+
+        console.print()
+        if not gmail_ok:
+            console.print(Panel(
+                f"Account '{name}' is NOT working. Google issued a token, but the\n"
+                "Gmail call it is supposed to make did not answer.\n"
+                "\n"
+                "The usual cause is the Data Access page: the six scopes there must\n"
+                "match, character for character, what cc-gmail asks for. Google drops\n"
+                "mismatched scopes silently.\n"
+                f"\n{CONSOLE_DATA_ACCESS}\n"
+                f"\nThen: cc-gmail --account {name} auth --force",
+                title="Not set up",
+                border_style="red",
+            ))
+            raise typer.Exit(1)
+
+        console.print(Panel(
+            f"Account '{name}' is set up and proven.\n"
+            "\n"
+            f"  cc-gmail --account {name} labels\n"
+            f"  cc-gmail --account {name} list\n"
+            f"  cc-gmail --account {name} calendar events\n"
+            "\n"
+            "On another computer, repeat only the per-computer half: run\n"
+            f"  cc-gmail setup {name} --client-json <the same downloaded JSON>\n"
+            "The client JSON is the only file that travels between machines.",
+            title="Done",
+            border_style="green",
+        ))
+    except typer.Abort:
+        console.print("\n[yellow]Setup cancelled. Nothing further was changed.[/yellow]")
+        raise typer.Exit(1)
 
 
 # =============================================================================
