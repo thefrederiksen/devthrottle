@@ -166,13 +166,33 @@ public sealed class ContextLessRouteCensusTests
     ///     (family "exes-slots"); additionally mapped only on Windows.
     /// On self-host both are single-owner surfaces behind the host-wide credential gate.
     /// </summary>
+    /// <summary>
+    /// Context-less routes the self-host Gateway has and the hosted one does not, on EVERY platform.
+    /// </summary>
     private static readonly string[] SelfHostOnlyExtras =
     {
-        "DELETE /exes/slots/{n}",
         "DELETE /vault/keys/{name}",
         "GET /vault/keys/{name}",
+    };
+
+    /// <summary>
+    /// The developer exe slots, which the self-host Gateway maps ONLY on Windows. The whole surface
+    /// shells out to powershell.exe against a local_builds directory, so off Windows
+    /// <c>GatewayEndpoints</c> deliberately does not map it (see the comment at its
+    /// <c>OperatingSystem.IsWindows()</c> guard). The census therefore expects these rows on Windows
+    /// and their absence elsewhere - which keeps this a real census of every OTHER route family on
+    /// macOS and Linux, rather than a test skipped wholesale for four rows.
+    /// </summary>
+    private static readonly string[] SelfHostWindowsOnlyExtras =
+    {
+        "DELETE /exes/slots/{n}",
         "POST /exes/slots/{n}/build-start",
     };
+
+    private static IEnumerable<string> SelfHostExtrasForThisPlatform =>
+        OperatingSystem.IsWindows()
+            ? SelfHostOnlyExtras.Concat(SelfHostWindowsOnlyExtras)
+            : SelfHostOnlyExtras;
 
     [Fact]
     public async Task The_hosted_context_less_route_set_is_exactly_the_ruled_census()
@@ -194,7 +214,7 @@ public sealed class ContextLessRouteCensusTests
         var actual = await ContextLessRoutes(hosted: false);
         foreach (var row in actual) _out.WriteLine(row);
 
-        var expected = HostedCensus.Concat(SelfHostOnlyExtras).OrderBy(s => s, StringComparer.Ordinal).ToArray();
+        var expected = HostedCensus.Concat(SelfHostExtrasForThisPlatform).OrderBy(s => s, StringComparer.Ordinal).ToArray();
         Assert.Equal(expected, actual);
 
         // The point of the pair: the key vault and the developer exe slots are context-less routes over
@@ -204,7 +224,7 @@ public sealed class ContextLessRouteCensusTests
         // assertion this file cannot fail. Each extra must be present in the self-host table (it is, by
         // the equality above) and ABSENT from the hosted one.
         var hostedActual = await ContextLessRoutes(hosted: true);
-        foreach (var row in SelfHostOnlyExtras)
+        foreach (var row in SelfHostExtrasForThisPlatform)
         {
             Assert.Contains(row, actual);
             Assert.DoesNotContain(row, hostedActual);

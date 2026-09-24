@@ -7,6 +7,7 @@ using CcDirector.Gateway.Contracts;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection; // AddMessagePackProtocol (client)
 using Xunit;
+using CcDirector.Core.Tests;   // WindowsOnlyFact, linked into this project
 
 namespace CcDirector.Gateway.Tests;
 
@@ -102,7 +103,7 @@ public sealed class TunnelRosterPushReadProofTests : IAsyncLifetime
         Assert.Equal(2, node?["sessions"]?.GetValue<int>());
     }
 
-    [Fact]
+    [WindowsOnlyFact("the /exes surface is mapped only on Windows - it builds developer slot executables by shelling out to powershell.exe against a local_builds directory, so GatewayEndpoints deliberately does not map those routes off Windows and /exes/list answers 404")]
     public async Task ExesList_readsTheDirectorSessionsFromThePushStore()
     {
         var sid = Guid.NewGuid().ToString();
@@ -128,7 +129,7 @@ public sealed class TunnelRosterPushReadProofTests : IAsyncLifetime
 
     // ---------- defect 6: /exes/list runs the SAME fleet pass as every other screen ----------
 
-    [Fact]
+    [WindowsOnlyFact("the /exes surface is mapped only on Windows - it builds developer slot executables by shelling out to powershell.exe against a local_builds directory, so GatewayEndpoints deliberately does not map those routes off Windows and /exes/list answers 404")]
     public async Task ExesList_runsTheFleetPass_soAWorkersRedIsSuppressedHereToo()
     {
         // DEFECT 6. This page folded each session on its own, straight out of the push store, with NO fleet
@@ -180,7 +181,7 @@ public sealed class TunnelRosterPushReadProofTests : IAsyncLifetime
         Assert.Equal("Working", mgrOut?["stateLabel"]?.GetValue<string>());
     }
 
-    [Fact]
+    [WindowsOnlyFact("the /exes surface is mapped only on Windows - it builds developer slot executables by shelling out to powershell.exe against a local_builds directory, so GatewayEndpoints deliberately does not map those routes off Windows and /exes/list answers 404")]
     public async Task ExesList_carriesTheSnoozeEndedBadge()
     {
         // Inspection round 2, finding 3: /exes/list folds correctly but its projection dropped snoozeExpired,

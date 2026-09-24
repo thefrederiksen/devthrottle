@@ -4,6 +4,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
+using CcDirector.Core.Tests;   // TestShell, linked into this project
 
 namespace CcDirector.Gateway.Tests;
 
@@ -56,8 +57,8 @@ public sealed class FleetSpawnOriginTests : IDisposable
     {
         RepoPath = _repoDir,
         Agent = "RawCli",
-        Command = "cmd",
-        CommandArgs = "/k",
+        Command = TestShell.Path,
+        CommandArgs = TestShell.Args,
         Name = "origin test session",
     };
 

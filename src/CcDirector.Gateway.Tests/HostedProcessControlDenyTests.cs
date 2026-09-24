@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway;
 using Xunit;
+using CcDirector.Core.Tests;   // WindowsOnlyFact, linked into this project
 
 namespace CcDirector.Gateway.Tests;
 
@@ -48,7 +49,7 @@ public sealed class HostedProcessControlDenyTests
     private const string Token = "test-token";
     // ---- DELETE /directors/{id} force-kill ------------------------------------------------------------
 
-    [Fact]
+    [WindowsOnlyFact("it starts powershell to get a process it can then try to kill by pid, and there is no powershell off Windows")]
     public async Task Hosted_force_kill_cannot_reach_the_process_by_client_supplied_pid()
     {
         // A REAL live process the "Director" claims to be - it stands in for "any process on the shared host":
@@ -161,7 +162,7 @@ public sealed class HostedProcessControlDenyTests
 
     // ---- POST /directors host-local launch ------------------------------------------------------------
 
-    [Fact]
+    [WindowsOnlyFact("POST /directors launches the Windows desktop executable through ShellExecute, so GatewayEndpoints does not map the route off Windows and the request answers Not found rather than the hosted refusal this asserts")]
     public async Task Hosted_director_launch_is_refused()
     {
         var probe = await RunLaunchProbe(hosted: true, useDeviceKey: true);
