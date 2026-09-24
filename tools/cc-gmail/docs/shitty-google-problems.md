@@ -2,6 +2,11 @@
 
 Everything we learned the hard way about Google OAuth so nobody has to suffer through this again.
 
+**Setting an account up?** Follow
+[connect-a-google-account.md](connect-a-google-account.md) - that is the canonical,
+checked path. This file is the long-form notes behind it: why each step exists and
+what it looks like when it goes wrong.
+
 ## The Core Problem
 
 Google OAuth for Gmail is absurdly complicated for what should be "I just want to read my email." There are multiple consoles, hidden settings, silent failures, and zero useful error messages. This document captures every gotcha we hit.
@@ -111,13 +116,38 @@ For Google Workspace accounts (like @company.com):
 
 ---
 
+## Lesson 6b: An External App Left In Testing Dies After 7 Days
+
+The trap that breaks every other guide, including earlier versions of this one.
+
+Google's OAuth documentation: *"A Google Cloud Platform project with an OAuth
+consent screen configured for an external user type and a publishing status of
+'Testing' is issued a refresh token expiring in 7 days"*.
+
+So on a personal Google Account the usual advice - "add yourself as a test user"
+- gets you a setup that works perfectly for a week and then dies, with no
+warning and a useless error.
+
+**The fix is one click:** https://console.cloud.google.com/auth/audience ->
+**Publish app** -> status reads **In production**.
+
+Publishing submits NOTHING to Google for review. The app stays unverified, which
+for a personal client is fine: you click through one "Google hasn't verified this
+app" screen, and the 100-new-user cap never matters when you are the only user.
+
+Internal (Workspace) apps have no publishing status at all - their Audience page
+offers only "Make external" - so none of this applies to them.
+
+---
+
 ## Lesson 7: One Google Cloud Project Per Gmail Account
 
 If you have multiple Gmail accounts (personal + work), create a SEPARATE Google Cloud project for each:
 - Keeps credentials isolated
 - Avoids cross-org permission issues
 - Each project gets its own OAuth client ID and credentials.json
-- Each account's credentials.json goes in its own folder under `~/.cc_director/gmail/accounts/<name>/`
+- Each account's credentials.json goes in its own folder under the per-user store;
+  ask for it with `cc-gmail accounts status <name>` rather than typing a path
 
 ---
 
@@ -159,7 +189,8 @@ Click each link, make sure your project is selected, click Enable:
 
 ### Step 4: Register Scopes on Data Access (CRITICAL STEP)
 1. Click **"Data Access"** in the left sidebar (under Google Auth Platform)
-   - Direct link: https://console.cloud.google.com/auth/data-access
+   - Direct link: https://console.cloud.google.com/auth/scopes
+   - The older /auth/data-access link now returns "URL not found" (checked 2026-09-24)
 2. Click **"Add or remove scopes"**
 3. A scope picker panel opens on the right side
 4. Scroll down to the **"Manually add scopes"** box at the bottom of the panel
@@ -190,6 +221,15 @@ Click each link, make sure your project is selected, click Enable:
 - Sensitive scopes: calendar, contacts
 - Restricted scopes (Gmail): gmail.readonly, gmail.send, gmail.compose, gmail.modify
 
+### Step 4b: Publish The App (External / personal Gmail only)
+
+1. Go to: https://console.cloud.google.com/auth/audience
+2. Click **Publish app** and confirm
+3. The status must read **In production**
+
+Skip this and your token dies in 7 days (Lesson 6b). Internal apps have no
+Publish button and need nothing here.
+
 ### Step 5: Create OAuth Credentials
 1. Go to: https://console.cloud.google.com/auth/clients
 2. Click **Create Client**
@@ -201,10 +241,16 @@ Click each link, make sure your project is selected, click Enable:
 
 ### Step 6: Place Credentials File
 Save the downloaded JSON as `credentials.json` in the cc-gmail account folder:
-```
-%LOCALAPPDATA%\cc-director\data\gmail\accounts\<account_name>\credentials.json
-```
-(On Windows, that's typically `C:\Users\<you>\AppData\Local\cc-director\data\gmail\accounts\`)
+
+| | Path |
+|---|---|
+| macOS | `~/Library/Application Support/cc-director/config/gmail/accounts/<name>/credentials.json` |
+| Windows | `%LOCALAPPDATA%\cc-director\config\gmail\accounts\<name>\credentials.json` |
+| Linux | `~/.cc-director/config/gmail/accounts/<name>/credentials.json` |
+
+The store is per operating-system user, not per Director instance. Ask the tool
+rather than typing a path: `cc-gmail accounts status <name>` prints the
+Account Directory.
 
 If you haven't created the account yet:
 ```bash
