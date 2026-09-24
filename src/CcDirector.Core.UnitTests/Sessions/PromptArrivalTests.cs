@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
@@ -17,12 +17,12 @@ namespace CcDirector.Core.Tests.Claude;
 /// Claude Code still starting, Claude Code printed "Removed 4 invisible characters - nothing left to send", and the
 /// submit verifier counted that message as a submitted turn.
 /// </summary>
-public sealed class ClaudePromptArrivalTests : IDisposable
+public sealed class PromptArrivalTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-arrival-" + Guid.NewGuid().ToString("N"));
     private readonly string _file;
 
-    public ClaudePromptArrivalTests()
+    public PromptArrivalTests()
     {
         Directory.CreateDirectory(_dir);
         _file = Path.Combine(_dir, Guid.NewGuid() + ".jsonl");
@@ -69,58 +69,58 @@ public sealed class ClaudePromptArrivalTests : IDisposable
     [Fact]
     public void A_paste_wrapped_by_Claude_Code_with_other_line_endings_is_found()
     {
-        var offset = ClaudePromptArrival.EndOf(_file);
+        var offset = PromptArrival.EndOf(_file);
         Append(UserLine("  <pasted_content id=\"9d0f\">\n" + LinkedInPrompt.Replace("\r\n", "\n") + "\n</pasted_content>"));
-        Assert.True(ClaudePromptArrival.Arrived(_file, offset, LinkedInPrompt));
+        Assert.True(PromptArrival.Arrived(_file, offset, LinkedInPrompt));
     }
 
     [Fact]
     public void A_plain_prompt_and_a_prompt_as_text_parts_are_found()
     {
         Append(UserLine("Read the brief and follow it"));
-        Assert.True(ClaudePromptArrival.Arrived(_file, 0, "Read the brief and follow it"));
-        var offset = ClaudePromptArrival.EndOf(_file);
+        Assert.True(PromptArrival.Arrived(_file, 0, "Read the brief and follow it"));
+        var offset = PromptArrival.EndOf(_file);
         Append(UserArrayLine("Check the inbox now"));
-        Assert.True(ClaudePromptArrival.Arrived(_file, offset, "Check the inbox now"));
+        Assert.True(PromptArrival.Arrived(_file, offset, "Check the inbox now"));
     }
 
     [Fact]
     public void A_prompt_queued_while_Claude_Code_is_busy_is_found()
     {
         Append(EnqueueLine("Check the inbox now"));
-        Assert.True(ClaudePromptArrival.Arrived(_file, 0, "Check the inbox now"));
+        Assert.True(PromptArrival.Arrived(_file, 0, "Check the inbox now"));
     }
 
     [Fact]
     public void The_same_prompt_written_before_the_send_is_not_proof()
     {
         Append(UserLine("Check the inbox now"));
-        var offset = ClaudePromptArrival.EndOf(_file);
+        var offset = PromptArrival.EndOf(_file);
         Append(UserLine("something else entirely"));
-        Assert.False(ClaudePromptArrival.Arrived(_file, offset, "Check the inbox now"));
+        Assert.False(PromptArrival.Arrived(_file, offset, "Check the inbox now"));
     }
 
     [Fact]
     public void Meta_and_sidechain_lines_are_not_proof()
     {
         Append(UserLine("Check the inbox now", meta: true), UserLine("Check the inbox now", sidechain: true));
-        Assert.False(ClaudePromptArrival.Arrived(_file, 0, "Check the inbox now"));
+        Assert.False(PromptArrival.Arrived(_file, 0, "Check the inbox now"));
     }
 
     [Fact]
     public void A_missing_file_and_a_half_written_last_line_are_not_proof_and_do_not_throw()
     {
-        Assert.False(ClaudePromptArrival.Arrived(_file, 0, "Check the inbox now"));
-        Assert.Equal(0, ClaudePromptArrival.EndOf(_file));
+        Assert.False(PromptArrival.Arrived(_file, 0, "Check the inbox now"));
+        Assert.Equal(0, PromptArrival.EndOf(_file));
         File.WriteAllText(_file, "{\"type\":\"user\",\"message\":{\"content\":\"Check the inb");
-        Assert.False(ClaudePromptArrival.Arrived(_file, 0, "Check the inbox now"));
+        Assert.False(PromptArrival.Arrived(_file, 0, "Check the inbox now"));
     }
 
     [Fact]
     public void A_file_shorter_than_the_mark_was_replaced_and_is_read_from_its_start()
     {
         Append(UserLine("Check the inbox now"));
-        Assert.True(ClaudePromptArrival.Arrived(_file, 1_000_000, "Check the inbox now"));
+        Assert.True(PromptArrival.Arrived(_file, 1_000_000, "Check the inbox now"));
     }
 
     [Theory]
@@ -132,7 +132,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
     [InlineData("skill /jobs --morning-scan", true)]
     [InlineData("Read the brief", true)]
     public void Commands_are_not_proven_through_the_file(string text, bool provable) =>
-        Assert.Equal(provable, ClaudePromptArrival.CanProve(text));
+        Assert.Equal(provable, PromptArrival.CanProve(text));
 
     [Theory]
     [InlineData(ComposerReading.Empty, "", true)]
@@ -142,7 +142,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
     [InlineData(ComposerReading.MenuOpen, "", false)]
     [InlineData(ComposerReading.NotFound, "", false)]
     public void Only_an_empty_composer_or_the_grey_suggestion_holds_nothing(ComposerReading reading, string text, bool nothing) =>
-        Assert.Equal(nothing, ClaudePromptArrival.ComposerHoldsNothing(reading, text));
+        Assert.Equal(nothing, PromptArrival.ComposerHoldsNothing(reading, text));
 
     // ---------- the decision ----------
 
@@ -158,7 +158,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
     public async Task A_prompt_already_in_the_file_is_arrived_and_never_resent()
     {
         var resends = 0;
-        var outcome = await ClaudePromptArrival.ConfirmAsync(
+        var outcome = await PromptArrival.ConfirmAsync(
             () => true, () => true, () => { resends++; return Task.CompletedTask; }, true,
             TimeSpan.FromSeconds(20), "t", pause: NoPause);
         Assert.Equal(PromptArrivalOutcome.Arrived, outcome);
@@ -170,7 +170,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
     {
         var clock = new Clock();
         var resends = 0;
-        var outcome = await ClaudePromptArrival.ConfirmAsync(
+        var outcome = await PromptArrival.ConfirmAsync(
             () => resends > 0, () => true, () => { resends++; return Task.CompletedTask; }, true,
             TimeSpan.FromSeconds(20), "t", pause: clock.Pause, utcNow: () => clock.Now);
         Assert.Equal(PromptArrivalOutcome.ArrivedAfterResend, outcome);
@@ -182,7 +182,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
     {
         var clock = new Clock();
         var resends = 0;
-        var outcome = await ClaudePromptArrival.ConfirmAsync(
+        var outcome = await PromptArrival.ConfirmAsync(
             () => false, () => true, () => { resends++; return Task.CompletedTask; }, true,
             TimeSpan.FromSeconds(20), "t", pause: clock.Pause, utcNow: () => clock.Now);
         Assert.Equal(PromptArrivalOutcome.NotArrived, outcome);
@@ -194,7 +194,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
     {
         var clock = new Clock();
         var resends = 0;
-        var outcome = await ClaudePromptArrival.ConfirmAsync(
+        var outcome = await PromptArrival.ConfirmAsync(
             () => false, () => false, () => { resends++; return Task.CompletedTask; }, true,
             TimeSpan.FromSeconds(20), "t", pause: clock.Pause, utcNow: () => clock.Now);
         Assert.Equal(PromptArrivalOutcome.NotArrived, outcome);
@@ -207,7 +207,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
         var clock = new Clock();
         var frames = new Queue<bool>([true, false]);
         var resends = 0;
-        var outcome = await ClaudePromptArrival.ConfirmAsync(
+        var outcome = await PromptArrival.ConfirmAsync(
             () => false, () => frames.Count > 0 ? frames.Dequeue() : false, () => { resends++; return Task.CompletedTask; }, true,
             TimeSpan.FromSeconds(20), "t", pause: clock.Pause, utcNow: () => clock.Now);
         Assert.Equal(PromptArrivalOutcome.NotArrived, outcome);
@@ -219,7 +219,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
     {
         var clock = new Clock();
         var resends = 0;
-        var outcome = await ClaudePromptArrival.ConfirmAsync(
+        var outcome = await PromptArrival.ConfirmAsync(
             () => false, () => true, () => { resends++; return Task.CompletedTask; }, false,
             TimeSpan.FromSeconds(20), "t", pause: clock.Pause, utcNow: () => clock.Now);
         Assert.Equal(PromptArrivalOutcome.NotArrived, outcome);
@@ -276,7 +276,7 @@ public sealed class ClaudePromptArrivalTests : IDisposable
 
         var tally = PromptDeliveryFailures.Tally(session.Id);
         Assert.True(tally.Unresolved);
-        Assert.Contains("never reached Claude Code", tally.LastFailureReason);
+        Assert.Contains("never reached ClaudeCode", tally.LastFailureReason);
     }
 
     [Fact]

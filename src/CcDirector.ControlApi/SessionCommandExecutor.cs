@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using CcDirector.Core.AgentPlugins;
@@ -1101,35 +1101,7 @@ internal static class SessionCommandExecutor
             {
                 try
                 {
-                    if (capturedSession.CanGateFirstPrompt)
-                    {
-                        var limit = TimeSpan.FromMilliseconds(Math.Max(waitMs, FirstPromptGate.MinimumWait.TotalMilliseconds));
-                        FileLog.Write($"[SessionCommandExecutor] PrePrompt: gating on the agent reading input, sid={capturedSession.Id}, len={prePrompt.Length}");
-                        // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
-                        await capturedSession.DeliverFirstPromptAsync(prePrompt, SubmissionProvenance.FrameworkText(), limit);
-                        return;
-                    }
-
-                    var deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
-                    long lastBytes = -1;
-                    while (DateTime.UtcNow < deadline)
-                    {
-                        var st = capturedSession.ActivityState;
-                        if (st is ActivityState.Exited) { FileLog.Write($"[SessionCommandExecutor] PrePrompt: session exited before ready, sid={capturedSession.Id}"); return; }
-                        var bytes = capturedSession.Buffer?.TotalBytesWritten ?? 0;
-                        var settled = bytes > 1500 && bytes == lastBytes
-                            && st is ActivityState.Idle or ActivityState.WaitingForInput;
-                        if (settled)
-                        {
-                            FileLog.Write($"[SessionCommandExecutor] PrePrompt: agent ready (TUI rendered {bytes} bytes, then settled), sid={capturedSession.Id}");
-                            break;
-                        }
-                        lastBytes = bytes;
-                        await Task.Delay(750);
-                    }
-                    FileLog.Write($"[SessionCommandExecutor] PrePrompt: dispatching to sid={capturedSession.Id}, len={prePrompt.Length}");
-                    // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
-                    await capturedSession.SendTextAsync(prePrompt, SubmissionProvenance.FrameworkText(), SendSource.Framework);
+                    await capturedSession.DeliverPrePromptAsync(prePrompt, TimeSpan.FromMilliseconds(waitMs));
                 }
                 catch (Exception ex)
                 {

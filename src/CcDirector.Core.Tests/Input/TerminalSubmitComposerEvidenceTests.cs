@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Input;
 using CcDirector.Core.Machine;
@@ -261,26 +261,30 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------------
-    // A HEALTHY MACHINE IS UNTOUCHED BY ANY OF THIS
+    // TYPED ONCE, NEVER CLEARED AND RETYPED (issue #3290) - on a healthy machine and a starved one,
+    // with the screen unreadable and with the screen proving the text absent
     // ---------------------------------------------------------------------------------------------
 
+    private static int TimesTyped(RecordingSessionBackend backend, string text) =>
+        backend.WrittenBytes.Count(x => Encoding.UTF8.GetString(x) == text);
+
     [Fact]
-    public async Task OnAHealthyMachineWithNoScreen_TheOldClearAndRetypeRecoveryStillRuns()
+    public async Task OnAHealthyMachineWithNoScreen_TheTextIsTypedOnce_AndNeverClearedOrRetyped()
     {
-        // THE REGRESSION GUARD. An earlier draft took the preserve-and-watch path on any unknown
-        // evidence, which removed this recovery from every driver call site that passes no screen -
-        // ClaudeDriver, CodexDriver and the backends all do - on healthy machines as well as starved
-        // ones. That is a far bigger change than issue #2818 asked for, and three long-standing tests
-        // caught it. On a machine with memory to spare the behaviour must be exactly what it was.
+        // This used to be the regression guard FOR the clear-and-retype recovery. Measured on 24 September 2026
+        // with real agents, that recovery is what doubled prompts: a single Escape empties neither Claude Code's nor
+        // Codex's composer, so the retype appended a second copy. The text is now typed once and left where it is.
         var backend = SilentComposer();
 
         await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => Submit(backend, "no screen here"));
 
-        Assert.True(Wrote(backend, Escape), "the clear-and-retype recovery did not run on a healthy machine");
+        Assert.False(Wrote(backend, Escape), "the composer was cleared");
+        Assert.Equal(1, TimesTyped(backend, "no screen here"));
+        Assert.False(Wrote(backend, Enter));
     }
 
     [Fact]
-    public async Task OnAHealthyMachineWithNoScreen_StillCountsAMissPerAttempt()
+    public async Task OnAHealthyMachineWithNoScreen_CountsOneMissForTheOneTyping()
     {
         var sessionId = Guid.NewGuid();
         var backend = SilentComposer();
@@ -288,30 +292,25 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
             () => Submit(backend, "no screen here", sessionId: sessionId));
 
-        Assert.Equal(2, PromptDeliveryFailures.Tally(sessionId).ComposerEchoMisses);
+        Assert.Equal(1, PromptDeliveryFailures.Tally(sessionId).ComposerEchoMisses);
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Evidence is Absent - the old behaviour, kept, because now it is earned
-    // ---------------------------------------------------------------------------------------------
-
     [Fact]
-    public async Task ScreenThatProvesTheTextIsNotThere_DoesClearAndRetype()
+    public async Task ScreenThatProvesTheTextIsNotThere_IsReported_NotClearedAndRetyped()
     {
-        // The composer really is not holding it - a modal, a picker, a composer still starting - and the
-        // machine has memory to spare, so a stalled renderer is not the explanation. Clearing and
-        // retyping destroys nothing here, and it is what recovers a genuinely stuck interface. This
-        // change must not have thrown that away.
+        // A modal covering the composer: the send is reported as not accepted, and the text is marked as possibly
+        // retained, so the NEXT send clears with the agent's measured keys before it types.
         var backend = SilentComposer();
 
         await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
             () => Submit(backend, "never lands", screen: () => ["a modal is covering the composer", "[ OK ]"]));
 
-        Assert.True(Wrote(backend, Escape));
+        Assert.False(Wrote(backend, Escape));
+        Assert.Equal(1, TimesTyped(backend, "never lands"));
     }
 
     [Fact]
-    public async Task ProvenAbsent_CountsAMissPerAttempt()
+    public async Task ProvenAbsent_CountsOneMissForTheOneTyping()
     {
         var sessionId = Guid.NewGuid();
         var backend = SilentComposer();
@@ -319,7 +318,7 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
             () => Submit(backend, "never lands", screen: () => ["a modal", "[ OK ]"], sessionId: sessionId));
 
-        Assert.Equal(2, PromptDeliveryFailures.Tally(sessionId).ComposerEchoMisses);
+        Assert.Equal(1, PromptDeliveryFailures.Tally(sessionId).ComposerEchoMisses);
     }
 
     // ---------------------------------------------------------------------------------------------
