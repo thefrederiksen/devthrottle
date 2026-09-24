@@ -3392,7 +3392,11 @@ public sealed class Session : IDisposable
         }
         bool ComposerHoldsNothing()
         {
+            // A turn that started but has not reached the file yet (a loaded machine writes it late) also leaves the
+            // composer empty. Resending then would run the prompt twice, so any sign of a turn forbids the resend.
+            if (ActivityState is ActivityState.Working or ActivityState.Starting) return false;
             var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+            if (Drivers.DoorbellSafety.ShowsWorking(rows)) return false;
             var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
                 AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
             return ClaudePromptArrival.ComposerHoldsNothing(reading, composerText);

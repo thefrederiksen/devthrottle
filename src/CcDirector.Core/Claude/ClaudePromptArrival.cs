@@ -34,10 +34,12 @@ public enum PromptArrivalOutcome
 /// or, when it is busy, as a queue "enqueue" line. A prompt is delivered when a line written AFTER the send holds its
 /// text. Nothing else counts.
 ///
-/// THE ONE RESEND. When no such line appears within the window and the composer shows nothing of ours (empty, or only
-/// Claude Code's grey "Try ..." suggestion), the text is gone and typing it again cannot double it: the owner's
-/// keystrokes are held for the whole send, so nothing else can be in the composer. It is resent once. Anything else
-/// in the composer - the text parked, a paste placeholder, a dialog - is left alone and reported not delivered.
+/// THE ONE RESEND. When no such line appears within the window, no turn is running, and the composer shows nothing of
+/// ours (empty, or only Claude Code's grey "Try ..." suggestion), the text is gone and typing it again cannot double it:
+/// the owner's keystrokes are held for the whole send, so nothing else can be in the composer. It is resent once. A
+/// running turn (the session's state or the screen's working marker) forbids it, because a loaded machine can start
+/// the turn before it writes the line. Anything else in the composer - the text parked, a paste placeholder, a dialog
+/// - is left alone and reported not delivered.
 /// </summary>
 public static class ClaudePromptArrival
 {
