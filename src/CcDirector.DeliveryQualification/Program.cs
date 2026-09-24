@@ -24,7 +24,7 @@ namespace CcDirector.DeliveryQualification;
 ///
 /// Usage:
 ///   CcDirector.DeliveryQualification --agents claude,codex,pi [--sessions 2] [--parallel 3] [--shapes all]
-///                                    [--out DIR] [--first-wait 30] [--args-claude "..."]
+///                                    [--out DIR] [--first-wait 30] [--args-claude "..."] [--cpu-load 24]
 /// </summary>
 public static class Program
 {
@@ -110,6 +110,7 @@ public static class Program
                 plans.Add((agent, i));
 
         Console.WriteLine($"[rig] {plans.Count} sessions, {opts.Shapes.Count} texts each, {opts.Parallel} at once. Results: {resultsPath}");
+        using var load = opts.CpuLoadThreads > 0 ? new CpuLoad(opts.CpuLoadThreads) : null;
         var tasks = plans.Select(async plan =>
         {
             await slots.WaitAsync();
@@ -238,6 +239,7 @@ public sealed class Options
     public List<TextShape> Shapes { get; private set; } = TextCatalogue.All.ToList();
     public int Sessions { get; private set; } = 1;
     public int Parallel { get; private set; } = 1;
+    public int CpuLoadThreads { get; private set; }
     public int FirstWaitSeconds { get; private set; } = 30;
     public string RepoRoot { get; private set; } = @"D:\ReposFred\_delivery-qa";
     public string Out { get; private set; } = Path.Combine(@"D:\ReposFred\_delivery-qa\runs", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
@@ -260,6 +262,7 @@ public sealed class Options
                     break;
                 case "--sessions": o.Sessions = int.Parse(Next()); break;
                 case "--parallel": o.Parallel = int.Parse(Next()); break;
+                case "--cpu-load": o.CpuLoadThreads = int.Parse(Next()); break;
                 case "--first-wait": o.FirstWaitSeconds = int.Parse(Next()); break;
                 case "--repo-root": o.RepoRoot = Next(); break;
                 case "--out": o.Out = Next(); break;

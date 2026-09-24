@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Grok;
@@ -118,13 +118,41 @@ public sealed class TextDeliveryTests : IDisposable
     }
 
     [Fact]
+    public async Task No_resend_while_the_agent_has_printed_nothing_since_the_send()
+    {
+        // Measured 24 September 2026: a CPU-starved Claude Code had not drawn an 8 KB paste, its composer read as
+        // empty, and the resend pasted the text a second time behind the first.
+        var clock = new Clock();
+        var resends = 0;
+        var outcome = await PromptArrival.ConfirmAsync(
+            () => false, () => true, () => { resends++; return Task.CompletedTask; }, true, TimeSpan.FromSeconds(20), "t",
+            agentPrintedSinceSend: () => false, pause: clock.Pause, utcNow: () => clock.Now);
+
+        Assert.Equal(PromptArrivalOutcome.NotArrived, outcome);
+        Assert.Equal(0, resends);
+    }
+
+    [Fact]
+    public async Task A_resend_is_still_made_when_the_agent_printed_and_the_composer_is_empty()
+    {
+        var clock = new Clock();
+        var resends = 0;
+        var outcome = await PromptArrival.ConfirmAsync(
+            () => resends > 0, () => true, () => { resends++; return Task.CompletedTask; }, true, TimeSpan.FromSeconds(20), "t",
+            agentPrintedSinceSend: () => true, pause: clock.Pause, utcNow: () => clock.Now);
+
+        Assert.Equal(PromptArrivalOutcome.ArrivedAfterResend, outcome);
+        Assert.Equal(1, resends);
+    }
+
+    [Fact]
     public async Task An_Enter_eaten_by_the_agent_is_pressed_again_when_the_composer_still_holds_the_text()
     {
         var clock = new Clock();
         var enters = 0;
         var outcome = await PromptArrival.ConfirmAsync(
             () => enters > 0, () => false, () => Task.CompletedTask, true, TimeSpan.FromSeconds(20), "t",
-            textWaitsUnsubmitted: () => enters == 0, pressEnter: () => enters++,
+            textWaitsUnsubmitted: () => Task.FromResult(enters == 0), pressEnter: () => enters++,
             pause: clock.Pause, utcNow: () => clock.Now);
 
         Assert.Equal(PromptArrivalOutcome.Arrived, outcome);
@@ -138,7 +166,7 @@ public sealed class TextDeliveryTests : IDisposable
         var enters = 0;
         await PromptArrival.ConfirmAsync(
             () => false, () => false, () => Task.CompletedTask, false, TimeSpan.FromSeconds(20), "t",
-            textWaitsUnsubmitted: () => false, pressEnter: () => enters++,
+            textWaitsUnsubmitted: () => Task.FromResult(false), pressEnter: () => enters++,
             pause: clock.Pause, utcNow: () => clock.Now);
 
         Assert.Equal(0, enters);
@@ -151,7 +179,7 @@ public sealed class TextDeliveryTests : IDisposable
         var enters = 0;
         var outcome = await PromptArrival.ConfirmAsync(
             () => false, () => false, () => Task.CompletedTask, false, TimeSpan.FromSeconds(20), "t",
-            textWaitsUnsubmitted: () => true, pressEnter: () => enters++,
+            textWaitsUnsubmitted: () => Task.FromResult(true), pressEnter: () => enters++,
             pause: clock.Pause, utcNow: () => clock.Now);
 
         Assert.Equal(PromptArrivalOutcome.NotArrived, outcome);
@@ -194,6 +222,76 @@ public sealed class TextDeliveryTests : IDisposable
         Assert.Equal("hello there",
             PromptArrival.PromptTextOf("{\"type\":\"user.message\",\"data\":{\"content\":\"hello there\",\"transformedContent\":\"x\"}}"));
         Assert.Null(PromptArrival.PromptTextOf("{\"type\":\"assistant.message\",\"data\":{\"content\":\"ACK\"}}"));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Review findings (Fable review, 24 September 2026)
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task When_the_owner_typed_during_the_send_no_Enter_is_pressed_again_and_nothing_is_resent()
+    {
+        // Finding 1: the owner's keystrokes are not held during an ordinary send, so their draft would be submitted.
+        var clock = new Clock();
+        var enters = 0;
+        var resends = 0;
+        var outcome = await PromptArrival.ConfirmAsync(
+            () => false, () => true, () => { resends++; return Task.CompletedTask; }, true, TimeSpan.FromSeconds(20), "t",
+            textWaitsUnsubmitted: () => Task.FromResult(true), pressEnter: () => enters++, ownerTyped: () => true,
+            pause: clock.Pause, utcNow: () => clock.Now);
+
+        Assert.Equal(PromptArrivalOutcome.NotArrived, outcome);
+        Assert.Equal(0, enters);
+        Assert.Equal(0, resends);
+    }
+
+    [Fact]
+    public void The_prompt_is_found_by_its_letters_and_digits_whatever_the_punctuation_and_invisible_characters()
+    {
+        // Finding 7: a benign difference must not read as a failed delivery.
+        var file = Path.Combine(_dir, "p.jsonl");
+        File.WriteAllText(file,
+            "{\"type\":\"user\",\"message\":{\"content\":\"Token Q1 - check \\u2764 the  build, please\"}}\n");
+
+        Assert.True(PromptArrival.Arrived(file, 0, "Token Q1: check ❤️ the build please!"));
+        Assert.False(PromptArrival.Arrived(file, 0, "Token Q2 check the build please"));
+    }
+
+    [Fact]
+    public void A_conversation_file_that_cannot_be_opened_is_not_yet_arrived_and_never_an_error()
+    {
+        // Finding 10: a scanner holding the file for a moment is "not yet", never a lost prompt.
+        var file = Path.Combine(_dir, "locked.jsonl");
+        File.WriteAllText(file, "{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n");
+        using var hold = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        Assert.False(PromptArrival.Arrived(file, 0, "hello"));
+        Assert.False(PromptArrival.AnyPromptAfter(file, 0));
+    }
+
+    [Theory]
+    [InlineData("abcabcabc", "abc", 3)]
+    [InlineData("aaaa", "aa", 2)]
+    [InlineData("xyz", "abc", 0)]
+    [InlineData("abc", "", 0)]
+    public void Copies_on_screen_are_counted_without_overlap(string hay, string needle, int expected)
+    {
+        // An old copy of the same text on screen must not pass for the new one's echo (measured on Codex under load).
+        Assert.Equal(expected, TerminalSubmit.CountIn(hay, needle));
+    }
+
+    [Fact]
+    public async Task A_quiet_beat_is_not_nudged_when_the_screen_does_not_show_the_text_waiting()
+    {
+        // Finding 5: guarded sends kept blind Enters; now an Enter again needs the screen to ask for it.
+        var buffer = new CircularTerminalBuffer();
+        var enters = 0;
+
+        await Assert.ThrowsAsync<PromptNotSubmittedException>(() => SubmitVerifier.PressEnterAndVerifyAsync(
+            buffer, b => { if (b.Length == 1 && b[0] == 0x0D) enters++; }, "t",
+            attemptDelay: TimeSpan.FromMilliseconds(1), beatDelay: _ => Task.CompletedTask, nudgeOnlyWhen: () => false));
+
+        Assert.Equal(1, enters);
     }
 
     // ---------------------------------------------------------------------------------------------

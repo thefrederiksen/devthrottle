@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace CcDirector.Core.Codex;
@@ -106,6 +106,36 @@ public static class CodexRolloutLocator
     }
 
     /// <summary>Read cwd and timestamp from a rollout's first line (its session_meta), or null.</summary>
+    /// <summary>
+    /// Every rollout of <paramref name="repoPath"/> whose session began inside the launch window after
+    /// <paramref name="notBefore"/>, read from the date folders that can hold it. The arrival proof watches all of them
+    /// until it has seen its own prompt in one (issue #3290, review finding 4): "the rollout closest to launch" binds two
+    /// Codex sessions started seconds apart in one repository to the SAME file on a loaded machine.
+    /// </summary>
+    public static IReadOnlyList<string> AllForRepo(string repoPath, DateTimeOffset notBefore)
+    {
+        var root = SessionsDirectory();
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(root)) return [];
+        var target = NormalizePath(repoPath);
+        var found = new List<string>();
+        for (var day = notBefore.LocalDateTime.Date.AddDays(-1); day <= DateTime.Now.Date.AddDays(1); day = day.AddDays(1))
+        {
+            var dir = Path.Combine(root, day.ToString("yyyy"), day.ToString("MM"), day.ToString("dd"));
+            if (!Directory.Exists(dir)) continue;
+            foreach (var file in new DirectoryInfo(dir).EnumerateFiles("rollout-*.jsonl"))
+            {
+                if (file.LastWriteTimeUtc < notBefore.UtcDateTime - LaunchClockSkew) continue;
+                var meta = MetaCache.GetOrAdd(file.FullName, p => ReadSessionMeta(p));
+                if (meta is null) MetaCache.TryRemove(file.FullName, out _);
+                else if (NormalizePath(meta.Cwd) == target && IsWithinLaunchWindow(meta.Timestamp, file, notBefore))
+                    found.Add(file.FullName);
+            }
+        }
+        return found;
+    }
+
+    private static readonly ConcurrentDictionary<string, CodexSessionMeta?> MetaCache = new(StringComparer.OrdinalIgnoreCase);
+
     private static CodexSessionMeta? ReadSessionMeta(string path)
     {
         try

@@ -275,7 +275,10 @@ public sealed class TerminalSubmitTests : IDisposable
             echoTimeout: TimeSpan.FromMilliseconds(30),
             pollInterval: TimeSpan.FromMilliseconds(5),
             enterSettleDelay: TimeSpan.FromMilliseconds(1),
-            screenSnapshot: () => screen,
+            // The wrapped copy is drawn only after the text was typed, as a real terminal would.
+            screenSnapshot: () => backend.WrittenBytes.Count > 0 || backend.SentTexts.Count > 0
+                ? screen
+                : ["  bypass permissions on (shift+tab to cycle)"],
             submitVerifyBeat: FastVerifyBeat);
 
         // Rescued on attempt 1: text typed once, Enter pressed, and no Escape ever disturbed the composer.

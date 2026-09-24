@@ -2429,6 +2429,16 @@ public sealed class Session : IDisposable
         ArgumentNullException.ThrowIfNull(line);
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed || BackendType is not SessionBackendType.ConPty)
             return Drivers.DoorbellSubmitOutcome.NotTyped;
+        lock (_inputLock)
+        {
+            if (_inputInFlight > 0)
+            {
+                // A send or the first-prompt gate is typing into this composer (review finding 9); the doorbell rings
+                // again later rather than type into the middle of it.
+                FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}: input in flight, not typed now");
+                return Drivers.DoorbellSubmitOutcome.NotTyped;
+            }
+        }
         FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, driver={Driver.Kind}, len={line.Length}");
         // The origin is reported from the moment Enter is pressed, before the submit is verified, so a Working
         // push in between does not read as unexplained work (which would end an armed snooze).
@@ -2650,6 +2660,9 @@ public sealed class Session : IDisposable
     // When unsure, it stays set until the next submit - the event waits rather than mixing with the owner's words.
     private bool _ownerDraftUnsent;
     private long _ownerTextCount;
+
+    /// <summary>Held for the whole of one terminal send, from the first keystroke to the end of its proof.</summary>
+    private readonly SemaphoreSlim _submitGate = new(1, 1);
     private readonly ComposerInputReader _composerInput = new();
 
     /// <summary>True while the owner has typed text into the composer that the Director has not seen submitted.</summary>
@@ -3399,6 +3412,11 @@ public sealed class Session : IDisposable
     {
         public required Func<IEnumerable<string>> Paths { get; init; }
         public DateTime StartedUtc { get; init; }
+
+        /// <summary>False while the watched files may include ANOTHER session's conversation (Codex before its rollout is
+        /// pinned): a new prompt there says nothing about this send, so it can neither license a resend nor mark the send
+        /// altered.</summary>
+        public bool AllWatchedAreOurs { get; init; } = true;
         public Func<IReadOnlyList<(string Key, string Text)>>? ReadPrompts { get; init; }
         public HashSet<string> KeysAtStart { get; init; } = new(StringComparer.Ordinal);
 
@@ -3433,7 +3451,7 @@ public sealed class Session : IDisposable
         {
             Agents.AgentKind.ClaudeCode => () => One(ClaudeTranscriptPath
                 ?? (string.IsNullOrEmpty(ClaudeSessionId) ? null : ClaudeSessionReader.GetJsonlPath(ClaudeSessionId, RepoPath))),
-            Agents.AgentKind.Codex => () => One(Codex.CodexRolloutLocator.Resolve(Id, RepoPath, CreatedAt)),
+            Agents.AgentKind.Codex => () => _codexRollout is { } pinned ? [pinned] : Codex.CodexRolloutLocator.AllForRepo(RepoPath, CreatedAt),
             Agents.AgentKind.Pi => () => One(Pi.PiSessionLocator.Resolve(ClaudeSessionId)),
             Agents.AgentKind.Grok => () => Grok.GrokSessionLocator.AllTranscripts(RepoPath),
             Agents.AgentKind.Copilot => () => Copilot.CopilotHistoryReader.AllEventLogs(RepoPath),
@@ -3459,7 +3477,12 @@ public sealed class Session : IDisposable
                 KeysAtStart = new HashSet<string>(readPrompts().Select(p => p.Key), StringComparer.Ordinal),
             };
 
-        var proof = new ArrivalProof { Paths = paths!, StartedUtc = DateTime.UtcNow };
+        var proof = new ArrivalProof
+        {
+            Paths = paths!,
+            StartedUtc = DateTime.UtcNow,
+            AllWatchedAreOurs = AgentKind != Agents.AgentKind.Codex || _codexRollout is not null,
+        };
         foreach (var path in paths!())
             proof.StartOffsets[path] = Drivers.PromptArrival.EndOf(path);
         return proof;
@@ -3493,14 +3516,22 @@ public sealed class Session : IDisposable
         if (proof.ReadPrompts is { } read)
         {
             var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
-            return NewStorePrompts(proof, read).Any(t => Drivers.PromptArrival.Normalize(t).Contains(fingerprint, StringComparison.Ordinal));
+            return NewStorePrompts(proof, read).Any(t => Drivers.PromptArrival.Loose(t).Contains(fingerprint, StringComparison.Ordinal));
         }
-        return WatchedFiles(proof).ToList().Any(f => Drivers.PromptArrival.Arrived(f.Path, f.Offset, typed));
+        return FileHolding(proof, typed) is not null;
     }
+
+    /// <summary>The watched file whose new lines hold <paramref name="typed"/>, or null.</summary>
+    private static string? FileHolding(ArrivalProof proof, string typed) =>
+        WatchedFiles(proof).ToList().Where(f => Drivers.PromptArrival.Arrived(f.Path, f.Offset, typed)).Select(f => f.Path).FirstOrDefault();
+
+    /// <summary>This Codex session's own rollout, once one of its prompts has been found in it.</summary>
+    private string? _codexRollout;
 
     /// <summary>True when ANY user prompt has reached the agent's records since the proof began.</summary>
     private static bool AnyNewPromptIn(ArrivalProof proof)
     {
+        if (!proof.AllWatchedAreOurs) return false;
         if (proof.ReadPrompts is { } read)
             return NewStorePrompts(proof, read).Any(t => !string.IsNullOrWhiteSpace(t));
         return WatchedFiles(proof).ToList().Any(f => Drivers.PromptArrival.AnyPromptAfter(f.Path, f.Offset));
@@ -3511,29 +3542,60 @@ public sealed class Session : IDisposable
     /// where the composer can be read (Claude Code, Codex). Throws <see cref="Drivers.PromptNotSubmittedException"/> when
     /// it never arrives, so the caller records the send as NOT delivered - the terminal's output is never taken as proof.
     /// </summary>
-    private async Task ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend)
+    private async Task ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
     {
         var label = typed.Length > 60 ? typed[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : typed;
         var current = typed;
         bool Arrived() => ArrivedIn(proof, current);
+        var bytesAtEnter = _backend.Buffer?.TotalBytesWritten;
 
         var outcome = await Drivers.PromptArrival.ConfirmAsync(
             Arrived, ComposerShowsNothingAndNoTurn, async () => { current = await resend(); },
-            mayResend: Drivers.FirstPromptGate.CanProve(AgentKind), ArrivalWindow, label,
+            mayResend: Drivers.FirstPromptGate.CanProve(AgentKind) && proof.AllWatchedAreOurs, ArrivalWindow, label,
             anyNewPrompt: () => AnyNewPromptIn(proof),
-            textWaitsUnsubmitted: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : null,
-            pressEnter: () => _backend.Write([0x0D]));
+            textWaitsUnsubmitted: Drivers.FirstPromptGate.CanProve(AgentKind) ? TextWaitsInAQuietComposerAsync : null,
+            pressEnter: () => _backend.Write([0x0D]),
+            ownerTyped: ownerTyped,
+            agentPrintedSinceSend: bytesAtEnter is { } at ? () => _backend.Buffer!.TotalBytesWritten != at : null);
         FileLog.Write($"[Session] arrival proof: session={Id}, agent={AgentKind}, outcome={outcome}, len={typed.Length}");
+        if (AgentKind == Agents.AgentKind.Codex && _codexRollout is null
+            && outcome is Drivers.PromptArrivalOutcome.Arrived or Drivers.PromptArrivalOutcome.ArrivedAfterResend
+            && FileHolding(proof, current) is { } rollout)
+        {
+            _codexRollout = rollout;
+            FileLog.Write($"[Session] Codex rollout pinned: session={Id}, file={rollout}");
+        }
         if (outcome == Drivers.PromptArrivalOutcome.ArrivedAltered)
-            throw new Drivers.PromptNotSubmittedException(
-                $"[Session] {AgentKind} received a prompt, but not the text that was sent: its conversation records hold a new " +
-                "prompt that does not match it word for word, so characters were dropped or changed on the way. Not resent. " +
-                $"Session={Id}, len={typed.Length}.");
+        {
+            // DELIVERED, WITH A WARNING (review finding 7). The agent has a new prompt and is running it; reporting a
+            // failed delivery would invite the owner - or the phone's retry - to send it again.
+            FileLog.Write($"[Session] WARNING arrived altered: session={Id}, agent={AgentKind}: a new prompt reached the records " +
+                          $"but not word for word; treated as delivered, not resent. len={typed.Length}");
+            return;
+        }
         if (outcome == Drivers.PromptArrivalOutcome.NotArrived)
+        {
+            // THE TEXT MAY STILL BE IN THE COMPOSER (review finding 2): marked, so the next send clears it with the
+            // measured keys instead of being typed onto the end of it.
+            Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), current);
             throw new Drivers.PromptNotSubmittedException(
                 $"[Session] the prompt never reached {AgentKind}: its conversation records have no prompt holding the text " +
                 $"{ArrivalWindow.TotalSeconds:F0}s after the send. The terminal's output is not proof, so the send is NOT delivered. " +
                 $"Session={Id}, len={typed.Length}.");
+        }
+    }
+
+    /// <summary>
+    /// The composer holds text with no turn running AND the terminal has printed nothing for a second and a half - an
+    /// Enter that was eaten, not one the agent has yet to reach (under full load an agent can be seconds behind its
+    /// input, and a second Enter then lands inside a paste it is still reading).
+    /// </summary>
+    private async Task<bool> TextWaitsInAQuietComposerAsync()
+    {
+        if (!ComposerHoldsTextAndNoTurn()) return false;
+        var before = _backend.Buffer?.TotalBytesWritten ?? 0;
+        await Task.Delay(TimeSpan.FromMilliseconds(1500));
+        return (_backend.Buffer?.TotalBytesWritten ?? 0) == before && ComposerHoldsTextAndNoTurn();
     }
 
     /// <summary>
@@ -3609,6 +3671,11 @@ public sealed class Session : IDisposable
         {
             if (BackendType is SessionBackendType.ConPty)
             {
+                // ONE SEND AT A TIME (review finding 6): two sends to one session typed their chunks into each other,
+                // and each one's Enter and proof acted on the other's text.
+                await _submitGate.WaitAsync();
+                try
+                {
                 var proof = BeginArrivalProof(target, text);
                 Task<string> Submit(bool clearFirst = false) => Drivers.TerminalSubmit.SharedSubmitAsync(
                     target,
@@ -3618,10 +3685,11 @@ public sealed class Session : IDisposable
                     requireEcho: Driver.Kind != Agents.AgentKind.Copilot,
                     screenSnapshot: SnapshotScreenRows,
                     sessionId: Id,
-                    clearKeys: Drivers.ComposerClearKeys.For(AgentKind, text.Length),
+                    clearKeysFor: retainedLength => Drivers.ComposerClearKeys.For(AgentKind, retainedLength),
                     composerHoldsNothing: ComposerEmptyCheck(),
                     recordsProofFollows: proof is not null,
-                    clearRetainedUnconditionally: clearFirst);
+                    clearRetainedUnconditionally: clearFirst,
+                    nudgeOnlyWhen: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : () => false);
 
                 string typed;
                 try
@@ -3629,8 +3697,10 @@ public sealed class Session : IDisposable
                     typed = await Submit();
                 }
                 catch (Drivers.ComposerNotAcceptingInputException ex)
-                    when (proof is not null && Drivers.ComposerClearKeys.For(AgentKind) is not null)
+                    when (proof is not null && ex.TerminalReacted && Drivers.ComposerClearKeys.For(AgentKind) is not null)
                 {
+                    // Only when the terminal REACTED to the first typing (review finding 11): the agent was reading its
+                    // input, so the clear keys and the second typing arrive after the first one, not welded to it.
                     // THE ONE RECOVERY FROM AN UNCONFIRMED ECHO (issue #3290). The text was typed once and may be in
                     // the composer whole, in part, or not at all. The next submit clears the composer with the keys
                     // measured for this agent - checked empty where the composer can be read - and types it once more;
@@ -3639,7 +3709,12 @@ public sealed class Session : IDisposable
                     typed = await Submit(clearFirst: true);
                 }
                 if (proof is not null)
-                    await ConfirmArrivalAsync(proof, typed, () => Submit());
+                    await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
+                }
+                finally
+                {
+                    _submitGate.Release();
+                }
             }
             else
             {

@@ -39,8 +39,9 @@ public enum PromptArrivalOutcome
 /// text. Nothing else counts.
 ///
 /// THE ONE RESEND. When no such line appears within the window, no turn is running, and the composer shows nothing of
-/// ours (empty, or only Claude Code's grey "Try ..." suggestion), the text is gone and typing it again cannot double it:
-/// the owner's keystrokes are held for the whole send, so nothing else can be in the composer. It is resent once. A
+/// ours (empty, or only Claude Code's grey "Try ..." suggestion), the text is gone and typing it again cannot double it.
+/// It is resent once - never when the owner has typed since the send began, whose keystrokes are not held during an
+/// ordinary send (review finding 1). A
 /// running turn (the session's state or the screen's working marker) forbids it, because a loaded machine can start
 /// the turn before it writes the line. Anything else in the composer - the text parked, a paste placeholder, a dialog
 /// - is left alone and reported not delivered.
@@ -49,7 +50,7 @@ public static class PromptArrival
 {
     /// <summary>How long to wait for the conversation file after the send. Claude Code writes the line as the turn
     /// starts, well inside a second on a healthy machine; the rest is room for a loaded one.</summary>
-    public static readonly TimeSpan DefaultWindow = TimeSpan.FromSeconds(20);
+    public static readonly TimeSpan DefaultWindow = TimeSpan.FromSeconds(60);
 
     /// <summary>How often the conversation file is read while waiting.</summary>
     public static readonly TimeSpan DefaultPoll = TimeSpan.FromMilliseconds(250);
@@ -89,22 +90,34 @@ public static class PromptArrival
         var needle = Fingerprint(text);
         if (needle.Length == 0) return false;
 
-        string tail;
-        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-        {
-            var start = fromOffset <= fs.Length ? fromOffset : 0;
-            fs.Seek(start, SeekOrigin.Begin);
-            using var reader = new StreamReader(fs, Encoding.UTF8);
-            tail = reader.ReadToEnd();
-        }
-
+        if (ReadTail(path, fromOffset) is not { } tail) return false;
         foreach (var line in tail.Split('\n'))
         {
             var said = PromptTextOf(line);
-            if (said is not null && Normalize(said).Contains(needle, StringComparison.Ordinal))
+            if (said is not null && Loose(said).Contains(needle, StringComparison.Ordinal))
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// The file from <paramref name="fromOffset"/> to its end, or null when it cannot be read right now (review finding
+    /// 10): a scanner or another process holding the file for a moment is "not yet", never a lost prompt.
+    /// </summary>
+    private static string? ReadTail(string path, long fromOffset)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            fs.Seek(fromOffset <= fs.Length ? fromOffset : 0, SeekOrigin.Begin);
+            using var reader = new StreamReader(fs, Encoding.UTF8);
+            return reader.ReadToEnd();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            FileLog.Write($"[PromptArrival] could not read {path} this time ({ex.GetType().Name}: {ex.Message}); looking again next poll");
+            return null;
+        }
     }
 
     /// <summary>True when any user prompt at all was written to the file after <paramref name="fromOffset"/>.</summary>
@@ -118,13 +131,7 @@ public static class PromptArrival
     private static IEnumerable<string?> PromptsAfter(string? path, long fromOffset)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) yield break;
-        string tail;
-        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-        {
-            fs.Seek(fromOffset <= fs.Length ? fromOffset : 0, SeekOrigin.Begin);
-            using var reader = new StreamReader(fs, Encoding.UTF8);
-            tail = reader.ReadToEnd();
-        }
+        if (ReadTail(path, fromOffset) is not { } tail) yield break;
         foreach (var line in tail.Split('\n'))
             yield return PromptTextOf(line);
     }
@@ -145,6 +152,8 @@ public static class PromptArrival
     /// before a resend, so a frame caught mid-repaint cannot license one.</param>
     /// <param name="resend">Types and submits the prompt again. Called at most once.</param>
     /// <param name="mayResend">False when a resend is not allowed at all (a guarded send, which must stay bounded).</param>
+    /// <param name="agentPrintedSinceSend">False when the terminal has printed nothing since the send: the agent has not
+    /// read its input yet, so an empty composer proves nothing and a resend would queue behind the first copy.</param>
     /// <param name="window">How long to wait for each send.</param>
     /// <param name="label">What was sent, for the log.</param>
     /// <param name="poll">How often to look; <see cref="DefaultPoll"/> when null.</param>
@@ -158,8 +167,10 @@ public static class PromptArrival
         TimeSpan window,
         string label,
         Func<bool>? anyNewPrompt = null,
-        Func<bool>? textWaitsUnsubmitted = null,
+        Func<Task<bool>>? textWaitsUnsubmitted = null,
         Action? pressEnter = null,
+        Func<bool>? ownerTyped = null,
+        Func<bool>? agentPrintedSinceSend = null,
         TimeSpan? poll = null,
         Func<TimeSpan, Task>? pause = null,
         Func<DateTime>? utcNow = null)
@@ -184,7 +195,7 @@ public static class PromptArrival
                 if (await WaitAsync(arrived, checkAt < deadline ? EnterAgainAfter : deadline - clock(), step, wait, clock))
                     return PromptArrivalOutcome.Arrived;
                 if (clock() >= deadline) break;
-                if (anyNewPrompt?.Invoke() == true || !textWaitsUnsubmitted()) continue;
+                if (ownerTyped?.Invoke() == true || anyNewPrompt?.Invoke() == true || !await textWaitsUnsubmitted()) continue;
                 FileLog.Write($"[PromptArrival] '{label}' is not in the records after {EnterAgainAfter.TotalSeconds:F0}s and the composer " +
                               $"still holds text with no turn running - pressing Enter again ({again + 1}/{MaxEnterAgain})");
                 pressEnter();
@@ -203,9 +214,26 @@ public static class PromptArrival
             return PromptArrivalOutcome.ArrivedAltered;
         }
 
+        if (ownerTyped?.Invoke() == true)
+        {
+            FileLog.Write($"[PromptArrival] '{label}' is not in the records after {window.TotalSeconds:F0}s and the owner typed during " +
+                          "the send - NOT resending, so their text is never submitted or merged by us");
+            return PromptArrivalOutcome.NotArrived;
+        }
+
         if (!mayResend)
         {
             FileLog.Write($"[PromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s; a resend is not allowed on this send");
+            return PromptArrivalOutcome.NotArrived;
+        }
+
+        // AN AGENT THAT HAS PRINTED NOTHING HAS NOT READ ITS INPUT (issue #3290, measured 24 September 2026). Under full
+        // CPU load Claude Code took in none of an 8 KB paste for minutes; its composer read as empty because it had not
+        // drawn the paste yet, and the resend pasted the same text a second time behind the first.
+        if (agentPrintedSinceSend?.Invoke() == false)
+        {
+            FileLog.Write($"[PromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s and the terminal " +
+                          "has printed nothing since the send - the agent has not read its input yet. NOT resending, so nothing can be doubled");
             return PromptArrivalOutcome.NotArrived;
         }
 
@@ -234,7 +262,7 @@ public static class PromptArrival
         return PromptArrivalOutcome.NotArrived;
     }
 
-    internal static readonly TimeSpan EnterAgainAfter = TimeSpan.FromSeconds(4);
+    internal static readonly TimeSpan EnterAgainAfter = TimeSpan.FromSeconds(8);
     internal const int MaxEnterAgain = 2;
 
     private static async Task<bool> WaitAsync(
@@ -333,8 +361,21 @@ public static class PromptArrival
     /// other.</summary>
     internal static string Fingerprint(string text)
     {
-        var normal = Normalize(text);
-        return normal.Length <= FingerprintLength ? normal : normal[..FingerprintLength];
+        var loose = Loose(text);
+        return loose.Length <= FingerprintLength ? loose : loose[..FingerprintLength];
+    }
+
+    /// <summary>
+    /// The letters and digits of <paramref name="text"/>, and nothing else. The prompt is found in the records by these
+    /// alone (review finding 7): an agent that drops a variation selector, re-flows spacing or strips punctuation still
+    /// holds the prompt, and calling that a failed delivery invites the owner to send it again.
+    /// </summary>
+    internal static string Loose(string text)
+    {
+        var sb = new StringBuilder(text.Length);
+        foreach (var c in text.Normalize(NormalizationForm.FormC))
+            if (char.IsLetterOrDigit(c)) sb.Append(c);
+        return sb.ToString();
     }
 
     internal static string Normalize(string text)
