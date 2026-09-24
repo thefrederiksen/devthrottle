@@ -1617,7 +1617,7 @@ def errors_list(
         None, "--gateway", help="Read from this Gateway instead of CC_GATEWAY_URL, e.g. the hosted one."
     ),
 ) -> None:
-    """List reported errors, newest first: this account's, or every account's with --all-accounts."""
+    """List reported errors for this account, or every account with --all-accounts."""
     from .errors_ops import list_errors
 
     list_errors(

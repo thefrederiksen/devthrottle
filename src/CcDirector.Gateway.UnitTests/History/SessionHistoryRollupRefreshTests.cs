@@ -64,7 +64,26 @@ public sealed class SessionHistoryRollupRefreshTests : IDisposable
     public async Task A_stale_rollup_is_written_from_full_records_and_saved_under_the_reports_own_hash()
     {
         var store = new SessionHistoryStore(_harness.Open());
-        var now = DateTime.UtcNow;
+
+        // A FIXED INSTANT, AT MIDDAY, AND THAT IS THE WHOLE POINT. This used to read DateTime.UtcNow,
+        // and it failed on the build machine every night between midnight and two in the morning.
+        //
+        // RollupGroups puts a session in EVERY day group from its start to its last-seen, clamped to
+        // the window. The window here deliberately spans two days, so the clamp does not collapse
+        // anything. Seed the sessions at "two hours ago" and "an hour ago" while the clock reads 01:50
+        // and the earlier one started yesterday and was last seen today: it lands in both day groups,
+        // two roll-ups are written, and the count below reads 2. The sibling test escapes this only
+        // because its window is one day, which clamps the straddle away.
+        //
+        // Correlation on five consecutive runs was exact - executed at 01:50, 01:22, 00:53 and 00:32
+        // it failed; at 23:58 it passed - and pinning the clock to 01:50 reproduces it here. So it was
+        // never intermittent: it was a test that fails for two hours a night, in a build that had been
+        // red long enough that nobody was reading it.
+        //
+        // Nothing in this flow reads the real clock - UpsertLive and every read take their times as
+        // arguments - so a fixed instant is free, and it makes the fixture say what it means: two
+        // sessions, one repository, one day.
+        var now = new DateTime(2026, 3, 4, 12, 0, 0, DateTimeKind.Utc);
         store.UpsertLive("dir-1", Session("s1", now.AddHours(-2), "Cut the burn"), now);
         store.UpsertLive("dir-1", Session("s2", now.AddHours(-1), "Email improvements"), now);
         var brain = new RecordingBrain();

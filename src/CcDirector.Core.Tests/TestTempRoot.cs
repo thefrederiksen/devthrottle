@@ -55,4 +55,33 @@ internal static class TestTempRoot
 
         return Path.TrimEndingDirectorySeparator(current);
     }
+
+    /// <summary>
+    /// Delete a temporary tree that may hold a git repository.
+    ///
+    /// WHY NOT <c>Directory.Delete(path, recursive: true)</c> DIRECTLY. git creates the loose objects
+    /// and pack files under <c>.git</c> READ-ONLY. On Windows a recursive delete refuses a read-only
+    /// file and throws <c>UnauthorizedAccessException</c> naming the object, which reads as a baffling
+    /// "Access to the path '22b65577e6b5...' is denied" - a forty-character name that appears nowhere
+    /// in the test. Unix does not consult the attribute when the containing directory is writable, so
+    /// the same delete succeeds on macOS and the suite never sees it.
+    ///
+    /// Every test that makes a real repository and then removes it needs this, and there are eight
+    /// such places across three suites. It lives here so there is one of it.
+    ///
+    /// It does NOT tolerate a missing directory: a test that deletes something that was never there
+    /// is telling you its fixture is wrong, and the callers that legitimately delete an optional tree
+    /// already guard or catch around their own call.
+    /// </summary>
+    public static void DeleteTree(string path)
+    {
+        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+        {
+            var attributes = File.GetAttributes(file);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+        }
+
+        Directory.Delete(path, recursive: true);
+    }
 }
