@@ -28,4 +28,12 @@
     </None>
   </ItemGroup>
 
+  <!-- The wide-glyph pixel proof is byte-exact by design and that premise does not hold on the macOS
+       font engine (about 1017 bytes of 3.6 million differ for mixed wide, box-drawing and emoji rows).
+       AvaloniaFactAttribute is sealed and xUnit v2 has no dynamic skip, so the honest way to keep the
+       proof on Windows without carrying a red test elsewhere is to not compile it elsewhere. -->
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
+    <Compile Remove="OriginalRendererWideGlyphWindowsTests.cs" />
+  </ItemGroup>
+
 </Project>

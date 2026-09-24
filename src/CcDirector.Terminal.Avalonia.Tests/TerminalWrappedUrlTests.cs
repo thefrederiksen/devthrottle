@@ -84,7 +84,13 @@ public sealed class TerminalWrappedUrlTests
 
         // Rows that were NOT wrapped still copy as separate lines - the wrap-join
         // must not swallow the line break between ordinary lines.
-        Assert.Equal("one\r\ntwo", copied);
+        //
+        // The SEPARATOR is the platform's, not CRLF: the copy path joins with Environment.NewLine, which
+        // is right - text going to the clipboard should carry the line ending the host uses. Spelling
+        // "\r\n" here asserted the Windows answer on every platform and failed on macOS, where the copy
+        // correctly produced "one\ntwo". The property is that there IS a break between two unwrapped
+        // rows, so that is what this asks.
+        Assert.Equal("one" + Environment.NewLine + "two", copied);
     }
 
     [AvaloniaFact]

@@ -78,13 +78,33 @@ public sealed class WorktreePoolSettingsTests : IDisposable
         Assert.False(WorktreePoolSettings.For(OtherRepo).Enabled);
     }
 
+    /// <summary>
+    /// The spellings that must not matter on ANY platform: forward slashes for backslashes, and a
+    /// trailing separator. NormalizeRepoKey folds both everywhere.
+    /// </summary>
     [Fact]
-    public void For_IgnoresHowThePathWasTyped()
+    public void For_IgnoresSlashStyleAndATrailingSeparator()
+    {
+        WorktreePoolSettings.Save(Repo, new WorktreePoolSetting(Enabled: true, PoolSize: 4));
+
+        Assert.True(WorktreePoolSettings.For(@"D:/Repos/PooledRepo").Enabled);
+        Assert.True(WorktreePoolSettings.For(Repo + @"\").Enabled);
+        Assert.True(WorktreePoolSettings.For(Repo + "/").Enabled);
+    }
+
+    /// <summary>
+    /// CASE is a different question from separators, and the product's answer is deliberately not the
+    /// same on every platform: NormalizeRepoKey lowercases the key ONLY on Windows, because only there
+    /// are two casings of a path the same path. This used to be asserted in the same test as the
+    /// separator folding above, so on macOS - where the product intends case to matter - the whole test
+    /// failed and took the platform-neutral half down with it.
+    /// </summary>
+    [WindowsOnlyFact("NormalizeRepoKey lowercases the repository key only on Windows, because only there do two casings name one path; on macOS and Linux case is meant to matter")]
+    public void For_IgnoresCase_OnWindows()
     {
         WorktreePoolSettings.Save(Repo, new WorktreePoolSetting(Enabled: true, PoolSize: 4));
 
         Assert.True(WorktreePoolSettings.For(@"d:/repos/pooledrepo").Enabled);
-        Assert.True(WorktreePoolSettings.For(Repo + @"\").Enabled);
     }
 
     [Fact]
