@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Input;
 using CcDirector.Core.Machine;
@@ -62,11 +62,12 @@ public static class TerminalSubmit
         string text,
         string driverTag,
         TimeSpan settle,
-        TimeSpan? submitVerifyBeat)
+        TimeSpan? submitVerifyBeat,
+        bool throwWhenParked = true)
     {
         await Task.Delay(settle);
         await SubmitVerifier.PressEnterAndVerifyAsync(
-            backend.Buffer, backend.Write, LabelFor(text, driverTag), submitVerifyBeat);
+            backend.Buffer, backend.Write, LabelFor(text, driverTag), submitVerifyBeat, throwWhenParked: throwWhenParked);
     }
 
     /// <summary>Short, log-safe description of what was submitted.</summary>
@@ -92,7 +93,15 @@ public static class TerminalSubmit
     /// (issue internal#811). Default (empty) on the driver and backend routes, which have no session
     /// to name; the Director's own send path passes it.
     /// </summary>
-    public static async Task SharedSubmitAsync(
+    /// <param name="clearKeys">The keystrokes MEASURED to empty this agent's composer (<see cref="ComposerClearKeys"/>);
+    /// null keeps the old single Escape for callers that do not know the agent.</param>
+    /// <param name="composerHoldsNothing">When the caller can read the composer: true once it holds nothing. A composer
+    /// that still holds text after it was cleared is never typed into.</param>
+    /// <param name="recordsProofFollows">The caller proves delivery from the agent's own conversation records, so the
+    /// output-volume verifier only nudges and logs; it does not decide.</param>
+    /// <returns>The exact line typed into the composer: the text itself, or the file instruction or @-reference that
+    /// carries it. That is what the agent's records will hold.</returns>
+    public static async Task<string> SharedSubmitAsync(
         ISessionBackend backend,
         string text,
         string driverTag,
@@ -103,9 +112,14 @@ public static class TerminalSubmit
         TimeSpan? enterSettleDelay = null,
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
-        Guid sessionId = default)
+        Guid sessionId = default,
+        byte[]? clearKeys = null,
+        Func<bool>? composerHoldsNothing = null,
+        bool recordsProofFollows = false,
+        bool clearRetainedUnconditionally = false)
     {
         ArgumentNullException.ThrowIfNull(backend);
+        var throwWhenParked = !recordsProofFollows;
 
         // RESOLVE A RETAINED COMPOSER BEFORE CHOOSING A ROUTE, NOT INSIDE ONE OF THEM (issue #2818).
         //
@@ -118,13 +132,13 @@ public static class TerminalSubmit
         // prevent, reintroduced through a route the guard did not cover.
         //
         // Every route that writes new text is downstream of this line.
-        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot);
+        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeys, composerHoldsNothing, clearRetainedUnconditionally);
 
         var textForCheck = text.TrimEnd('\r', '\n');
         if (ShouldUseInstructionFile(driverTag, textForCheck)
             && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
         {
-            await SubmitViaInstructionFileAsync(
+            var instruction = await SubmitViaInstructionFileAsync(
                 backend,
                 textForCheck,
                 driverTag,
@@ -135,25 +149,26 @@ public static class TerminalSubmit
                 enterSettleDelay,
                 screenSnapshot,
                 submitVerifyBeat,
-                sessionId);
+                sessionId,
+                throwWhenParked);
             ComposerRetention.Clear(backend);
-            return;
+            return instruction;
         }
 
-        if (LargeInputHandler.IsLargeInput(textForCheck))
+        if (LargeInputHandler.IsLargeInput(textForCheck) || ShouldPasteRatherThanType(driverTag, textForCheck))
         {
             if (bracketedPasteEnabled)
             {
-                await BracketedPasteSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat);
+                await BracketedPasteSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked);
                 ComposerRetention.Clear(backend);
-                return;
+                return textForCheck;
             }
 
             if (!string.IsNullOrWhiteSpace(backend.WorkingDirectory))
             {
-                await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId);
+                var atReference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked);
                 ComposerRetention.Clear(backend);
-                return;
+                return atReference;
             }
         }
 
@@ -168,17 +183,19 @@ public static class TerminalSubmit
                 enterSettleDelay,
                 screenSnapshot,
                 submitVerifyBeat,
-                sessionId);
+                sessionId,
+                throwWhenParked);
         }
         else
         {
-            await TypeSettleEnterSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat);
+            await TypeSettleEnterSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked);
         }
 
         // Every route that RETURNS has submitted; only a throw leaves a mark standing. Clearing here as
         // well as on each early return means no route can quietly keep a stale mark alive and make the
         // NEXT send press Escape over text that belongs to the owner.
         ComposerRetention.Clear(backend);
+        return textForCheck;
     }
 
     /// <summary>
@@ -317,7 +334,8 @@ public static class TerminalSubmit
         TimeSpan? enterSettleDelay = null,
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
-        Guid sessionId = default)
+        Guid sessionId = default,
+        bool throwWhenParked = true)
     {
         ArgumentNullException.ThrowIfNull(backend);
 
@@ -326,17 +344,16 @@ public static class TerminalSubmit
         {
             backend.Write(Encoding.UTF8.GetBytes(text));
             await PressEnterAndVerifyAsync(
-                backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(50), submitVerifyBeat);
+                backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(50), submitVerifyBeat, throwWhenParked);
             return;
         }
 
-        // THE DEADLINE IS MEASURED, NOT ASSUMED (issue #2818). Four seconds is right on a machine that
-        // can run; on one that is paging, the agent's terminal interface genuinely cannot repaint in
-        // four seconds, and treating that as "not accepting input" is what deleted the owner's typed
-        // sentences. A caller that passed an explicit timeout still wins - tests and drivers that have
-        // chosen a value keep it - so nothing changes anywhere until a reading proves it should.
+        // THE DEADLINE IS MEASURED, NOT ASSUMED (issue #2818), AND IT RUNS FROM THE LAST SIGN OF PROGRESS (issue #3290).
+        // A caller that passed an explicit timeout still gets exactly that fixed deadline - tests and drivers that
+        // chose a value keep it.
         var pressure = MemoryPressure.Level(MemoryProbe.Read());
         var to = echoTimeout ?? ScaledEchoTimeout(pressure);
+        var cap = echoTimeout ?? EchoProgressCap;
         var poll = pollInterval ?? TimeSpan.FromMilliseconds(50);
         var settle = enterSettleDelay ?? TimeSpan.FromMilliseconds(40);
         var needle = NormalizeForEcho(text);
@@ -344,145 +361,75 @@ public static class TerminalSubmit
 
         if (echoTimeout is null && MemoryPressure.IsUnderPressure(pressure))
             FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: {MemoryPressure.Describe(pressure)}, so the composer " +
-                          $"echo deadline is {to.TotalSeconds:F0}s instead of {BaseEchoTimeout.TotalSeconds:F0}s. " +
+                          $"echo deadline is {to.TotalSeconds:F0}s after the last output instead of {BaseEchoTimeout.TotalSeconds:F0}s. " +
                           "A slow repaint is not a stuck interface.");
 
+        // TYPED ONCE, NEVER CLEARED AND RETYPED (issue #3290). This used to press Escape and type the text again when
+        // the echo was late. Measured on 24 September 2026 with real agents: a single Escape empties the composer of
+        // NEITHER Claude Code NOR Codex, and on a slow terminal the Escape and the next letter arrive together and are
+        // read as one Alt keystroke. So the "retype" appended a second copy - Codex, Pi and OpenCode all received their
+        // prompt twice, run together - and the next send was appended to that. A text that is not proven to be in the
+        // composer is now reported, with the composer left as it is and marked, never typed again here.
         var cursor = buffer.TotalBytesWritten;
-        for (var attempt = 1; attempt <= 2; attempt++)
+        var prefixBefore = ScreenPrefixLength(screenSnapshot, needle);
+        await WriteTextAsync(backend, text);
+
+        if (needle.Length == 0 || await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, to, poll, cap,
+                screenSnapshot, prefixBefore))
         {
-            // A FRESH READING PER ATTEMPT, so attempt two is not waiting to a deadline sized for the
-            // machine as it was before attempt one. The caller's explicit timeout still wins.
-            pressure = MemoryPressure.Level(MemoryProbe.Read());
-            to = echoTimeout ?? ScaledEchoTimeout(pressure);
-
-            cursor = buffer.TotalBytesWritten;
-            await WriteTextAsync(backend, text);
-
-            if (needle.Length == 0 || await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, to, poll))
-            {
-                await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat);
-                ComposerRetention.Clear(backend);
-                return;
-            }
-
-            // The byte stream missed the echo, but that stream is a poor witness for input that
-            // WRAPPED across composer rows: the TUI repaints wrapped text interleaved with box
-            // borders, footer hints ("esc again to clear") and cursor moves, so the typed text may
-            // never appear in the bytes as one contiguous run even though it is sitting in the
-            // composer. Ask the rendered screen - the final visual state, free of interleaving -
-            // before treating the attempt as a failure and disturbing the composer with Escape.
-            //
-            // The answer is THREE-VALUED (see ComposerEvidence). This used to be a bool whose false
-            // meant both "the screen does not show it" and "there is no screen to look at", and the
-            // Escape below fired on either. Only Absent - we looked, and it is genuinely not there -
-            // now licenses a destructive step.
-            // RE-READ THE MACHINE AT THE MOMENT THE DEADLINE EXPIRES, NOT ONCE BEFORE TYPING.
-            //
-            // The reading taken before the write describes the machine as it was up to four seconds
-            // ago, and the code review proved what that costs: a machine with room when the send began
-            // and short of memory by the time the deadline passed used the STALE "Normal" reading,
-            // pressed Escape twice, deleted the prompt, and reported that the machine had memory to
-            // spare. The transition INTO pressure is the common case, not an edge one - it is what a
-            // session starting up on a loaded Director looks like - so the destructive decision below
-            // must be taken on what is true now.
-            pressure = MemoryPressure.Level(MemoryProbe.Read());
-
-            var evidence = await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure);
-            if (evidence == ComposerEvidence.Present)
-            {
-                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: byte-stream echo missed on attempt {attempt} " +
-                              $"but the rendered screen shows the typed text (len={text.Length}) - pressing Enter");
-                await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat);
-                ComposerRetention.Clear(backend);
-                return;
-            }
-
-            // THE NEW BEHAVIOUR IS SCOPED TO A MEASURABLY STARVED MACHINE, AND THAT SCOPE IS DELIBERATE.
-            //
-            // An earlier draft took the preserve-and-watch path on ANY unknown evidence. That silently
-            // removed the clear-and-retype recovery from every driver call site that passes no screen
-            // snapshot - which is most of them (ClaudeDriver, CodexDriver, the backends) - on healthy
-            // machines as well as starved ones. Three long-standing tests caught it. That recovery is
-            // proven and valuable: on a machine with room, a composer that has not echoed in four
-            // seconds usually really did lose the text, and retyping gets it back.
-            //
-            // So on a healthy machine, or one whose memory could not be read, this falls through to
-            // exactly the code that ran before issue #2818. Only a machine measured to be short of
-            // memory - where a late repaint is the likely explanation and Escape is the thing that
-            // deletes the owner's sentence - takes the new path.
-            if (evidence == ComposerEvidence.Unknown && MemoryPressure.IsUnderPressure(pressure))
-            {
-                // WE CANNOT SEE, SO WE DO NOT CUT. Watch the byte stream for a further, finite budget
-                // without typing again and without clearing. This is the path a starved machine takes:
-                // the text IS in the composer and the repaint simply has not happened yet.
-                // SIZED FROM THE RE-READ VERDICT, NOT THE ONE TAKEN BEFORE TYPING (issue #2818).
-                //
-                // This was the half-applied half of the fix for "pressure that began during the wait".
-                // The DECISION to preserve the text correctly used the fresh reading, but the budget did
-                // not: it came from `to`, computed before the first keystroke. So in exactly the
-                // transition the re-read exists for - room at send start, Critical by the deadline - the
-                // Escape was correctly refused, the machine was correctly described as nearly out of
-                // memory, and the observation window was then the HEALTHY machine's four seconds instead
-                // of the sixteen the same rationale asks for. A quarter of the window, in the case the
-                // design calls the common one.
-                var extra = echoTimeout ?? UnknownEvidenceBudget(ScaledEchoTimeout(pressure));
-                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen on attempt {attempt} " +
-                              $"(len={text.Length}) and the rendered screen cannot say whether the text is there. " +
-                              $"NOT clearing it. Watching for a further {extra.TotalSeconds:F0}s. " +
-                              $"{MemoryPressure.Describe(pressure)}.");
-
-                if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll)
-                    || await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure) == ComposerEvidence.Present)
-                {
-                    FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the text arrived while waiting - pressing Enter. " +
-                                  "Clearing the composer here would have deleted it.");
-                    await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat);
-                    ComposerRetention.Clear(backend);
-                    return;
-                }
-
-                // Still unknown after the budget. Give up WITHOUT clearing: the words may be on the
-                // owner's screen, where they can press Enter themselves, and the next send clears first.
-                PromptDeliveryFailures.RecordComposerEchoMiss(sessionId, driverTag, attempt, text.Length);
-                ComposerRetention.MarkMayHoldText(backend, driverTag, text);
-                throw new ComposerNotAcceptingInputException(
-                    $"[{driverTag}] EchoVerifiedSubmit: the composer never echoed the typed text, and the rendered " +
-                    $"screen could not say whether it is there. {MemoryPressure.Describe(pressure)}. The text was " +
-                    "NOT cleared - it may still be sitting in the composer on screen. " +
-                    $"{EchoMissDiagnostics(buffer, cursor, screenSnapshot, needle, visibleTailNeedle)} " +
-                    $"Readable buffer tail: {TailOf(buffer)}");
-            }
-
-            if (attempt == 2 && driverTag.Contains("OpenCode", StringComparison.OrdinalIgnoreCase))
-                break;
-
-            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen on attempt {attempt} " +
-                          $"(len={text.Length}, evidence={evidence}, {MemoryPressure.Describe(pressure)}) - " +
-                          "clearing the composer and retyping. " +
-                          EchoMissDiagnostics(buffer, cursor, screenSnapshot, needle, visibleTailNeedle));
-            // Count it as well as log it (issue internal#811). A miss that recovers on the retype costs
-            // the user nothing, so it raises no alarm - but it is the leading indicator of the failures
-            // that DO cost them their words, and it was invisible until somebody grepped a log file.
-            PromptDeliveryFailures.RecordComposerEchoMiss(sessionId, driverTag, attempt, text.Length);
-            backend.Write(EscapeByte);
-            await Task.Delay(TimeSpan.FromMilliseconds(300));
-        }
-
-        if (driverTag.Contains("OpenCode", StringComparison.OrdinalIgnoreCase))
-        {
-            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: OpenCode echo was torn; pressing Enter instead of failing route");
-            await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat);
+            await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
             ComposerRetention.Clear(backend);
             return;
         }
 
-        // Reached after two cleared-and-retyped attempts on a machine that was not measurably short of
-        // memory - so a late repaint is not the explanation, and the composer was cleared each time on
-        // that basis rather than on a guess about a starved machine.
+        // The byte stream is a poor witness for input that WRAPPED across composer rows (issue #1592), so the rendered
+        // screen is asked before the text is called missing. The reading is taken NOW, not before typing.
+        pressure = MemoryPressure.Level(MemoryProbe.Read());
+        var evidence = await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure);
+        if (evidence == ComposerEvidence.Present)
+        {
+            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: byte-stream echo missed but the rendered screen shows the " +
+                          $"typed text (len={text.Length}) - pressing Enter");
+            await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
+            ComposerRetention.Clear(backend);
+            return;
+        }
+
+        if (evidence == ComposerEvidence.Unknown)
+        {
+            // WE CANNOT SEE, SO WE KEEP WATCHING (issue #2818). The text may be in the composer with the repaint simply
+            // late, so the byte stream is watched for a further, finite budget - sized from the pressure read NOW, not
+            // before the typing - without typing again and without clearing.
+            var extra = echoTimeout ?? UnknownEvidenceBudget(ScaledEchoTimeout(pressure));
+            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen (len={text.Length}) and the rendered " +
+                          $"screen cannot say whether the text is there. Watching for a further {extra.TotalSeconds:F0}s. " +
+                          $"{MemoryPressure.Describe(pressure)}.");
+            if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll)
+                || await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure) == ComposerEvidence.Present)
+            {
+                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the text arrived while waiting - pressing Enter.");
+                await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
+                ComposerRetention.Clear(backend);
+                return;
+            }
+        }
+
+        if (driverTag.Contains("OpenCode", StringComparison.OrdinalIgnoreCase))
+        {
+            // OpenCode tears its own echo on every repaint, so the echo can never be confirmed there; the text was
+            // typed once and Enter is pressed after it, in order.
+            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: OpenCode echo was torn; pressing Enter after the one typing");
+            await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
+            ComposerRetention.Clear(backend);
+            return;
+        }
+
+        PromptDeliveryFailures.RecordComposerEchoMiss(sessionId, driverTag, 1, text.Length);
+        ComposerRetention.MarkMayHoldText(backend, driverTag, text);
         throw new ComposerNotAcceptingInputException(
-            $"[{driverTag}] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - " +
-            "the TUI is not accepting input (a modal, a picker, or a composer still initializing). " +
-            $"{MemoryPressure.Describe(pressure)}. " +
+            $"[{driverTag}] EchoVerifiedSubmit: the composer never echoed the typed text (screen evidence: {evidence}). " +
+            "The text was typed ONCE and was NOT cleared or retyped - clearing with Escape and retyping is what doubled " +
+            $"prompts (issue #3290); it may still be sitting in the composer on screen. {MemoryPressure.Describe(pressure)}. " +
             $"{EchoMissDiagnostics(buffer, cursor, screenSnapshot, needle, visibleTailNeedle)} " +
             $"Readable buffer tail: {TailOf(buffer)}");
     }
@@ -492,14 +439,18 @@ public static class TerminalSubmit
         string text,
         string driverTag,
         TimeSpan? enterSettleDelay = null,
-        TimeSpan? submitVerifyBeat = null)
+        TimeSpan? submitVerifyBeat = null,
+        bool throwWhenParked = true)
     {
         FileLog.Write($"[{driverTag}] SharedSubmit: bracketed paste submit len={text.Length}");
         backend.Write(BracketedPasteStart);
         await WriteTextAsync(backend, text);
         backend.Write(BracketedPasteEnd);
+        // THE PASTE IS TAKEN IN BEFORE THE ENTER (issue #3290). An agent still reading a large paste can take the Enter
+        // as part of it. The agent repaints its composer once the paste is in; the Enter waits for that repaint to end.
+        await WaitForPasteTakenInAsync(backend, driverTag, text.Length);
         await PressEnterAndVerifyAsync(
-            backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(80), submitVerifyBeat);
+            backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(80), submitVerifyBeat, throwWhenParked);
     }
 
     private static async Task TypeSettleEnterSubmitAsync(
@@ -507,12 +458,13 @@ public static class TerminalSubmit
         string text,
         string driverTag,
         TimeSpan? enterSettleDelay = null,
-        TimeSpan? submitVerifyBeat = null)
+        TimeSpan? submitVerifyBeat = null,
+        bool throwWhenParked = true)
     {
         FileLog.Write($"[{driverTag}] SharedSubmit: type-settle-enter submit len={text.Length}");
         await WriteTextAsync(backend, text);
         await PressEnterAndVerifyAsync(
-            backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(50), submitVerifyBeat);
+            backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(50), submitVerifyBeat, throwWhenParked);
     }
 
     /// <summary>
@@ -520,7 +472,7 @@ public static class TerminalSubmit
     /// <see cref="EchoVerifiedInlineSubmitAsync"/> is now verified like every other Enter, so calling
     /// it again here would watch the same submit twice.
     /// </summary>
-    private static async Task SubmitViaAtReferenceAsync(
+    private static async Task<string> SubmitViaAtReferenceAsync(
         ISessionBackend backend,
         string text,
         string driverTag,
@@ -529,7 +481,8 @@ public static class TerminalSubmit
         TimeSpan? enterSettleDelay = null,
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
-        Guid sessionId = default)
+        Guid sessionId = default,
+        bool throwWhenParked = true)
     {
         var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
@@ -545,10 +498,12 @@ public static class TerminalSubmit
             enterSettleDelay,
             screenSnapshot,
             submitVerifyBeat,
-            sessionId);
+            sessionId,
+            throwWhenParked);
+        return atReference;
     }
 
-    private static async Task SubmitViaInstructionFileAsync(
+    private static async Task<string> SubmitViaInstructionFileAsync(
         ISessionBackend backend,
         string text,
         string driverTag,
@@ -559,7 +514,8 @@ public static class TerminalSubmit
         TimeSpan? enterSettleDelay = null,
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
-        Guid sessionId = default)
+        Guid sessionId = default,
+        bool throwWhenParked = true)
     {
         var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
@@ -581,12 +537,14 @@ public static class TerminalSubmit
                 enterSettleDelay,
                 screenSnapshot,
                 submitVerifyBeat,
-                sessionId);
+                sessionId,
+                throwWhenParked);
         }
         else
         {
-            await TypeSettleEnterSubmitAsync(backend, instruction, driverTag, enterSettleDelay, submitVerifyBeat);
+            await TypeSettleEnterSubmitAsync(backend, instruction, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked);
         }
+        return instruction;
     }
 
     /// <summary>
@@ -603,7 +561,8 @@ public static class TerminalSubmit
     /// chosen and each route reads its own.
     /// </summary>
     private static async Task ResolveRetainedComposerAsync(
-        ISessionBackend backend, string driverTag, Func<string[]>? screenSnapshot)
+        ISessionBackend backend, string driverTag, Func<string[]>? screenSnapshot,
+        byte[]? clearKeys = null, Func<bool>? composerHoldsNothing = null, bool unconditionally = false)
     {
         if (ComposerRetention.TakeRetainedText(backend) is not { } retained) return;
 
@@ -612,13 +571,37 @@ public static class TerminalSubmit
         var orphan = await ObserveComposerAsync(
             screenSnapshot, retainedNeedle, VisibleTailNeedle(retainedNeedle), pressure);
 
-        if (ComposerRetention.ShouldClearBeforeTyping(orphan))
+        // UNCONDITIONALLY only for the retry inside the same held-input send (issue #3290): nothing in the composer can
+        // be the owner's then, and a partly echoed text does not read as "present", so the evidence rule would leave it
+        // there and the retry would be appended to it.
+        if ((unconditionally && clearKeys is not null) || ComposerRetention.ShouldClearBeforeTyping(orphan))
         {
             FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send may have left {retained.Length} " +
                           $"characters in this composer (evidence: {orphan}) - clearing before typing so the two " +
                           "cannot run together.");
-            backend.Write(EscapeByte);
+            await WaitForQuietAsync(backend, driverTag);
+            // THE MEASURED KEY, NOT A GUESSED ONE (issue #3290). A single Escape empties neither Claude Code's nor
+            // Codex's composer, so this step used to leave the orphan in place and the new send was appended to it -
+            // two prompts submitted as one. The caller passes the keys measured for its agent.
+            backend.Write(clearKeys ?? EscapeByte);
             await Task.Delay(TimeSpan.FromMilliseconds(300));
+            if (composerHoldsNothing is not null)
+            {
+                var empty = false;
+                for (var i = 0; i < 20 && !empty; i++)
+                {
+                    empty = composerHoldsNothing();
+                    if (empty) { await Task.Delay(BetweenScreenSamples); empty = composerHoldsNothing(); }
+                    if (!empty) await Task.Delay(TimeSpan.FromMilliseconds(150));
+                }
+                if (!empty)
+                {
+                    ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
+                    throw new ComposerNotAcceptingInputException(
+                        $"[{driverTag}] ResolveRetainedComposer: the composer still holds text after it was cleared, so " +
+                        "nothing was typed - typing now would run the new text together with what is there.");
+                }
+            }
         }
         else
         {
@@ -626,6 +609,62 @@ public static class TerminalSubmit
                           "this composer - not clearing, so nothing typed since is disturbed.");
         }
     }
+
+    /// <summary>
+    /// Before a clear: wait until the terminal has printed nothing for <see cref="QuietBeforeClear"/>, up to
+    /// <see cref="QuietBeforeClearLimit"/> (issue #3290). Characters typed earlier can still be on their way into the
+    /// composer - measured on Codex, which went on taking an instruction after the send had given up on it - and a clear
+    /// pressed while they arrive empties only what had arrived so far, leaving the rest to run into the next prompt.
+    /// </summary>
+    private static async Task WaitForQuietAsync(ISessionBackend backend, string driverTag)
+    {
+        if (backend.Buffer is not { } buffer) return;
+        var started = DateTime.UtcNow;
+        var lastTotal = buffer.TotalBytesWritten;
+        var lastChange = started;
+        while (DateTime.UtcNow - lastChange < QuietBeforeClear)
+        {
+            if (DateTime.UtcNow - started >= QuietBeforeClearLimit)
+            {
+                FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the terminal was still printing after " +
+                              $"{QuietBeforeClearLimit.TotalSeconds:F0}s - clearing anyway, and checking the composer after.");
+                return;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            var total = buffer.TotalBytesWritten;
+            if (total != lastTotal) { lastTotal = total; lastChange = DateTime.UtcNow; }
+        }
+    }
+
+    private static async Task WaitForPasteTakenInAsync(ISessionBackend backend, string driverTag, int length)
+    {
+        if (backend.Buffer is not { } buffer) return;
+        var started = DateTime.UtcNow;
+        var startTotal = buffer.TotalBytesWritten;
+        var lastTotal = startTotal;
+        var lastChange = started;
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
+            var now = DateTime.UtcNow;
+            var total = buffer.TotalBytesWritten;
+            if (total != lastTotal) { lastTotal = total; lastChange = now; }
+            // Taken in: the agent has repainted since the paste and then gone quiet.
+            if (total != startTotal && now - lastChange >= PasteQuiet) return;
+            if (now - started >= PasteTakenInLimit)
+            {
+                FileLog.Write($"[{driverTag}] SharedSubmit: no quiet repaint within {PasteTakenInLimit.TotalSeconds:F0}s of a " +
+                              $"{length}-character paste (repainted={total != startTotal}) - pressing Enter; the records decide");
+                return;
+            }
+        }
+    }
+
+    internal static readonly TimeSpan PasteQuiet = TimeSpan.FromMilliseconds(400);
+    internal static readonly TimeSpan PasteTakenInLimit = TimeSpan.FromSeconds(30);
+
+    internal static readonly TimeSpan QuietBeforeClear = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan QuietBeforeClearLimit = TimeSpan.FromSeconds(15);
 
     /// <summary>The composer echo deadline on a machine that is not short of memory. Unchanged at four seconds.</summary>
     internal static readonly TimeSpan BaseEchoTimeout = TimeSpan.FromSeconds(4);
@@ -757,6 +796,22 @@ public static class TerminalSubmit
         return visibleTailNeedle is not null && hay.Contains(visibleTailNeedle, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The longest single line typed into Claude Code key by key; a longer one goes as a bracketed paste when the
+    /// agent has turned paste mode on (issue #3290).
+    ///
+    /// Measured on 24 September 2026, three agents running at once on a machine short of memory: an 869-character
+    /// line typed into Claude Code arrived in bursts that Claude Code's own paste detector folded into
+    /// "[Pasted text #1]" part-way through. The composer never showed the whole line, the send was cleared and typed
+    /// again after 48 seconds, and characters of the first typing still on their way were run into the NEXT prompt -
+    /// three later prompts arrived with pieces of it. A bracketed paste says "this is one paste" in the terminal's own
+    /// protocol instead of leaving the agent to guess from the timing, and the conversation records prove it arrived.
+    /// </summary>
+    internal const int ClaudeTypingLimit = 200;
+
+    private static bool ShouldPasteRatherThanType(string driverTag, string text) =>
+        text.Length > ClaudeTypingLimit && driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase);
+
     private static bool ShouldUseInstructionFile(string driverTag, string text)
     {
         if (!LargeInputHandler.IsLargeInput(text) && text.Length <= 300)
@@ -767,13 +822,94 @@ public static class TerminalSubmit
                || driverTag.Contains("OpenCode", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Poll the terminal byte stream until the typed text echoes back in the composer.</summary>
-    private static async Task<bool> WaitForEchoAsync(
-        CircularTerminalBuffer buffer, long cursor, string needle, string? visibleTailNeedle, TimeSpan timeout, TimeSpan poll)
+    /// <summary>
+    /// The longest a send waits for its echo while the terminal is still visibly working on it (issue #3290).
+    /// Measured on 24 September 2026: Codex, while its header still said "loading", took typed characters at about
+    /// one every 1.5 seconds, and Pi at startup echoed a long line for well over four seconds. A fixed four-second
+    /// deadline called both "not accepting input" and cleared-and-retyped a composer that was filling up, which
+    /// doubled the prompt. The deadline now runs from the LAST sign of progress, up to this limit.
+    /// </summary>
+    internal static readonly TimeSpan EchoProgressCap = TimeSpan.FromSeconds(60);
+
+    /// <summary>How long a composer that has visibly begun taking the text may pause before the echo is called missing.</summary>
+    internal static readonly TimeSpan PrefixQuietAllowance = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long a terminal that has printed nothing at all since the typing is waited for.</summary>
+    internal static readonly TimeSpan NoReactionAllowance = TimeSpan.FromSeconds(20);
+
+    private static readonly TimeSpan ScreenProgressInterval = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// How much of the start of <paramref name="needle"/> the rendered screen shows, in normalized characters - 0 when
+    /// the screen cannot be read. Containment of a prefix is monotone (a screen showing a longer prefix shows every
+    /// shorter one), so the length is found by bisection.
+    /// </summary>
+    internal static int ScreenPrefixLength(Func<string[]>? screenSnapshot, string needle)
     {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
+        if (screenSnapshot is null || needle.Length == 0) return 0;
+        var rows = ReadScreen(screenSnapshot);
+        if (rows is null) return 0;
+        return PrefixLengthIn(NormalizeForEcho(string.Concat(rows)), needle);
+    }
+
+    internal static int PrefixLengthIn(string hay, string needle)
+    {
+        int lo = 0, hi = needle.Length;
+        while (lo < hi)
         {
+            var mid = (lo + hi + 1) / 2;
+            if (hay.Contains(needle.AsSpan(0, mid), StringComparison.Ordinal)) lo = mid;
+            else hi = mid - 1;
+        }
+        return lo;
+    }
+
+    /// <summary>
+    /// Poll the terminal byte stream until the typed text echoes back in the composer. The wait ends
+    /// <paramref name="timeout"/> after the terminal last printed anything, and never later than
+    /// <paramref name="hardCap"/> after it began: a composer still repainting our characters is given the time it
+    /// needs, and a silent one is given up on as before.
+    /// </summary>
+    private static async Task<bool> WaitForEchoAsync(
+        CircularTerminalBuffer buffer, long cursor, string needle, string? visibleTailNeedle, TimeSpan timeout, TimeSpan poll,
+        TimeSpan? hardCap = null, Func<string[]>? screenSnapshot = null, int prefixBefore = 0)
+    {
+        var started = DateTime.UtcNow;
+        var cap = hardCap ?? timeout;
+        var lastProgress = started;
+        var lastTotal = buffer.TotalBytesWritten;
+        var lastPrefix = prefixBefore;
+        var lastScreenLook = DateTime.MinValue;
+        var quiet = timeout;
+        while (true)
+        {
+            var now = DateTime.UtcNow;
+            var total = buffer.TotalBytesWritten;
+            if (total != lastTotal) { lastTotal = total; lastProgress = now; }
+
+            // THE COMPOSER FILLING UP IS PROGRESS EVEN WHEN THE TERMINAL IS QUIET (issue #3290). Measured on 24
+            // September 2026: Codex, typed to the moment its previous turn ended, printed nothing for nine seconds and
+            // then went on taking the characters - the byte stream called that a miss, and the clear that followed
+            // raced the characters still arriving. Once the screen shows more of this text than it did before the
+            // typing, the agent has begun taking it: every gain restarts the deadline, and a pause is allowed
+            // PrefixQuietAllowance rather than the few seconds allowed a terminal that never reacted at all.
+            if (screenSnapshot is not null && hardCap is not null && now - lastScreenLook >= ScreenProgressInterval)
+            {
+                lastScreenLook = now;
+                var prefix = ScreenPrefixLength(screenSnapshot, needle);
+                if (prefix > lastPrefix)
+                {
+                    lastPrefix = prefix;
+                    lastProgress = now;
+                    if (quiet < PrefixQuietAllowance) quiet = PrefixQuietAllowance;
+                }
+            }
+            // A TERMINAL THAT HAS NOT REACTED AT ALL HAS NOT REFUSED ANYTHING (issue #3290). Measured on 24 September 2026:
+            // Pi, typed to just after its previous turn ended, printed not one byte for six seconds and then took the
+            // whole line. The keystrokes wait in the pipe; four seconds of silence called that a miss, and the clear and
+            // retype that followed ran into the characters as Pi caught up.
+            var timeoutNow = hardCap is not null && total == cursor && quiet < NoReactionAllowance ? NoReactionAllowance : quiet;
+
             var (bytes, _) = buffer.GetWrittenSince(cursor);
             var hay = NormalizeForEcho(StripAnsi(Encoding.UTF8.GetString(bytes)));
             var index = hay.LastIndexOf(needle, StringComparison.Ordinal);
@@ -790,6 +926,7 @@ public static class TerminalSubmit
                 // Pressing Enter there would execute it, so this is never an echo we accept.
                 if (index > 0 && hay[index - 1] == '/' && !needle.StartsWith('/'))
                 {
+                    if (now - lastProgress >= timeoutNow || now - started >= cap) return false;
                     await Task.Delay(poll);
                     continue;
                 }
@@ -800,28 +937,80 @@ public static class TerminalSubmit
             if (visibleTailNeedle is not null && hay.Contains(visibleTailNeedle, StringComparison.Ordinal))
                 return true;
 
+            if (now - lastProgress >= timeoutNow || now - started >= cap) return false;
             await Task.Delay(poll);
         }
-        return false;
     }
 
     private static async Task WriteTextAsync(ISessionBackend backend, string text)
     {
-        var bytes = Encoding.UTF8.GetBytes(text);
+        var asKeyEvents = backend is ConPtyBackend;
         const int bulkThreshold = 48;
-        const int chunkSize = 16;
-        if (bytes.Length <= bulkThreshold)
+        if (Encoding.UTF8.GetByteCount(text) <= bulkThreshold)
         {
-            backend.Write(bytes);
+            backend.Write(Encode(text, asKeyEvents));
             return;
         }
 
-        for (var offset = 0; offset < bytes.Length; offset += chunkSize)
+        foreach (var chunk in Chunks(text, asKeyEvents))
         {
-            var count = Math.Min(chunkSize, bytes.Length - offset);
-            backend.Write(bytes.AsSpan(offset, count).ToArray());
+            backend.Write(chunk);
             await Task.Delay(TimeSpan.FromMilliseconds(10));
         }
+    }
+
+    /// <summary>
+    /// The bytes that put <paramref name="text"/> into an agent's composer. With <paramref name="nonAsciiAsKeyEvents"/>
+    /// (a Windows pseudo console) every character outside ASCII is written as a win32-input-mode key press - the form
+    /// Windows Terminal itself uses to hand the pseudo console a keystroke - and ASCII is written as it is.
+    ///
+    /// WHY (issue #3290), measured on 24 September 2026 with the qualification rig (`--chars`): written as UTF-8, the
+    /// text "e\u00e9 d\u2013 q\u201cx\u201d p\u00a3 u\u20ac" reached Codex and Grok as "e\u00e9 d qx p u" - the pseudo
+    /// console hands those two agents each UTF-8 byte as a character of its own, so Codex RECORDED "Caf\u00e9" as
+    /// "Caf\u00c3\u00a9" and the dashes, curly quotes, pound and euro vanished. One write, a write per character and a
+    /// bracketed paste all lost them the same way. As key presses the text reached Claude Code, Codex, Pi, OpenCode and
+    /// Grok intact, and inside a bracketed paste Claude Code still received it as one two-line paste. Dictation
+    /// produces curly quotes and dashes all the time, so this is not an edge case.
+    /// </summary>
+    internal static byte[] Encode(string text, bool nonAsciiAsKeyEvents)
+    {
+        if (!nonAsciiAsKeyEvents || text.All(c => c < 0x80))
+            return Encoding.UTF8.GetBytes(text);
+        var sb = new StringBuilder(text.Length + 64);
+        foreach (var c in text)
+        {
+            if (c < 0x80)
+            {
+                sb.Append(c);
+                continue;
+            }
+            // CSI Vk;Sc;Uc;Kd;Cs;Rc _ : no virtual key, no scan code, the UTF-16 unit, key down then key up, once.
+            // A character outside the basic plane is sent as its two surrogate units, as Windows Terminal sends it.
+            sb.Append("\u001b[0;0;").Append((int)c).Append(";1;0;1_");
+            sb.Append("\u001b[0;0;").Append((int)c).Append(";0;0;1_");
+        }
+        return Encoding.ASCII.GetBytes(sb.ToString());
+    }
+
+    /// <summary>
+    /// The text as chunks of about sixteen characters' bytes that NEVER split a character - a character, and a
+    /// character sent as key presses, always travels in one write.
+    /// </summary>
+    internal static IEnumerable<byte[]> Chunks(string text, bool nonAsciiAsKeyEvents = false, int chunkSize = 16)
+    {
+        var pending = new List<byte>(chunkSize + 64);
+        var e = System.Globalization.StringInfo.GetTextElementEnumerator(text);
+        while (e.MoveNext())
+        {
+            var element = Encode((string)e.Current, nonAsciiAsKeyEvents);
+            if (pending.Count > 0 && pending.Count + element.Length > chunkSize)
+            {
+                yield return pending.ToArray();
+                pending.Clear();
+            }
+            pending.AddRange(element);
+        }
+        if (pending.Count > 0) yield return pending.ToArray();
     }
 
     /// <summary>

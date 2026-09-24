@@ -1,4 +1,4 @@
-using CcDirector.Core.Drivers;
+﻿using CcDirector.Core.Drivers;
 using CcDirector.Core.Input;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Tests.Drivers;
@@ -22,12 +22,10 @@ public sealed class TerminalSubmitEchoMissCountTests
     public TerminalSubmitEchoMissCountTests() => PromptDeliveryFailures.ResetForTests();
 
     [Fact]
-    public async Task ComposerThatNeverEchoes_CountsAMissPerAttemptAgainstTheNamedSession()
+    public async Task ComposerThatNeverEchoes_CountsOneMissAgainstTheNamedSession()
     {
-        // UNCHANGED BY ISSUE #2818, and pinned so it stays that way. On a machine with memory to spare
-        // the submit path behaves exactly as it always has: miss, clear the composer, retype, miss
-        // again, throw - two attempts, two misses. Only a machine measured to be SHORT of memory takes
-        // the path that keeps the text instead, which is covered in TerminalSubmitComposerEvidenceTests.
+        // The text is typed ONCE (issue #3290): the clear-and-retype second attempt doubled prompts in real agents,
+        // so a composer that never echoes is one typing and one miss, then the throw.
         //
         // The pin is what makes that true rather than merely intended: without it this test reads the
         // real machine, and on a laptop sitting near the threshold it flips behaviour mid-run.
@@ -49,7 +47,7 @@ public sealed class TerminalSubmitEchoMissCountTests
                 sessionId: sessionId));
 
         var tally = PromptDeliveryFailures.Tally(sessionId);
-        Assert.Equal(2, tally.ComposerEchoMisses);
+        Assert.Equal(1, tally.ComposerEchoMisses);
         // The THROW is what the session boundary counts as the lost delivery; this layer only counts
         // misses, so nothing here claims a failed delivery on its own.
         Assert.Equal(0, tally.FailedDeliveries);

@@ -2331,6 +2331,48 @@ public sealed class Session : IDisposable
         BackendType is SessionBackendType.ConPty && Drivers.FirstPromptGate.CanProve(AgentKind);
 
     /// <summary>
+    /// Deliver a new session's first prompt - a spawn's --prompt, a schedule's seed, a restore - once the agent is
+    /// ready (issues #212 and #3290). THE one implementation: the Director's create command and the text-delivery
+    /// qualification rig both call this, so the rig proves the code that ships rather than a copy of it.
+    /// An agent whose composer can be read goes through <see cref="DeliverFirstPromptAsync"/>, which PROVES the
+    /// agent reads input; every other agent waits for a startup burst followed by a quiet poll, up to
+    /// <paramref name="wait"/>, and then sends.
+    /// </summary>
+    public async Task DeliverPrePromptAsync(string text, TimeSpan wait)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
+        var provenance = SubmissionProvenance.FrameworkText();
+        if (CanGateFirstPrompt)
+        {
+            var limit = wait > Drivers.FirstPromptGate.MinimumWait ? wait : Drivers.FirstPromptGate.MinimumWait;
+            FileLog.Write($"[Session] PrePrompt: gating on the agent reading input, sid={Id}, len={text.Length}");
+            await DeliverFirstPromptAsync(text, provenance, limit);
+            return;
+        }
+
+        var deadline = DateTime.UtcNow + wait;
+        long lastBytes = -1;
+        while (DateTime.UtcNow < deadline)
+        {
+            var st = ActivityState;
+            if (st is ActivityState.Exited) { FileLog.Write($"[Session] PrePrompt: session exited before ready, sid={Id}"); return; }
+            var bytes = Buffer?.TotalBytesWritten ?? 0;
+            var settled = bytes > 1500 && bytes == lastBytes
+                && st is ActivityState.Idle or ActivityState.WaitingForInput;
+            if (settled)
+            {
+                FileLog.Write($"[Session] PrePrompt: agent ready (TUI rendered {bytes} bytes, then settled), sid={Id}");
+                break;
+            }
+            lastBytes = bytes;
+            await Task.Delay(750);
+        }
+        FileLog.Write($"[Session] PrePrompt: dispatching to sid={Id}, len={text.Length}");
+        await SendTextAsync(text, provenance, SendSource.Framework);
+    }
+
+    /// <summary>
     /// Deliver a new session's first prompt (issue #3290): wait through <see cref="Drivers.FirstPromptGate"/> until the
     /// agent has read a keystroke, then submit through the ordinary path. When the gate does not open, the prompt is
     /// NOT typed, the failure is recorded against the session - so its row says the prompt was not delivered, on every
@@ -3342,75 +3384,202 @@ public sealed class Session : IDisposable
             $"the send was abandoned ({section.AbandonReason}); the text it typed was removed from the composer and Enter was not pressed");
     }
 
-    /// <summary>Where a send's proof of arrival starts: the conversation file and its end before the send.</summary>
-    private readonly record struct ArrivalProof(string Path, long Offset);
+    /// <summary>
+    /// Where a send's proof of arrival starts. A FILE witness (Claude Code, Codex, Pi, Grok) remembers every conversation
+    /// file it watches and where each one ended before the send; a STORE witness (Copilot and OpenCode keep their
+    /// conversation in a database) remembers every user turn the store held for this repository.
+    ///
+    /// NEVER ONE GUESSED CONVERSATION (issue #3290). The locators pick "the newest" conversation for a repository, and a
+    /// file still open on Windows does not report its latest write time, so "newest" can be an EARLIER session's file.
+    /// Measured on 24 September 2026: every send to Grok and Copilot arrived and the Director called every one of them
+    /// lost, because the proof was watching an older conversation of the same repository. The witness now watches every
+    /// conversation the agent keeps for the repository, and a prompt counts only when it is NEW since the send began.
+    /// </summary>
+    private sealed class ArrivalProof
+    {
+        public required Func<IEnumerable<string>> Paths { get; init; }
+        public DateTime StartedUtc { get; init; }
+        public Func<IReadOnlyList<(string Key, string Text)>>? ReadPrompts { get; init; }
+        public HashSet<string> KeysAtStart { get; init; } = new(StringComparer.Ordinal);
 
-    /// <summary>How long a send waits for Claude Code's conversation file; tests shorten it.</summary>
-    internal TimeSpan ArrivalWindow { get; set; } = ClaudePromptArrival.DefaultWindow;
+        /// <summary>Where reading starts in each watched file; a file first seen after the send began is added when seen.</summary>
+        public Dictionary<string, long> StartOffsets { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>How long a send waits for the agent's conversation records; tests shorten it.</summary>
+    internal TimeSpan ArrivalWindow { get; set; } = Drivers.PromptArrival.DefaultWindow;
 
     /// <summary>
-    /// Decide whether this send can be PROVEN to reach Claude Code through its conversation file (issue #3290), and
-    /// mark where the proof starts. Null - with the reason logged - when it cannot:
-    ///  - the agent is not Claude Code, or the text is a slash command, bash line or memory line;
-    ///  - the send is a guarded one, which is bounded in time and so cannot wait on the file or resend;
-    ///  - the session is working, so Claude Code queues the text and writes it only when the turn ends;
-    ///  - the conversation file is not known (no SessionStart hook has reported it).
+    /// Decide whether this send can be PROVEN through the agent's own conversation records (issue #3290), and mark where
+    /// the proof starts. Null - with the reason logged - when it cannot:
+    ///  - the text is a slash command, bash line or memory line, which agents record in shapes of their own;
+    ///  - the send is a guarded one, which is bounded in time and so cannot wait on the records or resend;
+    ///  - the session is working, so the agent queues the text and records it only when the turn ends;
+    ///  - the agent keeps no conversation record the Director can read (Gemini).
     /// </summary>
     private ArrivalProof? BeginArrivalProof(ISessionBackend target, string text)
     {
-        if (Driver.Kind != Agents.AgentKind.ClaudeCode || !ReferenceEquals(target, _backend)) return null;
-        if (!ClaudePromptArrival.CanProve(text)) return null;
+        if (!ReferenceEquals(target, _backend)) return null;
+        if (!Drivers.PromptArrival.CanProve(text)) return null;
         var state = ActivityState;
         if (state is not (ActivityState.WaitingForInput or ActivityState.Idle))
         {
-            FileLog.Write($"[Session] arrival proof skipped: session={Id} is {state}; Claude Code queues a prompt sent mid-turn");
+            FileLog.Write($"[Session] arrival proof skipped: session={Id} is {state}; the agent queues a prompt sent mid-turn");
             return null;
         }
-        var path = ClaudeTranscriptPath;
-        if (string.IsNullOrWhiteSpace(path))
+
+        static IEnumerable<string> One(string? path) => string.IsNullOrWhiteSpace(path) ? [] : [path];
+        Func<IEnumerable<string>>? paths = AgentKind switch
         {
-            FileLog.Write($"[Session] arrival proof UNAVAILABLE: session={Id} has no known conversation file, so this send cannot be proven");
+            Agents.AgentKind.ClaudeCode => () => One(ClaudeTranscriptPath
+                ?? (string.IsNullOrEmpty(ClaudeSessionId) ? null : ClaudeSessionReader.GetJsonlPath(ClaudeSessionId, RepoPath))),
+            Agents.AgentKind.Codex => () => One(Codex.CodexRolloutLocator.Resolve(Id, RepoPath, CreatedAt)),
+            Agents.AgentKind.Pi => () => One(Pi.PiSessionLocator.Resolve(ClaudeSessionId)),
+            Agents.AgentKind.Grok => () => Grok.GrokSessionLocator.AllTranscripts(RepoPath),
+            Agents.AgentKind.Copilot => () => Copilot.CopilotHistoryReader.AllEventLogs(RepoPath),
+            _ => null,
+        };
+        Func<IReadOnlyList<(string Key, string Text)>>? readPrompts = AgentKind switch
+        {
+            Agents.AgentKind.OpenCode => () => OpenCode.OpenCodeHistoryReader.UserPrompts(RepoPath),
+            _ => null,
+        };
+        if (paths is null && readPrompts is null)
+        {
+            FileLog.Write($"[Session] arrival proof UNAVAILABLE: session={Id} runs {AgentKind}, whose conversation the Director cannot read");
             return null;
         }
-        return new ArrivalProof(path, ClaudePromptArrival.EndOf(path));
+
+        if (readPrompts is not null)
+            return new ArrivalProof
+            {
+                Paths = () => [],
+                StartedUtc = DateTime.UtcNow,
+                ReadPrompts = readPrompts,
+                KeysAtStart = new HashSet<string>(readPrompts().Select(p => p.Key), StringComparer.Ordinal),
+            };
+
+        var proof = new ArrivalProof { Paths = paths!, StartedUtc = DateTime.UtcNow };
+        foreach (var path in paths!())
+            proof.StartOffsets[path] = Drivers.PromptArrival.EndOf(path);
+        return proof;
     }
 
     /// <summary>
-    /// Wait until Claude Code's conversation file holds the prompt, resending once when it was lost with an empty
-    /// composer (see <see cref="ClaudePromptArrival"/>). Throws <see cref="Drivers.PromptNotSubmittedException"/> when
+    /// Each watched file with where reading starts. A file first seen after the send began (Pi writes its file on the
+    /// first message; Claude Code starts a new one on /clear; Grok one per session) is read from its start when it was
+    /// CREATED after the send began, and otherwise from where it stood when first seen - an older file is never searched
+    /// from the top, where an earlier identical prompt ("yes") would pass for this one.
+    /// </summary>
+    private static IEnumerable<(string Path, long Offset)> WatchedFiles(ArrivalProof proof)
+    {
+        foreach (var path in proof.Paths())
+        {
+            if (!proof.StartOffsets.TryGetValue(path, out var offset))
+            {
+                offset = File.Exists(path) && File.GetCreationTimeUtc(path) >= proof.StartedUtc.AddSeconds(-5) ? 0 : Drivers.PromptArrival.EndOf(path);
+                proof.StartOffsets[path] = offset;
+            }
+            yield return (path, offset);
+        }
+    }
+
+    private static IEnumerable<string> NewStorePrompts(ArrivalProof proof, Func<IReadOnlyList<(string Key, string Text)>> read) =>
+        read().Where(p => !proof.KeysAtStart.Contains(p.Key)).Select(p => p.Text);
+
+    /// <summary>True when the agent's records, written since the proof began, hold a user prompt carrying <paramref name="typed"/>.</summary>
+    private static bool ArrivedIn(ArrivalProof proof, string typed)
+    {
+        if (proof.ReadPrompts is { } read)
+        {
+            var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
+            return NewStorePrompts(proof, read).Any(t => Drivers.PromptArrival.Normalize(t).Contains(fingerprint, StringComparison.Ordinal));
+        }
+        return WatchedFiles(proof).ToList().Any(f => Drivers.PromptArrival.Arrived(f.Path, f.Offset, typed));
+    }
+
+    /// <summary>True when ANY user prompt has reached the agent's records since the proof began.</summary>
+    private static bool AnyNewPromptIn(ArrivalProof proof)
+    {
+        if (proof.ReadPrompts is { } read)
+            return NewStorePrompts(proof, read).Any(t => !string.IsNullOrWhiteSpace(t));
+        return WatchedFiles(proof).ToList().Any(f => Drivers.PromptArrival.AnyPromptAfter(f.Path, f.Offset));
+    }
+
+    /// <summary>
+    /// Wait until the agent's own records hold the prompt, resending once when it was lost with an empty composer - only
+    /// where the composer can be read (Claude Code, Codex). Throws <see cref="Drivers.PromptNotSubmittedException"/> when
     /// it never arrives, so the caller records the send as NOT delivered - the terminal's output is never taken as proof.
     /// </summary>
-    private async Task ConfirmArrivalAsync(ArrivalProof proof, string text, Func<Task> resend)
+    private async Task ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend)
     {
-        var label = text.Length > 60 ? text[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : text;
-        bool Arrived()
+        var label = typed.Length > 60 ? typed[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : typed;
+        var current = typed;
+        bool Arrived() => ArrivedIn(proof, current);
+
+        var outcome = await Drivers.PromptArrival.ConfirmAsync(
+            Arrived, ComposerShowsNothingAndNoTurn, async () => { current = await resend(); },
+            mayResend: Drivers.FirstPromptGate.CanProve(AgentKind), ArrivalWindow, label,
+            anyNewPrompt: () => AnyNewPromptIn(proof),
+            textWaitsUnsubmitted: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : null,
+            pressEnter: () => _backend.Write([0x0D]));
+        FileLog.Write($"[Session] arrival proof: session={Id}, agent={AgentKind}, outcome={outcome}, len={typed.Length}");
+        if (outcome == Drivers.PromptArrivalOutcome.ArrivedAltered)
+            throw new Drivers.PromptNotSubmittedException(
+                $"[Session] {AgentKind} received a prompt, but not the text that was sent: its conversation records hold a new " +
+                "prompt that does not match it word for word, so characters were dropped or changed on the way. Not resent. " +
+                $"Session={Id}, len={typed.Length}.");
+        if (outcome == Drivers.PromptArrivalOutcome.NotArrived)
+            throw new Drivers.PromptNotSubmittedException(
+                $"[Session] the prompt never reached {AgentKind}: its conversation records have no prompt holding the text " +
+                $"{ArrivalWindow.TotalSeconds:F0}s after the send. The terminal's output is not proof, so the send is NOT delivered. " +
+                $"Session={Id}, len={typed.Length}.");
+    }
+
+    /// <summary>
+    /// True when the composer can be read and holds nothing of ours, and no turn is running. A turn that started but has
+    /// not reached the records yet (a loaded machine writes them late) also leaves the composer empty, so any sign of a
+    /// turn - the session's state or the screen's working marker - answers no.
+    /// </summary>
+    private bool ComposerShowsNothingAndNoTurn()
+    {
+        if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return false;
+        if (ActivityState is ActivityState.Working or ActivityState.Starting) return false;
+        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+        if (Drivers.DoorbellSafety.ShowsWorking(rows)) return false;
+        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
+            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+        return Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText);
+    }
+
+    /// <summary>True when the composer can be read and holds text, no turn is running, and the screen is not working.</summary>
+    private bool ComposerHoldsTextAndNoTurn()
+    {
+        if (ActivityState is ActivityState.Working or ActivityState.Starting) return false;
+        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+        if (Drivers.DoorbellSafety.ShowsWorking(rows)) return false;
+        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
+            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+        return reading == Drivers.ComposerReading.HoldsText && !Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText);
+    }
+
+    /// <summary>
+    /// The composer holds nothing - asked of an agent whose composer can be read, for the step that clears text an
+    /// earlier send left behind. Null for an agent whose composer cannot be read.
+    /// </summary>
+    private Func<bool>? ComposerEmptyCheck() => Drivers.FirstPromptGate.CanProve(AgentKind)
+        ? () =>
         {
-            // A /clear or a restart moves Claude Code to a new file; that file is read from its start.
-            var path = ClaudeTranscriptPath ?? proof.Path;
-            var offset = string.Equals(path, proof.Path, StringComparison.OrdinalIgnoreCase) ? proof.Offset : 0;
-            return ClaudePromptArrival.Arrived(path, offset, text);
-        }
-        bool ComposerHoldsNothing()
-        {
-            // A turn that started but has not reached the file yet (a loaded machine writes it late) also leaves the
-            // composer empty. Resending then would run the prompt twice, so any sign of a turn forbids the resend.
-            if (ActivityState is ActivityState.Working or ActivityState.Starting) return false;
             var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-            if (Drivers.DoorbellSafety.ShowsWorking(rows)) return false;
             var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
                 AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
-            return ClaudePromptArrival.ComposerHoldsNothing(reading, composerText);
+            var nothing = Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText);
+            if (!nothing)
+                FileLog.Write($"[Session] composer not empty: session={Id}, reading={reading}, text='{(composerText.Length > 80 ? composerText[..80] : composerText)}', " +
+                              $"cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, row='{(cursorRow >= 0 && cursorRow < rows.Length ? rows[cursorRow] : "")}'");
+            return nothing;
         }
-
-        var outcome = await ClaudePromptArrival.ConfirmAsync(
-            Arrived, ComposerHoldsNothing, resend, mayResend: true, ArrivalWindow, label);
-        FileLog.Write($"[Session] arrival proof: session={Id}, outcome={outcome}, len={text.Length}");
-        if (outcome == PromptArrivalOutcome.NotArrived)
-            throw new Drivers.PromptNotSubmittedException(
-                $"[Session] the prompt never reached Claude Code: its conversation file has no line holding the text " +
-                $"{ArrivalWindow.TotalSeconds:F0}s after the send. The terminal's output is not proof, so the send is NOT delivered. " +
-                $"Session={Id}, len={text.Length}.");
-    }
+        : null;
 
     /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
     private async Task SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
@@ -3441,17 +3610,36 @@ public sealed class Session : IDisposable
             if (BackendType is SessionBackendType.ConPty)
             {
                 var proof = BeginArrivalProof(target, text);
-                Task Submit() => Drivers.TerminalSubmit.SharedSubmitAsync(
+                Task<string> Submit(bool clearFirst = false) => Drivers.TerminalSubmit.SharedSubmitAsync(
                     target,
                     text,
                     Driver.Kind.ToString(),
                     allowBracketedPaste,
                     requireEcho: Driver.Kind != Agents.AgentKind.Copilot,
                     screenSnapshot: SnapshotScreenRows,
-                    sessionId: Id);
-                await Submit();
-                if (proof is { } p)
-                    await ConfirmArrivalAsync(p, text, Submit);
+                    sessionId: Id,
+                    clearKeys: Drivers.ComposerClearKeys.For(AgentKind, text.Length),
+                    composerHoldsNothing: ComposerEmptyCheck(),
+                    recordsProofFollows: proof is not null,
+                    clearRetainedUnconditionally: clearFirst);
+
+                string typed;
+                try
+                {
+                    typed = await Submit();
+                }
+                catch (Drivers.ComposerNotAcceptingInputException ex)
+                    when (proof is not null && Drivers.ComposerClearKeys.For(AgentKind) is not null)
+                {
+                    // THE ONE RECOVERY FROM AN UNCONFIRMED ECHO (issue #3290). The text was typed once and may be in
+                    // the composer whole, in part, or not at all. The next submit clears the composer with the keys
+                    // measured for this agent - checked empty where the composer can be read - and types it once more;
+                    // the conversation records then decide. Nothing here retypes over text it cannot account for.
+                    FileLog.Write($"[Session] unconfirmed echo, clearing with the measured keys and sending once more: session={Id}: {ex.Message}");
+                    typed = await Submit(clearFirst: true);
+                }
+                if (proof is not null)
+                    await ConfirmArrivalAsync(proof, typed, () => Submit());
             }
             else
             {

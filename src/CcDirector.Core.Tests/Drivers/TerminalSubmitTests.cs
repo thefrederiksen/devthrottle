@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Memory;
@@ -142,27 +142,27 @@ public sealed class TerminalSubmitTests : IDisposable
     }
 
     [Fact]
-    public async Task EchoVerifiedSubmit_FirstEchoMissing_EscapesAndRetypesBeforeEnter()
+    public async Task EchoVerifiedSubmit_FirstEchoMissing_IsNeitherClearedNorRetyped()
     {
+        // Issue #3290: Escape empties neither Claude Code's nor Codex's composer, so an Escape-and-retype appended a
+        // second copy. The one typing stands; the caller decides what to do, with the records as the witness.
         var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
         backend.EchoScript.Enqueue(RecordingEchoStep.Withheld());
         backend.EchoScript.Enqueue(RecordingEchoStep.Immediate());
 
-        await TerminalSubmit.EchoVerifiedSubmitAsync(
+        await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => TerminalSubmit.EchoVerifiedSubmitAsync(
             backend,
             "retry me",
             "Test",
             echoTimeout: TimeSpan.FromMilliseconds(30),
             pollInterval: TimeSpan.FromMilliseconds(5),
             enterSettleDelay: TimeSpan.FromMilliseconds(1),
-            submitVerifyBeat: FastVerifyBeat);
+            submitVerifyBeat: FastVerifyBeat));
 
-        Assert.Equal(4, backend.WrittenBytes.Count);
+        Assert.Single(backend.WrittenBytes);
         Assert.Equal(Encoding.UTF8.GetBytes("retry me"), backend.WrittenBytes[0]);
-        Assert.Equal(new byte[] { 0x1B }, backend.WrittenBytes[1]);
-        Assert.Equal(Encoding.UTF8.GetBytes("retry me"), backend.WrittenBytes[2]);
-        Assert.Equal(new byte[] { 0x0D }, backend.WrittenBytes[3]);
-        Assert.Equal(["retry me"], backend.SubmittedTexts);
+        Assert.Equal(0, backend.EnterCount);
+        Assert.Empty(backend.SubmittedTexts);
     }
 
     [Fact]
@@ -182,11 +182,9 @@ public sealed class TerminalSubmitTests : IDisposable
             submitVerifyBeat: FastVerifyBeat));
 
         Assert.Contains("never echoed", error.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(4, backend.WrittenBytes.Count);
+        // Typed once, never cleared and retyped (issue #3290).
+        Assert.Single(backend.WrittenBytes);
         Assert.Equal(Encoding.UTF8.GetBytes("never echoed"), backend.WrittenBytes[0]);
-        Assert.Equal(new byte[] { 0x1B }, backend.WrittenBytes[1]);
-        Assert.Equal(Encoding.UTF8.GetBytes("never echoed"), backend.WrittenBytes[2]);
-        Assert.Equal(new byte[] { 0x1B }, backend.WrittenBytes[3]);
         Assert.Equal(0, backend.EnterCount);
         Assert.Empty(backend.SubmittedTexts);
     }
@@ -228,11 +226,9 @@ public sealed class TerminalSubmitTests : IDisposable
             () => driver.SubmitAsync(backend, "write this"));
 
         Assert.Contains("never echoed", error.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(4, backend.WrittenBytes.Count);
+        // Typed once, never cleared and retyped (issue #3290).
+        Assert.Single(backend.WrittenBytes);
         Assert.Equal(Encoding.UTF8.GetBytes("write this"), backend.WrittenBytes[0]);
-        Assert.Equal(new byte[] { 0x1B }, backend.WrittenBytes[1]);
-        Assert.Equal(Encoding.UTF8.GetBytes("write this"), backend.WrittenBytes[2]);
-        Assert.Equal(new byte[] { 0x1B }, backend.WrittenBytes[3]);
         Assert.Equal(0, backend.EnterCount);
         Assert.Empty(backend.SubmittedTexts);
     }

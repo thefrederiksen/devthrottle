@@ -1,4 +1,4 @@
-using CcDirector.Core.History;
+﻿using CcDirector.Core.History;
 using CcDirector.Core.Utilities;
 using Microsoft.Data.Sqlite;
 
@@ -70,6 +70,38 @@ public static class CopilotHistoryReader
             FileLog.Write($"[CopilotHistoryReader] Read error for {databasePath}: {ex.Message}");
             return ConversationHistory.Empty;
         }
+    }
+
+    /// <summary>
+    /// Every live event log (<c>~/.copilot/session-state/&lt;id&gt;/events.jsonl</c>) of a Copilot session whose
+    /// <c>workspace.yaml</c> names <paramref name="repoPath"/> as its cwd. Copilot writes the prompt there the moment it is
+    /// submitted, as a <c>user.message</c> event; the <c>turns</c> table in session-store.db is written twenty seconds and
+    /// more later, which made every send look lost (issue #3290, measured 24 September 2026).
+    /// </summary>
+    public static IReadOnlyList<string> AllEventLogs(string repoPath)
+    {
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot", "session-state");
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(root)) return [];
+        var target = NormalizePath(repoPath);
+        var logs = new List<string>();
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(root))
+            {
+                var workspace = Path.Combine(dir, "workspace.yaml");
+                var events = Path.Combine(dir, "events.jsonl");
+                if (!File.Exists(workspace) || !File.Exists(events)) continue;
+                var cwdLine = File.ReadLines(workspace).FirstOrDefault(l => l.StartsWith("cwd:", StringComparison.Ordinal));
+                if (cwdLine is not null && NormalizePath(cwdLine["cwd:".Length..].Trim().Trim('"', '\'')) == target)
+                    logs.Add(events);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[CopilotHistoryReader] AllEventLogs FAILED for {repoPath}: {ex.Message}");
+            return [];
+        }
+        return logs;
     }
 
     private static ConversationHistory ReadFromConnection(SqliteConnection connection, string repoPath)

@@ -92,8 +92,20 @@ public static class FirstPromptGate
         var rows = frame.Rows ?? [];
         if (rows.Count == 0 || rows.All(string.IsNullOrWhiteSpace)) return false;
         if (DoorbellSafety.ShowsWorking(rows)) return false;
+        if (agent == AgentKind.Codex && rows.Any(IsCodexStillLoading)) return false;
         return DoorbellSafety.ReadComposer(agent, frame) is ComposerReading.Empty or ComposerReading.HoldsText;
     }
+
+    /// <summary>
+    /// Codex's header box says "model: loading" or "directory: loading" until its startup is done. Measured on
+    /// 24 September 2026: in that state Codex reads the probe keystroke, so the gate opened, but then took typed
+    /// characters at about one every 1.5 seconds - sixteen typed characters showed as "a", then "al" - and the prompt
+    /// typed into it was doubled by the old retype. "loading" was gone within six seconds after the probe came back.
+    /// </summary>
+    internal static bool IsCodexStillLoading(string row) =>
+        row is not null
+        && (row.Contains("model: ", StringComparison.Ordinal) || row.Contains("directory: ", StringComparison.Ordinal))
+        && row.Contains(" loading", StringComparison.Ordinal);
 
     /// <summary>
     /// What the last screen read showed, for the failure reason: the composer reading and the last few non-blank rows,

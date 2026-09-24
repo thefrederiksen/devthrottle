@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using CcDirector.Core.History;
 using CcDirector.Core.Utilities;
 using Microsoft.Data.Sqlite;
@@ -78,6 +78,51 @@ public static class OpenCodeHistoryReader
         {
             FileLog.Write($"[OpenCodeHistoryReader] Read error for {databasePath}: {ex.Message}");
             return ConversationHistory.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Every user message OpenCode holds for <paramref name="repoPath"/>, across ALL of its sessions for the repository,
+    /// keyed by message id. The proof that a prompt arrived compares keys before and after the send instead of trusting
+    /// "the newest session" (issue #3290).
+    /// </summary>
+    public static IReadOnlyList<(string Key, string Text)> UserPrompts(string repoPath)
+    {
+        var databasePath = DefaultDatabasePath;
+        if (string.IsNullOrWhiteSpace(repoPath) || string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
+            return [];
+        try
+        {
+            return SqliteSnapshotReader.Read(databasePath, connection =>
+            {
+                var target = NormalizePath(repoPath);
+                var rows = new List<(string Id, string Data)>();
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText =
+                        "SELECT m.id, m.data, s.directory FROM message m JOIN session s ON s.id = m.session_id";
+                    using var reader = command.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        var directory = GetNullableString(reader, 2);
+                        if (directory is null || NormalizePath(directory) != target) continue;
+                        rows.Add((reader.GetString(0), reader.GetString(1)));
+                    }
+                }
+                var prompts = new List<(string Key, string Text)>();
+                foreach (var (id, data) in rows)
+                {
+                    if (ParseRole(data) != ConversationRole.User) continue;
+                    var text = string.Join(" ", ReadParts(connection, id).Select(p => p.Text));
+                    if (!string.IsNullOrWhiteSpace(text)) prompts.Add((id, text));
+                }
+                return (IReadOnlyList<(string Key, string Text)>)prompts;
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[OpenCodeHistoryReader] UserPrompts read error for {databasePath}: {ex.Message}");
+            return [];
         }
     }
 

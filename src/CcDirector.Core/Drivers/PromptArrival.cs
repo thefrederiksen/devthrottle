@@ -1,12 +1,12 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Utilities;
 
-namespace CcDirector.Core.Claude;
+namespace CcDirector.Core.Drivers;
 
-/// <summary>How <see cref="ClaudePromptArrival.ConfirmAsync"/> ended.</summary>
+/// <summary>How <see cref="PromptArrival.ConfirmAsync"/> ended.</summary>
 public enum PromptArrivalOutcome
 {
     /// <summary>Claude Code wrote the prompt into its conversation file.</summary>
@@ -14,6 +14,10 @@ public enum PromptArrivalOutcome
 
     /// <summary>The first send was lost with an empty composer; the one resend arrived.</summary>
     ArrivedAfterResend,
+
+    /// <summary>A new prompt reached the agent, but its text is not the text that was sent - characters were dropped or
+    /// changed on the way. Never resent: the agent already has a prompt, and a second would run the work twice.</summary>
+    ArrivedAltered,
 
     /// <summary>The prompt never reached the conversation file.</summary>
     NotArrived,
@@ -41,7 +45,7 @@ public enum PromptArrivalOutcome
 /// the turn before it writes the line. Anything else in the composer - the text parked, a paste placeholder, a dialog
 /// - is left alone and reported not delivered.
 /// </summary>
-public static class ClaudePromptArrival
+public static class PromptArrival
 {
     /// <summary>How long to wait for the conversation file after the send. Claude Code writes the line as the turn
     /// starts, well inside a second on a healthy machine; the rest is room for a loaded one.</summary>
@@ -103,13 +107,35 @@ public static class ClaudePromptArrival
         return false;
     }
 
+    /// <summary>True when any user prompt at all was written to the file after <paramref name="fromOffset"/>.</summary>
+    public static bool AnyPromptAfter(string? path, long fromOffset)
+    {
+        foreach (var said in PromptsAfter(path, fromOffset))
+            if (!string.IsNullOrWhiteSpace(said)) return true;
+        return false;
+    }
+
+    private static IEnumerable<string?> PromptsAfter(string? path, long fromOffset)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) yield break;
+        string tail;
+        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            fs.Seek(fromOffset <= fs.Length ? fromOffset : 0, SeekOrigin.Begin);
+            using var reader = new StreamReader(fs, Encoding.UTF8);
+            tail = reader.ReadToEnd();
+        }
+        foreach (var line in tail.Split('\n'))
+            yield return PromptTextOf(line);
+    }
+
     /// <summary>
     /// True when the composer holds nothing of ours: empty, or only Claude Code's grey suggestion, which the screen
     /// rows carry as text because they carry no colour.
     /// </summary>
-    public static bool ComposerHoldsNothing(Drivers.ComposerReading reading, string composerText) =>
-        reading == Drivers.ComposerReading.Empty
-        || (reading == Drivers.ComposerReading.HoldsText && ClaudeSuggestion.IsMatch(composerText.Trim()));
+    public static bool ComposerHoldsNothing(ComposerReading reading, string composerText) =>
+        reading == ComposerReading.Empty
+        || (reading == ComposerReading.HoldsText && ClaudeSuggestion.IsMatch(composerText.Trim()));
 
     /// <summary>
     /// Wait for the prompt to reach the conversation file, resending it once if it was lost with an empty composer.
@@ -131,6 +157,9 @@ public static class ClaudePromptArrival
         bool mayResend,
         TimeSpan window,
         string label,
+        Func<bool>? anyNewPrompt = null,
+        Func<bool>? textWaitsUnsubmitted = null,
+        Action? pressEnter = null,
         TimeSpan? poll = null,
         Func<TimeSpan, Task>? pause = null,
         Func<DateTime>? utcNow = null)
@@ -142,12 +171,41 @@ public static class ClaudePromptArrival
         var wait = pause ?? (d => Task.Delay(d));
         var clock = utcNow ?? (() => DateTime.UtcNow);
 
-        if (await WaitAsync(arrived, window, step, wait, clock))
+        // THE ONLY ENTER PRESSED AGAIN IS ONE THE SCREEN ASKS FOR (issue #3290). Blind nudges on a quiet terminal turned
+        // into blank lines in the next prompt. Here: not in the records after EnterAgainAfter, no turn running, and the
+        // composer on screen still holding text - the Enter was eaten (an autocomplete menu takes the first one) and one
+        // more submits it. At most MaxEnterAgain times.
+        var deadline = clock() + window;
+        if (textWaitsUnsubmitted is not null && pressEnter is not null)
+        {
+            for (var again = 0; again < MaxEnterAgain; again++)
+            {
+                var checkAt = clock() + EnterAgainAfter;
+                if (await WaitAsync(arrived, checkAt < deadline ? EnterAgainAfter : deadline - clock(), step, wait, clock))
+                    return PromptArrivalOutcome.Arrived;
+                if (clock() >= deadline) break;
+                if (anyNewPrompt?.Invoke() == true || !textWaitsUnsubmitted()) continue;
+                FileLog.Write($"[PromptArrival] '{label}' is not in the records after {EnterAgainAfter.TotalSeconds:F0}s and the composer " +
+                              $"still holds text with no turn running - pressing Enter again ({again + 1}/{MaxEnterAgain})");
+                pressEnter();
+            }
+        }
+        var remaining = deadline - clock();
+        if (await WaitAsync(arrived, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, step, wait, clock))
             return PromptArrivalOutcome.Arrived;
+
+        // A PROMPT ARRIVED, JUST NOT OURS WORD FOR WORD: never resend. Resending on a text mismatch sent a Codex prompt
+        // twice on 24 September - Codex had it, with its dashes and curly quotes stripped, and had already answered.
+        if (anyNewPrompt?.Invoke() == true)
+        {
+            FileLog.Write($"[PromptArrival] '{label}' is not in the conversation records word for word, but a new prompt IS " +
+                          "there - it arrived altered. NOT resending.");
+            return PromptArrivalOutcome.ArrivedAltered;
+        }
 
         if (!mayResend)
         {
-            FileLog.Write($"[ClaudePromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s; a resend is not allowed on this send");
+            FileLog.Write($"[PromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s; a resend is not allowed on this send");
             return PromptArrivalOutcome.NotArrived;
         }
 
@@ -155,26 +213,29 @@ public static class ClaudePromptArrival
         if (empty)
         {
             await wait(step);
-            empty = composerHoldsNothing() && !arrived();
+            empty = composerHoldsNothing() && !arrived() && anyNewPrompt?.Invoke() != true;
         }
         if (!empty)
         {
-            FileLog.Write($"[ClaudePromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s, and the composer " +
+            FileLog.Write($"[PromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s, and the composer " +
                           "is not empty - NOT resending, so nothing can be doubled");
             return arrived() ? PromptArrivalOutcome.Arrived : PromptArrivalOutcome.NotArrived;
         }
 
-        FileLog.Write($"[ClaudePromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s and the composer " +
+        FileLog.Write($"[PromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s and the composer " +
                       "is empty - the text was lost; sending it once more");
         await resend();
         if (await WaitAsync(arrived, window, step, wait, clock))
         {
-            FileLog.Write($"[ClaudePromptArrival] '{label}' arrived after the resend");
+            FileLog.Write($"[PromptArrival] '{label}' arrived after the resend");
             return PromptArrivalOutcome.ArrivedAfterResend;
         }
-        FileLog.Write($"[ClaudePromptArrival] '{label}' is still not in the conversation file after the resend");
+        FileLog.Write($"[PromptArrival] '{label}' is still not in the conversation file after the resend");
         return PromptArrivalOutcome.NotArrived;
     }
+
+    internal static readonly TimeSpan EnterAgainAfter = TimeSpan.FromSeconds(4);
+    internal const int MaxEnterAgain = 2;
 
     private static async Task<bool> WaitAsync(
         Func<bool> arrived, TimeSpan window, TimeSpan step, Func<TimeSpan, Task> wait, Func<DateTime> clock)
@@ -216,24 +277,55 @@ public static class ClaudePromptArrival
                     : null;
             }
 
+            // Codex: {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text",...}]}}
+            if (type == "response_item")
+                return root.TryGetProperty("payload", out var payload) && payload.ValueKind == JsonValueKind.Object
+                       && StringOf(payload, "role") == "user"
+                    ? TextParts(payload)
+                    : null;
+
+            // Copilot (session-state/<id>/events.jsonl): {"type":"user.message","data":{"content":"..."}}
+            if (type == "user.message")
+                return root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object
+                    ? StringOf(data, "content")
+                    : null;
+
+            // Pi: {"type":"message","message":{"role":"user","content":[{"type":"text",...}]}}
+            if (type == "message")
+                return root.TryGetProperty("message", out var piMessage) && piMessage.ValueKind == JsonValueKind.Object
+                       && StringOf(piMessage, "role") == "user"
+                    ? TextParts(piMessage)
+                    : null;
+
             if (type != "user") return null;
             if (root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True) return null;
             if (root.TryGetProperty("isSidechain", out var side) && side.ValueKind == JsonValueKind.True) return null;
-            if (!root.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.Object) return null;
-            if (!message.TryGetProperty("content", out var content)) return null;
 
-            if (content.ValueKind == JsonValueKind.String) return content.GetString();
-            if (content.ValueKind != JsonValueKind.Array) return null;
-            var sb = new StringBuilder();
-            foreach (var item in content.EnumerateArray())
-            {
-                if (item.ValueKind == JsonValueKind.Object
-                    && item.TryGetProperty("type", out var it) && it.GetString() == "text"
-                    && item.TryGetProperty("text", out var tx) && tx.ValueKind == JsonValueKind.String)
-                    sb.Append(tx.GetString()).Append(' ');
-            }
-            return sb.Length == 0 ? null : sb.ToString();
+            // Claude Code: {"type":"user","message":{"content": "..." or [text parts]}}. Grok: {"type":"user","content":[...]}.
+            return root.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.Object
+                ? TextParts(message)
+                : TextParts(root);
         }
+    }
+
+    private static string? StringOf(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    /// <summary>The text of an element's "content": the string itself, or its text parts joined.</summary>
+    private static string? TextParts(JsonElement holder)
+    {
+        if (!holder.TryGetProperty("content", out var content)) return null;
+        if (content.ValueKind == JsonValueKind.String) return content.GetString();
+        if (content.ValueKind != JsonValueKind.Array) return null;
+        var sb = new StringBuilder();
+        foreach (var item in content.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            var kind = StringOf(item, "type");
+            if (kind is "text" or "input_text" && StringOf(item, "text") is { } text)
+                sb.Append(text).Append(' ');
+        }
+        return sb.Length == 0 ? null : sb.ToString();
     }
 
     /// <summary>The start of the prompt as it must appear in the line: whitespace and invisible characters folded

@@ -1,4 +1,4 @@
-using CcDirector.Core.Drivers;
+﻿using CcDirector.Core.Drivers;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Utilities;
 
@@ -82,9 +82,12 @@ public static class SubmitVerifier
     /// <exception cref="PromptNotSubmittedException">
     /// The agent never started the turn: the prompt is parked in the composer.
     /// </exception>
+    /// <param name="throwWhenParked">False when the caller proves delivery from the agent's own conversation records
+    /// (issue #3290). Output volume is then only a reason to nudge, never a verdict: it called a working Codex, reading
+    /// a file quietly, "parked", and it called Claude Code's "nothing left to send" message a submitted turn.</param>
     public static async Task PressEnterAndVerifyAsync(
         CircularTerminalBuffer? buffer, Action<byte[]> write, string label,
-        TimeSpan? attemptDelay = null, Func<TimeSpan, Task>? beatDelay = null)
+        TimeSpan? attemptDelay = null, Func<TimeSpan, Task>? beatDelay = null, bool throwWhenParked = true)
     {
         var beat = attemptDelay ?? DefaultAttemptDelay;
         var wait = beatDelay ?? (b => Task.Delay(b));
@@ -103,6 +106,17 @@ public static class SubmitVerifier
 
         var baseline = buffer.TotalBytesWritten;
         write(EnterByte);
+
+        // NO BLIND NUDGES WHEN THE RECORDS DECIDE (issue #3290). Measured on 24 September 2026: Claude Code, taking in
+        // an 8,238-character paste on a loaded machine, printed nothing for ten seconds after the Enter; this loop read
+        // that as a swallowed Enter and pressed Enter eight more times. The paste was lost and the eight Enters sat in
+        // the composer as blank lines at the head of the NEXT prompt. When the caller proves delivery from the agent's
+        // own records it also presses Enter again - once, and only when the screen shows the text still waiting.
+        if (!throwWhenParked)
+        {
+            FileLog.Write($"[SubmitVerifier] '{label}': Enter pressed once; the agent's own records decide whether it was delivered");
+            return;
+        }
 
         var lastSeen = baseline;
         var nudges = 0;
@@ -129,6 +143,13 @@ public static class SubmitVerifier
                 write(EnterByte);
             }
             // else: settling (echo/popup repaints) - wait another beat without spamming.
+        }
+
+        if (!throwWhenParked)
+        {
+            FileLog.Write($"[SubmitVerifier] '{label}' produced under {SubmittedGrowthBytes} bytes in {MaxAttempts} beats " +
+                          $"({nudges} nudge(s) sent); the agent's own records decide whether it was delivered");
+            return;
         }
 
         throw new PromptNotSubmittedException(

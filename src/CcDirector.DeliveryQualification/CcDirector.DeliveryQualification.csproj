@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The text-delivery qualification rig (issue #3290). It starts REAL agents in real terminals through
+       the Director's own SessionManager, sends a catalogue of texts through the Director's own send path,
+       and checks each one against the agent's OWN records. Never shipped; run by hand before a release. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CcDirector.DeliveryQualification</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CcDirector.Core/CcDirector.Core.csproj" />
+  </ItemGroup>
+
+</Project>

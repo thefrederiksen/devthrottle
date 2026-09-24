@@ -1,3 +1,4 @@
+﻿using CcDirector.Core.Utilities;
 using System.Collections.Concurrent;
 
 namespace CcDirector.Core.Grok;
@@ -69,6 +70,35 @@ public static class GrokSessionLocator
         }
 
         return candidates.Count == 0 ? null : candidates[0].FullName;
+    }
+
+    /// <summary>
+    /// Every <c>chat_history.jsonl</c> Grok keeps for <paramref name="repoPath"/>, in no particular order. The proof that
+    /// a prompt arrived watches all of them rather than trusting "the newest", which Windows cannot tell reliably for a
+    /// file Grok still holds open (issue #3290).
+    /// </summary>
+    public static IReadOnlyList<string> AllTranscripts(string repoPath) => AllTranscripts(repoPath, SessionsDirectory());
+
+    public static IReadOnlyList<string> AllTranscripts(string repoPath, string sessionsDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(sessionsDirectory))
+            return [];
+        var target = NormalizePath(repoPath);
+        try
+        {
+            return new DirectoryInfo(sessionsDirectory)
+                .EnumerateDirectories()
+                .Where(cwdDir => DecodedDirectoryMatches(cwdDir.Name, target))
+                .SelectMany(cwdDir => cwdDir.EnumerateDirectories())
+                .Select(sessionDir => Path.Combine(sessionDir.FullName, "chat_history.jsonl"))
+                .Where(File.Exists)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GrokSessionLocator] AllTranscripts FAILED for {repoPath}: {ex.Message}");
+            return [];
+        }
     }
 
     /// <summary>True when the percent-encoded per-cwd directory name decodes to the target path.</summary>
