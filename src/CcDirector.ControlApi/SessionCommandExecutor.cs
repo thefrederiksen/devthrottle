@@ -5,6 +5,7 @@ using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Git;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
@@ -1082,9 +1083,14 @@ internal static class SessionCommandExecutor
 
 
         // Issue #212: dispatch a supplied PrePrompt once the agent is actually READY, fire-and-forget so
-        // create returns immediately. Readiness = a substantial startup burst followed by a quiet poll;
-        // ActivityState alone is not a gate (a fresh session reads WaitingForInput from t=0, and seeding
-        // into a still-booting agent drops the Enter keypresses).
+        // create returns immediately. ActivityState alone is not a gate (a fresh session reads WaitingForInput
+        // from t=0, and seeding into a still-booting agent drops the Enter keypresses).
+        //
+        // Issue #3290: for Claude Code and Codex, READY is PROVEN, not guessed from output - the agent draws its
+        // composer before it reads keystrokes, so the old "startup burst then a quiet poll" rule typed into an
+        // agent that was not listening and lost or parked the prompt. The gate types one probe character, waits
+        // for it to come back, erases it, and only then sends. If that never happens the prompt is not typed and
+        // the session row says it was not delivered. Other agents keep the older wait below.
         var seedText = req.PrePrompt;
         if (!string.IsNullOrWhiteSpace(seedText))
         {
@@ -1095,6 +1101,15 @@ internal static class SessionCommandExecutor
             {
                 try
                 {
+                    if (capturedSession.CanGateFirstPrompt)
+                    {
+                        var limit = TimeSpan.FromMilliseconds(Math.Max(waitMs, FirstPromptGate.MinimumWait.TotalMilliseconds));
+                        FileLog.Write($"[SessionCommandExecutor] PrePrompt: gating on the agent reading input, sid={capturedSession.Id}, len={prePrompt.Length}");
+                        // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
+                        await capturedSession.DeliverFirstPromptAsync(prePrompt, SubmissionProvenance.FrameworkText(), limit);
+                        return;
+                    }
+
                     var deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
                     long lastBytes = -1;
                     while (DateTime.UtcNow < deadline)
