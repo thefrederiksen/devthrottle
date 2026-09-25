@@ -3556,6 +3556,8 @@ public sealed class Session : IDisposable
     /// Wait until the agent's own records hold the prompt, resending once when it was lost with an empty composer - only
     /// where the composer can be read (Claude Code, Codex). Throws <see cref="Drivers.PromptNotSubmittedException"/> when
     /// it never arrives, so the caller records the send as NOT delivered - the terminal's output is never taken as proof.
+    /// The one exception is a WORKING agent whose composer no longer shows the text (review finding 3): that send is still
+    /// delivering, never failed, and its records go on being watched after it returns.
     /// </summary>
     private async Task<TextSendOutcome> ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
     {
@@ -3588,6 +3590,30 @@ public sealed class Session : IDisposable
                           $"but not word for word; treated as delivered, not resent. len={typed.Length}");
             return TextSendOutcome.Delivered;
         }
+        if (outcome == Drivers.PromptArrivalOutcome.NotArrived && Drivers.FirstPromptGate.CanProve(AgentKind) && AgentShowsWorking())
+        {
+            // A WORKING AGENT THAT TOOK THE ENTER IS STILL DELIVERING, NOT FAILED (Voice Delivery mission, phase 3, review
+            // finding 3 - the Delivery Lead's ruling). A working Claude Code holds a prompt sent mid-turn and writes it to its
+            // records when its running tool ends, which can be after the window: measured on 25 September 2026, 55 seconds
+            // after the Enter. Reporting that not-delivered would invite a retry that types the words a second time into an
+            // agent that already holds them. So unless the composer still shows the text, the send is "delivering", and the
+            // records go on being watched - read only - for LateArrivalLimit. Not-delivered is kept for words known not
+            // submitted: still in the composer.
+            var fingerprint = Drivers.PromptArrival.Fingerprint(current);
+            var release = fingerprint.Length == 0
+                ? ComposerRelease.Unreadable
+                : await WatchComposerReleaseAsync(fingerprint, ComposerReleaseWindowForTests ?? ComposerReleaseWindow, current.Length, untilLeft: false);
+            if (release != ComposerRelease.StillHeld)
+            {
+                var reason = $"{AgentKind} is working and its records do not show the prompt {ArrivalWindow.TotalSeconds:F0}s after the Enter, " +
+                             (release == ComposerRelease.Left
+                                 ? "but the text has left its composer: the agent holds it until its running tool ends"
+                                 : "and its composer cannot be read, so the text is not known to be still there");
+                FileLog.Write($"[Session] STILL DELIVERING: session={Id}: {reason}. Nothing is typed again; the records are watched " +
+                              $"for up to {(LateArrivalLimitForTests ?? LateArrivalLimit).TotalMinutes:F1} minutes. len={current.Length}");
+                return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(proof, current, label));
+            }
+        }
         if (outcome == Drivers.PromptArrivalOutcome.NotArrived)
         {
             // THE TEXT MAY STILL BE IN THE COMPOSER (review finding 2): marked, so the next send clears it with the
@@ -3599,6 +3625,46 @@ public sealed class Session : IDisposable
                 $"Session={Id}, len={typed.Length}.");
         }
         return TextSendOutcome.Delivered;
+    }
+
+    /// <summary>
+    /// After a send returned "still delivering", keep reading the agent's records for the prompt, up to
+    /// <see cref="LateArrivalLimit"/> (review finding 3). True once the records hold it word for word; false when the limit
+    /// ends first or the session ends. It reads only - it never types, presses a key, or resends. A different prompt
+    /// arriving is not taken for this one: the owner's next send could be that prompt.
+    /// </summary>
+    private async Task<bool> WatchLateArrivalAsync(ArrivalProof proof, string typed, string label)
+    {
+        var limit = LateArrivalLimitForTests ?? LateArrivalLimit;
+        var notice = new Drivers.SendWaitNotice("Session",
+            $"'{label}' to reach the agent's conversation records late (session {Id}; the send already answered still delivering)",
+            $"{limit.TotalMinutes:F1} minutes");
+        var started = DateTime.UtcNow;
+        while (true)
+        {
+            notice.Check();
+            if (ArrivedIn(proof, typed))
+            {
+                notice.End("it arrived");
+                FileLog.Write($"[Session] late arrival: session={Id}: the prompt reached the records " +
+                              $"{(DateTime.UtcNow - proof.StartedUtc).TotalSeconds:F0}s after the send began - delivered. len={typed.Length}");
+                return true;
+            }
+            if (_disposed)
+            {
+                notice.End("the session ended");
+                FileLog.Write($"[Session] late arrival: session={Id}: the session ended before the records showed the prompt; it stays delivering");
+                return false;
+            }
+            if (DateTime.UtcNow - started >= limit)
+            {
+                notice.End("the limit ended without it");
+                FileLog.Write($"[Session] WARNING late arrival: session={Id}: the records still do not show the prompt " +
+                              $"{limit.TotalMinutes:F1} minutes after the send returned; it stays delivering, and is not typed again. len={typed.Length}");
+                return false;
+            }
+            await Task.Delay(Drivers.PromptArrival.DefaultPoll);
+        }
     }
 
     /// <summary>
@@ -3705,7 +3771,11 @@ public sealed class Session : IDisposable
     /// success. Where the composer can be read, the send is now delivered only once the composer no longer holds its
     /// text; if the text is still there after <see cref="ComposerReleaseWindow"/> the send throws - not delivered - and
     /// the text is left exactly where it is, never cleared or typed again (the doubling rule from issue #3290).
-    /// A composer that cannot be read proves nothing either way: that is logged and the verifier's verdict stands.
+    /// A frame that cannot be read - a menu drawn over the composer, or one caught mid-repaint - proves nothing and does
+    /// not end the check (review findings 1 and 2). Only when the WHOLE window passes without one readable frame is
+    /// nothing known: the submit verifier's verdict then stands for an agent that is not working, whose output after the
+    /// Enter is a fair witness; for a working agent, whose output proves nothing, the send is still delivering - never
+    /// reported delivered, and nothing is cleared or typed again.
     /// </summary>
     private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed)
     {
@@ -3713,37 +3783,80 @@ public sealed class Session : IDisposable
         var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
         if (fingerprint.Length == 0) return TextSendOutcome.Delivered;
         var window = ComposerReleaseWindowForTests ?? ComposerReleaseWindow;
-        var notice = new Drivers.SendWaitNotice("Session", $"a {typed.Length}-character text to leave the composer of session {Id}",
+        var release = await WatchComposerReleaseAsync(fingerprint, window, typed.Length, untilLeft: true);
+        if (release == ComposerRelease.Left) return TextSendOutcome.Delivered;
+        if (release == ComposerRelease.StillHeld)
+        {
+            Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), typed);
+            throw new Drivers.PromptNotSubmittedException(
+                $"[Session] the prompt is still in {AgentKind}'s composer {window.TotalSeconds:F0}s after its Enter, so it was NOT " +
+                $"submitted. It is left there, exactly as typed, and is not typed again. Session={Id}, len={typed.Length}.");
+        }
+        if (!AgentShowsWorking())
+        {
+            FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: the composer could not be read for {window.TotalSeconds:F0}s; " +
+                          "the agent is not working, so the submit verifier's count of output after the Enter stands");
+            return TextSendOutcome.Delivered;
+        }
+        var reason = $"the composer could not be read for the {window.TotalSeconds:F0}s after the Enter while {AgentKind} was working, " +
+                     "so whether the text left it is not known; its output proves nothing while it works";
+        FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: STILL DELIVERING - {reason}. Nothing is cleared or typed again.");
+        return TextSendOutcome.StillDelivering(reason, lateProof: null);
+    }
+
+    /// <summary>True when the session's state or the rendered screen says the agent is running a turn.</summary>
+    private bool AgentShowsWorking() => ActivityState == ActivityState.Working || ScreenShowsWorking();
+
+    /// <summary>
+    /// Watch the composer after the Enter for up to <paramref name="window"/>. <see cref="ComposerRelease.Left"/> needs two
+    /// looks a beat apart, so a frame caught mid-repaint cannot pass for an empty composer. An unreadable frame never ends
+    /// the watch (review finding 2): one bad frame of a spinner that repaints all the time used to abandon the window.
+    /// With <paramref name="untilLeft"/> false it answers at the first frame that shows the text still held; with true it
+    /// waits the window for the text to leave. At the end of the window the answer is <see cref="ComposerRelease.StillHeld"/>
+    /// when any readable frame showed the text, and <see cref="ComposerRelease.Unreadable"/> only when none could be read.
+    /// </summary>
+    private async Task<ComposerRelease> WatchComposerReleaseAsync(string fingerprint, TimeSpan window, int length, bool untilLeft)
+    {
+        var notice = new Drivers.SendWaitNotice("Session", $"a {length}-character text to leave the composer of session {Id}",
             $"{window.TotalSeconds:F0}s");
         var started = DateTime.UtcNow;
+        var sawHeld = false;
+        var unreadableFrames = 0;
         while (true)
         {
             notice.Check();
             var reading = ReadComposerForRelease(fingerprint);
-            if (reading == ComposerRelease.Unreadable)
-            {
-                FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: the composer cannot be read, so whether the text left it " +
-                              "is not known; the submit verifier's verdict stands");
-                notice.End("the composer cannot be read");
-                return TextSendOutcome.Delivered;
-            }
             if (reading == ComposerRelease.Left)
             {
-                // Two looks a beat apart, so a frame caught mid-repaint cannot pass for an empty composer.
                 await Task.Delay(TimeSpan.FromMilliseconds(120));
-                if (ReadComposerForRelease(fingerprint) == ComposerRelease.Left)
+                reading = ReadComposerForRelease(fingerprint);
+                if (reading == ComposerRelease.Left)
                 {
                     notice.End("the text left the composer");
-                    return TextSendOutcome.Delivered;
+                    return ComposerRelease.Left;
                 }
+            }
+            if (reading == ComposerRelease.StillHeld)
+            {
+                sawHeld = true;
+                if (!untilLeft)
+                {
+                    notice.End("the text is still in the composer");
+                    return ComposerRelease.StillHeld;
+                }
+            }
+            else if (reading == ComposerRelease.Unreadable && ++unreadableFrames == 1)
+            {
+                FileLog.Write($"[Session] composer release: session={Id}: a frame cannot be read (no composer recognised, or a menu " +
+                              "over it); that proves nothing, so the watch goes on");
             }
             if (DateTime.UtcNow - started >= window)
             {
-                notice.End("the text is still in the composer");
-                Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), typed);
-                throw new Drivers.PromptNotSubmittedException(
-                    $"[Session] the prompt is still in {AgentKind}'s composer {window.TotalSeconds:F0}s after its Enter, so it was NOT " +
-                    $"submitted. It is left there, exactly as typed, and is not typed again. Session={Id}, len={typed.Length}.");
+                var answer = sawHeld ? ComposerRelease.StillHeld : ComposerRelease.Unreadable;
+                FileLog.Write($"[Session] composer release: session={Id}: the {window.TotalSeconds:F0}s window ended, " +
+                              $"unreadable frames={unreadableFrames}, answer={answer}");
+                notice.End(sawHeld ? "the text is still in the composer" : "the composer could not be read");
+                return answer;
             }
             await Task.Delay(TimeSpan.FromMilliseconds(250));
         }
@@ -3751,13 +3864,18 @@ public sealed class Session : IDisposable
 
     private enum ComposerRelease { Left, StillHeld, Unreadable }
 
-    /// <summary>Whether the composer still holds the sent text: its letters and digits, or Claude Code's folded paste.</summary>
+    /// <summary>
+    /// Whether the composer still holds the sent text: its letters and digits, or Claude Code's folded paste. A menu or
+    /// dialog drawn where the composer would be is <see cref="ComposerRelease.Unreadable"/>, like no composer at all
+    /// (review finding 1): the text may be sitting underneath it - the doorbell's own rule reads a menu as "not
+    /// submitted" too.
+    /// </summary>
     private ComposerRelease ReadComposerForRelease(string fingerprint)
     {
         var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
         var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
             AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
-        if (reading == Drivers.ComposerReading.NotFound) return ComposerRelease.Unreadable;
+        if (reading is Drivers.ComposerReading.NotFound or Drivers.ComposerReading.MenuOpen) return ComposerRelease.Unreadable;
         if (reading != Drivers.ComposerReading.HoldsText) return ComposerRelease.Left;
         var held = composerText.StartsWith(ClaudePastePlaceholder, StringComparison.Ordinal)
                    || Drivers.PromptArrival.Loose(composerText).Contains(fingerprint, StringComparison.Ordinal);

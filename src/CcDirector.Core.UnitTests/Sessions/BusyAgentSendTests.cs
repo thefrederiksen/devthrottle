@@ -184,7 +184,7 @@ public sealed class BusyAgentSendTests : IDisposable
 
         // Assert: not reported delivered; the text is where it was, typed once, nothing cleared.
         Assert.False(outcome.Confirmed, "a send whose composer was hidden under a menu the whole window was reported delivered");
-        Assert.Contains("cannot be read", outcome.Reason);
+        Assert.Contains("could not be read", outcome.Reason);
         Assert.Equal(text, terminal.Composer);
         Assert.Equal(0, terminal.EntersAccepted);
         Assert.Equal(1, CountOf(terminal.TypedText, text));

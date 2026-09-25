@@ -236,7 +236,11 @@ internal sealed class QueueGitExecutor : ISessionCommandArea
         var text = item.Text;
         session.PromptQueue.Remove(itemGuid);
         FileLog.Write($"[QueueGitExecutor] queue-send: session={guid} item={itemGuid}");
-        await session.SendTextAsync(text, SubmissionProvenance.FrameworkText(SubmissionRoutes.QueueDrain), SendSource.Framework);
+        var outcome = await session.SendTextAsync(text, SubmissionProvenance.FrameworkText(SubmissionRoutes.QueueDrain), SendSource.Framework);
+        // A send that is still delivering (the agent took the Enter but has not recorded the prompt yet) is not a failure:
+        // the item is sent, and answering a failure here would invite the drain to be retried and the words typed twice.
+        FileLog.Write($"[QueueGitExecutor] queue-send done: session={guid} item={itemGuid}, " +
+                      (outcome.Confirmed ? "delivered" : $"still delivering - {outcome.Reason}"));
         return DirectorCommandResult.Success(SerializeQueue(session));
     }
 

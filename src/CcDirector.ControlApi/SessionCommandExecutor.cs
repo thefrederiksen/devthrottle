@@ -389,7 +389,24 @@ internal static class SessionCommandExecutor
                 }));
             }
             // Finished within the budget: a failure the send knows about is thrown here and stays a failure, as before.
-            await sending;
+            var outcome = await sending;
+            if (!outcome.Confirmed)
+            {
+                // STILL DELIVERING (review finding 3): the Enter was pressed and the text was not seen left in the composer,
+                // but nothing has proven the agent took it. Never "delivered" before the proof, never a failure a retry
+                // would type again. The late outcome is written when the records answer.
+                FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: answering '{DeliveryStates.Delivering}' " +
+                              $"- {outcome.Reason}");
+                _ = RecordLateOutcomeAsync(session.Id, sending, request.DeliveryUploadId);
+                return DirectorCommandResult.Success(Serialize(new PromptResponse
+                {
+                    Accepted = true,
+                    SentAt = DateTime.UtcNow,
+                    BufferCursor = bufferCursor,
+                    ActivityState = session.ActivityState.ToString(),
+                    DeliveryState = DeliveryState.Delivering,
+                }));
+            }
         }
         else
             session.SendInput(Encoding.UTF8.GetBytes(request.Text), origin, provenance);
@@ -431,24 +448,53 @@ internal static class SessionCommandExecutor
 
     /// <summary>
     /// THE ONE PLACE A SEND THAT OUTLIVED ITS ANSWER REPORTS HOW IT ENDED. The verb has already answered "delivering";
-    /// this writes the final outcome to the log - "delivered", or "not-delivered" with the reason. A send that fails
+    /// this writes the final outcome to the log - "delivered"; "not-delivered" with the reason, ONLY for a send that threw
+    /// because the words are known not submitted; or "delivering" still, for a send whose words left the composer of a
+    /// working agent but never showed in its records within <c>Session.LateArrivalLimit</c>. A send that fails
     /// has also already been counted against the session by the session itself (<c>PromptDeliveryFailures</c>), so the
     /// owner's screens show the failure without this. When the durable delivery record lands (the same mission, phase 1)
     /// this is where it is told the final state, keyed by <paramref name="deliveryId"/>.
     /// </summary>
-    private static async Task RecordLateOutcomeAsync(Guid sessionId, Task sending, string? deliveryId)
+    private static async Task RecordLateOutcomeAsync(Guid sessionId, Task<TextSendOutcome> sending, string? deliveryId)
     {
         var id = string.IsNullOrWhiteSpace(deliveryId) ? "(no delivery id)" : deliveryId;
+        TextSendOutcome outcome;
         try
         {
-            await sending;
-            WriteLateOutcome(sessionId, id, DeliveryStates.Delivered, null);
+            outcome = await sending;
         }
         catch (Exception ex)
         {
             // Nobody awaits this task: the verb has answered. The failure is recorded here, and by the session itself.
+            // A send that throws knows the words were not submitted: still in the composer, or never typed.
             WriteLateOutcome(sessionId, id, DeliveryStates.NotDelivered, ex.Message);
+            return;
         }
+        if (outcome.Confirmed)
+        {
+            WriteLateOutcome(sessionId, id, DeliveryStates.Delivered, null);
+            return;
+        }
+        // STILL DELIVERING (review finding 3): the words left the composer, or it could not be read, while the agent
+        // worked. Only the agent's records can turn this into "delivered"; nothing turns it into "not-delivered", which a
+        // holder of the record would retry by typing the words again.
+        if (outcome.LateProof is not { } lateProof)
+        {
+            WriteLateOutcome(sessionId, id, DeliveryStates.Delivering, outcome.Reason);
+            return;
+        }
+        bool arrived;
+        try
+        {
+            arrived = await lateProof;
+        }
+        catch (Exception ex)
+        {
+            WriteLateOutcome(sessionId, id, DeliveryStates.Delivering, $"{outcome.Reason}; the records watch FAILED: {ex.Message}");
+            return;
+        }
+        WriteLateOutcome(sessionId, id, arrived ? DeliveryStates.Delivered : DeliveryStates.Delivering,
+            arrived ? null : $"{outcome.Reason}; the records never showed it within the watch");
     }
 
     /// <summary>Test seam: sees every late outcome as (delivery id, wire word), alongside the log. Null in the Director.</summary>
