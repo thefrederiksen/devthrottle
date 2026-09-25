@@ -176,10 +176,6 @@ export function SessionComposer({
   useEffect(() => {
     provenanceRef.current.textChanged(value, caretRef.current);
   }, [value]);
-  // The session's terminal-byte position, snapshotted when Speak is pressed, so the Gateway's
-  // "session moved on" guard can judge a clip resumed later against where the terminal stood when it
-  // was recorded (issue #2478 - this flow used to omit the field, so the guard never armed).
-
   // Publish a focuser for the composer textarea into the parent-owned ref (issue #1266), and clear it on
   // unmount so the Source Control tab never calls into a torn-down composer.
   useEffect(() => {

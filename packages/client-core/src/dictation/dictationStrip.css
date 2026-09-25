@@ -45,7 +45,8 @@
   background: rgba(148, 163, 184, 0.12);
   border-color: rgba(148, 163, 184, 0.4);
 }
-/* Dropped as stale (#1590): the session moved on and the user's words were NOT delivered. Red, like the
+/* Not sent, shown back (#1590; voice delivery, #3398): the Gateway did not send the words and handed them
+   back (too old, session ended, or could not confirm it arrived). Red, like the
    other failure, because from the user's side that is exactly what it is - and unlike every other strip it
    wraps, because it quotes the words back so they can be sent with one tap. */
 .dictate-strip-dropped {

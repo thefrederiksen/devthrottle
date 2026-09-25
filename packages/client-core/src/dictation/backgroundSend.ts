@@ -14,7 +14,7 @@ import { activeAccount, listAccounts } from "../auth/accountStore";
 //
 // The on-device copy is the single source of truth. A recorded dictation is NEVER lost on a bad
 // connection and is NEVER aged out: it stays in the durable queue until the server confirms it owns the
-// turn (submitted, or deliberately dropped as stale), or the user explicitly abandons it (a later Task).
+// turn (submitted), or the owner dismisses a clip shown back not sent, or explicitly abandons it.
 // Delivery keeps retrying automatically - hard for the first hour, then throttled to slow background
 // attempts, forever - and resumes the instant connectivity returns (the browser `online` event and app
 // foreground) and on every app load. Every attempt is idempotent by the upload id (which is also the
@@ -345,10 +345,11 @@ export async function resumePendingDictations(): Promise<void> {
   } catch {
     return; // no durable store; nothing to resume
   }
-  // A parked clip (permanent failure, issue #1184) and a stale-DROPPED clip (issue #1590) are NOT auto-driven:
-  // re-publish their status so the strip and roster still show them after a reopen, but never re-drive them. A
-  // dropped clip especially - its upload id carries a permanent moved-on tombstone, so re-driving it could only
-  // be dropped again, and re-publishing is what keeps a lost dictation visible instead of vanishing on reload.
+  // A parked clip (permanent failure, issue #1184) and a clip shown back not sent (issue #1590) are NOT
+  // auto-driven: re-publish their status so the strip and roster still show them after a reopen, but never
+  // re-drive them. A shown-back clip especially - the Gateway's answer for its upload id is permanent, so
+  // re-driving it could only return the same answer, and re-publishing is what keeps the words visible
+  // instead of vanishing on reload.
   // A CLIP BELONGS TO THE ACCOUNT THAT RECORDED IT (devthrottle_internal #1509). This store is one
   // IndexedDB database per origin, shared by every account on the browser, and this resume runs on load
   // authenticating as whichever account is active NOW. Driving another account's clip would send the
@@ -391,8 +392,8 @@ export async function retryPendingDictation(uploadId: string): Promise<void> {
     clearDictationStatus(uploadId);
     return;
   }
-  // A stale-DROPPED clip (issue #1590) cannot be re-driven under its own id - the server holds a permanent
-  // moved-on tombstone for it, so this exact upload id can only ever be dropped again. "Retry this clip"
+  // A clip shown back not sent (issue #1590) cannot be re-driven under its own id - the Gateway's answer for it
+  // is permanent, so this exact upload id can only ever return the same answer. "Retry this clip"
   // genuinely means "send the recording as a new dictation", so hand over to the fresh-id path rather than
   // re-driving into a guaranteed re-drop (or, worse, quietly doing nothing).
   // A "Send anyway" that is still delivering (voice delivery, #3398) is pressed again at once with the same
@@ -448,7 +449,7 @@ export async function abandonPendingDictation(uploadId: string): Promise<void> {
 }
 
 // "Send anyway" on a dropped dictation (issue #1590): the server did not send the words (too old, or the
-// session exited), but it told us what they were. Send them as a NORMAL prompt - a fresh turn, deliberately NOT a
+// session exited), but it told us what they were - and it said to offer them again (offerSendAnyway). Send them as a NORMAL prompt - a fresh turn, deliberately NOT a
 // re-drive of the dictation upload id, which by design (#1183) can only ever return the same drop again.
 //
 // GUARDED by the same in-flight set the delivery driver uses. This send has NO server-side idempotency behind
@@ -557,7 +558,7 @@ export async function sendDroppedDictationAnyway(uploadId: string, attempt = 0):
 }
 
 // Retry a dropped dictation whose words we never got (the rare drop before transcription, issue #1590).
-// The audio is still on the device, but its upload id is tombstoned moved-on for good (#1183), so it is
+// The audio is still on the device, but the Gateway's not-sent answer for its upload id is permanent (#1183), so it is
 // re-driven under a FRESH upload id - a genuinely new dictation carrying the same recording. It is a NEW
 // Send, so it stamps a new Send time (voice delivery, #3398): the old one is what made a too-old clip too
 // old, and re-sending it would simply invite the same answer. The user asked for this send now, deliberately.
@@ -689,7 +690,7 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
     if (outcome.terminal) {
       // The server owns the turn: a fresh delivery, a server that DEDUPED a delivery it had already made (a
       // cached-delivered outcome from the durable record, issue #1183 - treated identically to a fresh
-      // success), a deliberately dropped stale clip, an empty clip, or an ABANDONED upload id. The client
+      // success), a clip shown back not sent, an empty clip, or an ABANDONED upload id. The client
       // already acknowledged the outcome to the Gateway (in uploadDictationToSession).
       //
       // These are NOT one arm (issue #1590). Every terminal-not-submitted outcome used to fall into a single
@@ -713,11 +714,12 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
       }
 
       if (outcome.movedOn) {
-        // The server did not send the user's words (too old, or the session exited) and handed them back. Re-driving
-        // this upload id is useless BY DESIGN - the drop wrote a permanent moved-on tombstone (#1183), so every
-        // future complete returns the same drop. The recovery is therefore a fresh turn, not a retry.
+        // The server did not send the user's words (too old, the session exited, or it could not confirm they
+        // arrived) and handed them back. Re-driving this upload id is useless BY DESIGN - the answer is written
+        // to a permanent tombstone (#1183), so every future complete returns the same answer. The recovery, when
+        // the Gateway offers one, is therefore a fresh turn, not a retry.
         //
-        // Keep the record durably (marked stale-dropped, so no automatic trigger ever re-drives it) rather than
+        // Keep the record durably (marked staleDropped, so no automatic trigger ever re-drives it) rather than
         // deleting it: the words must survive a reload, or "Send anyway" would quietly stop working the moment
         // the user backgrounds the app - which is the same silent loss in a new costume.
         const transcript = (outcome.transcript ?? "").trim();
@@ -801,9 +803,9 @@ async function driveById(id: string, opts: DriveOptions): Promise<void> {
     return;
   }
   if (rec.staleDropped) {
-    // Dropped as stale between scheduling and firing (issue #1590): never auto-drive it - the upload id is
-    // tombstoned moved-on, so a re-drive could only be dropped again. Defensive; a dropped clip is never
-    // given a timer.
+    // Shown back not sent between scheduling and firing (issue #1590): never auto-drive it - the Gateway's
+    // answer for the upload id is permanent, so a re-drive could only return it again. Defensive; a shown-back
+    // clip is never given a timer.
     clearScheduled(id);
     publishDropped(rec);
     return;
@@ -820,9 +822,9 @@ async function driveById(id: string, opts: DriveOptions): Promise<void> {
 
 // Resume every pending clip immediately at full speed - the connectivity/foreground kick and what the
 // `online`/`visibilitychange` listeners call. A parked clip (permanent failure, issue #1184) and a
-// stale-dropped clip (issue #1590) are skipped: neither ever auto-drives, and only an explicit user action
-// moves them. Re-driving a dropped clip would be worse than pointless - its moved-on tombstone is permanent,
-// so every kick would re-drop it.
+// clip shown back not sent (issue #1590) are skipped: neither ever auto-drives, and only an explicit user
+// action moves them. Re-driving a shown-back clip would be worse than pointless - the Gateway's answer for it
+// is permanent, so every kick would only fetch it again.
 async function kickAll(): Promise<void> {
   let all: PendingDictation[];
   try {
@@ -915,7 +917,7 @@ function publishParked(rec: PendingDictation, reason: string): void {
   });
 }
 
-// Publish the dropped-as-stale status (issue #1590): sticky, never auto-clearing, and carrying the words
+// Publish the shown-back, not-sent status (issue #1590): sticky, never auto-clearing, and carrying the words
 // back when we have them. With a transcript the action is "Send anyway" (a fresh turn, so NOT retryable -
 // re-driving the tombstoned upload id could only be dropped again); without one, the audio is still on the
 // device, so it is retryable under a fresh upload id instead.

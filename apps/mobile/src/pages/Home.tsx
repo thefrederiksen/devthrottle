@@ -1025,7 +1025,7 @@ function VoiceIndicator({ session, reachable }: { session: SessionDto; reachable
 // #1590). Reads the same shared store the on-screen status strip reads, so a Speak Send shows on the roster
 // too: a muted progress label while it is in flight, a calm amber "saved - still sending" while it is held on
 // a bad connection, a "saved - tap to retry" while it is parked after a permanent failure, a red "Not sent -
-// tap to open" when the session moved on and the words were dropped, and a red "Dictation failed" for the
+// tap to open" when the Gateway did not send the words and handed them back, and a red "Dictation failed" for the
 // rare hard failure. A just-"done" send shows nothing here; the brief "Sent" acknowledgement belongs on the
 // session screen, not as roster noise.
 //
