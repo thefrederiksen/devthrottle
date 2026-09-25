@@ -26,7 +26,8 @@ internal sealed record FactoryAgentsSources(
     Func<TenantId, IReadOnlySet<string>> LiveSessionIds,
     Func<TenantId, TimeZoneInfo> TimeZone,
     Func<DateTime> NowUtc,
-    FactoryReportStore Reports);
+    FactoryReportStore Reports,
+    FactoryMapStore Maps);
 
 /// <summary>
 /// The Factory Agents area of the Cockpit (Website Business Factory, product track, Screens 1-5): every read is
@@ -35,6 +36,7 @@ internal sealed record FactoryAgentsSources(
 ///   GET  /gateway/factory-agents/switch                              -> { enabled }            (ALWAYS mapped)
 ///   GET  /gateway/factory-agents/factories?window=&amp;from=&amp;to=          -> FactoriesViewDto
 ///   GET  /gateway/factory-agents/factories/{factory}/agents/{agent}   -> FactoryAgentPageDto
+///   GET  /gateway/factory-agents/factories/{factory}/map              -> FactoryMapViewDto (issue #3383)
 ///   GET  /gateway/factory-agents/activity?factory=&amp;agent=&amp;outcome=&amp;window=&amp;from=&amp;to= -> FactoryActivityViewDto
 ///   GET  /gateway/factory-agents/activity.csv?(same)                  -> text/csv, every row
 ///   GET  /gateway/factory-agents/waiting?factory=                     -> FactoryWaitingViewDto
@@ -100,6 +102,28 @@ internal static class FactoryAgentsViewEndpoints
                 var w = FactoryAgentsFold.ResolveWindow(FactoryAgentsFold.WindowLast7d, null, null, now, FactoryAgentsFold.WindowLast7d);
                 var dto = FactoryAgentsFold.AgentPage(factory, agent, Inputs(sources, tenant, w, factory, now));
                 FileLog.Write($"[FactoryAgentsViewEndpoints] GET agent: {factory}/{agent} status={dto.StatusWord}, triggers={dto.WokenBy.Count}");
+                return Results.Json(dto);
+            }));
+
+        // The factory page's Map tab (issue #3383): the map the factory published, with each agent's status and last
+        // run from the same fold the Factories tab reads, so the two never disagree.
+        app.MapGet(Prefix + "/factories/{factory}/map", (HttpContext ctx, string factory) =>
+            Owner(ctx, resolveTenant, $"GET map {factory}", tenant =>
+            {
+                var now = sources.NowUtc();
+                var zone = sources.TimeZone(tenant);
+                // Exact, like the record's own query below: the map, the card and the rows are all found under the one
+                // spelling the factory uses, so a map is never shown without its agents' status.
+                var id = factory.Trim();
+                var w = FactoryAgentsFold.ResolveWindow(FactoryAgentsFold.WindowLast24h, null, null, now, FactoryAgentsFold.WindowLast24h, zone);
+                var card = FactoryAgentsFold.Factories(Inputs(sources, tenant, w, id, now)).Factories
+                    .FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.Ordinal));
+                var stored = sources.Maps.Find(tenant, id);
+                if (card is null && stored is null)
+                    return Results.Json(new { error = $"There is no factory '{id}': no trigger, record row or map names it." },
+                        statusCode: StatusCodes.Status404NotFound);
+                var dto = FactoryMapFold.View(stored?.Map.Factory ?? card!.Id, stored, card, zone);
+                FileLog.Write($"[FactoryAgentsViewEndpoints] GET map: {id} published={stored is not null}, nodes={dto.Nodes.Count}, edges={dto.Edges.Count}, agents={dto.Agents.Count}");
                 return Results.Json(dto);
             }));
 

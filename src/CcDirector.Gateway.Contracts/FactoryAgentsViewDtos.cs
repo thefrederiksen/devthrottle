@@ -139,6 +139,9 @@ public sealed class FactoryCardDto
 
     /// <summary>The Cockpit route of this factory's Waiting for you list.</summary>
     public string WaitingHref { get; set; } = "";
+
+    /// <summary>The Cockpit route of this factory's page, which opens on its Map tab (issue #3383).</summary>
+    public string MapHref { get; set; } = "";
 }
 
 /// <summary><c>GET /gateway/factory-agents/factories</c>: the Factories tab and the All factory agents tab.</summary>
@@ -180,6 +183,10 @@ public sealed class FactoryAgentPageDto
 {
     public string FactoryId { get; set; } = "";
     public string FactoryTitle { get; set; } = "";
+
+    /// <summary>The factory's page (its Map tab), which the breadcrumb links to (issue #3383).</summary>
+    public string FactoryHref { get; set; } = "";
+
     public string AgentId { get; set; } = "";
     public string Name { get; set; } = "";
     public string StatusWord { get; set; } = "";

@@ -147,7 +147,8 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
             LiveSessionIds: _ => new HashSet<string>(),
             TimeZone: _ => TimeZoneInfo.Utc,
             NowUtc: () => _now,
-            Reports: new FactoryReportStore(new TenantSettingsStore(Db)));
+            Reports: new FactoryReportStore(new TenantSettingsStore(Db)),
+            Maps: new FactoryMapStore(new TenantSettingsStore(Db)));
 
         Func<HttpContext, TenantId?> resolve = ctx =>
             ctx.Request.Headers.TryGetValue(TenantHeader, out var v) && !string.IsNullOrWhiteSpace(v)
@@ -158,6 +159,7 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         FactoryAgentsViewEndpoints.MapSwitch(app, sw, resolve);
         var gate = FactoryAgentsGate.Group(app, sw, resolve);
         FactoryActivityEndpoints.Map(gate, record);
+        FactoryMapEndpoints.Map(gate, new FactoryMapStore(new TenantSettingsStore(Db)), resolve);
         FactoryAgentsViewEndpoints.Map(gate, resolve, sources);
         TriggerEndpoints.Map(FactoryAgentsGate.Group(app, sw, resolve), resolve, triggers,
             directorMachine: (_, _) => "NORTH", nowUtc: () => _now);
@@ -206,6 +208,8 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         Assert.Contains("GET /gateway/factory-agents/activity.csv", names);
         Assert.Contains("GET /gateway/factory-agents/waiting", names);
         Assert.Contains("POST /gateway/factory-agents/reports", names);
+        Assert.Contains("PUT /gateway/factory/map", names);
+        Assert.Contains("GET /gateway/factory-agents/factories/{factory}/map", names);
         Assert.True(gated.Count >= 20, $"expected every factory route, found {gated.Count}: {string.Join(", ", names)}");
 
         foreach (var endpoint in gated)

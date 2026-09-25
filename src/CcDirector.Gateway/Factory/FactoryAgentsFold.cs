@@ -258,6 +258,7 @@ public static class FactoryAgentsFold
             Agents = agentIds.Select(a => AgentRow(factory, a, input, rows)).ToList(),
             Pause = PauseFor(triggers, $"the factory {title}", "factory"),
             WaitingHref = WaitingHref(factory),
+            MapHref = MapHref(factory),
         };
     }
 
@@ -377,6 +378,7 @@ public static class FactoryAgentsFold
         {
             FactoryId = factory,
             FactoryTitle = title,
+            FactoryHref = MapHref(factory),
             AgentId = agent,
             Name = name,
             StatusWord = word,
@@ -902,6 +904,10 @@ public static class FactoryAgentsFold
             href += $"&from={Uri.EscapeDataString(window.FromUtc.ToString("o", CultureInfo.InvariantCulture))}&to={Uri.EscapeDataString(window.ToUtc.ToString("o", CultureInfo.InvariantCulture))}";
         return href;
     }
+
+    /// <summary>A factory's page, which opens on its Map tab (issue #3383).</summary>
+    public static string MapHref(string factory) =>
+        $"/factory-agents/{Uri.EscapeDataString(factory)}";
 
     public static string AgentHref(string factory, string agent) =>
         $"/factory-agents/{Uri.EscapeDataString(factory)}/{Uri.EscapeDataString(agent)}";

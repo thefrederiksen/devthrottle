@@ -163,6 +163,66 @@ public sealed class FactoryAgentsViewRouteTests
     }
 
     [Fact]
+    public async Task Switch_on_a_session_publishes_its_factorys_map_and_the_owners_Map_tab_draws_it_with_live_status()
+    {
+        await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
+        var factory = "f-" + Guid.NewGuid().ToString("N");
+        await RecordAsync(h.Session, factory, FactoryActivityOutcome.Done, "Drafted a reply.");
+
+        // Before any map: the factory is known from its record row, and the tab says how a map arrives.
+        var before = await GetAsync<FactoryMapViewDto>(h.Owner, $"gateway/factory-agents/factories/{factory}/map");
+        Assert.Contains("has not published a map yet", before.EmptyText);
+        Assert.Contains(before.Agents, a => a.AgentId == "front-desk");
+
+        var map = new PublishFactoryMapRequest
+        {
+            Factory = factory, Title = "Test Factory", Source = "factory.yaml in a test", Width = 400, Height = 200,
+            Nodes = new()
+            {
+                new() { Id = "front-desk", Title = "Front Desk", X = 100, Y = 100, Width = 90, Height = 40,
+                    Spec = new() { new() { Label = "Inputs", Text = "mail-threads" } } },
+                new() { Id = "owner", Kind = FactoryMapNodeKind.Owner, Title = "You", X = 300, Y = 100, Width = 90, Height = 40 },
+            },
+            Edges = new()
+            {
+                new() { From = "front-desk", To = "owner", Kind = FactoryMapEdgeKind.Escalate, Label = "escalates",
+                    Points = new() { new[] { 145.0, 100 }, new[] { 180.0, 100 }, new[] { 220.0, 100 }, new[] { 245.0, 100 } },
+                    Tip = new[] { 255.0, 100 } },
+            },
+        };
+        var put = await h.Session.PutAsJsonAsync("gateway/factory/map", map);
+        var putText = await put.Content.ReadAsStringAsync();
+        Assert.True(put.StatusCode == HttpStatusCode.OK, $"expected 200, got {(int)put.StatusCode}: {putText}");
+
+        var view = await GetAsync<FactoryMapViewDto>(h.Owner, $"gateway/factory-agents/factories/{factory}/map");
+        Assert.Null(view.EmptyText);
+        Assert.Equal("Test Factory", view.Title);
+        Assert.Contains($"by session {h.SessionId}", view.SourceText);
+        var desk = view.Nodes.Single(n => n.Id == "front-desk");
+        Assert.Equal("IDLE", desk.StatusWord);
+        Assert.Equal($"/factory-agents/{factory}/front-desk", desk.Href);
+        Assert.Contains(desk.Spec, r => r.Label == "Inputs" && r.Text == "mail-threads");
+        Assert.Equal("dashed", Assert.Single(view.Edges).Line);
+
+        var factories = await GetAsync<FactoriesViewDto>(h.Owner, "gateway/factory-agents/factories");
+        Assert.Equal($"/factory-agents/{factory}", factories.Factories.Single(c => c.Id == factory).MapHref);
+
+        // A broken map is refused whole with the reason, and the last good one stays.
+        map.Edges[0].To = "nobody";
+        var bad = await h.Session.PutAsJsonAsync("gateway/factory/map", map);
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        Assert.Contains("not on the map", await bad.Content.ReadAsStringAsync());
+        Assert.Single((await GetAsync<FactoryMapViewDto>(h.Owner, $"gateway/factory-agents/factories/{factory}/map")).Edges);
+
+        // The Map tab is the owner's page: a session key is refused it, and an unknown factory is a 404.
+        Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.GetAsync($"gateway/factory-agents/factories/{factory}/map")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory-agents/factories/no-such-factory/map")).StatusCode);
+        // Ids are exact everywhere: another spelling of this factory is not this factory, so the map is never found
+        // without its card (review of #3390, finding 3).
+        Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync($"gateway/factory-agents/factories/{factory.ToUpperInvariant()}/map")).StatusCode);
+    }
+
+    [Fact]
     public async Task Switch_on_a_session_key_is_refused_the_owners_pages()
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
@@ -181,5 +241,6 @@ public sealed class FactoryAgentsViewRouteTests
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory-agents/factories")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory-agents/activity")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory-agents/waiting")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.PutAsJsonAsync("gateway/factory/map", new { factory = "x" })).StatusCode);
     }
 }

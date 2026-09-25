@@ -50,6 +50,8 @@ describe("Factory Agents - Factories tab (Screen 1)", () => {
       "Reports",
     ]);
     expect(within(card).getByText("RUNNING-X")).toBeTruthy();
+    expect(screen.getByTestId("fa-map-website-business").getAttribute("href")).toBe("/factory-agents/website-business");
+    expect(screen.getByTestId("fa-map-silent-factory").getAttribute("href")).toBe("/factory-agents/silent-factory");
     expect(within(card).getByText("2 factory agents, 1 trigger")).toBeTruthy();
     const number = within(card).getByText("7 asked, waiting for you (fixture)");
     expect(number.closest("a")?.getAttribute("href")).toBe("/factory-agents/waiting?factory=website-business");

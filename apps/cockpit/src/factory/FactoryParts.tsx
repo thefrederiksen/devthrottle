@@ -6,6 +6,7 @@ import {
   saveFactoryReport,
   setFactoryPaused,
   type FactoryActivityLine,
+  type FactoryAgentRow,
   type FactoryFilters,
   type FactoryNumber,
   type FactoryPause,
@@ -353,5 +354,37 @@ export function PauseButton({
         />
       )}
     </span>
+  );
+}
+
+/** Factory agents as rows: on a factory card, the All factory agents tab and a factory's Agents tab. */
+export function AgentTable({ rows, showFactory }: { rows: FactoryAgentRow[]; showFactory: boolean }) {
+  return (
+    <table className="fa-table">
+      <thead>
+        <tr>
+          <th>Factory agent</th>
+          {showFactory && <th>Factory</th>}
+          <th>Woken by</th>
+          <th>Last run</th>
+          <th style={{ width: "110px" }}>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((a) => (
+          <tr key={`${a.factoryId}/${a.agentId}`}>
+            <td>
+              <Link to={a.href}>{a.name}</Link>
+            </td>
+            {showFactory && <td>{a.factoryTitle}</td>}
+            <td>{a.wokenBy}</td>
+            <td>{a.lastRun}</td>
+            <td>
+              <ToneChip word={a.statusWord} tone={a.statusTone} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
