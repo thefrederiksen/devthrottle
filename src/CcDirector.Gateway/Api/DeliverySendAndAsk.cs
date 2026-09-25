@@ -31,8 +31,11 @@ internal enum DeliverySendKind
     NotDelivered,
 }
 
-/// <summary>What <see cref="DeliverySendAndAsk.SendAsync"/> came to.</summary>
-internal sealed record DeliverySendResult(DeliverySendKind Kind, PromptResponse? Body, string? Error, bool RefusedDuplicate = false);
+/// <summary>What <see cref="DeliverySendAndAsk.SendAsync"/> came to. <paramref name="NoAnswerKind"/> says which kind of no
+/// answer the question got (<c>no-answer</c>, <c>director-too-old</c>, <c>never-left-the-gateway</c>), on
+/// <see cref="DeliverySendKind.NoAnswer"/> only.</summary>
+internal sealed record DeliverySendResult(DeliverySendKind Kind, PromptResponse? Body, string? Error, bool RefusedDuplicate = false,
+    string? NoAnswerKind = null);
 
 /// <summary>What the prompt verb's own answer meant, before any question: the fact a caller writes as the Director's answer.</summary>
 internal sealed record PromptAnswerReading(bool Unanswered, bool Delivered, string? Error, bool RefusedDuplicate);
@@ -71,7 +74,7 @@ internal static class DeliverySendAndAsk
         // UNANSWERED: the prompt went out and no answer came back. Ask; never call it a failure.
         var asked = await AskAsync(store, uploadId, sid, deliveryId, route, DeliveryDecisions.AskReasonPromptUnanswered);
         if (asked.Kind != SessionVerbClient.DeliveryStateAskKind.Answered)
-            return new DeliverySendResult(DeliverySendKind.NoAnswer, null, asked.Detail);
+            return new DeliverySendResult(DeliverySendKind.NoAnswer, null, asked.Detail, NoAnswerKind: NoAnswerName(asked.Kind));
         return asked.Answer!.State switch
         {
             DeliveryState.Delivered => new DeliverySendResult(DeliverySendKind.Delivered, null, null),
@@ -134,14 +137,7 @@ internal static class DeliverySendAndAsk
     {
         store.RecordDecision(uploadId, DeliveryDecisions.AskedDirector, new DeliveryDecisionFacts { SessionId = sid, Reason = why });
         var asked = await route.GetDeliveryStateAsync(sid, deliveryId);
-        var noAnswer = asked.Kind switch
-        {
-            SessionVerbClient.DeliveryStateAskKind.Answered => null,
-            SessionVerbClient.DeliveryStateAskKind.DirectorTooOld => "director-too-old",
-            SessionVerbClient.DeliveryStateAskKind.NoAnswer => NoAnswerState,
-            SessionVerbClient.DeliveryStateAskKind.NeverLeftTheGateway => "never-left-the-gateway",
-            _ => throw new InvalidOperationException($"unknown delivery-state answer kind {asked.Kind}"),
-        };
+        var noAnswer = NoAnswerName(asked.Kind);
         store.RecordDecision(uploadId, DeliveryDecisions.DeliveryStateAnswer, new DeliveryDecisionFacts
         {
             SessionId = sid,
@@ -152,6 +148,32 @@ internal static class DeliverySendAndAsk
         FileLog.Write($"[DeliverySendAndAsk] sid={sid} upload={uploadId}: asked the Director ({why}); " +
             $"answer={(asked.Answer is { } a ? DeliveryStates.Format(a.State) : noAnswer)} {asked.Detail}");
         return asked;
+    }
+
+    /// <summary>
+    /// The name written for a question the Director gave no answer to - which kind of no answer it was - or null when it
+    /// answered. They are different facts and are never folded into "unknown".
+    /// </summary>
+    public static string? NoAnswerName(SessionVerbClient.DeliveryStateAskKind kind) => kind switch
+    {
+        SessionVerbClient.DeliveryStateAskKind.Answered => null,
+        SessionVerbClient.DeliveryStateAskKind.DirectorTooOld => "director-too-old",
+        SessionVerbClient.DeliveryStateAskKind.NoAnswer => NoAnswerState,
+        SessionVerbClient.DeliveryStateAskKind.NeverLeftTheGateway => "never-left-the-gateway",
+        _ => throw new InvalidOperationException($"unknown delivery-state answer kind {kind}"),
+    };
+
+    /// <summary>
+    /// "COULD NOT CONFIRM IT ARRIVED" (Voice Delivery phase 2, change 1; the Delivery Lead's ruling): a recording whose
+    /// question got no answer of any kind is not held forever. Once more than the age limit
+    /// (<see cref="GatewayDictationEndpoint.MaxDeliveryAge"/>, the same strict boundary) has passed since
+    /// <paramref name="since"/> - Send on the dictation path, the first verified claim on a "Send anyway" - the Gateway
+    /// rules it unconfirmed. The two routes share this one test so they cannot disagree about where the line is.
+    /// </summary>
+    public static bool IsPastConfirmLimit(DateTime nowUtc, DateTime since, out TimeSpan age)
+    {
+        age = nowUtc - since;
+        return age > GatewayDictationEndpoint.MaxDeliveryAge;
     }
 
     /// <summary>

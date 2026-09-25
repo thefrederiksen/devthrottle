@@ -29,7 +29,7 @@ namespace CcDirector.Gateway.Api;
 ///   POST /dictation/upload               { sessionId } + Idempotency-Key                      -> { upload_id }
 ///   PUT  /dictation/{uploadId}/chunk/{i}  octet-stream + X-Chunk-Sha256                        -> { ok }
 ///   POST /dictation/{uploadId}/complete   { sessionId,totalChunks,mime,ext,before,after,sentAtUtc,resumed }
-///                                          -> 200 { submitted, movedOn, transcript[, reason] } | 202 { delivering, directorState }
+///                                          -> 200 { submitted, movedOn, transcript[, reason, offerSendAnyway] } | 202 { delivering, directorState }
 ///                                             | 200 { dropped, reason } | 409 { missing } | 400 | 402 | 5xx
 ///   POST /dictation/{uploadId}/ack        -> 200 { ok, retired }
 ///   GET  /dictation/{uploadId}/decisions  -> 200 { upload_id, state, decisions: [...] } | 404
@@ -637,8 +637,9 @@ internal static class GatewayDictationEndpoint
             ? Results.Json(new { upload_id = uploadId, terminal = true, submitted = false, movedOn = false, dropped = true, reason = record.Reason ?? "", transcript = "" })
             : record.MovedOn
                 // Shown back, not sent: the reason says why, read from the record (null on a tombstone written by the
-                // byte rule before phase 2, which the client shows with its generic wording).
-                ? Results.Json(new { upload_id = uploadId, terminal = true, submitted = record.Submitted, movedOn = true, dropped = false, transcript = record.Transcript, reason = record.Reason })
+                // byte rule before phase 2, which the client shows with its generic wording), and whether "Send anyway"
+                // is offered is ruled here from that same reason (change 1).
+                ? Results.Json(new { upload_id = uploadId, terminal = true, submitted = record.Submitted, movedOn = true, dropped = false, transcript = record.Transcript, reason = record.Reason, offerSendAnyway = OffersSendAnyway(record.Reason) })
                 : Results.Json(new { upload_id = uploadId, terminal = true, submitted = record.Submitted, movedOn = false, dropped = false, transcript = record.Transcript });
 
     internal static async Task<DictationOutcome> RunCompleteCoreAsync(
@@ -693,16 +694,18 @@ internal static class GatewayDictationEndpoint
                 var earlier = await DeliverySendAndAsk.AskAsync(store, uploadId, sid, deliveryId,
                     new SessionVerbClient(director, sendCommand), DeliveryDecisions.AskReasonRetryAsksFirst);
                 if (earlier.Kind != SessionVerbClient.DeliveryStateAskKind.Answered)
-                    return HoldAsStillDelivering(store, uploadId, sid, NoAnswerDirectorState);
+                    return HoldOrUnconfirmed(store, uploadId, sid, store.SentWords(uploadId), sentAtUtc, clock,
+                        DeliverySendAndAsk.NoAnswerName(earlier.Kind)!);
                 switch (earlier.Answer!.State)
                 {
                     case DeliveryState.Delivered:
-                        // The words are in: resolved exactly as a delivery. There is no transcript - this attempt did not
-                        // pay for one, and the earlier attempt's words were never kept on a PENDING record.
-                        store.MarkDelivered(uploadId, submitted: true, movedOn: false, transcript: "");
+                        // The words are in: resolved exactly as a delivery. This attempt paid for no transcript; the words
+                        // handed back are the ones the earlier send kept on the PENDING record (phase 2, change 1).
+                        var sentWords = store.SentWords(uploadId);
+                        store.MarkDelivered(uploadId, submitted: true, movedOn: false, transcript: sentWords);
                         FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: the Director says an earlier " +
-                            "attempt was delivered; resolved as delivered, nothing transcribed or typed again");
-                        return DictationOutcome.Submitted(true, false, "");
+                            $"attempt was delivered; resolved as delivered with chars={sentWords.Length}, nothing transcribed or typed again");
+                        return DictationOutcome.Submitted(true, false, sentWords);
                     case DeliveryState.Delivering:
                         return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Delivering);
                     case DeliveryState.NotDelivered:
@@ -874,6 +877,11 @@ internal static class GatewayDictationEndpoint
             var spokenAlone = SpokenTurnRule.IsSpokenAlone(req.Before, req.Prefix, req.After);
             if (!spokenAlone)
                 FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: composed with typed text around the transcript; delivered as ONE TYPED turn (ruling R10)");
+            // THE WORDS ARE KEPT ON THE PENDING RECORD ONCE THEY ARE SENT (phase 2, change 1), as the tombstones keep them,
+            // so an answer that does not transcribe again - delivered heard by a retry that asked first, or "could not
+            // confirm it arrived" - hands them back. Written before the send, so a send that is never answered still
+            // left them there.
+            store.KeepSentWords(uploadId, transcript);
             store.RecordDecision(uploadId, DeliveryDecisions.SentToDirector, new DeliveryDecisionFacts
             {
                 SessionId = sid,
@@ -922,7 +930,9 @@ internal static class GatewayDictationEndpoint
                 case DeliverySendKind.StillDelivering:
                     return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Delivering);
                 case DeliverySendKind.NoAnswer:
-                    return HoldAsStillDelivering(store, uploadId, sid, NoAnswerDirectorState);
+                    // Held - unless more than the limit has passed since Send, and then it is "could not confirm it
+                    // arrived", even on a first attempt (change 1).
+                    return HoldOrUnconfirmed(store, uploadId, sid, transcript, sentAtUtc, clock, sent.NoAnswerKind!);
                 case DeliverySendKind.NeverSeen:
                     // The Director says it never saw the id - but the send's answer never came, so it may yet arrive.
                     // Held: the client's next attempt asks again, and "unknown" then counts as not in (contract section 4).
@@ -975,6 +985,45 @@ internal static class GatewayDictationEndpoint
     /// which it was.
     /// </summary>
     internal const string TooOldReason = DeliveryDecisions.TooOld;
+
+    /// <summary>
+    /// The reason stamped on the durable record, and answered to the client, when a recording is resolved as "could not
+    /// confirm it arrived" (Voice Delivery phase 2, change 1): it was sent, the Director gave no answer of any kind to the
+    /// question of what became of it, and more than <see cref="MaxDeliveryAgeMinutes"/> have passed since Send. Its own
+    /// reason beside <see cref="TooOldReason"/>: too old means the words are known NOT to be in, unconfirmed means they
+    /// may be - so only too old offers "Send anyway" (<see cref="OffersSendAnyway"/>).
+    /// </summary>
+    internal const string UnconfirmedReason = DeliveryDecisions.Unconfirmed;
+
+    /// <summary>
+    /// Whether a shown-back recording (<c>movedOn</c>) offers "Send anyway" - the Gateway's ruling, read by the client
+    /// verbatim (rule 7; phase 2, change 1). Decided from the record's reason alone, so the fresh answer, the cached
+    /// re-complete and the register-time answer cannot disagree: true for <see cref="TooOldReason"/> and
+    /// <see cref="ExitedSessionReason"/> (the words are known not to be in the live session) and for a tombstone written
+    /// before reasons were kept; false for <see cref="UnconfirmedReason"/>, where the words may already be in and a second
+    /// copy could double them. The Delivery Lead: "'Send anyway' is offered only when the Director has answered
+    /// not-delivered or unknown (so we never offer a second copy that might double)".
+    /// </summary>
+    internal static bool OffersSendAnyway(string? reason)
+        => !string.Equals(reason, UnconfirmedReason, StringComparison.Ordinal);
+
+    /// <summary>
+    /// A recording whose question got no answer of any kind: HELD while it is within the limit from Send, and resolved as
+    /// "could not confirm it arrived" once it is past it - a DELIVERED tombstone, not sent, shown back, with the words
+    /// (<paramref name="words"/>) kept and a decision line carrying the age and which kind of no answer it was. Never
+    /// held forever (the Delivery Lead's ruling, change 1).
+    /// </summary>
+    private static DictationOutcome HoldOrUnconfirmed(VoiceUploadStore store, string uploadId, string sid, string words,
+        DateTime sentAtUtc, TimeProvider clock, string noAnswerKind)
+    {
+        if (!DeliverySendAndAsk.IsPastConfirmLimit(clock.GetUtcNow().UtcDateTime, sentAtUtc, out var age))
+            return HoldAsStillDelivering(store, uploadId, sid, NoAnswerDirectorState);
+        store.MarkDelivered(uploadId, submitted: false, movedOn: true, words, reason: UnconfirmedReason, age: age,
+            directorNoAnswer: noAnswerKind);
+        FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: {age.TotalSeconds:0}s since Send and the " +
+            $"Director gave no answer ({noAnswerKind}); resolved as {UnconfirmedReason} with chars={words.Length}, nothing typed");
+        return DictationOutcome.Submitted(false, true, words, UnconfirmedReason);
+    }
 
     /// <summary>
     /// Hold a recording that may already be in the session: the record stays PENDING (nothing is resolved, nothing
@@ -1131,7 +1180,8 @@ internal sealed class DictationOutcome
     /// (issue #1048).</summary>
     public bool IsIncomplete => _kind == Kind.Incomplete;
 
-    /// <param name="reason">Why a recording was shown back instead of sent (<c>too-old</c>, <c>session-exited</c>), on a
+    /// <param name="reason">Why a recording was shown back instead of sent (<c>too-old</c>, <c>session-exited</c>,
+    /// <c>unconfirmed</c>), on a
     /// moved-on outcome only; null on a tombstone the old byte rule wrote. Ignored when not moved on.</param>
     public static DictationOutcome Submitted(bool submitted, bool movedOn, string transcript, string? reason = null)
         => new(Kind.Submitted, submitted: submitted, movedOn: movedOn, transcript: transcript, reason: movedOn ? reason : null);
@@ -1157,7 +1207,8 @@ internal sealed class DictationOutcome
     public IResult ToResult() => _kind switch
     {
         Kind.Submitted => _movedOn
-            ? Results.Json(new { submitted = _submitted, movedOn = true, transcript = _transcript, reason = _reason })
+            ? Results.Json(new { submitted = _submitted, movedOn = true, transcript = _transcript, reason = _reason,
+                offerSendAnyway = GatewayDictationEndpoint.OffersSendAnyway(_reason) })
             : Results.Json(new { submitted = _submitted, movedOn = false, transcript = _transcript }),
         Kind.StillDelivering => Results.Json(new { delivering = true, directorState = _directorState },
             statusCode: StatusCodes.Status202Accepted),

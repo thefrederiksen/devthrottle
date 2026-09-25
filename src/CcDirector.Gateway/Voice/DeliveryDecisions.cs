@@ -46,6 +46,15 @@ public static class DeliveryDecisions
     /// </summary>
     public const string TooOld = "too-old";
     /// <summary>
+    /// "Could not confirm it arrived" (Voice Delivery phase 2, change 1): the recording was sent, the Director gave no
+    /// answer of any kind to the question of what became of it, and more than the age limit has passed - from Send on the
+    /// dictation path, from the first verified claim on a "Send anyway". It is not held forever: the words are kept and
+    /// shown back with a Dismiss and no "Send anyway", because they may already be in and a second copy could double
+    /// them. Facts carry the age in seconds and which kind of no answer it was
+    /// (<see cref="DeliveryDecisionFacts.DirectorNoAnswer"/>).
+    /// </summary>
+    public const string Unconfirmed = "unconfirmed";
+    /// <summary>
     /// The Gateway asked the Director what became of this delivery id instead of guessing. The reason says why:
     /// <see cref="AskReasonPromptUnanswered"/> (the prompt verb went out and no answer came back) or
     /// <see cref="AskReasonRetryAsksFirst"/> (a retry of a recording already sent once asks before paying for a
@@ -76,6 +85,9 @@ public static class DeliveryDecisions
     public const string AskReasonPromptUnanswered = "prompt-unanswered";
     /// <summary>Why the Gateway asked: a retry of a recording already sent once asks before it transcribes again.</summary>
     public const string AskReasonRetryAsksFirst = "retry-asks-first";
+    /// <summary>Why the Gateway asked: a "Send anyway" of a recording an earlier "Send anyway" may already have sent asks
+    /// before it sends again (Voice Delivery phase 2, change 1).</summary>
+    public const string AskReasonSendAnywayAsksFirst = "send-anyway-asks-first";
     /// <summary>The session had exited, so the recording was resolved without being typed anywhere.</summary>
     public const string SessionExited = "session-exited";
     /// <summary>The upload reached the DELIVERED tombstone with the words submitted (or an empty clip resolved).</summary>
@@ -153,8 +165,12 @@ public sealed record DeliveryDecisionFacts
     public DateTime? ResolvedAtUtc { get; init; }
     /// <summary>When the owner pressed Send, as the client stamped it on the complete call.</summary>
     public DateTime? SentAtUtc { get; init; }
-    /// <summary>How long after Send the recording was judged, in whole seconds, on a <see cref="DeliveryDecisions.TooOld"/> line.</summary>
+    /// <summary>How long after Send (or after the first verified claim) the recording was judged, in whole seconds, on a
+    /// <see cref="DeliveryDecisions.TooOld"/> or <see cref="DeliveryDecisions.Unconfirmed"/> line.</summary>
     public long? AgeSeconds { get; init; }
+    /// <summary>Which kind of no answer the Director gave to the question (<c>no-answer</c>, <c>director-too-old</c>,
+    /// <c>never-left-the-gateway</c>), on a <see cref="DeliveryDecisions.Unconfirmed"/> line.</summary>
+    public string? DirectorNoAnswer { get; init; }
 
     /// <summary>Error text, cut to <see cref="MaxErrorLength"/> characters.</summary>
     public string? Error

@@ -401,6 +401,13 @@ public sealed class GatewayHost : IAsyncDisposable
     public Action? OnShutdownRequested { get; set; }
 
     /// <summary>
+    /// The clock the voice delivery limits are judged by (Voice Delivery phase 2): the five minutes from Send on a
+    /// dictation, and "could not confirm it arrived" on a dictation and a "Send anyway". The real clock in production;
+    /// a test sets its own BEFORE <see cref="StartAsync"/>, where the routes are mapped with it.
+    /// </summary>
+    public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
+
+    /// <summary>
     /// Production-readiness B2 (process-control): the seam DELETE /directors/{id} FORCE-KILL calls to kill a
     /// Director's process tree by pid. Null (production) uses the real Process.GetProcessById(pid).Kill. A test
     /// injects a recorder that observes the kill WITHOUT killing anything, so a proof can assert the force-kill
@@ -3946,6 +3953,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 : Factory.FactorySessionStarts.None,
             // Voice Delivery mission, phase 1: "Send anyway" names its recording; the prompt route checks it here.
             dictationUploads: new Api.DictationTenantGate(_dictationUploads, _tenantBoundary),
+            deliveryClock: DeliveryClock,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -4299,7 +4307,8 @@ public sealed class GatewayHost : IAsyncDisposable
         GatewayDictationEndpoint.Map(_app, Registry, SessionOwners, Token,
             _dictationTranscription ?? new Transcription.GatewayTranscriptionService(_keyVault, history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, transcripts: _transcripts), _transcribingSessions, new Api.DictationTenantGate(_dictationUploads, _tenantBoundary), Devices,
             pushedSessions: PushedSessions,
-            sendCommand: SendCommandAsync);
+            sendCommand: SendCommandAsync,
+            clock: DeliveryClock);
         // Durable per-upload-id dictation record (issue #1183): a PENDING upload's chunks are retained
         // until it becomes DELIVERED or ABANDONED, and the delivered/abandoned tombstone (the durable
         // de-dupe marker) is retained until the client acknowledges it - so an undelivered dictation

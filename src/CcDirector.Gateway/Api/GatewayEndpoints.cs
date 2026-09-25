@@ -307,7 +307,10 @@ internal static class GatewayEndpoints
         // recording a client names ("Send anyway") is an upload of the caller's own tenant for that session before it
         // becomes the prompt's delivery id. Null (tests, older callers) means no claim can be honoured - every one is
         // dropped and logged, and the text is sent as an ordinary prompt.
-        DictationTenantGate? dictationUploads = null)
+        DictationTenantGate? dictationUploads = null,
+        // Voice Delivery phase 2, change 1: the clock a "Send anyway" is judged by for "could not confirm it arrived" -
+        // the real one in production; a test injects its own so the five-minute boundary needs no five-minute wait.
+        TimeProvider? deliveryClock = null)
     {
         if ((raisedSessions is null) != (raisedRecord is null))
             throw new ArgumentException(
@@ -3248,16 +3251,59 @@ internal static class GatewayEndpoints
             });
         }
 
+        var claimClock = deliveryClock ?? TimeProvider.System;
+
         // A "SEND ANYWAY" WITH A VERIFIED CLAIM (Voice Delivery mission, phase 2, contract section 4). It carries the
         // recording's delivery id and can run out of time exactly as a dictation can, so it goes through the SAME send-and-
         // ask piece the dictation path uses - one mechanism - and answers: 200 with the prompt answer when the words are in;
         // 202 "still delivering" when the Director says delivering or the question gets no answer; 502 when the question
         // says the words are not in (never seen, or not delivered). It never asks FIRST: the owner pressed "Send anyway",
         // and the Director refuses a repeat of an id it holds as delivered or delivering.
+        //
+        // A RE-PRESS ASKS FIRST (change 1). When an earlier "Send anyway" of the same recording may have reached the
+        // Director, this one asks before it sends: a Director too old to keep a delivery record refuses nothing, so a
+        // plain second send to it would be a SECOND COPY - the double the Delivery Lead's ruling forbids. Delivered is
+        // 200 (nothing typed again); delivering is 202; not-delivered or unknown sends (so once the Director's watch has
+        // ended the re-press is typed, as ruled before); no answer of any kind is 202 "no-answer" - or, once more than the
+        // age limit has passed since the FIRST verified claim, the verdict "could not confirm it arrived": 200
+        // { unconfirmed, offerSendAnyway: false }, so a "Send anyway" is never re-pressed forever.
         async Task<IResult> DeliverClaimedPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req,
             Voice.VoiceUploadStore store, string deliveryId, Action<bool> outcome)
         {
             var route = new SessionVerbClient(director, sendCommand);
+            var history = store.ReadClaimSends(deliveryId);
+            if (history.MayHaveReachedDirector)
+            {
+                var earlier = await DeliverySendAndAsk.AskAsync(store, deliveryId, sid, deliveryId, route,
+                    Voice.DeliveryDecisions.AskReasonSendAnywayAsksFirst);
+                if (earlier.Kind != SessionVerbClient.DeliveryStateAskKind.Answered)
+                    return HoldOrUnconfirmedClaim(store, sid, deliveryId, history, DeliverySendAndAsk.NoAnswerName(earlier.Kind)!, outcome);
+                switch (earlier.Answer!.State)
+                {
+                    case DeliveryState.Delivered:
+                        // The words are already in: answered as the Director's own refusal of a copy would be, and
+                        // nothing is sent.
+                        outcome(false);
+                        FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId} already delivered; nothing sent again");
+                        return await AnswerAcceptedPromptAsync(director, sid, req, new PromptResponse
+                        {
+                            Accepted = false,
+                            DeliveryState = DeliveryState.Delivered,
+                            DeliveryStateReason = AlreadyDeliveredBySendAnyway,
+                            Error = AlreadyDeliveredBySendAnyway,
+                            ActivityState = session.ActivityState,
+                        });
+                    case DeliveryState.Delivering:
+                        return HeldClaim(store, sid, deliveryId, DeliveryStates.Delivering, outcome);
+                    case DeliveryState.NotDelivered:
+                    case DeliveryState.Unknown:
+                        // Known not to be in: send, exactly as a first press does.
+                        break;
+                    default:
+                        throw new InvalidOperationException($"the Director answered delivery state {earlier.Answer.State}, which this Gateway does not know");
+                }
+            }
+
             var sent = await DeliverySendAndAsk.SendAsync(route, store, deliveryId, sid, deliveryId, req,
                 (answer, reading) => RecordClaimAnswer(store, deliveryId, sid, answer, reading));
             switch (sent.Kind)
@@ -3273,12 +3319,9 @@ internal static class GatewayEndpoints
                     outcome(body.Accepted);
                     return await AnswerAcceptedPromptAsync(director, sid, req, body);
                 case DeliverySendKind.StillDelivering:
+                    return HeldClaim(store, sid, deliveryId, DeliveryStates.Delivering, outcome);
                 case DeliverySendKind.NoAnswer:
-                    outcome(false);
-                    var directorState = sent.Kind == DeliverySendKind.NoAnswer ? DeliverySendAndAsk.NoAnswerState : DeliveryStates.Delivering;
-                    DeliverySendAndAsk.RecordHeld(store, deliveryId, sid, directorState);
-                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId} HELD as still delivering ({directorState})");
-                    return Results.Json(new { delivering = true, directorState }, statusCode: StatusCodes.Status202Accepted);
+                    return HoldOrUnconfirmedClaim(store, sid, deliveryId, history, sent.NoAnswerKind!, outcome);
                 case DeliverySendKind.NeverSeen:
                 case DeliverySendKind.NotDelivered:
                     outcome(false);
@@ -3292,6 +3335,40 @@ internal static class GatewayEndpoints
                 default:
                     throw new InvalidOperationException($"unknown delivery send outcome {sent.Kind}");
             }
+        }
+
+        // A claimed "Send anyway" that may already be in: held, 202 "still delivering", with the Director's state as the
+        // client is told it.
+        static IResult HeldClaim(Voice.VoiceUploadStore store, string sid, string deliveryId, string directorState, Action<bool> outcome)
+        {
+            outcome(false);
+            DeliverySendAndAsk.RecordHeld(store, deliveryId, sid, directorState);
+            FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId} HELD as still delivering ({directorState})");
+            return Results.Json(new { delivering = true, directorState }, statusCode: StatusCodes.Status202Accepted);
+        }
+
+        // A claimed "Send anyway" whose question got no answer of any kind: held within the limit from the FIRST verified
+        // claim, and past it the verdict "could not confirm it arrived" - written to the recording's log with the age and
+        // which kind of no answer, and answered 200 { unconfirmed, offerSendAnyway: false } so the client stops
+        // re-pressing. The first claim's time is the Gateway's own record; the client sends nothing new for it.
+        IResult HoldOrUnconfirmedClaim(Voice.VoiceUploadStore store, string sid, string deliveryId, Voice.ClaimSendHistory history,
+            string noAnswerKind, Action<bool> outcome)
+        {
+            // This press's own claim was verified and written before it got here, so there is always a first one.
+            var firstClaim = history.FirstClaimVerifiedAtUtc
+                ?? throw new InvalidOperationException($"claimed delivery {deliveryId} has no verified claim in its decision log");
+            if (!DeliverySendAndAsk.IsPastConfirmLimit(claimClock.GetUtcNow().UtcDateTime, firstClaim, out var age))
+                return HeldClaim(store, sid, deliveryId, DeliverySendAndAsk.NoAnswerState, outcome);
+            outcome(false);
+            store.RecordDecision(deliveryId, Voice.DeliveryDecisions.Unconfirmed, new Voice.DeliveryDecisionFacts
+            {
+                SessionId = sid,
+                AgeSeconds = (long)Math.Floor(age.TotalSeconds),
+                DirectorNoAnswer = noAnswerKind,
+            });
+            FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId}: {age.TotalSeconds:0}s since the " +
+                $"first Send anyway and the Director gave no answer ({noAnswerKind}); ruled unconfirmed, nothing more is sent");
+            return Results.Json(new { unconfirmed = true, offerSendAnyway = false });
         }
 
         async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null)
@@ -6720,6 +6797,10 @@ internal static class GatewayEndpoints
         if (!reported.Accepted) Refused(reported.Code, reported.VerdictId);
         return Answer(reported);
     }
+
+    /// <summary>The answer's reason when a "Send anyway" re-press asked first and heard the words were already delivered
+    /// (Voice Delivery phase 2, change 1): nothing was sent again.</summary>
+    internal const string AlreadyDeliveredBySendAnyway = "an earlier Send anyway of this recording was delivered; nothing was sent again";
 
     /// <summary>Where a verified "Send anyway" prompt stopped before the Director: no live session was found for it.</summary>
     internal const string ClaimStopSessionNotFound = "session-not-found";

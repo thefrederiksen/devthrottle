@@ -1112,8 +1112,10 @@ public sealed class VoiceUploadStore
                 return new DictationOpenOutcome(uid, before, false);
             }
             BetweenRecordReadAndWriteForTests?.Invoke(uid);
+            // A re-register of a recording already sent to the Director keeps the words the send wrote onto the PENDING
+            // record (Voice Delivery phase 2, change 1): a later answer that does not transcribe again hands them back.
             WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
-                DictationDeliveryState.Pending, false, false, "", null, sessionId ?? ""));
+                DictationDeliveryState.Pending, false, false, before.Record?.Transcript ?? "", null, sessionId ?? ""));
             var was = before.Record is { } r ? r.State.ToString() : before.Kind.ToString();
             FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} sessionId={sessionId} opened (was {was})");
             AppendDecisionLine(DirFor(uid), uid, DeliveryDecisions.Received, new DeliveryDecisionFacts
@@ -1241,8 +1243,12 @@ public sealed class VoiceUploadStore
     /// How long after Send the recording was judged, for a recording resolved as too old; written on the decision
     /// line in whole seconds. Null for every other resolution.
     /// </param>
+    /// <param name="directorNoAnswer">
+    /// For a recording resolved as unconfirmed only: which kind of no answer the Director gave (<c>no-answer</c>,
+    /// <c>director-too-old</c> or <c>never-left-the-gateway</c>), written on the decision line. Null otherwise.
+    /// </param>
     public void MarkDelivered(string uploadId, bool submitted, bool movedOn, string transcript, string? reason = null,
-        TimeSpan? age = null)
+        TimeSpan? age = null, string? directorNoAnswer = null)
         => WriteTombstone(uploadId, uid => new DictationDeliveryRecord(
             DictationDeliveryState.Delivered, submitted, movedOn, transcript ?? "", reason, ExistingSessionId(uid),
             ResolvedAtUtc: DateTime.UtcNow),
@@ -1255,6 +1261,7 @@ public sealed class VoiceUploadStore
                 Reason = reason,
                 Characters = (transcript ?? "").Length,
                 AgeSeconds = age is { } a ? (long)Math.Floor(a.TotalSeconds) : null,
+                DirectorNoAnswer = directorNoAnswer,
             });
 
     /// <summary>
@@ -1270,8 +1277,9 @@ public sealed class VoiceUploadStore
         => !movedOn ? DeliveryDecisions.Delivered
             : string.Equals(reason, DeliveryDecisions.SessionExited, StringComparison.Ordinal) ? DeliveryDecisions.SessionExited
             : string.Equals(reason, DeliveryDecisions.TooOld, StringComparison.Ordinal) ? DeliveryDecisions.TooOld
+            : string.Equals(reason, DeliveryDecisions.Unconfirmed, StringComparison.Ordinal) ? DeliveryDecisions.Unconfirmed
             : throw new ArgumentException(
-                $"A recording resolved as not sent must say why ('{DeliveryDecisions.SessionExited}' or '{DeliveryDecisions.TooOld}'); got '{reason ?? "(none)"}'.",
+                $"A recording resolved as not sent must say why ('{DeliveryDecisions.SessionExited}', '{DeliveryDecisions.TooOld}' or '{DeliveryDecisions.Unconfirmed}'); got '{reason ?? "(none)"}'.",
                 nameof(reason));
 
     /// <summary>
@@ -1303,8 +1311,10 @@ public sealed class VoiceUploadStore
             // Write ONLY the marker - keep the chunk bytes (the retry re-drives them), the opposite of a
             // tombstone. Preserve the owning session id so a later ClearFailed can restore a PENDING marker
             // that re-locks it, read inside the gate so it cannot be a value from before another writer moved it.
+            // The words a send already wrote onto the record stay on it too (Voice Delivery phase 2, change 1).
+            var existing = ReadRecord(uid);
             WriteRecordMarker(dir, new DictationDeliveryRecord(
-                DictationDeliveryState.Failed, false, false, "", reasonCode ?? "", ExistingSessionId(uid)));
+                DictationDeliveryState.Failed, false, false, existing?.Transcript ?? "", reasonCode ?? "", existing?.SessionId ?? ""));
             FileLog.Write($"[VoiceUploadStore] MarkFailed: uploadId={uid} reason={reasonCode} (chunks retained)");
             AppendDecisionLine(dir, uid, DeliveryDecisions.Failed,
                 new DeliveryDecisionFacts { State = nameof(DictationDeliveryState.Failed), Reason = reasonCode ?? "" });
@@ -1341,7 +1351,7 @@ public sealed class VoiceUploadStore
             try
             {
                 WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
-                    DictationDeliveryState.Pending, false, false, "", null, failed.SessionId));
+                    DictationDeliveryState.Pending, false, false, failed.Transcript, null, failed.SessionId));
                 FileLog.Write($"[VoiceUploadStore] ClearFailed: uploadId={uid} back to PENDING (chunks retained)");
             }
             catch (Exception ex)
@@ -1602,14 +1612,70 @@ public sealed class VoiceUploadStore
     {
         var uid = NormalizeId(uploadId);
         if (uid is null) return false;
+        return DecisionLinesOf(uid).Any(l =>
+            l.Decision is DeliveryDecisions.SentToDirector or DeliveryDecisions.UnreadableLine);
+    }
+
+    /// <summary>
+    /// What this upload's decision log says about "Send anyway" presses of it (Voice Delivery phase 2, change 1): whether
+    /// an earlier claimed send MAY have reached the Director - the log holds a
+    /// <see cref="DeliveryDecisions.ClaimDirectorAnswer"/> line, written after every claimed send whatever it came to, or
+    /// a line that cannot be parsed and so could be one - and when the FIRST claim naming it was verified (the time of
+    /// its first <see cref="DeliveryDecisions.ClaimVerified"/> line), which the "could not confirm it arrived" limit is
+    /// measured from. A re-press that sees the first asks the Director before it sends, because to a Director too old
+    /// to keep a delivery record a second send is a second copy. It leans to asking, as
+    /// <see cref="MayHaveBeenSentToDirector"/> does. Nothing for an id that is not a GUID or has no directory here.
+    /// </summary>
+    public ClaimSendHistory ReadClaimSends(string uploadId)
+    {
+        var uid = NormalizeId(uploadId);
+        if (uid is null) return ClaimSendHistory.None;
+        var lines = DecisionLinesOf(uid);
+        var mayHaveReached = lines.Any(l =>
+            l.Decision is DeliveryDecisions.ClaimDirectorAnswer or DeliveryDecisions.UnreadableLine);
+        var firstVerified = lines.FirstOrDefault(l => l.Decision == DeliveryDecisions.ClaimVerified)?.AtUtc;
+        return new ClaimSendHistory(mayHaveReached, firstVerified);
+    }
+
+    /// <summary>
+    /// The words a send wrote onto this upload's PENDING (or FAILED) record, for an answer that hands them back without
+    /// transcribing again (Voice Delivery phase 2, change 1). Empty when the record holds none - a recording never sent,
+    /// or one sent before the words were kept. Read through <see cref="Read"/>; the complete leg has already refused a
+    /// record that cannot be read before it could get here.
+    /// </summary>
+    public string SentWords(string uploadId) => Read(uploadId).Record?.Transcript ?? "";
+
+    /// <summary>
+    /// Write the clip's words onto this upload's PENDING record at the moment they are sent to the Director (Voice Delivery
+    /// phase 2, change 1), as the tombstones already carry them, so every later answer that does not transcribe again -
+    /// "delivered" heard by a retry that asked first, or "could not confirm it arrived" - hands the words back instead of
+    /// an empty string. An acknowledgement deletes them exactly as it deletes a tombstone's. Written only over a PENDING
+    /// record read inside the gate: anything else (a tombstone that landed first) is left as it is and false returned.
+    /// </summary>
+    public bool KeepSentWords(string uploadId, string transcript)
+    {
+        var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
         return WithRecordLock(uid, () =>
         {
-            var dir = DirFor(uid);
-            if (!Directory.Exists(dir)) return false;
-            return ReadDecisionLines(DecisionsPath(dir)).Any(l =>
-                l.Decision is DeliveryDecisions.SentToDirector or DeliveryDecisions.UnreadableLine);
+            var record = ReadRecord(uid);
+            if (record is not { State: DictationDeliveryState.Pending })
+            {
+                FileLog.Write($"[VoiceUploadStore] KeepSentWords: uploadId={uid} is {record?.State.ToString() ?? "absent"}, not PENDING; words not written");
+                return false;
+            }
+            WriteRecordMarker(DirFor(uid), record with { Transcript = transcript ?? "" });
+            FileLog.Write($"[VoiceUploadStore] KeepSentWords: uploadId={uid} chars={(transcript ?? "").Length} kept on the PENDING record");
+            return true;
         });
     }
+
+    // Every decision line of one upload, read under its gate; empty when it has no directory here.
+    private List<DeliveryDecisionLine> DecisionLinesOf(string uid)
+        => WithRecordLock(uid, () =>
+        {
+            var dir = DirFor(uid);
+            return Directory.Exists(dir) ? ReadDecisionLines(DecisionsPath(dir)) : new List<DeliveryDecisionLine>();
+        });
 
     /// <summary>
     /// This upload's decision log, in the order it was written, with how its record reads. Tenant-checked the
@@ -2050,6 +2116,15 @@ public enum DictationRecordReadKind
 /// <see cref="Kind"/> is <see cref="DictationRecordReadKind.Present"/>), and for the refusals the path of
 /// the file and what was wrong with it, so a log line or an error response can name the fix.
 /// </summary>
+/// <summary>
+/// What <see cref="VoiceUploadStore.ReadClaimSends"/> found: whether an earlier "Send anyway" send of the recording may
+/// have reached the Director, and when the first claim naming it was verified (null when none was).
+/// </summary>
+public sealed record ClaimSendHistory(bool MayHaveReachedDirector, DateTime? FirstClaimVerifiedAtUtc)
+{
+    public static readonly ClaimSendHistory None = new(false, null);
+}
+
 /// <summary>
 /// The answer to <see cref="VoiceUploadStore.ResolveDeliveryClaim"/>: whether the claim becomes the delivery id, the
 /// canonical upload id when there was one, a short reason code (written to the decision log) and why in words.
