@@ -33,7 +33,7 @@ function argsWithAudio(audio: Blob): DictationUploadArgs {
     before: "",
     after: "",
     prefix: "",
-    baselineBufferBytes: 0,
+    sentAtUtc: "2026-09-25T09:05:12.345Z",
     resumed: true,
   };
 }

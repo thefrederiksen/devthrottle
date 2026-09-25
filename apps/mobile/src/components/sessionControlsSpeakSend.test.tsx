@@ -2,33 +2,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within, cleanup } from "@testing-library/react";
 
-// Regression for issue #2478 on the MOBILE Speak flow: the Gateway's "session moved on" guard for a
-// resumed dictation requires a baselineBufferBytes above zero, and this flow used to omit the field -
-// it defaulted to zero, so the guard never armed and the recovery behavior the feature was built for
-// was unreachable from the shipped app. The Speak press now snapshots the session's terminal-byte
-// position from the roster (the same reading the Voice screen has always sent), and the recording-
-// stage Send hands it to the durable background pipeline. This is the mobile workspace's first test
-// file; it mirrors the cockpit's composerSpeakSend.test.tsx, which pins the same behavior for the
-// Cockpit composer flow.
+// The MOBILE Speak flow's recording-stage Send: the captured audio goes to the durable background
+// pipeline carrying the moment Send was pressed (voice delivery, #3398). This file used to pin the
+// Speak-press byte baseline for the old "session moved on" rule (issue #2478); that rule is gone, and the
+// hand-off must no longer carry it. It mirrors the cockpit's composerSpeakSend.test.tsx.
 
 // vi.mock is hoisted above module scope, so the spies it references must be created in the same
 // hoisted phase (vi.hoisted) rather than as ordinary consts.
-const { sendPrompt, transcribeUtterance, backgroundTranscribeAndSend, listSessions } = vi.hoisted(() => ({
+const { sendPrompt, transcribeUtterance, backgroundTranscribeAndSend } = vi.hoisted(() => ({
   // The synchronous POST /prompt path (typed Send, Insert-then-Enter).
   sendPrompt: vi.fn(async () => {}),
   // The synchronous /wingman/utterance/* transcription (the Pause checkpoint and Insert).
   transcribeUtterance: vi.fn(async () => ({ text: "the dictated words", deliveryId: "utt-77" })),
   // The durable background pipeline (POST /dictation/*) the recording-stage Send rides.
   backgroundTranscribeAndSend: vi.fn(async () => {}),
-  // The roster read the Speak press snapshots its moved-on baseline from (issue #2478).
-  listSessions: vi.fn(async () => [{ sessionId: "sess-42", totalBufferBytes: 4321 }]),
 }));
 
 // The Gateway client boundary.
 vi.mock("@devthrottle/client-core/api/client", () => ({
   sendPrompt,
   transcribeUtterance,
-  listSessions,
   sendEscape: vi.fn(async () => {}),
   sendInterrupt: vi.fn(async () => {}),
   uploadImage: vi.fn(async () => ""),
@@ -113,9 +106,10 @@ describe("Mobile Speak Send-direct (recording-stage)", () => {
 
   afterEach(() => cleanup());
 
-  it("hands the captured audio to the background pipeline with the Speak-press baseline, so the moved-on guard arms", async () => {
+  it("hands the captured audio to the background pipeline with the Send time, and no byte baseline", async () => {
     render(<SessionControls sessionId="sess-42" onFlash={() => {}} onError={() => {}} showKeyRows />);
     const dialog = await typeAndOpenRecordingDialog();
+    const beforeSend = Date.now();
 
     // Press Send WHILE RECORDING - the fire-and-forget action under test.
     fireEvent.click(within(dialog).getByText("Send"));
@@ -123,71 +117,24 @@ describe("Mobile Speak Send-direct (recording-stage)", () => {
     await waitFor(() => expect(backgroundTranscribeAndSend).toHaveBeenCalledTimes(1));
     const [sid, captured, opts] = backgroundTranscribeAndSend.mock.calls[0] as unknown as [
       string,
-      { blob: Blob; recordedMs: number },
-      { composeParts?: { before: string; after: string }; baselineBufferBytes?: Promise<number | undefined> },
+      { blob: Blob; recordedMs: number; sentAt: number },
+      Record<string, unknown> & { composeParts?: { before: string; after: string } },
     ];
     expect(sid).toBe("sess-42");
     expect(captured.blob).toBeInstanceOf(Blob);
     expect(captured.recordedMs).toBe(1000);
     expect(opts.composeParts).toEqual({ before: "A", after: "B" });
-    // The moved-on guard's baseline (issue #2478): the session's terminal-byte position, whose roster
-    // read the Speak press STARTED - handed to the pipeline as a promise it awaits, so a quick Send
-    // waits for the answer instead of racing it. Resolves above zero, so the Gateway's guard actually
-    // ARMS for a clip resumed later - this flow used to omit the field, it defaulted to zero, and the
-    // guard was unreachable from the shipped Speak Send.
-    await expect(opts.baselineBufferBytes).resolves.toBe(4321);
-    expect(listSessions).toHaveBeenCalledTimes(1);
+    // The Send time (voice delivery, #3398), stamped at the press.
+    expect(captured.sentAt).toBeGreaterThanOrEqual(beforeSend);
+    expect(captured.sentAt).toBeLessThanOrEqual(Date.now());
+    // The old rule's byte baseline is gone from the hand-off.
+    expect(opts).not.toHaveProperty("baselineBufferBytes");
 
     // The screen is released immediately and nothing on this path blocks on the synchronous
     // transcription or submits a text prompt itself - the Gateway does both server-side.
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Dictate" })).toBeNull());
     expect(transcribeUtterance).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
-  });
-
-  it("a quick Send WAITS for the Speak-press roster read instead of racing it (issue #2478 review defect)", async () => {
-    // The roster deliberately does not answer until AFTER Send is pressed - the exact quick-Send race.
-    // The component must hand the pipeline the still-pending promise, which resolves to the real
-    // record-time position once the roster answers; a peek at Send time would have read undefined.
-    let releaseRoster: (roster: { sessionId: string; totalBufferBytes: number }[]) => void = () => {};
-    listSessions.mockImplementationOnce(
-      () => new Promise<{ sessionId: string; totalBufferBytes: number }[]>((resolve) => { releaseRoster = resolve; }),
-    );
-    render(<SessionControls sessionId="sess-42" onFlash={() => {}} onError={() => {}} showKeyRows />);
-    const dialog = await typeAndOpenRecordingDialog();
-
-    fireEvent.click(within(dialog).getByText("Send")); // the roster read is still in flight
-
-    await waitFor(() => expect(backgroundTranscribeAndSend).toHaveBeenCalledTimes(1));
-    const [, , opts] = backgroundTranscribeAndSend.mock.calls[0] as unknown as [
-      string,
-      unknown,
-      { baselineBufferBytes?: Promise<number | undefined> },
-    ];
-    releaseRoster([{ sessionId: "sess-42", totalBufferBytes: 777 }]); // the roster answers afterwards
-    await expect(opts.baselineBufferBytes).resolves.toBe(777);
-  });
-
-  it("delivers the clip unguarded (baseline unknown, never zero) when the press-time roster read fails - and that is FINAL", async () => {
-    listSessions.mockRejectedValueOnce(new Error("gateway unreachable"));
-    render(<SessionControls sessionId="sess-42" onFlash={() => {}} onError={() => {}} showKeyRows />);
-    const dialog = await typeAndOpenRecordingDialog();
-
-    fireEvent.click(within(dialog).getByText("Send"));
-
-    // The words still go: a failed press-time read yields an UNKNOWN baseline (the pipeline's
-    // documented omit-when-unknown contract, guard skipped for safety) - never a blocked or lost
-    // dictation, never a fabricated zero, and never a later substitute reading: exactly one roster
-    // call, because a reading taken after the press can include bytes produced during or after the
-    // recording and would mask the very movement the guard detects.
-    await waitFor(() => expect(backgroundTranscribeAndSend).toHaveBeenCalledTimes(1));
-    const [, , opts] = backgroundTranscribeAndSend.mock.calls[0] as unknown as [
-      string,
-      unknown,
-      { baselineBufferBytes?: Promise<number | undefined> },
-    ];
-    await expect(opts.baselineBufferBytes).resolves.toBeUndefined();
-    expect(listSessions).toHaveBeenCalledTimes(1);
   });
 
   // R10 ("Clean up Your Throttle", 2026-09-05), and the parity half of it: the phone and the Cockpit
