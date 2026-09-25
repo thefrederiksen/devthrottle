@@ -229,12 +229,24 @@ public sealed class VoiceUploadStore
         return uid;
     }
 
-    /// <summary>True once <see cref="Register"/> has staged this upload (and it has not been swept).</summary>
+    /// <summary>
+    /// True once <see cref="Register"/> has staged this upload (and it has not been swept or acknowledged).
+    ///
+    /// An ACKNOWLEDGED upload's directory is still on disk - it keeps the record and the decision log - but it
+    /// is not a staged upload any more, so it answers false exactly as the deleted directory did: a chunk for
+    /// an acknowledged upload id is refused as unknown rather than quietly staged into a retired record.
+    /// </summary>
     public bool Exists(string uploadId)
     {
         var uid = NormalizeId(uploadId);
-        return uid is not null && Directory.Exists(DirFor(uid));
+        return uid is not null && Directory.Exists(DirFor(uid)) && !IsAcknowledgedDir(DirFor(uid));
     }
+
+    // True when this directory holds a readable ACKNOWLEDGED marker. Only a marker we can read counts: a
+    // directory whose marker cannot be read is not known to be acknowledged, and is left to the callers that
+    // already refuse such a marker.
+    private static bool IsAcknowledgedDir(string dir)
+        => ReadRecordFile(RecordPath(dir)) is { Kind: DictationRecordReadKind.Present, Record.State: DictationDeliveryState.Acknowledged };
 
     /// <summary>
     /// The bytes this upload currently occupies on disk, optionally IGNORING one chunk index.
@@ -322,7 +334,8 @@ public sealed class VoiceUploadStore
     {
         var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
         var dir = DirFor(uid);
-        if (!Directory.Exists(dir))
+        // An acknowledged upload holds no audio any more and is unknown here, exactly as the deleted directory was.
+        if (!Directory.Exists(dir) || IsAcknowledgedDir(dir))
             return AssembleResult.Unknown();
         if (totalChunks <= 0)
             throw new InvalidOperationException("totalChunks must be > 0");
@@ -522,7 +535,10 @@ public sealed class VoiceUploadStore
                         Directory.Delete(dir, recursive: true);
                         removed++;
                         FileLog.Write($"[VoiceUploadStore] SweepResolvedTombstones retired uploadId={name} " +
-                            $"state={record.State} (never acknowledged, older than {maxAge})");
+                            $"state={record.State} (older than {maxAge}" +
+                            (record.State == DictationDeliveryState.Acknowledged
+                                ? "; acknowledged, its decision record reached the end of its retention)"
+                                : "; never acknowledged)"));
                     }
                     catch (Exception ex)
                     {
@@ -545,11 +561,14 @@ public sealed class VoiceUploadStore
     }
 
     /// <summary>
-    /// The only two states this cleanup may retire. Written as an explicit allow-list rather than "not
+    /// The only states this cleanup may retire. Written as an explicit allow-list rather than "not
     /// PENDING" so a state added later is NOT swept by default - it has to be admitted deliberately.
+    ///
+    /// ACKNOWLEDGED was admitted deliberately (Voice Delivery mission): it holds no audio and no words, only the
+    /// record and the decision log, and this sweep is what bounds how long those are kept.
     /// </summary>
     private static bool IsRetirableTombstone(DictationDeliveryState state)
-        => state is DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned;
+        => state is DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned or DictationDeliveryState.Acknowledged;
 
     /// <summary>
     /// Abandon PENDING dictations that have shown no activity for <paramref name="maxAge"/>, releasing the
@@ -877,6 +896,14 @@ public sealed class VoiceUploadStore
                 $"(partition={_tenant.ToLogString()}); refused");
             return DictationRecordRead.Foreign(path);
         }
+        // ACKNOWLEDGED READS AS ABSENT, deliberately (Voice Delivery mission). Until this mission an
+        // acknowledgement deleted the directory, and every caller of this method - register, complete, abandon,
+        // the lock, the retry re-entry - was written against that: after an ack the upload id is simply not
+        // there. The directory is now KEPT so its decision log can be read afterwards, and answering Absent here
+        // is what keeps every one of those callers behaving exactly as before, rather than teaching each of them
+        // a new state. The one reader that needs the kept record, the decision log read, goes through
+        // ReadDecisions instead.
+        if (read.Record!.State == DictationDeliveryState.Acknowledged) return DictationRecordRead.Absent;
         return read;
     }
 
@@ -1041,6 +1068,11 @@ public sealed class VoiceUploadStore
             WriteRecordMarker(dir, new DictationDeliveryRecord(
                 DictationDeliveryState.Pending, false, false, "", null, sessionId ?? "", ExistingRebaseline(uid)));
             FileLog.Write($"[VoiceUploadStore] MarkPending: uploadId={uid} sessionId={sessionId}");
+            AppendDecisionLine(dir, uid, DeliveryDecisions.Received, new DeliveryDecisionFacts
+            {
+                SessionId = sessionId ?? "",
+                State = nameof(DictationDeliveryState.Pending),
+            });
         });
     }
 
@@ -1081,8 +1113,14 @@ public sealed class VoiceUploadStore
             BetweenRecordReadAndWriteForTests?.Invoke(uid);
             WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
                 DictationDeliveryState.Pending, false, false, "", null, sessionId ?? "", before.Record?.RebaselineBufferBytes));
-            FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} sessionId={sessionId} opened " +
-                $"(was {(before.Record is { } r ? r.State.ToString() : before.Kind.ToString())})");
+            var was = before.Record is { } r ? r.State.ToString() : before.Kind.ToString();
+            FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} sessionId={sessionId} opened (was {was})");
+            AppendDecisionLine(DirFor(uid), uid, DeliveryDecisions.Received, new DeliveryDecisionFacts
+            {
+                SessionId = sessionId ?? "",
+                State = nameof(DictationDeliveryState.Pending),
+                PreviousState = was,
+            });
             return new DictationOpenOutcome(uid, before, true);
         });
     }
@@ -1200,7 +1238,26 @@ public sealed class VoiceUploadStore
     /// </param>
     public void MarkDelivered(string uploadId, bool submitted, bool movedOn, string transcript, string? reason = null)
         => WriteTombstone(uploadId, uid => new DictationDeliveryRecord(
-            DictationDeliveryState.Delivered, submitted, movedOn, transcript ?? "", reason, ExistingSessionId(uid)));
+            DictationDeliveryState.Delivered, submitted, movedOn, transcript ?? "", reason, ExistingSessionId(uid)),
+            DeliveredDecisionFor(movedOn, reason),
+            new DeliveryDecisionFacts
+            {
+                State = nameof(DictationDeliveryState.Delivered),
+                Submitted = submitted,
+                MovedOn = movedOn,
+                Reason = reason,
+                Characters = (transcript ?? "").Length,
+            });
+
+    /// <summary>
+    /// Which decision a DELIVERED tombstone records. The record's flags say submitted or not and moved on or
+    /// not; the decision log names the cause, because "moved on" and "the session exited" resolve with the same
+    /// flags and only the reason on the record tells them apart (see <see cref="DictationDeliveryRecord.Reason"/>).
+    /// </summary>
+    internal static string DeliveredDecisionFor(bool movedOn, string? reason)
+        => !movedOn ? DeliveryDecisions.Delivered
+            : string.Equals(reason, DeliveryDecisions.SessionExited, StringComparison.Ordinal) ? DeliveryDecisions.SessionExited
+            : DeliveryDecisions.MovedOn;
 
     /// <summary>
     /// Transition this upload id to the durable ABANDONED tombstone: persist the reason and discard the
@@ -1209,7 +1266,9 @@ public sealed class VoiceUploadStore
     /// </summary>
     public void MarkAbandoned(string uploadId, string reason)
         => WriteTombstone(uploadId, uid => new DictationDeliveryRecord(
-            DictationDeliveryState.Abandoned, false, false, "", reason ?? "", ExistingSessionId(uid)));
+            DictationDeliveryState.Abandoned, false, false, "", reason ?? "", ExistingSessionId(uid)),
+            DeliveryDecisions.Abandoned,
+            new DeliveryDecisionFacts { State = nameof(DictationDeliveryState.Abandoned), Reason = reason ?? "" });
 
     /// <summary>
     /// Park this upload id as FAILED with a permanent-failure reason code (issue #1185). Unlike DELIVERED
@@ -1234,6 +1293,8 @@ public sealed class VoiceUploadStore
                 DictationDeliveryState.Failed, false, false, "", reasonCode ?? "", ExistingSessionId(uid),
                 ExistingRebaseline(uid)));
             FileLog.Write($"[VoiceUploadStore] MarkFailed: uploadId={uid} reason={reasonCode} (chunks retained)");
+            AppendDecisionLine(dir, uid, DeliveryDecisions.Failed,
+                new DeliveryDecisionFacts { State = nameof(DictationDeliveryState.Failed), Reason = reasonCode ?? "" });
         });
     }
 
@@ -1270,13 +1331,21 @@ public sealed class VoiceUploadStore
                     DictationDeliveryState.Pending, false, false, "", null, failed.SessionId,
                     failed.RebaselineBufferBytes));
                 FileLog.Write($"[VoiceUploadStore] ClearFailed: uploadId={uid} back to PENDING (chunks retained)");
-                return true;
             }
             catch (Exception ex)
             {
                 FileLog.Write($"[VoiceUploadStore] ClearFailed uploadId={uid} failed: {ex.Message}");
                 return false;
             }
+            // Outside the catch above on purpose: a decision that cannot be written is loud, never folded into
+            // "nothing to clear".
+            AppendDecisionLine(DirFor(uid), uid, DeliveryDecisions.ClearedFailed, new DeliveryDecisionFacts
+            {
+                State = nameof(DictationDeliveryState.Pending),
+                PreviousState = nameof(DictationDeliveryState.Failed),
+                Reason = failed.Reason,
+            });
+            return true;
         });
     }
 
@@ -1345,10 +1414,33 @@ public sealed class VoiceUploadStore
     }
 
     /// <summary>
-    /// Retire the terminal tombstone for this upload id once the client has acknowledged it. Idempotent: a
-    /// no-op returning false when the record is already gone. The server retires a tombstone ONLY on this
-    /// client ack, so a delivered/abandoned upload id is de-duplicated for as long as the client could
-    /// still re-drive it; a lost ack simply leaves the tiny marker and a later re-complete re-acks.
+    /// Retire this upload id once the client has acknowledged it. Idempotent: a no-op returning false when the
+    /// upload is unknown or already acknowledged. A lost ack simply leaves the tombstone and a later re-complete
+    /// re-acks.
+    ///
+    /// IT NO LONGER DELETES THE DIRECTORY (Voice Delivery mission, 25 September 2026). It used to, at once, and
+    /// with it went the only durable account of what the Gateway decided about the owner's words - which is why
+    /// that morning's timeline had to be rebuilt from other machines' logs. Now it keeps the record and the
+    /// decision log, and deletes EVERYTHING ELSE:
+    ///
+    ///  - every file and folder in the upload's directory other than <c>record.json</c> and
+    ///    <c>decisions.jsonl</c> - the staged chunks and anything half-written - so no audio outlives the ack;
+    ///  - the words: the record is rewritten as ACKNOWLEDGED with its transcript BLANKED, keeping only its
+    ///    length (<see cref="DictationDeliveryRecord.TranscriptCharacters"/>) and the state it was in
+    ///    (<see cref="DictationDeliveryRecord.AcknowledgedFrom"/>).
+    ///
+    /// That is the Delivery Lead's binding condition: the owner's audio and words are not kept one day longer
+    /// than before. What stays is lengths, states and reasons, until the tombstone sweep retires the directory
+    /// (<see cref="SweepResolvedTombstones"/>, whose age now runs from the acknowledgement).
+    ///
+    /// To every reader that decides anything the acknowledged upload is what the deleted directory was:
+    /// <see cref="Read"/> answers Absent, <see cref="Exists"/> answers false, <see cref="AssembleAsync"/> answers
+    /// unknown, and the marker is not PENDING so it holds no session lock. A re-register of the same id opens it
+    /// afresh, exactly as it did after a delete, and the decision log carries on beneath it.
+    ///
+    /// The decision is written FIRST. If it cannot be written, nothing has been deleted and the failure
+    /// propagates to the caller; an acknowledgement is never the moment the record of what happened is lost.
+    /// A record stamped for another tenant is refused and left untouched.
     /// </summary>
     public bool Acknowledge(string uploadId)
     {
@@ -1361,15 +1453,49 @@ public sealed class VoiceUploadStore
         {
             var dir = DirFor(uid);
             if (!Directory.Exists(dir)) return false;
+
+            var read = ReadRecordFile(RecordPath(dir));
+            if (read.Kind == DictationRecordReadKind.Present && !BelongsHere(read.Record!))
+            {
+                FileLog.Write($"[VoiceUploadStore] Acknowledge: uploadId={uid} record belongs to another tenant " +
+                    $"(partition={_tenant.ToLogString()}); refused, nothing changed");
+                return false;
+            }
+            if (read.Record is { State: DictationDeliveryState.Acknowledged })
+            {
+                // Already acknowledged. Delete any audio again anyway: a file that could not be removed the first
+                // time must not survive a second acknowledgement that could have removed it.
+                DeleteAllButTheRecord(dir, uid);
+                return false;
+            }
+
+            var before = read.Record;
+            AppendDecisionLine(dir, uid, DeliveryDecisions.Acknowledged, new DeliveryDecisionFacts
+            {
+                SessionId = before?.SessionId,
+                State = nameof(DictationDeliveryState.Acknowledged),
+                PreviousState = before?.State.ToString() ?? read.Kind.ToString(),
+                Characters = before?.Transcript.Length,
+                BytesDeleted = BytesOutsideTheRecord(dir),
+            });
             try
             {
-                Directory.Delete(dir, recursive: true);
-                // A tombstone is terminal, so the cache already dropped this id when the tombstone was
-                // written. Dropped again anyway: this is the other place a staging directory disappears, and
-                // an entry that cannot be here costs nothing to remove while a future state that CAN be here
-                // would otherwise leave a lock with no directory behind it.
+                WriteRecordMarker(dir, new DictationDeliveryRecord(
+                    DictationDeliveryState.Acknowledged,
+                    before?.Submitted ?? false,
+                    before?.MovedOn ?? false,
+                    Transcript: "",
+                    before?.Reason,
+                    before?.SessionId ?? "",
+                    AcknowledgedFrom: before?.State,
+                    TranscriptCharacters: before?.Transcript.Length));
+                DeleteAllButTheRecord(dir, uid);
+                // The acknowledged marker is not PENDING, so WriteRecordMarker already dropped this id from the
+                // session-lock cache. Dropped again anyway, as the delete this replaces did: an entry that cannot
+                // be here costs nothing to remove.
                 _lockIndex.Removed(_root, uid);
-                FileLog.Write($"[VoiceUploadStore] Acknowledge: uploadId={uid} tombstone retired");
+                FileLog.Write($"[VoiceUploadStore] Acknowledge: uploadId={uid} acknowledged (was " +
+                    $"{before?.State.ToString() ?? read.Kind.ToString()}); audio and words deleted, record and decisions kept");
                 return true;
             }
             catch (Exception ex)
@@ -1378,6 +1504,149 @@ public sealed class VoiceUploadStore
                 return false;
             }
         });
+    }
+
+    // The two files an acknowledged upload keeps. Everything else in its directory is audio or a half-written
+    // copy of something, and goes.
+    private static bool IsKeptAfterAcknowledge(string path)
+    {
+        var name = Path.GetFileName(path);
+        return string.Equals(name, RecordFileName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, DecisionsFileName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static long BytesOutsideTheRecord(string dir)
+    {
+        long total = 0;
+        foreach (var path in Directory.EnumerateFiles(dir))
+            if (!IsKeptAfterAcknowledge(path)) total += new FileInfo(path).Length;
+        foreach (var sub in Directory.EnumerateDirectories(dir))
+            foreach (var path in Directory.EnumerateFiles(sub, "*", SearchOption.AllDirectories))
+                total += new FileInfo(path).Length;
+        return total;
+    }
+
+    // Delete every file and folder in an acknowledged upload's directory except the record and the decision log.
+    // A file that cannot be deleted is logged and the rest are still attempted; the next acknowledgement, or the
+    // tombstone sweep, removes it.
+    private static void DeleteAllButTheRecord(string dir, string uid)
+    {
+        foreach (var file in Directory.EnumerateFiles(dir))
+        {
+            if (IsKeptAfterAcknowledge(file)) continue;
+            try { File.Delete(file); }
+            catch (Exception ex) { FileLog.Write($"[VoiceUploadStore] Acknowledge uploadId={uid}: could not delete {file}: {ex.Message}"); }
+        }
+        foreach (var sub in Directory.EnumerateDirectories(dir))
+        {
+            try { Directory.Delete(sub, recursive: true); }
+            catch (Exception ex) { FileLog.Write($"[VoiceUploadStore] Acknowledge uploadId={uid}: could not delete {sub}: {ex.Message}"); }
+        }
+    }
+
+    // ====== the decision log (Voice Delivery mission) ==================================
+    //
+    // One JSON line per delivery decision, appended to decisions.jsonl in the upload's own directory - the same
+    // tenant-partitioned directory as record.json - under the same per-upload gate, so a decision can never
+    // interleave with a record mutation. It holds lengths and states, never the words (see DeliveryDecisions).
+
+    /// <summary>
+    /// Append one decision to this upload's decision log, under the upload's record gate.
+    ///
+    /// Returns false, and writes nothing, when the upload has no directory in this partition - or when the id is
+    /// not a GUID, which can never name one - because there is no upload to record against, and creating a
+    /// directory here would make an unregistered id look staged. A write that FAILS is not folded into that
+    /// answer: it is logged and the exception propagates, so a decision that could not be written is never
+    /// silent.
+    /// </summary>
+    public bool RecordDecision(string uploadId, string decision, DeliveryDecisionFacts? facts = null)
+    {
+        if (string.IsNullOrWhiteSpace(decision)) throw new ArgumentException("a decision needs a name", nameof(decision));
+        var uid = NormalizeId(uploadId);
+        if (uid is null) return false;
+        return WithRecordLock(uid, () =>
+        {
+            var dir = DirFor(uid);
+            if (!Directory.Exists(dir))
+            {
+                FileLog.Write($"[VoiceUploadStore] RecordDecision: uploadId={uid} has no directory here; " +
+                    $"decision {decision} not written");
+                return false;
+            }
+            AppendDecisionLine(dir, uid, decision, facts);
+            return true;
+        });
+    }
+
+    /// <summary>
+    /// This upload's decision log, in the order it was written, with how its record reads. Tenant-checked the
+    /// same way <see cref="Read"/> is: the directory partition is the boundary, and a record stamped for another
+    /// tenant answers not found. Unlike <see cref="Read"/> it sees an ACKNOWLEDGED record for what it is,
+    /// because showing what was kept after an acknowledgement is the point of keeping it.
+    ///
+    /// A line that cannot be parsed - for example one half-written by a crash - is returned in its place as an
+    /// <see cref="DeliveryDecisions.UnreadableLine"/> entry, so one bad line never hides the rest.
+    /// </summary>
+    public DeliveryDecisionLog ReadDecisions(string uploadId)
+    {
+        var uid = NormalizeId(uploadId);
+        if (uid is null) return DeliveryDecisionLog.NotFound;
+        return WithRecordLock(uid, () =>
+        {
+            var dir = DirFor(uid);
+            if (!Directory.Exists(dir)) return DeliveryDecisionLog.NotFound;
+            var read = ReadRecordFile(RecordPath(dir));
+            if (read.Kind == DictationRecordReadKind.Present && !BelongsHere(read.Record!))
+            {
+                FileLog.Write($"[VoiceUploadStore] ReadDecisions: uploadId={uid} record belongs to another tenant " +
+                    $"(partition={_tenant.ToLogString()}); answered not found");
+                return DeliveryDecisionLog.NotFound;
+            }
+            var lines = ReadDecisionLines(DecisionsPath(dir));
+            if (read.Kind == DictationRecordReadKind.Absent && lines.Count == 0) return DeliveryDecisionLog.NotFound;
+            return new DeliveryDecisionLog(true, read, lines);
+        });
+    }
+
+    private static List<DeliveryDecisionLine> ReadDecisionLines(string path)
+    {
+        string[] raw;
+        try { raw = File.ReadAllLines(path); }
+        catch (FileNotFoundException) { return new List<DeliveryDecisionLine>(); }
+        catch (DirectoryNotFoundException) { return new List<DeliveryDecisionLine>(); }
+
+        var lines = new List<DeliveryDecisionLine>(raw.Length);
+        for (var i = 0; i < raw.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(raw[i])) continue;
+            try
+            {
+                lines.Add(JsonSerializer.Deserialize<DeliveryDecisionLine>(raw[i], DeliveryDecisionLine.Json)
+                    ?? throw new JsonException("the line is JSON null"));
+            }
+            catch (JsonException ex)
+            {
+                lines.Add(new DeliveryDecisionLine(DateTime.MinValue, DeliveryDecisions.UnreadableLine,
+                    new DeliveryDecisionFacts { Error = $"line {i + 1}: {ex.Message}" }));
+            }
+        }
+        return lines;
+    }
+
+    // The one place a decision line is written. Callers hold the upload's gate.
+    private static void AppendDecisionLine(string dir, string uid, string decision, DeliveryDecisionFacts? facts)
+    {
+        var line = JsonSerializer.Serialize(new DeliveryDecisionLine(DateTime.UtcNow, decision, facts), DeliveryDecisionLine.Json);
+        try
+        {
+            File.AppendAllText(DecisionsPath(dir), line + "\n");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[VoiceUploadStore] DECISION NOT WRITTEN: uploadId={uid} decision={decision}: {ex.Message}");
+            throw;
+        }
+        FileLog.Write($"[VoiceUploadStore] Decision: uploadId={uid} {decision}");
     }
 
     // The owning session id already recorded for this upload id (empty when there is no record yet), so a
@@ -1402,7 +1671,10 @@ public sealed class VoiceUploadStore
     // The record is composed by a FACTORY run inside the gate, not passed in ready-made: a tombstone carries
     // the session id already on the record, and reading that outside the lock would be one more
     // read-modify-write straddling the gate - the very shape this is here to eliminate.
-    private void WriteTombstone(string uploadId, Func<string, DictationDeliveryRecord> compose)
+    // The decision is written by the transition itself, after the marker is durable, so a caller added later
+    // cannot resolve an upload without the log saying so.
+    private void WriteTombstone(string uploadId, Func<string, DictationDeliveryRecord> compose,
+        string decision, DeliveryDecisionFacts facts)
     {
         var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
         // Under the per-upload gate like every other record write: a tombstone that lands while another writer
@@ -1421,6 +1693,7 @@ public sealed class VoiceUploadStore
             }
             FileLog.Write($"[VoiceUploadStore] MarkRecord: uploadId={uid} state={record.State} " +
                 $"submitted={record.Submitted} movedOn={record.MovedOn}");
+            AppendDecisionLine(dir, uid, decision, facts);
         });
     }
 
@@ -1541,7 +1814,10 @@ public sealed class VoiceUploadStore
             TenantPartitionDirectoryName, StringComparison.OrdinalIgnoreCase);
 
     private static string ChunkPath(string dir, int index) => Path.Combine(dir, $"{index:D5}.part");
-    private static string RecordPath(string dir) => Path.Combine(dir, "record.json");
+    private const string RecordFileName = "record.json";
+    private const string DecisionsFileName = "decisions.jsonl";
+    private static string RecordPath(string dir) => Path.Combine(dir, RecordFileName);
+    private static string DecisionsPath(string dir) => Path.Combine(dir, DecisionsFileName);
 
     private static readonly JsonSerializerOptions RecordJson = new()
     {
@@ -1583,8 +1859,14 @@ public readonly record struct AssembleResult(string Status, byte[]? Audio, IRead
 /// them. FAILED (a permanent transcription failure) is a PARKED, USER-RETRYABLE pause - NOT a terminal
 /// tombstone and NOT a de-dupe short-circuit: it keeps its chunk bytes, leaves the session unlocked (so the
 /// client auto-loop stops), and an explicit retry clears it back to PENDING to re-drive.
+///
+/// ACKNOWLEDGED (Voice Delivery mission, 25 September 2026) is what an acknowledgement leaves behind instead
+/// of deleting the directory: the audio and the words are gone, and only the record and the decision log stay,
+/// so the decisions can be read afterwards. To every reader that decides anything it is exactly what a deleted
+/// directory was - <see cref="VoiceUploadStore.Read"/> answers Absent for it - and the tombstone sweep retires
+/// it after the retention window. See <see cref="VoiceUploadStore.Acknowledge"/>.
 /// </summary>
-public enum DictationDeliveryState { Pending, Delivered, Abandoned, Failed }
+public enum DictationDeliveryState { Pending, Delivered, Abandoned, Failed, Acknowledged }
 
 /// <summary>
 /// A dictation delivery record (issue #1183, extended by #1185 and #1188): the durable marker for an upload
@@ -1613,6 +1895,15 @@ public enum DictationDeliveryState { Pending, Delivered, Abandoned, Failed }
 /// records written before the field existed, which are self-host records and are accepted only in the local
 /// partition.
 /// </param>
+/// <param name="AcknowledgedFrom">
+/// For an ACKNOWLEDGED record only: the state the record was in when the client acknowledged it, so the kept
+/// record still says whether the words were delivered, dropped or given up. Null in every other state, and
+/// null for an acknowledged upload that had no readable marker.
+/// </param>
+/// <param name="TranscriptCharacters">
+/// For an ACKNOWLEDGED record only: how many characters the transcript had before acknowledgement blanked it.
+/// The count stays so the kept record can be compared with the decision log; the words do not.
+/// </param>
 public sealed record DictationDeliveryRecord(
     DictationDeliveryState State,
     bool Submitted,
@@ -1621,7 +1912,9 @@ public sealed record DictationDeliveryRecord(
     string? Reason,
     string SessionId = "",
     long? RebaselineBufferBytes = null,
-    string Tenant = "");
+    string Tenant = "",
+    DictationDeliveryState? AcknowledgedFrom = null,
+    int? TranscriptCharacters = null);
 
 /// <summary>
 /// Every answer a read of an upload id's record.json can give (issue #2745). The reader used to have two -

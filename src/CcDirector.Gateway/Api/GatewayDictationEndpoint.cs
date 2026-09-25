@@ -31,6 +31,7 @@ namespace CcDirector.Gateway.Api;
 ///   POST /dictation/{uploadId}/complete   { sessionId,totalChunks,mime,ext,before,after,baselineBufferBytes,resumed }
 ///                                          -> 200 { submitted, movedOn, transcript } | 200 { dropped, reason } | 409 { missing } | 402 | 5xx
 ///   POST /dictation/{uploadId}/ack        -> 200 { ok, retired }
+///   GET  /dictation/{uploadId}/decisions  -> 200 { upload_id, state, decisions: [...] } | 404
 ///
 /// A retried complete is single-flighted per uploadId (so the turn is submitted at most once WHILE this
 /// instance holds it), and de-duplicated durably by the per-upload-id delivery record on disk (issue
@@ -288,6 +289,17 @@ internal static class GatewayDictationEndpoint
             // transcribe so a slow transcribe cannot let it age out mid-flight (issue #1126).
             transcribingSessions.Refresh(tenant, req.SessionId!);
 
+            // Every attempt after the client's first says so in the decision log, with what it carried, so a
+            // retry is readable afterwards whatever it is answered with (Voice Delivery mission).
+            if (req.Resumed)
+                store.RecordDecision(uploadId, DeliveryDecisions.Retried, new DeliveryDecisionFacts
+                {
+                    SessionId = req.SessionId,
+                    Resumed = true,
+                    BaselineBufferBytes = req.BaselineBufferBytes,
+                    TotalChunks = req.TotalChunks,
+                });
+
             // DevThrottle Stats: this dictation is a VOICE turn; resolve WHICH surface recorded it from the
             // verified device key that authenticated this complete (the phone that recorded it, or the
             // cockpit browser for a cockpit Speak) so the tally does not mislabel cockpit voice as phone.
@@ -445,6 +457,36 @@ internal static class GatewayDictationEndpoint
             FileLog.Write($"[GatewayDictation] abandon uploadId={uploadId} sid={sid}: marked ABANDONED, staging discarded");
             return Results.Json(new { ok = true, upload_id = uploadId, abandoned = true });
         });
+
+        // Read back what the Gateway decided about one upload (Voice Delivery mission, 25 September 2026): the
+        // record's state and every decision line in the order written, from the upload's own durable directory,
+        // so "what happened to my words?" is answerable without the container's log. Scoped to the caller's own
+        // partition like every other leg (issue #1884): another account's upload id is simply not found. It
+        // returns lengths and states, never the words - the decision log holds none, and the transcript is not
+        // included from the record either.
+        app.MapGet("/dictation/{uploadId}/decisions", (string uploadId, HttpContext ctx) =>
+        {
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+                return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
+            if (!gate.TryOpen(ctx, out var store, out _, out var deny)) return deny;
+            var log = store.ReadDecisions(uploadId);
+            if (!log.Found)
+                return Results.Json(new { error = "unknown upload id" }, statusCode: StatusCodes.Status404NotFound);
+            var record = log.Record.Record;
+            FileLog.Write($"[GatewayDictation] decisions uploadId={uploadId} lines={log.Lines.Count} record={log.Record.Kind}");
+            return Results.Json(new DictationDecisionsResponse
+            {
+                UploadId = VoiceUploadStore.NormalizeUploadId(uploadId) ?? uploadId,
+                Record = log.Record.Kind.ToString(),
+                State = record?.State.ToString(),
+                AcknowledgedFrom = record?.AcknowledgedFrom?.ToString(),
+                Submitted = record?.Submitted,
+                MovedOn = record?.MovedOn,
+                Reason = record?.Reason,
+                SessionId = record?.SessionId,
+                Decisions = log.Lines,
+            }, DeliveryDecisionLine.Json);
+        });
     }
 
     // Map a NON-Ok transcription result to the dictation outcome, or null when the result is Ok and the
@@ -581,7 +623,11 @@ internal static class GatewayDictationEndpoint
             var (director, session) = await GatewayEndpoints.LocateSessionAsync(
                 registry, sid, pushedSessions, streamStale, tenant, owners);
             if (director is null || session is null)
+            {
+                store.RecordDecision(uploadId, DeliveryDecisions.SessionNotFound,
+                    new DeliveryDecisionFacts { SessionId = sid, StatusCode = StatusCodes.Status404NotFound });
                 return DictationOutcome.Error(StatusCodes.Status404NotFound, "session not found");
+            }
             if (IsExited(session))
                 return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript: "");
 
@@ -597,14 +643,28 @@ internal static class GatewayDictationEndpoint
             // The configured mode's key must be present before we pay the reassembly + transcribe cost.
             var routing = transcription.Resolve();
             if (routing.Key is null)
+            {
+                store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
+                {
+                    StatusCode = StatusCodes.Status503ServiceUnavailable,
+                    Error = $"no key configured for transcription mode {routing.Mode}",
+                });
                 return DictationOutcome.Error(StatusCodes.Status503ServiceUnavailable,
                     $"no key configured for transcription mode {routing.Mode}");
+            }
 
             var assembled = await store.AssembleAsync(uploadId, req.TotalChunks);
             if (assembled.Status == "unknown_upload")
                 return DictationOutcome.Error(StatusCodes.Status404NotFound, "unknown upload id");
             if (assembled.Status == "incomplete")
+            {
+                store.RecordDecision(uploadId, DeliveryDecisions.Incomplete, new DeliveryDecisionFacts
+                {
+                    TotalChunks = req.TotalChunks,
+                    MissingChunks = assembled.Missing.Count,
+                });
                 return DictationOutcome.Incomplete(assembled.Missing);
+            }
             var audio = assembled.Audio;
             if (audio is null || audio.Length == 0)
             {
@@ -619,6 +679,11 @@ internal static class GatewayDictationEndpoint
                 return nonOk;
 
             var transcript = (result.Text ?? "").Trim();
+            store.RecordDecision(uploadId, DeliveryDecisions.Transcribed, new DeliveryDecisionFacts
+            {
+                Characters = transcript.Length,
+                AudioBytes = audio.Length,
+            });
             // Capture-health (issue #863): persist the fire-and-forget Send path's audio-loss deficit into
             // the SAME dictation session log the Voice-mode and desktop paths write, via the one shared
             // helper. The assembled audio byte count is what the server actually transcribed. When the client
@@ -673,7 +738,11 @@ internal static class GatewayDictationEndpoint
             (director, session) = await GatewayEndpoints.LocateSessionAsync(
                 registry, sid, pushedSessions, streamStale, tenant, owners);
             if (director is null || session is null)
+            {
+                store.RecordDecision(uploadId, DeliveryDecisions.SessionNotFound,
+                    new DeliveryDecisionFacts { SessionId = sid, StatusCode = StatusCodes.Status404NotFound });
                 return DictationOutcome.Error(StatusCodes.Status404NotFound, "session not found");
+            }
             if (IsExited(session))
                 return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript);
             var route = new SessionVerbClient(director, sendCommand);
@@ -734,6 +803,12 @@ internal static class GatewayDictationEndpoint
             var spokenAlone = SpokenTurnRule.IsSpokenAlone(req.Before, req.Prefix, req.After);
             if (!spokenAlone)
                 FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: composed with typed text around the transcript; delivered as ONE TYPED turn (ruling R10)");
+            store.RecordDecision(uploadId, DeliveryDecisions.SentToDirector, new DeliveryDecisionFacts
+            {
+                SessionId = sid,
+                Characters = message.Length,
+                SpokenAlone = spokenAlone,
+            });
             // THE DELIVERY ID RIDES EVERY DELIVERY (Voice Delivery mission, phase 1), spoken alone or composed with
             // typed text: it is the identity the Director's delivery record refuses a second copy by. The voice-turn
             // marker above decides only the send source and stays as it was.
@@ -774,6 +849,18 @@ internal static class GatewayDictationEndpoint
                     err = body.Error ?? $"the Director refused the delivery (state {body.DeliveryState?.ToString() ?? "none"})";
                 }
             }
+            // WHAT THE DIRECTOR SAID, written AFTER the refusal is read so its facts are final: whether this attempt is
+            // treated as ok, the error it takes down the failure path, the Director's own delivery state and reason,
+            // and whether it was a refused duplicate. "Why was this delivered only once" is read from this line.
+            store.RecordDecision(uploadId, DeliveryDecisions.DirectorAnswer, new DeliveryDecisionFacts
+            {
+                SessionId = sid,
+                Ok = ok,
+                Error = err,
+                State = body?.DeliveryState is { } directorState ? DeliveryStates.Format(directorState) : null,
+                Reason = body?.DeliveryStateReason,
+                RefusedDuplicate = refusedDuplicate ? true : null,
+            });
             if (!ok)
             {
                 // THE ATTEMPT WE JUST MADE INVALIDATED THE PHONE'S BASELINE (Lost Dictations mission, #1593).
@@ -818,6 +905,8 @@ internal static class GatewayDictationEndpoint
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId} FAILED: {ex.Message}");
+            store.RecordDecision(uploadId, DeliveryDecisions.CompleteError,
+                new DeliveryDecisionFacts { StatusCode = StatusCodes.Status502BadGateway, Error = ex.Message });
             return DictationOutcome.Error(StatusCodes.Status502BadGateway, ex.Message);
         }
         finally
@@ -988,4 +1077,24 @@ internal sealed class DictationOutcome
         Kind.OutOfCredits => HostedAiHttp.PaymentRequiredResult(_creditsState),
         _ => Results.Json(new { error = _error }, statusCode: _status),
     };
+}
+
+/// <summary>
+/// The answer of <c>GET /dictation/{uploadId}/decisions</c>: how the upload's record reads, its state, and every
+/// decision the Gateway wrote for it, in order. Deliberately carries no transcript: lengths and states only.
+/// </summary>
+public sealed class DictationDecisionsResponse
+{
+    public string UploadId { get; init; } = "";
+    /// <summary>How the record read: Present, Absent, Malformed, Unreadable.</summary>
+    public string Record { get; init; } = "";
+    /// <summary>The record's state when it could be read: Pending, Delivered, Abandoned, Failed, Acknowledged.</summary>
+    public string? State { get; init; }
+    /// <summary>For an acknowledged record, the state it was in when the client acknowledged it.</summary>
+    public string? AcknowledgedFrom { get; init; }
+    public bool? Submitted { get; init; }
+    public bool? MovedOn { get; init; }
+    public string? Reason { get; init; }
+    public string? SessionId { get; init; }
+    public IReadOnlyList<DeliveryDecisionLine> Decisions { get; init; } = Array.Empty<DeliveryDecisionLine>();
 }

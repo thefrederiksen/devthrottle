@@ -958,6 +958,15 @@ public sealed class GatewayHost : IAsyncDisposable
     // client that could still re-drive an id is affected, while a tombstone nobody will ever ack stops being
     // immortal. The ack remains the real retirement path and retires records in seconds; this only catches
     // what the ack has permanently lost.
+    //
+    // IT IS NOW ALSO THE RETENTION OF THE DECISION RECORD (Voice Delivery mission, 25 September 2026). An ack
+    // no longer deletes the upload's directory: it deletes the audio and blanks the words, and keeps the record
+    // and its decision log (decisions.jsonl) so what the Gateway decided can be read afterwards without the
+    // container's log. This sweep is what retires that kept record, thirty days after the ack. Thirty days
+    // because an incident is reported and looked into within days, not months - a week-old "what happened to
+    // my words?" must still be answerable - while what is kept holds no audio and no words, only lengths,
+    // states and reasons, so keeping it for the same window as an unacknowledged tombstone costs nothing the
+    // owner has not already accepted.
     private static readonly TimeSpan DictationTombstoneMaxAge = TimeSpan.FromDays(30);
     // WHY TWENTY-FOUR HOURS, and why it is NOT the thirty days above. That number protects a tombstone,
     // where keeping too long costs almost nothing. This one bounds a PENDING record, where keeping too long

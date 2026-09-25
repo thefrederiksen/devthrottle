@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 using System.Threading.Tasks;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Tenancy;
@@ -353,6 +354,36 @@ public sealed class DictationTenantIsolationTests : IAsyncLifetime
             (await _httpA.PostAsync($"/dictation/{id}/abandon", content: null)).StatusCode);
         Assert.NotEqual(HttpStatusCode.Unauthorized,
             (await _httpA.PostAsync($"/dictation/{id}/ack", content: null)).StatusCode);
+    }
+
+    // ===== leg 6: the decision log read (Voice Delivery mission) ===================================
+
+    [Fact]
+    public async Task The_decision_log_reads_for_its_own_account_and_is_not_found_for_another()
+    {
+        // Proves GET /dictation/{id}/decisions returns the owner's own decisions and answers another account
+        // "not found" for the same upload id - it is dictation data, scoped exactly like the other five legs.
+        var id = Guid.NewGuid().ToString();
+        Assert.Equal(HttpStatusCode.OK, (await RegisterAsync(_httpA, id)).StatusCode);
+        Store(_tenantA).MarkDelivered(id, submitted: true, movedOn: false, transcript: SecretTranscriptA);
+
+        // Positive control: A reads its own lines, in order, with no words in them.
+        var own = await _httpA.GetAsync($"/dictation/{id}/decisions");
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+        var ownBody = await own.Content.ReadAsStringAsync();
+        var decisions = JsonDocument.Parse(ownBody).RootElement.GetProperty("decisions");
+        Assert.Equal(new[] { DeliveryDecisions.Received, DeliveryDecisions.Delivered },
+            decisions.EnumerateArray().Select(d => d.GetProperty("decision").GetString()).ToArray());
+        Assert.DoesNotContain(SecretTranscriptA, ownBody);
+
+        // B asks for the same id: not found, and nothing of A's in the answer.
+        var other = await _httpB.GetAsync($"/dictation/{id}/decisions");
+        Assert.Equal(HttpStatusCode.NotFound, other.StatusCode);
+        var otherBody = await other.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(DeliveryDecisions.Received, otherBody);
+
+        // A key with no account is refused before anything is read.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _httpUnbound.GetAsync($"/dictation/{id}/decisions")).StatusCode);
     }
 
     // ===== helpers =================================================================================
