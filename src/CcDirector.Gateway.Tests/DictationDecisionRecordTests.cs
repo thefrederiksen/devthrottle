@@ -194,6 +194,55 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AResolvedRecording_AnswersItsCachedOutcome_ToACompleteWithoutSentAtUtc()
+    {
+        // Proves review finding 3: a page left open across the deploy still runs the client from before the Send time
+        // existed, and keeps completing without it. For a recording that is already resolved - delivered, or shown back
+        // as too old - the Gateway answers the cached outcome from the durable record (200, the words, the reason and
+        // the offer) instead of refusing it with the 400 forever. Nothing is typed again. A PENDING recording without a
+        // Send time is still refused (ACompleteWithoutSentAtUtc_IsRefusedWith400_AndNothingIsTyped).
+        var prompts = 0;
+        _director.OnCommand(cmd =>
+        {
+            if (cmd.Verb == "prompt") Interlocked.Increment(ref prompts);
+            return FakeTunnelDirector.Ok(new PromptResponse());
+        });
+        var delivered = await RegisterAndUploadAsync();
+        Assert.Equal(HttpStatusCode.OK, (await CompleteAsync(delivered, resumed: false)).status);
+        var shownBack = await RegisterAndUploadAsync();
+        Assert.Equal(HttpStatusCode.OK, (await CompleteAsync(shownBack, resumed: false, sentAtUtc: DateTime.UtcNow - TimeSpan.FromMinutes(10))).status);
+        Assert.Equal(1, prompts);
+
+        var deliveredAgain = await CompleteWithoutSentAtAsync(delivered);
+        var shownBackAgain = await CompleteWithoutSentAtAsync(shownBack);
+
+        Assert.Equal(HttpStatusCode.OK, deliveredAgain.status);
+        Assert.True(deliveredAgain.body.GetProperty("submitted").GetBoolean());
+        Assert.False(deliveredAgain.body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal(Transcript, deliveredAgain.body.GetProperty("transcript").GetString());
+        Assert.Equal(HttpStatusCode.OK, shownBackAgain.status);
+        Assert.True(shownBackAgain.body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal("too-old", shownBackAgain.body.GetProperty("reason").GetString());
+        Assert.True(shownBackAgain.body.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal(Transcript, shownBackAgain.body.GetProperty("transcript").GetString());
+        Assert.Equal(1, prompts);
+    }
+
+    private async Task<(HttpStatusCode status, JsonElement body)> CompleteWithoutSentAtAsync(string uploadId)
+    {
+        // The body the client sent before the Send time existed: everything else, and resumed.
+        var resp = await _http.PostAsJsonAsync($"/dictation/{uploadId}/complete", new
+        {
+            sessionId = _sessionId,
+            totalChunks = 1,
+            mime = "audio/wav",
+            ext = "wav",
+            resumed = true,
+        });
+        return (resp.StatusCode, await resp.Content.ReadFromJsonAsync<JsonElement>());
+    }
+
+    [Fact]
     public async Task ATooOldRecording_IsShownBack_Kept_AndItsWordsComeBackOnEveryReComplete()
     {
         // Proves a recording sent more than five minutes ago is shown back through the real route - 200, movedOn, the
