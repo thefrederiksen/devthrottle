@@ -119,9 +119,11 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         // Proves a refused prompt verb is written as a director-answer that says it failed, and the client's
         // resumed retry is written as retried before the attempt that delivers.
         var uploadId = await RegisterAndUploadAsync();
+        // Only the first PROMPT fails. Counting every verb let any other command the Gateway sends the Director
+        // first (it does not only send prompts) take the failure, and the delivery then answered OK.
         var prompts = 0;
         _director.OnCommand(cmd =>
-            Interlocked.Increment(ref prompts) == 1
+            cmd.Verb == "prompt" && Interlocked.Increment(ref prompts) == 1
                 ? DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "composer never echoed the text")
                 : FakeTunnelDirector.Ok(new PromptResponse()));
 
