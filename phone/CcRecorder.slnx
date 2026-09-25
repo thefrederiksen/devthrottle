@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="CcRecorder.Tests/CcRecorder.Tests.csproj" />
+  <Project Path="CcRecorder/CcRecorder.csproj" />
+</Solution>

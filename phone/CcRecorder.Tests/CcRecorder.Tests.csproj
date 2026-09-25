@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Plain net10.0 (no MAUI/Android workload) so CcRecorder's pure-logic classes are tested off-device.
+         Only dependency-free source files are link-included from the app project. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <!-- Single source of truth: compiled here straight from the app project, never copied. -->
+  <ItemGroup>
+    <Compile Include="..\CcRecorder\Account\RecorderLog.cs" Link="Account\RecorderLog.cs" />
+    <Compile Include="..\CcRecorder\Account\SignInHandbackPage.cs" Link="Account\SignInHandbackPage.cs" />
+    <Compile Include="..\CcRecorder\Account\LoopbackSignInListener.cs" Link="Account\LoopbackSignInListener.cs" />
+    <Compile Include="..\CcRecorder\Account\GatewayEnrollmentClient.cs" Link="Account\GatewayEnrollmentClient.cs" />
+    <Compile Include="..\CcRecorder\Account\AppForeground.cs" Link="Account\AppForeground.cs" />
+    <Compile Include="..\CcRecorder\Recording\SegmentTiming.cs" Link="Recording\SegmentTiming.cs" />
+  </ItemGroup>
+
+</Project>

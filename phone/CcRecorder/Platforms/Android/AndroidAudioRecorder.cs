@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Android.Content;
 using Android.Media;
+using CcRecorder.Account;
 using CcRecorder.Recording;
 using Microsoft.Maui.Networking;
 using Microsoft.Maui.Storage;
@@ -36,6 +37,9 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
     private string _recordingDir = "";
     private DateTime _startedUtc;
     private DateTime _segmentStartedUtc;
+    // When the roll timer was last armed (segment start, resume). A rotation is late relative to THIS,
+    // so time spent paused is never reported as the phone suspending the recorder.
+    private DateTime _rollArmedUtc;
     private int _segmentIndex;
     private bool _paused;
     private TimeSpan _pausedAccum;
@@ -79,6 +83,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
             _pausedAccum += DateTime.UtcNow - _pauseStartedUtc;
             try { _recorder?.Resume(); } catch { }
             _rollTimer?.Change(SegmentLength, SegmentLength);
+            _rollArmedUtc = DateTime.UtcNow;
             _paused = false;
         }
         RaiseChanged();
@@ -128,7 +133,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                 DeviceId = global::Android.OS.Build.Model ?? "android",
                 StartedAt = DateTime.UtcNow.ToString("o"),
                 Codec = "aac-m4a",
-                SampleRateHz = 16000,
+                SampleRateHz = RecorderDefaults.SampleRateHz,
                 Channels = 1,
             };
             _recordingDir = RecordingFolder(_manifest.RecordingId);
@@ -262,16 +267,15 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         // attempt and let failures fall back to Retry.
         if (Connectivity.Current.NetworkAccess == NetworkAccess.None) return;
 
-        // A fresh install (or a reinstall that wiped preferences) has no saved
-        // URL. Seed the built-in default so the recording uploads instead of
-        // silently sitting in the queue. The UI keeps the field editable.
-        var server = Preferences.Get("gateway_url", "").Trim();
-        if (string.IsNullOrWhiteSpace(server))
+        var server = DeviceAccount.GatewayUrl();
+        // Not signed in: nothing can upload, so do not burn a retry on every recording. The audio stays
+        // safely on the phone, the screen says "Sign in to upload", and the queue drains after sign-in.
+        var token = await DeviceAccount.DeviceKeyAsync();
+        if (token is null)
         {
-            server = RecorderDefaults.GatewayUrl;
-            Preferences.Set("gateway_url", server);
+            RecorderLog.Write("[AndroidAudioRecorder] ProcessUploadQueueAsync: not signed in, uploads wait");
+            return;
         }
-        var token = Preferences.Get("gateway_token", "").Trim();
 
         if (!await _uploadGate.WaitAsync(0)) return; // a run is already in progress
         try
@@ -505,6 +509,17 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
             if (DateTime.UtcNow - _segmentStartedUtc < TimeSpan.FromSeconds(5)) return;
             try
             {
+                var late = SegmentTiming.LateRotationNote(
+                    SegmentLength, DateTime.UtcNow - _rollArmedUtc, RecorderDefaults.LateRotationTolerance);
+                if (late is not null && _manifest is not null)
+                {
+                    RecorderLog.Write("[AndroidAudioRecorder] RollSegment: " + late);
+                    _manifest.Notes.Add(new NoteInfo
+                    {
+                        TMs = (long)(DateTime.UtcNow - _startedUtc).TotalMilliseconds,
+                        Text = late,
+                    });
+                }
                 FinalizeSegment();
                 StartSegment();
                 SaveManifest();
@@ -641,9 +656,11 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         rec.SetAudioSource(AudioSource.Mic);
         rec.SetOutputFormat(OutputFormat.Mpeg4);
         rec.SetAudioEncoder(AudioEncoder.Aac);
-        rec.SetAudioSamplingRate(16000);
+        // Pure recording: AudioSource.Mic with no effects attached - no noise suppression, echo
+        // cancellation or gain control. 48 kHz keeps the whole audible range in the kept audio.
+        rec.SetAudioSamplingRate(RecorderDefaults.SampleRateHz);
         rec.SetAudioChannels(1);
-        rec.SetAudioEncodingBitRate(64000);
+        rec.SetAudioEncodingBitRate(RecorderDefaults.BitRate);
         rec.SetOutputFile(path);
         // Surface capture failures instead of recording silence: without this,
         // a MediaRecorder that dies mid-segment is invisible until the
@@ -654,6 +671,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
 
         _recorder = rec;
         _segmentStartedUtc = DateTime.UtcNow;
+        _rollArmedUtc = _segmentStartedUtc;
     }
 
 #pragma warning disable CA1422 // legacy ctor only on pre-31 devices
