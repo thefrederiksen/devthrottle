@@ -302,7 +302,12 @@ internal static class GatewayEndpoints
         Fleet.RaisedSessionRecord? raisedRecord = null,
         // The Website Business Factory, Screen 6: the "started" rows the roster fold stamps the factory agent chip
         // from. Null while the Factory Agents switch is off, and then no row carries a chip.
-        Factory.FactorySessionStarts.Reader? factoryStarts = null)
+        Factory.FactorySessionStarts.Reader? factoryStarts = null,
+        // Voice Delivery mission, phase 1: the door onto the dictation uploads, so the prompt route can check that a
+        // recording a client names ("Send anyway") is an upload of the caller's own tenant for that session before it
+        // becomes the prompt's delivery id. Null (tests, older callers) means no claim can be honoured - every one is
+        // dropped and logged, and the text is sent as an ordinary prompt.
+        DictationTenantGate? dictationUploads = null)
     {
         if ((raisedSessions is null) != (raisedRecord is null))
             throw new ArgumentException(
@@ -3199,6 +3204,32 @@ internal static class GatewayEndpoints
         // `outcome`, when given, is told exactly once whether the Director ACCEPTED the prompt - true only on a
         // 200 whose body says Accepted; false on a dropped tunnel, a Director failure, or a Director refusal.
         // The spoken-claim reservation is committed or released on that answer (finding F-07).
+        // A client's claim that a prompt is the words of one of its recordings ("Send anyway"), turned into the prompt's
+        // delivery id only when the id is an upload record in the caller's OWN tenant, read through the dictation gate's
+        // tenant partition, bound to THIS session. Anything else is dropped and logged, and the text goes as an ordinary
+        // prompt - exactly what "Send anyway" sent before the delivery id existed.
+        string? ResolveDeliveryIdClaim(HttpContext httpCtx, string sid, string? claim, bool callerIsSession)
+        {
+            if (string.IsNullOrWhiteSpace(claim)) return null;
+            string? Drop(string why)
+            {
+                FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery id claim DROPPED (upload={claim}): {why}; sent as an ordinary prompt");
+                return null;
+            }
+            if (callerIsSession) return Drop("the caller is a session, and a session has no recordings");
+            if (dictationUploads is null) return Drop("no dictation upload store is wired to this route");
+            var canonical = Voice.VoiceUploadStore.NormalizeUploadId(claim);
+            if (canonical is null) return Drop("it is not an upload id");
+            if (!dictationUploads.TryOpen(httpCtx, out var store, out _, out _)) return Drop("no tenant resolved for the caller");
+            var read = store.Read(canonical);
+            if (read.Kind != Voice.DictationRecordReadKind.Present)
+                return Drop($"no readable upload record of the caller's tenant ({read.Kind})");
+            if (!Guid.TryParse(read.Record!.SessionId, out var recorded) || !Guid.TryParse(sid, out var target) || recorded != target)
+                return Drop($"the recording belongs to session '{read.Record.SessionId}', not this one");
+            FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery id claim VERIFIED (upload={canonical})");
+            return canonical;
+        }
+
         async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null)
         {
             // Post-cut: tunnel-only. A null result means the Director is not connected -> 502. The WaitForIdle
@@ -3569,6 +3600,12 @@ internal static class GatewayEndpoints
             req.AgentDriven = callingSessionForAttribution is not null;
             var claimedUploadId = req.DeliveryUploadId;
             req.DeliveryUploadId = null;
+            // THE DELIVERY ID IS THE GATEWAY'S TO SET, NEVER THE BODY'S (Voice Delivery mission, phase 1). The Director
+            // refuses a second copy of a delivery id it has already typed, so an id a client could set freely would let
+            // it block, or pass off as delivered, words it did not own. Whatever arrives is overwritten; a client may
+            // only CLAIM a recording, and the claim is checked below.
+            req.DeliveryId = ResolveDeliveryIdClaim(httpCtx, sid, req.DeliveryIdClaim, callingSessionForAttribution is not null);
+            req.DeliveryIdClaim = null;
             // RESERVED HERE, COMMITTED OR RELEASED BELOW (final inspection finding F-07). The claim used to be spent
             // at this line, before the session was located or the menu guard ran, so a prompt that never entered a
             // session burned the only proof and the person's retry of the same words was filed as typed. Now the

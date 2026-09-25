@@ -155,6 +155,64 @@ internal sealed class SessionVerbClient
             : new PromptSendOutcome(PromptSendKind.Unanswered, null, DirectorCommandRouter.DescribeFailure(result));
     }
 
+    /// <summary>What came back when the Gateway asked a Director what became of a delivery id. FOUR answers, and the
+    /// last three must never be read as <see cref="DeliveryState.Unknown"/>: "the Director never saw it" is a fact
+    /// that makes a retry safe, while "the Director cannot say" is not.</summary>
+    internal enum DeliveryStateAskKind
+    {
+        /// <summary>The Director answered from its delivery record; <see cref="DeliveryStateAsk.Answer"/> holds it.</summary>
+        Answered,
+
+        /// <summary>The Director is older than the <c>delivery-state</c> verb and answered "unknown verb". It keeps no
+        /// delivery record, so it cannot say - which is NOT the same as having never seen the delivery.</summary>
+        DirectorTooOld,
+
+        /// <summary>The question went out and no answer came back that says anything: the Director failed to read its
+        /// record, the Gateway stopped waiting, or the tunnel dropped.</summary>
+        NoAnswer,
+
+        /// <summary>The owning Director is not on the tunnel, so the question never left this Gateway.</summary>
+        NeverLeftTheGateway,
+    }
+
+    /// <summary>What came back from <see cref="GetDeliveryStateAsync"/>, and the words for it.</summary>
+    internal sealed record DeliveryStateAsk(DeliveryStateAskKind Kind, DeliveryStateResponse? Answer, string Detail);
+
+    /// <summary>
+    /// Ask the Director "what became of delivery id <paramref name="deliveryId"/> in session <paramref name="sid"/>?"
+    /// (Voice Delivery mission, phase 1). Tunnel-only (<c>delivery-state</c> verb, a <see cref="DeliveryStateRequest"/>
+    /// payload -&gt; <see cref="DeliveryStateResponse"/>). The four kinds of answer are kept apart - see
+    /// <see cref="DeliveryStateAskKind"/>.
+    /// </summary>
+    public async Task<DeliveryStateAsk> GetDeliveryStateAsync(string sid, string deliveryId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(deliveryId)) throw new ArgumentException("A delivery id is required.", nameof(deliveryId));
+
+        var result = await DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, DeliveryStateRequest.Verb, sid,
+            new DeliveryStateRequest { DeliveryId = deliveryId }, ct, machineName: _director.MachineName);
+
+        if (result is null)
+            return new DeliveryStateAsk(DeliveryStateAskKind.NeverLeftTheGateway, null,
+                "the owning Director is not connected to the tunnel, so the question never left this Gateway.");
+
+        if (result.Ok)
+        {
+            var answer = DirectorCommandRouter.ReadBody<DeliveryStateResponse>(result)
+                ?? throw new InvalidOperationException($"The Director answered the {DeliveryStateRequest.Verb} verb with no body.");
+            return new DeliveryStateAsk(DeliveryStateAskKind.Answered, answer, "");
+        }
+
+        // A Director older than the verb answers exactly this: SessionCommandExecutor.DispatchAsync refuses a verb it
+        // does not know with BadRequest and the fixed words "unknown verb '<verb>'", before anything else is read. The
+        // status alone is not enough - BadRequest is also a malformed question - so both are required.
+        if (result.Status == DirectorCommandStatus.BadRequest
+            && (result.Error ?? "").StartsWith("unknown verb", StringComparison.Ordinal))
+            return new DeliveryStateAsk(DeliveryStateAskKind.DirectorTooOld, null,
+                $"the Director is older than the {DeliveryStateRequest.Verb} verb, so it cannot say what became of delivery {deliveryId}.");
+
+        return new DeliveryStateAsk(DeliveryStateAskKind.NoAnswer, null, DirectorCommandRouter.DescribeFailure(result));
+    }
+
     /// <summary>Send a prompt into the session. Tunnel-only ("prompt" verb, the <see cref="PromptRequest"/>
     /// as payload -> <see cref="PromptResponse"/>); a failed or absent tunnel result maps to the same
     /// (false, null, error) tuple. This is the UserInput send the voice cluster needs. A caller that RECORDS

@@ -71,3 +71,33 @@ public static class DeliveryStates
         }
     }
 }
+
+/// <summary>
+/// Payload of the Director's <c>delivery-state</c> verb - "what became of delivery id X?" - asked of the session
+/// named by the command's session id.
+/// </summary>
+public sealed class DeliveryStateRequest
+{
+    /// <summary>The verb's name on the tunnel.</summary>
+    public const string Verb = "delivery-state";
+
+    /// <summary>The delivery id asked about: the recording's upload id (<see cref="PromptRequest.DeliveryId"/>).</summary>
+    public string DeliveryId { get; set; } = "";
+}
+
+/// <summary>The Director's answer to <see cref="DeliveryStateRequest"/>.</summary>
+public sealed class DeliveryStateResponse
+{
+    /// <summary>The delivery id asked about.</summary>
+    public string DeliveryId { get; set; } = "";
+
+    /// <summary>What became of it. <see cref="DeliveryState.Unknown"/> only when the Director never saw it: a Director
+    /// that cannot read its record answers with a failure instead, never with this.</summary>
+    public DeliveryState State { get; set; }
+
+    /// <summary>Why it was not delivered, for <see cref="DeliveryState.NotDelivered"/>; null otherwise.</summary>
+    public string? Reason { get; set; }
+
+    /// <summary>When the Director wrote that state, in UTC; null for <see cref="DeliveryState.Unknown"/>.</summary>
+    public DateTime? At { get; set; }
+}

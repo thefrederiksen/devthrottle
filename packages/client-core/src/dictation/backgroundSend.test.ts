@@ -687,7 +687,9 @@ describe("recovering a dropped dictation (#1590)", () => {
 
     await sendDroppedDictationAnyway("id-send");
 
-    expect(sendPrompt).toHaveBeenCalledWith("sid", "send me please", true);
+    // The recording's upload id rides as the delivery id claim (Voice Delivery mission, phase 1), so the Director
+    // can refuse these words if that recording already reached the session after all.
+    expect(sendPrompt).toHaveBeenCalledWith("sid", "send me please", true, undefined, undefined, undefined, "id-send");
     // Never re-drives the dictation: that upload id carries a permanent moved-on tombstone.
     expect(uploadDictationToSession).not.toHaveBeenCalled();
     // Done with: the record goes and the strip acknowledges the send.
@@ -759,6 +761,10 @@ describe("recovering a dropped dictation (#1590)", () => {
       "sid",
       "typed before an earlier paused segment the spoken words typed after",
       true,
+      undefined,
+      undefined,
+      undefined,
+      "id-compose",
     );
   });
 
@@ -782,7 +788,7 @@ describe("recovering a dropped dictation (#1590)", () => {
     await sendDroppedDictationAnyway("id-quote");
 
     expect(shown).toBe("typed spoken");
-    expect(sendPrompt).toHaveBeenCalledWith("sid", shown, true);
+    expect(sendPrompt).toHaveBeenCalledWith("sid", shown, true, undefined, undefined, undefined, "id-quote");
   });
 
   it("a drop with typed text but no transcript still offers the typed words back", async () => {

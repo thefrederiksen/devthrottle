@@ -734,12 +734,17 @@ internal static class GatewayDictationEndpoint
             var spokenAlone = SpokenTurnRule.IsSpokenAlone(req.Before, req.Prefix, req.After);
             if (!spokenAlone)
                 FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: composed with typed text around the transcript; delivered as ONE TYPED turn (ruling R10)");
-            var (ok, _, err) = await route.PostPromptAsync(sid, new PromptRequest
+            // THE DELIVERY ID RIDES EVERY DELIVERY (Voice Delivery mission, phase 1), spoken alone or composed with
+            // typed text: it is the identity the Director's delivery record refuses a second copy by. The voice-turn
+            // marker above decides only the send source and stays as it was.
+            var (ok, body, err) = await route.PostPromptAsync(sid, new PromptRequest
             {
                 Text = message,
                 AppendEnter = true,
                 Surface = deliverySurface ?? "unknown",
                 DeliveryUploadId = spokenAlone ? uploadId : null,
+                DeliveryId = VoiceUploadStore.NormalizeUploadId(uploadId)
+                    ?? throw new InvalidOperationException($"upload id '{uploadId}' is not a GUID, yet its record was read"),
                 Provenance = new SubmissionProvenanceDto
                 {
                     Route = SubmissionRoutes.GatewayDictation,
@@ -748,6 +753,27 @@ internal static class GatewayDictationEndpoint
                     SpokenSpans = spokenSpans,
                 },
             });
+            // A REFUSED COPY. The Director answers Accepted=false with the delivery's state when it typed nothing
+            // because this upload id was already delivered or is still being delivered. DELIVERED means the words are
+            // in - an earlier attempt landed after this Gateway had stopped waiting for it - so this attempt is
+            // resolved exactly as a delivery, below. Any other refusal is not a delivery and takes the failure path,
+            // as a refusal would have before; asking the Director instead of retrying is phase 2. An answer that carries
+            // no delivery state (a Director older than the field) is read exactly as it always was.
+            var refusedDuplicate = false;
+            if (ok && body is { Accepted: false, DeliveryState: not null })
+            {
+                if (body.DeliveryState == DeliveryState.Delivered)
+                {
+                    refusedDuplicate = true;
+                    FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: the Director REFUSED A DUPLICATE - " +
+                        $"this delivery had already reached the session, nothing was typed again ({body.DeliveryStateReason})");
+                }
+                else
+                {
+                    ok = false;
+                    err = body.Error ?? $"the Director refused the delivery (state {body.DeliveryState?.ToString() ?? "none"})";
+                }
+            }
             if (!ok)
             {
                 // THE ATTEMPT WE JUST MADE INVALIDATED THE PHONE'S BASELINE (Lost Dictations mission, #1593).
@@ -785,7 +811,8 @@ internal static class GatewayDictationEndpoint
             // later re-complete inject the turn a second time. We minimize and document it rather than paper
             // over it with a fallback. MarkDelivered discards the retained chunks and keeps the marker.
             store.MarkDelivered(uploadId, submitted: true, movedOn: false, transcript);
-            FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: submitted chars={message.Length}");
+            FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: submitted chars={message.Length}" +
+                (refusedDuplicate ? " (by an earlier attempt; this copy was refused by the Director)" : ""));
             return DictationOutcome.Submitted(true, false, transcript);
         }
         catch (Exception ex)

@@ -3929,6 +3929,8 @@ public sealed class GatewayHost : IAsyncDisposable
             factoryStarts: (tenant, sessionIds) => FactoryAgentsSwitch.IsOn(tenant)
                 ? Factory.FactorySessionStarts.Read(FactoryActivity, tenant, sessionIds)
                 : Factory.FactorySessionStarts.None,
+            // Voice Delivery mission, phase 1: "Send anyway" names its recording; the prompt route checks it here.
+            dictationUploads: new Api.DictationTenantGate(_dictationUploads, _tenantBoundary),
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),

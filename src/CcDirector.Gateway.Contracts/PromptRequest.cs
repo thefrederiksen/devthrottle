@@ -53,8 +53,36 @@ public sealed class PromptRequest
     /// HTTP header (the frozen tunnel envelope is unchanged - this is a request-DTO field). The header is still
     /// honored on the REST path for back-compat; either signal marks the send as a Delivery. Null for a normal
     /// operator prompt.
+    ///
+    /// THIS IS ONLY THE VOICE-TURN MARKER: it is set when the words are speech alone, and it decides nothing but
+    /// the send source. It is NOT the identity of the delivery - a recording composed with typed text arrives
+    /// without it. The identity of a delivery, on every delivery, is <see cref="DeliveryId"/>.
     /// </summary>
     public string? DeliveryUploadId { get; set; }
+
+    /// <summary>
+    /// THE IDENTITY OF THIS DELIVERY (Voice Delivery mission, phase 1): the recording's upload id, on EVERY delivery
+    /// of a recording - spoken alone or composed with typed text. The Director keeps a durable record per session of
+    /// every delivery id it has typed, and refuses a second copy of an id that is delivered or being delivered
+    /// without typing anything, answering <see cref="PromptResponse.DeliveryState"/>. That refusal is what makes
+    /// every retry safe: on 25 September 2026 a spoken prompt reached the agent twice because nothing remembered
+    /// the first copy.
+    ///
+    /// GATEWAY-SET, NEVER TRUSTED FROM A CLIENT. The Gateway's prompt route overwrites whatever a client body
+    /// carries here, and sets it only for an upload it has verified belongs to the caller's own tenant and this
+    /// session - the same way <see cref="Provenance"/> is overwritten. Null for a prompt that is not a recording.
+    /// </summary>
+    public string? DeliveryId { get; set; }
+
+    /// <summary>
+    /// A client's CLAIM that this text is the words of a recording it uploaded, naming that recording's upload id -
+    /// sent by "Send anyway" on a recording that was shown back (Voice Delivery mission, phase 1). A claim, not a
+    /// fact: the Gateway's prompt route sets <see cref="DeliveryId"/> from it only when the id is an upload record in
+    /// the caller's own tenant for THIS session, and otherwise drops it, logs it, and sends the text as an ordinary
+    /// prompt. It is consumed by the Gateway and never forwarded. Kept apart from <see cref="DeliveryUploadId"/>,
+    /// which is the spoken-turn marker and is decided by a different check.
+    /// </summary>
+    public string? DeliveryIdClaim { get; set; }
 
     /// <summary>
     /// Wingman menu guard (issue #2193). When true, the GATEWAY reads the session's live screen immediately
@@ -202,6 +230,21 @@ public sealed class PromptResponse
     /// whatever the session was doing - and a sender that asked for the check counts that answer as refused.
     /// </summary>
     public bool IdleChecked { get; set; }
+
+    /// <summary>
+    /// What became of the delivery named by <see cref="PromptRequest.DeliveryId"/>, as the Director's record says after
+    /// this answer: <see cref="Contracts.DeliveryState.Delivered"/> when it was typed now, or when it had ALREADY been
+    /// delivered and this copy was refused with nothing typed (<see cref="Accepted"/> false);
+    /// <see cref="Contracts.DeliveryState.Delivering"/> when another copy is still being typed and this one was refused;
+    /// <see cref="Contracts.DeliveryState.NotDelivered"/> when nothing was typed for a reason
+    /// (<see cref="DeliveryStateReason"/>). Null when the prompt carried no delivery id, or from a Director older than
+    /// the field. A send that throws is a failure, not an answer: ask the Director what became of the id.
+    /// </summary>
+    public DeliveryState? DeliveryState { get; set; }
+
+    /// <summary>Why <see cref="DeliveryState"/> is what it is, in words: the reason a delivery was not made, or that a
+    /// copy was refused because the id was already delivered or being delivered. Null when there is nothing to say.</summary>
+    public string? DeliveryStateReason { get; set; }
 }
 
 /// <summary>
