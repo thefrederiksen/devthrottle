@@ -1055,6 +1055,7 @@ public static class TerminalSubmit
         var lastPrefix = prefixBefore;
         var lastScreenLook = DateTime.MinValue;
         var quiet = timeout;
+        var agentWorking = false;
         while (true)
         {
             notice?.Check();
@@ -1071,6 +1072,7 @@ public static class TerminalSubmit
             if (screenSnapshot is not null && hardCap is not null && now - lastScreenLook >= ScreenProgressInterval)
             {
                 lastScreenLook = now;
+                agentWorking = ReadScreen(screenSnapshot) is { } rowsSeen && DoorbellSafety.ShowsWorking(rowsSeen);
                 var prefix = ScreenPrefixLength(screenSnapshot, needle);
                 if (prefix > lastPrefix)
                 {
@@ -1083,7 +1085,16 @@ public static class TerminalSubmit
             // Pi, typed to just after its previous turn ended, printed not one byte for six seconds and then took the
             // whole line. The keystrokes wait in the pipe; four seconds of silence called that a miss, and the clear and
             // retype that followed ran into the characters as Pi caught up.
-            var timeoutNow = hardCap is not null && total == cursor && quiet < NoReactionAllowance ? NoReactionAllowance : quiet;
+            //
+            // A WORKING AGENT HAS NOT REFUSED ANYTHING EITHER (Voice Delivery mission, phase 3). Measured on 25 September 2026
+            // with every core busy: Claude Code, running a shell command, drew nothing of a 94-character line for over four
+            // seconds while its clock ticked, so the terminal was not silent and the rule above did not apply. The echo was
+            // called missing, the clear-and-retype raced the characters still on their way, and a fragment of the text was
+            // left in the composer of a send reported delivered. While the screen shows the agent working, the keystrokes
+            // wait in its input and it is given the same allowance as a terminal that has not reacted at all.
+            var timeoutNow = hardCap is not null && (total == cursor || agentWorking) && quiet < NoReactionAllowance
+                ? NoReactionAllowance
+                : quiet;
 
             // The same text already on screen: a repaint can re-send the old copy, so only the screen counting a NEW
             // copy is an echo.

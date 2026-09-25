@@ -25,6 +25,7 @@ namespace CcDirector.DeliveryQualification;
 /// Usage:
 ///   CcDirector.DeliveryQualification --agents claude,codex,pi [--sessions 2] [--parallel 3] [--shapes all]
 ///                                    [--out DIR] [--first-wait 30] [--args-claude "..."] [--cpu-load 24]
+///   CcDirector.DeliveryQualification --busy [--shapes short,long-line] [--cpu-load 24]   (Claude Code, sent to while it works)
 /// </summary>
 public static class Program
 {
@@ -88,6 +89,13 @@ public static class Program
             await CharsExperiment.RunAsync(manager, charsAgent, ck, opts.ArgsOverride.TryGetValue(charsAgent, out var cca) ? cca : ca,
                 Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")));
             return 0;
+        }
+
+        if (opts.Busy)
+        {
+            using var busyLoad = opts.CpuLoadThreads > 0 ? new CpuLoad(opts.CpuLoadThreads) : null;
+            var busyArgs = opts.ArgsOverride.TryGetValue("claude", out var ba) ? ba : Agents["claude"].Args;
+            return await BusyExperiment.RunAsync(manager, busyArgs, Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")), opts.Shapes, opts.Out);
         }
 
         if (opts.KeysAgent is { } keysAgent)
@@ -246,6 +254,7 @@ public sealed class Options
     public Dictionary<string, string> ArgsOverride { get; } = new();
     public string? KeysAgent { get; private set; }
     public string? CharsAgent { get; private set; }
+    public bool Busy { get; private set; }
 
     public static Options Parse(string[] args)
     {
@@ -268,6 +277,7 @@ public sealed class Options
                 case "--out": o.Out = Next(); break;
                 case "--keys": o.KeysAgent = Next(); break;
                 case "--chars": o.CharsAgent = Next(); break;
+                case "--busy": o.Busy = true; break;
                 default:
                     if (args[i].StartsWith("--args-", StringComparison.Ordinal)) { o.ArgsOverride[args[i]["--args-".Length..]] = Next(); break; }
                     throw new ArgumentException($"Unknown option {args[i]}");

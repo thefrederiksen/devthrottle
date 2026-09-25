@@ -144,6 +144,27 @@ public sealed class BusyAgentSendTests : IDisposable
             $"Enter at {terminal.FirstEnterAt:HH:mm:ss.fff} came before the paste was drawn at {terminal.PasteDrawnAt:HH:mm:ss.fff}");
     }
 
+    [Fact]
+    public async Task SendTextAsync_WorkingAgentSlowToDrawTypedText_WaitsForTheEchoAndNeverClearsAndRetypes()
+    {
+        // Arrange: a working Claude Code, quiet between ticks, that draws typed characters only six seconds after they
+        // arrive - as measured on 25 September 2026 under full load while it ran a shell command. Four seconds of that
+        // used to be called a missing echo, and the clear-and-retype that followed left a fragment in the composer.
+        var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode);
+        terminal.SpinnerInterval = TimeSpan.FromSeconds(30);
+        terminal.TypedDrawDelay = TimeSpan.FromSeconds(6);
+        var text = "Token SLOW1. Reply with exactly: ACK";
+
+        // Act
+        await session.SendTextAsync(text, SessionTestDoors.TestDoor);
+
+        // Assert: delivered once, typed once, nothing cleared, nothing left behind.
+        Assert.Equal(new[] { text }, terminal.Recorded);
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+        Assert.Equal("", terminal.Composer);
+    }
+
     private static int CountOf(string hay, string needle)
     {
         var count = 0;
@@ -184,6 +205,12 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     public bool Working { get; set; }
     public bool SwallowEnter { get; set; }
     public TimeSpan PasteDrawDelay { get; set; } = TimeSpan.Zero;
+    public TimeSpan SpinnerInterval { get; set; } = TimeSpan.FromMilliseconds(30);
+
+    /// <summary>How long the agent takes to draw typed characters. Until then it answers a write with one invisible
+    /// cursor sequence, so the terminal has reacted but shows nothing - a working agent that is behind on its input.</summary>
+    public TimeSpan TypedDrawDelay { get; set; } = TimeSpan.Zero;
+    private DateTime _drawTypedFrom = DateTime.MinValue;
     public int EntersAccepted { get; private set; }
     public int ClearKeysPressed { get; private set; }
     public DateTime? PasteDrawnAt { get; private set; }
@@ -217,7 +244,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         {
             while (!_stop.IsCancellationRequested)
             {
-                await Task.Delay(30);
+                await Task.Delay(SpinnerInterval);
                 if (Working) Draw();
             }
         });
@@ -245,6 +272,17 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
                 if (ch < ' ') { if (ch is '\x05' or '\x15') ClearKeysPressed++; continue; }
                 _composer.Append(ch);
                 _typed.Append(ch);
+            }
+        }
+        if (TypedDrawDelay > TimeSpan.Zero && !text.Contains('\r') && !text.Contains('\x1b'))
+        {
+            if (_drawTypedFrom == DateTime.MinValue) _drawTypedFrom = DateTime.UtcNow + TypedDrawDelay;
+            if (DateTime.UtcNow < _drawTypedFrom)
+            {
+                Buffer!.Write(Encoding.UTF8.GetBytes("\x1b[?25h"));
+                var wait = _drawTypedFrom - DateTime.UtcNow;
+                _ = Task.Run(async () => { await Task.Delay(wait); Draw(); });
+                return;
             }
         }
         Draw();
@@ -294,7 +332,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         lock (_lock)
         {
             _frame++;
-            var shown = ComposerShown();
+            var shown = DateTime.UtcNow < _drawTypedFrom ? "" : ComposerShown();
             var spinner = Working ? $"* Working... ({_frame})" : "Done.";
             var footer = Working ? "  esc to interrupt" : "  ? for shortcuts";
             var rule = new string('─', 80);

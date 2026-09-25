@@ -3670,6 +3670,9 @@ public sealed class Session : IDisposable
         }
         : null;
 
+    /// <summary>True when the rendered screen shows the agent's working marker ("esc to interrupt").</summary>
+    private bool ScreenShowsWorking() => Drivers.DoorbellSafety.ShowsWorking(SnapshotScreenRows());
+
     /// <summary>How long a send the records cannot prove waits for its text to leave the composer after the Enter.</summary>
     internal static readonly TimeSpan ComposerReleaseWindow = TimeSpan.FromSeconds(10);
 
@@ -3802,8 +3805,13 @@ public sealed class Session : IDisposable
                     typed = await Submit();
                 }
                 catch (Drivers.ComposerNotAcceptingInputException ex)
-                    when (proof is not null && ex.TerminalReacted && Drivers.ComposerClearKeys.For(AgentKind) is not null)
+                    when (proof is not null && ex.TerminalReacted && Drivers.ComposerClearKeys.For(AgentKind) is not null
+                          && !ScreenShowsWorking())
                 {
+                    // NEVER WHILE THE SCREEN SHOWS THE AGENT WORKING (Voice Delivery mission, phase 3): a working agent can
+                    // still be reading the first typing, and the clear keys then empty only what has arrived - measured on
+                    // 25 September 2026, the rest ran on and a fragment was left in the composer. Such a send is reported
+                    // not delivered, with the text left where it is.
                     // Only when the terminal REACTED to the first typing (review finding 11): the agent was reading its
                     // input, so the clear keys and the second typing arrive after the first one, not welded to it.
                     // THE ONE RECOVERY FROM AN UNCONFIRMED ECHO (issue #3290). The text was typed once and may be in
