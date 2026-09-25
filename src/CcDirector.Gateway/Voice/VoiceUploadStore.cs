@@ -1469,41 +1469,92 @@ public sealed class VoiceUploadStore
                 return false;
             }
 
-            var before = read.Record;
-            AppendDecisionLine(dir, uid, DeliveryDecisions.Acknowledged, new DeliveryDecisionFacts
+            return RetireKeepingTheRecord(dir, uid, read, DeliveryDecisions.Acknowledged, decisionReason: null,
+                recordReason: read.Record?.Reason, "Acknowledge");
+        });
+    }
+
+    /// <summary>
+    /// Resolve an upload whose assembled recording was empty: delete its audio and keep its record and decision
+    /// log, leaving exactly the shape <see cref="Acknowledge"/> leaves, with its own decision,
+    /// <see cref="DeliveryDecisions.EmptyRecording"/>, and that name as the record's reason.
+    ///
+    /// It used to delete the upload's whole directory, and the decision log with it, so this was the one delivery
+    /// outcome that could not be read afterwards (Voice Delivery mission, phase 1). The record is written as
+    /// ACKNOWLEDGED - the retired state - rather than a new state, because that is what makes every reader treat
+    /// it exactly as the deleted directory it replaces: <see cref="Read"/> answers Absent, <see cref="Exists"/>
+    /// false, <see cref="AssembleAsync"/> unknown, it holds no session lock, a re-register opens it afresh, and
+    /// the tombstone sweep retires it. <see cref="DictationDeliveryRecord.AcknowledgedFrom"/> says the state it
+    /// was in, and the reason and the decision say why - no client acknowledged it.
+    ///
+    /// The decision is written first, as for an acknowledgement: if it cannot be written, nothing is deleted and
+    /// the failure propagates. Returns false, changing nothing, when the upload has no directory here, when it is
+    /// already retired, or when its record is stamped for another tenant.
+    /// </summary>
+    public bool ResolveEmptyRecording(string uploadId)
+    {
+        var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
+        return WithRecordLock(uid, () =>
+        {
+            var dir = DirFor(uid);
+            if (!Directory.Exists(dir)) return false;
+
+            var read = ReadRecordFile(RecordPath(dir));
+            if (read.Kind == DictationRecordReadKind.Present && !BelongsHere(read.Record!))
             {
-                SessionId = before?.SessionId,
-                State = nameof(DictationDeliveryState.Acknowledged),
-                PreviousState = before?.State.ToString() ?? read.Kind.ToString(),
-                Characters = before?.Transcript.Length,
-                BytesDeleted = BytesOutsideTheRecord(dir),
-            });
-            try
-            {
-                WriteRecordMarker(dir, new DictationDeliveryRecord(
-                    DictationDeliveryState.Acknowledged,
-                    before?.Submitted ?? false,
-                    before?.MovedOn ?? false,
-                    Transcript: "",
-                    before?.Reason,
-                    before?.SessionId ?? "",
-                    AcknowledgedFrom: before?.State,
-                    TranscriptCharacters: before?.Transcript.Length));
-                DeleteAllButTheRecord(dir, uid);
-                // The acknowledged marker is not PENDING, so WriteRecordMarker already dropped this id from the
-                // session-lock cache. Dropped again anyway, as the delete this replaces did: an entry that cannot
-                // be here costs nothing to remove.
-                _lockIndex.Removed(_root, uid);
-                FileLog.Write($"[VoiceUploadStore] Acknowledge: uploadId={uid} acknowledged (was " +
-                    $"{before?.State.ToString() ?? read.Kind.ToString()}); audio and words deleted, record and decisions kept");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[VoiceUploadStore] Acknowledge uploadId={uid} failed: {ex.Message}");
+                FileLog.Write($"[VoiceUploadStore] ResolveEmptyRecording: uploadId={uid} record belongs to another tenant " +
+                    $"(partition={_tenant.ToLogString()}); refused, nothing changed");
                 return false;
             }
+            if (read.Record is { State: DictationDeliveryState.Acknowledged }) return false;
+
+            return RetireKeepingTheRecord(dir, uid, read, DeliveryDecisions.EmptyRecording,
+                decisionReason: DeliveryDecisions.EmptyRecording, recordReason: DeliveryDecisions.EmptyRecording,
+                "ResolveEmptyRecording");
         });
+    }
+
+    // Retire an upload in place, under its gate: write the decision FIRST, then rewrite record.json as
+    // ACKNOWLEDGED with its words blanked, then delete everything else in the directory. Shared by the client's
+    // acknowledgement and the empty-recording outcome, so both leave the same shape.
+    private bool RetireKeepingTheRecord(string dir, string uid, DictationRecordRead read, string decision,
+        string? decisionReason, string? recordReason, string caller)
+    {
+        var before = read.Record;
+        AppendDecisionLine(dir, uid, decision, new DeliveryDecisionFacts
+        {
+            SessionId = before?.SessionId,
+            State = nameof(DictationDeliveryState.Acknowledged),
+            PreviousState = before?.State.ToString() ?? read.Kind.ToString(),
+            Reason = decisionReason,
+            Characters = before?.Transcript.Length,
+            BytesDeleted = BytesOutsideTheRecord(dir),
+        });
+        try
+        {
+            WriteRecordMarker(dir, new DictationDeliveryRecord(
+                DictationDeliveryState.Acknowledged,
+                before?.Submitted ?? false,
+                before?.MovedOn ?? false,
+                Transcript: "",
+                recordReason,
+                before?.SessionId ?? "",
+                AcknowledgedFrom: before?.State,
+                TranscriptCharacters: before?.Transcript.Length));
+            DeleteAllButTheRecord(dir, uid);
+            // The retired marker is not PENDING, so WriteRecordMarker already dropped this id from the
+            // session-lock cache. Dropped again anyway, as the delete this replaces did: an entry that cannot
+            // be here costs nothing to remove.
+            _lockIndex.Removed(_root, uid);
+            FileLog.Write($"[VoiceUploadStore] {caller}: uploadId={uid} retired as {decision} (was " +
+                $"{before?.State.ToString() ?? read.Kind.ToString()}); audio and words deleted, record and decisions kept");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[VoiceUploadStore] {caller} uploadId={uid} failed: {ex.Message}");
+            return false;
+        }
     }
 
     // The two files an acknowledged upload keeps. Everything else in its directory is audio or a half-written

@@ -137,6 +137,14 @@ internal static class GatewayDictationEndpoint
     internal static Action<string>? OnCompleteEntryCreatedForTests;
 
     /// <summary>
+    /// Test seam: given the upload id and the assembled audio, returns the audio the complete goes on with. Null
+    /// in production, never assigned outside tests. It exists because the empty-recording arm cannot be reached
+    /// with real chunks - the store refuses a zero-byte chunk as incomplete, so an assembled clip always has
+    /// bytes - and that arm's outcome still has to be proved through the real endpoint.
+    /// </summary>
+    internal static Func<string, byte[]?, byte[]?>? AssembledAudioForTests;
+
+    /// <summary>
     /// Resolve the request's tenant from the AUTHENTICATED device key the auth layer stashed - the same seam
     /// the prompt log and the cockpit read path use. Null means DENY.
     ///
@@ -666,9 +674,12 @@ internal static class GatewayDictationEndpoint
                 return DictationOutcome.Incomplete(assembled.Missing);
             }
             var audio = assembled.Audio;
+            if (AssembledAudioForTests is { } substitute) audio = substitute(uploadId, audio);
             if (audio is null || audio.Length == 0)
             {
-                store.Delete(uploadId);
+                // Retired in place rather than deleted, so this outcome stays readable in the decision log
+                // (Voice Delivery mission). To every reader it is the deleted directory it replaces.
+                store.ResolveEmptyRecording(uploadId);
                 return DictationOutcome.Error(StatusCodes.Status502BadGateway, "assembled recording was empty");
             }
 

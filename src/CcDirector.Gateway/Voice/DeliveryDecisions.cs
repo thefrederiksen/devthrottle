@@ -48,6 +48,9 @@ public static class DeliveryDecisions
     public const string Abandoned = "abandoned";
     /// <summary>The client acknowledged the outcome; the audio and the words were deleted, the record kept.</summary>
     public const string Acknowledged = "acknowledged";
+    /// <summary>The assembled recording was empty, so nothing was transcribed; the audio was deleted and the
+    /// record retired as an acknowledgement leaves it. The client is answered an error, as before.</summary>
+    public const string EmptyRecording = "empty-recording";
     /// <summary>The upload is missing chunks; the client re-sends them and completes again.</summary>
     public const string Incomplete = "incomplete";
     /// <summary>The target session could not be found, so nothing was transcribed or typed.</summary>

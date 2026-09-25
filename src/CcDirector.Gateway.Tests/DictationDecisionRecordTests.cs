@@ -8,6 +8,7 @@ using CcDirector.Core.Audio;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Transcription;
 using CcDirector.Gateway.Voice;
@@ -225,6 +226,55 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         Assert.False(Store().IsSessionLocked(_sessionId));
         Assert.Empty(Store().LockedSessionIds());
         Assert.False(CcDirector.Core.Sessions.DictationLockReader.IsSessionLocked(CcStorage.DictationUploads(), _sessionId));
+    }
+
+    [Fact]
+    public async Task AnEmptyRecording_KeepsItsRecordAndDecisions_AndTheClientSeesWhatADeletedUploadGave()
+    {
+        // Proves an empty recording through the real endpoint leaves record.json and decisions.jsonl with no
+        // audio, writes empty-recording after received, and that the client's answers - the complete, a
+        // re-complete, a chunk and a re-register - are the same as for an upload deleted the old way.
+        var uploadId = await RegisterAndUploadAsync();
+        var target = VoiceUploadStore.NormalizeUploadId(uploadId);
+        GatewayDictationEndpoint.AssembledAudioForTests = (id, audio)
+            => VoiceUploadStore.NormalizeUploadId(id) == target ? Array.Empty<byte>() : audio;
+        (HttpStatusCode status, JsonElement body) empty;
+        try { empty = await CompleteAsync(uploadId, resumed: false); }
+        finally { GatewayDictationEndpoint.AssembledAudioForTests = null; }
+
+        // Today's answer for an empty recording, unchanged.
+        Assert.Equal(HttpStatusCode.BadGateway, empty.status);
+        Assert.Equal("assembled recording was empty", empty.body.GetProperty("error").GetString());
+
+        // The kept shape: the record (no words, retired from PENDING for this reason) and the decisions, no audio.
+        Assert.Equal(new[] { "decisions.jsonl", "record.json" },
+            Directory.EnumerateFileSystemEntries(UploadDir(uploadId)).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        Assert.Equal(new[] { DeliveryDecisions.Received, DeliveryDecisions.EmptyRecording }, Decisions(uploadId));
+        var log = Store().ReadDecisions(uploadId);
+        Assert.Equal(DictationDeliveryState.Acknowledged, log.Record.Record!.State);
+        Assert.Equal(DictationDeliveryState.Pending, log.Record.Record.AcknowledgedFrom);
+        Assert.Equal(DeliveryDecisions.EmptyRecording, log.Record.Record.Reason);
+        Assert.Equal("", log.Record.Record.Transcript);
+        Assert.True(log.Lines.Last().Facts!.BytesDeleted > 0, "the chunk was really there and really deleted");
+        Assert.False(Store().IsSessionLocked(_sessionId));
+
+        // What the old code left: an upload whose directory was deleted outright.
+        var deletedId = await RegisterAndUploadAsync();
+        Store().Delete(deletedId);
+
+        var reComplete = await CompleteAsync(uploadId, resumed: false);
+        var reCompleteDeleted = await CompleteAsync(deletedId, resumed: false);
+        Assert.Equal(HttpStatusCode.NotFound, reCompleteDeleted.status); // precondition: the old answer really is this
+        Assert.Equal(reCompleteDeleted.status, reComplete.status);
+        Assert.Equal(reCompleteDeleted.body.GetRawText(), reComplete.body.GetRawText());
+
+        Assert.Equal((await PutChunkAsync(deletedId)).StatusCode, (await PutChunkAsync(uploadId)).StatusCode);
+
+        var again = await RegisterAsync(uploadId);
+        var againDeleted = await RegisterAsync(deletedId);
+        Assert.False(againDeleted.TryGetProperty("terminal", out _)); // precondition: a deleted id re-opens fresh
+        Assert.Equal(againDeleted.EnumerateObject().Select(p => p.Name), again.EnumerateObject().Select(p => p.Name));
+        Assert.True(Store().IsPending(uploadId));
     }
 
     // ===== helpers =================================================================================

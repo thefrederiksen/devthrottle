@@ -147,6 +147,35 @@ public sealed class VoiceUploadStoreDecisionLogTests : IDisposable
     }
 
     [Fact]
+    public async Task AnEmptyRecording_IsRetiredLikeAnAcknowledgement_WithItsOwnDecision_AndIsGoneToEveryReader()
+    {
+        // Proves the empty-recording outcome deletes the audio, keeps record.json and decisions.jsonl with its
+        // own decision and reason, and leaves the upload gone to every reader exactly as the old delete did.
+        var id = await OpenWithChunkAsync();
+        Assert.True(DictationLockReader.IsSessionLocked(_root, _sessionId)); // precondition: the lock is held
+
+        Assert.True(_store.ResolveEmptyRecording(id));
+
+        Assert.Equal(new[] { "decisions.jsonl", "record.json" },
+            Directory.EnumerateFileSystemEntries(Dir(id)).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        Assert.Equal(new[] { DeliveryDecisions.Received, DeliveryDecisions.EmptyRecording }, Names(id));
+        var log = _store.ReadDecisions(id);
+        Assert.Equal(DictationDeliveryState.Acknowledged, log.Record.Record!.State);
+        Assert.Equal(DictationDeliveryState.Pending, log.Record.Record.AcknowledgedFrom);
+        Assert.Equal(DeliveryDecisions.EmptyRecording, log.Record.Record.Reason);
+        Assert.Equal(DeliveryDecisions.EmptyRecording, log.Lines.Last().Facts!.Reason);
+
+        Assert.Equal(DictationRecordReadKind.Absent, _store.Read(id).Kind);
+        Assert.False(_store.Exists(id));
+        Assert.Equal("unknown_upload", (await _store.AssembleAsync(id, 1)).Status);
+        Assert.False(_store.IsSessionLocked(_sessionId));
+        Assert.False(DictationLockReader.IsSessionLocked(_root, _sessionId));
+        Assert.False(_store.ResolveEmptyRecording(id), "a retired upload is not retired twice");
+        Assert.False(_store.Acknowledge(id), "a later acknowledgement is a no-op, as it was after the delete");
+        Assert.Equal(new[] { DeliveryDecisions.Received, DeliveryDecisions.EmptyRecording }, Names(id));
+    }
+
+    [Fact]
     public void AReRegisterAfterAcknowledge_OpensAfresh_AndTheLogCarriesOn()
     {
         // Proves a re-register of an acknowledged id opens it as a fresh PENDING upload, as it did after the
