@@ -838,7 +838,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
             new FleetManagerStopSighting(sid, "a session " + sid, FleetManager, "director-a", DateTime.UtcNow, IsCatchUp: false),
             DateTime.UtcNow));
         var (_, events) = _events.AttachReading(tenant, sid, verdict,
-            verdict is null ? "this account's Wingman judge switch is off" : null, owner: null, DateTime.UtcNow);
+            verdict is null ? "this account's Wingman judge switch is off" : null, DateTime.UtcNow);
         return Assert.Single(events);
     }
 
@@ -1042,7 +1042,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal(new[] { settled.Id, waiting.Id }, Events(TenantA).Events.Select(e => e.Id));
 
         // Once its reading is stored, the same acknowledgement is accepted.
-        _events.AttachReading(TenantA, OwnedWorking, Verdict("verdict-late"), null, owner: null, DateTime.UtcNow);
+        _events.AttachReading(TenantA, OwnedWorking, Verdict("verdict-late"), null, DateTime.UtcNow);
         var again = Body<FleetManagerEventAckDto>(await AckAsync(TenantA, new { ids = new[] { settled.Id, waiting.Id } }));
         Assert.Equal(2, again.Acknowledged);
     }

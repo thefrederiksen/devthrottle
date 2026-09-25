@@ -3019,8 +3019,6 @@ public sealed class GatewayHost : IAsyncDisposable
                     : active;
             },
             isVoiceSession: (tenant, sid) => _voiceService?.IsVoiceSession(tenant, sid) ?? false,
-            // The ACCOUNT's Fleet Manager mark: the one session whose direct Workers are judged while held.
-            fleetManagerSessionId: _tenantSettingsResolver.FleetManagerSessionId,
             narrationPlan: ResolveNarrationPlan,
             ledger: _activityEvents,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
