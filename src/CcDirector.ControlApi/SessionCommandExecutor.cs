@@ -462,20 +462,36 @@ internal static class SessionCommandExecutor
 
     /// <summary>
     /// THE ONE PLACE A SEND THAT OUTLIVED ITS ANSWER REPORTS HOW IT ENDED. The verb has already answered "delivering";
-    /// this writes the final outcome - "delivered"; "not-delivered" with the reason, for a send that threw because the
-    /// words are known not submitted, or whose words left the composer of a working agent but never showed in its records
-    /// within <c>Session.LateArrivalLimit</c> ("never appeared in the agent's records within 15 minutes" - the Delivery
-    /// Lead's ruling, round 2b: nothing stays delivering forever); or "delivering" still, when there are no records to
-    /// watch, the watch itself failed, or the session ended first. A send that fails has also already
-    /// been counted against the session by the session itself (<c>PromptDeliveryFailures</c>), so the owner's screens
-    /// show the failure without this.
+    /// this writes the final outcome, and NOTHING STAYS DELIVERING FOREVER (the Delivery Lead's ruling, round 2b, and the
+    /// Tech Lead's ruling on its three open cases, round 2c):
+    ///  - "delivered" when the send was confirmed, or the late watch saw the words in the agent's records;
+    ///  - "not-delivered" with the send's own message when it threw: the words are known not submitted;
+    ///  - "not-delivered" when the late watch's limit (<c>Session.LateArrivalLimit</c>, 15 minutes) ended without the
+    ///    records showing the words - "never appeared in the agent's records within 15 minutes" - or with no records to
+    ///    watch, or after the records watch failed ("could not be confirmed: ..."). Until that limit it stays "delivering",
+    ///    because the agent may hold the words and an early "not-delivered" invites a retry that doubles them;
+    ///  - "not-delivered" at once when the session ended first: a retry into an ended session cannot double anything.
+    /// A send that fails has also already been counted against the session by the session itself
+    /// (<c>PromptDeliveryFailures</c>), so the owner's screens show the failure without this.
     ///
     /// For a prompt with a delivery id the outcome goes into the Director's durable <see cref="DeliveryRecord"/>
-    /// (<paramref name="deliveries"/>, phase 1), which already says "delivering": "delivered" and "not-delivered" are
-    /// written there, and "delivering" is left as it is. Nothing here ever types, presses a key or resends. A prompt with
-    /// no delivery id has no record entry; its late outcome is logged.
+    /// (<paramref name="deliveries"/>, phase 1), which already says "delivering". Nothing here ever types, presses a key or
+    /// resends. A prompt with no delivery id has no record entry; its late outcome is logged. Nobody awaits this task - the
+    /// verb has answered - so it is an entry point: anything it does not expect is logged as FAILED, never thrown unseen.
     /// </summary>
     private static async Task RecordLateOutcomeAsync(Guid sessionId, Task<TextSendOutcome> sending, string? deliveryId, DeliveryRecord? deliveries)
+    {
+        try
+        {
+            await RecordLateOutcomeCoreAsync(sessionId, sending, deliveryId, deliveries);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionCommandExecutor] RecordLateOutcomeAsync FAILED: session={sessionId}, delivery={deliveryId ?? "(no delivery id)"}: {ex.Message}");
+        }
+    }
+
+    private static async Task RecordLateOutcomeCoreAsync(Guid sessionId, Task<TextSendOutcome> sending, string? deliveryId, DeliveryRecord? deliveries)
     {
         var id = string.IsNullOrWhiteSpace(deliveryId) ? null : deliveryId;
         TextSendOutcome outcome;
@@ -496,49 +512,43 @@ internal static class SessionCommandExecutor
             return;
         }
         // STILL DELIVERING (review finding 3): the words left the composer, or it could not be read, while the agent
-        // worked. While the records are watched it stays "delivering"; the records showing it make it "delivered".
-        // NOTHING STAYS DELIVERING FOREVER (the Delivery Lead's ruling, round 2b): when the watch's limit ends without the
-        // records showing it, it is "not-delivered", so the owner is shown his words with "Send anyway". Nothing here
-        // types them a second time.
-        if (outcome.LateProof is not { } lateProof)
-        {
-            WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Delivering, outcome.Reason);
-            return;
-        }
-        LateArrival ended;
-        try
-        {
-            ended = await lateProof;
-        }
-        catch (Exception ex)
-        {
-            WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Delivering, $"{outcome.Reason}; the records watch FAILED: {ex.Message}");
-            return;
-        }
-        switch (ended)
+        // worked. The session's one late watch keeps it "delivering" until it has an answer, and never ends without one:
+        // the records showed the words, the limit ended, or the session ended. Nothing here types them a second time.
+        var lateProof = outcome.LateProof
+            ?? throw new InvalidOperationException("A still-delivering send carries no late watch.");
+        var limit = outcome.LateWatchLimit
+            ?? throw new InvalidOperationException("A still-delivering send carries no late watch limit.");
+        var ended = await lateProof;
+        FileLog.Write($"[SessionCommandExecutor] late watch ended: session={sessionId}, delivery={id ?? "(no delivery id)"}: {ended.Ended}");
+        switch (ended.Ended)
         {
             case LateArrival.Arrived:
                 WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Delivered, null);
                 break;
             case LateArrival.LimitEnded:
-                var limit = outcome.LateWatchLimit
-                    ?? throw new InvalidOperationException("A still-delivering send with a records watch carries no watch limit.");
                 WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, DeliveryRecord.NeverInAgentRecordsReason(limit));
                 break;
+            case LateArrival.NoRecordsToWatch:
+                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, DeliveryRecord.NoRecordsToWatchReason);
+                break;
+            case LateArrival.WatchFailed:
+                var failure = ended.WatchFailure
+                    ?? throw new InvalidOperationException("A failed records watch carries no failure message.");
+                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, DeliveryRecord.RecordsWatchFailedReason(failure));
+                break;
             case LateArrival.SessionEnded:
-                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Delivering,
-                    $"{outcome.Reason}; the session ended before the records showed it");
+                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, DeliveryRecord.SessionEndedReason);
                 break;
             default:
-                throw new InvalidOperationException($"Unknown end of the late records watch: {ended}.");
+                throw new InvalidOperationException($"Unknown end of the late records watch: {ended.Ended}.");
         }
     }
 
     /// <summary>Test seam: sees every late outcome as (delivery id, wire word), alongside the log. Null in the Director.</summary>
     internal static Action<string, string>? LateOutcomeObserver;
 
-    /// <summary>Logs a late outcome and, for a prompt with a delivery id, writes it to the delivery record. The record
-    /// already says "delivering", so that state is not written again. Nobody awaits the send that produced this outcome,
+    /// <summary>Logs a late outcome and, for a prompt with a delivery id, writes it to the delivery record. A late outcome
+    /// is "delivered" or "not-delivered", never "delivering" (round 2c: nothing stays delivering forever). Nobody awaits the send that produced this outcome,
     /// so a record that cannot be written is logged as a FAILURE here rather than thrown into a task no one reads; the
     /// record then keeps "delivering", which refuses a retry rather than typing the words twice.</summary>
     private static void WriteLateOutcome(Guid sessionId, string? deliveryId, DeliveryRecord? deliveries, DeliveryState state, string? reason)
@@ -559,10 +569,6 @@ internal static class SessionCommandExecutor
                     case DeliveryState.NotDelivered:
                         deliveries.MarkNotDelivered(sessionId, deliveryId,
                             reason ?? throw new InvalidOperationException("A not-delivered late outcome must say why."));
-                        break;
-                    case DeliveryState.Delivering:
-                        FileLog.Write($"[SessionCommandExecutor] late send outcome: session={sessionId}, delivery={deliveryId}: " +
-                                      "the delivery record stays delivering");
                         break;
                     default:
                         throw new InvalidOperationException($"A late send outcome is never '{word}'.");

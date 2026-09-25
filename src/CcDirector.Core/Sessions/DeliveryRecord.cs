@@ -60,7 +60,10 @@ public sealed class DeliveryRecordUnreadableException : Exception
 /// delivered; one that returns still delivering (phase 3: the words left the composer of a working agent and are not yet
 /// in its records, or the send outlived the prompt verb's answer budget) stays <c>Delivering</c> while the Director
 /// watches the agent's records, then becomes <c>Delivered</c> when they show it, or <c>NotDelivered</c> with
-/// <see cref="NeverInAgentRecordsReason"/> when the watch ends without it. <c>Delivering</c> is written BEFORE the first
+/// <see cref="NeverInAgentRecordsReason"/> when the watch ends without it. Nothing stays <c>Delivering</c> forever
+/// (round 2c): with no records to watch, or after the watch fails, it stays <c>Delivering</c> to the same limit and then
+/// becomes <c>NotDelivered</c> with <see cref="NoRecordsToWatchReason"/> or <see cref="RecordsWatchFailedReason"/>; a
+/// session that ends first makes it <c>NotDelivered</c> at once, with <see cref="SessionEndedReason"/>. <c>Delivering</c> is written BEFORE the first
 /// character is typed, so a Director that dies while typing leaves <c>Delivering</c> on disk.
 ///
 /// A <c>Delivering</c> ENTRY FOUND AT START-UP STAYS <c>Delivering</c>. It is the honest answer: the words may be in,
@@ -167,6 +170,22 @@ public sealed class DeliveryRecord
             : $"{watch.TotalSeconds:0.#} second{(watch.TotalSeconds == 1 ? "" : "s")}";
         return $"never appeared in the agent's records within {within}";
     }
+
+    /// <summary>The reason written when a still-delivering send had no records to watch - the agent keeps none the Director
+    /// can read for it - and the late watch's limit ended (the Tech Lead's ruling, round 2c, case 1).</summary>
+    public const string NoRecordsToWatchReason = "could not be confirmed: the Director had no records to watch for this agent";
+
+    /// <summary>The reason written when reading the records failed during the late watch and its limit then ended (round 2c,
+    /// case 2), naming <paramref name="failure"/>.</summary>
+    public static string RecordsWatchFailedReason(string failure)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(failure);
+        return $"could not be confirmed: the records watch failed: {failure}";
+    }
+
+    /// <summary>The reason written, at once, when the session ended while a send was still delivering (round 2c, case 3). A
+    /// retry into an ended session cannot double anything.</summary>
+    public const string SessionEndedReason = "the session ended before the words appeared in its records";
 
     /// <summary>The send completed: the words reached the session.</summary>
     public void MarkDelivered(Guid sessionId, string deliveryId) => Write(sessionId, deliveryId, DeliveryState.Delivered, null);

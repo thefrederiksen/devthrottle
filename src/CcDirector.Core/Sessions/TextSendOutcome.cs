@@ -15,7 +15,7 @@ public sealed class TextSendOutcome
     /// <summary>The send was proven delivered.</summary>
     public static readonly TextSendOutcome Delivered = new(true, null, null, null);
 
-    private TextSendOutcome(bool confirmed, string? reason, Task<LateArrival>? lateProof, TimeSpan? lateWatchLimit)
+    private TextSendOutcome(bool confirmed, string? reason, Task<LateWatchEnd>? lateProof, TimeSpan? lateWatchLimit)
     {
         Confirmed = confirmed;
         Reason = reason;
@@ -23,18 +23,11 @@ public sealed class TextSendOutcome
         LateWatchLimit = lateWatchLimit;
     }
 
-    /// <summary>A send that left the composer but is not yet proven, with no records to watch: <paramref name="reason"/>
-    /// says why.</summary>
-    public static TextSendOutcome StillDelivering(string reason)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-        return new TextSendOutcome(false, reason, null, null);
-    }
-
     /// <summary>A send that left the composer but is not yet proven: <paramref name="reason"/> says why, and
-    /// <paramref name="lateProof"/> is the watch of the agent's records, bounded by <paramref name="limit"/>, that answers
-    /// how it ended (<see cref="LateArrival"/>).</summary>
-    public static TextSendOutcome StillDelivering(string reason, Task<LateArrival> lateProof, TimeSpan limit)
+    /// <paramref name="lateProof"/> is the late watch, bounded by <paramref name="limit"/>, that answers how it ended
+    /// (<see cref="LateWatchEnd"/>). Every still-delivering send has one - nothing stays delivering forever (round 2c),
+    /// so even a send with no records to watch waits out the same limit and then says so.</summary>
+    public static TextSendOutcome StillDelivering(string reason, Task<LateWatchEnd> lateProof, TimeSpan limit)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         ArgumentNullException.ThrowIfNull(lateProof);
@@ -47,15 +40,16 @@ public sealed class TextSendOutcome
     /// <summary>Why a send that is still delivering could not be confirmed. Null when <see cref="Confirmed"/>.</summary>
     public string? Reason { get; }
 
-    /// <summary>The watch of the agent's records that goes on after the send returned, or null when there is none (the
-    /// agent keeps no records the Director can read for this send). It types nothing, ever.</summary>
-    public Task<LateArrival>? LateProof { get; }
+    /// <summary>The late watch that goes on after a still-delivering send returned; null only when <see cref="Confirmed"/>.
+    /// It reads the agent's records where there are any, and ends at <see cref="LateWatchLimit"/> or when the session
+    /// ends. It types nothing, ever, and it never throws: a failed read of the records is one of its endings.</summary>
+    public Task<LateWatchEnd>? LateProof { get; }
 
-    /// <summary>How long <see cref="LateProof"/> watches the records at most; null when there is no watch.</summary>
+    /// <summary>How long <see cref="LateProof"/> runs at most; null only when <see cref="Confirmed"/>.</summary>
     public TimeSpan? LateWatchLimit { get; }
 }
 
-/// <summary>How the watch of the agent's records after a still-delivering send ended (<see cref="TextSendOutcome.LateProof"/>).</summary>
+/// <summary>How the late watch after a still-delivering send ended (<see cref="TextSendOutcome.LateProof"/>).</summary>
 public enum LateArrival
 {
     /// <summary>The records showed the prompt word for word: delivered.</summary>
@@ -66,6 +60,18 @@ public enum LateArrival
     /// itself.</summary>
     LimitEnded,
 
-    /// <summary>The session ended before the records showed the prompt or the limit ended.</summary>
+    /// <summary>The watch's limit ended with no records to watch - the agent keeps none the Director can read for this
+    /// send. Not delivered: it could not be confirmed (the Tech Lead's ruling, round 2c, case 1).</summary>
+    NoRecordsToWatch,
+
+    /// <summary>Reading the records failed, and the watch's limit then ended. Not delivered: it could not be confirmed
+    /// (round 2c, case 2); <see cref="LateWatchEnd.WatchFailure"/> names the failure.</summary>
+    WatchFailed,
+
+    /// <summary>The session ended before the records showed the prompt or the limit ended. Not delivered at once
+    /// (round 2c, case 3): a retry into an ended session cannot double anything.</summary>
     SessionEnded,
 }
+
+/// <summary>How the late watch ended, and for <see cref="LateArrival.WatchFailed"/> the failure's message.</summary>
+public sealed record LateWatchEnd(LateArrival Ended, string? WatchFailure = null);

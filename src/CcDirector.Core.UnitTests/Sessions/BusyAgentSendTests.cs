@@ -177,14 +177,20 @@ public sealed class BusyAgentSendTests : IDisposable
         terminal.SwallowEnter = true;
         terminal.MenuAfterEnter = true;
         session.ComposerReleaseWindowForTests = TimeSpan.FromSeconds(1.5);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(2);
         var text = "Token MENU1. Reply with exactly: ACK";
 
         // Act
         var outcome = await session.SendTextAsync(text, SessionTestDoors.TestDoor);
+        var watchEnded = await outcome.LateProof!;
 
         // Assert: not reported delivered; the text is where it was, typed once, nothing cleared.
         Assert.False(outcome.Confirmed, "a send whose composer was hidden under a menu the whole window was reported delivered");
         Assert.Contains("could not be read", outcome.Reason);
+        // ...and it does not stay delivering forever (round 2c, case 1): with no records to watch, the late watch waits
+        // out its limit and says so.
+        Assert.Equal(LateArrival.NoRecordsToWatch, watchEnded.Ended);
+        Assert.Equal(TimeSpan.FromSeconds(2), outcome.LateWatchLimit);
         Assert.Equal(text, terminal.Composer);
         Assert.Equal(0, terminal.EntersAccepted);
         Assert.Equal(1, CountOf(terminal.TypedText, text));
@@ -235,7 +241,7 @@ public sealed class BusyAgentSendTests : IDisposable
         // typed once, one Enter, nothing cleared, and in the records once.
         Assert.False(outcome.Confirmed);
         Assert.Equal("", composerAtAnswer);
-        Assert.Equal(LateArrival.Arrived, provenLater);
+        Assert.Equal(LateArrival.Arrived, provenLater.Ended);
         Assert.Equal(new[] { text }, terminal.Recorded);
         Assert.Equal(1, CountOf(terminal.TypedText, text));
         Assert.Equal(1, terminal.EntersAccepted);
@@ -259,7 +265,7 @@ public sealed class BusyAgentSendTests : IDisposable
         // Assert: still delivering when the send returned, never a failure; the watch ends at its limit, which the verb
         // records as not-delivered (the Delivery Lead's ruling: nothing stays delivering forever); nothing typed a second time.
         Assert.False(outcome.Confirmed);
-        Assert.Equal(LateArrival.LimitEnded, provenLater);
+        Assert.Equal(LateArrival.LimitEnded, provenLater.Ended);
         Assert.Equal(TimeSpan.FromSeconds(2), outcome.LateWatchLimit);
         Assert.Equal(1, CountOf(terminal.TypedText, text));
         Assert.Equal(1, terminal.EntersAccepted);

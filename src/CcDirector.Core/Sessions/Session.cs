@@ -3629,41 +3629,77 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// After a send returned "still delivering", keep reading the agent's records for the prompt, up to
-    /// <paramref name="limit"/> (<see cref="LateArrivalLimit"/>; review finding 3). <see cref="LateArrival.Arrived"/> once the
-    /// records hold it word for word; <see cref="LateArrival.LimitEnded"/> when the limit ends first;
-    /// <see cref="LateArrival.SessionEnded"/> when the session ends first. It reads only - it never types, presses a key,
-    /// or resends. A different prompt arriving is not taken for this one: the owner's next send could be that prompt.
+    /// THE ONE LATE WATCH after a send returned "still delivering" (review finding 3; round 2c: nothing stays delivering
+    /// forever). It keeps reading the agent's records for the prompt, up to <paramref name="limit"/>
+    /// (<see cref="LateArrivalLimit"/>), and always ends with an answer the Director's delivery record can hold:
+    ///  - <see cref="LateArrival.Arrived"/> once the records hold it word for word;
+    ///  - <see cref="LateArrival.LimitEnded"/> when the limit ends first;
+    ///  - <see cref="LateArrival.NoRecordsToWatch"/> when <paramref name="proof"/> is null - the agent keeps no records the
+    ///    Director can read for this send - and the limit ends: the same bounded wait, with nothing to read;
+    ///  - <see cref="LateArrival.WatchFailed"/> when a read of the records failed: the failure is logged, nothing more is
+    ///    read, and the send stays delivering until the limit, because the words may still be in the agent;
+    ///  - <see cref="LateArrival.SessionEnded"/> as soon as the session ends.
+    /// It never ends before the limit except on an answer, so a delivery is never called not delivered while the agent may
+    /// still hold it. It reads only - it never types, presses a key, or resends. A different prompt arriving is not taken
+    /// for this one: the owner's next send could be that prompt. It does not throw.
     /// </summary>
-    private async Task<LateArrival> WatchLateArrivalAsync(ArrivalProof proof, string typed, string label, TimeSpan limit)
+    private async Task<LateWatchEnd> WatchLateArrivalAsync(ArrivalProof? proof, string typed, string label, TimeSpan limit)
     {
         var notice = new Drivers.SendWaitNotice("Session",
-            $"'{label}' to reach the agent's conversation records late (session {Id}; the send already answered still delivering)",
+            proof is null
+                ? $"the limit on '{label}' (session {Id}; the send already answered still delivering, and there are no records to watch)"
+                : $"'{label}' to reach the agent's conversation records late (session {Id}; the send already answered still delivering)",
             $"{limit.TotalMinutes:F1} minutes");
         var started = DateTime.UtcNow;
+        string? watchFailure = null;
         while (true)
         {
             notice.Check();
-            LateWatchReadForTests?.Invoke();
-            if (ArrivedIn(proof, typed))
+            if (proof is not null && watchFailure is null)
             {
-                notice.End("it arrived");
-                FileLog.Write($"[Session] late arrival: session={Id}: the prompt reached the records " +
-                              $"{(DateTime.UtcNow - proof.StartedUtc).TotalSeconds:F0}s after the send began - delivered. len={typed.Length}");
-                return LateArrival.Arrived;
+                bool arrived;
+                try
+                {
+                    LateWatchReadForTests?.Invoke();
+                    arrived = ArrivedIn(proof, typed);
+                }
+                catch (Exception ex)
+                {
+                    // THE RECORDS WATCH FAILED (round 2c, case 2). The words may still be in the agent, so this is not an
+                    // answer: logged, nothing more is read, and the wait goes on to the limit.
+                    watchFailure = ex.Message;
+                    arrived = false;
+                    FileLog.Write($"[Session] late arrival FAILED: session={Id}: reading the records failed: {ex.Message}. " +
+                                  $"The send stays delivering until the limit ({limit.TotalMinutes:F1} minutes); nothing is typed again. len={typed.Length}");
+                }
+                if (arrived)
+                {
+                    notice.End("it arrived");
+                    FileLog.Write($"[Session] late arrival: session={Id}: the prompt reached the records " +
+                                  $"{(DateTime.UtcNow - proof.StartedUtc).TotalSeconds:F0}s after the send began - delivered. len={typed.Length}");
+                    return new LateWatchEnd(LateArrival.Arrived);
+                }
             }
-            if (_disposed)
+            if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed)
             {
                 notice.End("the session ended");
-                FileLog.Write($"[Session] late arrival: session={Id}: the session ended before the records showed the prompt");
-                return LateArrival.SessionEnded;
+                FileLog.Write($"[Session] late arrival: session={Id}: the session ended before the records showed the prompt - not delivered");
+                return new LateWatchEnd(LateArrival.SessionEnded);
             }
             if (DateTime.UtcNow - started >= limit)
             {
-                notice.End("the limit ended without it");
-                FileLog.Write($"[Session] WARNING late arrival: session={Id}: the records still do not show the prompt " +
+                var end = proof is null ? new LateWatchEnd(LateArrival.NoRecordsToWatch)
+                    : watchFailure is not null ? new LateWatchEnd(LateArrival.WatchFailed, watchFailure)
+                    : new LateWatchEnd(LateArrival.LimitEnded);
+                notice.End(end.Ended switch
+                {
+                    LateArrival.NoRecordsToWatch => "the limit ended with no records to watch",
+                    LateArrival.WatchFailed => "the limit ended after the records watch failed",
+                    _ => "the limit ended without it",
+                });
+                FileLog.Write($"[Session] WARNING late arrival: session={Id}: {end.Ended} - the prompt is not proven " +
                               $"{limit.TotalMinutes:F1} minutes after the send returned; the send is not delivered, and is not typed again. len={typed.Length}");
-                return LateArrival.LimitEnded;
+                return end;
             }
             await Task.Delay(Drivers.PromptArrival.DefaultPoll);
         }
@@ -3765,7 +3801,8 @@ public sealed class Session : IDisposable
     /// review finding 3): 15 minutes. A working Claude Code holds a prompt sent mid-turn and writes it to its records only
     /// when its running tool ends - measured on 25 September 2026, 55 seconds after the Enter for a 60-second shell
     /// command; the 09:05 incident session ran one turn for over two minutes. The watch only reads the records and types
-    /// nothing, so the limit bounds a cheap file read, not a risk; past it the delivery stays "delivering", logged.
+    /// nothing, so the limit bounds a cheap file read, not a risk; past it the delivery is not delivered (round 2c: nothing
+    /// stays delivering forever), and nothing is typed again.
     /// </summary>
     internal static readonly TimeSpan LateArrivalLimit = TimeSpan.FromMinutes(15);
 
@@ -3806,8 +3843,13 @@ public sealed class Session : IDisposable
         }
         var reason = $"the composer could not be read for the {window.TotalSeconds:F0}s after the Enter while {AgentKind} was working, " +
                      "so whether the text left it is not known; its output proves nothing while it works";
-        FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: STILL DELIVERING - {reason}. Nothing is cleared or typed again.");
-        return TextSendOutcome.StillDelivering(reason);
+        // NO RECORDS TO WATCH (round 2c, case 1): the same late watch, with nothing to read, so the delivery stays
+        // "delivering" until the same limit and then is not delivered - never delivering forever, never failed early.
+        var lateLimit = LateArrivalLimitForTests ?? LateArrivalLimit;
+        var label = typed.Length > 60 ? typed[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : typed;
+        FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: STILL DELIVERING - {reason}. Nothing is cleared or typed again; " +
+                      $"with no records to watch, it stays delivering for up to {lateLimit.TotalMinutes:F1} minutes.");
+        return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(null, typed, label, lateLimit), lateLimit);
     }
 
     /// <summary>True when the session's state or the rendered screen says the agent is running a turn.</summary>
