@@ -237,6 +237,31 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Send_anyway_of_an_acknowledged_recording_leaves_the_claim_and_the_refusal_in_its_decision_record()
+    {
+        // Proves review finding 2: after the recording's own "acknowledged" line, its decision record (read through the
+        // real read route) says the claim was believed and the Director refused the second copy as delivered - so "why
+        // did my words go in once?" is answered without the container's log.
+        var uploadId = await MovedOnAndAcknowledged();
+        var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
+        Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
+        _directorRecord.MarkDelivered(_session.Id, canonical);
+
+        await PostPrompt(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
+        var lines = read.GetProperty("decisions").EnumerateArray().ToList();
+        var names = lines.Select(l => l.GetProperty("decision").GetString()).ToList();
+        var acknowledged = names.IndexOf(DeliveryDecisions.Acknowledged);
+        Assert.True(acknowledged >= 0, $"no acknowledged line: {string.Join(", ", names)}");
+        Assert.Equal(new[] { DeliveryDecisions.ClaimVerified, DeliveryDecisions.ClaimDirectorAnswer }, names.Skip(acknowledged + 1));
+        var answer = lines[^1].GetProperty("facts");
+        Assert.False(answer.GetProperty("ok").GetBoolean());
+        Assert.True(answer.GetProperty("refusedDuplicate").GetBoolean());
+        Assert.Equal("delivered", answer.GetProperty("state").GetString());
+    }
+
+    [Fact]
     public async Task Send_anyway_of_an_acknowledged_recording_the_Director_never_received_is_typed()
     {
         // Proves the other half: when the words really were dropped - the Director never saw this delivery id - a

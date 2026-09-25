@@ -1238,7 +1238,8 @@ public sealed class VoiceUploadStore
     /// </param>
     public void MarkDelivered(string uploadId, bool submitted, bool movedOn, string transcript, string? reason = null)
         => WriteTombstone(uploadId, uid => new DictationDeliveryRecord(
-            DictationDeliveryState.Delivered, submitted, movedOn, transcript ?? "", reason, ExistingSessionId(uid)),
+            DictationDeliveryState.Delivered, submitted, movedOn, transcript ?? "", reason, ExistingSessionId(uid),
+            ResolvedAtUtc: DateTime.UtcNow),
             DeliveredDecisionFor(movedOn, reason),
             new DeliveryDecisionFacts
             {
@@ -1266,7 +1267,8 @@ public sealed class VoiceUploadStore
     /// </summary>
     public void MarkAbandoned(string uploadId, string reason)
         => WriteTombstone(uploadId, uid => new DictationDeliveryRecord(
-            DictationDeliveryState.Abandoned, false, false, "", reason ?? "", ExistingSessionId(uid)),
+            DictationDeliveryState.Abandoned, false, false, "", reason ?? "", ExistingSessionId(uid),
+            ResolvedAtUtc: DateTime.UtcNow),
             DeliveryDecisions.Abandoned,
             new DeliveryDecisionFacts { State = nameof(DictationDeliveryState.Abandoned), Reason = reason ?? "" });
 
@@ -1540,7 +1542,8 @@ public sealed class VoiceUploadStore
                 recordReason,
                 before?.SessionId ?? "",
                 AcknowledgedFrom: before?.State,
-                TranscriptCharacters: before?.Transcript.Length));
+                TranscriptCharacters: before?.Transcript.Length,
+                ResolvedAtUtc: ResolutionKeptBy(before)));
             DeleteAllButTheRecord(dir, uid);
             // The retired marker is not PENDING, so WriteRecordMarker already dropped this id from the
             // session-lock cache. Dropped again anyway, as the delete this replaces did: an entry that cannot
@@ -1556,6 +1559,16 @@ public sealed class VoiceUploadStore
             return false;
         }
     }
+
+    // When the retired record was resolved. A DELIVERED or ABANDONED record was resolved when it reached that state,
+    // and keeps that time - the acknowledgement can come days later, and measuring the claim window from it would
+    // stretch the window past the Director's record (DeliveryRetention). One that was still PENDING or FAILED, or
+    // had no readable marker, is resolved by this retirement itself. A resolved record written before the time was
+    // kept has none, and keeps none: a claim for it is then dropped as "no resolution time", never guessed.
+    private static DateTime? ResolutionKeptBy(DictationDeliveryRecord? before)
+        => before is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned }
+            ? before.ResolvedAtUtc
+            : DateTime.UtcNow;
 
     // The two files an acknowledged upload keeps. Everything else in its directory is audio or a half-written
     // copy of something, and goes.
@@ -1657,6 +1670,81 @@ public sealed class VoiceUploadStore
             if (read.Kind == DictationRecordReadKind.Absent && lines.Count == 0) return DeliveryDecisionLog.NotFound;
             return new DeliveryDecisionLog(true, read, lines);
         });
+    }
+
+    /// <summary>
+    /// Decide whether a "Send anyway" CLAIM naming this upload becomes the prompt's delivery id, and write that
+    /// decision to the upload's decision log (Voice Delivery mission, phase 1, review findings 1, 2 and 3).
+    ///
+    /// SEES AN ACKNOWLEDGED RECORD, unlike <see cref="Read"/>. The client acknowledges every terminal outcome before
+    /// it shows "Send anyway", so the recording a claim names is almost always ACKNOWLEDGED by the time the button is
+    /// pressed. Reading through <see cref="Read"/>, which answers Absent for it, dropped every such claim, and the
+    /// Director never saw the id it would have refused. The kept record still knows its session and its tenant,
+    /// which is all the claim needs. <see cref="Read"/> is unchanged for every other caller.
+    ///
+    /// BELIEVED for a record of this partition's tenant, for <paramref name="sessionId"/>, in every state that names
+    /// a real recording: PENDING and FAILED (not yet resolved - the words are still the recording's), and DELIVERED,
+    /// ABANDONED and ACKNOWLEDGED while the recording was resolved within
+    /// <see cref="CcDirector.Gateway.Contracts.DeliveryRetention.ClaimWindow"/> of <paramref name="nowUtc"/>, measured
+    /// from <see cref="DictationDeliveryRecord.ResolvedAtUtc"/>. Past the window the Director may have forgotten the
+    /// id, so the claim is dropped and the words go as an ordinary prompt, as the owner asked.
+    ///
+    /// The decision is written only where it cannot create anything or reach another account: the upload must
+    /// already have a directory in this partition, and a record stamped for another tenant gets nothing. A claim for
+    /// an upload that does not exist here - never registered, or another account's - writes nothing.
+    /// </summary>
+    public DeliveryClaimResolution ResolveDeliveryClaim(string uploadId, string sessionId, int characters, DateTime nowUtc)
+    {
+        var uid = NormalizeId(uploadId);
+        if (uid is null) return DeliveryClaimResolution.Drop(null, "not-an-upload-id", "it is not an upload id");
+        return WithRecordLock(uid, () =>
+        {
+            var dir = DirFor(uid);
+            if (!Directory.Exists(dir))
+                return DeliveryClaimResolution.Drop(uid, "no-upload-here", "no upload of the caller's tenant has this id");
+
+            var read = ReadRecordFile(RecordPath(dir));
+            if (read.Kind == DictationRecordReadKind.Present && !BelongsHere(read.Record!))
+            {
+                FileLog.Write($"[VoiceUploadStore] ResolveDeliveryClaim: uploadId={uid} record belongs to another tenant " +
+                    $"(partition={_tenant.ToLogString()}); dropped, nothing written");
+                return DeliveryClaimResolution.Drop(uid, "foreign-tenant", "the record belongs to another tenant");
+            }
+
+            var record = read.Record;
+            var resolution = DecideClaim(read, record, sessionId, nowUtc);
+            AppendDecisionLine(dir, uid,
+                resolution.Verified ? DeliveryDecisions.ClaimVerified : DeliveryDecisions.ClaimDropped,
+                new DeliveryDecisionFacts
+                {
+                    SessionId = sessionId,
+                    State = record?.State.ToString() ?? read.Kind.ToString(),
+                    PreviousState = record?.AcknowledgedFrom?.ToString(),
+                    Reason = resolution.Reason,
+                    Characters = characters,
+                    ResolvedAtUtc = record?.ResolvedAtUtc,
+                });
+            return resolution with { UploadId = uid };
+        });
+    }
+
+    private static DeliveryClaimResolution DecideClaim(DictationRecordRead read, DictationDeliveryRecord? record, string sessionId, DateTime nowUtc)
+    {
+        if (read.Kind != DictationRecordReadKind.Present)
+            return DeliveryClaimResolution.Drop(null, "record-not-readable", $"the upload's record is {read.Kind}");
+        if (!Guid.TryParse(record!.SessionId, out var recorded) || !Guid.TryParse(sessionId, out var target) || recorded != target)
+            return DeliveryClaimResolution.Drop(null, "another-session", $"the recording belongs to session '{record.SessionId}', not this one");
+        if (record.State is DictationDeliveryState.Pending or DictationDeliveryState.Failed)
+            return DeliveryClaimResolution.Believe(null, $"the recording is {record.State}, not yet resolved");
+        if (record.ResolvedAtUtc is not { } resolvedAt)
+            return DeliveryClaimResolution.Drop(null, "no-resolution-time",
+                $"the {record.State} record does not say when it was resolved (written before resolution times were kept)");
+        var age = nowUtc - resolvedAt;
+        if (age > Contracts.DeliveryRetention.ClaimWindow)
+            return DeliveryClaimResolution.Drop(null, "outside-claim-window",
+                $"the recording was resolved {age.TotalDays:0.#} days ago, past the {Contracts.DeliveryRetention.ClaimWindow.TotalDays:0}-day claim window, so the Director may no longer remember it");
+        return DeliveryClaimResolution.Believe(null,
+            $"the recording is {record.State}{(record.AcknowledgedFrom is { } from ? $" (from {from})" : "")}, resolved {age.TotalDays:0.#} days ago");
     }
 
     private static List<DeliveryDecisionLine> ReadDecisionLines(string path)
@@ -1955,6 +2043,12 @@ public enum DictationDeliveryState { Pending, Delivered, Abandoned, Failed, Ackn
 /// For an ACKNOWLEDGED record only: how many characters the transcript had before acknowledgement blanked it.
 /// The count stays so the kept record can be compared with the decision log; the words do not.
 /// </param>
+/// <param name="ResolvedAtUtc">
+/// When the recording was RESOLVED - reached DELIVERED (delivered or judged moved-on) or ABANDONED, or was retired
+/// straight from PENDING or FAILED - in UTC; kept unchanged through the acknowledgement. The "Send anyway" claim
+/// window is measured from it (<see cref="CcDirector.Gateway.Contracts.DeliveryRetention.ClaimWindow"/>). Null for
+/// PENDING and FAILED, and for a resolved record written before the field existed.
+/// </param>
 public sealed record DictationDeliveryRecord(
     DictationDeliveryState State,
     bool Submitted,
@@ -1965,7 +2059,8 @@ public sealed record DictationDeliveryRecord(
     long? RebaselineBufferBytes = null,
     string Tenant = "",
     DictationDeliveryState? AcknowledgedFrom = null,
-    int? TranscriptCharacters = null);
+    int? TranscriptCharacters = null,
+    DateTime? ResolvedAtUtc = null);
 
 /// <summary>
 /// Every answer a read of an upload id's record.json can give (issue #2745). The reader used to have two -
@@ -2003,6 +2098,16 @@ public enum DictationRecordReadKind
 /// <see cref="Kind"/> is <see cref="DictationRecordReadKind.Present"/>), and for the refusals the path of
 /// the file and what was wrong with it, so a log line or an error response can name the fix.
 /// </summary>
+/// <summary>
+/// The answer to <see cref="VoiceUploadStore.ResolveDeliveryClaim"/>: whether the claim becomes the delivery id, the
+/// canonical upload id when there was one, a short reason code (written to the decision log) and why in words.
+/// </summary>
+public sealed record DeliveryClaimResolution(bool Verified, string? UploadId, string Reason, string Why)
+{
+    public static DeliveryClaimResolution Believe(string? uploadId, string why) => new(true, uploadId, "believed", why);
+    public static DeliveryClaimResolution Drop(string? uploadId, string reason, string why) => new(false, uploadId, reason, why);
+}
+
 public sealed record DictationRecordRead(DictationRecordReadKind Kind, DictationDeliveryRecord? Record, string? Path, string? Problem)
 {
     public static readonly DictationRecordRead Absent = new(DictationRecordReadKind.Absent, null, null, null);

@@ -80,12 +80,13 @@ public sealed class DeliveryRecord
 {
     /// <summary>
     /// How long an entry is kept. Entries older than this are dropped whenever the session's file is written.
-    /// SEVEN DAYS, because a retry arrives within minutes (the Gateway refuses a recording older than five minutes
-    /// from Send), and "Send anyway" on a recording shown back is at most as old as a recording the browser still
-    /// holds - on 25 September two such recordings were five days old. A week covers that with room, and keeps a
-    /// busy session's file to a few hundred lines.
+    /// NOT CHOSEN HERE: it is <see cref="DeliveryRetention.DirectorRetention"/> - the Gateway's claim window plus a
+    /// margin - because the record must outlive every window in which the Gateway can still send a recording with
+    /// its delivery id. A shorter record would answer "unknown" to a "Send anyway" the Gateway still honours, and
+    /// the words would be typed twice. It was seven days until review finding 3 found it inside the Gateway's
+    /// thirty. A busy session's file then holds a few thousand small lines, rewritten once per delivery.
     /// </summary>
-    public static readonly TimeSpan Retention = TimeSpan.FromDays(7);
+    public static readonly TimeSpan Retention = DeliveryRetention.DirectorRetention;
 
     /// <summary>Where the Director keeps it: beside its crash journal, in this instance's own Director config.</summary>
     public static string DefaultDirectory => Path.Combine(CcStorage.ToolConfig("director"), "delivery-records");

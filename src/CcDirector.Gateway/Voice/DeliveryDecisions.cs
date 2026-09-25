@@ -57,6 +57,22 @@ public static class DeliveryDecisions
     public const string SessionNotFound = "session-not-found";
     /// <summary>The complete stopped on an error before any delivery was decided (no transcription key, an exception).</summary>
     public const string CompleteError = "complete-error";
+    /// <summary>
+    /// A "Send anyway" claim naming this recording was believed: the prompt carries the recording's delivery id, so
+    /// the Director refuses it if the words are already in. Facts carry the record's state and the reason.
+    /// </summary>
+    public const string ClaimVerified = "send-anyway-claim-verified";
+    /// <summary>
+    /// A "Send anyway" claim naming this recording was dropped, and the words went as an ordinary prompt; the reason
+    /// says why (another session, past the claim window, a record that cannot be read).
+    /// </summary>
+    public const string ClaimDropped = "send-anyway-claim-dropped";
+    /// <summary>
+    /// The Director's answer to a "Send anyway" that carried this recording's delivery id: accepted and typed, or
+    /// refused with nothing typed because the id was already delivered or being delivered
+    /// (<see cref="DeliveryDecisionFacts.RefusedDuplicate"/>), or failed.
+    /// </summary>
+    public const string ClaimDirectorAnswer = "send-anyway-director-answer";
     /// <summary>A line of the log that could not be parsed on read, for example one half-written by a crash.</summary>
     public const string UnreadableLine = "unreadable-line";
 }
@@ -97,6 +113,8 @@ public sealed record DeliveryDecisionFacts
     public long? BytesDeleted { get; init; }
     public int? TotalChunks { get; init; }
     public int? MissingChunks { get; init; }
+    /// <summary>When the recording was resolved, on a "Send anyway" claim line: the claim window is measured from it.</summary>
+    public DateTime? ResolvedAtUtc { get; init; }
 
     /// <summary>Error text, cut to <see cref="MaxErrorLength"/> characters.</summary>
     public string? Error

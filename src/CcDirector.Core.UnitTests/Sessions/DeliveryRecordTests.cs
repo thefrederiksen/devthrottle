@@ -148,6 +148,30 @@ public sealed class DeliveryRecordTests : IDisposable
     }
 
     [Fact]
+    public void Write_KeepsAnEntryPastTheClaimWindow_AndDropsItPastTheMargin()
+    {
+        // Proves review finding 3's rule on the Director's side: an entry outlives the Gateway's claim window - so a
+        // "Send anyway" the Gateway still honours is refused, never typed twice - and is dropped only once the margin
+        // for clock difference has passed as well.
+        Assert.Equal(DeliveryRetention.ClaimWindow + DeliveryRetention.DirectorMargin, DeliveryRecord.Retention);
+        Assert.True(DeliveryRetention.DirectorMargin > TimeSpan.Zero);
+        var now = new DateTime(2026, 9, 25, 9, 0, 0, DateTimeKind.Utc);
+        var clock = now;
+        var record = new DeliveryRecord(_dir, () => clock);
+        record.TryBeginDelivery(_session, "sent-once");
+        record.MarkDelivered(_session, "sent-once");
+
+        clock = now + DeliveryRetention.ClaimWindow + TimeSpan.FromHours(1);
+        record.TryBeginDelivery(_session, "later-1");
+        Assert.Equal(DeliveryState.Delivered, record.Read(_session, "sent-once").State);
+        Assert.False(record.TryBeginDelivery(_session, "sent-once").Began);
+
+        clock = now + DeliveryRetention.ClaimWindow + DeliveryRetention.DirectorMargin + TimeSpan.FromMinutes(1);
+        record.TryBeginDelivery(_session, "later-2");
+        Assert.Equal(DeliveryState.Unknown, record.Read(_session, "sent-once").State);
+    }
+
+    [Fact]
     public void Write_LeavesNoTemporaryFileBehind()
     {
         // Proves the atomic write replaces the file in one move and leaves only the record itself.

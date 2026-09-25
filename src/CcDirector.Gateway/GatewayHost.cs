@@ -967,7 +967,13 @@ public sealed class GatewayHost : IAsyncDisposable
     // my words?" must still be answerable - while what is kept holds no audio and no words, only lengths,
     // states and reasons, so keeping it for the same window as an unacknowledged tombstone costs nothing the
     // owner has not already accepted.
-    private static readonly TimeSpan DictationTombstoneMaxAge = TimeSpan.FromDays(30);
+    //
+    // AND IT IS THE DELIVERY ID'S CLAIM WINDOW (review finding 3), by construction rather than by coincidence: the
+    // prompt route believes a "Send anyway" claim only while the recording was resolved within
+    // DeliveryRetention.ClaimWindow, and it needs the record to believe it. This sweep measures age from the
+    // directory's last write, which is never earlier than the resolution, so with the same window the record is
+    // always still here while a claim for it can be believed. Never make this SHORTER than the claim window.
+    internal static readonly TimeSpan DictationTombstoneMaxAge = DeliveryRetention.ClaimWindow;
     // WHY TWENTY-FOUR HOURS, and why it is NOT the thirty days above. That number protects a tombstone,
     // where keeping too long costs almost nothing. This one bounds a PENDING record, where keeping too long
     // costs the user their session: PENDING locks the session against human input, so every extra hour is an

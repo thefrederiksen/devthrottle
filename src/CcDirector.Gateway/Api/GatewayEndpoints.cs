@@ -3206,31 +3206,46 @@ internal static class GatewayEndpoints
         // The spoken-claim reservation is committed or released on that answer (finding F-07).
         // A client's claim that a prompt is the words of one of its recordings ("Send anyway"), turned into the prompt's
         // delivery id only when the id is an upload record in the caller's OWN tenant, read through the dictation gate's
-        // tenant partition, bound to THIS session. Anything else is dropped and logged, and the text goes as an ordinary
-        // prompt - exactly what "Send anyway" sent before the delivery id existed.
-        string? ResolveDeliveryIdClaim(HttpContext httpCtx, string sid, string? claim, bool callerIsSession)
+        // tenant partition, bound to THIS session, and resolved inside the claim window - see
+        // VoiceUploadStore.ResolveDeliveryClaim, which also sees the ACKNOWLEDGED record every real "Send anyway" names
+        // (review finding 1) and writes the decision to that recording's decision log (finding 2). Anything else is
+        // dropped and logged, and the text goes as an ordinary prompt - exactly what "Send anyway" sent before the
+        // delivery id existed. The store is handed back with a verified id so the Director's answer can be written too.
+        (string? DeliveryId, Voice.VoiceUploadStore? Store) ResolveDeliveryIdClaim(HttpContext httpCtx, string sid, string? claim, bool callerIsSession, int characters)
         {
-            if (string.IsNullOrWhiteSpace(claim)) return null;
-            string? Drop(string why)
+            if (string.IsNullOrWhiteSpace(claim)) return (null, null);
+            (string?, Voice.VoiceUploadStore?) Drop(string why)
             {
                 FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery id claim DROPPED (upload={claim}): {why}; sent as an ordinary prompt");
-                return null;
+                return (null, null);
             }
             if (callerIsSession) return Drop("the caller is a session, and a session has no recordings");
             if (dictationUploads is null) return Drop("no dictation upload store is wired to this route");
-            var canonical = Voice.VoiceUploadStore.NormalizeUploadId(claim);
-            if (canonical is null) return Drop("it is not an upload id");
             if (!dictationUploads.TryOpen(httpCtx, out var store, out _, out _)) return Drop("no tenant resolved for the caller");
-            var read = store.Read(canonical);
-            if (read.Kind != Voice.DictationRecordReadKind.Present)
-                return Drop($"no readable upload record of the caller's tenant ({read.Kind})");
-            if (!Guid.TryParse(read.Record!.SessionId, out var recorded) || !Guid.TryParse(sid, out var target) || recorded != target)
-                return Drop($"the recording belongs to session '{read.Record.SessionId}', not this one");
-            FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery id claim VERIFIED (upload={canonical})");
-            return canonical;
+            var resolution = store.ResolveDeliveryClaim(claim, sid, characters, DateTime.UtcNow);
+            if (!resolution.Verified) return Drop($"{resolution.Reason}: {resolution.Why}");
+            FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery id claim VERIFIED (upload={resolution.UploadId}): {resolution.Why}");
+            return (resolution.UploadId, store);
         }
 
-        async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null)
+        // The Director's answer to a "Send anyway" that carried a delivery id, written to that recording's decision log
+        // (review finding 2): accepted and typed, refused as delivered or delivering with nothing typed, or failed. This
+        // is the line that answers "why did my words go in once when I pressed Send twice?" without the container log.
+        static void RecordClaimAnswer(Voice.VoiceUploadStore store, string deliveryId, string sid, PromptResponse? body, string? error)
+        {
+            var refused = body is { Accepted: false, DeliveryState: DeliveryState.Delivered or DeliveryState.Delivering };
+            store.RecordDecision(deliveryId, Voice.DeliveryDecisions.ClaimDirectorAnswer, new Voice.DeliveryDecisionFacts
+            {
+                SessionId = sid,
+                Ok = body?.Accepted ?? false,
+                State = body?.DeliveryState is { } state ? DeliveryStates.Format(state) : null,
+                RefusedDuplicate = refused,
+                Error = body is null ? error : body.Accepted ? null : body.DeliveryStateReason ?? body.Error,
+            });
+        }
+
+        async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null,
+            Action<PromptResponse?, string?>? answered = null)
         {
             // Post-cut: tunnel-only. A null result means the Director is not connected -> 502. The WaitForIdle
             // poll below is unchanged - it observes the session regardless of how the prompt was delivered.
@@ -3248,6 +3263,7 @@ internal static class GatewayEndpoints
                 body = streamResult.Ok ? DirectorCommandRouter.ReadBody<PromptResponse>(streamResult) : null;
                 err = streamResult.Ok ? null : DirectorCommandRouter.DescribeFailure(streamResult);
             }
+            answered?.Invoke(ok ? body : null, ok && body is null ? "the Director answered with no response body" : err);
             if (!ok || body is null)
             {
                 outcome?.Invoke(false);
@@ -3604,7 +3620,8 @@ internal static class GatewayEndpoints
             // refuses a second copy of a delivery id it has already typed, so an id a client could set freely would let
             // it block, or pass off as delivered, words it did not own. Whatever arrives is overwritten; a client may
             // only CLAIM a recording, and the claim is checked below.
-            req.DeliveryId = ResolveDeliveryIdClaim(httpCtx, sid, req.DeliveryIdClaim, callingSessionForAttribution is not null);
+            var (claimedDeliveryId, claimStore) = ResolveDeliveryIdClaim(httpCtx, sid, req.DeliveryIdClaim, callingSessionForAttribution is not null, req.Text.Length);
+            req.DeliveryId = claimedDeliveryId;
             req.DeliveryIdClaim = null;
             // RESERVED HERE, COMMITTED OR RELEASED BELOW (final inspection finding F-07). The claim used to be spent
             // at this line, before the session was located or the menu guard ran, so a prompt that never entered a
@@ -3761,7 +3778,9 @@ internal static class GatewayEndpoints
                 }
             }
 
-            return await DeliverPromptAsync(director, session, sid, req, wasAccepted => accepted = wasAccepted);
+            return await DeliverPromptAsync(director, session, sid, req, wasAccepted => accepted = wasAccepted,
+                claimStore is null || claimedDeliveryId is null ? null
+                    : (body, error) => RecordClaimAnswer(claimStore, claimedDeliveryId, sid, body, error));
             }
         });
 
