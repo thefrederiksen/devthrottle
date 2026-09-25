@@ -1024,6 +1024,11 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         public Exception? Refuse { get; set; }
         public int Reads { get; private set; }
 
+        /// <summary>How many of the FIRST reads cannot reach the Gateway at all: each throws instead of
+        /// answering, which is the connection dropping - or the Gateway restarting - while the restore is
+        /// already running. <see cref="int.MaxValue"/> is a Gateway that never comes back.</summary>
+        public int UnreachableForFirstReads { get; set; }
+
         /// <summary>What the record says on the n-th read (1-based); the last entry repeats.</summary>
         public List<WorkspaceDocument> Record { get; } = new();
 
@@ -1041,7 +1046,10 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         public Task<WorkspaceDocument?> GetWorkspaceAsync(string workspaceId, CancellationToken ct)
         {
             Reads++;
-            return Task.FromResult<WorkspaceDocument?>(Record[Math.Min(Reads, Record.Count) - 1]);
+            if (Reads <= UnreachableForFirstReads)
+                throw new HttpRequestException("No connection could be made to gateway.example");
+            return Task.FromResult<WorkspaceDocument?>(
+                Record.Count == 0 ? null : Record[Math.Min(Reads, Record.Count) - 1]);
         }
     }
 
@@ -1060,7 +1068,15 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         half.Seats[0].RestoredSessionId = "new-a";
         var all = DrainTestRig.Document(Seat("a", "First"), Seat("b", "Second"));
         all.Seats[0].RestoredSessionId = "new-a";
-        all.Seats[1].Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Restore, Failure = "the Gateway did not start it" };
+        // THE ATTEMPT TIME TRAVELS WITH THE FAILURE, because the store writes both on the same mark and the
+        // reader tells this run's failures from an earlier run's by exactly this field. A rig that left it out
+        // would be describing a record the product cannot produce.
+        all.Seats[1].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Failure = "the Gateway did not start it",
+            AttemptedAtUtc = _now,
+        };
         gateway.Record.AddRange(new[] { nothingYet, half, all });
 
         var back = await BringBack(gateway).BringBackAsync("ws-1", new[] { "a", "b" }, CancellationToken.None);
@@ -1097,5 +1113,130 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
         Assert.Equal(began + GatewaySmartShutdownBringBack.Patience, _now);
         Assert.Equal("new-a", back.Seats.Single(s => s.SessionId == "a").RestoredSessionId);
         Assert.Contains("still says nothing about this session", back.Seats.Single(s => s.SessionId == "b").Failure);
+    }
+
+    /// <summary>A seat that failed an HOUR AGO, exactly as the record carries it between two presses of Bring
+    /// back: the reason, and the moment that attempt was made.</summary>
+    private WorkspaceSeatRestore LastTimesFailure(string why = "the Gateway did not start it")
+        => new()
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Failure = why,
+            AttemptedAtUtc = _now.AddHours(-1),
+        };
+
+    // Shows: A FAILURE LEFT ON A SEAT BY AN EARLIER ATTEMPT IS NOT THIS RUN'S ANSWER (product issue 3395,
+    // found independently by both reviewers of the lease fix). The door answers "taken" before the far end has
+    // written a single mark, and a seat's Failure is cleared only when that seat reaches its NEW "started"
+    // mark - so on the second press after a failed first one the record still carries last time's reason at
+    // the moment of the first read, and the first read has no delay in front of it. Reading that as an answer
+    // returned "nothing came back", quoting last time's reasons, while the restore was in fact only just
+    // starting and brought the seat back moments later: the window told the owner the opposite of what was
+    // happening, and the record was later marked used with sessions he had been told did not come back.
+    [Fact]
+    public async Task BringBackAsync_AFailureLeftByAnEarlierAttempt_IsNotThisRunsAnswer()
+    {
+        var gateway = new FakeBringBackGateway();
+        var lastTime = DrainTestRig.Document(Seat("a", "First"));
+        lastTime.Seats[0].Restore = LastTimesFailure("previous attempt failed");
+        var thisTime = DrainTestRig.Document(Seat("a", "First"));
+        thisTime.Seats[0].RestoredSessionId = "new-a";
+        gateway.Record.AddRange(new[] { lastTime, thisTime });
+
+        var back = await BringBack(gateway).BringBackAsync("ws-1", new[] { "a" }, CancellationToken.None);
+
+        Assert.Equal("new-a", Assert.Single(back.Seats).RestoredSessionId);
+        Assert.Null(Assert.Single(back.Seats).Failure);
+        Assert.Equal(2, gateway.Reads);
+    }
+
+    // Shows: the same rule when EVERY seat asked for carries last time's failure, which is what the record
+    // looks like after a whole selection failed. Nothing is answered on the first read, the wait is real, and
+    // what is reported is what this run did - both seats back - not what the last one did.
+    [Fact]
+    public async Task BringBackAsync_EverySeatCarryingLastTimesFailure_WaitsForThisRunsAnswers_AndReportsThem()
+    {
+        var gateway = new FakeBringBackGateway();
+        var lastTime = DrainTestRig.Document(Seat("a", "First"), Seat("b", "Second"));
+        foreach (var seat in lastTime.Seats) seat.Restore = LastTimesFailure();
+        var half = DrainTestRig.Document(Seat("a", "First"), Seat("b", "Second"));
+        half.Seats[0].RestoredSessionId = "new-a";
+        half.Seats[1].Restore = LastTimesFailure();
+        var all = DrainTestRig.Document(Seat("a", "First"), Seat("b", "Second"));
+        all.Seats[0].RestoredSessionId = "new-a";
+        all.Seats[1].RestoredSessionId = "new-b";
+        gateway.Record.AddRange(new[] { lastTime, half, all });
+        var began = _now;
+
+        var back = await BringBack(gateway).BringBackAsync("ws-1", new[] { "a", "b" }, CancellationToken.None);
+
+        Assert.Equal(3, gateway.Reads);
+        Assert.True(_now > began, "it answered from the first read, without waiting for this run at all");
+        Assert.Null(back.CouldNotStart);
+        Assert.Equal("new-a", back.Seats.Single(s => s.SessionId == "a").RestoredSessionId);
+        Assert.Equal("new-b", back.Seats.Single(s => s.SessionId == "b").RestoredSessionId);
+        Assert.DoesNotContain(back.Seats, s => s.Failure is not null);
+    }
+
+    // Shows: when an old failure is genuinely all the record ever says, the patience still runs out and the
+    // seat is reported - but the sentence says whose attempt that reason belongs to, rather than passing last
+    // time's words off as this run's answer.
+    [Fact]
+    public async Task BringBackAsync_AnOldFailureAndNothingNew_SaysItIsFromAnEarlierAttempt_AfterItsPatience()
+    {
+        var gateway = new FakeBringBackGateway();
+        var lastTime = DrainTestRig.Document(Seat("a", "First"));
+        lastTime.Seats[0].Restore = LastTimesFailure();
+        gateway.Record.Add(lastTime);
+        var began = _now;
+
+        var back = await BringBack(gateway).BringBackAsync("ws-1", new[] { "a" }, CancellationToken.None);
+
+        Assert.Equal(began + GatewaySmartShutdownBringBack.Patience, _now);
+        var seat = Assert.Single(back.Seats);
+        Assert.Null(seat.RestoredSessionId);
+        Assert.Contains("from an earlier attempt", seat.Failure);
+        Assert.Contains("the Gateway did not start it", seat.Failure);
+    }
+
+    // Shows: A READ THAT THROWS MID-WAIT IS NOT A REFUSAL (product issue 3395, second reviewer). The restore
+    // was taken and is running on this very Director, so a dropped connection while the record is being
+    // watched must never leave here as "nothing was brought back". It is retried, and the answer is still
+    // read when the Gateway comes back.
+    [Fact]
+    public async Task BringBackAsync_AReadThatThrowsMidWait_IsRetried_AndTheAnswerIsStillRead()
+    {
+        var gateway = new FakeBringBackGateway { UnreachableForFirstReads = 2 };
+        var all = DrainTestRig.Document(Seat("a", "First"));
+        all.Seats[0].RestoredSessionId = "new-a";
+        gateway.Record.Add(all);
+        var began = _now;
+
+        var back = await BringBack(gateway).BringBackAsync("ws-1", new[] { "a" }, CancellationToken.None);
+
+        Assert.Null(back.CouldNotStart);
+        Assert.Equal("new-a", Assert.Single(back.Seats).RestoredSessionId);
+        Assert.Equal(3, gateway.Reads);
+        Assert.True(_now > began, "it never waited between the failed reads");
+    }
+
+    // Shows: a Gateway that never answers again is reported as what it is - the restore was taken and the
+    // record could not be read - and never as a restore that was refused. The two are different sentences
+    // about different things: one says nothing was started, and something was.
+    [Fact]
+    public async Task BringBackAsync_AReadThatNeverSucceeds_SaysTheRecordCouldNotBeRead_NotThatTheRestoreWasRefused()
+    {
+        var gateway = new FakeBringBackGateway { UnreachableForFirstReads = int.MaxValue };
+        var began = _now;
+
+        var back = await BringBack(gateway).BringBackAsync("ws-1", new[] { "a" }, CancellationToken.None);
+
+        Assert.Null(back.CouldNotStart);
+        Assert.Single(gateway.Requests);
+        Assert.Equal(began + GatewaySmartShutdownBringBack.Patience, _now);
+        var seat = Assert.Single(back.Seats);
+        Assert.Null(seat.RestoredSessionId);
+        Assert.Contains("the record could not be read", seat.Failure);
+        Assert.Contains("No connection could be made", seat.Failure);
     }
 }

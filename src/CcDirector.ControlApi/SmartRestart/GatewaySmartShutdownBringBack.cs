@@ -78,6 +78,11 @@ public sealed class GatewayClientBringBackGateway : IBringBackGateway
 /// so this reads the record until every seat asked for has an answer, and stops waiting after
 /// <see cref="Patience"/>: a seat with no answer by then is reported as exactly that.
 ///
+/// AN ANSWER MEANS AN ANSWER TO THIS RUN. A seat's Failure stays on the record until that seat reaches its
+/// next "started" mark, so on a retry the record still carries last time's reasons at the moment the door
+/// answers. They are told apart by the clock: a Failure counts only when it was written at or after the
+/// moment this run asked. A restored session id needs no such test - a seat comes back once.
+///
 /// THE WAY UP GOES THROUGH THIS SAME CLASS (product issue 3395). "Bring back" on the start-up window and on
 /// File, Restart history used to construct <see cref="DirectorRestore"/> in the Director instead - the very
 /// thing the paragraph above says cannot work - so its first mark was refused and nothing ever came back.
@@ -151,6 +156,21 @@ public sealed class GatewaySmartShutdownBringBack
         if (gateway is null)
             return CouldNotStart("this Director is no longer connected to a Gateway, and a restore is asked for through it.");
 
+        // THE MOMENT THE DOOR WAS ASKED, read BEFORE asking, because it is what tells this run's answers from
+        // the last run's (product issue 3395, both reviewers). The door answers "taken" before the far end
+        // runs anything, a seat's Failure is cleared only when that seat reaches its NEW "started" mark, and
+        // the first read below has no delay in front of it - so on a second press after a failed first one
+        // every seat still carries last time's Failure, and reading those as answers would report "nothing
+        // came back" while the restore is only just starting.
+        //
+        // WHOSE CLOCK, said plainly because it is the gap in this test. AttemptedAtUtc is written by the
+        // Gateway and this moment is read on the Director, so the two are only as close as the machines'
+        // clocks are. A Gateway BEHIND this Director fails safe: this run's own failure is not recognised as
+        // an answer, the seat waits out the patience, and it is then reported as an earlier attempt's reason -
+        // slow and honest, never a wrong answer. A Gateway far enough AHEAD could still let an old failure
+        // through; that residual gap is the size of the skew and nothing here guards it.
+        var askedAtUtc = _utcNow();
+
         try
         {
             await gateway.RequestRestoreAsync(workspaceId, _directorId, seatSessionIds, seeds, ct).ConfigureAwait(false);
@@ -160,11 +180,26 @@ public sealed class GatewaySmartShutdownBringBack
             return CouldNotStart($"the restore was not taken: {ex.Message}");
         }
 
-        var until = _utcNow() + Patience;
+        var until = askedAtUtc + Patience;
+        WorkspaceDocument? lastRead = null;
         while (true)
         {
-            var doc = await gateway.GetWorkspaceAsync(workspaceId, ct).ConfigureAwait(false);
-            var outcomes = Read(doc, seatSessionIds, final: _utcNow() >= until);
+            // A READ THAT THROWS IS NOT A REFUSAL. The restore was taken - it is running on this very Director -
+            // so a dropped connection or a Gateway restarting mid-wait must never leave here as "nothing was
+            // brought back". It is retried until the patience runs out and then reported as what it is: taken,
+            // and the record could not be read.
+            string? readFailure = null;
+            try
+            {
+                lastRead = await gateway.GetWorkspaceAsync(workspaceId, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                readFailure = ex.Message;
+                FileLog.Write($"[GatewaySmartShutdownBringBack] BringBackAsync: the record could not be read: {ex.Message}");
+            }
+
+            var outcomes = Read(lastRead, seatSessionIds, askedAtUtc, final: _utcNow() >= until, readFailure);
             if (outcomes is not null)
             {
                 FileLog.Write(
@@ -179,18 +214,56 @@ public sealed class GatewaySmartShutdownBringBack
     /// <summary>One outcome per seat once EVERY seat has an answer on the record, or - when
     /// <paramref name="final"/> - whatever is there, with the unanswered seats saying so. Null while
     /// some seat has no answer yet and there is still time.</summary>
-    private static List<SeatRestoreOutcome>? Read(WorkspaceDocument? doc, IReadOnlyList<string> seatSessionIds, bool final)
+    /// <param name="doc">The record as it was last read, or null when there is none.</param>
+    /// <param name="seatSessionIds">The seats asked for.</param>
+    /// <param name="askedAtUtc">The moment the restore door was asked. A Failure counts as THIS run's answer
+    /// only when it was written at or after it; an older one belongs to an earlier attempt and is not an
+    /// answer to this one.</param>
+    /// <param name="final">The patience has run out, so whatever the record says is the answer.</param>
+    /// <param name="readFailure">Why the last read of the record failed, or null when it succeeded. While there
+    /// is still time a failed read is nothing at all and is retried; at the deadline it is reported as a record
+    /// that could not be read, never as a restore that was refused.</param>
+    private static List<SeatRestoreOutcome>? Read(
+        WorkspaceDocument? doc,
+        IReadOnlyList<string> seatSessionIds,
+        DateTime askedAtUtc,
+        bool final,
+        string? readFailure)
     {
+        if (readFailure is not null && !final) return null;
+
         var outcomes = new List<SeatRestoreOutcome>();
         foreach (var id in seatSessionIds)
         {
             var seat = doc?.Seats.FirstOrDefault(s => string.Equals(s.SessionId, id, StringComparison.OrdinalIgnoreCase));
+
+            // A RESTORED SESSION ID IS AN ANSWER WHENEVER IT IS THERE, without looking at the clock: a seat is
+            // restored once and for all, so a restored id from an earlier attempt is still the true answer to
+            // "did this session come back".
             if (seat is not null && !string.IsNullOrWhiteSpace(seat.RestoredSessionId))
+            {
                 outcomes.Add(new SeatRestoreOutcome(id, seat.Name, seat.RestoredSessionId, null, null));
-            else if (seat?.Restore?.Failure is { Length: > 0 } failure)
-                outcomes.Add(new SeatRestoreOutcome(id, seat.Name, null, null, failure));
+                continue;
+            }
+
+            var failure = seat?.Restore?.Failure is { Length: > 0 } f ? f : null;
+            var failedThisRun = failure is not null
+                && seat!.Restore!.AttemptedAtUtc is { } attempted
+                && attempted >= askedAtUtc;
+
+            if (failedThisRun)
+                outcomes.Add(new SeatRestoreOutcome(id, seat!.Name, null, null, failure));
             else if (!final)
                 return null;
+            else if (readFailure is not null)
+                outcomes.Add(new SeatRestoreOutcome(id, seat?.Name ?? id, null, null,
+                    "the restore was taken, and the record could not be read to say what became of this " +
+                    $"session ({readFailure}). It may yet come back; check the session list."));
+            else if (failure is not null)
+                outcomes.Add(new SeatRestoreOutcome(id, seat?.Name ?? id, null, null,
+                    $"the restore was taken, and after {Patience.TotalMinutes:0} minutes the only thing the " +
+                    $"record says about this session is from an earlier attempt: {failure} It may yet come " +
+                    "back; check the session list."));
             else
                 outcomes.Add(new SeatRestoreOutcome(id, seat?.Name ?? id, null, null,
                     $"the restore was taken, and after {Patience.TotalMinutes:0} minutes the record still says " +
