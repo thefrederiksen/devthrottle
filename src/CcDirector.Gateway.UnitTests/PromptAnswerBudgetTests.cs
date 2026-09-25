@@ -178,6 +178,83 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "VERBLOST1"));
     }
 
+    /// <summary>A delivery record in its own folder, as phase 1's tests make one; removed with the test.</summary>
+    private DeliveryRecord NewDeliveryRecord()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-verb-record-" + Guid.NewGuid().ToString("N"));
+        _cleanup.Add(new FolderRemoval(dir));
+        return new DeliveryRecord(dir);
+    }
+
+    private sealed class FolderRemoval(string dir) : IDisposable
+    {
+        public void Dispose() { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+    }
+
+    /// <summary>A recording spoken alone: it carries its delivery id and the spoken-turn marker, both the upload id.</summary>
+    private static PromptRequest Recording(string text, string deliveryId) =>
+        new() { Text = text, AppendEnter = true, Surface = "cockpit", DeliveryUploadId = deliveryId, DeliveryId = deliveryId };
+
+    [Fact]
+    public async Task SendPromptAsync_WorkingClaudeCodeRecordsThePromptAfterTheWindow_DeliveryRecordMovesFromDeliveringToDelivered()
+    {
+        // Arrange (round 2b): as case (a) above, with the Director's durable delivery record. The composer empties on the
+        // Enter and the records show the prompt five seconds later, after the two-second window.
+        var (session, terminal) = WorkingClaudeCode();
+        terminal.RecordDelay = TimeSpan.FromSeconds(5);
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(30);
+        var record = NewDeliveryRecord();
+        const string text = "Token RECLATE1. Reply with exactly: ACK";
+        var deliveryId = Guid.NewGuid().ToString("N");
+        DeliveryState? atAnswer = null;
+
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () =>
+        {
+            var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
+                session, Recording(text, deliveryId), SendSource.Delivery, record));
+            Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
+            atAnswer = record.Read(session.Id, deliveryId).State;
+        });
+
+        // Assert: the record said "delivering" when the verb answered - never "delivered" before the records showed the
+        // prompt - and "delivered" once they did. Typed once.
+        Assert.Equal(DeliveryState.Delivering, atAnswer);
+        Assert.Equal(DeliveryStates.Delivered, late);
+        Assert.Equal(DeliveryState.Delivered, record.Read(session.Id, deliveryId).State);
+        Assert.Equal(new[] { text }, terminal.Recorded);
+        Assert.Equal(1, terminal.EntersAccepted);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_DeliveryRecordStaysDelivering()
+    {
+        // Arrange (round 2b): as case (b) above, with the durable record. The records never show the prompt.
+        var (session, terminal) = WorkingClaudeCode();
+        terminal.NeverRecord = true;
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(2);
+        var record = NewDeliveryRecord();
+        const string text = "Token RECLOST1. Reply with exactly: ACK";
+        var deliveryId = Guid.NewGuid().ToString("N");
+
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () => Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
+            session, Recording(text, deliveryId), SendSource.Delivery, record)));
+
+        // Assert: the record stays "delivering" - never "delivered" without proof, never "not-delivered", which a retry
+        // would type again - and a second copy of the id is refused with nothing typed.
+        Assert.Equal(DeliveryStates.Delivering, late);
+        Assert.Equal(DeliveryState.Delivering, record.Read(session.Id, deliveryId).State);
+        var copy = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
+            session, Recording(text, deliveryId), SendSource.Delivery, record));
+        Assert.False(copy.Accepted);
+        Assert.Equal(DeliveryState.Delivering, copy.DeliveryState);
+        Assert.Equal(1, terminal.EntersAccepted);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "RECLOST1"));
+    }
+
     [Fact]
     public async Task SendPromptAsync_SendFailsWithinTheBudget_StaysAFailure()
     {
