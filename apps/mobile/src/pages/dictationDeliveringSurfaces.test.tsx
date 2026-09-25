@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
@@ -19,6 +19,8 @@ import { SessionRow } from "./Home";
 //   - Still delivering: the words may already be in the session, so it is calm (never red, never the amber
 //     "still sending"), and nothing on it can send a second copy - no "Send anyway", no fresh-id "Retry".
 //   - Too old: the words come back with "Send anyway" and the age wording.
+//   - Could not confirm (phase 2, change 1): the words come back with the label and Dismiss only, because the
+//     Gateway says a second copy might double them.
 
 vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
   RestartRequestsPanel: () => null,
@@ -99,6 +101,7 @@ describe("phone: too old", () => {
       phase: "dropped",
       retryable: false,
       recoverableText: "the words from six minutes ago",
+      offerSendAnyway: true,
       error: "This recording is more than 5 minutes old, so it was not sent automatically. Here is what you said - send it?",
     });
     render(<DictationStatusStrip sessionId={SESSION_ID} />);
@@ -106,5 +109,46 @@ describe("phone: too old", () => {
     const strip = screen.getByText(/more than 5 minutes old/).closest(".dictate-strip") as HTMLElement;
     expect(within(strip).getByText("the words from six minutes ago")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Send anyway" })).toBeTruthy();
+  });
+});
+
+describe("phone: could not confirm it arrived (phase 2, change 1)", () => {
+  it("the strip shows the words, the label and Dismiss, and no Send anyway or Retry", async () => {
+    publishDictationStatus({
+      sessionId: SESSION_ID,
+      uploadId: "up-unconfirmed",
+      phase: "dropped",
+      retryable: false,
+      offerSendAnyway: false,
+      recoverableText: "the words nobody confirmed",
+      error: "We could not confirm this arrived. Here is what you said.",
+    });
+    render(<DictationStatusStrip sessionId={SESSION_ID} />);
+
+    const strip = screen.getByText("We could not confirm this arrived. Here is what you said.").closest(".dictate-strip") as HTMLElement;
+    expect(within(strip).getByText("the words nobody confirmed")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
+
+    fireEvent.click(within(strip).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(screen.queryByText("the words nobody confirmed")).toBeNull());
+  });
+
+  it("a shown-back status that does not carry the Gateway's offer offers no second send", () => {
+    publishDictationStatus({
+      sessionId: SESSION_ID,
+      uploadId: "up-no-offer",
+      phase: "dropped",
+      retryable: false,
+      recoverableText: "words with no verdict",
+      error: "This recording wasn't sent automatically. Here is what you said - send it?",
+    });
+    render(<DictationStatusStrip sessionId={SESSION_ID} />);
+
+    const strip = screen.getByText("words with no verdict").closest(".dictate-strip") as HTMLElement;
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
 });

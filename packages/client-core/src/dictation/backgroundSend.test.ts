@@ -69,12 +69,14 @@ const MOVED_ON: DictationSubmitResult = {
   terminal: true,
   submitted: false,
   movedOn: true,
+  offerSendAnyway: true,
   transcript: "the words the user actually said",
 };
 const MOVED_ON_NO_TRANSCRIPT: DictationSubmitResult = {
   terminal: true,
   submitted: false,
   movedOn: true,
+  offerSendAnyway: true,
   transcript: "",
 };
 // The 202 "still delivering" answer (voice delivery, #3398).
@@ -502,6 +504,7 @@ describe("a terminal outcome that did NOT submit is never silent (#1590)", () =>
     const dropped: PendingDictation = {
       ...makeRecord("id-dropped"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "words from before the reload",
     };
     vi.mocked(listPending).mockResolvedValue([dropped]);
@@ -572,6 +575,7 @@ describe("recovering a dropped dictation (#1590)", () => {
   const droppedRecord = (id: string, transcript: string): PendingDictation => ({
     ...makeRecord(id),
     staleDropped: true,
+    droppedOfferSendAnyway: true,
     droppedTranscript: transcript,
   });
 
@@ -643,6 +647,7 @@ describe("recovering a dropped dictation (#1590)", () => {
     const composed: PendingDictation = {
       ...makeRecord("id-compose"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "the spoken words",
       before: "typed before",
       prefix: "an earlier paused segment",
@@ -669,6 +674,7 @@ describe("recovering a dropped dictation (#1590)", () => {
     const composed: PendingDictation = {
       ...makeRecord("id-quote"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "spoken",
       before: "typed",
       after: "",
@@ -691,6 +697,7 @@ describe("recovering a dropped dictation (#1590)", () => {
     const typedOnly: PendingDictation = {
       ...makeRecord("id-typed-only"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "",
       before: "please run the tests",
     };
@@ -982,6 +989,7 @@ describe("the not-sent wording follows the Gateway's reason (voice delivery, #33
     terminal: true,
     submitted: false,
     movedOn: true,
+    offerSendAnyway: true,
     movedOnReason: reason,
     transcript,
   });
@@ -1040,6 +1048,7 @@ describe("the not-sent wording follows the Gateway's reason (voice delivery, #33
     const dropped: PendingDictation = {
       ...makeRecord("id-old-words"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "still mine",
       droppedReason: "too-old",
     };
@@ -1056,6 +1065,7 @@ describe("Send anyway answered 202 still delivering (voice delivery, #3398, cont
   const droppedRecord = (id: string): PendingDictation => ({
     ...makeRecord(id),
     staleDropped: true,
+    droppedOfferSendAnyway: true,
     droppedTranscript: "the words I said",
     droppedReason: "too-old",
   });
@@ -1133,5 +1143,169 @@ describe("Send anyway answered 202 still delivering (voice delivery, #3398, cont
     expect(vi.mocked(sendPrompt).mock.calls[0][6]).toBe("id-anyway-now");
     expect(uploadDictationToSession).not.toHaveBeenCalled();
     expect(vi.mocked(savePending).mock.calls.some((c) => c[0].id !== "id-anyway-now")).toBe(false);
+  });
+});
+
+// Phase 2, change 1: "could not confirm it arrived". The Gateway decides whether a shown-back recording
+// offers "Send anyway" (offerSendAnyway); for "unconfirmed" it does not, because the words may be in already
+// and a second copy could double them. The client renders that decision and never re-sends on its own.
+describe("could not confirm it arrived (phase 2, change 1)", () => {
+  const UNCONFIRMED: DictationSubmitResult = {
+    terminal: true,
+    submitted: false,
+    movedOn: true,
+    movedOnReason: "unconfirmed",
+    offerSendAnyway: false,
+    transcript: "the words nobody confirmed",
+  };
+  const LABEL = "We could not confirm this arrived. Here is what you said.";
+
+  it("C1: keeps the copy, shows the words with the label, offers no Send anyway, and never retries", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(UNCONFIRMED);
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    expect(deletePending).not.toHaveBeenCalled();
+    const saved = vi.mocked(savePending).mock.calls.find((c) => c[0].staleDropped)?.[0];
+    expect(saved?.droppedReason).toBe("unconfirmed");
+    expect(saved?.droppedOfferSendAnyway).toBe(false);
+    const status = statusFor(saved!.id);
+    expect(status?.phase).toBe("dropped");
+    expect(status?.error).toBe(LABEL);
+    expect(status?.recoverableText).toBe("the words nobody confirmed");
+    expect(status?.offerSendAnyway).toBe(false);
+    expect(status?.retryable).toBe(false);
+    // No automatic attempt of any kind follows.
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("C1: too old with the Gateway's offer still offers Send anyway", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue({ ...UNCONFIRMED, movedOnReason: "too-old", offerSendAnyway: true });
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const saved = vi.mocked(savePending).mock.calls.find((c) => c[0].staleDropped)?.[0];
+    expect(saved?.droppedOfferSendAnyway).toBe(true);
+    expect(statusFor(saved!.id)?.offerSendAnyway).toBe(true);
+    expect(statusFor(saved!.id)?.error).toContain("more than 5 minutes old");
+  });
+
+  it("C1: an unconfirmed recording is re-published after a reload with the same verdict", async () => {
+    const stored: PendingDictation = {
+      ...makeRecord("id-unconfirmed-reload"),
+      staleDropped: true,
+      droppedTranscript: "still unconfirmed",
+      droppedReason: "unconfirmed",
+      droppedOfferSendAnyway: false,
+    };
+    vi.mocked(listPending).mockResolvedValue([stored]);
+
+    await resumePendingDictations();
+
+    const status = statusFor("id-unconfirmed-reload");
+    expect(status?.error).toBe(LABEL);
+    expect(status?.offerSendAnyway).toBe(false);
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("C1: nothing can send an unconfirmed recording - not Send anyway, not a fresh-id Retry, not Upload now", async () => {
+    const stored: PendingDictation = {
+      ...makeRecord("id-unconfirmed-guard"),
+      staleDropped: true,
+      droppedTranscript: "",
+      droppedReason: "unconfirmed",
+      droppedOfferSendAnyway: false,
+      before: "typed words",
+    };
+    vi.mocked(getPending).mockResolvedValue(stored);
+
+    await sendDroppedDictationAnyway("id-unconfirmed-guard");
+    await retryDroppedDictation("id-unconfirmed-guard");
+    await retryPendingDictation("id-unconfirmed-guard");
+
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+    expect(savePending).not.toHaveBeenCalled();
+    expect(deletePending).not.toHaveBeenCalled();
+    expect(statusFor("id-unconfirmed-guard")?.offerSendAnyway).toBe(false);
+  });
+
+  it("C1: a shown-back answer without the Gateway's offer keeps the copy and is logged with the upload id", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(uploadDictationToSession).mockRejectedValue(
+      new Error("[uploadDictationToSession] the Gateway's shown-back answer for upload up-1 carries no offerSendAnyway"),
+    );
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const id = vi.mocked(savePending).mock.calls[0][0].id;
+    expect(deletePending).not.toHaveBeenCalled();
+    expect(statusFor(id)?.phase).toBe("held");
+    expect(errors.mock.calls.some((c) => String(c[0]).includes(id) && String(c[0]).includes("offerSendAnyway"))).toBe(true);
+    errors.mockRestore();
+  });
+
+  it("C2: a Send anyway re-press answered unconfirmed stops pressing, clears the mark on disk, and shows the words back", async () => {
+    const marked: PendingDictation = {
+      ...makeRecord("id-repress"),
+      staleDropped: true,
+      droppedTranscript: "the words I said",
+      droppedReason: "too-old",
+      droppedOfferSendAnyway: true,
+      sendingAnyway: true,
+    };
+    vi.mocked(getPending).mockResolvedValue(marked);
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: false, unconfirmed: true });
+
+    await sendDroppedDictationAnyway("id-repress");
+
+    const saved = vi.mocked(savePending).mock.calls.at(-1)?.[0];
+    expect(saved?.sendingAnyway).toBeUndefined();
+    expect(saved?.droppedReason).toBe("unconfirmed");
+    expect(saved?.droppedOfferSendAnyway).toBe(false);
+    expect(saved?.staleDropped).toBe(true);
+    expect(deletePending).not.toHaveBeenCalled();
+    const status = statusFor("id-repress");
+    expect(status?.phase).toBe("dropped");
+    expect(status?.error).toBe(LABEL);
+    expect(status?.recoverableText).toBe("the words I said");
+    expect(status?.offerSendAnyway).toBe(false);
+    // No further automatic presses.
+    vi.mocked(getPending).mockResolvedValue(saved!);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+
+    // Dismiss is the one way out, and it deletes the copy.
+    await dismissDictationStatus("id-repress");
+    expect(deletePending).toHaveBeenCalledWith("id-repress");
+    expect(statusFor("id-repress")).toBeUndefined();
+  });
+
+  it("C2: a 202 re-press followed by unconfirmed stops the repeats on the cadence too", async () => {
+    const rec: PendingDictation = {
+      ...makeRecord("id-repress-202"),
+      staleDropped: true,
+      droppedTranscript: "the words I said",
+      droppedReason: "too-old",
+      droppedOfferSendAnyway: true,
+    };
+    vi.mocked(getPending).mockResolvedValue(rec);
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: true, directorState: "no-answer" });
+    await sendDroppedDictationAnyway("id-repress-202");
+    const marked = vi.mocked(savePending).mock.calls.at(-1)![0];
+    expect(marked.sendingAnyway).toBe(true);
+
+    vi.mocked(getPending).mockResolvedValue(marked);
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: false, unconfirmed: true });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(sendPrompt).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(savePending).mock.calls.at(-1)?.[0].sendingAnyway).toBeUndefined();
+    expect(statusFor("id-repress-202")?.error).toBe(LABEL);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(sendPrompt).toHaveBeenCalledTimes(2);
   });
 });

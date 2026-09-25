@@ -111,6 +111,7 @@ vi.mock("@devthrottle/client-core/dictation/readyCue", () => ({
 }));
 
 import { SessionComposer } from "./SessionComposer";
+import { dismissDictationStatus } from "@devthrottle/client-core/dictation/backgroundSend";
 import {
   allDictationStatuses,
   clearDictationStatus,
@@ -299,11 +300,53 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
       phase: "dropped",
       retryable: false,
       recoverableText: "the words from six minutes ago",
+      offerSendAnyway: true,
       error: "This recording is more than 5 minutes old, so it was not sent automatically. Here is what you said - send it?",
     });
     render(<Harness sessionId="sess-42" />);
     const strip = (await screen.findByText(/more than 5 minutes old/)).closest(".dictate-strip") as HTMLElement;
     expect(within(strip).getByText("the words from six minutes ago")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Send anyway" })).toBeTruthy();
+  });
+
+  // Phase 2, change 1: the Gateway could not confirm the words arrived, so it says not to offer them again.
+  it("could not confirm shows the words, the label and Dismiss, and no Send anyway or Retry", async () => {
+    publishDictationStatus({
+      sessionId: "sess-42",
+      uploadId: "up-unconfirmed",
+      phase: "dropped",
+      retryable: false,
+      offerSendAnyway: false,
+      recoverableText: "the words nobody confirmed",
+      error: "We could not confirm this arrived. Here is what you said.",
+    });
+    render(<Harness sessionId="sess-42" />);
+    const strip = (await screen.findByText("We could not confirm this arrived. Here is what you said.")).closest(
+      ".dictate-strip",
+    ) as HTMLElement;
+    expect(within(strip).getByText("the words nobody confirmed")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
+
+    // Dismiss is the one way out, and it goes to the driver's dismiss for this exact recording.
+    fireEvent.click(within(strip).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(dismissDictationStatus).toHaveBeenCalledWith("up-unconfirmed"));
+  });
+
+  it("a shown-back status that does not carry the Gateway's offer offers no second send", async () => {
+    publishDictationStatus({
+      sessionId: "sess-42",
+      uploadId: "up-no-offer",
+      phase: "dropped",
+      retryable: false,
+      recoverableText: "words with no verdict",
+      error: "This recording wasn't sent automatically. Here is what you said - send it?",
+    });
+    render(<Harness sessionId="sess-42" />);
+    const strip = (await screen.findByText("words with no verdict")).closest(".dictate-strip") as HTMLElement;
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
 });
