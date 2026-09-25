@@ -442,14 +442,23 @@ internal static class SessionCommandExecutor
         try
         {
             await sending;
-            FileLog.Write($"[SessionCommandExecutor] late send outcome: session={sessionId}, delivery={id}: {DeliveryStates.Delivered}");
+            WriteLateOutcome(sessionId, id, DeliveryStates.Delivered, null);
         }
         catch (Exception ex)
         {
             // Nobody awaits this task: the verb has answered. The failure is recorded here, and by the session itself.
-            FileLog.Write($"[SessionCommandExecutor] late send outcome: session={sessionId}, delivery={id}: " +
-                          $"{DeliveryStates.NotDelivered} - {ex.Message}");
+            WriteLateOutcome(sessionId, id, DeliveryStates.NotDelivered, ex.Message);
         }
+    }
+
+    /// <summary>Test seam: sees every late outcome as (delivery id, wire word), alongside the log. Null in the Director.</summary>
+    internal static Action<string, string>? LateOutcomeObserver;
+
+    private static void WriteLateOutcome(Guid sessionId, string deliveryId, string state, string? reason)
+    {
+        FileLog.Write($"[SessionCommandExecutor] late send outcome: session={sessionId}, delivery={deliveryId}: {state}" +
+                      (reason is null ? "" : $" - {reason}"));
+        LateOutcomeObserver?.Invoke(deliveryId, state);
     }
 
     /// <summary>

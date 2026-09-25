@@ -3241,14 +3241,19 @@ public sealed class Session : IDisposable
 
     /// <param name="provenance">What the door this text came through knew at entry (source logging): required,
     /// so no door can send text without saying which door it is.</param>
-    public async Task SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null)
+    /// <returns>Delivered, or still delivering (see <see cref="TextSendOutcome"/>). A send that did not deliver throws.</returns>
+    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null)
     {
         ArgumentNullException.ThrowIfNull(provenance);
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return TextSendOutcome.Delivered;
 
         FileLog.Write($"[Session] SendTextAsync: session={Id}, source={source}, driver={Driver.Kind}, text=\"{(text.Length > 60 ? text[..60] + "..." : text)}\", len={text.Length}");
         using var input = await BeginInputAsync();
-        await SubmitTextAsync(_backend, text, provenance, source, origin, BracketedPasteEnabled);
+        var outcome = await SubmitTextAsync(_backend, text, provenance, source, origin, BracketedPasteEnabled);
+        FileLog.Write($"[Session] SendTextAsync done: session={Id}, " +
+                      (outcome.Confirmed ? "delivered" : $"STILL DELIVERING - {outcome.Reason}"));
+        return outcome;
     }
 
     /// <summary>
@@ -3552,7 +3557,7 @@ public sealed class Session : IDisposable
     /// where the composer can be read (Claude Code, Codex). Throws <see cref="Drivers.PromptNotSubmittedException"/> when
     /// it never arrives, so the caller records the send as NOT delivered - the terminal's output is never taken as proof.
     /// </summary>
-    private async Task ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
+    private async Task<TextSendOutcome> ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
     {
         var label = typed.Length > 60 ? typed[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : typed;
         var current = typed;
@@ -3581,7 +3586,7 @@ public sealed class Session : IDisposable
             // failed delivery would invite the owner - or the phone's retry - to send it again.
             FileLog.Write($"[Session] WARNING arrived altered: session={Id}, agent={AgentKind}: a new prompt reached the records " +
                           $"but not word for word; treated as delivered, not resent. len={typed.Length}");
-            return;
+            return TextSendOutcome.Delivered;
         }
         if (outcome == Drivers.PromptArrivalOutcome.NotArrived)
         {
@@ -3593,6 +3598,7 @@ public sealed class Session : IDisposable
                 $"{ArrivalWindow.TotalSeconds:F0}s after the send. The terminal's output is not proof, so the send is NOT delivered. " +
                 $"Session={Id}, len={typed.Length}.");
         }
+        return TextSendOutcome.Delivered;
     }
 
     /// <summary>
@@ -3679,6 +3685,18 @@ public sealed class Session : IDisposable
     /// <summary>Test seam: overrides <see cref="ComposerReleaseWindow"/> for this session. Null in every real session.</summary>
     internal TimeSpan? ComposerReleaseWindowForTests { get; set; }
 
+    /// <summary>Test seam: overrides <see cref="LateArrivalLimit"/> for this session. Null in every real session.</summary>
+    internal TimeSpan? LateArrivalLimitForTests { get; set; }
+
+    /// <summary>
+    /// HOW LONG THE RECORDS ARE STILL WATCHED AFTER A SEND RETURNED "STILL DELIVERING" (Voice Delivery mission, phase 3,
+    /// review finding 3): 15 minutes. A working Claude Code holds a prompt sent mid-turn and writes it to its records only
+    /// when its running tool ends - measured on 25 September 2026, 55 seconds after the Enter for a 60-second shell
+    /// command; the 09:05 incident session ran one turn for over two minutes. The watch only reads the records and types
+    /// nothing, so the limit bounds a cheap file read, not a risk; past it the delivery stays "delivering", logged.
+    /// </summary>
+    internal static readonly TimeSpan LateArrivalLimit = TimeSpan.FromMinutes(15);
+
     /// <summary>
     /// NEVER REPORT SENT WHILE THE TEXT STILL SITS IN THE COMPOSER (Voice Delivery mission, phase 3). A send the agent's
     /// records cannot prove - an agent other than Claude Code sent to while it works, or a slash command - is judged by
@@ -3689,11 +3707,11 @@ public sealed class Session : IDisposable
     /// the text is left exactly where it is, never cleared or typed again (the doubling rule from issue #3290).
     /// A composer that cannot be read proves nothing either way: that is logged and the verifier's verdict stands.
     /// </summary>
-    private async Task ConfirmLeftComposerAsync(string typed)
+    private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed)
     {
-        if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return;
+        if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return TextSendOutcome.Delivered;
         var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
-        if (fingerprint.Length == 0) return;
+        if (fingerprint.Length == 0) return TextSendOutcome.Delivered;
         var window = ComposerReleaseWindowForTests ?? ComposerReleaseWindow;
         var notice = new Drivers.SendWaitNotice("Session", $"a {typed.Length}-character text to leave the composer of session {Id}",
             $"{window.TotalSeconds:F0}s");
@@ -3707,7 +3725,7 @@ public sealed class Session : IDisposable
                 FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: the composer cannot be read, so whether the text left it " +
                               "is not known; the submit verifier's verdict stands");
                 notice.End("the composer cannot be read");
-                return;
+                return TextSendOutcome.Delivered;
             }
             if (reading == ComposerRelease.Left)
             {
@@ -3716,7 +3734,7 @@ public sealed class Session : IDisposable
                 if (ReadComposerForRelease(fingerprint) == ComposerRelease.Left)
                 {
                     notice.End("the text left the composer");
-                    return;
+                    return TextSendOutcome.Delivered;
                 }
             }
             if (DateTime.UtcNow - started >= window)
@@ -3750,8 +3768,9 @@ public sealed class Session : IDisposable
     private const string ClaudePastePlaceholder = "[Pasted text";
 
     /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
-    private async Task SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
+    private async Task<TextSendOutcome> SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
     {
+        var outcome = TextSendOutcome.Delivered;
         long ownerTextBefore;
         lock (_inputLock) ownerTextBefore = _ownerTextCount;
         // THE delivery boundary (issue internal#811). Everything below this try either delivered the
@@ -3822,9 +3841,9 @@ public sealed class Session : IDisposable
                     typed = await Submit(clearFirst: true);
                 }
                 if (proof is not null)
-                    await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
+                    outcome = await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
                 else if (ReferenceEquals(target, _backend))
-                    await ConfirmLeftComposerAsync(typed);
+                    outcome = await ConfirmLeftComposerAsync(typed);
                 }
                 finally
                 {
@@ -3881,6 +3900,7 @@ public sealed class Session : IDisposable
         // the same test as WorkingOrigin, which is set from OriginFor at the top of this method.
         Storage.PromptAuthorBuffer.Record(Id.ToString(), OriginFor(source, origin), text ?? "");
         SetActivityState(ActivityState.Working);
+        return outcome;
     }
 
     /// <summary>

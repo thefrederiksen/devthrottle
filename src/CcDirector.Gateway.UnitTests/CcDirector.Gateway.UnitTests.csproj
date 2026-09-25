@@ -71,6 +71,9 @@
          about a guard this consequential. Its pinning test is linked with it, so an initializer that
          silently fails to run is caught here too rather than only next door. -->
     <Compile Include="..\CcDirector.Gateway.Tests\TestStorageRootRedirect.cs" Link="TestStorageRootRedirect.cs" />
+    <!-- The scripted Claude Code / Codex terminal the busy-send tests draw with, linked so the prompt verb's tests
+         drive the same agent screen the session's own tests do (Voice Delivery mission, phase 3). -->
+    <Compile Include="..\CcDirector.Core.UnitTests\Sessions\ScriptedAgentTerminal.cs" Link="Sessions/ScriptedAgentTerminal.cs" />
     <!-- The assembly's OTHER module initializer, and it is a live-data guard too: it pins the Director
          instance-discovery directory to a per-process temp directory so no test can write an instance file
          into the real %LOCALAPPDATA%\cc-director\config\director\instances\ (issue #322 - a test once

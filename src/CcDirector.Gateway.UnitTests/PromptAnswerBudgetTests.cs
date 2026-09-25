@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Backends;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.UnitTests.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -14,7 +16,7 @@ namespace CcDirector.Gateway.Tests;
 /// success a failure and retried it, and the owner's words reached the agent twice. The verb now answers "delivering"
 /// at its budget and lets the send carry on.
 /// </summary>
-public sealed class PromptAnswerBudgetTests
+public sealed class PromptAnswerBudgetTests : IDisposable
 {
     /// <summary>A terminal session whose agent takes <paramref name="echoDelay"/> to show typed text - a busy machine.
     /// The agent is one the Director has no conversation records for, so the send is judged by the terminal alone.</summary>
@@ -32,7 +34,8 @@ public sealed class PromptAnswerBudgetTests
         return (session, terminal);
     }
 
-    private static PromptRequest Prompt(string text) => new() { Text = text, AppendEnter = true, Surface = "cockpit" };
+    private static PromptRequest Prompt(string text, string? deliveryId = null) =>
+        new() { Text = text, AppendEnter = true, Surface = "cockpit", DeliveryUploadId = deliveryId };
 
     private static PromptResponse Body(DirectorCommandResult result)
     {
@@ -81,6 +84,98 @@ public sealed class PromptAnswerBudgetTests
         Assert.True(response.Accepted);
         Assert.Equal(DeliveryState.Delivered, response.DeliveryState);
         Assert.Single(terminal.Submitted);
+    }
+
+    /// <summary>A working Claude Code on the scripted agent terminal the session's own busy-send tests use.</summary>
+    private (Session Session, ScriptedAgentTerminal Terminal) WorkingClaudeCode()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-verb-late-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var transcript = Path.Combine(dir, Guid.NewGuid() + ".jsonl");
+        File.WriteAllText(transcript, "");
+        var terminal = new ScriptedAgentTerminal(AgentKind.ClaudeCode, transcript, dir) { Working = true };
+        var session = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode };
+        _cleanup.Add(terminal);
+        _cleanup.Add(session);
+        session.UpdateClaudeSessionPointer(Guid.NewGuid().ToString(), transcript, "test");
+        terminal.StartDrawing();
+        session.ApplyTerminalActivityState(ActivityState.Working);
+        return (session, terminal);
+    }
+
+    private readonly List<IDisposable> _cleanup = new();
+
+    public void Dispose()
+    {
+        foreach (var d in _cleanup) d.Dispose();
+    }
+
+    /// <summary>Waits for the verb's late outcome for <paramref name="deliveryId"/>, as written by the one place it is written.</summary>
+    private static async Task<string> LateOutcomeFor(string deliveryId, Func<Task> act)
+    {
+        var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Observe(string id, string state) { if (id == deliveryId) seen.TrySetResult(state); }
+        ControlApi.SessionCommandExecutor.LateOutcomeObserver += Observe;
+        try
+        {
+            await act();
+            var done = await Task.WhenAny(seen.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+            Assert.True(done == seen.Task, "no late outcome was written within 30 seconds");
+            return await seen.Task;
+        }
+        finally
+        {
+            ControlApi.SessionCommandExecutor.LateOutcomeObserver -= Observe;
+        }
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_WorkingClaudeCodeRecordsThePromptAfterTheWindow_AnswersDeliveringThenRecordsDelivered()
+    {
+        // Arrange (review finding 3, case a): the composer empties on the Enter; the records show the prompt five seconds
+        // later, after the two-second records window. The send returns inside the verb's budget - but unproven.
+        var (session, terminal) = WorkingClaudeCode();
+        terminal.RecordDelay = TimeSpan.FromSeconds(5);
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(30);
+        const string text = "Token VERBLATE1. Reply with exactly: ACK";
+        var deliveryId = Guid.NewGuid().ToString("N");
+        PromptResponse? response = null;
+
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () => response = Body(
+            await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Prompt(text, deliveryId))));
+
+        // Assert: answered "delivering" - never a failure, never "delivered" before the records say so - then delivered.
+        Assert.True(response!.Accepted);
+        Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
+        Assert.Equal(DeliveryStates.Delivered, late);
+        Assert.Equal(new[] { text }, terminal.Recorded);
+        Assert.Equal(1, terminal.EntersAccepted);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_StaysDeliveringAndIsNeverTypedAgain()
+    {
+        // Arrange (review finding 3, case b): the composer empties on the Enter; the records never show the prompt.
+        var (session, terminal) = WorkingClaudeCode();
+        terminal.NeverRecord = true;
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(2);
+        const string text = "Token VERBLOST1. Reply with exactly: ACK";
+        var deliveryId = Guid.NewGuid().ToString("N");
+        PromptResponse? response = null;
+
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () => response = Body(
+            await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Prompt(text, deliveryId))));
+
+        // Assert: "delivering" at the answer and still "delivering" when the watch ends - never "not-delivered", which a
+        // holder of the record would retry by typing - and the words were typed once.
+        Assert.Equal(DeliveryState.Delivering, response!.DeliveryState);
+        Assert.Equal(DeliveryStates.Delivering, late);
+        Assert.Equal(1, terminal.EntersAccepted);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "VERBLOST1"));
     }
 
     [Fact]

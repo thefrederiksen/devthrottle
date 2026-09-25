@@ -165,200 +165,110 @@ public sealed class BusyAgentSendTests : IDisposable
         Assert.Equal("", terminal.Composer);
     }
 
+    // ===== Round 2: the review's findings 1, 2 and 3 =====
+
+    [Fact]
+    public async Task SendTextAsync_WorkingAgentEnterSwallowedUnderAMenu_IsNeverReportedDelivered()
+    {
+        // Arrange (review finding 1): a working Codex swallows the Enter, and for the whole release window a menu is drawn
+        // where the composer would be - its hint in the footer, the text still underneath. A menu over the composer says
+        // nothing about whether the text left it, so it must never be read as "the text left".
+        var (session, terminal) = NewWorkingSession(AgentKind.Codex);
+        terminal.SwallowEnter = true;
+        terminal.MenuAfterEnter = true;
+        session.ComposerReleaseWindowForTests = TimeSpan.FromSeconds(1.5);
+        var text = "Token MENU1. Reply with exactly: ACK";
+
+        // Act
+        var outcome = await session.SendTextAsync(text, SessionTestDoors.TestDoor);
+
+        // Assert: not reported delivered; the text is where it was, typed once, nothing cleared.
+        Assert.False(outcome.Confirmed, "a send whose composer was hidden under a menu the whole window was reported delivered");
+        Assert.Contains("cannot be read", outcome.Reason);
+        Assert.Equal(text, terminal.Composer);
+        Assert.Equal(0, terminal.EntersAccepted);
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_WorkingAgentEnterSwallowedAndFramesUnreadable_ReportsNotDeliveredAndLeavesTheTextInPlace()
+    {
+        // Arrange (review finding 2): a working Codex swallows the Enter; for the first four seconds after it every frame
+        // is one the composer reader cannot read (the composer row drawn without its glyph, as mid-repaint), and after that
+        // every frame shows the text still held. Unreadable frames must not end the check.
+        var (session, terminal) = NewWorkingSession(AgentKind.Codex);
+        terminal.SwallowEnter = true;
+        terminal.UnreadableAfterEnter = TimeSpan.FromSeconds(4);
+        session.ComposerReleaseWindowForTests = TimeSpan.FromSeconds(6);
+        var text = "Token BLINK1. Reply with exactly: ACK";
+
+        // Act
+        var ex = await Assert.ThrowsAsync<PromptNotSubmittedException>(
+            () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+
+        // Assert: not delivered, the text still in the composer, typed once, never cleared.
+        Assert.Contains("still in", ex.Message);
+        Assert.Equal(text, terminal.Composer);
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_WorkingClaudeCodeRecordsThePromptAfterTheWindow_IsDeliveringThenDelivered()
+    {
+        // Arrange (review finding 3, case a): a working Claude Code takes the Enter - the composer empties - but writes
+        // the prompt to its records only five seconds later, after the two-second records window, as it does when its
+        // running tool ends.
+        var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode);
+        terminal.RecordDelay = TimeSpan.FromSeconds(5);
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(30);
+        var text = "Token LATE1. Reply with exactly: ACK";
+
+        // Act
+        var outcome = await session.SendTextAsync(text, SessionTestDoors.TestDoor);
+        var composerAtAnswer = terminal.Composer;
+        var provenLater = await outcome.LateProof!;
+
+        // Assert: still delivering when the send returned - never a failure - then proven delivered from the records;
+        // typed once, one Enter, nothing cleared, and in the records once.
+        Assert.False(outcome.Confirmed);
+        Assert.Equal("", composerAtAnswer);
+        Assert.True(provenLater);
+        Assert.Equal(new[] { text }, terminal.Recorded);
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(1, terminal.EntersAccepted);
+        Assert.Equal(0, terminal.ClearKeysPressed);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_WorkingClaudeCodeNeverRecordsThePrompt_StaysDeliveringAndIsNeverTypedAgain()
+    {
+        // Arrange (review finding 3, case b): the composer empties on the Enter, and the records never show the prompt.
+        var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode);
+        terminal.NeverRecord = true;
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(2);
+        var text = "Token LOST1. Reply with exactly: ACK";
+
+        // Act
+        var outcome = await session.SendTextAsync(text, SessionTestDoors.TestDoor);
+        var provenLater = await outcome.LateProof!;
+
+        // Assert: still delivering, never not-delivered; the watch ends unproven; nothing typed a second time.
+        Assert.False(outcome.Confirmed);
+        Assert.False(provenLater);
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(1, terminal.EntersAccepted);
+        Assert.Equal(0, terminal.ClearKeysPressed);
+    }
+
     private static int CountOf(string hay, string needle)
     {
         var count = 0;
         for (var at = hay.IndexOf(needle, StringComparison.Ordinal); at >= 0; at = hay.IndexOf(needle, at + needle.Length, StringComparison.Ordinal))
             count++;
         return count;
-    }
-}
-
-/// <summary>
-/// A scripted agent terminal. It keeps a composer the way Claude Code and Codex do - typed characters append, a
-/// bracketed paste folds into "[Pasted text #1 +N lines]", Backspace removes one character (or the whole paste), Enter
-/// submits and empties it - and draws the screen those agents draw, so the Director's own composer reader reads it.
-/// While <see cref="Working"/> it redraws a spinner every 30 milliseconds and never goes quiet. An accepted Enter writes
-/// the prompt to the conversation file the way Claude Code does: a queue "enqueue" line while working, a user line when
-/// idle.
-/// </summary>
-internal sealed class ScriptedAgentTerminal : ISessionBackend
-{
-    private readonly object _lock = new();
-    private readonly AgentKind _agent;
-    private readonly string _transcript;
-    private readonly StringBuilder _composer = new();
-    private readonly StringBuilder _typed = new();
-    private readonly StringBuilder _paste = new();
-    private readonly CancellationTokenSource _stop = new();
-    private string? _pasteHeld;
-    private bool _inPaste;
-    private int _frame;
-
-    public ScriptedAgentTerminal(AgentKind agent, string transcript, string workingDirectory)
-    {
-        _agent = agent;
-        _transcript = transcript;
-        WorkingDirectory = workingDirectory;
-    }
-
-    public bool Working { get; set; }
-    public bool SwallowEnter { get; set; }
-    public TimeSpan PasteDrawDelay { get; set; } = TimeSpan.Zero;
-    public TimeSpan SpinnerInterval { get; set; } = TimeSpan.FromMilliseconds(30);
-
-    /// <summary>How long the agent takes to draw typed characters. Until then it answers a write with one invisible
-    /// cursor sequence, so the terminal has reacted but shows nothing - a working agent that is behind on its input.</summary>
-    public TimeSpan TypedDrawDelay { get; set; } = TimeSpan.Zero;
-    private DateTime _drawTypedFrom = DateTime.MinValue;
-    public int EntersAccepted { get; private set; }
-    public int ClearKeysPressed { get; private set; }
-    public DateTime? PasteDrawnAt { get; private set; }
-    public DateTime? FirstEnterAt { get; private set; }
-    public List<string> Recorded { get; } = new();
-
-    public string Composer { get { lock (_lock) return ComposerShown(); } }
-    public string TypedText { get { lock (_lock) return _typed.ToString(); } }
-
-    public int ProcessId => 0;
-    public string Status => "scripted";
-    public bool IsRunning => true;
-    public bool HasExited => false;
-    public string WorkingDirectory { get; }
-    public CircularTerminalBuffer? Buffer { get; } = new(1 << 20);
-#pragma warning disable CS0067
-    public event Action<string>? StatusChanged;
-    public event Action<int>? ProcessExited;
-#pragma warning restore CS0067
-
-    public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
-
-    public void SetComposer(string text) { lock (_lock) { _composer.Clear(); _composer.Append(text); } }
-
-    /// <summary>Turn on bracketed paste as the real agents do, draw the first frame, and start the spinner.</summary>
-    public void StartDrawing()
-    {
-        Buffer!.Write(Encoding.UTF8.GetBytes("\x1b[?2004h"));
-        Draw();
-        _ = Task.Run(async () =>
-        {
-            while (!_stop.IsCancellationRequested)
-            {
-                await Task.Delay(SpinnerInterval);
-                if (Working) Draw();
-            }
-        });
-    }
-
-    public void Write(byte[] data)
-    {
-        var text = Encoding.UTF8.GetString(data);
-        lock (_lock)
-        {
-            for (var i = 0; i < text.Length; i++)
-            {
-                if (text.AsSpan(i).StartsWith("\x1b[200~")) { _inPaste = true; _paste.Clear(); i += 5; continue; }
-                if (text.AsSpan(i).StartsWith("\x1b[201~")) { _inPaste = false; i += 5; EndPaste(); continue; }
-                var ch = text[i];
-                if (_inPaste) { _paste.Append(ch); continue; }
-                if (ch == '\r') { Enter(); continue; }
-                if (ch is '\x7f' or '\b')
-                {
-                    ClearKeysPressed++;
-                    if (_pasteHeld is not null) _pasteHeld = null;
-                    else if (_composer.Length > 0) _composer.Length--;
-                    continue;
-                }
-                if (ch < ' ') { if (ch is '\x05' or '\x15') ClearKeysPressed++; continue; }
-                _composer.Append(ch);
-                _typed.Append(ch);
-            }
-        }
-        if (TypedDrawDelay > TimeSpan.Zero && !text.Contains('\r') && !text.Contains('\x1b'))
-        {
-            if (_drawTypedFrom == DateTime.MinValue) _drawTypedFrom = DateTime.UtcNow + TypedDrawDelay;
-            if (DateTime.UtcNow < _drawTypedFrom)
-            {
-                Buffer!.Write(Encoding.UTF8.GetBytes("\x1b[?25h"));
-                var wait = _drawTypedFrom - DateTime.UtcNow;
-                _ = Task.Run(async () => { await Task.Delay(wait); Draw(); });
-                return;
-            }
-        }
-        Draw();
-    }
-
-    private void EndPaste()
-    {
-        var pasted = _paste.ToString();
-        _typed.Append(pasted);
-        if (PasteDrawDelay <= TimeSpan.Zero)
-        {
-            _pasteHeld = pasted;
-            PasteDrawnAt = DateTime.UtcNow;
-            return;
-        }
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(PasteDrawDelay);
-            lock (_lock) { _pasteHeld = pasted; PasteDrawnAt = DateTime.UtcNow; }
-            Draw();
-        });
-    }
-
-    private void Enter()
-    {
-        FirstEnterAt ??= DateTime.UtcNow;
-        if (SwallowEnter) return;
-        var submitted = _pasteHeld is not null ? _composer + _pasteHeld : _composer.ToString();
-        if (submitted.Length == 0) return;
-        EntersAccepted++;
-        _composer.Clear();
-        _pasteHeld = null;
-        Recorded.Add(submitted);
-        var line = Working
-            ? JsonSerializer.Serialize(new { type = "queue-operation", operation = "enqueue", content = submitted })
-            : JsonSerializer.Serialize(new { type = "user", message = new { role = "user", content = submitted } });
-        File.AppendAllText(_transcript, line + "\n");
-    }
-
-    private string ComposerShown() =>
-        _pasteHeld is null ? _composer.ToString() : _composer + $"[Pasted text #1 +{_pasteHeld.Count(c => c == '\n')} lines]";
-
-    /// <summary>Draw the whole screen: a spinner row, then the agent's composer, then its footer.</summary>
-    private void Draw()
-    {
-        string frame;
-        lock (_lock)
-        {
-            _frame++;
-            var shown = DateTime.UtcNow < _drawTypedFrom ? "" : ComposerShown();
-            var spinner = Working ? $"* Working... ({_frame})" : "Done.";
-            var footer = Working ? "  esc to interrupt" : "  ? for shortcuts";
-            var rule = new string('─', 80);
-            var sb = new StringBuilder("\x1b[2J\x1b[H");
-            if (_agent == AgentKind.Codex)
-            {
-                sb.Append(spinner).Append("\r\n\r\n").Append("› ").Append(shown).Append("\r\n\r\n").Append(footer);
-                sb.Append($"\x1b[3;{3 + shown.Length}H");
-            }
-            else
-            {
-                sb.Append(spinner).Append("\r\n").Append(rule).Append("\r\n").Append("❯ ").Append(shown)
-                    .Append("\r\n").Append(rule).Append("\r\n").Append(footer);
-                sb.Append($"\x1b[3;{3 + shown.Length}H");
-            }
-            frame = sb.ToString();
-        }
-        Buffer!.Write(Encoding.UTF8.GetBytes(frame));
-    }
-
-    public Task SendTextAsync(string text) => Task.CompletedTask;
-    public void Resize(short cols, short rows) { }
-    public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
-
-    public void Dispose()
-    {
-        _stop.Cancel();
     }
 }
