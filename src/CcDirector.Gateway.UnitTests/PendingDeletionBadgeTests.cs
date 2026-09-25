@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using CcDirector.ControlApi;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Memory;
@@ -30,10 +32,20 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class PendingDeletionBadgeTests
 {
-    /// <summary>A minimal live backend: these tests never exit the process, they only need a Session
-    /// that can be constructed and driven to an activity state.</summary>
+    /// <summary>
+    /// A minimal live backend that behaves the way Claude Code does when a prompt is submitted: the text is
+    /// typed, and on Enter the agent writes it into its conversation file as a user line. That file is the
+    /// only proof of arrival the Director accepts (issue #3290), so a backend that never wrote one made every
+    /// send in this class wait out the whole arrival window and fail (issue #3386). These tests never exit the
+    /// process; they only need a Session that has taken one real turn and can be driven to an activity state.
+    /// </summary>
     private sealed class RunningBackend : ISessionBackend
     {
+        private readonly string _conversationFile;
+        private readonly StringBuilder _composer = new();
+
+        public RunningBackend(string conversationFile) => _conversationFile = conversationFile;
+
         public int ProcessId => 1234;
         public string Status => "Running";
         public bool IsRunning => true;
@@ -46,12 +58,30 @@ public sealed class PendingDeletionBadgeTests
 #pragma warning restore CS0067
 
         public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
-        public void Write(byte[] data) { }
-        public Task SendTextAsync(string text) => Task.CompletedTask;
-        public Task SendEnterAsync() => Task.CompletedTask;
+
+        public void Write(byte[] data)
+        {
+            var text = Encoding.UTF8.GetString(data);
+            if (text == "\r") Submit(); else _composer.Append(text);
+        }
+
+        public Task SendTextAsync(string text) { _composer.Append(text); return Task.CompletedTask; }
+        public Task SendEnterAsync() { Submit(); return Task.CompletedTask; }
         public void Resize(short cols, short rows) { }
         public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
         public void Dispose() { }
+
+        private void Submit()
+        {
+            if (_composer.Length == 0) return;
+            var line = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["type"] = "user",
+                ["message"] = new Dictionary<string, object?> { ["role"] = "user", ["content"] = _composer.ToString() },
+            });
+            File.AppendAllText(_conversationFile, line + "\n", Encoding.UTF8);
+            _composer.Clear();
+        }
     }
 
     /// <summary>
@@ -61,22 +91,35 @@ public sealed class PendingDeletionBadgeTests
     /// The session is driven through a real submitted turn first (<c>SendTextAsync</c>) so it is no longer
     /// brand-new. That matters: a brand-new session parked at its prompt folds to GREEN "Ready", not red -
     /// so without this a "flagged and waiting on the user" case would be testing the wrong session
-    /// entirely. Driven, not hand-set (<c>IsBrandNew</c> is settable), to keep the producer real.
+    /// entirely. Driven, not hand-set (<c>IsBrandNew</c> is settable), to keep the producer real - and the
+    /// send is proven the way production proves it, through the conversation file the backend writes.
     /// </summary>
     private static async Task<SessionDto> OnTheWireAsync(ActivityState state, bool flagForDeletion, string? reason = null)
     {
-        var backend = new RunningBackend();
-        using var session = new Session(
-            Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null,
-            backend, SessionBackendType.ConPty);
-        session.MarkRunning();
-        await session.SendTextAsync("first turn");   // a real submitted turn: no longer brand-new
-        session.ApplyTerminalActivityState(state);
+        var dir = Path.Combine(Path.GetTempPath(), "cc-badge-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var claudeSessionId = Guid.NewGuid().ToString();
+            var conversationFile = Path.Combine(dir, claudeSessionId + ".jsonl");
+            var backend = new RunningBackend(conversationFile);
+            using var session = new Session(
+                Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null,
+                backend, SessionBackendType.ConPty);
+            session.UpdateClaudeSessionPointer(claudeSessionId, conversationFile, "PendingDeletionBadgeTests");
+            session.MarkRunning();
+            await session.SendTextAsync("first turn");   // a real submitted turn: no longer brand-new
+            session.ApplyTerminalActivityState(state);
 
-        if (flagForDeletion)
-            session.MarkForDeletion(reason);   // the real producer
+            if (flagForDeletion)
+                session.MarkForDeletion(reason);   // the real producer
 
-        return ControlEndpoints.Map(session, directorId: "");
+            return ControlEndpoints.Map(session, directorId: "");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     /// <summary>
