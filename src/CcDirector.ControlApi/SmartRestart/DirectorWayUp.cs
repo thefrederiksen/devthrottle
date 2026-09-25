@@ -764,17 +764,31 @@ public sealed class DirectorWayUp : IDirectorWayUp
                 .ToList();
             var headIsOwed = seats.Any(s => string.Equals(SeatId(s), headId, StringComparison.OrdinalIgnoreCase));
 
-            // A HEAD MISSING FROM ITS OWN ROW IS ONE OF TWO THINGS, and the row says which. It has already
-            // been brought back - then the seats under it come back under the session it came back as - or it
-            // is not coming back at all, and then they are top level and come back owned by the user. That is
-            // DirectorRestore.ResolveOwner's rule, reported and not restated.
-            var headCameBackEarlier = !string.IsNullOrWhiteSpace(head.RestoredSessionId);
+            // WHICH CASE THE HEAD IS IN, read off the record and nothing else - the classification only, with
+            // the words for each case in WayUpWords. A head missing from its own row has already been brought
+            // back, or is not coming back; and "not coming back" divides again on whether the record actually
+            // carries a close for it, because without one whether it is still running is a question for the
+            // fleet at restore time and not for this window. See WayUpRowHead.
+            var headCase = headIsOwed
+                ? WayUpRowHead.InTheRow
+                : !string.IsNullOrWhiteSpace(head.RestoredSessionId) ? WayUpRowHead.AlreadyBack
+                : head.ClosedAtUtc is not null ? WayUpRowHead.EndedForGood
+                : WayUpRowHead.NotComingBackButNeverClosed;
+
+            // A ROW IS GROUPED BY MISSION HEAD, so it can be a CHAIN: a seat reporting to another seat in the
+            // same row comes back under that seat, whatever becomes of the head. The row has to say so, or its
+            // sentence about the head reads as covering sessions the head never owned (product issue 3395).
+            var inThisRow = new HashSet<string>(seats.Select(SeatId), StringComparer.OrdinalIgnoreCase);
+            var someReportToOneAnother = seats.Any(s =>
+                !string.IsNullOrWhiteSpace(s.ReportsTo)
+                && !string.Equals(s.ReportsTo, headId, StringComparison.OrdinalIgnoreCase)
+                && inThisRow.Contains(s.ReportsTo!.Trim()));
 
             rows.Add(new WayUpRow(
                 Kind: WayUpRowKind.BringBack,
                 RowId: headId,
                 Title: WayUpWords.RowTitle(head),
-                Detail: WayUpWords.BringBackRowDetail(seats.Count, headIsOwed, headCameBackEarlier),
+                Detail: WayUpWords.BringBackRowDetail(seats.Count, headCase, someReportToOneAnother),
                 Ticked: true,
                 Seats: seats.Select(s => new WayUpRowSeat(
                     SeatId(s), s.Name, s.Mission?.Name, s.Role, s.ReportsTo, WayUpWords.SeatDetail(s))).ToList(),

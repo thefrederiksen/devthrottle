@@ -157,9 +157,12 @@ public sealed record DirectorRestoreResult(string WorkspaceId, IReadOnlyList<Sea
 ///  - the owner is a seat here that BLOCKED the drain and was never closed: its current id, if it is still running;
 ///  - the record is a CANCELLED smart shutdown and the owner is a seat here that was never closed: its current
 ///    id, if it is still running;
-///  - the owner is a seat here decided anything but "restore" - "close", "none", nothing decided: THE USER owns
-///    this seat. That owner is not coming back at all, so this seat is top level now, and a top level session is
-///    the user's (the owner's ruling of 25 September 2026, on product issue 3395);
+///  - the owner is a seat here decided anything but "restore" - "close", "none", nothing decided - AND it has
+///    actually ended, which is the record carrying a close for it or the fleet no longer listing it at all: THE
+///    USER owns this seat. That owner is not coming back, so this seat is top level now, and a top level session
+///    is the user's (the owner's ruling of 25 September 2026, on product issue 3395). An owner decided the same
+///    way that the record never closed and the fleet still lists has NOT ended, and this seat FAILS instead: a
+///    decision is not proof the owner stopped;
 ///  - otherwise (it failed, has not come back yet, or is not running): this seat FAILS with that reason. It is
 ///    not started under a dead id, and it is not re-owned to the user either - each of those owners still exists
 ///    and is merely out of reach, so a retry or the run's own ordering is the answer.
@@ -684,9 +687,31 @@ public sealed class DirectorRestore
         //
         // Until that ruling this refused the seat, which made the window's own promise a promise the engine
         // broke - the row offered the sessions under a lead that was not coming back and then brought back
-        // nothing. WayUpWords.BringBackRowDetail says the same thing this line does, and the two have to agree.
+        // nothing. WayUpWords.BringBackRowDetail REPORTS what this method decides, case by case, and the two
+        // have to agree in every path; DirectorWayUpTopLevelOwnerTests asserts both sides in one test so that a
+        // change to one of them cannot pass on its own.
         if (boss.Restore is not { Decision: WorkspaceRestoreDecisions.Restore })
+        {
+            // BUT A DECISION IS NOT PROOF THE OWNER STOPPED, so this arm ASKS THE ROSTER like every arm above
+            // it (both reviewers of pull request 3397). The concrete producer is
+            // DirectorDrain.EndEverySessionStillPresentAsync: a session that had not handed over at the limit is
+            // marked "ended at the limit" with nothing decided BEFORE the end is attempted, and when that end
+            // FAILS it leaves ClosedAtUtc null and records the session as still running. Reading the decision
+            // alone would then hand a live owner's worker to the user while that owner is still working.
+            //
+            // The owner has ACTUALLY ENDED in exactly two ways the Director can establish: the record carries a
+            // close for it, or the fleet no longer lists it at all. Anything else is an owner that still exists,
+            // and an existing owner's seat is not top level - so it is refused here, exactly as it is for an
+            // owner that is out of reach. This TIGHTENS the evidence for "not coming back"; it does not narrow
+            // the ruling, which is unchanged.
+            if (boss.ClosedAtUtc is null && roster.IsListed(reportsTo))
+                return (null, $"its owner {bossName} is decided \"{boss.Restore?.Decision ?? "none"}\", but the " +
+                              "record carries no close for it and the fleet still lists it, so it has not ended - " +
+                              "and a seat under an owner that has not ended is not top level and is not the " +
+                              "user's. End or close the owner, or re-seat this one.");
+
             return (null, null);
+        }
 
         // AN OWNER STILL TO COME BACK IS ORDERING, NOT AN ORPHAN, so it is not re-owned to the user either.
         // Seats come back seniors first (OrderSeniorsFirst), so when the record is restored whole this answers

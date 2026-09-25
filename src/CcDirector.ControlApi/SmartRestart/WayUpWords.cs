@@ -223,23 +223,51 @@ public static class WayUpWords
     /// and these words report that decision. It said something else until the owner's ruling of 25 September
     /// 2026 (product issue 3395): it promised that sessions under a lead that was not coming back would come
     /// back "under whoever the record says owns them", while the restore refused every one of them because
-    /// nobody would own them. A lead decided "close" is not coming back at all, so the seats under it are top
-    /// level now, and a top level session is the user's - which is what this now says.
+    /// nobody would own them.
+    ///
+    /// AND THEN IT PROMISED ONE OWNER FOR A WHOLE ROW, which is the same class of defect one size smaller (both
+    /// reviewers of pull request 3397). A row is grouped by MISSION HEAD, so it can be a chain several deep: only
+    /// the sessions that reported to the head itself become the user's, while everything below them comes back
+    /// under its own lead. And whether the head is still running is not a question the RECORD can answer - the
+    /// start-up window reads the record and never the fleet - so a head the record does not say closed may come
+    /// back owning its seats, or may have gone and leave them to the user, and this cannot know which.
+    ///
+    /// SO THE RULE HERE IS: say only what the record establishes, per case, and promise nothing it does not.
+    /// Adding a case is one edit in <see cref="WayUpRowHead"/> and one here - never a guess in a view.
     /// </summary>
     /// <param name="seatsInRow">How many seats the row brings back, the head included.</param>
-    /// <param name="headIsOwed">Whether the mission head itself is one of them.</param>
-    /// <param name="headCameBackEarlier">Whether the head is absent from the row because it has already been
-    /// brought back. That is the one way a head is not owed and still owns the seats under it, and it reads
-    /// differently from a head that is not coming back at all.</param>
-    public static string BringBackRowDetail(int seatsInRow, bool headIsOwed, bool headCameBackEarlier)
+    /// <param name="head">What the record says about the row's mission head.</param>
+    /// <param name="someReportToOneAnother">Whether any seat in the row reports to another seat in the SAME row -
+    /// a chain two or more deep. Those seats come back under their own lead whatever becomes of the head, so the
+    /// row says so rather than letting the sentence about the head read as covering them.</param>
+    public static string BringBackRowDetail(int seatsInRow, WayUpRowHead head, bool someReportToOneAnother)
     {
         var what = seatsInRow == 1
             ? "Brings back one session, reading its own handover."
             : $"Brings back {seatsInRow} sessions, leads first, each reading its own handover.";
-        if (headIsOwed) return what;
-        return headCameBackEarlier
-            ? what + " The lead of this mission is already back, so these sessions come back under it."
-            : what + " The lead of this mission is not coming back, so these sessions come back owned by you.";
+        if (head == WayUpRowHead.InTheRow) return what;
+
+        // "THE SESSIONS THAT REPORTED TO IT", never "these sessions": the head's own reports are the only seats
+        // its state decides. See the summary above for why each case says what it says.
+        var aboutTheHead = head switch
+        {
+            WayUpRowHead.AlreadyBack =>
+                " The lead of this mission is already back, so the sessions that reported to it come back under " +
+                "it, as long as it is still running.",
+            WayUpRowHead.EndedForGood =>
+                " The lead of this mission is not coming back, so the sessions that reported to it come back " +
+                "owned by you.",
+            _ =>
+                " The lead of this mission is not in this list and the record does not say it closed, so whether " +
+                "the sessions that reported to it come back under it or owned by you depends on whether it is " +
+                "still running. Each one is reported when you press it.",
+        };
+
+        var aboutTheRest = someReportToOneAnother
+            ? " Anything reporting to one of these sessions comes back under it."
+            : "";
+
+        return what + aboutTheHead + aboutTheRest;
     }
 
     /// <summary>What will happen to one seat inside a bring back row.</summary>
@@ -492,4 +520,33 @@ public static class WayUpWords
     /// <param name="agent">The seat's agent, as the record holds it.</param>
     private static string Normalise(string? agent) =>
         new string((agent ?? "").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+}
+
+/// <summary>
+/// WHAT THE RECORD SAYS ABOUT A BRING BACK ROW'S MISSION HEAD - which is what decides who owns the sessions
+/// that reported to it, and therefore what the row is allowed to promise.
+///
+/// The four cases are exactly the four <see cref="CcDirector.ControlApi.Drain.DirectorRestore.ResolveOwner"/>
+/// can reach for a seat whose owner is the head, read off the record alone. The window never consults the
+/// fleet, so a head the record does not say closed is its own case rather than a guess.
+/// </summary>
+public enum WayUpRowHead
+{
+    /// <summary>The head is one of the sessions the row brings back, so it comes back and the sessions under it
+    /// come back under it. The row says nothing about ownership.</summary>
+    InTheRow,
+
+    /// <summary>The head has already been brought back, so its own reports come back under the session it came
+    /// back as - if that session is still running.</summary>
+    AlreadyBack,
+
+    /// <summary>The head is not coming back and the record proves it ended: it carries a close for it. Its own
+    /// reports are top level now, so they come back owned by the user.</summary>
+    EndedForGood,
+
+    /// <summary>The head is not coming back and the record carries NO close for it - it blocked the drain, or a
+    /// cancelled shutdown left it running, or an end at the limit failed. Whether it is still running, and so
+    /// whether its reports come back under it or owned by the user, is decided against the fleet when the
+    /// restore runs and cannot be known here.</summary>
+    NotComingBackButNeverClosed,
 }
