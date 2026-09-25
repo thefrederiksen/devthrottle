@@ -1044,6 +1044,10 @@ function DictationRowBadge({ sessionId }: { sessionId: string | undefined }) {
   if (status.phase === "unheard") {
     return <span className="row-dictate row-dictate-parked">Nothing heard</span>;
   }
+  if (status.phase === "held" && status.delivering) {
+    // The words may already be in (voice delivery, #3398): calm and in progress, never an error colour.
+    return <span className="row-dictate row-dictate-busy">Still delivering</span>;
+  }
   if (status.phase === "held") {
     return <span className="row-dictate row-dictate-held">Saved - still sending</span>;
   }

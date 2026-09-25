@@ -50,15 +50,15 @@ export interface PendingDictation {
   after: string;
   /** Earlier paused dictation segments already turned to text, joined ahead of this clip. */
   prefix: string;
-  /** The session's TotalBufferBytes when the clip was recorded (server moved-on guard). Absent means
-   *  UNKNOWN - the roster could not answer at record time - and it stays absent durably, so the wire
-   *  request omits the field and the server skips the guard for exactly this clip. It is NEVER written
-   *  as a fabricated zero: zero is a real reading (a session whose terminal had produced nothing yet),
-   *  and collapsing unknown into it was how the guard silently stayed unarmed (issue #2478). */
-  baselineBufferBytes?: number;
-  /** Epoch milliseconds the clip was recorded. Drives the retry cadence (hard for the first hour,
-   *  then throttled) - NOT a prune deadline: undelivered audio is never aged out (issue #1182). */
+  /** Epoch milliseconds the clip was saved here, which is AFTER the Send press (the audio is decoded
+   *  first). Drives the retry cadence (hard for the first hour, then throttled) - NOT a prune deadline:
+   *  undelivered audio is never aged out (issue #1182). It is not the Send time; `sentAt` is. */
   createdAt: number;
+  /** Epoch milliseconds the owner pressed Send (stamped by DictationDialog before it stops the
+   *  recorder). Every complete call carries it as `sentAtUtc`, and every retry of this upload id carries
+   *  the SAME value: the Gateway measures the 5-minute age rule from it (voice delivery, #3398). A record
+   *  saved before this field existed is given one when it is read - see migratePendingRecord. */
+  sentAt: number;
   /** Set when the clip is PARKED after a genuinely permanent, non-retryable failure (issue #1184): it
    *  carries the allow-listed reason ("audio-too-large" / "unsupported-format"). A parked record keeps its
    *  audio but is EXCLUDED from every automatic retry trigger (app load, online, foreground, the cadence
@@ -76,6 +76,16 @@ export interface PendingDictation {
    *  "Send anyway" still works after a reload. Empty on the rare drop before transcription, where the audio
    *  is what gets retried instead. Only meaningful alongside `staleDropped`. */
   droppedTranscript?: string;
+  /** Why the Gateway did not send the clip, stored durably beside `staleDropped` so the right words
+   *  survive a reload: "too-old" (more than 5 minutes from Send) or "session-exited". Absent when the
+   *  Gateway gave no reason (a tombstone written before the reason existed). */
+  droppedReason?: string;
+  /** Set while "Send anyway" on a dropped clip is waiting on a 202 "still delivering" answer (voice
+   *  delivery, #3398): the words may already be in, so the same "Send anyway" - with the same delivery
+   *  claim, which the Director refuses to type twice - is pressed again automatically on the ordinary
+   *  cadence, including after a reload, until a 200 ends it or a failure shows the words back. Only
+   *  meaningful alongside `staleDropped`. */
+  sendingAnyway?: boolean;
   /** Set when the user ABANDONED this clip (issue #1181, Task 5). The record is kept ONLY to carry the
    *  abandon through to the Gateway: while set, the retry loop no longer uploads it - it calls
    *  /dictation/{id}/abandon instead, and deletes the on-device copy once the Gateway confirms (retrying
@@ -131,22 +141,43 @@ export async function savePending(rec: PendingDictation): Promise<void> {
   await tx("readwrite", (s) => s.put(rec));
 }
 
+// A record as it may sit on disk: one saved before `sentAt` existed has none.
+type StoredPendingDictation = Omit<PendingDictation, "sentAt"> & { sentAt?: number };
+
+/** The one-time migration of a record read from disk (voice delivery, #3398). A record saved before
+ *  `sentAt` existed has no Send time, and nothing but its createdAt recorded when it was sent: createdAt
+ *  was stamped when the clip was saved, a second or so after the Send press (after the audio decode), so
+ *  it is the closest recorded moment and becomes the Send time. `migrated` says the record changed and
+ *  must be written back, so this happens once per record. */
+export function migratePendingRecord(stored: StoredPendingDictation): { rec: PendingDictation; migrated: boolean } {
+  if (typeof stored.sentAt === "number") return { rec: stored as PendingDictation, migrated: false };
+  return { rec: { ...stored, sentAt: stored.createdAt }, migrated: true };
+}
+
+// Migrate a record read from disk, writing it back when it changed, so the send path always finds a Send time.
+async function readMigrated(stored: StoredPendingDictation): Promise<PendingDictation> {
+  const { rec, migrated } = migratePendingRecord(stored);
+  if (migrated) await savePending(rec);
+  return rec;
+}
+
 /** Every pending dictation still on disk (oldest first). Empty when the store is unavailable. */
 export async function listPending(): Promise<PendingDictation[]> {
   if (!hasIndexedDb()) return [];
-  const all = await tx<PendingDictation[]>("readonly", (s) => s.getAll() as IDBRequest<PendingDictation[]>);
-  return all.sort((a, b) => a.createdAt - b.createdAt);
+  const all = await tx<StoredPendingDictation[]>("readonly", (s) => s.getAll() as IDBRequest<StoredPendingDictation[]>);
+  const migrated = await Promise.all(all.map(readMigrated));
+  return migrated.sort((a, b) => a.createdAt - b.createdAt);
 }
 
 /** One pending record by id, or null when it is gone (already sent, pruned, or no durable store).
  *  Used by the Retry action on a failed dictation to re-drive that exact clip. */
 export async function getPending(id: string): Promise<PendingDictation | null> {
   if (!hasIndexedDb()) return null;
-  const rec = await tx<PendingDictation | undefined>(
+  const rec = await tx<StoredPendingDictation | undefined>(
     "readonly",
-    (s) => s.get(id) as IDBRequest<PendingDictation | undefined>,
+    (s) => s.get(id) as IDBRequest<StoredPendingDictation | undefined>,
   );
-  return rec ?? null;
+  return rec === undefined ? null : readMigrated(rec);
 }
 
 /** Remove a record once the server has confirmed the turn (submitted or dropped as stale), or the user

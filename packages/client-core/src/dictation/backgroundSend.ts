@@ -68,12 +68,33 @@ function parkMessage(reason: string | undefined): string {
   return PARKED_TOO_LARGE_MESSAGE;
 }
 
-// The dropped-as-stale lines (issue #1590). Plain English, and honest about what happened: the session moved
-// on, so the words were NOT delivered. Never soft-pedalled into sounding like a success, and never silent.
-const DROPPED_WITH_TRANSCRIPT_MESSAGE =
-  "The session moved on before this recording arrived, so it wasn't sent. Here is what you said - send it?";
-const DROPPED_NO_TRANSCRIPT_MESSAGE =
-  "The session moved on before this recording arrived, so it wasn't sent. Your recording is saved on your device and you can try again.";
+// The not-sent lines (issue #1590), chosen by the reason the Gateway gave (voice delivery, #3398). Plain
+// English, and honest about what happened: the words were NOT delivered. Never soft-pedalled into sounding
+// like a success, and never silent. Each reason has a line for when we have words to hand back and one for
+// when only the recording is left.
+const TOO_OLD_WITH_WORDS_MESSAGE =
+  "This recording is more than 5 minutes old, so it was not sent automatically. Here is what you said - send it?";
+const TOO_OLD_NO_WORDS_MESSAGE =
+  "This recording is more than 5 minutes old, so it was not sent automatically. Your recording is saved on your device and you can try again.";
+const SESSION_EXITED_WITH_WORDS_MESSAGE =
+  "The session has ended, so this recording wasn't sent. Here is what you said - send it?";
+const SESSION_EXITED_NO_WORDS_MESSAGE =
+  "The session has ended, so this recording wasn't sent. Your recording is saved on your device and you can try again.";
+// No reason: a tombstone the Gateway wrote before reasons existed.
+const NOT_SENT_WITH_WORDS_MESSAGE = "This recording wasn't sent automatically. Here is what you said - send it?";
+const NOT_SENT_NO_WORDS_MESSAGE =
+  "This recording wasn't sent automatically. Your recording is saved on your device and you can try again.";
+
+function notSentMessage(reason: string | undefined, haveWords: boolean): string {
+  if (reason === "too-old") return haveWords ? TOO_OLD_WITH_WORDS_MESSAGE : TOO_OLD_NO_WORDS_MESSAGE;
+  if (reason === "session-exited") return haveWords ? SESSION_EXITED_WITH_WORDS_MESSAGE : SESSION_EXITED_NO_WORDS_MESSAGE;
+  return haveWords ? NOT_SENT_WITH_WORDS_MESSAGE : NOT_SENT_NO_WORDS_MESSAGE;
+}
+
+// The "Still delivering" line (voice delivery, #3398): the Gateway ran out of time waiting for the Director
+// and could not yet say whether the words reached the session. Calm, because nothing has failed.
+const STILL_DELIVERING_MESSAGE =
+  "Still delivering - checking that your words reached the session. They will not be sent twice.";
 const UNHEARD_MESSAGE = "Nothing was heard in that recording, so nothing was sent.";
 // The empty-CAPTURE line, for a clip that arrived from the recorder with no bytes in it at all. Deliberately
 // not the unheard sentence above: that one means the server listened and heard no speech, which is a fact
@@ -107,6 +128,9 @@ function composeDroppedMessage(rec: PendingDictation): string {
 
 /** The audio buffer + context the dialog hands up when Send is pressed. */
 export interface CapturedUtterance {
+  /** Epoch milliseconds the owner pressed Send, stamped by the dialog before it stops the recorder. Every
+   *  complete call for this recording carries it as `sentAtUtc` (voice delivery, #3398). */
+  sentAt: number;
   /** The raw recorded audio exactly as the microphone produced it (WebM/Opus etc.). */
   blob: Blob;
   /** Wall-clock milliseconds the segment was capturing (capture-health, issue #863). */
@@ -138,17 +162,6 @@ export interface BackgroundSendHooks {
   /** Typed text the caret split the dictation around (Terminal Speak's Insert-then-Enter). The voice
    *  case omits this and the transcript is submitted alone. */
   composeParts?: { before: string; after: string };
-  /** The session's TotalBufferBytes at record time, for the Gateway's "session moved on" guard when a
-   *  clip is resumed later. A promise is the PRESS-TIME snapshot (issue #2478): the Speak press starts
-   *  the roster read and hands the promise here, so a quick Send cannot outrun it and record "unknown"
-   *  for a session whose position was knowable. Durability never waits on it - the clip is persisted
-   *  immediately with the baseline unknown, then the pending record is enriched before the first
-   *  upload once this ORIGINAL promise resolves; the pipeline never starts a later roster read of its
-   *  own, because a post-recording reading would mask the very movement the guard detects. Omit when
-   *  genuinely unknown; unknown is persisted as unknown and the wire request omits the field (the
-   *  guard is then skipped for safety) - it is NEVER collapsed into zero, which is a real reading (a
-   *  terminal that had produced nothing yet). */
-  baselineBufferBytes?: number | Promise<number | undefined>;
 }
 
 // ---- driver state ----------------------------------------------------------------------------------
@@ -265,13 +278,7 @@ export async function backgroundTranscribeAndSend(
     );
   }
 
-  // The moved-on baseline is the PRESS-TIME snapshot or nothing (issue #2478). A plain number (the
-  // Voice screen) rides the first durable write below; a promise is awaited only AFTER the clip is
-  // safely on disk - the durable-send contract (persist before any network work) outranks the guard,
-  // so a slow or timed-out roster read must never leave the clip memory-only.
-  const pressTimeBaseline = hooks.baselineBufferBytes;
-
-  let rec: PendingDictation = {
+  const rec: PendingDictation = {
     id: crypto.randomUUID(),
     sessionId,
     blob: uploadBlob,
@@ -286,74 +293,33 @@ export async function backgroundTranscribeAndSend(
     before: hooks.composeParts?.before ?? "",
     after: hooks.composeParts?.after ?? "",
     prefix: captured.prefixText ?? "",
-    baselineBufferBytes: typeof pressTimeBaseline === "number" ? pressTimeBaseline : undefined,
     createdAt: Date.now(),
+    sentAt: captured.sentAt,
   };
 
   // Show the very first step (before any network work) so the status strip appears the instant Send is
   // pressed and the screen is never quiet.
   publishDictationStatus({ sessionId, uploadId: rec.id, phase: "saving" });
 
-  // RESERVE the upload id from the kick machinery for the whole save-and-enrich window. The first
-  // durable write makes the record VISIBLE to every automatic trigger (app load, the online event,
-  // foreground), and a kick landing before enrichment would list the record and drive it with the
-  // baseline still unknown - uploading unguarded and racing both the enrichment write and this flow's
-  // own first drive. The reservation is the same in-flight set every drive honors, so a kick no-ops
-  // on exactly this id until enrichment has finished and THIS flow drives it. It lives only in
-  // memory, deliberately: a crash or reload drops it with the process, and the resume path then
-  // drives the durable unknown record - unguarded, which is exactly what the durable copy honestly
-  // knows.
-  _inFlight.add(rec.id);
   try {
-    try {
-      await savePending(rec);
-    } catch {
-      // Durable storage genuinely unavailable (rare, e.g. a private-mode tab with IndexedDB disabled): the
-      // clip cannot be queued, so say so loudly and restore the typed text. We do NOT silently one-shot it.
-      publishDictationStatus({
-        sessionId,
-        uploadId: rec.id,
-        phase: "failed",
-        retryable: false,
-        error: NO_DURABLE_STORE_MESSAGE,
-      });
-      hooks.onError?.(NO_DURABLE_STORE_MESSAGE);
-      hooks.onFailed?.();
-      return;
-    }
-
-    // The clip is durable. Now - and only now - wait for the press-time baseline snapshot and enrich
-    // the pending record with it before the first upload. When the ORIGINAL press-time promise cannot
-    // answer, unknown is FINAL: never a fresh roster read here, because a reading taken now can include
-    // bytes the session produced during or after the recording, over-stating the baseline and masking
-    // exactly the movement the guard exists to detect. The wait is bounded (the shared snapshot rides
-    // the roster read's own timeout and never rejects); the defensive catch is for a foreign caller's
-    // promise only, because a guard input must never cost the user's words.
-    if (pressTimeBaseline !== undefined && typeof pressTimeBaseline !== "number") {
-      let bytes: number | undefined;
-      try {
-        bytes = await pressTimeBaseline;
-      } catch {
-        bytes = undefined;
-      }
-      if (bytes !== undefined) {
-        rec = { ...rec, baselineBufferBytes: bytes };
-        try {
-          await savePending(rec);
-        } catch {
-          // The durable copy keeps unknown (a resume would go unguarded); this attempt still carries
-          // the press-time reading in memory. Never a reason to hold the words.
-        }
-      }
-    }
-  } finally {
-    // Release, and hand off to the drive below with NO await in between: driveRecord re-takes the
-    // in-flight entry synchronously on entry, so no kick can slip into the gap.
-    _inFlight.delete(rec.id);
+    await savePending(rec);
+  } catch {
+    // Durable storage genuinely unavailable (rare, e.g. a private-mode tab with IndexedDB disabled): the
+    // clip cannot be queued, so say so loudly and restore the typed text. We do NOT silently one-shot it.
+    publishDictationStatus({
+      sessionId,
+      uploadId: rec.id,
+      phase: "failed",
+      retryable: false,
+      error: NO_DURABLE_STORE_MESSAGE,
+    });
+    hooks.onError?.(NO_DURABLE_STORE_MESSAGE);
+    hooks.onFailed?.();
+    return;
   }
 
-  // Drive the first delivery attempt now. resumed:false so an immediate send injects without the
-  // moved-on guard; any failure becomes a held-and-retrying state the driver owns. The caller does
+  // Drive the first delivery attempt now. resumed:false marks it as the first attempt on the Gateway's
+  // decision record; any failure becomes a held-and-retrying state the driver owns. The caller does
   // not await this (it fired and moved on), but awaiting the first attempt here keeps the returned
   // promise honest about when that attempt settled.
   await driveRecord(rec, { resumed: false, attempt: 0 });
@@ -390,6 +356,7 @@ export async function resumePendingDictations(): Promise<void> {
 
   await Promise.all(
     ours.map((rec) => {
+      if (rec.staleDropped && rec.sendingAnyway) return sendDroppedDictationAnyway(rec.id);
       if (rec.staleDropped) {
         publishDropped(rec);
         return Promise.resolve();
@@ -421,6 +388,13 @@ export async function retryPendingDictation(uploadId: string): Promise<void> {
   // moved-on tombstone for it, so this exact upload id can only ever be dropped again. "Retry this clip"
   // genuinely means "send the recording as a new dictation", so hand over to the fresh-id path rather than
   // re-driving into a guaranteed re-drop (or, worse, quietly doing nothing).
+  // A "Send anyway" that is still delivering (voice delivery, #3398) is pressed again at once with the same
+  // claim - never handed to the fresh-id retry, which would be a second copy of words that may already be in.
+  if (rec.staleDropped && rec.sendingAnyway) {
+    clearScheduled(uploadId);
+    await sendDroppedDictationAnyway(uploadId);
+    return;
+  }
   if (rec.staleDropped) {
     await retryDroppedDictation(uploadId);
     return;
@@ -466,8 +440,8 @@ export async function abandonPendingDictation(uploadId: string): Promise<void> {
   await driveRecord(abandoning, { resumed: true, attempt: 0 });
 }
 
-// "Send anyway" on a dropped dictation (issue #1590): the session moved on and the server threw the words
-// away, but it told us what they were. Send them as a NORMAL prompt - a fresh turn, deliberately NOT a
+// "Send anyway" on a dropped dictation (issue #1590): the server did not send the words (too old, or the
+// session exited), but it told us what they were. Send them as a NORMAL prompt - a fresh turn, deliberately NOT a
 // re-drive of the dictation upload id, which by design (#1183) can only ever return the same drop again.
 //
 // GUARDED by the same in-flight set the delivery driver uses. This send has NO server-side idempotency behind
@@ -480,7 +454,12 @@ export async function abandonPendingDictation(uploadId: string): Promise<void> {
 // and they are composed exactly as the delivery path composes them - the typed text goes with them.
 // The record is deleted only AFTER the send is confirmed: on failure nothing is discarded, and the status
 // stays sticky with the words still in it, so a bad moment cannot lose them.
-export async function sendDroppedDictationAnyway(uploadId: string): Promise<void> {
+//
+// A 202 "still delivering" answer (voice delivery, #3398) means the words may already be in. The copy is kept
+// and marked `sendingAnyway` on disk, the strip shows "Still delivering" with no "Send anyway", and this same
+// press - with the same delivery claim, which the Director refuses to type twice - repeats automatically on
+// the ordinary cadence, and after a reload, until a 200 ends it in done or a failure shows the words back.
+export async function sendDroppedDictationAnyway(uploadId: string, attempt = 0): Promise<void> {
   if (_inFlight.has(uploadId)) return; // already sending this exact clip
   _inFlight.add(uploadId);
   try {
@@ -497,12 +476,21 @@ export async function sendDroppedDictationAnyway(uploadId: string): Promise<void
     const text = composeDroppedMessage(rec);
     if (text.length === 0) return; // nothing to send; this clip's action is Retry, not Send anyway
 
+    let delivering: boolean;
     try {
       // Names the recording (rec.id IS its upload id - the dictation upload is registered under it), so the
       // Director can refuse these words if that recording already reached the session after all.
-      await sendPrompt(rec.sessionId, text, true, undefined, undefined, undefined, rec.id);
+      delivering = (await sendPrompt(rec.sessionId, text, true, undefined, undefined, undefined, rec.id)).delivering;
     } catch {
-      // Keep the record AND the sticky status - the words are still on the device and still on screen.
+      // Keep the record AND the sticky status - the words are still on the device and still on screen. A
+      // repeated press that fails ends the automatic repeats: the owner decides again.
+      if (rec.sendingAnyway) {
+        try {
+          await savePending({ ...rec, sendingAnyway: undefined });
+        } catch {
+          // The store hiccuped: a reload may press once more, which the Director refuses if the words are in.
+        }
+      }
       publishDictationStatus({
         sessionId: rec.sessionId,
         uploadId: rec.id,
@@ -511,6 +499,18 @@ export async function sendDroppedDictationAnyway(uploadId: string): Promise<void
         recoverableText: text,
         error: SEND_ANYWAY_FAILED_MESSAGE,
       });
+      return;
+    }
+    if (delivering) {
+      // Still delivering: keep the copy, mark it durably so a reload keeps pressing, and press again later.
+      const marked: PendingDictation = { ...rec, sendingAnyway: true };
+      try {
+        await savePending(marked);
+      } catch {
+        // The store hiccuped: this page still repeats the press; only a reload would lose the mark.
+      }
+      publishDelivering(marked);
+      scheduleSendAnyway(marked, attempt);
       return;
     }
     // Confirmed sent: only now is the durable copy safe to drop.
@@ -523,10 +523,9 @@ export async function sendDroppedDictationAnyway(uploadId: string): Promise<void
 
 // Retry a dropped dictation whose words we never got (the rare drop before transcription, issue #1590).
 // The audio is still on the device, but its upload id is tombstoned moved-on for good (#1183), so it is
-// re-driven under a FRESH upload id - a genuinely new dictation carrying the same recording. The baseline
-// is cleared to UNKNOWN (the field is omitted on the wire, so the server skips the guard): the
-// recorded-at baseline describes a terminal that has long since moved on, and re-sending it would simply
-// invite the same drop. The user asked for this send now, deliberately.
+// re-driven under a FRESH upload id - a genuinely new dictation carrying the same recording. It is a NEW
+// Send, so it stamps a new Send time (voice delivery, #3398): the old one is what made a too-old clip too
+// old, and re-sending it would simply invite the same answer. The user asked for this send now, deliberately.
 // Guarded on the OLD id by the same in-flight set: each tap mints a NEW upload id, so without this two rapid
 // taps would stage two fresh clips and inject the same recording twice - and being different ids, nothing
 // downstream would de-duplicate them.
@@ -551,8 +550,10 @@ export async function retryDroppedDictation(uploadId: string): Promise<void> {
       id: crypto.randomUUID(),
       staleDropped: undefined,
       droppedTranscript: undefined,
-      baselineBufferBytes: undefined,
+      droppedReason: undefined,
+      sendingAnyway: undefined,
       createdAt: Date.now(),
+      sentAt: Date.now(),
     };
     try {
       await savePending(fresh);
@@ -587,7 +588,7 @@ export async function dismissDictationStatus(uploadId: string): Promise<void> {
 // ---- internals -------------------------------------------------------------------------------------
 
 interface DriveOptions {
-  /** True for any retry/resume (applies the server's moved-on guard); false only for the first immediate send. */
+  /** True for any retry/resume (the "retried" line on the Gateway's decision record); false only for the first immediate send. */
   resumed: boolean;
   /** Backoff step for scheduling the NEXT attempt. Reset to 0 by a fresh send, a connectivity kick, and Upload now. */
   attempt: number;
@@ -630,7 +631,7 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
       before: rec.before,
       after: rec.after,
       prefix: rec.prefix,
-      baselineBufferBytes: rec.baselineBufferBytes,
+      sentAtUtc: sendTimeUtc(rec),
       resumed: opts.resumed,
       // Capture-health (issue #863): forward the Send-time measurement so the Gateway persists the
       // audio-loss deficit for this path. Absent when the on-device decode failed.
@@ -669,7 +670,7 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
       }
 
       if (outcome.movedOn) {
-        // The session moved on while the clip was in flight, so the server dropped the user's words. Re-driving
+        // The server did not send the user's words (too old, or the session exited) and handed them back. Re-driving
         // this upload id is useless BY DESIGN - the drop wrote a permanent moved-on tombstone (#1183), so every
         // future complete returns the same drop. The recovery is therefore a fresh turn, not a retry.
         //
@@ -677,7 +678,7 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
         // deleting it: the words must survive a reload, or "Send anyway" would quietly stop working the moment
         // the user backgrounds the app - which is the same silent loss in a new costume.
         const transcript = (outcome.transcript ?? "").trim();
-        const dropped: PendingDictation = { ...rec, staleDropped: true, droppedTranscript: transcript };
+        const dropped: PendingDictation = { ...rec, staleDropped: true, droppedTranscript: transcript, droppedReason: outcome.movedOnReason };
         try {
           await savePending(dropped);
         } catch {
@@ -693,6 +694,16 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
       // and a Send that ends in silence is the defect. The audio is of no further use, so it goes.
       await deletePending(rec.id);
       publishUnheard(rec);
+      return;
+    }
+
+    if (outcome.delivering) {
+      // Still delivering (voice delivery, #3398): the words may already be in the session. Keep the copy and
+      // retry this SAME upload id on the ordinary cadence - the Director refuses to type it twice, so a retry
+      // either learns it was delivered (done, above) or finishes the delivery. Never a failure, and never
+      // anything that could send a second copy.
+      publishDelivering(rec);
+      scheduleNext(rec, opts.attempt, false);
       return;
     }
 
@@ -715,9 +726,10 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
     // Held: keep the audio and keep trying. Publish the honest held reason and schedule the next attempt.
     publishHeld(rec, heldMessage(rec, outcome.error, outcome.recordRefusal));
     scheduleNext(rec, opts.attempt, Boolean(outcome.outOfCredits), outcome.recordRefusal);
-  } catch {
+  } catch (err) {
     // uploadDictationToSession returns a held result rather than throwing, so this is a defensive net for
-    // an unexpected fault: keep the audio and keep trying - never drop it.
+    // an unexpected fault: keep the audio and keep trying - never drop it - and say what the fault was.
+    console.error(`[backgroundSend] drive failed for ${rec.id}: ${err instanceof Error ? err.message : String(err)}`);
     publishHeld(rec, heldMessage(rec, undefined));
     scheduleNext(rec, opts.attempt, false);
   } finally {
@@ -769,6 +781,12 @@ async function kickAll(): Promise<void> {
     return;
   }
   for (const rec of all) {
+    if (rec.staleDropped && rec.sendingAnyway) {
+      // A "Send anyway" still delivering (voice delivery, #3398): press it again now, same claim.
+      clearScheduled(rec.id);
+      void sendDroppedDictationAnyway(rec.id);
+      continue;
+    }
     if (rec.parkedReason || rec.staleDropped) continue;
     void driveRecord(rec, { resumed: true, attempt: 0 });
   }
@@ -781,6 +799,15 @@ function scheduleNext(rec: PendingDictation, attempt: number, outOfCredits: bool
   clearScheduled(rec.id);
   const delay = nextDelayMs(rec, attempt, outOfCredits, recordRefusal);
   const t = setTimeout(() => void driveById(rec.id, { resumed: true, attempt: attempt + 1 }), delay);
+  _timers.set(rec.id, t);
+}
+
+// Schedule the next automatic press of a "Send anyway" that is still delivering (voice delivery, #3398), on
+// the same cadence as a held clip. Shares the timer map, so any trigger that drives the clip cancels it.
+function scheduleSendAnyway(rec: PendingDictation, attempt: number): void {
+  clearScheduled(rec.id);
+  const delay = nextDelayMs(rec, attempt, false);
+  const t = setTimeout(() => void sendDroppedDictationAnyway(rec.id, attempt + 1), delay);
   _timers.set(rec.id, t);
 }
 
@@ -854,8 +881,30 @@ function publishDropped(rec: PendingDictation): void {
     phase: "dropped",
     retryable: words.length === 0,
     recoverableText: words,
-    error: words.length > 0 ? DROPPED_WITH_TRANSCRIPT_MESSAGE : DROPPED_NO_TRANSCRIPT_MESSAGE,
+    error: notSentMessage(rec.droppedReason, words.length > 0),
   });
+}
+
+// Publish the "Still delivering" held status (voice delivery, #3398). retryable stays true so "Upload now"
+// can kick the next attempt of this same upload id; nothing here offers a fresh upload id or "Send anyway".
+function publishDelivering(rec: PendingDictation): void {
+  publishDictationStatus({
+    sessionId: rec.sessionId,
+    uploadId: rec.id,
+    phase: "held",
+    retryable: true,
+    delivering: true,
+    error: STILL_DELIVERING_MESSAGE,
+  });
+}
+
+// The Send time this record's complete calls carry, as ISO 8601 UTC. Read from the durable record, never
+// recomputed, so every retry of one upload id carries the same value. A record saved before the field
+// existed was given one when it was read (migratePendingRecord), so a record without one here is a defect.
+function sendTimeUtc(rec: PendingDictation): string {
+  if (typeof rec.sentAt !== "number")
+    throw new Error(`[backgroundSend] dictation record ${rec.id} has no Send time; it was not read through the pending store`);
+  return new Date(rec.sentAt).toISOString();
 }
 
 // Publish the nothing-was-heard notice (issue #1590): visible and dismissible, with nothing to retry.
