@@ -200,11 +200,107 @@ internal static class SessionCommandExecutor
     /// dictation-lock refusal was removed deliberately (single-operator tool; the operator may inject
     /// into their own sessions whenever they like).
     /// </summary>
-    internal static async Task<DirectorCommandResult> SendPromptAsync(Session session, PromptRequest request, SendSource source = SendSource.UserInput)
+    /// <param name="deliveries">The delivery record to consult when the request carries a
+    /// <see cref="PromptRequest.DeliveryId"/>; the Director's own <see cref="DeliveryRecord.Shared"/> when not given.</param>
+    internal static async Task<DirectorCommandResult> SendPromptAsync(Session session, PromptRequest request, SendSource source = SendSource.UserInput, DeliveryRecord? deliveries = null)
     {
         if (session is null) throw new ArgumentNullException(nameof(session));
         if (request is null) throw new ArgumentNullException(nameof(request));
 
+        // A RECORDING'S DELIVERY IS TYPED AT MOST ONCE (Voice Delivery mission, phase 1): it goes through the delivery
+        // record, before and after the send below. Every other prompt is sent exactly as it always was.
+        if (!string.IsNullOrWhiteSpace(request.DeliveryId))
+            return await SendRecordedDeliveryAsync(session, request, source, deliveries ?? DeliveryRecord.Shared);
+
+        return await SendPromptCoreAsync(session, request, source);
+    }
+
+    /// <summary>
+    /// A prompt that carries a <see cref="PromptRequest.DeliveryId"/>. The id is looked up and, unless it is already
+    /// delivered or being delivered, marked <c>Delivering</c> in one step under the record's per-session lock - so of
+    /// two concurrent copies exactly one types. A copy of an id that is delivered or being delivered is REFUSED with
+    /// nothing typed and no Enter: a success with <see cref="PromptResponse.Accepted"/> false and
+    /// <see cref="PromptResponse.DeliveryState"/> saying which, like <see cref="PromptResponse.RefusedBusy"/>. Otherwise
+    /// the text is sent exactly as any prompt is, and the outcome is written: <c>Delivered</c> when the send returned
+    /// and was accepted, <c>NotDelivered</c> with the reason when it was refused or failed before typing, or threw.
+    /// A send that throws is still thrown, unchanged, so every caller's error path is what it was; the record now
+    /// says what became of it. A record that cannot be read refuses the delivery and names the file.
+    /// </summary>
+    private static async Task<DirectorCommandResult> SendRecordedDeliveryAsync(Session session, PromptRequest request, SendSource source, DeliveryRecord deliveries)
+    {
+        var deliveryId = request.DeliveryId!;
+        FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: session={session.Id}, deliveryId={deliveryId}");
+
+        DeliveryClaim claim;
+        try
+        {
+            claim = deliveries.TryBeginDelivery(session.Id, deliveryId);
+        }
+        catch (DeliveryRecordUnreadableException ex)
+        {
+            FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: REFUSED session={session.Id}, deliveryId={deliveryId}: {ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Error, ex.Message);
+        }
+
+        if (!claim.Began)
+        {
+            var state = claim.Existing.State;
+            var reason = state == DeliveryState.Delivered
+                ? $"delivery {deliveryId} already reached this session at {claim.Existing.At:O}; this copy was refused and nothing was typed"
+                : $"delivery {deliveryId} is being typed into this session since {claim.Existing.At:O}, or the Director stopped while typing it; this copy was refused and nothing was typed";
+            FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: REFUSED DUPLICATE session={session.Id}: {reason}");
+            return DirectorCommandResult.Success(Serialize(new PromptResponse
+            {
+                Accepted = false,
+                SentAt = DateTime.UtcNow,
+                BufferCursor = session.Buffer?.TotalBytesWritten ?? 0,
+                ActivityState = session.ActivityState.ToString(),
+                Error = reason,
+                DeliveryState = state,
+                DeliveryStateReason = reason,
+            }));
+        }
+
+        DirectorCommandResult result;
+        try
+        {
+            result = await SendPromptCoreAsync(session, request, source);
+        }
+        catch (Exception ex)
+        {
+            // Records a fact and rethrows the same exception untouched (the pattern Session.SubmitTextAsync uses for
+            // PromptDeliveryFailures): the caller's error path is unchanged, and the record says what became of the id.
+            deliveries.MarkNotDelivered(session.Id, deliveryId, ex.Message);
+            throw;
+        }
+
+        if (!result.Ok)
+        {
+            deliveries.MarkNotDelivered(session.Id, deliveryId, result.Error ?? result.Status.ToString());
+            return result;
+        }
+
+        var response = Deserialize<PromptResponse>(result.BodyJson)
+            ?? throw new InvalidOperationException("The prompt core answered success with no response body.");
+        if (response.Accepted)
+        {
+            deliveries.MarkDelivered(session.Id, deliveryId);
+            response.DeliveryState = DeliveryState.Delivered;
+        }
+        else
+        {
+            var reason = response.Error ?? "the prompt was refused before anything was typed";
+            deliveries.MarkNotDelivered(session.Id, deliveryId, reason);
+            response.DeliveryState = DeliveryState.NotDelivered;
+            response.DeliveryStateReason = reason;
+        }
+        FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: session={session.Id}, deliveryId={deliveryId}, state={response.DeliveryState}");
+        return DirectorCommandResult.Success(Serialize(response));
+    }
+
+    /// <summary>The prompt core itself, with no delivery record: every prompt goes through here exactly once.</summary>
+    private static async Task<DirectorCommandResult> SendPromptCoreAsync(Session session, PromptRequest request, SendSource source)
+    {
         if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
 

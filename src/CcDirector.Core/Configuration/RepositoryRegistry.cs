@@ -97,7 +97,13 @@ public class RepositoryRegistry
                 return;
             }
 
-            var json = File.ReadAllText(FilePath);
+            // Shared for delete as well as write, so reading the list never stops another Director on this
+            // root from replacing it.
+            string json;
+            using (var stream = new FileStream(FilePath, FileMode.Open, FileAccess.Read,
+                       FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream))
+                json = reader.ReadToEnd();
             if (string.IsNullOrWhiteSpace(json))
             {
                 _repositories.Clear();
@@ -301,6 +307,6 @@ public class RepositoryRegistry
         // A unique temporary name, because a fixed one would itself be the thing two writers race over.
         var temp = Path.Combine(dir, $".repositories.{Guid.NewGuid():N}.tmp");
         File.WriteAllText(temp, json);
-        File.Move(temp, FilePath, overwrite: true);
+        AtomicFileReplace.Replace(temp, FilePath);
     }
 }

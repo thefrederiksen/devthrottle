@@ -28,6 +28,9 @@ public sealed class TriggerServiceTests : IDisposable
     private string? _startError;
     private int _nextSession;
     private TaskCompletionSource? _holdStart;
+    // Set once the fake starter has been entered. The service runs the start on the thread pool, so a test that
+    // asserts on _starts while the start is still held must wait for this first.
+    private readonly TaskCompletionSource _startEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Exception? _startThrows;
     private string? _startUnknown;
     private readonly List<CancellationToken> _startTokens = new();
@@ -44,6 +47,7 @@ public sealed class TriggerServiceTests : IDisposable
             async (machine, request, ct) =>
             {
                 lock (_starts) { _starts.Add((machine, request)); _startTokens.Add(ct); }
+                _startEntered.TrySetResult();
                 if (_holdStart is not null) await _holdStart.Task;
                 // Like the real create command: a cancelled token cuts the start off mid-create.
                 ct.ThrowIfCancellationRequested();
@@ -353,6 +357,7 @@ public sealed class TriggerServiceTests : IDisposable
         _holdStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var first = await service.ReportCheckAsync(Tenant, Director, t.Id, Counted(1), CancellationToken.None);
         Assert.NotNull(first.Starting);
+        await _startEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));   // the start runs on the thread pool
 
         _now = _now.AddMinutes(1);
         var second = await Report(service, t, Counted(1));

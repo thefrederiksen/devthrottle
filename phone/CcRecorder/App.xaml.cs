@@ -26,7 +26,12 @@ public partial class App : Application
 		ReconcileOnStartup(services.GetService<IAudioRecorder>());
 
 		var page = services.GetRequiredService<MainPage>();
-		return new Window(new NavigationPage(page));
+		var window = new Window(new NavigationPage(page));
+		// Sign-in finishes only when the app is back on screen: Android cuts a backgrounded app off the
+		// network while the browser is in front (see AppForeground).
+		window.Resumed += (_, _) => Account.AppForeground.Set(true);
+		window.Stopped += (_, _) => Account.AppForeground.Set(false);
+		return window;
 	}
 
 	// Launch-time, not UI-dependent: kick a foreground reconcile pass and hand the

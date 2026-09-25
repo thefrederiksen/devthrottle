@@ -150,7 +150,7 @@ public class ClaudeDriverTests : IDisposable
     }
 
     [Fact]
-    public async Task SubmitAsync_SlashCorruptedEcho_ClearsComposerAndRetypes()
+    public async Task SubmitAsync_SlashCorruptedEcho_ThrowsWithoutClearingOrRetyping()
     {
         var backend = new FakeBackend();
         backend.Start("x", "", ".", 80, 24);
@@ -161,18 +161,20 @@ public class ClaudeDriverTests : IDisposable
             if (s == "Write a poem")
             {
                 typed++;
-                // First attempt: the TUI race prepends a stray "/" (the live HQ-4 bug).
-                backend.EmitOutput(typed == 1 ? "/Write a poem" : "Write a poem");
+                // The TUI race prepends a stray "/" (the live HQ-4 bug).
+                backend.EmitOutput("/Write a poem");
             }
         };
 
-        await FastDriver().SubmitAsync(backend, "Write a poem");
+        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => FastDriver().SubmitAsync(backend, "Write a poem"));
 
-        // text, Esc (composer clear), text again, Enter.
-        Assert.Equal(4, backend.RawWrites.Count);
-        Assert.Equal(new byte[] { 0x1B }, backend.RawWrites[1]);
-        Assert.Equal(new byte[] { 0x0D }, backend.RawWrites[3]);
-        Assert.Equal(2, typed);
+        // Issue #3290: typed once and never cleared with Escape and retyped - a single Escape empties
+        // neither Claude Code's nor Codex's composer, so the retype appended a second copy. No Enter either:
+        // the caller decides what to do, with the agent's records as the witness.
+        Assert.Contains("composer never echoed", ex.Message);
+        Assert.Single(backend.RawWrites);
+        Assert.Equal(1, typed);
     }
 
     [Fact]

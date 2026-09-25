@@ -837,6 +837,11 @@ function spokenSpanClaims(spans?: readonly SpokenSpan[]): { start: number; lengt
 // Pass it ONLY when the submitted text is the dictation and nothing else. A caller that mixed typed
 // text into the box before sending must leave it out: that turn is not wholly spoken, and the page's
 // own disclosure already says a transcript sent alongside typed text counts as typed.
+//
+// `recordingUploadId` names the recording these words came from, when they did ("Send anyway" on a
+// recording that was shown back). The Gateway checks the recording is this account's and this session's
+// and then makes it the delivery's id, so the Director can refuse the words if that recording already
+// reached the session (Voice Delivery mission, phase 1). It says nothing about spoken versus typed.
 export async function sendPrompt(
   sessionId: string,
   text: string,
@@ -844,10 +849,12 @@ export async function sendPrompt(
   signal?: AbortSignal,
   spokenDeliveryId?: string,
   spokenSpans?: readonly SpokenSpan[],
+  recordingUploadId?: string,
 ): Promise<void> {
   const sid = encodeURIComponent(sessionId);
   const body: PromptRequest = { text, appendEnter };
   if (spokenDeliveryId) body.deliveryUploadId = spokenDeliveryId;
+  if (recordingUploadId) body.deliveryIdClaim = recordingUploadId;
   // WHICH characters were spoken, when the composer tracked them (source logging, 2026-09-05). Sent whether
   // or not the turn is wholly spoken: a turn typed around a dictation is TYPED, and still says which of its
   // characters came from a microphone. Claims, not facts - the Gateway verifies each against the transcript

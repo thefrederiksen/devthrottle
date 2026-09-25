@@ -498,7 +498,9 @@ export async function sendDroppedDictationAnyway(uploadId: string): Promise<void
     if (text.length === 0) return; // nothing to send; this clip's action is Retry, not Send anyway
 
     try {
-      await sendPrompt(rec.sessionId, text, true);
+      // Names the recording (rec.id IS its upload id - the dictation upload is registered under it), so the
+      // Director can refuse these words if that recording already reached the session after all.
+      await sendPrompt(rec.sessionId, text, true, undefined, undefined, undefined, rec.id);
     } catch {
       // Keep the record AND the sticky status - the words are still on the device and still on screen.
       publishDictationStatus({

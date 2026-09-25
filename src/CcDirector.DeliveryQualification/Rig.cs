@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Storage;
 
 namespace CcDirector.DeliveryQualification;
 
@@ -19,7 +20,7 @@ public static class Rig
         {
             Git(dir, "init -q");
             Git(dir, "add README.md");
-            Git(dir, "-c user.name=rig -c user.email=rig@localhost commit -q -m init");
+            Git(dir, "-c user.name=rig -c user.email=rig@delivery-qa.invalid commit -q -m init");
         }
         return dir;
     }
@@ -58,8 +59,10 @@ public static class DirectorAgentPaths
     public static AgentOptions Load()
     {
         var options = new AgentOptions();
-        var config = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "cc-director", "instances", "default", "config", "config.json");
+        // The rig has already pointed CC_DIRECTOR_ROOT at its own private home, so Root() would answer the rig's
+        // folder. DefaultRoot() ignores that setting and answers the machine's own install, which is where the
+        // owner's live default Director keeps its config.
+        var config = Path.Combine(CcStorage.DefaultRoot(), "instances", "default", "config", "config.json");
         if (!File.Exists(config))
             throw new FileNotFoundException($"The live Director's config was not found at {config}; the rig takes the agent paths from it.");
         using var doc = JsonDocument.Parse(File.ReadAllText(config));

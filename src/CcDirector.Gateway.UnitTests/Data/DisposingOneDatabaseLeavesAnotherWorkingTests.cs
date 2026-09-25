@@ -26,7 +26,11 @@ namespace CcDirector.Gateway.Tests.Data;
 /// rents a connection on database A, puts it into exactly the mid-open state, disposes database B while it
 /// is there, and then uses the connection. Revert-prove: put <c>ClearAllPools()</c> back in
 /// <c>GatewayDatabase.Dispose</c> and this goes red on every run with that exception.
+///
+/// It runs alone (<see cref="SqlitePoolIsolationCollection"/>): the mid-open state it holds is far wider than
+/// the real gap, so ANY other class's ClearAllPools() landing in it broke this test on CI (issue #3393).
 /// </summary>
+[Collection(SqlitePoolIsolationCollection.Name)]
 public sealed class DisposingOneDatabaseLeavesAnotherWorkingTests : IDisposable
 {
     private readonly GatewayDbTestHarness _inUse = new();

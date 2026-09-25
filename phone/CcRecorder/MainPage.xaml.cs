@@ -1,3 +1,4 @@
+using CcRecorder.Account;
 using CcRecorder.Recording;
 using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Networking;
@@ -6,9 +7,6 @@ namespace CcRecorder;
 
 public partial class MainPage : ContentPage
 {
-    private const string PrefServer = "gateway_url";
-    private const string PrefToken = "gateway_token";
-
     // Status-badge colors for the per-row upload/transcription checkmarks.
     private static readonly Brush CheckDone = new SolidColorBrush(Color.FromArgb("#5FD08A"));   // green
     private static readonly Brush CheckPending = new SolidColorBrush(Color.FromArgb("#3A4358")); // faint gray
@@ -17,6 +15,8 @@ public partial class MainPage : ContentPage
     private readonly IAudioRecorder _recorder;
     private readonly IDispatcherTimer _uiTimer;
     private readonly IDispatcherTimer _queueRefreshTimer;
+    // Uploads need a sign-in; without one the periodic kick below would only log "not signed in".
+    private bool _signedIn;
 
     public MainPage(IAudioRecorder recorder)
     {
@@ -46,20 +46,10 @@ public partial class MainPage : ContentPage
             // hammer the server. ProcessUploadQueueAsync is gated, so a repeat
             // call while one is running is a harmless no-op.
             var recs = _recorder.ListRecordings();
-            if (recs.Any(r => r.State == "Queued") && recs.All(r => r.State != "Uploading"))
+            if (_signedIn && recs.Any(r => r.State == "Queued") && recs.All(r => r.State != "Uploading"))
                 _ = ProcessQueueAsync();
         };
 
-        // Seed the gateway URL on first run (or after a reinstall that wiped
-        // preferences) so recordings upload without manual setup. Editable.
-        var savedServer = Preferences.Get(PrefServer, "");
-        if (string.IsNullOrWhiteSpace(savedServer))
-        {
-            savedServer = RecorderDefaults.GatewayUrl;
-            Preferences.Set(PrefServer, savedServer);
-        }
-        ServerEntry.Text = savedServer;
-        TokenEntry.Text = Preferences.Get(PrefToken, "");
 
         // Drain the queue whenever the network comes back.
         Connectivity.Current.ConnectivityChanged += (_, _) =>
@@ -69,6 +59,7 @@ public partial class MainPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        _ = RefreshAccountSafelyAsync();
         RefreshUi();
         RefreshLibrary();
         _queueRefreshTimer.Start();
@@ -150,10 +141,76 @@ public partial class MainPage : ContentPage
         RefreshNotes();
     }
 
-    private void OnCredsChanged(object? sender, FocusEventArgs e)
+    private async void OnSignInClicked(object? sender, EventArgs e)
     {
-        SaveCreds();
-        _ = ProcessQueueAsync();
+        RecorderLog.Write("[MainPage] OnSignInClicked");
+        SignInButton.IsEnabled = false;
+        AccountLabel.Text = "Signing in - finish in the browser, then come back here.";
+        try
+        {
+            await DeviceAccount.SignInAsync(CancellationToken.None);
+            await RefreshAccountAsync();
+            await ProcessQueueAsync();
+        }
+        catch (SignInFailedException ex)
+        {
+            RecorderLog.Write($"[MainPage] OnSignInClicked FAILED: {ex.Message}");
+            await RefreshAccountSafelyAsync();
+            await DisplayAlert("Sign in", ex.Message, "OK");
+        }
+        catch (Exception ex)
+        {
+            RecorderLog.Write($"[MainPage] OnSignInClicked FAILED: {ex.GetType().Name}: {ex.Message}");
+            await RefreshAccountSafelyAsync();
+            await DisplayAlert("Sign in", "Sign-in failed: " + ex.Message, "OK");
+        }
+        finally
+        {
+            SignInButton.IsEnabled = true;
+        }
+    }
+
+    private async void OnSignOutClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var sure = await DisplayAlert("Sign out",
+                "Recordings stay on this phone and upload after you sign in again.", "Sign out", "Cancel");
+            if (!sure) return;
+            await DeviceAccount.SignOutAsync();
+            await RefreshAccountAsync();
+        }
+        catch (Exception ex)
+        {
+            RecorderLog.Write($"[MainPage] OnSignOutClicked FAILED: {ex.Message}");
+            await DisplayAlert("Sign out", ex.Message, "OK");
+        }
+    }
+
+    // Lifecycle entry point: owns its try/catch so a storage failure shows up instead of vanishing.
+    private async Task RefreshAccountSafelyAsync()
+    {
+        try
+        {
+            await RefreshAccountAsync();
+        }
+        catch (Exception ex)
+        {
+            RecorderLog.Write($"[MainPage] RefreshAccountAsync FAILED: {ex.Message}");
+            AccountLabel.Text = "Could not read this phone's sign-in: " + ex.Message;
+        }
+    }
+
+    private async Task RefreshAccountAsync()
+    {
+        var signedIn = await DeviceAccount.DeviceKeyAsync() is not null;
+        _signedIn = signedIn;
+        var host = Uri.TryCreate(DeviceAccount.GatewayUrl(), UriKind.Absolute, out var u) ? u.Host : DeviceAccount.GatewayUrl();
+        AccountLabel.Text = signedIn
+            ? $"Signed in. Recordings upload to {host}."
+            : "Not signed in. Recordings are kept on this phone and upload after you sign in.";
+        SignInButton.IsVisible = !signedIn;
+        SignOutButton.IsVisible = signedIn;
     }
 
     // Tapping a recording shows its transcript (if uploaded) or explains state.
@@ -195,18 +252,11 @@ public partial class MainPage : ContentPage
         // The recorder owns the queue logic (shared with the background
         // WorkManager worker) and raises Changed per item, which refreshes the
         // per-row progress in the list. We just kick it.
-        SaveCreds();
         await _recorder.ProcessUploadQueueAsync();
     }
 
     private static bool IsOnline()
         => Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
-
-    private void SaveCreds()
-    {
-        Preferences.Set(PrefServer, (ServerEntry.Text ?? "").Trim());
-        Preferences.Set(PrefToken, (TokenEntry.Text ?? "").Trim());
-    }
 
     // ===== UI refresh =======================================================
 

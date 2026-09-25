@@ -6,6 +6,7 @@ import {
   resolveSignInTarget,
   fetchSessionFileSize,
   GatewayError,
+  sendPrompt,
 } from "./client";
 
 // The shell-aware mid-session 401 redirect (issue #1024, retargeted by issue #1088). A 401 on the
@@ -123,5 +124,43 @@ describe("fetchSessionFileSize", () => {
     await expect(fetchSessionFileSize("s", "D:\\a\\b.bin")).rejects.toMatchObject({
       status: 503,
     });
+  });
+});
+
+// sendPrompt naming a recording (Voice Delivery mission, phase 1): "Send anyway" passes the recording's upload id,
+// and it must reach the Gateway as a CLAIM (deliveryIdClaim) - never as deliveryId, which only the Gateway sets, and
+// never as deliveryUploadId, which would mark typed-around words as spoken.
+describe("sendPrompt with a recording id", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function bodyOf(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    return JSON.parse(init.body as string) as Record<string, unknown>;
+  }
+
+  it("sends the recording's upload id as deliveryIdClaim and nothing else", async () => {
+    // Proves the id reaches the wire under the one field the Gateway verifies.
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as unknown as Response);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await sendPrompt("sid-1", "typed before the spoken words", true, undefined, undefined, undefined, "rec-42");
+
+    const body = bodyOf(fetchMock);
+    expect(body.deliveryIdClaim).toBe("rec-42");
+    expect(body).not.toHaveProperty("deliveryId");
+    expect(body).not.toHaveProperty("deliveryUploadId");
+  });
+
+  it("an ordinary prompt carries no recording claim", async () => {
+    // Proves every other caller's body is unchanged.
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as unknown as Response);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await sendPrompt("sid-1", "hello", true);
+
+    expect(bodyOf(fetchMock)).not.toHaveProperty("deliveryIdClaim");
   });
 });
