@@ -3447,8 +3447,10 @@ public sealed class Session : IDisposable
         // 2026 the 09:07:27.738 Enter to a working session was in the file as an enqueue at 09:07:27.835. So for Claude
         // Code the proof never depends on whether the Director THINKS the agent is working: at 09:26 the state said
         // waiting while the rendered screen still showed "esc to interrupt", and the two rules disagreed. The other
-        // agents are not measured to record a queued prompt before their turn ends, so they keep the state rule.
-        if (state is not (ActivityState.WaitingForInput or ActivityState.Idle) && AgentKind != Agents.AgentKind.ClaudeCode)
+        // agents are not measured to record a queued prompt before their turn ends, so they keep the state rule; so does a
+        // Claude Code that is still starting, which has no conversation file to prove anything with yet.
+        if (state is not (ActivityState.WaitingForInput or ActivityState.Idle)
+            && !(state == ActivityState.Working && AgentKind == Agents.AgentKind.ClaudeCode))
         {
             FileLog.Write($"[Session] arrival proof skipped: session={Id} is {state}; the agent queues a prompt sent mid-turn");
             return null;
