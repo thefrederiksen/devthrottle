@@ -85,26 +85,24 @@ public sealed class SendWaitNoticeTests : IDisposable
         void Watch(string line) { if (line.Contains(what, StringComparison.Ordinal)) lock (_lines) _lines.Add(line); }
         SendWaitNotice.LineObserver += Watch;
 
-        var announcedWhileWaiting = false;
+        DateTime? announcedAt = null;
+        void Announced(string line) { if (line.Contains(what, StringComparison.Ordinal) && line.Contains("WAITING")) announcedAt ??= DateTime.UtcNow; }
+        SendWaitNotice.LineObserver += Announced;
         try
         {
-            // Act: watch for the announcement WHILE the send is still waiting, not after it has ended.
-            var send = session.SendTextAsync(text, Core.Sessions.SessionTestDoors.TestDoor);
-            while (!send.IsCompleted)
-            {
-                if (Lines().Any(l => l.Contains(what) && l.Contains("WAITING"))) { announcedWhileWaiting = !send.IsCompleted; break; }
-                await Task.Delay(50);
-            }
-            await send;
+            // Act
+            await session.SendTextAsync(text, Core.Sessions.SessionTestDoors.TestDoor);
         }
         finally
         {
             SendWaitNotice.LineObserver -= Watch;
+            SendWaitNotice.LineObserver -= Announced;
             try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
         }
 
         // Assert: the wait announced what it waited for and its limit while it was waiting, and then how it ended.
-        Assert.True(announcedWhileWaiting, "the wait did not say what it was waiting for until it had ended");
+        Assert.True(announcedAt is not null && terminal.PasteDrawnAt is not null && announcedAt < terminal.PasteDrawnAt,
+            $"the wait said what it was waiting for at {announcedAt:HH:mm:ss.fff}, not before the paste was drawn at {terminal.PasteDrawnAt:HH:mm:ss.fff}");
         var lines = Lines().Where(l => l.Contains(what)).ToList();
         Assert.Contains(lines, l => l.Contains("[ClaudeCode] WAITING") && l.Contains("limit 120s"));
         Assert.Contains(lines, l => l.Contains("WAIT ENDED") && l.Contains("the composer shows the paste"));
