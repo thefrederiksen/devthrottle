@@ -99,14 +99,15 @@
                 </CollectionView.ItemTemplate>
             </CollectionView>
 
-            <!-- Server settings (out of the way; pre-filled) -->
-            <Label Text="Server settings" FontSize="13" FontAttributes="Bold" TextColor="#5A6378" Margin="0,12,0,0" />
-            <Entry x:Name="ServerEntry" Placeholder="https://gateway-host.ts.net"
-                   TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
-                   Unfocused="OnCredsChanged" />
-            <Entry x:Name="TokenEntry" Placeholder="Gateway token" IsPassword="True"
-                   TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
-                   Unfocused="OnCredsChanged" />
+            <!-- Account: this phone's sign-in to the Gateway. Recording never needs it; uploading does. -->
+            <Label Text="Account" FontSize="13" FontAttributes="Bold" TextColor="#5A6378" Margin="0,12,0,0" />
+            <Label x:Name="AccountLabel" Text="Checking sign-in..." FontSize="13" TextColor="#A9B4C8" />
+            <HorizontalStackLayout Spacing="8">
+                <Button x:Name="SignInButton" Text="Sign in" Clicked="OnSignInClicked"
+                        BackgroundColor="#2B6CB0" TextColor="White" />
+                <Button x:Name="SignOutButton" Text="Sign out" Clicked="OnSignOutClicked" IsVisible="False"
+                        BackgroundColor="#3A4358" TextColor="White" />
+            </HorizontalStackLayout>
 
         </VerticalStackLayout>
     </ScrollView>
