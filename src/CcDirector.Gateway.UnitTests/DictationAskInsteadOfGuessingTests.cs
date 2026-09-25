@@ -350,11 +350,15 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
         Assert.Single(_commands, c => c.Verb == "prompt");
     }
 
-    [Fact]
-    public async Task ARetryTheDirectorNeverSaw_IsJudgedByItsAge()
+    [Theory]
+    [InlineData(DeliveryState.Unknown)]
+    [InlineData(DeliveryState.NotDelivered)]
+    public async Task AHeldRecording_WhoseDirectorLaterSaysNotIn_IsJudgedByItsAge(DeliveryState laterAnswer)
     {
-        // Proves the other side: once the Director says it never saw the id, the words are known not to be in, so a
-        // retry more than five minutes after Send is shown back rather than typed into a conversation that has moved on.
+        // Proves the other side (contract sections 4 and 5): a recording held with no answer, whose next attempt asks
+        // first and hears the words are not in - never seen, or not delivered when the Director's fifteen-minute watch
+        // ends - is judged by the age rule like a first attempt, so six minutes after Send it is shown back with its
+        // words (200, movedOn, "too-old") and nothing is typed.
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => Timeout();
@@ -362,12 +366,13 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
         Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
 
         _clock.Now = T0 + TimeSpan.FromMinutes(6);
-        _deliveryState = _ => StateIs(DeliveryState.Unknown);
+        _deliveryState = _ => StateIs(laterAnswer);
         var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
 
         Assert.Equal(200, status);
         Assert.True(body.GetProperty("movedOn").GetBoolean());
         Assert.Equal("too-old", body.GetProperty("reason").GetString());
+        Assert.Equal(SpokenWords, body.GetProperty("transcript").GetString());
         Assert.Single(_commands, c => c.Verb == "prompt");
         Assert.Equal(360, Line(uploadId, DeliveryDecisions.TooOld).AgeSeconds);
     }
