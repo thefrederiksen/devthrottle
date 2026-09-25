@@ -3722,11 +3722,24 @@ internal static class GatewayEndpoints
                 }
             }
 
+            // A verified "Send anyway" claim whose prompt stops here, before the Director, would otherwise leave its
+            // decision log ending at the claim with no answer - the one outcome the record could not name (phase 1 review,
+            // round 2, first note). Nothing was typed and the Director never answered, so the line says where it stopped.
+            void RecordClaimStoppedBeforeDirector(string where)
+            {
+                if (claimStore is null || claimedDeliveryId is null) return;
+                claimStore.RecordDecision(claimedDeliveryId, Voice.DeliveryDecisions.ClaimStoppedBeforeDirector,
+                    new Voice.DeliveryDecisionFacts { SessionId = sid, Reason = where });
+            }
+
             async Task<IResult> PromptAfterAttributionAsync()
             {
             var (director, session) = await LocateSessionForRequestAsync(httpCtx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
+            {
+                RecordClaimStoppedBeforeDirector(ClaimStopSessionNotFound);
                 return SessionUnavailable(httpCtx, tenantBoundary, pushedSessions, sid);
+            }
 
             FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid}, director={director.DirectorId}, waitForIdle={req.WaitForIdle}");
 
@@ -3749,8 +3762,11 @@ internal static class GatewayEndpoints
                 // both need it, and a menu-guard request that cannot resolve one has no honest answer.
                 var guardTenant = ResolveReadTenant(httpCtx, tenantBoundary);
                 if (guardTenant is null)
+                {
+                    RecordClaimStoppedBeforeDirector(ClaimStopNoTenant);
                     return Results.Json(new { error = "a tenant could not be resolved for this request" },
                         statusCode: StatusCodes.Status403Forbidden);
+                }
                 var guardRoute = new SessionVerbClient(director, sendCommand);
                 if (await Wingman.WaitingScreenReader.ConfirmedMenuAsync(guardRoute, sid, guardTenant.Value, wingmanTranslator, CancellationToken.None))
                 {
@@ -3763,6 +3779,7 @@ internal static class GatewayEndpoints
                             "The menu guard speaks a refusal, so GatewayEndpoints.Map must be given a "
                             + "TenantSettingsResolver to read the account's spoken language from.");
                     FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} REFUSED - a menu owns the live screen (menu guard); nothing typed, no Enter pressed");
+                    RecordClaimStoppedBeforeDirector(ClaimStopMenu);
                     return Results.Json(new PromptResponse
                     {
                         Accepted = false,
@@ -6649,6 +6666,13 @@ internal static class GatewayEndpoints
         if (!reported.Accepted) Refused(reported.Code, reported.VerdictId);
         return Answer(reported);
     }
+
+    /// <summary>Where a verified "Send anyway" prompt stopped before the Director: no live session was found for it.</summary>
+    internal const string ClaimStopSessionNotFound = "session-not-found";
+    /// <summary>Where a verified "Send anyway" prompt stopped before the Director: a menu owned the live screen.</summary>
+    internal const string ClaimStopMenu = "menu";
+    /// <summary>Where a verified "Send anyway" prompt stopped before the Director: the menu guard could resolve no tenant.</summary>
+    internal const string ClaimStopNoTenant = "no-tenant";
 
     private static IResult SessionUnavailable(
         HttpContext ctx,
