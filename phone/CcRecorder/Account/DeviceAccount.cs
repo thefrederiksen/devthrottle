@@ -14,11 +14,8 @@ namespace CcRecorder.Account;
 /// </summary>
 public static class DeviceAccount
 {
-    /// <summary>
-    /// Preference holding the Gateway address. Not editable in the app: the sign-in below is the HOSTED
-    /// Gateway's (an account token traded at /mobile/enroll), which a self-hosted Gateway does not accept.
-    /// </summary>
-    public const string PrefGatewayUrl = "gateway_url";
+    // Older builds stored an editable Gateway address here. The recorder is hosted-only now; it is cleared.
+    private const string PrefGatewayUrl = "gateway_url";
 
     // The pre-sign-in versions stored a hand-typed token in plain preferences. It is never read again.
     private const string LegacyPrefToken = "gateway_token";
@@ -28,16 +25,14 @@ public static class DeviceAccount
     // How long the app waits for the browser before giving up on a sign-in.
     private static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(10);
 
-    /// <summary>The Gateway address, seeding the hosted default on first run and replacing the old placeholder.</summary>
+    /// <summary>
+    /// The Gateway address: always the hosted Gateway. An address saved by an older build (the placeholder or a
+    /// hand-typed one) is cleared, so the account token is never sent anywhere else.
+    /// </summary>
     public static string GatewayUrl()
     {
-        var saved = Preferences.Get(PrefGatewayUrl, "").Trim();
-        if (string.IsNullOrWhiteSpace(saved) || saved == RecorderDefaults.RetiredPlaceholderUrl)
-        {
-            saved = RecorderDefaults.GatewayUrl;
-            Preferences.Set(PrefGatewayUrl, saved);
-        }
-        return saved;
+        Preferences.Remove(PrefGatewayUrl);
+        return RecorderDefaults.GatewayUrl;
     }
 
     /// <summary>This phone's device key, or null when the phone is not signed in.</summary>

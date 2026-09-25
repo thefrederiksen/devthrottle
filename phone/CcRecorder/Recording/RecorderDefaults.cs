@@ -1,19 +1,13 @@
 namespace CcRecorder.Recording;
 
 /// <summary>
-/// Built-in defaults for the recorder. The saved <c>gateway_url</c> preference always wins over
-/// <see cref="GatewayUrl"/>; it can be edited in the app for a self-hosted Gateway.
+/// Built-in defaults for the recorder. The recorder is HOSTED-ONLY: its sign-in is the hosted Gateway's
+/// (an account token traded at /mobile/enroll), so <see cref="GatewayUrl"/> is always the address used.
 /// </summary>
 public static class RecorderDefaults
 {
-    /// <summary>The hosted DevThrottle Gateway. Used when no <c>gateway_url</c> preference has been set yet.</summary>
+    /// <summary>The hosted DevThrottle Gateway: where the recorder signs in and uploads.</summary>
     public const string GatewayUrl = "https://gateway.devthrottle.com";
-
-    /// <summary>
-    /// The placeholder earlier builds seeded into the preference. It never pointed anywhere, so a phone still
-    /// carrying it is moved to <see cref="GatewayUrl"/>.
-    /// </summary>
-    public const string RetiredPlaceholderUrl = "https://your-gateway.tail0123.ts.net";
 
     /// <summary>
     /// Capture sample rate. 48 kHz keeps the whole audible range: this is the kept recording, not only

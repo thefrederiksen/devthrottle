@@ -82,12 +82,14 @@ public class LoopbackSignInListenerTests
     [InlineData("not json")]
     [InlineData("{\"access_token\":\"a2\"}")]
     [InlineData("[1,2]")]
-    public void Handle_PostedBodyIncomplete_FailsLoud(string body)
+    public void Handle_PostedBodyIncomplete_IsRefusedButDoesNotEndTheWait(string body)
     {
+        // The hand-back page only posts complete bodies, so an incomplete one is a stranger's: it must
+        // not be able to cancel a sign-in in progress.
         var outcome = LoopbackSignInListener.Handle(new("POST", "/devthrottle-login-callback/", "", body), S);
 
         Assert.Null(outcome.Tokens);
-        Assert.NotNull(outcome.Failure);
+        Assert.Null(outcome.Failure);
         Assert.Equal(400, outcome.Status);
     }
 

@@ -155,13 +155,13 @@ public partial class MainPage : ContentPage
         catch (SignInFailedException ex)
         {
             RecorderLog.Write($"[MainPage] OnSignInClicked FAILED: {ex.Message}");
-            await RefreshAccountAsync();
+            await RefreshAccountSafelyAsync();
             await DisplayAlert("Sign in", ex.Message, "OK");
         }
         catch (Exception ex)
         {
             RecorderLog.Write($"[MainPage] OnSignInClicked FAILED: {ex.GetType().Name}: {ex.Message}");
-            await RefreshAccountAsync();
+            await RefreshAccountSafelyAsync();
             await DisplayAlert("Sign in", "Sign-in failed: " + ex.Message, "OK");
         }
         finally

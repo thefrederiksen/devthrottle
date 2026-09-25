@@ -128,10 +128,10 @@ public sealed class LoopbackSignInListener : IDisposable
 
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase))
         {
-            if (!SignInHandbackPage.TryParseJsonBody(request.Body, out var access, out var refresh, out var postedState))
-                return new Outcome(400, "text/plain; charset=utf-8", "missing-credential", null,
-                    "The sign-in page posted back without both the access token and the refresh token.", "");
-            if (!StateMatches(postedState, expectedState))
+            // The hand-back page only ever posts a complete body carrying the state, so a body that is not
+            // one did not come from this sign-in: ignore it rather than let it end the wait.
+            if (!SignInHandbackPage.TryParseJsonBody(request.Body, out var access, out var refresh, out var postedState)
+                || !StateMatches(postedState, expectedState))
                 return NotOurs();
             return new Outcome(200, "text/plain; charset=utf-8", "signed-in", new SignInTokens(access, refresh), null, "fragment hand-back, posted body");
         }
