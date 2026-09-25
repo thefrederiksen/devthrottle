@@ -3229,10 +3229,13 @@ internal static class GatewayEndpoints
         }
 
         // The Director's answer to a "Send anyway" that carried a delivery id, written to that recording's decision log
-        // (review finding 2): accepted and typed, refused as delivered or delivering with nothing typed, or failed. This
-        // is the line that answers "why did my words go in once when I pressed Send twice?" without the container log.
-        static void RecordClaimAnswer(Voice.VoiceUploadStore store, string deliveryId, string sid, PromptResponse? body, string? error)
+        // (review finding 2): accepted and typed, refused as delivered or delivering with nothing typed, failed, or - phase
+        // 2 - unanswered, which the next lines of the log follow with the question. This is the line that answers "why did
+        // my words go in once when I pressed Send twice?" without the container log.
+        static void RecordClaimAnswer(Voice.VoiceUploadStore store, string deliveryId, string sid,
+            SessionVerbClient.PromptSendOutcome sent, PromptAnswerReading reading)
         {
+            var body = sent.Body;
             var refused = body is { Accepted: false, DeliveryState: DeliveryState.Delivered or DeliveryState.Delivering };
             store.RecordDecision(deliveryId, Voice.DeliveryDecisions.ClaimDirectorAnswer, new Voice.DeliveryDecisionFacts
             {
@@ -3240,12 +3243,58 @@ internal static class GatewayEndpoints
                 Ok = body?.Accepted ?? false,
                 State = body?.DeliveryState is { } state ? DeliveryStates.Format(state) : null,
                 RefusedDuplicate = refused,
-                Error = body is null ? error : body.Accepted ? null : body.DeliveryStateReason ?? body.Error,
+                Error = body is null ? reading.Error : body.Accepted ? null : body.DeliveryStateReason ?? body.Error,
+                Reason = reading.Unanswered ? Voice.DeliveryDecisions.AskReasonPromptUnanswered : null,
             });
         }
 
-        async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null,
-            Action<PromptResponse?, string?>? answered = null)
+        // A "SEND ANYWAY" WITH A VERIFIED CLAIM (Voice Delivery mission, phase 2, contract section 4). It carries the
+        // recording's delivery id and can run out of time exactly as a dictation can, so it goes through the SAME send-and-
+        // ask piece the dictation path uses - one mechanism - and answers: 200 with the prompt answer when the words are in;
+        // 202 "still delivering" when the Director says delivering or the question gets no answer; 502 when the question
+        // says the words are not in (never seen, or not delivered). It never asks FIRST: the owner pressed "Send anyway",
+        // and the Director refuses a repeat of an id it holds as delivered or delivering.
+        async Task<IResult> DeliverClaimedPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req,
+            Voice.VoiceUploadStore store, string deliveryId, Action<bool> outcome)
+        {
+            var route = new SessionVerbClient(director, sendCommand);
+            var sent = await DeliverySendAndAsk.SendAsync(route, store, deliveryId, sid, deliveryId, req,
+                (answer, reading) => RecordClaimAnswer(store, deliveryId, sid, answer, reading));
+            switch (sent.Kind)
+            {
+                case DeliverySendKind.Delivered:
+                    // The Director's own answer when it gave one; when the question settled it, the words are in.
+                    var body = sent.Body ?? new PromptResponse
+                    {
+                        Accepted = true,
+                        DeliveryState = DeliveryState.Delivered,
+                        ActivityState = session.ActivityState,
+                    };
+                    outcome(body.Accepted);
+                    return await AnswerAcceptedPromptAsync(director, sid, req, body);
+                case DeliverySendKind.StillDelivering:
+                case DeliverySendKind.NoAnswer:
+                    outcome(false);
+                    var directorState = sent.Kind == DeliverySendKind.NoAnswer ? DeliverySendAndAsk.NoAnswerState : DeliveryStates.Delivering;
+                    DeliverySendAndAsk.RecordHeld(store, deliveryId, sid, directorState);
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId} HELD as still delivering ({directorState})");
+                    return Results.Json(new { delivering = true, directorState }, statusCode: StatusCodes.Status202Accepted);
+                case DeliverySendKind.NeverSeen:
+                case DeliverySendKind.NotDelivered:
+                    outcome(false);
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId} NOT delivered: {sent.Error}");
+                    return Results.Json(new PromptResponse
+                    {
+                        Accepted = false,
+                        Error = sent.Error,
+                        ActivityState = session.ActivityState,
+                    }, statusCode: StatusCodes.Status502BadGateway);
+                default:
+                    throw new InvalidOperationException($"unknown delivery send outcome {sent.Kind}");
+            }
+        }
+
+        async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null)
         {
             // Post-cut: tunnel-only. A null result means the Director is not connected -> 502. The WaitForIdle
             // poll below is unchanged - it observes the session regardless of how the prompt was delivered.
@@ -3263,7 +3312,6 @@ internal static class GatewayEndpoints
                 body = streamResult.Ok ? DirectorCommandRouter.ReadBody<PromptResponse>(streamResult) : null;
                 err = streamResult.Ok ? null : DirectorCommandRouter.DescribeFailure(streamResult);
             }
-            answered?.Invoke(ok ? body : null, ok && body is null ? "the Director answered with no response body" : err);
             if (!ok || body is null)
             {
                 outcome?.Invoke(false);
@@ -3275,7 +3323,13 @@ internal static class GatewayEndpoints
                 }, statusCode: StatusCodes.Status502BadGateway);
             }
             outcome?.Invoke(body.Accepted);
+            return await AnswerAcceptedPromptAsync(director, sid, req, body);
+        }
 
+        // The answer to a prompt the Director answered: the body as it came, or - when the caller asked to wait for the
+        // session to go idle - the body with the wait's outcome and the output since the prompt.
+        async Task<IResult> AnswerAcceptedPromptAsync(DirectorDto director, string sid, PromptRequest req, PromptResponse body)
+        {
             if (!req.WaitForIdle)
                 return Results.Json(body);
 
@@ -3795,9 +3849,9 @@ internal static class GatewayEndpoints
                 }
             }
 
-            return await DeliverPromptAsync(director, session, sid, req, wasAccepted => accepted = wasAccepted,
-                claimStore is null || claimedDeliveryId is null ? null
-                    : (body, error) => RecordClaimAnswer(claimStore, claimedDeliveryId, sid, body, error));
+            return claimStore is not null && claimedDeliveryId is not null
+                ? await DeliverClaimedPromptAsync(director, session, sid, req, claimStore, claimedDeliveryId, wasAccepted => accepted = wasAccepted)
+                : await DeliverPromptAsync(director, session, sid, req, wasAccepted => accepted = wasAccepted);
             }
         });
 

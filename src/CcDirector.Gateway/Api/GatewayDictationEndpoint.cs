@@ -86,7 +86,7 @@ internal static class GatewayDictationEndpoint
     /// to be asked, or silent. The other two held states are the Director's own words, <c>delivering</c> and
     /// <c>unknown</c> (<see cref="DeliveryStates"/>).
     /// </summary>
-    internal const string NoAnswerDirectorState = "no-answer";
+    internal const string NoAnswerDirectorState = DeliverySendAndAsk.NoAnswerState;
 
     /// <summary>The 400 answer's words for a complete without a Send time (phase 2 wire contract, section 1).</summary>
     internal const string SentAtUtcRequired = "sentAtUtc (ISO 8601 UTC) is required";
@@ -690,7 +690,7 @@ internal static class GatewayDictationEndpoint
             // not in (never seen, or a send that failed) is transcribed and sent again.
             if (store.MayHaveBeenSentToDirector(uploadId))
             {
-                var earlier = await AskTheDirectorAsync(store, uploadId, sid, deliveryId,
+                var earlier = await DeliverySendAndAsk.AskAsync(store, uploadId, sid, deliveryId,
                     new SessionVerbClient(director, sendCommand), DeliveryDecisions.AskReasonRetryAsksFirst);
                 if (earlier.Kind != SessionVerbClient.DeliveryStateAskKind.Answered)
                     return HoldAsStillDelivering(store, uploadId, sid, NoAnswerDirectorState);
@@ -887,7 +887,7 @@ internal static class GatewayDictationEndpoint
             // SENT WITH THE FOUR OUTCOMES KEPT APART (phase 2). "No answer came back" is not "it failed": the 25
             // September incident was a slow success read as a failure. So an unanswered send is followed by a question
             // to the Director, never by a 502 that tells the client to type the words again.
-            var sent = await route.SendPromptAsync(sid, new PromptRequest
+            var sent = await DeliverySendAndAsk.SendAsync(route, store, uploadId, sid, deliveryId, new PromptRequest
             {
                 Text = message,
                 AppendEnter = true,
@@ -901,55 +901,38 @@ internal static class GatewayDictationEndpoint
                     TranscriptId = uploadId,
                     SpokenSpans = spokenSpans,
                 },
-            });
-            var verdict = ReadPromptAnswer(sent);
+            },
             // WHAT THE DIRECTOR SAID, written once the answer is read so its facts are final: whether this attempt is
             // treated as ok, the error, the Director's own delivery state and reason, and whether it was a refused
             // duplicate. "Why was this delivered only once" is read from this line.
-            store.RecordDecision(uploadId, DeliveryDecisions.DirectorAnswer, new DeliveryDecisionFacts
+            (answer, reading) => store.RecordDecision(uploadId, DeliveryDecisions.DirectorAnswer, new DeliveryDecisionFacts
             {
                 SessionId = sid,
-                Ok = verdict.Kind is PromptVerdictKind.Delivered,
-                Error = verdict.Error,
-                State = sent.Body?.DeliveryState is { } directorState ? DeliveryStates.Format(directorState) : null,
-                Reason = verdict.Kind == PromptVerdictKind.Unanswered ? DeliveryDecisions.AskReasonPromptUnanswered : sent.Body?.DeliveryStateReason,
-                RefusedDuplicate = verdict.RefusedDuplicate ? true : null,
-            });
+                Ok = reading.Delivered,
+                Error = reading.Error,
+                State = answer.Body?.DeliveryState is { } directorState ? DeliveryStates.Format(directorState) : null,
+                Reason = reading.Unanswered ? DeliveryDecisions.AskReasonPromptUnanswered : answer.Body?.DeliveryStateReason,
+                RefusedDuplicate = reading.RefusedDuplicate ? true : null,
+            }));
 
-            switch (verdict.Kind)
+            switch (sent.Kind)
             {
-                case PromptVerdictKind.Delivered:
-                    return ResolveDelivered(store, uploadId, sid, transcript, message.Length, verdict.RefusedDuplicate);
-                case PromptVerdictKind.StillDelivering:
+                case DeliverySendKind.Delivered:
+                    return ResolveDelivered(store, uploadId, sid, transcript, message.Length, sent.RefusedDuplicate);
+                case DeliverySendKind.StillDelivering:
                     return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Delivering);
-                case PromptVerdictKind.NotDelivered:
-                    // Definitely not in (nothing left this Gateway, or the Director refused before touching the session,
-                    // or said it was not delivered): the client retries, and its retry asks first and then types.
-                    FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: not delivered ({verdict.Error}); retryable");
-                    return DictationOutcome.Error(StatusCodes.Status502BadGateway, verdict.Error ?? "submit to session failed");
-            }
-
-            // UNANSWERED: the prompt went out and no answer came back. Ask; never call it a failure.
-            var asked = await AskTheDirectorAsync(store, uploadId, sid, deliveryId, route, DeliveryDecisions.AskReasonPromptUnanswered);
-            if (asked.Kind != SessionVerbClient.DeliveryStateAskKind.Answered)
-                return HoldAsStillDelivering(store, uploadId, sid, NoAnswerDirectorState);
-            switch (asked.Answer!.State)
-            {
-                case DeliveryState.Delivered:
-                    return ResolveDelivered(store, uploadId, sid, transcript, message.Length, refusedDuplicate: false);
-                case DeliveryState.Delivering:
-                    return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Delivering);
-                case DeliveryState.Unknown:
+                case DeliverySendKind.NoAnswer:
+                    return HoldAsStillDelivering(store, uploadId, sid, NoAnswerDirectorState);
+                case DeliverySendKind.NeverSeen:
                     // The Director says it never saw the id - but the send's answer never came, so it may yet arrive.
-                    // Held: the retry asks again, and a retry that types is refused by the Director if this one landed.
+                    // Held: the client's next attempt asks again, and "unknown" then counts as not in (contract section 4).
                     return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Unknown);
-                case DeliveryState.NotDelivered:
-                    FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: the Director says not delivered " +
-                        $"({asked.Answer.Reason}); retryable");
-                    return DictationOutcome.Error(StatusCodes.Status502BadGateway,
-                        $"the Director did not deliver the words: {asked.Answer.Reason ?? verdict.Error ?? "no reason given"}");
+                case DeliverySendKind.NotDelivered:
+                    // Definitely not in: the client retries, and its retry asks first and then types.
+                    FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: not delivered ({sent.Error}); retryable");
+                    return DictationOutcome.Error(StatusCodes.Status502BadGateway, sent.Error ?? "submit to session failed");
                 default:
-                    throw new InvalidOperationException($"the Director answered delivery state {asked.Answer.State}, which this Gateway does not know");
+                    throw new InvalidOperationException($"unknown delivery send outcome {sent.Kind}");
             }
         }
         catch (Exception ex)
@@ -993,92 +976,6 @@ internal static class GatewayDictationEndpoint
     /// </summary>
     internal const string TooOldReason = DeliveryDecisions.TooOld;
 
-    /// <summary>What a prompt send's answer means for this recording.</summary>
-    private enum PromptVerdictKind
-    {
-        /// <summary>The words are in: accepted and finished, or refused as a copy of one already delivered.</summary>
-        Delivered,
-        /// <summary>The Director says it is still typing them - accepted and carrying on, or refused as a copy of one
-        /// being delivered. They may be in, so the recording is held, never shown back and never retyped.</summary>
-        StillDelivering,
-        /// <summary>Definitely not in: nothing left this Gateway, the Director refused before touching the session, or
-        /// it refused in a state that is not a delivery. Retryable.</summary>
-        NotDelivered,
-        /// <summary>The send went out and no answer came back that says what became of it. Ask the Director.</summary>
-        Unanswered,
-    }
-
-    private sealed record PromptVerdict(PromptVerdictKind Kind, string? Error, bool RefusedDuplicate = false);
-
-    /// <summary>
-    /// Read the prompt verb's answer into what it means for this recording. An accepted answer that carries no delivery
-    /// state (a Director older than the field) is read exactly as it always was: delivered.
-    /// </summary>
-    private static PromptVerdict ReadPromptAnswer(SessionVerbClient.PromptSendOutcome sent)
-    {
-        switch (sent.Kind)
-        {
-            case SessionVerbClient.PromptSendKind.Unanswered:
-                return new PromptVerdict(PromptVerdictKind.Unanswered, sent.Detail);
-            case SessionVerbClient.PromptSendKind.NeverLeftTheGateway:
-            case SessionVerbClient.PromptSendKind.DirectorRefused:
-                return new PromptVerdict(PromptVerdictKind.NotDelivered, sent.Detail);
-            case SessionVerbClient.PromptSendKind.Accepted:
-                break;
-            default:
-                throw new InvalidOperationException($"unknown prompt send outcome {sent.Kind}");
-        }
-        var body = sent.Body;
-        if (body is { Accepted: false, DeliveryState: not null })
-        {
-            // A REFUSED COPY: the Director typed nothing because this delivery id was already delivered or is still
-            // being delivered. Delivered means an earlier attempt landed after this Gateway had stopped waiting for it.
-            return body.DeliveryState switch
-            {
-                DeliveryState.Delivered => new PromptVerdict(PromptVerdictKind.Delivered, null, RefusedDuplicate: true),
-                DeliveryState.Delivering => new PromptVerdict(PromptVerdictKind.StillDelivering, body.DeliveryStateReason ?? body.Error),
-                _ => new PromptVerdict(PromptVerdictKind.NotDelivered,
-                    body.Error ?? $"the Director refused the delivery (state {DeliveryStates.Format(body.DeliveryState.Value)})"),
-            };
-        }
-        // Accepted, and the Director answered at its own budget with the send still going (Voice Delivery phase 3): the
-        // words may yet land or fail, so this is held like any other "still delivering", and the retry asks.
-        if (body is { Accepted: true, DeliveryState: DeliveryState.Delivering })
-            return new PromptVerdict(PromptVerdictKind.StillDelivering, null);
-        return new PromptVerdict(PromptVerdictKind.Delivered, null);
-    }
-
-    /// <summary>
-    /// Ask the Director "what became of delivery id X?" and write the question and its answer to the decision log
-    /// (Voice Delivery mission, phase 2). <paramref name="why"/> is <see cref="DeliveryDecisions.AskReasonPromptUnanswered"/>
-    /// or <see cref="DeliveryDecisions.AskReasonRetryAsksFirst"/>. The answer line carries the Director's state, or, when
-    /// it gave none, which kind of no-answer it was - they are different facts and are never folded into "unknown".
-    /// </summary>
-    private static async Task<SessionVerbClient.DeliveryStateAsk> AskTheDirectorAsync(
-        VoiceUploadStore store, string uploadId, string sid, string deliveryId, SessionVerbClient route, string why)
-    {
-        store.RecordDecision(uploadId, DeliveryDecisions.AskedDirector, new DeliveryDecisionFacts { SessionId = sid, Reason = why });
-        var asked = await route.GetDeliveryStateAsync(sid, deliveryId);
-        var noAnswer = asked.Kind switch
-        {
-            SessionVerbClient.DeliveryStateAskKind.Answered => null,
-            SessionVerbClient.DeliveryStateAskKind.DirectorTooOld => "director-too-old",
-            SessionVerbClient.DeliveryStateAskKind.NoAnswer => NoAnswerDirectorState,
-            SessionVerbClient.DeliveryStateAskKind.NeverLeftTheGateway => "never-left-the-gateway",
-            _ => throw new InvalidOperationException($"unknown delivery-state answer kind {asked.Kind}"),
-        };
-        store.RecordDecision(uploadId, DeliveryDecisions.DeliveryStateAnswer, new DeliveryDecisionFacts
-        {
-            SessionId = sid,
-            State = asked.Answer is { } answer ? DeliveryStates.Format(answer.State) : null,
-            Reason = noAnswer ?? asked.Answer?.Reason,
-            Error = noAnswer is null ? null : asked.Detail,
-        });
-        FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: asked the Director ({why}); " +
-            $"answer={(asked.Answer is { } a ? DeliveryStates.Format(a.State) : noAnswer)} {asked.Detail}");
-        return asked;
-    }
-
     /// <summary>
     /// Hold a recording that may already be in the session: the record stays PENDING (nothing is resolved, nothing
     /// deleted), the decision is written, and the client is answered 202 "still delivering" with the Director's state as
@@ -1086,13 +983,7 @@ internal static class GatewayDictationEndpoint
     /// </summary>
     private static DictationOutcome HoldAsStillDelivering(VoiceUploadStore store, string uploadId, string sid, string directorState)
     {
-        store.RecordDecision(uploadId, DeliveryDecisions.StillDelivering, new DeliveryDecisionFacts
-        {
-            SessionId = sid,
-            State = directorState,
-        });
-        FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: HELD as still delivering " +
-            $"(directorState={directorState}); the record stays pending and the client asks again");
+        DeliverySendAndAsk.RecordHeld(store, uploadId, sid, directorState);
         return DictationOutcome.StillDelivering(directorState);
     }
 
