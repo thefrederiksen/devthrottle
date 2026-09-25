@@ -43,6 +43,7 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     private DeliveryRecord _directorRecord = null!;
     private VoiceUploadStore _uploads = null!;
     private readonly List<PromptRequest> _arrived = new();
+    private readonly ExecuteActionTestBackend _backend = new();
 
     public DeliveryIdIsGatewayAuthoritativeTests()
     {
@@ -68,7 +69,7 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         _directorRecord = new DeliveryRecord(Path.Combine(_root, "director-delivery-records"));
 
         _sm = new SessionManager(new AgentOptions());
-        _session = _sm.CreateEmbeddedSession(Path.GetTempPath(), null, new ExecuteActionTestBackend());
+        _session = _sm.CreateEmbeddedSession(Path.GetTempPath(), null, _backend);
         _sid = _session.Id.ToString();
 
         _gateway.Registry.Upsert(new DirectorRegistrationRequest
@@ -196,5 +197,61 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         Assert.Equal("delivered", first.GetProperty("deliveryState").GetString());
         Assert.False(second.GetProperty("accepted").GetBoolean());
         Assert.Equal("delivered", second.GetProperty("deliveryState").GetString());
+    }
+
+    /// <summary>
+    /// The recording as the client leaves it before "Send anyway" can be pressed: resolved as moved-on - a terminal
+    /// outcome - and then ACKNOWLEDGED through the real acknowledge route, which the client does for every terminal
+    /// outcome before it shows the button (client-core <c>uploadDictationToSession</c>).
+    /// </summary>
+    private async Task<string> MovedOnAndAcknowledged()
+    {
+        var uploadId = Upload(_uploads, _sid);
+        _uploads.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript: "send me once");
+        var ack = await _http.PostAsync($"dictation/{uploadId}/ack", content: null);
+        var ackText = await ack.Content.ReadAsStringAsync();
+        Assert.True(ack.StatusCode == HttpStatusCode.OK, $"the acknowledgement answered {(int)ack.StatusCode}: {ackText}");
+        Assert.True(JsonDocument.Parse(ackText).RootElement.GetProperty("retired").GetBoolean(), $"the acknowledgement retired nothing: {ackText}");
+        return uploadId;
+    }
+
+    [Fact]
+    public async Task Send_anyway_of_an_acknowledged_recording_that_already_landed_is_refused_and_types_nothing()
+    {
+        // Proves the mission's 09:05 case through the caller that exists (review finding 1): the first copy LANDED -
+        // the Director's record says delivered - but the Gateway gave up waiting and judged the recording moved on, the
+        // client acknowledged that outcome and showed the words back, and the owner pressed "Send anyway". The claim
+        // must still become the delivery id, so the Director refuses the second copy, types nothing, and says so.
+        var uploadId = await MovedOnAndAcknowledged();
+        var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
+        Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
+        _directorRecord.MarkDelivered(_session.Id, canonical);
+        var typedBefore = _backend.TextsSent;
+
+        var answer = await PostPrompt(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(canonical, LastArrived().DeliveryId);
+        Assert.False(answer.GetProperty("accepted").GetBoolean());
+        Assert.Equal("delivered", answer.GetProperty("deliveryState").GetString());
+        Assert.Equal(typedBefore, _backend.TextsSent);
+    }
+
+    [Fact]
+    public async Task Send_anyway_of_an_acknowledged_recording_the_Director_never_received_is_typed()
+    {
+        // Proves the other half: when the words really were dropped - the Director never saw this delivery id - a
+        // "Send anyway" of the acknowledged recording is typed, once, under its delivery id. This is also the control
+        // for the test above: the same backend counter moves when something IS typed.
+        var uploadId = await MovedOnAndAcknowledged();
+        var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
+        var typedBefore = _backend.TextsSent;
+
+        var answer = await PostPrompt(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(canonical, LastArrived().DeliveryId);
+        Assert.True(answer.GetProperty("accepted").GetBoolean());
+        Assert.Equal("delivered", answer.GetProperty("deliveryState").GetString());
+        Assert.True(_backend.TextsSent > typedBefore, "nothing was typed for a recording the Director never received");
+        Assert.Equal(DeliveryState.Delivered, _directorRecord.Read(_session.Id, canonical).State);
     }
 }
