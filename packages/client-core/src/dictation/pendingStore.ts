@@ -77,9 +77,15 @@ export interface PendingDictation {
    *  is what gets retried instead. Only meaningful alongside `staleDropped`. */
   droppedTranscript?: string;
   /** Why the Gateway did not send the clip, stored durably beside `staleDropped` so the right words
-   *  survive a reload: "too-old" (more than 5 minutes from Send) or "session-exited". Absent when the
-   *  Gateway gave no reason (a tombstone written before the reason existed). */
+   *  survive a reload: "too-old" (more than 5 minutes from Send), "session-exited", or "unconfirmed" (the
+   *  Director gave no answer for more than 5 minutes, so nobody can say whether the words arrived). Absent
+   *  when the Gateway gave no reason (a tombstone written before the reason existed). */
   droppedReason?: string;
+  /** The Gateway's decision whether to offer "Send anyway" for this dropped clip (phase 2, change 1),
+   *  stored durably beside `staleDropped` so a reload shows the same buttons. False for "unconfirmed": the
+   *  words may already be in, so the owner gets them back with Dismiss only. Always set on a dropped
+   *  record; one saved before the field existed is given one when it is read - see migratePendingRecord. */
+  droppedOfferSendAnyway?: boolean;
   /** Set while "Send anyway" on a dropped clip is waiting on a 202 "still delivering" answer (voice
    *  delivery, #3398): the words may already be in, so the same "Send anyway" - with the same delivery
    *  claim, which the Director refuses to type twice - is pressed again automatically on the ordinary
@@ -144,14 +150,27 @@ export async function savePending(rec: PendingDictation): Promise<void> {
 // A record as it may sit on disk: one saved before `sentAt` existed has none.
 type StoredPendingDictation = Omit<PendingDictation, "sentAt"> & { sentAt?: number };
 
-/** The one-time migration of a record read from disk (voice delivery, #3398). A record saved before
- *  `sentAt` existed has no Send time, and nothing but its createdAt recorded when it was sent: createdAt
- *  was stamped when the clip was saved, a second or so after the Send press (after the audio decode), so
- *  it is the closest recorded moment and becomes the Send time. `migrated` says the record changed and
- *  must be written back, so this happens once per record. */
+/** The one-time migration of a record read from disk (voice delivery, #3398). `migrated` says the record
+ *  changed and must be written back, so this happens once per record.
+ *
+ *  - A record saved before `sentAt` existed has no Send time, and nothing but its createdAt recorded when it
+ *    was sent: createdAt was stamped when the clip was saved, a second or so after the Send press (after the
+ *    audio decode), so it is the closest recorded moment and becomes the Send time.
+ *  - A dropped record saved before `droppedOfferSendAnyway` existed was dropped for a reason the Gateway
+ *    offers "Send anyway" for (too old, session exited, or no reason): "unconfirmed" did not exist when it
+ *    was written, and the old screen showed it with "Send anyway". It keeps that. */
 export function migratePendingRecord(stored: StoredPendingDictation): { rec: PendingDictation; migrated: boolean } {
-  if (typeof stored.sentAt === "number") return { rec: stored as PendingDictation, migrated: false };
-  return { rec: { ...stored, sentAt: stored.createdAt }, migrated: true };
+  let rec = stored;
+  let migrated = false;
+  if (typeof rec.sentAt !== "number") {
+    rec = { ...rec, sentAt: rec.createdAt };
+    migrated = true;
+  }
+  if (rec.staleDropped && typeof rec.droppedOfferSendAnyway !== "boolean") {
+    rec = { ...rec, droppedOfferSendAnyway: true };
+    migrated = true;
+  }
+  return { rec: rec as PendingDictation, migrated };
 }
 
 // Migrate a record read from disk, writing it back when it changed, so the send path always finds a Send time.

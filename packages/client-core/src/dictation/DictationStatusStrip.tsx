@@ -150,15 +150,18 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
           <span className="dictate-strip-text">{status.error ?? "That recording wasn't sent."}</span>
           {words.length > 0 && <blockquote className="dictate-strip-quote">{words}</blockquote>}
         </div>
-        {words.length > 0 ? (
-          <button type="button" className="dictate-strip-btn" onClick={() => void onSendAnyway()} disabled={uploadingNow}>
-            {uploadingNow ? "Sending..." : "Send anyway"}
-          </button>
-        ) : (
-          <button type="button" className="dictate-strip-btn" onClick={() => void onRetryFresh()} disabled={uploadingNow}>
-            {uploadingNow ? "Retrying..." : "Retry"}
-          </button>
-        )}
+        {/* Whether to offer a second send at all is the Gateway's decision (phase 2, change 1): a recording it
+            could not confirm arrived is shown back with Dismiss only, because the words may be in already. */}
+        {status.offerSendAnyway === true &&
+          (words.length > 0 ? (
+            <button type="button" className="dictate-strip-btn" onClick={() => void onSendAnyway()} disabled={uploadingNow}>
+              {uploadingNow ? "Sending..." : "Send anyway"}
+            </button>
+          ) : (
+            <button type="button" className="dictate-strip-btn" onClick={() => void onRetryFresh()} disabled={uploadingNow}>
+              {uploadingNow ? "Retrying..." : "Retry"}
+            </button>
+          ))}
         <button
           type="button"
           className="dictate-strip-btn dictate-strip-dismiss"

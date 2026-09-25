@@ -85,7 +85,14 @@ const NOT_SENT_WITH_WORDS_MESSAGE = "This recording wasn't sent automatically. H
 const NOT_SENT_NO_WORDS_MESSAGE =
   "This recording wasn't sent automatically. Your recording is saved on your device and you can try again.";
 
+// Unconfirmed (phase 2, change 1): the Director never answered, and more than 5 minutes have passed since
+// Send, so nobody can say whether the words arrived. The words are handed back so the owner can see what they
+// said and check the session; there is no "Send anyway", because the words may be in already.
+const UNCONFIRMED_WITH_WORDS_MESSAGE = "We could not confirm this arrived. Here is what you said.";
+const UNCONFIRMED_NO_WORDS_MESSAGE = "We could not confirm this recording arrived. Check the session to see whether it did.";
+
 function notSentMessage(reason: string | undefined, haveWords: boolean): string {
+  if (reason === "unconfirmed") return haveWords ? UNCONFIRMED_WITH_WORDS_MESSAGE : UNCONFIRMED_NO_WORDS_MESSAGE;
   if (reason === "too-old") return haveWords ? TOO_OLD_WITH_WORDS_MESSAGE : TOO_OLD_NO_WORDS_MESSAGE;
   if (reason === "session-exited") return haveWords ? SESSION_EXITED_WITH_WORDS_MESSAGE : SESSION_EXITED_NO_WORDS_MESSAGE;
   return haveWords ? NOT_SENT_WITH_WORDS_MESSAGE : NOT_SENT_NO_WORDS_MESSAGE;
@@ -475,12 +482,20 @@ export async function sendDroppedDictationAnyway(uploadId: string, attempt = 0):
     }
     const text = composeDroppedMessage(rec);
     if (text.length === 0) return; // nothing to send; this clip's action is Retry, not Send anyway
+    // The Gateway said not to offer "Send anyway" for this clip (it could not confirm the words arrived), so
+    // nothing may send it - not a stale button, not a second strip. A repeat of a press already under way
+    // (sendingAnyway) is the owner's own earlier press carried on, so it continues.
+    if (rec.droppedOfferSendAnyway !== true && !rec.sendingAnyway) {
+      console.error(`[backgroundSend] Send anyway refused for ${rec.id}: the Gateway did not offer it`);
+      publishDropped(rec);
+      return;
+    }
 
-    let delivering: boolean;
+    let answer: { delivering: boolean; unconfirmed?: boolean };
     try {
       // Names the recording (rec.id IS its upload id - the dictation upload is registered under it), so the
       // Director can refuse these words if that recording already reached the session after all.
-      delivering = (await sendPrompt(rec.sessionId, text, true, undefined, undefined, undefined, rec.id)).delivering;
+      answer = await sendPrompt(rec.sessionId, text, true, undefined, undefined, undefined, rec.id);
     } catch {
       // Keep the record AND the sticky status - the words are still on the device and still on screen. A
       // repeated press that fails ends the automatic repeats: the owner decides again.
@@ -497,11 +512,31 @@ export async function sendDroppedDictationAnyway(uploadId: string, attempt = 0):
         phase: "dropped",
         retryable: false,
         recoverableText: text,
+        offerSendAnyway: true,
         error: SEND_ANYWAY_FAILED_MESSAGE,
       });
       return;
     }
-    if (delivering) {
+    if (answer.unconfirmed) {
+      // The Gateway's verdict on a re-press nobody answered for more than 5 minutes (phase 2, change 1): it
+      // could not confirm the words arrived, and pressing again might double them. Stop pressing, clear the
+      // mark on disk, and show the words back with Dismiss only. The copy stays until the owner dismisses it.
+      clearScheduled(rec.id);
+      const unconfirmed: PendingDictation = {
+        ...rec,
+        sendingAnyway: undefined,
+        droppedReason: "unconfirmed",
+        droppedOfferSendAnyway: false,
+      };
+      try {
+        await savePending(unconfirmed);
+      } catch {
+        // The store hiccuped: a reload would press once more, and the Gateway answers it the same way.
+      }
+      publishDropped(unconfirmed);
+      return;
+    }
+    if (answer.delivering) {
       // Still delivering: keep the copy, mark it durably so a reload keeps pressing, and press again later.
       const marked: PendingDictation = { ...rec, sendingAnyway: true };
       try {
@@ -544,6 +579,13 @@ export async function retryDroppedDictation(uploadId: string): Promise<void> {
       clearDictationStatus(uploadId);
       return;
     }
+    // A fresh upload id is a second copy of the recording. Only when the Gateway offered it: never for a
+    // recording it could not confirm arrived (phase 2, change 1).
+    if (rec.droppedOfferSendAnyway !== true) {
+      console.error(`[backgroundSend] Retry refused for ${rec.id}: the Gateway did not offer it`);
+      publishDropped(rec);
+      return;
+    }
 
     fresh = {
       ...rec,
@@ -551,6 +593,7 @@ export async function retryDroppedDictation(uploadId: string): Promise<void> {
       staleDropped: undefined,
       droppedTranscript: undefined,
       droppedReason: undefined,
+      droppedOfferSendAnyway: undefined,
       sendingAnyway: undefined,
       createdAt: Date.now(),
       sentAt: Date.now(),
@@ -678,7 +721,14 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
         // deleting it: the words must survive a reload, or "Send anyway" would quietly stop working the moment
         // the user backgrounds the app - which is the same silent loss in a new costume.
         const transcript = (outcome.transcript ?? "").trim();
-        const dropped: PendingDictation = { ...rec, staleDropped: true, droppedTranscript: transcript, droppedReason: outcome.movedOnReason };
+        const dropped: PendingDictation = {
+          ...rec,
+          staleDropped: true,
+          droppedTranscript: transcript,
+          droppedReason: outcome.movedOnReason,
+          // The Gateway's decision, carried verbatim; the API client refuses a shown-back answer without it.
+          droppedOfferSendAnyway: outcome.offerSendAnyway,
+        };
         try {
           await savePending(dropped);
         } catch {
@@ -873,13 +923,17 @@ function publishParked(rec: PendingDictation, reason: string): void {
 // alone: a Terminal Speak clip that was dropped before transcription still has the typed text the user
 // composed around it, and that text is theirs and is recoverable. Only when the whole composed message is
 // empty is there genuinely nothing to offer, and the recording itself becomes the recovery.
+// Whether either button is offered at all is the Gateway's decision (droppedOfferSendAnyway, phase 2, change
+// 1): an "unconfirmed" clip shows its words with Dismiss only.
 function publishDropped(rec: PendingDictation): void {
   const words = composeDroppedMessage(rec);
+  const offer = rec.droppedOfferSendAnyway === true;
   publishDictationStatus({
     sessionId: rec.sessionId,
     uploadId: rec.id,
     phase: "dropped",
-    retryable: words.length === 0,
+    retryable: offer && words.length === 0,
+    offerSendAnyway: offer,
     recoverableText: words,
     error: notSentMessage(rec.droppedReason, words.length > 0),
   });

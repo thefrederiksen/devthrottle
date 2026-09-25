@@ -86,6 +86,11 @@ export interface DictationStatus {
    *  delivery, #3398): the words may already be in the session, so the UI shows "Still delivering" - calm,
    *  not an error - and offers nothing that could send a second copy. Absent on every other status. */
   delivering?: boolean;
+  /** On a `dropped` status: whether the UI offers "Send anyway" (words to hand back) or "Retry" (only the
+   *  recording). The Gateway's decision, passed through verbatim (phase 2, change 1): false for a recording the
+   *  Gateway "could not confirm arrived", which is shown back with Dismiss only, because a second copy might
+   *  double the words. The UI offers either button only when this is exactly true. */
+  offerSendAnyway?: boolean;
   /** A non-blocking caution shown alongside a DELIVERED send (the `done` phase): the words were sent, but
    *  the capture-health check found a material audio-loss deficit, so the transcript may be missing words
    *  and the user should check it (issue #863, "never fail silently on mobile"). Unlike a plain `done`, a
