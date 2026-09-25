@@ -852,6 +852,10 @@ export interface PromptSendResult {
   delivering: boolean;
   /** The Director's answer behind a 202 ("delivering" or "no-answer"). Informational only. */
   directorState?: string;
+  /** True on the Gateway's "could not confirm it arrived" verdict (phase 2, change 1): a claimed re-press
+   *  whose Director gave no answer for more than 5 minutes from the first claim. Nothing was typed, and the
+   *  Gateway says not to offer "Send anyway" again - the words may be in, and a second press could double them. */
+  unconfirmed?: boolean;
 }
 
 export async function sendPrompt(
@@ -885,6 +889,12 @@ export async function sendPrompt(
   if (res.status === 202) {
     const answer = (await res.json().catch(() => ({}))) as { directorState?: string };
     return { delivering: true, directorState: answer.directorState };
+  }
+  // Only a claimed send can come back "unconfirmed"; an ordinary prompt answer has no such field, so it is
+  // read only when a claim was made.
+  if (recordingUploadId) {
+    const answer = (await res.json().catch(() => ({}))) as { unconfirmed?: boolean };
+    if (answer.unconfirmed === true) return { delivering: false, unconfirmed: true };
   }
   return { delivering: false };
 }
@@ -2327,9 +2337,14 @@ export interface DictationSubmitResult {
   terminal: boolean;
   submitted: boolean;
   movedOn: boolean;
-  /** Why a `movedOn` clip was not sent: "too-old" (more than 5 minutes from Send) or "session-exited".
-   *  Absent when the Gateway gave none (a tombstone from before the reason existed). */
+  /** Why a `movedOn` clip was not sent: "too-old" (more than 5 minutes from Send), "session-exited", or
+   *  "unconfirmed" (no answer from the Director for more than 5 minutes, so nobody can say whether the words
+   *  arrived). Absent when the Gateway gave none (a tombstone from before the reason existed). */
   movedOnReason?: string;
+  /** On a `movedOn` answer: whether to offer "Send anyway". Decided by the Gateway (phase 2, change 1) and
+   *  rendered as given - false for "unconfirmed", where a second copy might double the words. Always set on
+   *  a `movedOn` result; a shown-back answer without it is refused as an error naming the upload id. */
+  offerSendAnyway?: boolean;
   /** True when the Gateway answered 202 "still delivering" (voice delivery, #3398): the Director is
    *  still delivering this upload id, or could not say whether an earlier send landed. NOT terminal and
    *  NOT a failure - the driver keeps the copy and retries this same upload id, which the Director
@@ -2474,6 +2489,7 @@ export async function uploadDictationToSession(
     dropped?: boolean;
     transcript?: string;
     reason?: string;
+    offerSendAnyway?: boolean;
   };
   const id = encodeURIComponent(regBody.upload_id ?? args.uploadId);
 
@@ -2482,12 +2498,14 @@ export async function uploadDictationToSession(
   // terminal outcome: acknowledge it (so the server can retire the tombstone) and return terminal so the
   // driver drops the on-device copy. No chunks are re-uploaded and nothing is injected a second time.
   if (regBody.terminal === true) {
+    const offerSendAnyway = shownBackOffer(regBody, args.uploadId);
     await ackDictation(id);
     return {
       terminal: true,
       submitted: Boolean(regBody.submitted),
       movedOn: Boolean(regBody.movedOn),
       movedOnReason: regBody.movedOn === true ? regBody.reason : undefined,
+      offerSendAnyway,
       abandoned: Boolean(regBody.dropped),
       transcript: regBody.transcript ?? "",
     };
@@ -2632,7 +2650,7 @@ export async function uploadDictationToSession(
 
     const body = (await comp.json().catch(() => ({}))) as {
       submitted?: boolean; movedOn?: boolean; dropped?: boolean; transcript?: string; error?: string;
-      permanent?: boolean; reason?: string; record?: string;
+      permanent?: boolean; reason?: string; record?: string; offerSendAnyway?: boolean;
     };
 
     // Genuinely permanent, non-retryable failure (issue #1184). The server (a later, coordinated step)
@@ -2657,12 +2675,14 @@ export async function uploadDictationToSession(
     // outcome and holds a durable delivery record. Acknowledge it so the server can retire that tombstone
     // (best-effort, idempotent), then return terminal so the driver drops the durable local copy. The
     // background driver owns the terminal status (a "done" for a delivered turn, or a quiet clear).
+    const offerSendAnyway = shownBackOffer(body, args.uploadId);
     await ackDictation(id);
     return {
       terminal: true,
       submitted: Boolean(body.submitted),
       movedOn: Boolean(body.movedOn),
       movedOnReason: body.movedOn === true ? body.reason : undefined,
+      offerSendAnyway,
       abandoned: Boolean(body.dropped),
       transcript: body.transcript ?? "",
     };
@@ -2671,6 +2691,18 @@ export async function uploadDictationToSession(
   // The server kept reporting missing chunks past the bounded rounds (a chunk that will not stick, e.g. a
   // persistent SHA rejection). Hold it - the driver retries from a clean register on the next attempt.
   return held(DICTATION_HELD_NO_CONNECTION_MESSAGE);
+}
+
+// Whether to offer "Send anyway" on a shown-back (movedOn) answer - the Gateway's decision, read verbatim
+// (phase 2, change 1; the client is dumb, rule 7). A shown-back answer that does not carry it is an error that
+// names the upload id: guessing would either offer a second copy that might double the words, or hide the
+// button from words that were plainly not sent. Thrown BEFORE the acknowledgement, so the Gateway keeps its
+// record and the driver keeps the copy and asks again. Undefined for an answer that is not shown back.
+function shownBackOffer(body: { movedOn?: boolean; offerSendAnyway?: boolean }, uploadId: string): boolean | undefined {
+  if (body.movedOn !== true) return undefined;
+  if (typeof body.offerSendAnyway !== "boolean")
+    throw new Error(`[uploadDictationToSession] the Gateway's shown-back answer for upload ${uploadId} carries no offerSendAnyway`);
+  return body.offerSendAnyway;
 }
 
 // Map a complete response's permanent-failure signal to an allow-listed reason, or null when it is not a
