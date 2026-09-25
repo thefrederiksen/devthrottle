@@ -69,7 +69,7 @@ Gates run on this branch:
 | client-core (vitest, full) | 1,520 passed. |
 | Typecheck (all workspaces), eslint on the changed folders | clean |
 
-## Review (Codex, a separate tracked session)
+## Independent review (a separate tracked session)
 
 Verdict on the first head (`258406007`): request changes, 3 findings. All accepted and fixed in the next commit.
 
