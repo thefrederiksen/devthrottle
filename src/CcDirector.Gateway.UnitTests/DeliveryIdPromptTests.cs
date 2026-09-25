@@ -89,7 +89,9 @@ public sealed class DeliveryIdPromptTests : IDisposable
             var first = SessionCommandExecutor.SendPromptAsync(session, Delivery("upload-2"), SendSource.Delivery, _record);
             await backend.Typing.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-            var second = Body(await SessionCommandExecutor.SendPromptAsync(session, Delivery("upload-2"), SendSource.Delivery, _record));
+            // Bounded: a second copy that is NOT refused waits behind the held first send, and must fail here, not hang.
+            var second = Body(await SessionCommandExecutor.SendPromptAsync(session, Delivery("upload-2"), SendSource.Delivery, _record)
+                .WaitAsync(TimeSpan.FromSeconds(10)));
 
             Assert.False(second.Accepted);
             Assert.Equal(DeliveryState.Delivering, second.DeliveryState);
