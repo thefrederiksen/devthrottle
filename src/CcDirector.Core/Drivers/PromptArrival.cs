@@ -178,9 +178,23 @@ public static class PromptArrival
         ArgumentNullException.ThrowIfNull(arrived);
         ArgumentNullException.ThrowIfNull(composerHoldsNothing);
         ArgumentNullException.ThrowIfNull(resend);
-        var step = poll ?? DefaultPoll;
-        var wait = pause ?? (d => Task.Delay(d));
         var clock = utcNow ?? (() => DateTime.UtcNow);
+        var began = clock();
+        // THE WAIT FOR THE RECORDS SAYS WHAT IT WAITS FOR ONCE IT RUNS LONG (Voice Delivery mission, phase 3).
+        var notice = new SendWaitNotice("PromptArrival", $"'{label}' to appear in the agent's conversation records",
+            $"{window.TotalSeconds:F0}s, and as long again after one resend", () => clock() - began);
+        var outcome = await ConfirmCoreAsync(arrived, composerHoldsNothing, resend, mayResend, window, label, anyNewPrompt,
+            textWaitsUnsubmitted, pressEnter, ownerTyped, agentPrintedSinceSend, poll ?? DefaultPoll,
+            pause ?? (d => Task.Delay(d)), clock, notice);
+        notice.End(outcome.ToString());
+        return outcome;
+    }
+
+    private static async Task<PromptArrivalOutcome> ConfirmCoreAsync(
+        Func<bool> arrived, Func<bool> composerHoldsNothing, Func<Task> resend, bool mayResend, TimeSpan window, string label,
+        Func<bool>? anyNewPrompt, Func<Task<bool>>? textWaitsUnsubmitted, Action? pressEnter, Func<bool>? ownerTyped,
+        Func<bool>? agentPrintedSinceSend, TimeSpan step, Func<TimeSpan, Task> wait, Func<DateTime> clock, SendWaitNotice notice)
+    {
 
         // THE ONLY ENTER PRESSED AGAIN IS ONE THE SCREEN ASKS FOR (issue #3290). Blind nudges on a quiet terminal turned
         // into blank lines in the next prompt. Here: not in the records after EnterAgainAfter, no turn running, and the
@@ -192,7 +206,7 @@ public static class PromptArrival
             for (var again = 0; again < MaxEnterAgain; again++)
             {
                 var checkAt = clock() + EnterAgainAfter;
-                if (await WaitAsync(arrived, checkAt < deadline ? EnterAgainAfter : deadline - clock(), step, wait, clock))
+                if (await WaitAsync(arrived, checkAt < deadline ? EnterAgainAfter : deadline - clock(), step, wait, clock, notice))
                     return PromptArrivalOutcome.Arrived;
                 if (clock() >= deadline) break;
                 if (ownerTyped?.Invoke() == true || anyNewPrompt?.Invoke() == true || !await textWaitsUnsubmitted()) continue;
@@ -202,7 +216,7 @@ public static class PromptArrival
             }
         }
         var remaining = deadline - clock();
-        if (await WaitAsync(arrived, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, step, wait, clock))
+        if (await WaitAsync(arrived, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, step, wait, clock, notice))
             return PromptArrivalOutcome.Arrived;
 
         // A PROMPT ARRIVED, JUST NOT OURS WORD FOR WORD: never resend. Resending on a text mismatch sent a Codex prompt
@@ -253,7 +267,7 @@ public static class PromptArrival
         FileLog.Write($"[PromptArrival] '{label}' is not in the conversation file after {window.TotalSeconds:F0}s and the composer " +
                       "is empty - the text was lost; sending it once more");
         await resend();
-        if (await WaitAsync(arrived, window, step, wait, clock))
+        if (await WaitAsync(arrived, window, step, wait, clock, notice))
         {
             FileLog.Write($"[PromptArrival] '{label}' arrived after the resend");
             return PromptArrivalOutcome.ArrivedAfterResend;
@@ -266,11 +280,12 @@ public static class PromptArrival
     internal const int MaxEnterAgain = 2;
 
     private static async Task<bool> WaitAsync(
-        Func<bool> arrived, TimeSpan window, TimeSpan step, Func<TimeSpan, Task> wait, Func<DateTime> clock)
+        Func<bool> arrived, TimeSpan window, TimeSpan step, Func<TimeSpan, Task> wait, Func<DateTime> clock, SendWaitNotice notice)
     {
         var deadline = clock() + window;
         while (true)
         {
+            notice.Check();
             if (arrived()) return true;
             if (clock() >= deadline) return false;
             await wait(step);

@@ -100,6 +100,9 @@ public static class TerminalSubmit
     /// that still holds text after it was cleared is never typed into.</param>
     /// <param name="recordsProofFollows">The caller proves delivery from the agent's own conversation records, so the
     /// output-volume verifier only nudges and logs; it does not decide.</param>
+    /// <param name="composerText">Where the caller can read the agent's composer: the text it holds right now, or null
+    /// when it holds nothing or cannot be read. Read whatever the agent is doing - a working agent still draws its
+    /// composer - and used to see a paste taken in (see <see cref="WaitForPasteTakenInAsync"/>).</param>
     /// <returns>The exact line typed into the composer: the text itself, or the file instruction or @-reference that
     /// carries it. That is what the agent's records will hold.</returns>
     public static async Task<string> SharedSubmitAsync(
@@ -118,7 +121,8 @@ public static class TerminalSubmit
         Func<bool>? composerHoldsNothing = null,
         bool recordsProofFollows = false,
         bool clearRetainedUnconditionally = false,
-        Func<bool>? nudgeOnlyWhen = null)
+        Func<bool>? nudgeOnlyWhen = null,
+        Func<string?>? composerText = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         var throwWhenParked = !recordsProofFollows;
@@ -128,7 +132,7 @@ public static class TerminalSubmit
         {
             return await SharedSubmitCoreAsync(backend, text, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout,
                 pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, clearKeysFor,
-                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally);
+                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally, composerText);
         }
         finally
         {
@@ -148,7 +152,7 @@ public static class TerminalSubmit
         ISessionBackend backend, string text, string driverTag, bool bracketedPasteEnabled, bool requireEcho,
         TimeSpan? echoTimeout, TimeSpan? pollInterval, TimeSpan? enterSettleDelay, Func<string[]>? screenSnapshot,
         TimeSpan? submitVerifyBeat, Guid sessionId, Func<int, byte[]?>? clearKeysFor, Func<bool>? composerHoldsNothing,
-        bool throwWhenParked, bool clearRetainedUnconditionally)
+        bool throwWhenParked, bool clearRetainedUnconditionally, Func<string?>? composerText)
     {
 
         // RESOLVE A RETAINED COMPOSER BEFORE CHOOSING A ROUTE, NOT INSIDE ONE OF THEM (issue #2818).
@@ -200,7 +204,7 @@ public static class TerminalSubmit
         {
             if (bracketedPasteEnabled)
             {
-                await BracketedPasteSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked);
+                await BracketedPasteSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText);
                 ComposerRetention.Clear(backend);
                 return textForCheck;
             }
@@ -430,7 +434,9 @@ public static class TerminalSubmit
         await WriteTextAsync(backend, text);
 
         if (needle.Length == 0 || await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, to, poll, cap,
-                screenSnapshot, prefixBefore, needleBefore))
+                screenSnapshot, prefixBefore, needleBefore,
+                new SendWaitNotice(driverTag, $"the composer to echo a {text.Length}-character text",
+                    $"{to.TotalSeconds:F0}s after the terminal last moved, at most {cap.TotalSeconds:F0}s")))
         {
             await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
             ComposerRetention.Clear(backend);
@@ -459,7 +465,8 @@ public static class TerminalSubmit
             FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen (len={text.Length}) and the rendered " +
                           $"screen cannot say whether the text is there. Watching for a further {extra.TotalSeconds:F0}s. " +
                           $"{MemoryPressure.Describe(pressure)}.");
-            if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll, needleBefore: needleBefore)
+            if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll, needleBefore: needleBefore,
+                    notice: new SendWaitNotice(driverTag, "a late composer echo", $"{extra.TotalSeconds:F0}s"))
                 || await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure, needleBefore) == ComposerEvidence.Present)
             {
                 FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the text arrived while waiting - pressing Enter.");
@@ -497,15 +504,18 @@ public static class TerminalSubmit
         string driverTag,
         TimeSpan? enterSettleDelay = null,
         TimeSpan? submitVerifyBeat = null,
-        bool throwWhenParked = true)
+        bool throwWhenParked = true,
+        Func<string?>? composerText = null)
     {
         FileLog.Write($"[{driverTag}] SharedSubmit: bracketed paste submit len={text.Length}");
+        // What the composer held BEFORE the paste: a composer that already held text is not a paste taken in.
+        var composerBefore = ReadComposerText(composerText);
         backend.Write(BracketedPasteStart);
         await WriteTextAsync(backend, text);
         backend.Write(BracketedPasteEnd);
         // THE PASTE IS TAKEN IN BEFORE THE ENTER (issue #3290). An agent still reading a large paste can take the Enter
         // as part of it. The agent repaints its composer once the paste is in; the Enter waits for that repaint to end.
-        await WaitForPasteTakenInAsync(backend, driverTag, text.Length);
+        await WaitForPasteTakenInAsync(backend, driverTag, text.Length, composerText, composerBefore);
         await PressEnterAndVerifyAsync(
             backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(80), submitVerifyBeat, throwWhenParked);
     }
@@ -652,12 +662,15 @@ public static class TerminalSubmit
                 // A loaded machine takes seconds to act on the clear, so the check runs for up to half a minute
                 // (review note) rather than five seconds that turned a slow clear into a failed send.
                 var empty = false;
+                var notice = new SendWaitNotice(driverTag, "the composer to read empty after the clear", "100 looks, about 30s");
                 for (var i = 0; i < 100 && !empty; i++)
                 {
+                    notice.Check();
                     empty = composerHoldsNothing();
                     if (empty) { await Task.Delay(BetweenScreenSamples); empty = composerHoldsNothing(); }
                     if (!empty) await Task.Delay(TimeSpan.FromMilliseconds(150));
                 }
+                notice.End(empty ? "the composer is empty" : "the composer still holds text - nothing is typed");
                 if (!empty)
                 {
                     ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
@@ -683,55 +696,102 @@ public static class TerminalSubmit
     private static async Task WaitForQuietAsync(ISessionBackend backend, string driverTag)
     {
         if (backend.Buffer is not { } buffer) return;
+        var notice = new SendWaitNotice(driverTag, $"the terminal to stop printing for {QuietBeforeClear.TotalSeconds:F0}s before a clear",
+            $"{QuietBeforeClearLimit.TotalSeconds:F0}s");
         var started = DateTime.UtcNow;
         var lastTotal = buffer.TotalBytesWritten;
         var lastChange = started;
         while (DateTime.UtcNow - lastChange < QuietBeforeClear)
         {
+            notice.Check();
             if (DateTime.UtcNow - started >= QuietBeforeClearLimit)
             {
                 FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the terminal was still printing after " +
                               $"{QuietBeforeClearLimit.TotalSeconds:F0}s - clearing anyway, and checking the composer after.");
+                notice.End("the limit was reached - clearing anyway");
                 return;
             }
             await Task.Delay(TimeSpan.FromMilliseconds(100));
             var total = buffer.TotalBytesWritten;
             if (total != lastTotal) { lastTotal = total; lastChange = DateTime.UtcNow; }
         }
+        notice.End("the terminal went quiet");
     }
 
-    private static async Task WaitForPasteTakenInAsync(ISessionBackend backend, string driverTag, int length)
+    /// <summary>
+    /// Wait until the agent has taken in a bracketed paste, so the Enter that follows submits it rather than landing
+    /// inside it. Either of two signs ends the wait:
+    ///  - THE COMPOSER SHOWS THE PASTE AND HAS STOPPED CHANGING, where the caller can read the composer
+    ///    (<paramref name="composerText"/>). This is the sign for an agent that is working (Voice Delivery mission,
+    ///    phase 3): on 25 September 2026 at 09:05 a working Claude Code redrew its spinner without a break, so the
+    ///    terminal never went quiet and a spoken prompt waited the whole two-minute limit before its Enter, while the
+    ///    composer had shown "[Pasted text ...]" all along. The spinner is not the composer: only the composer's own
+    ///    text is watched, and it must differ from what it held before the paste and hold still for
+    ///    <see cref="PasteQuiet"/>.
+    ///  - THE TERMINAL REPAINTED SINCE THE PASTE AND THEN WENT QUIET for <see cref="PasteQuiet"/> - the sign for an
+    ///    agent whose composer cannot be read.
+    /// An agent that shows neither has not read the paste yet (measured on Pi under full load: thirty seconds without a
+    /// byte), so it is waited for, up to <see cref="PasteTakenInLimit"/>, and the wait says so in the log.
+    /// </summary>
+    private static async Task WaitForPasteTakenInAsync(
+        ISessionBackend backend, string driverTag, int length, Func<string?>? composerText = null, string? composerBefore = null)
     {
         if (backend.Buffer is not { } buffer) return;
+        var notice = new SendWaitNotice(driverTag, $"the agent to take in a {length}-character paste " +
+            (composerText is null ? "(a repaint followed by a quiet terminal)" : "(the composer showing it, or a quiet terminal)"),
+            $"{PasteTakenInLimit.TotalSeconds:F0}s");
         var started = DateTime.UtcNow;
         var startTotal = buffer.TotalBytesWritten;
         var lastTotal = startTotal;
         var lastChange = started;
+        var lastLook = DateTime.MinValue;
+        string? shown = null;
+        var shownSince = started;
         while (true)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(50));
+            notice.Check();
             var now = DateTime.UtcNow;
             var total = buffer.TotalBytesWritten;
             if (total != lastTotal) { lastTotal = total; lastChange = now; }
-            // Taken in: the agent has repainted since the paste and then gone quiet. An agent that has not repainted at
-            // all has not read the paste yet (measured on Pi under full load: thirty seconds without a byte), and an
-            // Enter written then was lost with the paste, so it is waited for up to the limit.
-            if (total != startTotal && now - lastChange >= PasteQuiet) return;
-            // Where the composer can be read, the paste in it IS the proof it was taken in: Claude Code folds it into
-            // "[Pasted text]" while it is still being written, so waiting for output AFTER the writing waited two
-            // minutes for a repaint that had already happened (measured under full load, 24 September 2026).
-            if (now - lastChange >= PasteQuiet && TextWaitsInComposer.Value?.Invoke() == true) return;
+            if (total != startTotal && now - lastChange >= PasteQuiet)
+            {
+                notice.End("the terminal repainted and went quiet - pressing Enter");
+                return;
+            }
+            if (composerText is not null && now - lastLook >= ComposerLookInterval)
+            {
+                lastLook = now;
+                var current = ReadComposerText(composerText);
+                if (!string.Equals(current, shown, StringComparison.Ordinal)) { shown = current; shownSince = now; }
+                else if (current is not null && !string.Equals(current, composerBefore, StringComparison.Ordinal)
+                         && now - shownSince >= PasteQuiet)
+                {
+                    var label = current.Length > 60 ? current[..60] + "..." : current;
+                    FileLog.Write($"[{driverTag}] SharedSubmit: the composer shows the paste (\"{label.Replace('\n', ' ')}\") after " +
+                                  $"{(now - started).TotalSeconds:F1}s - taken in, pressing Enter");
+                    notice.End("the composer shows the paste - pressing Enter");
+                    return;
+                }
+            }
             if (now - started >= PasteTakenInLimit)
             {
                 FileLog.Write($"[{driverTag}] SharedSubmit: no quiet repaint within {PasteTakenInLimit.TotalSeconds:F0}s of a " +
                               $"{length}-character paste (repainted={total != startTotal}) - pressing Enter; the records decide");
+                notice.End("the limit was reached - pressing Enter");
                 return;
             }
         }
     }
 
+    /// <summary>The composer's text, or null when it holds nothing, cannot be read, or there is no reader.</summary>
+    private static string? ReadComposerText(Func<string?>? composerText) => composerText?.Invoke();
+
     internal static readonly TimeSpan PasteQuiet = TimeSpan.FromSeconds(1);
     internal static readonly TimeSpan PasteTakenInLimit = TimeSpan.FromSeconds(120);
+
+    /// <summary>How often the composer is read while a paste is taken in. A read renders the screen, so not every poll.</summary>
+    private static readonly TimeSpan ComposerLookInterval = TimeSpan.FromMilliseconds(200);
 
     internal static readonly TimeSpan QuietBeforeClear = TimeSpan.FromSeconds(2);
     internal static readonly TimeSpan QuietBeforeClearLimit = TimeSpan.FromSeconds(15);
@@ -975,7 +1035,18 @@ public static class TerminalSubmit
     /// </summary>
     private static async Task<bool> WaitForEchoAsync(
         CircularTerminalBuffer buffer, long cursor, string needle, string? visibleTailNeedle, TimeSpan timeout, TimeSpan poll,
-        TimeSpan? hardCap = null, Func<string[]>? screenSnapshot = null, int prefixBefore = 0, int needleBefore = 0)
+        TimeSpan? hardCap = null, Func<string[]>? screenSnapshot = null, int prefixBefore = 0, int needleBefore = 0,
+        SendWaitNotice? notice = null)
+    {
+        var found = await WaitForEchoCoreAsync(buffer, cursor, needle, visibleTailNeedle, timeout, poll, hardCap, screenSnapshot,
+            prefixBefore, needleBefore, notice);
+        notice?.End(found ? "the composer echoed the text" : "no echo - the text is not proven to be in the composer");
+        return found;
+    }
+
+    private static async Task<bool> WaitForEchoCoreAsync(
+        CircularTerminalBuffer buffer, long cursor, string needle, string? visibleTailNeedle, TimeSpan timeout, TimeSpan poll,
+        TimeSpan? hardCap, Func<string[]>? screenSnapshot, int prefixBefore, int needleBefore, SendWaitNotice? notice)
     {
         var started = DateTime.UtcNow;
         var cap = hardCap ?? timeout;
@@ -984,8 +1055,10 @@ public static class TerminalSubmit
         var lastPrefix = prefixBefore;
         var lastScreenLook = DateTime.MinValue;
         var quiet = timeout;
+        var agentWorking = false;
         while (true)
         {
+            notice?.Check();
             var now = DateTime.UtcNow;
             var total = buffer.TotalBytesWritten;
             if (total != lastTotal) { lastTotal = total; lastProgress = now; }
@@ -999,6 +1072,7 @@ public static class TerminalSubmit
             if (screenSnapshot is not null && hardCap is not null && now - lastScreenLook >= ScreenProgressInterval)
             {
                 lastScreenLook = now;
+                agentWorking = ReadScreen(screenSnapshot) is { } rowsSeen && DoorbellSafety.ShowsWorking(rowsSeen);
                 var prefix = ScreenPrefixLength(screenSnapshot, needle);
                 if (prefix > lastPrefix)
                 {
@@ -1011,7 +1085,16 @@ public static class TerminalSubmit
             // Pi, typed to just after its previous turn ended, printed not one byte for six seconds and then took the
             // whole line. The keystrokes wait in the pipe; four seconds of silence called that a miss, and the clear and
             // retype that followed ran into the characters as Pi caught up.
-            var timeoutNow = hardCap is not null && total == cursor && quiet < NoReactionAllowance ? NoReactionAllowance : quiet;
+            //
+            // A WORKING AGENT HAS NOT REFUSED ANYTHING EITHER (Voice Delivery mission, phase 3). Measured on 25 September 2026
+            // with every core busy: Claude Code, running a shell command, drew nothing of a 94-character line for over four
+            // seconds while its clock ticked, so the terminal was not silent and the rule above did not apply. The echo was
+            // called missing, the clear-and-retype raced the characters still on their way, and a fragment of the text was
+            // left in the composer of a send reported delivered. While the screen shows the agent working, the keystrokes
+            // wait in its input and it is given the same allowance as a terminal that has not reacted at all.
+            var timeoutNow = hardCap is not null && (total == cursor || agentWorking) && quiet < NoReactionAllowance
+                ? NoReactionAllowance
+                : quiet;
 
             // The same text already on screen: a repaint can re-send the old copy, so only the screen counting a NEW
             // copy is an echo.

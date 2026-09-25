@@ -215,4 +215,21 @@ public sealed class DeliveryRecordTests : IDisposable
         Assert.Equal(state, parsed);
         Assert.False(DeliveryStates.TryParse("NotDelivered", out _));
     }
+
+    [Fact]
+    public void NeverInAgentRecordsReason_TheDirectorsWatch_IsTheWordingTheDeliveryLeadRuled()
+    {
+        // The reason a still-delivering send gets when the late records watch ends without it (round 2b ruling).
+        Assert.Equal("never appeared in the agent's records within 15 minutes", DeliveryRecord.NeverInAgentRecordsReason(TimeSpan.FromMinutes(15)));
+        Assert.Equal("never appeared in the agent's records within 2 seconds", DeliveryRecord.NeverInAgentRecordsReason(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public void RoundTwoCReasons_TheThreeOpenCases_AreTheWordingTheTechLeadRuled()
+    {
+        // Arrange, Act and Assert: the exact words each of the three cases writes (round 2c).
+        Assert.Equal("could not be confirmed: the Director had no records to watch for this agent", DeliveryRecord.NoRecordsToWatchReason);
+        Assert.Equal("could not be confirmed: the records watch failed: disk gone", DeliveryRecord.RecordsWatchFailedReason("disk gone"));
+        Assert.Equal("the session ended before the words appeared in its records", DeliveryRecord.SessionEndedReason);
+    }
 }

@@ -2732,7 +2732,8 @@ public sealed class Session : IDisposable
                 waitFor = _guardedSection.Closed.Task;
             }
             FileLog.Write($"[Session] BeginInputAsync: session={Id}: waiting for a guarded send to finish before this input");
-            await waitFor;
+            await Drivers.SendWaitNotice.WatchAsync(waitFor, "Session", $"a guarded send to session {Id} to finish before this input",
+                $"{EffectiveGuardedSendLimit.TotalSeconds:F0}s, the guarded send's own bound");
         }
     }
 
@@ -3240,14 +3241,19 @@ public sealed class Session : IDisposable
 
     /// <param name="provenance">What the door this text came through knew at entry (source logging): required,
     /// so no door can send text without saying which door it is.</param>
-    public async Task SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null)
+    /// <returns>Delivered, or still delivering (see <see cref="TextSendOutcome"/>). A send that did not deliver throws.</returns>
+    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null)
     {
         ArgumentNullException.ThrowIfNull(provenance);
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return TextSendOutcome.Delivered;
 
         FileLog.Write($"[Session] SendTextAsync: session={Id}, source={source}, driver={Driver.Kind}, text=\"{(text.Length > 60 ? text[..60] + "..." : text)}\", len={text.Length}");
         using var input = await BeginInputAsync();
-        await SubmitTextAsync(_backend, text, provenance, source, origin, BracketedPasteEnabled);
+        var outcome = await SubmitTextAsync(_backend, text, provenance, source, origin, BracketedPasteEnabled);
+        FileLog.Write($"[Session] SendTextAsync done: session={Id}, " +
+                      (outcome.Confirmed ? "delivered" : $"STILL DELIVERING - {outcome.Reason}"));
+        return outcome;
     }
 
     /// <summary>
@@ -3432,7 +3438,8 @@ public sealed class Session : IDisposable
     /// the proof starts. Null - with the reason logged - when it cannot:
     ///  - the text is a slash command, bash line or memory line, which agents record in shapes of their own;
     ///  - the send is a guarded one, which is bounded in time and so cannot wait on the records or resend;
-    ///  - the session is working, so the agent queues the text and records it only when the turn ends;
+    ///  - the session is working, so the agent queues the text and records it only when the turn ends - except Claude
+    ///    Code, which records a queued prompt at once and is proven either way;
     ///  - the agent keeps no conversation record the Director can read (Gemini).
     /// </summary>
     private ArrivalProof? BeginArrivalProof(ISessionBackend target, string text)
@@ -3440,7 +3447,15 @@ public sealed class Session : IDisposable
         if (!ReferenceEquals(target, _backend)) return null;
         if (!Drivers.PromptArrival.CanProve(text)) return null;
         var state = ActivityState;
-        if (state is not (ActivityState.WaitingForInput or ActivityState.Idle))
+        // CLAUDE CODE IS PROVEN WHILE IT WORKS TOO (Voice Delivery mission, phase 3). It writes a prompt sent mid-turn
+        // into its conversation file at once, as a queue "enqueue" line that PromptArrival already reads - on 25 September
+        // 2026 the 09:07:27.738 Enter to a working session was in the file as an enqueue at 09:07:27.835. So for Claude
+        // Code the proof never depends on whether the Director THINKS the agent is working: at 09:26 the state said
+        // waiting while the rendered screen still showed "esc to interrupt", and the two rules disagreed. The other
+        // agents are not measured to record a queued prompt before their turn ends, so they keep the state rule; so does a
+        // Claude Code that is still starting, which has no conversation file to prove anything with yet.
+        if (state is not (ActivityState.WaitingForInput or ActivityState.Idle)
+            && !(state == ActivityState.Working && AgentKind == Agents.AgentKind.ClaudeCode))
         {
             FileLog.Write($"[Session] arrival proof skipped: session={Id} is {state}; the agent queues a prompt sent mid-turn");
             return null;
@@ -3541,8 +3556,10 @@ public sealed class Session : IDisposable
     /// Wait until the agent's own records hold the prompt, resending once when it was lost with an empty composer - only
     /// where the composer can be read (Claude Code, Codex). Throws <see cref="Drivers.PromptNotSubmittedException"/> when
     /// it never arrives, so the caller records the send as NOT delivered - the terminal's output is never taken as proof.
+    /// The one exception is a WORKING agent whose composer no longer shows the text (review finding 3): that send is still
+    /// delivering, never failed, and its records go on being watched after it returns.
     /// </summary>
-    private async Task ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
+    private async Task<TextSendOutcome> ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
     {
         var label = typed.Length > 60 ? typed[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : typed;
         var current = typed;
@@ -3571,7 +3588,32 @@ public sealed class Session : IDisposable
             // failed delivery would invite the owner - or the phone's retry - to send it again.
             FileLog.Write($"[Session] WARNING arrived altered: session={Id}, agent={AgentKind}: a new prompt reached the records " +
                           $"but not word for word; treated as delivered, not resent. len={typed.Length}");
-            return;
+            return TextSendOutcome.Delivered;
+        }
+        if (outcome == Drivers.PromptArrivalOutcome.NotArrived && Drivers.FirstPromptGate.CanProve(AgentKind) && AgentShowsWorking())
+        {
+            // A WORKING AGENT THAT TOOK THE ENTER IS STILL DELIVERING, NOT FAILED (Voice Delivery mission, phase 3, review
+            // finding 3 - the Delivery Lead's ruling). A working Claude Code holds a prompt sent mid-turn and writes it to its
+            // records when its running tool ends, which can be after the window: measured on 25 September 2026, 55 seconds
+            // after the Enter. Reporting that not-delivered would invite a retry that types the words a second time into an
+            // agent that already holds them. So unless the composer still shows the text, the send is "delivering", and the
+            // records go on being watched - read only - for LateArrivalLimit. Not-delivered is kept for words known not
+            // submitted: still in the composer.
+            var fingerprint = Drivers.PromptArrival.Fingerprint(current);
+            var release = fingerprint.Length == 0
+                ? ComposerRelease.Unreadable
+                : await WatchComposerReleaseAsync(fingerprint, ComposerReleaseWindowForTests ?? ComposerReleaseWindow, current.Length, untilLeft: false);
+            if (release != ComposerRelease.StillHeld)
+            {
+                var reason = $"{AgentKind} is working and its records do not show the prompt {ArrivalWindow.TotalSeconds:F0}s after the Enter, " +
+                             (release == ComposerRelease.Left
+                                 ? "but the text has left its composer: the agent holds it until its running tool ends"
+                                 : "and its composer cannot be read, so the text is not known to be still there");
+                var lateLimit = LateArrivalLimitForTests ?? LateArrivalLimit;
+                FileLog.Write($"[Session] STILL DELIVERING: session={Id}: {reason}. Nothing is typed again; the records are watched " +
+                              $"for up to {lateLimit.TotalMinutes:F1} minutes. len={current.Length}");
+                return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(proof, current, label, lateLimit), lateLimit);
+            }
         }
         if (outcome == Drivers.PromptArrivalOutcome.NotArrived)
         {
@@ -3582,6 +3624,84 @@ public sealed class Session : IDisposable
                 $"[Session] the prompt never reached {AgentKind}: its conversation records have no prompt holding the text " +
                 $"{ArrivalWindow.TotalSeconds:F0}s after the send. The terminal's output is not proof, so the send is NOT delivered. " +
                 $"Session={Id}, len={typed.Length}.");
+        }
+        return TextSendOutcome.Delivered;
+    }
+
+    /// <summary>
+    /// THE ONE LATE WATCH after a send returned "still delivering" (review finding 3; round 2c: nothing stays delivering
+    /// forever). It keeps reading the agent's records for the prompt, up to <paramref name="limit"/>
+    /// (<see cref="LateArrivalLimit"/>), and always ends with an answer the Director's delivery record can hold:
+    ///  - <see cref="LateArrival.Arrived"/> once the records hold it word for word;
+    ///  - <see cref="LateArrival.LimitEnded"/> when the limit ends first;
+    ///  - <see cref="LateArrival.NoRecordsToWatch"/> when <paramref name="proof"/> is null - the agent keeps no records the
+    ///    Director can read for this send - and the limit ends: the same bounded wait, with nothing to read;
+    ///  - <see cref="LateArrival.WatchFailed"/> when a read of the records failed: the failure is logged, nothing more is
+    ///    read, and the send stays delivering until the limit, because the words may still be in the agent;
+    ///  - <see cref="LateArrival.SessionEnded"/> as soon as the session ends.
+    /// It never ends before the limit except on an answer, so a delivery is never called not delivered while the agent may
+    /// still hold it. It reads only - it never types, presses a key, or resends. A different prompt arriving is not taken
+    /// for this one: the owner's next send could be that prompt. It does not throw.
+    /// </summary>
+    private async Task<LateWatchEnd> WatchLateArrivalAsync(ArrivalProof? proof, string typed, string label, TimeSpan limit)
+    {
+        var notice = new Drivers.SendWaitNotice("Session",
+            proof is null
+                ? $"the limit on '{label}' (session {Id}; the send already answered still delivering, and there are no records to watch)"
+                : $"'{label}' to reach the agent's conversation records late (session {Id}; the send already answered still delivering)",
+            $"{limit.TotalMinutes:F1} minutes");
+        var started = DateTime.UtcNow;
+        string? watchFailure = null;
+        while (true)
+        {
+            notice.Check();
+            if (proof is not null && watchFailure is null)
+            {
+                bool arrived;
+                try
+                {
+                    LateWatchReadForTests?.Invoke();
+                    arrived = ArrivedIn(proof, typed);
+                }
+                catch (Exception ex)
+                {
+                    // THE RECORDS WATCH FAILED (round 2c, case 2). The words may still be in the agent, so this is not an
+                    // answer: logged, nothing more is read, and the wait goes on to the limit.
+                    watchFailure = ex.Message;
+                    arrived = false;
+                    FileLog.Write($"[Session] late arrival FAILED: session={Id}: reading the records failed: {ex.Message}. " +
+                                  $"The send stays delivering until the limit ({limit.TotalMinutes:F1} minutes); nothing is typed again. len={typed.Length}");
+                }
+                if (arrived)
+                {
+                    notice.End("it arrived");
+                    FileLog.Write($"[Session] late arrival: session={Id}: the prompt reached the records " +
+                                  $"{(DateTime.UtcNow - proof.StartedUtc).TotalSeconds:F0}s after the send began - delivered. len={typed.Length}");
+                    return new LateWatchEnd(LateArrival.Arrived);
+                }
+            }
+            if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed)
+            {
+                notice.End("the session ended");
+                FileLog.Write($"[Session] late arrival: session={Id}: the session ended before the records showed the prompt - not delivered");
+                return new LateWatchEnd(LateArrival.SessionEnded);
+            }
+            if (DateTime.UtcNow - started >= limit)
+            {
+                var end = proof is null ? new LateWatchEnd(LateArrival.NoRecordsToWatch)
+                    : watchFailure is not null ? new LateWatchEnd(LateArrival.WatchFailed, watchFailure)
+                    : new LateWatchEnd(LateArrival.LimitEnded);
+                notice.End(end.Ended switch
+                {
+                    LateArrival.NoRecordsToWatch => "the limit ended with no records to watch",
+                    LateArrival.WatchFailed => "the limit ended after the records watch failed",
+                    _ => "the limit ended without it",
+                });
+                FileLog.Write($"[Session] WARNING late arrival: session={Id}: {end.Ended} - the prompt is not proven " +
+                              $"{limit.TotalMinutes:F1} minutes after the send returned; the send is not delivered, and is not typed again. len={typed.Length}");
+                return end;
+            }
+            await Task.Delay(Drivers.PromptArrival.DefaultPoll);
         }
     }
 
@@ -3643,9 +3763,180 @@ public sealed class Session : IDisposable
         }
         : null;
 
-    /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
-    private async Task SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
+    /// <summary>
+    /// The composer's text right now, whatever the agent is doing - a working agent still draws its composer - or null
+    /// when it holds nothing of ours or cannot be read. Null for an agent whose composer the Director cannot read.
+    /// </summary>
+    private Func<string?>? ComposerTextReader() => Drivers.FirstPromptGate.CanProve(AgentKind)
+        ? () =>
+        {
+            var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+            var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
+                AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+            return reading == Drivers.ComposerReading.HoldsText && composerText.Length > 0
+                   && !Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText)
+                ? composerText
+                : null;
+        }
+        : null;
+
+    /// <summary>True when the rendered screen shows the agent's working marker ("esc to interrupt").</summary>
+    private bool ScreenShowsWorking() => Drivers.DoorbellSafety.ShowsWorking(SnapshotScreenRows());
+
+    /// <summary>How long a send the records cannot prove waits for its text to leave the composer after the Enter.</summary>
+    internal static readonly TimeSpan ComposerReleaseWindow = TimeSpan.FromSeconds(10);
+
+    /// <summary>Test seam: overrides <see cref="ComposerReleaseWindow"/> for this session. Null in every real session.</summary>
+    internal TimeSpan? ComposerReleaseWindowForTests { get; set; }
+
+    /// <summary>Test seam: overrides <see cref="LateArrivalLimit"/> for this session. Null in every real session.</summary>
+    internal TimeSpan? LateArrivalLimitForTests { get; set; }
+
+    /// <summary>Test seam: runs before each read of the agent's records in the late records watch, so a test can make that
+    /// read fail. Null in every real session.</summary>
+    internal Action? LateWatchReadForTests { get; set; }
+
+    /// <summary>
+    /// HOW LONG THE RECORDS ARE STILL WATCHED AFTER A SEND RETURNED "STILL DELIVERING" (Voice Delivery mission, phase 3,
+    /// review finding 3): 15 minutes. A working Claude Code holds a prompt sent mid-turn and writes it to its records only
+    /// when its running tool ends - measured on 25 September 2026, 55 seconds after the Enter for a 60-second shell
+    /// command; the 09:05 incident session ran one turn for over two minutes. The watch only reads the records and types
+    /// nothing, so the limit bounds a cheap file read, not a risk; past it the delivery is not delivered (round 2c: nothing
+    /// stays delivering forever), and nothing is typed again.
+    /// </summary>
+    internal static readonly TimeSpan LateArrivalLimit = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// NEVER REPORT SENT WHILE THE TEXT STILL SITS IN THE COMPOSER (Voice Delivery mission, phase 3). A send the agent's
+    /// records cannot prove - an agent other than Claude Code sent to while it works, or a slash command - is judged by
+    /// the submit verifier, which counts output after the Enter. A working agent prints all the time, so that count
+    /// passes whether or not the Enter was taken, and a swallowed Enter left the text parked while the send reported
+    /// success. Where the composer can be read, the send is now delivered only once the composer no longer holds its
+    /// text; if the text is still there after <see cref="ComposerReleaseWindow"/> the send throws - not delivered - and
+    /// the text is left exactly where it is, never cleared or typed again (the doubling rule from issue #3290).
+    /// A frame that cannot be read - a menu drawn over the composer, or one caught mid-repaint - proves nothing and does
+    /// not end the check (review findings 1 and 2). Only when the WHOLE window passes without one readable frame is
+    /// nothing known: the submit verifier's verdict then stands for an agent that is not working, whose output after the
+    /// Enter is a fair witness; for a working agent, whose output proves nothing, the send is still delivering - never
+    /// reported delivered, and nothing is cleared or typed again.
+    /// </summary>
+    private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed)
     {
+        if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return TextSendOutcome.Delivered;
+        var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
+        if (fingerprint.Length == 0) return TextSendOutcome.Delivered;
+        var window = ComposerReleaseWindowForTests ?? ComposerReleaseWindow;
+        var release = await WatchComposerReleaseAsync(fingerprint, window, typed.Length, untilLeft: true);
+        if (release == ComposerRelease.Left) return TextSendOutcome.Delivered;
+        if (release == ComposerRelease.StillHeld)
+        {
+            Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), typed);
+            throw new Drivers.PromptNotSubmittedException(
+                $"[Session] the prompt is still in {AgentKind}'s composer {window.TotalSeconds:F0}s after its Enter, so it was NOT " +
+                $"submitted. It is left there, exactly as typed, and is not typed again. Session={Id}, len={typed.Length}.");
+        }
+        if (!AgentShowsWorking())
+        {
+            FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: the composer could not be read for {window.TotalSeconds:F0}s; " +
+                          "the agent is not working, so the submit verifier's count of output after the Enter stands");
+            return TextSendOutcome.Delivered;
+        }
+        var reason = $"the composer could not be read for the {window.TotalSeconds:F0}s after the Enter while {AgentKind} was working, " +
+                     "so whether the text left it is not known; its output proves nothing while it works";
+        // NO RECORDS TO WATCH (round 2c, case 1): the same late watch, with nothing to read, so the delivery stays
+        // "delivering" until the same limit and then is not delivered - never delivering forever, never failed early.
+        var lateLimit = LateArrivalLimitForTests ?? LateArrivalLimit;
+        var label = typed.Length > 60 ? typed[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : typed;
+        FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: STILL DELIVERING - {reason}. Nothing is cleared or typed again; " +
+                      $"with no records to watch, it stays delivering for up to {lateLimit.TotalMinutes:F1} minutes.");
+        return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(null, typed, label, lateLimit), lateLimit);
+    }
+
+    /// <summary>True when the session's state or the rendered screen says the agent is running a turn.</summary>
+    private bool AgentShowsWorking() => ActivityState == ActivityState.Working || ScreenShowsWorking();
+
+    /// <summary>
+    /// Watch the composer after the Enter for up to <paramref name="window"/>. <see cref="ComposerRelease.Left"/> needs two
+    /// looks a beat apart, so a frame caught mid-repaint cannot pass for an empty composer. An unreadable frame never ends
+    /// the watch (review finding 2): one bad frame of a spinner that repaints all the time used to abandon the window.
+    /// With <paramref name="untilLeft"/> false it answers at the first frame that shows the text still held; with true it
+    /// waits the window for the text to leave. At the end of the window the answer is <see cref="ComposerRelease.StillHeld"/>
+    /// when any readable frame showed the text, and <see cref="ComposerRelease.Unreadable"/> only when none could be read.
+    /// </summary>
+    private async Task<ComposerRelease> WatchComposerReleaseAsync(string fingerprint, TimeSpan window, int length, bool untilLeft)
+    {
+        var notice = new Drivers.SendWaitNotice("Session", $"a {length}-character text to leave the composer of session {Id}",
+            $"{window.TotalSeconds:F0}s");
+        var started = DateTime.UtcNow;
+        var sawHeld = false;
+        var unreadableFrames = 0;
+        while (true)
+        {
+            notice.Check();
+            var reading = ReadComposerForRelease(fingerprint);
+            if (reading == ComposerRelease.Left)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(120));
+                reading = ReadComposerForRelease(fingerprint);
+                if (reading == ComposerRelease.Left)
+                {
+                    notice.End("the text left the composer");
+                    return ComposerRelease.Left;
+                }
+            }
+            if (reading == ComposerRelease.StillHeld)
+            {
+                sawHeld = true;
+                if (!untilLeft)
+                {
+                    notice.End("the text is still in the composer");
+                    return ComposerRelease.StillHeld;
+                }
+            }
+            else if (reading == ComposerRelease.Unreadable && ++unreadableFrames == 1)
+            {
+                FileLog.Write($"[Session] composer release: session={Id}: a frame cannot be read (no composer recognised, or a menu " +
+                              "over it); that proves nothing, so the watch goes on");
+            }
+            if (DateTime.UtcNow - started >= window)
+            {
+                var answer = sawHeld ? ComposerRelease.StillHeld : ComposerRelease.Unreadable;
+                FileLog.Write($"[Session] composer release: session={Id}: the {window.TotalSeconds:F0}s window ended, " +
+                              $"unreadable frames={unreadableFrames}, answer={answer}");
+                notice.End(sawHeld ? "the text is still in the composer" : "the composer could not be read");
+                return answer;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+        }
+    }
+
+    private enum ComposerRelease { Left, StillHeld, Unreadable }
+
+    /// <summary>
+    /// Whether the composer still holds the sent text: its letters and digits, or Claude Code's folded paste. A menu or
+    /// dialog drawn where the composer would be is <see cref="ComposerRelease.Unreadable"/>, like no composer at all
+    /// (review finding 1): the text may be sitting underneath it - the doorbell's own rule reads a menu as "not
+    /// submitted" too.
+    /// </summary>
+    private ComposerRelease ReadComposerForRelease(string fingerprint)
+    {
+        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
+            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+        if (reading is Drivers.ComposerReading.NotFound or Drivers.ComposerReading.MenuOpen) return ComposerRelease.Unreadable;
+        if (reading != Drivers.ComposerReading.HoldsText) return ComposerRelease.Left;
+        var held = composerText.StartsWith(ClaudePastePlaceholder, StringComparison.Ordinal)
+                   || Drivers.PromptArrival.Loose(composerText).Contains(fingerprint, StringComparison.Ordinal);
+        return held ? ComposerRelease.StillHeld : ComposerRelease.Left;
+    }
+
+    /// <summary>How Claude Code draws a folded paste in its composer: "[Pasted text #1 +29 lines]".</summary>
+    private const string ClaudePastePlaceholder = "[Pasted text";
+
+    /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
+    private async Task<TextSendOutcome> SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
+    {
+        var outcome = TextSendOutcome.Delivered;
         long ownerTextBefore;
         lock (_inputLock) ownerTextBefore = _ownerTextCount;
         // THE delivery boundary (issue internal#811). Everything below this try either delivered the
@@ -3673,7 +3964,8 @@ public sealed class Session : IDisposable
             {
                 // ONE SEND AT A TIME (review finding 6): two sends to one session typed their chunks into each other,
                 // and each one's Enter and proof acted on the other's text.
-                await _submitGate.WaitAsync();
+                await Drivers.SendWaitNotice.WatchAsync(_submitGate.WaitAsync(), "Session",
+                    $"the send in front of this one to session {Id} to finish (one send at a time)", "none - it waits for that send's own limits");
                 try
                 {
                 var proof = BeginArrivalProof(target, text);
@@ -3689,7 +3981,8 @@ public sealed class Session : IDisposable
                     composerHoldsNothing: ComposerEmptyCheck(),
                     recordsProofFollows: proof is not null,
                     clearRetainedUnconditionally: clearFirst,
-                    nudgeOnlyWhen: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : () => false);
+                    nudgeOnlyWhen: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : () => false,
+                    composerText: ComposerTextReader());
 
                 string typed;
                 try
@@ -3697,8 +3990,13 @@ public sealed class Session : IDisposable
                     typed = await Submit();
                 }
                 catch (Drivers.ComposerNotAcceptingInputException ex)
-                    when (proof is not null && ex.TerminalReacted && Drivers.ComposerClearKeys.For(AgentKind) is not null)
+                    when (proof is not null && ex.TerminalReacted && Drivers.ComposerClearKeys.For(AgentKind) is not null
+                          && !ScreenShowsWorking())
                 {
+                    // NEVER WHILE THE SCREEN SHOWS THE AGENT WORKING (Voice Delivery mission, phase 3): a working agent can
+                    // still be reading the first typing, and the clear keys then empty only what has arrived - measured on
+                    // 25 September 2026, the rest ran on and a fragment was left in the composer. Such a send is reported
+                    // not delivered, with the text left where it is.
                     // Only when the terminal REACTED to the first typing (review finding 11): the agent was reading its
                     // input, so the clear keys and the second typing arrive after the first one, not welded to it.
                     // THE ONE RECOVERY FROM AN UNCONFIRMED ECHO (issue #3290). The text was typed once and may be in
@@ -3709,7 +4007,9 @@ public sealed class Session : IDisposable
                     typed = await Submit(clearFirst: true);
                 }
                 if (proof is not null)
-                    await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
+                    outcome = await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
+                else if (ReferenceEquals(target, _backend))
+                    outcome = await ConfirmLeftComposerAsync(typed);
                 }
                 finally
                 {
@@ -3766,6 +4066,7 @@ public sealed class Session : IDisposable
         // the same test as WorkingOrigin, which is set from OriginFor at the top of this method.
         Storage.PromptAuthorBuffer.Record(Id.ToString(), OriginFor(source, origin), text ?? "");
         SetActivityState(ActivityState.Working);
+        return outcome;
     }
 
     /// <summary>

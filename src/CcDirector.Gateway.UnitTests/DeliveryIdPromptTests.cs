@@ -152,14 +152,15 @@ public sealed class DeliveryIdPromptTests : IDisposable
     [Fact]
     public async Task SendPromptAsync_NoDeliveryId_WritesNothingToTheRecord()
     {
-        // Proves a prompt without a delivery id is sent exactly as before and never touches the record.
+        // Proves a prompt without a delivery id is sent exactly as before and never touches the record - while its answer
+        // still says what became of the send, as every prompt sent with Enter does (the Delivery Lead's ruling).
         var (session, terminal) = NewTerminalSession();
 
         var response = Body(await SessionCommandExecutor.SendPromptAsync(session,
             new PromptRequest { Text = "typed words", AppendEnter = true }, SendSource.UserInput, _record));
 
         Assert.True(response.Accepted);
-        Assert.Null(response.DeliveryState);
+        Assert.Equal(DeliveryState.Delivered, response.DeliveryState);
         Assert.Single(terminal.Submitted);
         Assert.False(File.Exists(_record.FileFor(session.Id)));
     }
