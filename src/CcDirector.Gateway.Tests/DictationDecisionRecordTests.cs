@@ -166,8 +166,13 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         // Proves the Send time is required on the wire: a complete without it is refused with the contract's words,
         // before anything is transcribed, decided or typed - the recording stays exactly as it was, pending.
         var uploadId = await RegisterAndUploadAsync();
-        var commands = 0;
-        _director.OnCommand(_ => { Interlocked.Increment(ref commands); return FakeTunnelDirector.Ok(new PromptResponse()); });
+        // Only prompts count: the Gateway sends a connected Director other commands of its own accord.
+        var prompts = 0;
+        _director.OnCommand(cmd =>
+        {
+            if (cmd.Verb == "prompt") Interlocked.Increment(ref prompts);
+            return FakeTunnelDirector.Ok(new PromptResponse());
+        });
 
         var resp = await _http.PostAsJsonAsync($"/dictation/{uploadId}/complete", new
         {
@@ -181,7 +186,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
         Assert.Equal("sentAtUtc (ISO 8601 UTC) is required",
             (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
-        Assert.Equal(0, commands);
+        Assert.Equal(0, prompts);
         Assert.Equal(new[] { DeliveryDecisions.Received }, Decisions(uploadId));
         Assert.True(Store().IsPending(uploadId));
     }
