@@ -98,7 +98,7 @@ describe("the Send time and the still-delivering answer on the wire (#3398)", ()
     mockFetch((url) => {
       if (url.includes("/dictation/upload")) return fakeResponse(200, { upload_id: UPLOAD_ID });
       if (url.includes("/complete"))
-        return fakeResponse(200, { submitted: false, movedOn: true, reason: "too-old", transcript: "old words" });
+        return fakeResponse(200, { submitted: false, movedOn: true, reason: "too-old", offerSendAnyway: true, transcript: "old words" });
       return fakeResponse(200, { ok: true });
     });
 
@@ -113,7 +113,7 @@ describe("the Send time and the still-delivering answer on the wire (#3398)", ()
   it("a moved-on answer at REGISTER (a cached tombstone) carries its reason", async () => {
     mockFetch((url) => {
       if (url.includes("/dictation/upload"))
-        return fakeResponse(200, { upload_id: UPLOAD_ID, terminal: true, movedOn: true, reason: "session-exited", transcript: "w" });
+        return fakeResponse(200, { upload_id: UPLOAD_ID, terminal: true, movedOn: true, reason: "session-exited", offerSendAnyway: true, transcript: "w" });
       return fakeResponse(200, { ok: true });
     });
 
@@ -137,5 +137,119 @@ describe("Send anyway through the prompt route answers 202 still delivering (con
 
     expect(pending).toEqual({ delivering: true, directorState: "no-answer" });
     expect(done).toEqual({ delivering: false });
+  });
+});
+
+// Phase 2, change 1: whether a shown-back answer offers "Send anyway" is the Gateway's decision
+// (`offerSendAnyway`), read verbatim; an answer without it is an error naming the upload id, never a guess.
+describe("the Gateway's offerSendAnyway on a shown-back answer (change 1)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("an unconfirmed answer at COMPLETE carries offerSendAnyway false, the reason and the words", async () => {
+    mockFetch((url) => {
+      if (url.includes("/dictation/upload")) return fakeResponse(200, { upload_id: UPLOAD_ID });
+      if (url.includes("/complete"))
+        return fakeResponse(200, {
+          submitted: false,
+          movedOn: true,
+          reason: "unconfirmed",
+          offerSendAnyway: false,
+          transcript: "words nobody confirmed",
+        });
+      return fakeResponse(200, { ok: true });
+    });
+
+    const result = await uploadDictationToSession(baseArgs());
+
+    expect(result.terminal).toBe(true);
+    expect(result.movedOnReason).toBe("unconfirmed");
+    expect(result.offerSendAnyway).toBe(false);
+    expect(result.transcript).toBe("words nobody confirmed");
+  });
+
+  it("a too-old answer at COMPLETE carries offerSendAnyway true", async () => {
+    mockFetch((url) => {
+      if (url.includes("/dictation/upload")) return fakeResponse(200, { upload_id: UPLOAD_ID });
+      if (url.includes("/complete"))
+        return fakeResponse(200, { submitted: false, movedOn: true, reason: "too-old", offerSendAnyway: true, transcript: "w" });
+      return fakeResponse(200, { ok: true });
+    });
+
+    const result = await uploadDictationToSession(baseArgs());
+
+    expect(result.offerSendAnyway).toBe(true);
+  });
+
+  it("an unconfirmed answer at REGISTER (a cached tombstone) carries offerSendAnyway false", async () => {
+    mockFetch((url) => {
+      if (url.includes("/dictation/upload"))
+        return fakeResponse(200, {
+          upload_id: UPLOAD_ID,
+          terminal: true,
+          movedOn: true,
+          reason: "unconfirmed",
+          offerSendAnyway: false,
+          transcript: "w",
+        });
+      return fakeResponse(200, { ok: true });
+    });
+
+    const result = await uploadDictationToSession(baseArgs());
+
+    expect(result.movedOnReason).toBe("unconfirmed");
+    expect(result.offerSendAnyway).toBe(false);
+  });
+
+  it("a shown-back answer at COMPLETE without offerSendAnyway is an error naming the upload id, and is not acknowledged", async () => {
+    const calls = mockFetch((url) => {
+      if (url.includes("/dictation/upload")) return fakeResponse(200, { upload_id: UPLOAD_ID });
+      if (url.includes("/complete")) return fakeResponse(200, { submitted: false, movedOn: true, reason: "too-old", transcript: "w" });
+      return fakeResponse(200, { ok: true });
+    });
+
+    await expect(uploadDictationToSession(baseArgs())).rejects.toThrow(UPLOAD_ID);
+    // The Gateway keeps its record, so the driver's next attempt asks again.
+    expect(calls.some((c) => c.url.includes("/ack"))).toBe(false);
+  });
+
+  it("a shown-back answer at REGISTER without offerSendAnyway is an error naming the upload id, and is not acknowledged", async () => {
+    const calls = mockFetch((url) => {
+      if (url.includes("/dictation/upload"))
+        return fakeResponse(200, { upload_id: UPLOAD_ID, terminal: true, movedOn: true, reason: "session-exited", transcript: "w" });
+      return fakeResponse(200, { ok: true });
+    });
+
+    await expect(uploadDictationToSession(baseArgs())).rejects.toThrow(UPLOAD_ID);
+    expect(calls.some((c) => c.url.includes("/ack"))).toBe(false);
+  });
+
+  it("a delivered answer needs no offerSendAnyway", async () => {
+    mockFetch((url) => {
+      if (url.includes("/dictation/upload")) return fakeResponse(200, { upload_id: UPLOAD_ID });
+      if (url.includes("/complete")) return fakeResponse(200, { submitted: true, movedOn: false, transcript: "hi" });
+      return fakeResponse(200, { ok: true });
+    });
+
+    const result = await uploadDictationToSession(baseArgs());
+
+    expect(result.submitted).toBe(true);
+    expect(result.offerSendAnyway).toBeUndefined();
+  });
+
+  it("sendPrompt with a claim reports the unconfirmed verdict", async () => {
+    mockFetch(() => fakeResponse(200, { unconfirmed: true, offerSendAnyway: false }));
+
+    const result = await sendPrompt("sid", "words", true, undefined, undefined, undefined, UPLOAD_ID);
+
+    expect(result).toEqual({ delivering: false, unconfirmed: true });
+  });
+
+  it("sendPrompt's ordinary 200 is not unconfirmed", async () => {
+    mockFetch(() => fakeResponse(200, {}));
+
+    const result = await sendPrompt("sid", "words", true, undefined, undefined, undefined, UPLOAD_ID);
+
+    expect(result.unconfirmed).toBeUndefined();
+    expect(result.delivering).toBe(false);
   });
 });

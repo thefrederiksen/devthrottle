@@ -43,4 +43,36 @@ describe("migratePendingRecord", () => {
     expect(rec.staleDropped).toBe(true);
     expect(rec.droppedTranscript).toBe("w");
   });
+
+  // Phase 2, change 1: a dropped record saved before the Gateway's offerSendAnyway existed was dropped for a
+  // reason the Gateway offers "Send anyway" for ("unconfirmed" did not exist yet), and was shown with it.
+  it("gives an old dropped record the offer it was shown with, and asks for a write-back", () => {
+    const stored: PendingDictation = { ...base, sentAt: 1, staleDropped: true, droppedTranscript: "w", droppedReason: "too-old" };
+
+    const { rec, migrated } = migratePendingRecord(stored);
+
+    expect(migrated).toBe(true);
+    expect(rec.droppedOfferSendAnyway).toBe(true);
+  });
+
+  it("never overrides the Gateway's recorded decision not to offer it", () => {
+    const stored: PendingDictation = {
+      ...base,
+      sentAt: 1,
+      staleDropped: true,
+      droppedReason: "unconfirmed",
+      droppedOfferSendAnyway: false,
+    };
+
+    const { rec, migrated } = migratePendingRecord(stored);
+
+    expect(migrated).toBe(false);
+    expect(rec.droppedOfferSendAnyway).toBe(false);
+  });
+
+  it("gives a record that was not dropped no offer at all", () => {
+    const { rec } = migratePendingRecord({ ...base, sentAt: 1 });
+
+    expect(rec.droppedOfferSendAnyway).toBeUndefined();
+  });
 });

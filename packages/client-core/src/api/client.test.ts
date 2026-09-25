@@ -143,7 +143,7 @@ describe("sendPrompt with a recording id", () => {
 
   it("sends the recording's upload id as deliveryIdClaim and nothing else", async () => {
     // Proves the id reaches the wire under the one field the Gateway verifies.
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as unknown as Response);
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }) as unknown as Response);
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await sendPrompt("sid-1", "typed before the spoken words", true, undefined, undefined, undefined, "rec-42");
