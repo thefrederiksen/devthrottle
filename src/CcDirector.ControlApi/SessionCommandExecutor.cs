@@ -202,7 +202,7 @@ internal static class SessionCommandExecutor
     /// </summary>
     /// <param name="deliveries">The delivery record to consult when the request carries a
     /// <see cref="PromptRequest.DeliveryId"/>; the Director's own <see cref="DeliveryRecord.Shared"/> when not given.</param>
-    internal static async Task<DirectorCommandResult> SendPromptAsync(Session session, PromptRequest request, SendSource source = SendSource.UserInput, DeliveryRecord? deliveries = null)
+    internal static async Task<DirectorCommandResult> SendPromptAsync(Session session, PromptRequest request, SendSource source = SendSource.UserInput, DeliveryRecord? deliveries = null, TimeSpan? answerBudget = null)
     {
         if (session is null) throw new ArgumentNullException(nameof(session));
         if (request is null) throw new ArgumentNullException(nameof(request));
@@ -210,9 +210,9 @@ internal static class SessionCommandExecutor
         // A RECORDING'S DELIVERY IS TYPED AT MOST ONCE (Voice Delivery mission, phase 1): it goes through the delivery
         // record, before and after the send below. Every other prompt is sent exactly as it always was.
         if (!string.IsNullOrWhiteSpace(request.DeliveryId))
-            return await SendRecordedDeliveryAsync(session, request, source, deliveries ?? DeliveryRecord.Shared);
+            return await SendRecordedDeliveryAsync(session, request, source, deliveries ?? DeliveryRecord.Shared, answerBudget);
 
-        return await SendPromptCoreAsync(session, request, source);
+        return await SendPromptCoreAsync(session, request, source, answerBudget);
     }
 
     /// <summary>
@@ -226,7 +226,7 @@ internal static class SessionCommandExecutor
     /// A send that throws is still thrown, unchanged, so every caller's error path is what it was; the record now
     /// says what became of it. A record that cannot be read refuses the delivery and names the file.
     /// </summary>
-    private static async Task<DirectorCommandResult> SendRecordedDeliveryAsync(Session session, PromptRequest request, SendSource source, DeliveryRecord deliveries)
+    private static async Task<DirectorCommandResult> SendRecordedDeliveryAsync(Session session, PromptRequest request, SendSource source, DeliveryRecord deliveries, TimeSpan? answerBudget)
     {
         var deliveryId = request.DeliveryId!;
         FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: session={session.Id}, deliveryId={deliveryId}");
@@ -264,7 +264,7 @@ internal static class SessionCommandExecutor
         DirectorCommandResult result;
         try
         {
-            result = await SendPromptCoreAsync(session, request, source);
+            result = await SendPromptCoreAsync(session, request, source, answerBudget);
         }
         catch (Exception ex)
         {
@@ -299,7 +299,7 @@ internal static class SessionCommandExecutor
     }
 
     /// <summary>The prompt core itself, with no delivery record: every prompt goes through here exactly once.</summary>
-    private static async Task<DirectorCommandResult> SendPromptCoreAsync(Session session, PromptRequest request, SendSource source)
+    private static async Task<DirectorCommandResult> SendPromptCoreAsync(Session session, PromptRequest request, SendSource source, TimeSpan? answerBudget)
     {
         if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
@@ -370,7 +370,27 @@ internal static class SessionCommandExecutor
             }
         }
         else if (request.AppendEnter)
-            await session.SendTextAsync(request.Text, provenance, effectiveSource, origin);
+        {
+            var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin);
+            var budget = answerBudget ?? PromptAnswerBudget;
+            if (!await FinishesWithinAsync(sending, budget))
+            {
+                FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: the send is still going after " +
+                              $"{budget.TotalSeconds:F0}s - answering '{DeliveryStates.Delivering}' inside the Gateway's wait; the send carries on " +
+                              "and its outcome is logged when it ends");
+                _ = RecordLateOutcomeAsync(session.Id, sending, request.DeliveryUploadId);
+                return DirectorCommandResult.Success(Serialize(new PromptResponse
+                {
+                    Accepted = true,
+                    SentAt = DateTime.UtcNow,
+                    BufferCursor = bufferCursor,
+                    ActivityState = session.ActivityState.ToString(),
+                    DeliveryState = DeliveryState.Delivering,
+                }));
+            }
+            // Finished within the budget: a failure the send knows about is thrown here and stays a failure, as before.
+            await sending;
+        }
         else
             session.SendInput(Encoding.UTF8.GetBytes(request.Text), origin, provenance);
 
@@ -381,8 +401,55 @@ internal static class SessionCommandExecutor
             BufferCursor = bufferCursor,
             ActivityState = session.ActivityState.ToString(),
             IdleChecked = request.OnlyWhenWaitingForInput,
+            DeliveryState = request.AppendEnter ? DeliveryState.Delivered : null,
         };
         return DirectorCommandResult.Success(Serialize(response));
+    }
+
+    /// <summary>
+    /// THE LONGEST THE PROMPT VERB HOLDS ITS ANSWER (Voice Delivery mission, phase 3): 20 seconds, safely under the
+    /// Gateway's 30-second wait for a Director command (<c>DirectorCommandRouter.DefaultCommandTimeout</c>), leaving ten
+    /// seconds for the answer to cross the tunnel from a loaded machine.
+    ///
+    /// Why it exists: since v2.10.0 the verb awaits the whole send, and a send to a working agent can take minutes (the
+    /// arrival proof waits up to 60 seconds; on 25 September 2026 a paste waited 122). The Gateway stopped listening at
+    /// 30 seconds, called the slow success a failure and retried it - one of the ways a spoken prompt reached the agent
+    /// twice. The Gateway's timeout is deliberately NOT raised to fit a slow send: that would only hide the slow send.
+    /// Instead the verb answers what it knows by then - "delivering" - and the send carries on.
+    /// </summary>
+    internal static readonly TimeSpan PromptAnswerBudget = TimeSpan.FromSeconds(20);
+
+    /// <summary>True when <paramref name="sending"/> finished, well or badly, within <paramref name="budget"/>.</summary>
+    private static async Task<bool> FinishesWithinAsync(Task sending, TimeSpan budget)
+    {
+        if (sending.IsCompleted) return true;
+        using var cts = new CancellationTokenSource();
+        var finished = await Task.WhenAny(sending, Task.Delay(budget, cts.Token)) == sending;
+        cts.Cancel();
+        return finished;
+    }
+
+    /// <summary>
+    /// THE ONE PLACE A SEND THAT OUTLIVED ITS ANSWER REPORTS HOW IT ENDED. The verb has already answered "delivering";
+    /// this writes the final outcome to the log - "delivered", or "not-delivered" with the reason. A send that fails
+    /// has also already been counted against the session by the session itself (<c>PromptDeliveryFailures</c>), so the
+    /// owner's screens show the failure without this. When the durable delivery record lands (the same mission, phase 1)
+    /// this is where it is told the final state, keyed by <paramref name="deliveryId"/>.
+    /// </summary>
+    private static async Task RecordLateOutcomeAsync(Guid sessionId, Task sending, string? deliveryId)
+    {
+        var id = string.IsNullOrWhiteSpace(deliveryId) ? "(no delivery id)" : deliveryId;
+        try
+        {
+            await sending;
+            FileLog.Write($"[SessionCommandExecutor] late send outcome: session={sessionId}, delivery={id}: {DeliveryStates.Delivered}");
+        }
+        catch (Exception ex)
+        {
+            // Nobody awaits this task: the verb has answered. The failure is recorded here, and by the session itself.
+            FileLog.Write($"[SessionCommandExecutor] late send outcome: session={sessionId}, delivery={id}: " +
+                          $"{DeliveryStates.NotDelivered} - {ex.Message}");
+        }
     }
 
     /// <summary>

@@ -2732,7 +2732,8 @@ public sealed class Session : IDisposable
                 waitFor = _guardedSection.Closed.Task;
             }
             FileLog.Write($"[Session] BeginInputAsync: session={Id}: waiting for a guarded send to finish before this input");
-            await waitFor;
+            await Drivers.SendWaitNotice.WatchAsync(waitFor, "Session", $"a guarded send to session {Id} to finish before this input",
+                $"{EffectiveGuardedSendLimit.TotalSeconds:F0}s, the guarded send's own bound");
         }
     }
 
@@ -3432,7 +3433,8 @@ public sealed class Session : IDisposable
     /// the proof starts. Null - with the reason logged - when it cannot:
     ///  - the text is a slash command, bash line or memory line, which agents record in shapes of their own;
     ///  - the send is a guarded one, which is bounded in time and so cannot wait on the records or resend;
-    ///  - the session is working, so the agent queues the text and records it only when the turn ends;
+    ///  - the session is working, so the agent queues the text and records it only when the turn ends - except Claude
+    ///    Code, which records a queued prompt at once and is proven either way;
     ///  - the agent keeps no conversation record the Director can read (Gemini).
     /// </summary>
     private ArrivalProof? BeginArrivalProof(ISessionBackend target, string text)
@@ -3440,7 +3442,13 @@ public sealed class Session : IDisposable
         if (!ReferenceEquals(target, _backend)) return null;
         if (!Drivers.PromptArrival.CanProve(text)) return null;
         var state = ActivityState;
-        if (state is not (ActivityState.WaitingForInput or ActivityState.Idle))
+        // CLAUDE CODE IS PROVEN WHILE IT WORKS TOO (Voice Delivery mission, phase 3). It writes a prompt sent mid-turn
+        // into its conversation file at once, as a queue "enqueue" line that PromptArrival already reads - on 25 September
+        // 2026 the 09:07:27.738 Enter to a working session was in the file as an enqueue at 09:07:27.835. So for Claude
+        // Code the proof never depends on whether the Director THINKS the agent is working: at 09:26 the state said
+        // waiting while the rendered screen still showed "esc to interrupt", and the two rules disagreed. The other
+        // agents are not measured to record a queued prompt before their turn ends, so they keep the state rule.
+        if (state is not (ActivityState.WaitingForInput or ActivityState.Idle) && AgentKind != Agents.AgentKind.ClaudeCode)
         {
             FileLog.Write($"[Session] arrival proof skipped: session={Id} is {state}; the agent queues a prompt sent mid-turn");
             return null;
@@ -3643,6 +3651,99 @@ public sealed class Session : IDisposable
         }
         : null;
 
+    /// <summary>
+    /// The composer's text right now, whatever the agent is doing - a working agent still draws its composer - or null
+    /// when it holds nothing of ours or cannot be read. Null for an agent whose composer the Director cannot read.
+    /// </summary>
+    private Func<string?>? ComposerTextReader() => Drivers.FirstPromptGate.CanProve(AgentKind)
+        ? () =>
+        {
+            var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+            var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
+                AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+            return reading == Drivers.ComposerReading.HoldsText && composerText.Length > 0
+                   && !Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText)
+                ? composerText
+                : null;
+        }
+        : null;
+
+    /// <summary>How long a send the records cannot prove waits for its text to leave the composer after the Enter.</summary>
+    internal static readonly TimeSpan ComposerReleaseWindow = TimeSpan.FromSeconds(10);
+
+    /// <summary>Test seam: overrides <see cref="ComposerReleaseWindow"/> for this session. Null in every real session.</summary>
+    internal TimeSpan? ComposerReleaseWindowForTests { get; set; }
+
+    /// <summary>
+    /// NEVER REPORT SENT WHILE THE TEXT STILL SITS IN THE COMPOSER (Voice Delivery mission, phase 3). A send the agent's
+    /// records cannot prove - an agent other than Claude Code sent to while it works, or a slash command - is judged by
+    /// the submit verifier, which counts output after the Enter. A working agent prints all the time, so that count
+    /// passes whether or not the Enter was taken, and a swallowed Enter left the text parked while the send reported
+    /// success. Where the composer can be read, the send is now delivered only once the composer no longer holds its
+    /// text; if the text is still there after <see cref="ComposerReleaseWindow"/> the send throws - not delivered - and
+    /// the text is left exactly where it is, never cleared or typed again (the doubling rule from issue #3290).
+    /// A composer that cannot be read proves nothing either way: that is logged and the verifier's verdict stands.
+    /// </summary>
+    private async Task ConfirmLeftComposerAsync(string typed)
+    {
+        if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return;
+        var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
+        if (fingerprint.Length == 0) return;
+        var window = ComposerReleaseWindowForTests ?? ComposerReleaseWindow;
+        var notice = new Drivers.SendWaitNotice("Session", $"a {typed.Length}-character text to leave the composer of session {Id}",
+            $"{window.TotalSeconds:F0}s");
+        var started = DateTime.UtcNow;
+        while (true)
+        {
+            notice.Check();
+            var reading = ReadComposerForRelease(fingerprint);
+            if (reading == ComposerRelease.Unreadable)
+            {
+                FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: the composer cannot be read, so whether the text left it " +
+                              "is not known; the submit verifier's verdict stands");
+                notice.End("the composer cannot be read");
+                return;
+            }
+            if (reading == ComposerRelease.Left)
+            {
+                // Two looks a beat apart, so a frame caught mid-repaint cannot pass for an empty composer.
+                await Task.Delay(TimeSpan.FromMilliseconds(120));
+                if (ReadComposerForRelease(fingerprint) == ComposerRelease.Left)
+                {
+                    notice.End("the text left the composer");
+                    return;
+                }
+            }
+            if (DateTime.UtcNow - started >= window)
+            {
+                notice.End("the text is still in the composer");
+                Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), typed);
+                throw new Drivers.PromptNotSubmittedException(
+                    $"[Session] the prompt is still in {AgentKind}'s composer {window.TotalSeconds:F0}s after its Enter, so it was NOT " +
+                    $"submitted. It is left there, exactly as typed, and is not typed again. Session={Id}, len={typed.Length}.");
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+        }
+    }
+
+    private enum ComposerRelease { Left, StillHeld, Unreadable }
+
+    /// <summary>Whether the composer still holds the sent text: its letters and digits, or Claude Code's folded paste.</summary>
+    private ComposerRelease ReadComposerForRelease(string fingerprint)
+    {
+        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
+            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+        if (reading == Drivers.ComposerReading.NotFound) return ComposerRelease.Unreadable;
+        if (reading != Drivers.ComposerReading.HoldsText) return ComposerRelease.Left;
+        var held = composerText.StartsWith(ClaudePastePlaceholder, StringComparison.Ordinal)
+                   || Drivers.PromptArrival.Loose(composerText).Contains(fingerprint, StringComparison.Ordinal);
+        return held ? ComposerRelease.StillHeld : ComposerRelease.Left;
+    }
+
+    /// <summary>How Claude Code draws a folded paste in its composer: "[Pasted text #1 +29 lines]".</summary>
+    private const string ClaudePastePlaceholder = "[Pasted text";
+
     /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
     private async Task SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
     {
@@ -3673,7 +3774,8 @@ public sealed class Session : IDisposable
             {
                 // ONE SEND AT A TIME (review finding 6): two sends to one session typed their chunks into each other,
                 // and each one's Enter and proof acted on the other's text.
-                await _submitGate.WaitAsync();
+                await Drivers.SendWaitNotice.WatchAsync(_submitGate.WaitAsync(), "Session",
+                    $"the send in front of this one to session {Id} to finish (one send at a time)", "none - it waits for that send's own limits");
                 try
                 {
                 var proof = BeginArrivalProof(target, text);
@@ -3689,7 +3791,8 @@ public sealed class Session : IDisposable
                     composerHoldsNothing: ComposerEmptyCheck(),
                     recordsProofFollows: proof is not null,
                     clearRetainedUnconditionally: clearFirst,
-                    nudgeOnlyWhen: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : () => false);
+                    nudgeOnlyWhen: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : () => false,
+                    composerText: ComposerTextReader());
 
                 string typed;
                 try
@@ -3710,6 +3813,8 @@ public sealed class Session : IDisposable
                 }
                 if (proof is not null)
                     await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
+                else if (ReferenceEquals(target, _backend))
+                    await ConfirmLeftComposerAsync(typed);
                 }
                 finally
                 {
