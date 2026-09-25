@@ -318,17 +318,6 @@ internal static class GatewayDictationEndpoint
             if (req is null || req.TotalChunks <= 0 || !Guid.TryParse(req.SessionId ?? "", out _))
                 return Results.Json(new { error = "sessionId (guid) and totalChunks (>0) are required" },
                     statusCode: StatusCodes.Status400BadRequest);
-            // The Send time is what the age limit is measured from, and there is no honest stand-in for it: not the
-            // arrival here (a recording held on a phone out of signal would read as fresh), not the upload's own
-            // times. Every client that talks to this Gateway ships in the same image and stamps it. Refused before
-            // anything is read, written or typed.
-            if (req.SentAtUtc is not { Kind: DateTimeKind.Utc })
-                return Results.Json(new { error = SentAtUtcRequired }, statusCode: StatusCodes.Status400BadRequest);
-
-            // A completion attempt is progress - keep the orange mark alive across the server-side
-            // transcribe so a slow transcribe cannot let it age out mid-flight (issue #1126).
-            transcribingSessions.Refresh(tenant, req.SessionId!);
-
             // Every attempt after the client's first says so in the decision log, with what it carried, so a
             // retry is readable afterwards whatever it is answered with (Voice Delivery mission).
             if (req.Resumed)
@@ -375,6 +364,23 @@ internal static class GatewayDictationEndpoint
                     $"state={settled.State} (no re-injection)");
                 return TerminalOutcome(settled).ToResult();
             }
+
+            // The Send time is what the age limit is measured from, and there is no honest stand-in for it: not the
+            // arrival here (a recording held on a phone out of signal would read as fresh), not the upload's own
+            // times. Every client that talks to this Gateway ships in the same image and stamps it. Refused before
+            // anything is transcribed, decided or typed.
+            //
+            // AFTER the durable record's answer, not before it (phase 2 review, finding 3): a recording that is already
+            // resolved needs no Send time to hand back its cached outcome, and a page left open across a deploy - still
+            // running the client from before sentAtUtc existed - must learn that its words were delivered or shown back,
+            // not be refused with this 400 forever.
+            if (req.SentAtUtc is not { Kind: DateTimeKind.Utc })
+                return Results.Json(new { error = SentAtUtcRequired }, statusCode: StatusCodes.Status400BadRequest);
+
+            // A completion attempt is progress - keep the orange mark alive across the server-side
+            // transcribe so a slow transcribe cannot let it age out mid-flight (issue #1126).
+            transcribingSessions.Refresh(tenant, req.SessionId!);
+
             // A FAILED (parked) record is user-retryable, NOT a terminal short-circuit (issue #1185): this
             // complete IS the explicit retry, so clear the FAILED marker back to PENDING (keeping the staged
             // chunks) and re-drive the real work below.
