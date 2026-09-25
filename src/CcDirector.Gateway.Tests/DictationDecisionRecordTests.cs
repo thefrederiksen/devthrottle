@@ -49,6 +49,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
     private FakeTunnelDirector _director = null!;
     private readonly string _sessionId = Guid.NewGuid().ToString();
     private long _pushSequence;
+    private readonly AheadClock _clock = new();
 
     public DictationDecisionRecordTests()
     {
@@ -67,6 +68,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             streamMode: true,
             dictationTranscription: StubTranscription());
+        _gateway.DeliveryClock = _clock;
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
@@ -215,6 +217,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
             Assert.False(body.GetProperty("submitted").GetBoolean());
             Assert.True(body.GetProperty("movedOn").GetBoolean());
             Assert.Equal("too-old", body.GetProperty("reason").GetString());
+            Assert.True(body.GetProperty("offerSendAnyway").GetBoolean());
             Assert.Equal(Transcript, body.GetProperty("transcript").GetString());
         }
         Assert.Equal(HttpStatusCode.OK, first.status);
@@ -239,9 +242,75 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         _director.OnCommand(_ => FakeTunnelDirector.Ok(new PromptResponse()));
 
         var result = await CompleteAsync(uploadId, resumed: false);
+        var again = await CompleteAsync(uploadId, resumed: true);
+        var reRegister = await RegisterAsync(uploadId);
 
-        Assert.True(result.body.GetProperty("movedOn").GetBoolean());
-        Assert.Equal("session-exited", result.body.GetProperty("reason").GetString());
+        foreach (var body in new[] { result.body, again.body, reRegister })
+        {
+            Assert.True(body.GetProperty("movedOn").GetBoolean());
+            Assert.Equal("session-exited", body.GetProperty("reason").GetString());
+            Assert.True(body.GetProperty("offerSendAnyway").GetBoolean());
+        }
+    }
+
+    [Fact]
+    public async Task ARecordingNeverAnsweredFor_IsUnconfirmedPastFiveMinutes_OnEveryAnswer_WithItsWords_AndNoSendAnyway()
+    {
+        // Proves change 1 through the real routes: the prompt runs out of time and the Director never answers the
+        // question, so the recording is held (202). Five minutes and one second after Send its retry is ruled "could not
+        // confirm it arrived": 200, shown back with the words the send kept and offerSendAnyway false - and the cached
+        // re-complete and the re-register say exactly the same. Nothing is typed again, and the decision record read
+        // through the route ends in the unconfirmed line, with none of the words.
+        var uploadId = await RegisterAndUploadAsync();
+        var prompts = 0;
+        _director.OnCommand(cmd => cmd.Verb switch
+        {
+            "prompt" => Counted(ref prompts, DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds")),
+            DeliveryStateRequest.Verb => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer the question"),
+            _ => FakeTunnelDirector.Ok(new PromptResponse()),
+        });
+        var sentAt = DateTime.UtcNow;
+
+        var held = await CompleteAsync(uploadId, resumed: false, sentAtUtc: sentAt);
+        Assert.Equal(HttpStatusCode.Accepted, held.status);
+        Assert.Equal("no-answer", held.body.GetProperty("directorState").GetString());
+
+        _clock.Ahead = TimeSpan.FromSeconds(301);
+        var ruled = await CompleteAsync(uploadId, resumed: true, sentAtUtc: sentAt);
+        var cached = await CompleteAsync(uploadId, resumed: true, sentAtUtc: sentAt);
+        var reRegister = await RegisterAsync(uploadId);
+
+        Assert.Equal(HttpStatusCode.OK, ruled.status);
+        foreach (var body in new[] { ruled.body, cached.body, reRegister })
+        {
+            Assert.False(body.GetProperty("submitted").GetBoolean());
+            Assert.True(body.GetProperty("movedOn").GetBoolean());
+            Assert.Equal("unconfirmed", body.GetProperty("reason").GetString());
+            Assert.False(body.GetProperty("offerSendAnyway").GetBoolean());
+            Assert.Equal(Transcript, body.GetProperty("transcript").GetString());
+        }
+        Assert.Equal(1, prompts);
+        var read = await _http.GetFromJsonAsync<JsonElement>($"/dictation/{uploadId}/decisions");
+        var lines = read.GetProperty("decisions").EnumerateArray().ToList();
+        var unconfirmed = lines.Single(l => l.GetProperty("decision").GetString() == DeliveryDecisions.Unconfirmed);
+        Assert.True(unconfirmed.GetProperty("facts").GetProperty("ageSeconds").GetInt64() >= 301);
+        Assert.Equal("no-answer", unconfirmed.GetProperty("facts").GetProperty("directorNoAnswer").GetString());
+        Assert.Equal("unconfirmed", read.GetProperty("reason").GetString());
+        Assert.DoesNotContain("zebra", read.GetRawText());
+        Assert.DoesNotContain("zebra", File.ReadAllText(DecisionsFile(uploadId)));
+    }
+
+    private static DirectorCommandResult Counted(ref int count, DirectorCommandResult answer)
+    {
+        Interlocked.Increment(ref count);
+        return answer;
+    }
+
+    /// <summary>The real clock moved ahead by <see cref="Ahead"/>: the routes judge the five-minute limits by it.</summary>
+    private sealed class AheadClock : TimeProvider
+    {
+        public TimeSpan Ahead;
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow + Ahead;
     }
 
     [Fact]

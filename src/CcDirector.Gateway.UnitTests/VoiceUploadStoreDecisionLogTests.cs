@@ -341,4 +341,99 @@ public sealed class VoiceUploadStoreDecisionLogTests : IDisposable
         Assert.Equal(_sessionId, read.Record.SessionId);
         Assert.True(_store.IsPending(id));
     }
+
+    // ===== change 1: the words a send kept, and the "Send anyway" history =================================
+
+    [Fact]
+    public async Task TheSentWords_StayOnThePendingRecord_ThroughReRegisterFailAndClear_AndAnAcknowledgementDeletesThem()
+    {
+        // Proves G1's lifetime: once the words are kept on the PENDING record, a re-register of the same id, a FAILED
+        // park and its clear all keep them - so a later answer that does not transcribe can still hand them back - and
+        // the client's acknowledgement deletes them, as it deletes a tombstone's.
+        var id = await OpenWithChunkAsync();
+        Assert.Equal("", _store.SentWords(id));
+
+        Assert.True(_store.KeepSentWords(id, Words));
+        Assert.Equal(Words, _store.SentWords(id));
+        Assert.True(_store.OpenPending(id, _sessionId).Opened);
+        Assert.Equal(Words, _store.SentWords(id));
+        _store.MarkFailed(id, "transcription_error");
+        Assert.Equal(Words, _store.ReadRecord(id)!.Transcript);
+        Assert.True(_store.ClearFailed(id));
+        Assert.Equal(Words, _store.SentWords(id));
+        Assert.True(_store.IsPending(id));
+
+        Assert.True(_store.Acknowledge(id));
+        Assert.DoesNotContain("zebra", File.ReadAllText(Path.Combine(Dir(id), "record.json")));
+    }
+
+    [Fact]
+    public async Task KeepSentWords_WritesNothingOverATombstone()
+    {
+        // Proves the kept words never overwrite a record that has already been resolved: a tombstone that landed first
+        // is left exactly as it was.
+        var id = await OpenWithChunkAsync();
+        _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "what was delivered");
+
+        Assert.False(_store.KeepSentWords(id, Words));
+
+        var record = _store.ReadRecord(id)!;
+        Assert.Equal(DictationDeliveryState.Delivered, record.State);
+        Assert.Equal("what was delivered", record.Transcript);
+    }
+
+    [Fact]
+    public void ReadClaimSends_SaysWhetherAnEarlierSendAnywayMayHaveReachedTheDirector_AndWhenTheFirstClaimWasVerified()
+    {
+        // Proves the history a "Send anyway" re-press reads: nothing before any claim; a verified claim alone (its send
+        // not yet made, or stopped before the Director) has a first time but has not reached the Director; a claimed
+        // send's answer line means it may have; and the first claim's time stays the first however many follow.
+        var id = _store.OpenPending(null, _sessionId).UploadId;
+        Assert.Equal(ClaimSendHistory.None, _store.ReadClaimSends(id));
+
+        _store.RecordDecision(id, DeliveryDecisions.ClaimVerified, new DeliveryDecisionFacts { SessionId = _sessionId });
+        var afterClaim = _store.ReadClaimSends(id);
+        Assert.False(afterClaim.MayHaveReachedDirector);
+        var first = afterClaim.FirstClaimVerifiedAtUtc;
+        Assert.NotNull(first);
+
+        _store.RecordDecision(id, DeliveryDecisions.ClaimDirectorAnswer, new DeliveryDecisionFacts { SessionId = _sessionId, Ok = false });
+        _store.RecordDecision(id, DeliveryDecisions.ClaimVerified, new DeliveryDecisionFacts { SessionId = _sessionId });
+        var afterSend = _store.ReadClaimSends(id);
+        Assert.True(afterSend.MayHaveReachedDirector);
+        Assert.Equal(first, afterSend.FirstClaimVerifiedAtUtc);
+
+        // A dictation's own send is not a "Send anyway" send.
+        var dictated = _store.OpenPending(null, _sessionId).UploadId;
+        _store.RecordDecision(dictated, DeliveryDecisions.SentToDirector, new DeliveryDecisionFacts { SessionId = _sessionId });
+        Assert.False(_store.ReadClaimSends(dictated).MayHaveReachedDirector);
+        Assert.Equal(ClaimSendHistory.None, _store.ReadClaimSends(Guid.NewGuid().ToString()));
+        Assert.Equal(ClaimSendHistory.None, _store.ReadClaimSends("not-an-upload-id"));
+    }
+
+    [Fact]
+    public void ReadClaimSends_LeansToAsking_ForALineNobodyCanRead()
+    {
+        // Proves a half-written line - which could have been a claimed send's answer - makes a re-press ask first.
+        var id = _store.OpenPending(null, _sessionId).UploadId;
+        File.AppendAllText(Path.Combine(Dir(id), "decisions.jsonl"), "{\"atUtc\":\"2026-09-25T09:05:12Z\",\"decision\":\"send-anyway-dir");
+
+        Assert.True(_store.ReadClaimSends(id).MayHaveReachedDirector);
+    }
+
+    [Fact]
+    public async Task AnUnconfirmedResolution_IsNamedByItsCause_WithTheAgeAndTheKindOfNoAnswer()
+    {
+        // Proves the new resolution writes its own decision, never the old unnamed moved-on, with its facts.
+        var id = await OpenWithChunkAsync();
+
+        _store.MarkDelivered(id, submitted: false, movedOn: true, transcript: Words, reason: DeliveryDecisions.Unconfirmed,
+            age: TimeSpan.FromSeconds(301.7), directorNoAnswer: "director-too-old");
+
+        var line = _store.ReadDecisions(id).Lines.Last();
+        Assert.Equal(DeliveryDecisions.Unconfirmed, line.Decision);
+        Assert.Equal(301, line.Facts!.AgeSeconds);
+        Assert.Equal("director-too-old", line.Facts.DirectorNoAnswer);
+        Assert.Equal(DeliveryDecisions.Unconfirmed, _store.ReadRecord(id)!.Reason);
+    }
 }

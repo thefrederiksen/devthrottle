@@ -229,6 +229,9 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
         var delivered = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
         Assert.Equal(200, delivered.Status);
         Assert.True(delivered.Body.GetProperty("submitted").GetBoolean());
+        // Change 1, G1: the words come back although nothing was transcribed again - the send kept them on the record.
+        Assert.Equal(SpokenWords, delivered.Body.GetProperty("transcript").GetString());
+        Assert.Equal(SpokenWords, _store.ReadRecord(uploadId)!.Transcript);
         Assert.Equal(1, _transcriber.Calls);
         Assert.Single(_commands, c => c.Verb == "prompt");
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
@@ -307,6 +310,7 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
         Assert.True(body.GetProperty("movedOn").GetBoolean());
         Assert.Equal(GatewayDictationEndpoint.TooOldReason, body.GetProperty("reason").GetString());
         Assert.Equal("too-old", body.GetProperty("reason").GetString());
+        Assert.True(body.GetProperty("offerSendAnyway").GetBoolean());
         Assert.Equal(SpokenWords, body.GetProperty("transcript").GetString());
         Assert.Empty(_commands);
         Assert.True(record.MovedOn);
@@ -326,28 +330,163 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     }
 
     [Fact]
-    public async Task ARecordingHeldAsDelivering_IsNeverShownBackAsTooOld_HoweverLongItHasBeen()
+    public async Task ARecordingHeldAsDelivering_IsNeverShownBack_HoweverLongItHasBeen()
     {
-        // Proves the age rule applies only to words known not to be in: a recording the Director keeps saying it is
-        // delivering, or cannot answer for, is held at ten minutes and at an hour - never shown back with a "Send
-        // anyway" that could double it.
+        // Proves the age rule applies only to words known not to be in, and that "could not confirm it arrived" is for a
+        // Director that gives NO answer: a recording the Director keeps saying it is delivering is held at ten minutes
+        // and at an hour - never shown back as too old, never ruled unconfirmed. The Director's own watch ends it.
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => Refused(DeliveryState.Delivering);
         Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
 
-        _clock.Now = T0 + TimeSpan.FromMinutes(10);
         _deliveryState = _ => StateIs(DeliveryState.Delivering);
+        _clock.Now = T0 + TimeSpan.FromMinutes(10);
         var tenMinutes = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
         _clock.Now = T0 + TimeSpan.FromHours(1);
-        _deliveryState = _ => NoAnswer();
         var anHour = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
 
-        Assert.Equal(202, tenMinutes.Status);
-        Assert.Equal(202, anHour.Status);
+        foreach (var held in new[] { tenMinutes, anHour })
+        {
+            Assert.Equal(202, held.Status);
+            Assert.Equal("delivering", held.Body.GetProperty("directorState").GetString());
+        }
         Assert.True(_store.IsPending(uploadId));
         Assert.DoesNotContain(DeliveryDecisions.TooOld, Names(uploadId));
+        Assert.DoesNotContain(DeliveryDecisions.Unconfirmed, Names(uploadId));
         Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
+    // ===== change 1: nothing is held forever - "could not confirm it arrived" =============================
+
+    [Theory]
+    [InlineData(299, false)]
+    [InlineData(300, false)]
+    [InlineData(301, true)]
+    public async Task AHeldRecordingWithNoAnswer_IsUnconfirmed_OnlyPastFiveMinutesFromSend(int secondsSinceSend, bool unconfirmed)
+    {
+        // Proves the boundary of the Delivery Lead's ruling on the dictation path: a recording sent and never answered
+        // for is held while it is within five minutes of Send (4:59 and 5:00 are still the 202), and at 5:01 its retry,
+        // which asks first and again gets no answer, is resolved as "could not confirm it arrived" - 200, not sent, shown
+        // back with the words the send kept, offerSendAnyway false - with nothing transcribed again, nothing typed again,
+        // and a decision line carrying the age and the kind of no answer.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Timeout();
+        _deliveryState = _ => NoAnswer();
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+
+        _clock.Now = T0 + TimeSpan.FromSeconds(secondsSinceSend);
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        Assert.Equal(1, _transcriber.Calls);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+        if (!unconfirmed)
+        {
+            Assert.Equal(202, status);
+            Assert.Equal("no-answer", body.GetProperty("directorState").GetString());
+            Assert.True(_store.IsPending(uploadId));
+            Assert.DoesNotContain(DeliveryDecisions.Unconfirmed, Names(uploadId));
+            return;
+        }
+        Assert.Equal(200, status);
+        Assert.False(body.GetProperty("submitted").GetBoolean());
+        Assert.True(body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal("unconfirmed", body.GetProperty("reason").GetString());
+        Assert.Equal(GatewayDictationEndpoint.UnconfirmedReason, body.GetProperty("reason").GetString());
+        Assert.False(body.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal(SpokenWords, body.GetProperty("transcript").GetString());
+        var record = _store.ReadRecord(uploadId)!;
+        Assert.Equal(DictationDeliveryState.Delivered, record.State);
+        Assert.True(record.MovedOn);
+        Assert.False(record.Submitted);
+        Assert.Equal("unconfirmed", record.Reason);
+        Assert.Equal(SpokenWords, record.Transcript);
+        var line = Line(uploadId, DeliveryDecisions.Unconfirmed);
+        Assert.Equal(301, line.AgeSeconds);
+        Assert.Equal("no-answer", line.DirectorNoAnswer);
+        Assert.Equal(DeliveryDecisions.Unconfirmed, Names(uploadId).Last());
+    }
+
+    [Theory]
+    [InlineData("no-answer")]
+    [InlineData("director-too-old")]
+    [InlineData("never-left-the-gateway")]
+    public async Task EveryKindOfNoAnswer_PastFiveMinutes_IsUnconfirmed_AndTheLineSaysWhichKind(string kind)
+    {
+        // Proves "any kind of no answer" means all three: a Director too old for the question, a silent one, and one the
+        // question never reached are each ruled unconfirmed past five minutes, and the line names which it was.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Timeout();
+        _deliveryState = DirectorAnswers(kind);
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+
+        _clock.Now = T0 + TimeSpan.FromMinutes(6);
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        Assert.Equal(200, status);
+        Assert.Equal("unconfirmed", body.GetProperty("reason").GetString());
+        Assert.Equal(SpokenWords, body.GetProperty("transcript").GetString());
+        Assert.Equal(kind, Line(uploadId, DeliveryDecisions.Unconfirmed).DirectorNoAnswer);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
+    [Fact]
+    public async Task AFirstAttemptWhoseQuestionGetsNoAnswerPastFiveMinutes_IsUnconfirmed()
+    {
+        // Proves the verdict applies on ANY attempt: a first attempt judged at 4:50 is sent (not too old), the prompt
+        // runs out of time 30 seconds later, the question gets no answer, and by then it is past five minutes from Send -
+        // so it is ruled unconfirmed at once, with this attempt's words, and one prompt only.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _clock.Now = T0 + TimeSpan.FromSeconds(290);
+        _prompt = _ =>
+        {
+            _clock.Now += TimeSpan.FromSeconds(30);
+            return Timeout();
+        };
+        _deliveryState = _ => NoAnswer();
+
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0);
+
+        Assert.Equal(200, status);
+        Assert.True(body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal("unconfirmed", body.GetProperty("reason").GetString());
+        Assert.False(body.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal(SpokenWords, body.GetProperty("transcript").GetString());
+        Assert.Single(_commands, c => c.Verb == "prompt");
+        Assert.Equal(320, Line(uploadId, DeliveryDecisions.Unconfirmed).AgeSeconds);
+    }
+
+    [Fact]
+    public async Task TheSendKeepsTheWordsOnThePendingRecord()
+    {
+        // Proves G1 at its source: the moment the words are sent they are on the PENDING record, so a held recording
+        // carries them for any later answer that does not transcribe again.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Timeout();
+        _deliveryState = _ => NoAnswer();
+
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+
+        var record = _store.ReadRecord(uploadId)!;
+        Assert.Equal(DictationDeliveryState.Pending, record.State);
+        Assert.Equal(SpokenWords, record.Transcript);
+        Assert.Equal(SpokenWords, _store.SentWords(uploadId));
+    }
+
+    [Theory]
+    [InlineData("too-old", true)]
+    [InlineData("session-exited", true)]
+    [InlineData(null, true)]
+    [InlineData("unconfirmed", false)]
+    public void OfferSendAnyway_IsRuledFromTheReasonAlone(string? reason, bool offered)
+    {
+        // Pins the Gateway's ruling every shown-back answer carries: "Send anyway" for words known not to be in (too
+        // old, session exited) and for an old tombstone with no reason; never for unconfirmed, where it could double.
+        Assert.Equal(offered, GatewayDictationEndpoint.OffersSendAnyway(reason));
     }
 
     [Theory]
