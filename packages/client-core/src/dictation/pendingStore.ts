@@ -6,8 +6,8 @@
 // driver re-drives the upload+submit on the next load and whenever connectivity returns.
 //
 // The on-device copy is the single source of truth. A record is deleted ONLY when the server confirms
-// it owns the turn (submitted, or deliberately dropped as stale), or after an explicit user abandon (a
-// later Task). Undelivered audio is NEVER aged out automatically - there is deliberately no time-based
+// it owns the turn (submitted), after the owner dismisses a recording that was shown back not sent, or
+// after an explicit user abandon (a later Task). Undelivered audio is NEVER aged out automatically - there is deliberately no time-based
 // prune here (issue #1182): a recording the user could not send yet is kept until it is delivered.
 //
 // IndexedDB (not localStorage) because the audio is binary and can be minutes long; localStorage is
@@ -65,14 +65,16 @@ export interface PendingDictation {
    *  timer) - the forever-loop stops. It is cleared only by an explicit user Retry, which moves the record
    *  back to active. Absent for a normal, still-auto-retrying clip. */
   parkedReason?: string;
-  /** Set when the server deliberately DROPPED this clip as stale - the session moved on while it was in
-   *  flight (issue #1590). Like `parkedReason` it EXCLUDES the record from every automatic retry trigger,
-   *  and for a stronger reason: the drop wrote a permanent moved-on tombstone against this upload id (issue
-   *  #1183), so re-driving it could only ever be dropped again. The record is kept so the drop stays visible
-   *  across a reload (nothing about a lost dictation may be silent) and so the words can be offered back.
-   *  It leaves only by an explicit user action - Send anyway, Retry, or Dismiss. Absent for a normal clip. */
+  /** Set when the Gateway did NOT send this clip and handed its words back (issue #1590; voice delivery,
+   *  #3398): too old, session ended, or could not confirm it arrived - see `droppedReason`. The name is
+   *  older than that meaning and is kept because records on disk carry it. Like `parkedReason` it EXCLUDES
+   *  the record from every automatic retry trigger, and for a stronger reason: the Gateway's answer for this
+   *  upload id is permanent (issue #1183), so re-driving it could only return the same answer. The record is
+   *  kept so it stays visible across a reload (nothing about an unsent dictation may be silent) and so the
+   *  words can be offered back. It leaves only by an explicit user action - Send anyway, Retry, or Dismiss.
+   *  Absent for a normal clip. */
   staleDropped?: boolean;
-  /** The words the server heard before it dropped the clip as stale (issue #1590), stored durably so
+  /** The words the server heard and handed back when it did not send the clip (issue #1590), stored durably so
    *  "Send anyway" still works after a reload. Empty on the rare drop before transcription, where the audio
    *  is what gets retried instead. Only meaningful alongside `staleDropped`. */
   droppedTranscript?: string;
@@ -199,8 +201,8 @@ export async function getPending(id: string): Promise<PendingDictation | null> {
   return rec === undefined ? null : readMigrated(rec);
 }
 
-/** Remove a record once the server has confirmed the turn (submitted or dropped as stale), or the user
- *  explicitly abandons it. There is deliberately no time-based prune: undelivered audio is kept until it
+/** Remove a record once the server has confirmed the turn (submitted), or the owner dismisses a clip shown
+ *  back not sent, or explicitly abandons it. There is deliberately no time-based prune: undelivered audio is kept until it
  *  is delivered or abandoned (issue #1182). */
 export async function deletePending(id: string): Promise<void> {
   if (!hasIndexedDb()) return;

@@ -33,13 +33,14 @@ import { useMemo, useSyncExternalStore } from "react";
 // done        - the server confirmed it owns the turn (delivered). Brief, then auto-clears.
 // failed      - a genuine, non-recoverable failure (durable storage unavailable, so the clip could not
 //               be saved at all). Distinct from held: nothing is retrying.
-// dropped     - the server deliberately DROPPED this clip as stale: the session moved on while it was in
-//               flight, so the words were never delivered (issue #1590). Nothing is retrying and re-driving
-//               the same upload id is useless by design (its moved-on tombstone is permanent, issue #1183) -
-//               so this is a STICKY state that must never clear itself. It carries `transcript` when the
-//               server heard something, and the UI offers "Send anyway" (a fresh turn) plus Dismiss. On the
-//               rare drop before transcription the transcript is empty, retryable is true, and the audio is
-//               kept for an explicit Retry under a FRESH upload id.
+// dropped     - the Gateway did NOT send this clip and handed the words back (issue #1590; voice delivery,
+//               #3398): it was more than 5 minutes old, the session had ended, or nobody could confirm it
+//               arrived. The copy is kept on the device. Nothing is retrying and re-driving the same upload
+//               id is useless by design (the Gateway's answer for it is permanent, issue #1183) - so this is
+//               a STICKY state that must never clear itself. It carries the words when the server heard
+//               something. When the Gateway offers it (`offerSendAnyway`), the UI offers "Send anyway" (a
+//               fresh turn) plus Dismiss, or - with no words - an explicit Retry under a FRESH upload id
+//               (retryable true); when it does not ("could not confirm"), Dismiss only.
 // unheard     - the clip was delivered to the server, which heard NOTHING in it (silence, no typed text), so
 //               there was no turn to submit (issue #1590). Nothing was lost and there is nothing to retry;
 //               this is a visible, dismissible notice so a Send never ends in silence.
