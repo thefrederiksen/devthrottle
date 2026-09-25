@@ -46,6 +46,8 @@ internal sealed class SessionReadExecutor : ISessionCommandArea
         "wingman-explain",
         "handover",
         "handover-context",
+        // Voice Delivery mission, phase 1: "what became of delivery id X?" - read from the Director's delivery record.
+        DeliveryStateRequest.Verb,
     };
 
     public Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
@@ -69,6 +71,7 @@ internal sealed class SessionReadExecutor : ISessionCommandArea
             "wingman-explain" => WingmanExplain(sessionManager, command),
             "handover" => Handover(sessionManager, context.DirectorId, context.Services?.DirectorVersion, command),
             "handover-context" => HandoverContext(sessionManager, context.DirectorId, command),
+            DeliveryStateRequest.Verb => DeliveryStateOf(command, DeliveryRecord.Shared),
             _ => DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"verb '{command.Verb}' is not handled by the session read area"),
         };
         return Task.FromResult(result);
@@ -790,5 +793,40 @@ internal sealed class SessionReadExecutor : ISessionCommandArea
 
         var text = SummaryBuilder.FormatAsHandoverPrompt(summary, extraContext);
         return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(new HandoverContextResponse { Text = text }));
+    }
+    /// <summary>
+    /// The <c>delivery-state</c> verb (Voice Delivery mission, phase 1): what became of one delivery id in the session
+    /// named by the command. Answers from the Director's durable delivery record, so it holds across a restart:
+    /// never seen -&gt; <see cref="DeliveryState.Unknown"/>. A record that cannot be read is a failure naming the file -
+    /// never <see cref="DeliveryState.Unknown"/>, which would tell the Gateway a retry is safe when it may not be. The
+    /// live session is not required: the record outlives it, and the question is about the past.
+    /// </summary>
+    internal static DirectorCommandResult DeliveryStateOf(DirectorCommand command, DeliveryRecord deliveries)
+    {
+        if (!Guid.TryParse(command.SessionId, out var sessionId))
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
+
+        var request = SessionCommandExecutor.Deserialize<DeliveryStateRequest>(command.PayloadJson);
+        if (request is null || string.IsNullOrWhiteSpace(request.DeliveryId))
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "deliveryId is required");
+
+        DeliveryLookup lookup;
+        try
+        {
+            lookup = deliveries.Read(sessionId, request.DeliveryId);
+        }
+        catch (DeliveryRecordUnreadableException ex)
+        {
+            FileLog.Write($"[SessionReadExecutor] DeliveryStateOf FAILED: session={sessionId}, deliveryId={request.DeliveryId}: {ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Error, ex.Message);
+        }
+
+        return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(new DeliveryStateResponse
+        {
+            DeliveryId = request.DeliveryId,
+            State = lookup.State,
+            Reason = lookup.Reason,
+            At = lookup.At,
+        }));
     }
 }

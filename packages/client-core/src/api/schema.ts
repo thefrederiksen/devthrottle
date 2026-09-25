@@ -12153,10 +12153,12 @@ export interface components {
             agentDriven?: boolean;
             surface?: null | string;
             deliveryUploadId?: null | string;
+            deliveryId?: null | string;
             menuGuard?: boolean;
             onlyWhenWaitingForInput?: boolean;
             spokenSpans?: null | components["schemas"]["SpokenSpanClaimDto"][];
             provenance?: null | components["schemas"]["SubmissionProvenanceDto"];
+            deliveryIdClaim?: null | string;
         };
         RepoAddRequest: {
             path?: string;

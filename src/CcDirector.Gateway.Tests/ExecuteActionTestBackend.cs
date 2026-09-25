@@ -44,8 +44,22 @@ internal sealed class ExecuteActionTestBackend : ISessionBackend
     }
 
     public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
-    public void Write(byte[] data) => Buffer?.Write(data);
-    public Task SendTextAsync(string text) => Task.CompletedTask;
+    public void Write(byte[] data)
+    {
+        Interlocked.Increment(ref _textsSent);
+        Buffer?.Write(data);
+    }
+
+    /// <summary>How many times anything was typed into this backend - text sent or bytes written - so a test can
+    /// prove a refusal typed nothing (and, in its control case, that a delivery did type).</summary>
+    public int TextsSent => Volatile.Read(ref _textsSent);
+    private int _textsSent;
+
+    public Task SendTextAsync(string text)
+    {
+        Interlocked.Increment(ref _textsSent);
+        return Task.CompletedTask;
+    }
     public Task SendEnterAsync() => Task.CompletedTask;
     public void Resize(short cols, short rows) { }
 
