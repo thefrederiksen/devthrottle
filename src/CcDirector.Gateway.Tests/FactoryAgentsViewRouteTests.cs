@@ -217,6 +217,9 @@ public sealed class FactoryAgentsViewRouteTests
         // The Map tab is the owner's page: a session key is refused it, and an unknown factory is a 404.
         Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.GetAsync($"gateway/factory-agents/factories/{factory}/map")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory-agents/factories/no-such-factory/map")).StatusCode);
+        // Ids are exact everywhere: another spelling of this factory is not this factory, so the map is never found
+        // without its card (review of #3390, finding 3).
+        Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync($"gateway/factory-agents/factories/{factory.ToUpperInvariant()}/map")).StatusCode);
     }
 
     [Fact]

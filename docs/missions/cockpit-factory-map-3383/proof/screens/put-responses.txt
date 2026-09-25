@@ -1,2 +1,2 @@
-PUT real map -> 200 {"factory":"website-business","nodes":9,"edges":11,"publishedUtc":"2026-09-24T18:01:37.8507089Z"}
+PUT real map -> 200 {"factory":"website-business","nodes":9,"edges":11,"publishedUtc":"2026-09-25T03:00:41.2178428Z"}
 PUT map with an arrow to a missing box -> 400 {"error":"the arrow scout to nobody names a box that is not on the map."}

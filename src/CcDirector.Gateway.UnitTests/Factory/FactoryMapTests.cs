@@ -81,9 +81,16 @@ public sealed class FactoryMapTests
         { "no boxes", m => m.Nodes.Clear(), "at least one box" },
         { "two boxes one id", m => m.Nodes[1].Id = "scout", "Two boxes are called 'scout'" },
         { "unknown box kind", m => m.Nodes[0].Kind = "robot", "has kind 'robot'" },
-        { "a box off the drawing", m => m.Nodes[0].X = -5, "box 'scout' x" },
-        { "a box with no size", m => m.Nodes[0].Width = 0, "box 'scout' width" },
-        { "not a number", m => m.Nodes[0].Y = double.NaN, "box 'scout' y" },
+        { "a box past the right edge", m => m.Nodes[0].X = 780, "box 'scout' (its bottom right corner)" },
+        { "a box past the top edge", m => m.Nodes[0].Y = 5, "box 'scout' (its top left corner)" },
+        { "a box with no size", m => m.Nodes[0].Width = 0, "needs a width and a height above 0" },
+        { "not a number", m => m.Nodes[0].Y = double.NaN, "box 'scout' (its top left corner)" },
+        { "a point off the drawing", m => m.Edges[0].Points[1] = new[] { 900.0, 200 }, "point of the arrow scout to sender" },
+        { "a tip off the drawing", m => m.Edges[0].Tip = new[] { 255.0, 460 }, "point of the arrow scout to sender" },
+        { "a label off the drawing", m => m.Edges[0].LabelX = 900, "the label of the arrow scout to sender" },
+        { "a tiny drawing", m => m.Width = 10, "width (10) must be from 20" },
+        { "a huge drawing", m => m.Height = 6000, "height (6000) must be from 20" },
+        { "a sliver of a drawing", m => { m.Width = 100; m.Height = 2100; }, "longer side is at most 20 times" },
         { "arrow to nothing", m => m.Edges[0].To = "janitor", "names a box that is not on the map" },
         { "unknown arrow kind", m => m.Edges[0].Kind = "teleport", "has kind 'teleport'" },
         { "a result that is not one of the four", m => m.Edges[0].Result = "partly", "a run finishes only as" },
@@ -106,6 +113,87 @@ public sealed class FactoryMapTests
         var ex = Assert.Throws<FactoryViewValidationException>(() => store.Publish(TenantA, map, "session s1", Now));
         Assert.Contains(reason, ex.Message);
         Assert.True(store.Find(TenantA, "website-business") is null, $"{what}: a refused map was stored");
+    }
+
+    [Fact]
+    public void Ids_AreExact_SoAMapIsNeverFoundUnderAnotherSpelling()
+    {
+        using var h = new GatewayDbTestHarness();
+        var store = new FactoryMapStore(new TenantSettingsStore(h.Open()));
+        store.Publish(TenantA, Map(), "session s1", Now);
+
+        Assert.NotNull(store.Find(TenantA, "website-business"));
+        Assert.Null(store.Find(TenantA, "Website-Business"));
+        Assert.Null(store.Find(TenantA, "WEBSITE-BUSINESS"));
+    }
+
+    /// <summary>A valid map of roughly <paramref name="kb"/> kilobytes: every box inside the drawing, the bulk in
+    /// spec rows.</summary>
+    private static PublishFactoryMapRequest Heavy(string factory, int kb)
+    {
+        var map = Map(factory);
+        map.Width = 4000;
+        map.Height = 4000;
+        var rowsWanted = kb * 1024 / 620;
+        var n = 0;
+        while (rowsWanted > 0)
+        {
+            var rows = Math.Min(FactoryMapStore.MaxSpecRows, rowsWanted);
+            rowsWanted -= rows;
+            map.Nodes.Add(new()
+            {
+                Id = $"agent-{n}", Title = $"Agent {n}", X = 100 + (n % 30) * 120, Y = 100 + (n / 30) * 120,
+                Width = 90, Height = 40,
+                Spec = Enumerable.Range(0, rows).Select(i => new FactoryMapSpecRow { Label = $"Row {i}", Text = new string('x', 600) }).ToList(),
+            });
+            n++;
+        }
+        return map;
+    }
+
+    [Fact]
+    public void Publish_RefusesAMapOverItsByteCeiling()
+    {
+        using var h = new GatewayDbTestHarness();
+        var store = new FactoryMapStore(new TenantSettingsStore(h.Open()));
+        var big = Heavy("big-factory", 300);
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.Publish(TenantA, big, "session s1", Now));
+
+        Assert.Contains($"a map takes at most {FactoryMapStore.MaxMapBytes}", ex.Message);
+        Assert.Null(store.Find(TenantA, "big-factory"));
+    }
+
+    [Fact]
+    public void Publish_RefusesTheMapThatWouldTakeTheAccountOverItsTotal_AndKeepsTheOthers()
+    {
+        using var h = new GatewayDbTestHarness();
+        var store = new FactoryMapStore(new TenantSettingsStore(h.Open()));
+
+        var kept = new List<string>();
+        FactoryViewValidationException? refused = null;
+        for (var i = 0; i < 20 && refused is null; i++)
+        {
+            var id = $"factory-{i}";
+            try
+            {
+                store.Publish(TenantA, Heavy(id, 200), "session s1", Now);
+                kept.Add(id);
+            }
+            catch (FactoryViewValidationException ex)
+            {
+                refused = ex;
+            }
+        }
+
+        Assert.NotNull(refused);
+        Assert.Contains($"they take at most {FactoryMapStore.MaxTotalBytes} together", refused!.Message);
+        Assert.InRange(kept.Count, 5, 11);                       // about 2 MB of 200 KB maps
+        Assert.All(kept, id => Assert.NotNull(store.Find(TenantA, id)));
+        Assert.Null(store.Find(TenantA, $"factory-{kept.Count}"));
+        // Replacing a kept map with a small one still works: the ceiling is on the total, not a lock-out.
+        store.Publish(TenantA, Map(kept[0]), "session s2", Now);
+        Assert.Equal("session s2", store.Find(TenantA, kept[0])!.PublishedBy);
     }
 
     [Fact]

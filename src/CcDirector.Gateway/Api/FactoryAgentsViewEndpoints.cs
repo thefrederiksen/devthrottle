@@ -112,10 +112,12 @@ internal static class FactoryAgentsViewEndpoints
             {
                 var now = sources.NowUtc();
                 var zone = sources.TimeZone(tenant);
+                // Exact, like the record's own query below: the map, the card and the rows are all found under the one
+                // spelling the factory uses, so a map is never shown without its agents' status.
                 var id = factory.Trim();
                 var w = FactoryAgentsFold.ResolveWindow(FactoryAgentsFold.WindowLast24h, null, null, now, FactoryAgentsFold.WindowLast24h, zone);
                 var card = FactoryAgentsFold.Factories(Inputs(sources, tenant, w, id, now)).Factories
-                    .FirstOrDefault(c => SameId(c.Id, id));
+                    .FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.Ordinal));
                 var stored = sources.Maps.Find(tenant, id);
                 if (card is null && stored is null)
                     return Results.Json(new { error = $"There is no factory '{id}': no trigger, record row or map names it." },

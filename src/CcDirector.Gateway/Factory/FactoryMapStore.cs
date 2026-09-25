@@ -15,9 +15,13 @@ public sealed record StoredFactoryMap(PublishFactoryMapRequest Map, DateTime Pub
 /// account's settings under <see cref="TenantSettingKeys.FactoryMaps"/>, keyed by factory id. A publish replaces
 /// that factory's map and leaves the others alone.
 ///
-/// A map is refused whole when any part of it is wrong - an unknown kind, an arrow to a box that is not there, a
-/// coordinate that is not a finite number inside the drawing, more boxes or words than a map needs - so what the
-/// Cockpit draws is always a map a factory really published, never a half of one.
+/// A map is refused whole when any part of it is wrong - an unknown kind, an arrow to a box that is not there, a box,
+/// point or label outside the drawing it declares, a drawing of an absurd size or shape, more boxes or words than a
+/// map needs, or more bytes than a map (or all of an account's maps together) may take - so what the Cockpit draws is
+/// always a map a factory really published, never a half of one, and no account can fill the Gateway with maps.
+///
+/// Factory ids are exact: lower-case, the same spelling the record and the triggers use. Nothing here folds case, so
+/// a map and its factory's card are always found under the one spelling.
 /// </summary>
 public sealed partial class FactoryMapStore
 {
@@ -29,10 +33,26 @@ public sealed partial class FactoryMapStore
     public const int MaxPoints = 400;
     public const int MaxShortChars = 120;
     public const int MaxTextChars = 600;
-    public const double MaxExtent = 20_000;
+
+    /// <summary>The drawing's width and height, in Graphviz points, are each within these.</summary>
+    public const double MinDrawing = 20;
+    public const double MaxDrawing = 5_000;
+
+    /// <summary>The longer side of the drawing is at most this many times the shorter one.</summary>
+    public const double MaxAspect = 20;
+
+    /// <summary>How far a box, point or label may sit past the drawing's edge: Graphviz rounds to two decimals.</summary>
+    public const double Slack = 2;
+
+    /// <summary>One map, as stored, at most (the website factory's is about 15 KB).</summary>
+    public const int MaxMapBytes = 256 * 1024;
+
+    /// <summary>All of an account's maps together, as stored, at most. Every publish and every Map tab reads them
+    /// all, so this is what bounds the work one account can put on the Gateway.</summary>
+    public const int MaxTotalBytes = 2 * 1024 * 1024;
 
     /// <summary>Route words under /factory-agents that a factory id may not be, or its page could not be reached.</summary>
-    private static readonly IReadOnlySet<string> Reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "waiting" };
+    private static readonly IReadOnlySet<string> Reserved = new HashSet<string>(StringComparer.Ordinal) { "waiting" };
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -62,13 +82,20 @@ public sealed partial class FactoryMapStore
         FileLog.Write($"[FactoryMapStore] Publish: factory={map?.Factory}, nodes={map?.Nodes?.Count}, edges={map?.Edges?.Count}, by={publishedBy}");
         Validate(map);
         var stored = new StoredFactoryMap(map!, nowUtc, publishedBy);
+        var mapBytes = JsonSerializer.SerializeToUtf8Bytes(stored, Json).Length;
+        if (mapBytes > MaxMapBytes)
+            throw Refuse($"The map takes {mapBytes} bytes; a map takes at most {MaxMapBytes}.");
         lock (_gate)
         {
             var all = All(tenant);
             if (!all.ContainsKey(map!.Factory) && all.Count >= MaxFactories)
-                throw new FactoryViewValidationException($"An account keeps at most {MaxFactories} factory maps.");
+                throw Refuse($"An account keeps at most {MaxFactories} factory maps.");
             all[map.Factory] = stored;
-            _settings.Set(tenant, TenantSettingKeys.FactoryMaps, JsonSerializer.Serialize(all, Json), nowUtc);
+            var json = JsonSerializer.Serialize(all, Json);
+            var totalBytes = System.Text.Encoding.UTF8.GetByteCount(json);
+            if (totalBytes > MaxTotalBytes)
+                throw Refuse($"With this map the account's maps would take {totalBytes} bytes; they take at most {MaxTotalBytes} together.");
+            _settings.Set(tenant, TenantSettingKeys.FactoryMaps, json, nowUtc);
         }
         FileLog.Write($"[FactoryMapStore] Publish: stored {map.Factory}");
         return stored;
@@ -78,10 +105,10 @@ public sealed partial class FactoryMapStore
     {
         var raw = _settings.Get(tenant, TenantSettingKeys.FactoryMaps);
         if (string.IsNullOrWhiteSpace(raw))
-            return new Dictionary<string, StoredFactoryMap>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, StoredFactoryMap>(StringComparer.Ordinal);
         var read = JsonSerializer.Deserialize<Dictionary<string, StoredFactoryMap>>(raw, Json)
                    ?? throw new InvalidOperationException("The factory maps setting holds no object.");
-        return new Dictionary<string, StoredFactoryMap>(read, StringComparer.OrdinalIgnoreCase);
+        return new Dictionary<string, StoredFactoryMap>(read, StringComparer.Ordinal);
     }
 
     /// <summary>Every rule a published map must meet. Throws with the first one it breaks.</summary>
@@ -92,12 +119,15 @@ public sealed partial class FactoryMapStore
         if (Reserved.Contains(map.Factory)) throw Refuse($"A factory cannot be called '{map.Factory}'.");
         Text(map.Title, "title", MaxShortChars, required: true);
         Text(map.Source, "source", MaxTextChars, required: true);
-        Extent(map.Width, "width", positive: true);
-        Extent(map.Height, "height", positive: true);
+        Size(map.Width, "width");
+        Size(map.Height, "height");
+        if (Math.Max(map.Width, map.Height) > MaxAspect * Math.Min(map.Width, map.Height))
+            throw Refuse($"The drawing is {map.Width} by {map.Height}; its longer side is at most {MaxAspect} times the shorter.");
+        var (w, h) = (map.Width, map.Height);
 
         if (map.Nodes is null || map.Nodes.Count == 0) throw Refuse("A map needs at least one box.");
         if (map.Nodes.Count > MaxNodes) throw Refuse($"A map holds at most {MaxNodes} boxes.");
-        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var n in map.Nodes)
         {
             if (n is null) throw Refuse("A box is empty.");
@@ -108,10 +138,10 @@ public sealed partial class FactoryMapStore
             Text(n.Title, $"box '{n.Id}' title", MaxShortChars, required: true);
             if (n.Lines is null || n.Lines.Count > MaxLines) throw Refuse($"Box '{n.Id}' has more than {MaxLines} lines.");
             foreach (var line in n.Lines) Text(line, $"a line of box '{n.Id}'", MaxShortChars, required: true);
-            Extent(n.X, $"box '{n.Id}' x");
-            Extent(n.Y, $"box '{n.Id}' y");
-            Extent(n.Width, $"box '{n.Id}' width", positive: true);
-            Extent(n.Height, $"box '{n.Id}' height", positive: true);
+            if (!double.IsFinite(n.Width) || !double.IsFinite(n.Height) || n.Width <= 0 || n.Height <= 0)
+                throw Refuse($"The box '{n.Id}' needs a width and a height above 0.");
+            Inside(n.X - n.Width / 2, n.Y - n.Height / 2, w, h, $"box '{n.Id}' (its top left corner)");
+            Inside(n.X + n.Width / 2, n.Y + n.Height / 2, w, h, $"box '{n.Id}' (its bottom right corner)");
             if (n.Spec is null || n.Spec.Count > MaxSpecRows) throw Refuse($"Box '{n.Id}' has more than {MaxSpecRows} spec rows.");
             foreach (var r in n.Spec)
             {
@@ -136,13 +166,12 @@ public sealed partial class FactoryMapStore
             Text(e.Label, $"the words on {name}", MaxShortChars, required: false);
             if (e.Points is null || e.Points.Count < 4 || (e.Points.Count - 1) % 3 != 0 || e.Points.Count > MaxPoints)
                 throw Refuse($"{name} needs a start point then whole curves (1 + 3n points, at most {MaxPoints}).");
-            foreach (var p in e.Points) Point(p, name);
-            if (e.Tip is not null) Point(e.Tip, name);
+            foreach (var p in e.Points) Point(p, w, h, name);
+            if (e.Tip is not null) Point(e.Tip, w, h, name);
             if (e.LabelX is not null || e.LabelY is not null)
             {
                 if (e.LabelX is null || e.LabelY is null) throw Refuse($"{name} has half a label position.");
-                Extent(e.LabelX.Value, $"{name} label x");
-                Extent(e.LabelY.Value, $"{name} label y");
+                Inside(e.LabelX.Value, e.LabelY.Value, w, h, $"the label of {name}");
             }
         }
     }
@@ -159,17 +188,23 @@ public sealed partial class FactoryMapStore
         if (text.Length > max) throw Refuse($"The {what} is longer than {max} characters.");
     }
 
-    private static void Extent(double v, string what, bool positive = false)
+    private static void Size(double v, string what)
     {
-        if (!double.IsFinite(v) || v < 0 || v > MaxExtent || (positive && v <= 0))
-            throw Refuse($"The {what} ({v}) must be a number from {(positive ? "above " : "")}0 to {MaxExtent}.");
+        if (!double.IsFinite(v) || v < MinDrawing || v > MaxDrawing)
+            throw Refuse($"The drawing's {what} ({v}) must be from {MinDrawing} to {MaxDrawing}.");
     }
 
-    private static void Point(double[]? p, string what)
+    /// <summary>A place on the drawing: finite, and within its width and height (give or take the rounding).</summary>
+    private static void Inside(double x, double y, double w, double h, string what)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) || x < -Slack || y < -Slack || x > w + Slack || y > h + Slack)
+            throw Refuse($"The {what} at ({x}, {y}) is outside the {w} by {h} drawing.");
+    }
+
+    private static void Point(double[]? p, double w, double h, string what)
     {
         if (p is null || p.Length != 2) throw Refuse($"A point of {what} is not an x and a y.");
-        Extent(p[0], $"{what} point x");
-        Extent(p[1], $"{what} point y");
+        Inside(p[0], p[1], w, h, $"point of {what}");
     }
 
     private static FactoryViewValidationException Refuse(string why) => new(why);

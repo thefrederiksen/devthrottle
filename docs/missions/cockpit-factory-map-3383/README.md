@@ -69,6 +69,18 @@ Gates run on this branch:
 | client-core (vitest, full) | 1,520 passed. |
 | Typecheck (all workspaces), eslint on the changed folders | clean |
 
+## Review (Codex, a separate tracked session)
+
+Verdict on the first head (`258406007`): request changes, 3 findings. All accepted and fixed in the next commit.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Blocker. No byte bound: 50 maps, each at the per-item maximum (about 5 MB), could put more than 250 MB into one account's setting, which every publish and every Map tab reads whole. | A map takes at most 256 KB as stored, and an account's maps together at most 2 MB. Both are refused with the reason, before anything is stored. Tests: one oversized map; maps published until the total is reached, with the earlier ones kept and a replacement still accepted. |
+| 2 | Coordinates were checked only against 0 to 20,000, not against the drawing the map declares. The test "a box off the drawing" used x = -5 and so did not prove that. | The drawing is 20 to 5,000 points on each side, and the longer side is at most 20 times the shorter. Every box's corners, every path point, every arrow tip and every label must lie inside the drawing, within 2 points of rounding. Ten refusal cases, each hitting one of these rules. |
+| 3 | The route folded case but the record query did not, so a mixed-case request could find the map but lose its card. | Ids are exact everywhere: the store, the route and the record. Another spelling is a 404. Tested in the store and on the real host. |
+
+After the fixes, the real website factory map is still accepted (the proof run above was repeated at the fix head).
+
 ## Not proven here
 
 - The hosted Gateway: this needs a release before the owner's own Cockpit shows a Map tab. Until then,
