@@ -112,6 +112,34 @@ public sealed class DeliveryIdGatewayTests : IDisposable
     }
 
     [Fact]
+    public async Task Complete_DirectorSaysAlreadyDelivered_DecisionLogSaysWhyItWasDeliveredOnlyOnce()
+    {
+        // Proves the decision log answers "why was this delivered only once": sent-to-director, then the Director's
+        // answer carrying its state (delivered) and the refused-duplicate fact - written after the refusal was read -
+        // then delivered, and the refused copy writes exactly one delivered line.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+
+        await RunAsync(uploadId, sid, new List<PromptRequest>(), Refused(DeliveryState.Delivered));
+
+        var log = _store.ReadDecisions(uploadId);
+        Assert.True(log.Found);
+        var names = log.Lines.Select(l => l.Decision).ToList();
+        var sentAt = names.IndexOf(DeliveryDecisions.SentToDirector);
+        var answerAt = names.IndexOf(DeliveryDecisions.DirectorAnswer);
+        var deliveredAt = names.IndexOf(DeliveryDecisions.Delivered);
+        Assert.True(sentAt >= 0 && answerAt == sentAt + 1 && deliveredAt == answerAt + 1,
+            $"expected sent-to-director, director-answer, delivered in a row; got: {string.Join(", ", names)}");
+        Assert.Single(names, n => n == DeliveryDecisions.Delivered);
+
+        var answer = log.Lines[answerAt].Facts!;
+        Assert.Equal(DeliveryStates.Delivered, answer.State);
+        Assert.True(answer.RefusedDuplicate);
+        Assert.True(answer.Ok);
+        Assert.Equal(sid, answer.SessionId);
+    }
+
+    [Fact]
     public async Task Complete_DirectorSaysStillDelivering_IsNotResolvedAsDelivered()
     {
         // Proves any other refusal keeps the failure path: the words may still be going in, so nothing is written as
