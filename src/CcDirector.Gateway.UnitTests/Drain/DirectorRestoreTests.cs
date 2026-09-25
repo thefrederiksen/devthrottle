@@ -364,6 +364,15 @@ public sealed class DirectorRestoreTests : IDisposable
         Assert.Contains("is not running", Assert.Single(result.Seats).Failure);
     }
 
+    /// <summary>
+    /// A BLOCKED OWNER THE RECORD SAYS WAS CLOSED AFTER ALL IS NOT TAKEN FOR RUNNING - its old id is dead and
+    /// the worker is never started under it. What the worker gets instead changed with the owner's ruling of
+    /// 25 September 2026 (product issue 3395): this owner was closed and nothing decided it would come back,
+    /// so it is not coming back, the worker is top level now, and the user owns it. It used to fail here.
+    ///
+    /// THE OWNER STILL BEING BLOCKED, AND NOT YET CLOSED, IS THE OTHER TEST ABOVE, and that one is unchanged:
+    /// such an owner still exists, so its worker still waits for it rather than being handed to the user.
+    /// </summary>
     [Fact]
     public async Task RunAsync_ABlockedOwnerThatWasClosedAfterAll_IsNotTakenForRunning()
     {
@@ -372,8 +381,8 @@ public sealed class DirectorRestoreTests : IDisposable
 
         var result = await NewRestore(gw).RunAsync(Order());
 
-        Assert.Empty(gw.Spawns);
-        Assert.NotNull(Assert.Single(result.Seats).Failure);
+        Assert.Null(Assert.Single(gw.Spawns).ControllerSessionId);
+        Assert.Null(Assert.Single(result.Seats).Failure);
     }
 
     [Fact]
@@ -693,17 +702,61 @@ public sealed class DirectorRestoreTests : IDisposable
         Assert.Contains("could not be brought back", gw.Stored.Seats.Single(s => s.SessionId == "w").Restore!.Failure);
     }
 
+    /// <summary>
+    /// AN OWNER DECIDED "CLOSE" IS NOT COMING BACK, SO THE SEATS UNDER IT ARE TOP LEVEL AND THE USER OWNS THEM.
+    /// The owner's ruling of 25 September 2026, on product issue 3395, in his own words: "the top level session
+    /// should be owned by the user that started the director".
+    ///
+    /// THIS IS THE TEST THAT FAILS ON THE CODE THIS RULING CHANGED. Before it, both workers here failed with
+    /// "its owner ... is decided \"close\", so it is not coming back and nobody would own this seat", nothing was
+    /// spawned, and the window's own row - which had already promised these sessions would come back - brought
+    /// back nothing at all.
+    /// </summary>
     [Fact]
-    public async Task RunAsync_AnOwnerDecidedClose_FailsItsWorker_RatherThanStartingItUnowned()
+    public async Task RunAsync_AnOwnerDecidedClose_IsTerminal_SoTheSeatsUnderItComeBackOwnedByTheUser()
     {
         var gw = Gateway(
             Seat("m", "Manager", decision: WorkspaceRestoreDecisions.Close),
+            Seat("w1", "Worker one", reportsTo: "m", order: 1),
+            Seat("w2", "Worker two", reportsTo: "m", order: 2));
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        // FIRST, so that a run against the code before the ruling says which rule refused these seats and not
+        // merely that nothing was started.
+        Assert.All(result.Seats, s => Assert.Null(s.Failure));
+
+        Assert.Equal(new[] { "Worker one", "Worker two" }, gw.Spawns.Select(s => s.Name));
+        Assert.All(gw.Spawns, s => Assert.Null(s.ControllerSessionId));
+        Assert.All(result.Seats, s => Assert.Null(s.OwnerSessionId));
+
+        var stored = gw.Stored.Seats.ToDictionary(s => s.SessionId!);
+        Assert.Equal("new-1", stored["w1"].RestoredSessionId);
+        Assert.Equal("new-2", stored["w2"].RestoredSessionId);
+        Assert.Null(stored["w1"].Restore!.Failure);
+        Assert.Null(stored["w2"].Restore!.Failure);
+
+        // The lead itself is untouched: "close" was a decision about it, and the ruling is about the seats it
+        // used to own.
+        Assert.Null(stored["m"].RestoredSessionId);
+    }
+
+    /// <summary>
+    /// AND SO IS AN OWNER WITH NOTHING DECIDED - the ruling is about an owner that is not coming back, and a
+    /// seat nobody decided to restore is not coming back either. The lead here ended at the limit with nothing
+    /// decided, which is what the operating system shutting the machine down writes for every seat.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_AnOwnerWithNothingDecided_IsAlsoTerminal_SoItsWorkerComesBackOwnedByTheUser()
+    {
+        var gw = Gateway(
+            Seat("m", "Manager", decision: WorkspaceRestoreDecisions.Undecided),
             Seat("w", "Worker", reportsTo: "m"));
 
         var result = await NewRestore(gw).RunAsync(Order());
 
-        Assert.Empty(gw.Spawns);
-        Assert.Contains("\"close\"", Assert.Single(result.Seats).Failure);
+        Assert.Null(Assert.Single(gw.Spawns).ControllerSessionId);
+        Assert.Null(Assert.Single(result.Seats).Failure);
     }
 
     [Fact]

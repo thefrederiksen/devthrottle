@@ -215,18 +215,31 @@ public static class WayUpWords
         return string.IsNullOrWhiteSpace(mission) ? seat.Name : $"{mission}: {seat.Name}";
     }
 
-    /// <summary>What ticking a bring back row will do.</summary>
+    /// <summary>
+    /// What ticking a bring back row will do.
+    ///
+    /// WHAT IT SAYS ABOUT THE LEAD IS WHAT THE RESTORE WILL ACTUALLY DO, and the two are one rule read twice:
+    /// <see cref="CcDirector.ControlApi.Drain.DirectorRestore.ResolveOwner"/> decides who owns a restored seat,
+    /// and these words report that decision. It said something else until the owner's ruling of 25 September
+    /// 2026 (product issue 3395): it promised that sessions under a lead that was not coming back would come
+    /// back "under whoever the record says owns them", while the restore refused every one of them because
+    /// nobody would own them. A lead decided "close" is not coming back at all, so the seats under it are top
+    /// level now, and a top level session is the user's - which is what this now says.
+    /// </summary>
     /// <param name="seatsInRow">How many seats the row brings back, the head included.</param>
     /// <param name="headIsOwed">Whether the mission head itself is one of them.</param>
-    public static string BringBackRowDetail(int seatsInRow, bool headIsOwed)
+    /// <param name="headCameBackEarlier">Whether the head is absent from the row because it has already been
+    /// brought back. That is the one way a head is not owed and still owns the seats under it, and it reads
+    /// differently from a head that is not coming back at all.</param>
+    public static string BringBackRowDetail(int seatsInRow, bool headIsOwed, bool headCameBackEarlier)
     {
         var what = seatsInRow == 1
             ? "Brings back one session, reading its own handover."
             : $"Brings back {seatsInRow} sessions, leads first, each reading its own handover.";
-        return headIsOwed
-            ? what
-            : what + " The lead of this mission is not coming back, so these sessions come back under " +
-                     "whoever the record says owns them.";
+        if (headIsOwed) return what;
+        return headCameBackEarlier
+            ? what + " The lead of this mission is already back, so these sessions come back under it."
+            : what + " The lead of this mission is not coming back, so these sessions come back owned by you.";
     }
 
     /// <summary>What will happen to one seat inside a bring back row.</summary>

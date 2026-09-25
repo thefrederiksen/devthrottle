@@ -764,11 +764,17 @@ public sealed class DirectorWayUp : IDirectorWayUp
                 .ToList();
             var headIsOwed = seats.Any(s => string.Equals(SeatId(s), headId, StringComparison.OrdinalIgnoreCase));
 
+            // A HEAD MISSING FROM ITS OWN ROW IS ONE OF TWO THINGS, and the row says which. It has already
+            // been brought back - then the seats under it come back under the session it came back as - or it
+            // is not coming back at all, and then they are top level and come back owned by the user. That is
+            // DirectorRestore.ResolveOwner's rule, reported and not restated.
+            var headCameBackEarlier = !string.IsNullOrWhiteSpace(head.RestoredSessionId);
+
             rows.Add(new WayUpRow(
                 Kind: WayUpRowKind.BringBack,
                 RowId: headId,
                 Title: WayUpWords.RowTitle(head),
-                Detail: WayUpWords.BringBackRowDetail(seats.Count, headIsOwed),
+                Detail: WayUpWords.BringBackRowDetail(seats.Count, headIsOwed, headCameBackEarlier),
                 Ticked: true,
                 Seats: seats.Select(s => new WayUpRowSeat(
                     SeatId(s), s.Name, s.Mission?.Name, s.Role, s.ReportsTo, WayUpWords.SeatDetail(s))).ToList(),

@@ -157,9 +157,12 @@ public sealed record DirectorRestoreResult(string WorkspaceId, IReadOnlyList<Sea
 ///  - the owner is a seat here that BLOCKED the drain and was never closed: its current id, if it is still running;
 ///  - the record is a CANCELLED smart shutdown and the owner is a seat here that was never closed: its current
 ///    id, if it is still running;
-///  - otherwise (it failed, was decided "close", has not come back, or is not running): this seat FAILS with that
-///    reason. It is not started unowned and not started under a dead id - either would be a guess about who
-///    collects its work.
+///  - the owner is a seat here decided anything but "restore" - "close", "none", nothing decided: THE USER owns
+///    this seat. That owner is not coming back at all, so this seat is top level now, and a top level session is
+///    the user's (the owner's ruling of 25 September 2026, on product issue 3395);
+///  - otherwise (it failed, has not come back yet, or is not running): this seat FAILS with that reason. It is
+///    not started under a dead id, and it is not re-owned to the user either - each of those owners still exists
+///    and is merely out of reach, so a retry or the run's own ordering is the answer.
 ///
 /// ONLY A DRAINED SEAT COMES BACK (inspection 7, ruling 2). A seat whose captured session is still running on a
 /// reachable Director is never started again, whatever the record says; nor is one still listed under an
@@ -628,6 +631,10 @@ public sealed class DirectorRestore
         var reportsTo = seat.ReportsTo?.Trim();
         if (string.IsNullOrEmpty(reportsTo)) return (null, null);
 
+        // AN OWNER THAT EXISTS BUT CANNOT BE REACHED IS NOT RE-OWNED TO THE USER. Every refusal below is about
+        // an owner that still EXISTS - outside this record, or blocked, or left running by a cancelled shutdown -
+        // and is merely out of reach right now. Handing its seats to the user would be a different judgement
+        // from the one the owner made on 25 September 2026, which is about an owner that is not coming back.
         string NotRunning(string id, string what) =>
             $"its owner {what} is not running on any Director this Gateway can reach now, so starting this seat would " +
             "put it under a session that cannot collect its work. Bring the owner back or re-seat this one.";
@@ -661,13 +668,30 @@ public sealed class DirectorRestore
             return roster.IsReachable(reportsTo)
                 ? (reportsTo, null)
                 : (null, NotRunning(reportsTo, $"{bossName}, which the cancelled shutdown never closed,"));
+        // AN OWNER THAT FAILED IN THIS RUN IS NOT AN ORPHAN, so it is not re-owned to the user. A second
+        // attempt may still bring that owner back, and while it may, "restore the owner, then this seat" is
+        // the true answer.
         if (failedHere.TryGetValue(reportsTo, out var why))
             return (null, $"its owner {bossName} was restarted in the same drain and could not be brought back ({why}), " +
                           "so there is no session to own it. Restore the owner, then this seat.");
+
+        // AN OWNER DECIDED ANYTHING BUT "RESTORE" IS TERMINAL, WHICH MAKES THIS SEAT TOP LEVEL - AND A TOP
+        // LEVEL SESSION IS THE USER'S. The owner's ruling of 25 September 2026, on product issue 3395, in his
+        // own words: "the top level session should be owned by the user that started the director". A decision
+        // of "close" (or "none", or nothing decided) is not coming back later in this run, not on a retry, and
+        // not at all, so there is no session to wait for and nothing left to re-seat: the seat that reported to
+        // it has no owner any more, and having no owner is what top level means.
+        //
+        // Until that ruling this refused the seat, which made the window's own promise a promise the engine
+        // broke - the row offered the sessions under a lead that was not coming back and then brought back
+        // nothing. WayUpWords.BringBackRowDetail says the same thing this line does, and the two have to agree.
         if (boss.Restore is not { Decision: WorkspaceRestoreDecisions.Restore })
-            return (null, $"its owner {bossName} was restarted in the same drain and is decided " +
-                          $"\"{boss.Restore?.Decision ?? "none"}\", so it is not coming back and nobody would own this seat. " +
-                          "Its senior re-seats it, or the owner decides who should own it.");
+            return (null, null);
+
+        // AN OWNER STILL TO COME BACK IS ORDERING, NOT AN ORPHAN, so it is not re-owned to the user either.
+        // Seats come back seniors first (OrderSeniorsFirst), so when the record is restored whole this answers
+        // itself moments later in the same run; when only this seat was asked for, its owner is still there to
+        // be restored first.
         return (null, $"its owner {bossName} was restarted in the same drain and has not been brought back yet. " +
                       "Restore the owner first; this seat is then started under the owner's new id.");
     }
