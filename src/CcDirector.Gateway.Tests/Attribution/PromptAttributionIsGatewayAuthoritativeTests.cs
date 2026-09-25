@@ -360,7 +360,7 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
     {
         using var reg = new HttpRequestMessage(HttpMethod.Post, "dictation/upload")
         {
-            Content = JsonContent.Create(new { sessionId = _sid, baselineBufferBytes = 0 }),
+            Content = JsonContent.Create(new { sessionId = _sid }),
         };
         reg.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
         var regResp = await _http.SendAsync(reg);
@@ -371,7 +371,7 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
         Assert.Equal(HttpStatusCode.OK, chunk.StatusCode);
 
         var complete = await _http.PostAsJsonAsync($"dictation/{id}/complete",
-            new { sessionId = _sid, totalChunks = 1, mime = "audio/wav", ext = "wav", before, prefix, after, baselineBufferBytes = 0, resumed = false });
+            new { sessionId = _sid, totalChunks = 1, mime = "audio/wav", ext = "wav", before, prefix, after, sentAtUtc = DateTime.UtcNow, resumed = false });
         await AssertOk(complete);
         return id;
     }

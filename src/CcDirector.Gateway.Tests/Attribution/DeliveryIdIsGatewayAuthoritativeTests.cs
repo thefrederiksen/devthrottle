@@ -7,6 +7,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Voice;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -207,7 +208,7 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     private async Task<string> MovedOnAndAcknowledged()
     {
         var uploadId = Upload(_uploads, _sid);
-        _uploads.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript: "send me once");
+        _uploads.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript: "send me once", reason: DeliveryDecisions.TooOld);
         var ack = await _http.PostAsync($"dictation/{uploadId}/ack", content: null);
         var ackText = await ack.Content.ReadAsStringAsync();
         Assert.True(ack.StatusCode == HttpStatusCode.OK, $"the acknowledgement answered {(int)ack.StatusCode}: {ackText}");
@@ -278,5 +279,30 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         Assert.Equal("delivered", answer.GetProperty("deliveryState").GetString());
         Assert.True(_backend.TextsSent > typedBefore, "nothing was typed for a recording the Director never received");
         Assert.Equal(DeliveryState.Delivered, _directorRecord.Read(_session.Id, canonical).State);
+    }
+
+    [Fact]
+    public async Task A_verified_claim_whose_session_cannot_be_found_writes_where_it_stopped()
+    {
+        // Proves the phase 1 review's first note is closed: a verified "Send anyway" whose prompt stops at the session
+        // lookup, before the Director, no longer leaves the recording's decision record ending at the claim. The line
+        // after the verified claim says it stopped before the Director and why, and nothing reached the Director.
+        var elsewhere = Guid.NewGuid().ToString();
+        var uploadId = Upload(_uploads, elsewhere);
+        int arrivedBefore;
+        lock (_arrived) arrivedBefore = _arrived.Count;
+
+        var resp = await _http.PostAsJsonAsync($"sessions/{elsewhere}/prompt",
+            new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.NotEqual(HttpStatusCode.OK, resp.StatusCode);
+        lock (_arrived) Assert.Equal(arrivedBefore, _arrived.Count);
+        var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
+        var lines = read.GetProperty("decisions").EnumerateArray().ToList();
+        var names = lines.Select(l => l.GetProperty("decision").GetString()).ToList();
+        Assert.Equal(new[] { DeliveryDecisions.ClaimVerified, DeliveryDecisions.ClaimStoppedBeforeDirector }, names.TakeLast(2));
+        var stopped = lines[^1].GetProperty("facts");
+        Assert.Equal(GatewayEndpoints.ClaimStopSessionNotFound, stopped.GetProperty("reason").GetString());
+        Assert.Equal(elsewhere, stopped.GetProperty("sessionId").GetString());
     }
 }

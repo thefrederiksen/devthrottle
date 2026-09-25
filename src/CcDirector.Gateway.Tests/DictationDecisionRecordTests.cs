@@ -26,7 +26,7 @@ namespace CcDirector.Gateway.Tests;
 /// <c>decisions.jsonl</c>, that acknowledging keeps that log while deleting the audio and the words, and that
 /// the log never holds the words.
 ///
-/// Same rig as <see cref="Issue1593FailedAttemptRebaselineTests"/>: a real GatewayHost over loopback HTTP, the
+/// The rig: a real GatewayHost over loopback HTTP, the
 /// real routes, the real store on disk, and a real tunnel-connected <see cref="FakeTunnelDirector"/> whose
 /// prompt verb answers as each test tells it to. Only the speech-to-text provider is a stub.
 /// </summary>
@@ -114,54 +114,129 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AFailedDirectorAnswer_ThenAResumedRetry_AreBothWritten()
+    public async Task AnUnansweredPrompt_ThenAResumedRetry_EveryDecisionIsReadableThroughTheRoute()
     {
-        // Proves a refused prompt verb is written as a director-answer that says it failed, and the client's
-        // resumed retry is written as retried before the attempt that delivers.
+        // Proves, through the real routes, the phase 2 sequence: the prompt verb goes out and no answer comes back, the
+        // Gateway asks the Director instead of calling it a failure, the Director says not delivered (502, retryable);
+        // the client's resumed retry asks FIRST, hears not delivered again, transcribes, sends and delivers. Every line
+        // is read back through GET /dictation/{uploadId}/decisions, in order, and none holds the words.
         var uploadId = await RegisterAndUploadAsync();
-        // Only the first PROMPT fails. Counting every verb let any other command the Gateway sends the Director
-        // first (it does not only send prompts) take the failure, and the delivery then answered OK.
         var prompts = 0;
-        _director.OnCommand(cmd =>
-            cmd.Verb == "prompt" && Interlocked.Increment(ref prompts) == 1
-                ? DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "composer never echoed the text")
-                : FakeTunnelDirector.Ok(new PromptResponse()));
+        _director.OnCommand(cmd => cmd.Verb switch
+        {
+            "prompt" when Interlocked.Increment(ref prompts) == 1
+                => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds"),
+            "prompt" => FakeTunnelDirector.Ok(new PromptResponse { Accepted = true }),
+            DeliveryStateRequest.Verb => FakeTunnelDirector.Ok(new DeliveryStateResponse
+            {
+                State = DeliveryState.NotDelivered,
+                Reason = "the composer never echoed the text",
+            }),
+            _ => FakeTunnelDirector.Ok(new PromptResponse()),
+        });
 
         Assert.Equal(HttpStatusCode.BadGateway, (await CompleteAsync(uploadId, resumed: false)).status);
         Assert.Equal(HttpStatusCode.OK, (await CompleteAsync(uploadId, resumed: true)).status);
 
+        var read = await _http.GetFromJsonAsync<JsonElement>($"/dictation/{uploadId}/decisions");
+        var lines = read.GetProperty("decisions").EnumerateArray().ToList();
         Assert.Equal(new[]
         {
             DeliveryDecisions.Received, DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector,
-            DeliveryDecisions.DirectorAnswer,
-            DeliveryDecisions.Retried, DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector,
-            DeliveryDecisions.DirectorAnswer, DeliveryDecisions.Delivered,
-        }, Decisions(uploadId));
-
-        var answers = Store().ReadDecisions(uploadId).Lines.Where(l => l.Decision == DeliveryDecisions.DirectorAnswer).ToList();
-        Assert.False(answers[0].Facts!.Ok);
-        Assert.Contains("composer never echoed", answers[0].Facts!.Error);
-        Assert.True(answers[1].Facts!.Ok);
-        var retried = Store().ReadDecisions(uploadId).Lines.Single(l => l.Decision == DeliveryDecisions.Retried);
-        Assert.True(retried.Facts!.Resumed);
-        Assert.Equal(RecordTimeBaseline, retried.Facts.BaselineBufferBytes);
+            DeliveryDecisions.DirectorAnswer, DeliveryDecisions.AskedDirector, DeliveryDecisions.DeliveryStateAnswer,
+            DeliveryDecisions.Retried, DeliveryDecisions.AskedDirector, DeliveryDecisions.DeliveryStateAnswer,
+            DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer,
+            DeliveryDecisions.Delivered,
+        }, lines.Select(l => l.GetProperty("decision").GetString()));
+        Assert.Equal(DeliveryDecisions.AskReasonPromptUnanswered, lines[4].GetProperty("facts").GetProperty("reason").GetString());
+        Assert.Equal("not-delivered", lines[5].GetProperty("facts").GetProperty("state").GetString());
+        Assert.Equal(DeliveryDecisions.AskReasonRetryAsksFirst, lines[7].GetProperty("facts").GetProperty("reason").GetString());
+        Assert.True(lines[6].GetProperty("facts").GetProperty("resumed").GetBoolean());
+        Assert.True(lines[6].GetProperty("facts").TryGetProperty("sentAtUtc", out _));
+        Assert.Equal(2, prompts);
+        var raw = read.GetRawText();
+        Assert.DoesNotContain("zebra", raw);
+        Assert.DoesNotContain("marmalade", raw);
+        Assert.DoesNotContain("zebra", File.ReadAllText(DecisionsFile(uploadId)));
     }
 
     [Fact]
-    public async Task TheMovedOnRule_WritesMovedOn()
+    public async Task ACompleteWithoutSentAtUtc_IsRefusedWith400_AndNothingIsTyped()
     {
-        // Proves today's byte rule, when it refuses a resumed recording, says so in the log as moved-on.
+        // Proves the Send time is required on the wire: a complete without it is refused with the contract's words,
+        // before anything is transcribed, decided or typed - the recording stays exactly as it was, pending.
         var uploadId = await RegisterAndUploadAsync();
-        ReportSession(RecordTimeBaseline + 50_000, "Running");
-        _director.OnCommand(_ => FakeTunnelDirector.Ok(new PromptResponse()));
+        var commands = 0;
+        _director.OnCommand(_ => { Interlocked.Increment(ref commands); return FakeTunnelDirector.Ok(new PromptResponse()); });
 
-        var result = await CompleteAsync(uploadId, resumed: true);
-        Assert.True(result.body.GetProperty("movedOn").GetBoolean());
+        var resp = await _http.PostAsJsonAsync($"/dictation/{uploadId}/complete", new
+        {
+            sessionId = _sessionId,
+            totalChunks = 1,
+            mime = "audio/wav",
+            ext = "wav",
+            resumed = false,
+        });
 
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Equal("sentAtUtc (ISO 8601 UTC) is required",
+            (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+        Assert.Equal(0, commands);
+        Assert.Equal(new[] { DeliveryDecisions.Received }, Decisions(uploadId));
+        Assert.True(Store().IsPending(uploadId));
+    }
+
+    [Fact]
+    public async Task ATooOldRecording_IsShownBack_Kept_AndItsWordsComeBackOnEveryReComplete()
+    {
+        // Proves a recording sent more than five minutes ago is shown back through the real route - 200, movedOn, the
+        // reason "too-old", the words - with nothing typed; that the tombstone keeps the words, so a re-complete and a
+        // re-register both hand them back with the reason; and that the log says too-old, never the old moved-on.
+        var uploadId = await RegisterAndUploadAsync();
+        var prompts = 0;
+        _director.OnCommand(cmd =>
+        {
+            if (cmd.Verb == "prompt") Interlocked.Increment(ref prompts);
+            return FakeTunnelDirector.Ok(new PromptResponse());
+        });
+        var sentAt = DateTime.UtcNow - TimeSpan.FromMinutes(10);
+
+        var first = await CompleteAsync(uploadId, resumed: false, sentAtUtc: sentAt);
+        var again = await CompleteAsync(uploadId, resumed: true, sentAtUtc: sentAt);
+        var reRegister = await RegisterAsync(uploadId);
+
+        foreach (var body in new[] { first.body, again.body, reRegister })
+        {
+            Assert.False(body.GetProperty("submitted").GetBoolean());
+            Assert.True(body.GetProperty("movedOn").GetBoolean());
+            Assert.Equal("too-old", body.GetProperty("reason").GetString());
+            Assert.Equal(Transcript, body.GetProperty("transcript").GetString());
+        }
+        Assert.Equal(HttpStatusCode.OK, first.status);
+        Assert.Equal(0, prompts);
+        var record = Store().ReadRecord(uploadId)!;
+        Assert.Equal(DictationDeliveryState.Delivered, record.State);
+        Assert.Equal(Transcript, record.Transcript);
         Assert.Equal(new[]
         {
-            DeliveryDecisions.Received, DeliveryDecisions.Retried, DeliveryDecisions.Transcribed, DeliveryDecisions.MovedOn,
+            DeliveryDecisions.Received, DeliveryDecisions.Transcribed, DeliveryDecisions.TooOld, DeliveryDecisions.Retried,
         }, Decisions(uploadId));
+        var tooOld = Store().ReadDecisions(uploadId).Lines.Single(l => l.Decision == DeliveryDecisions.TooOld).Facts!;
+        Assert.InRange(tooOld.AgeSeconds!.Value, 600, 660);
+    }
+
+    [Fact]
+    public async Task AnExitedSession_AnswersItsReason()
+    {
+        // Proves the session-exited answer carries its own reason on the wire too, so the client can name the exit.
+        var uploadId = await RegisterAndUploadAsync();
+        ReportSession(RecordTimeBaseline, "Exited");
+        _director.OnCommand(_ => FakeTunnelDirector.Ok(new PromptResponse()));
+
+        var result = await CompleteAsync(uploadId, resumed: false);
+
+        Assert.True(result.body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal("session-exited", result.body.GetProperty("reason").GetString());
     }
 
     [Fact]
@@ -301,8 +376,8 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         TotalBufferBytes = bufferBytes,
     };
 
-    // Writes the push store directly, as Issue1593FailedAttemptRebaselineTests explains: the store is what the
-    // Gateway reads, and one sequence counter is shared with the hub push so every write lands.
+    // Writes the push store directly: the store is what the Gateway reads, and one sequence counter is shared with
+    // the hub push so every write lands.
     private void ReportSession(long bufferBytes, string status)
     {
         var connectionId = _gateway.PushedSessions.GetActiveConnectionId(TenantId.Local, DirectorId)!;
@@ -332,7 +407,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, "/dictation/upload")
         {
-            Content = JsonContent.Create(new { sessionId = _sessionId, baselineBufferBytes = RecordTimeBaseline }),
+            Content = JsonContent.Create(new { sessionId = _sessionId }),
         };
         req.Headers.Add("Idempotency-Key", uploadId);
         var resp = await _http.SendAsync(req);
@@ -340,7 +415,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         return await resp.Content.ReadFromJsonAsync<JsonElement>();
     }
 
-    private async Task<(HttpStatusCode status, JsonElement body)> CompleteAsync(string uploadId, bool resumed)
+    private async Task<(HttpStatusCode status, JsonElement body)> CompleteAsync(string uploadId, bool resumed, DateTime? sentAtUtc = null)
     {
         var resp = await _http.PostAsJsonAsync($"/dictation/{uploadId}/complete", new
         {
@@ -348,7 +423,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
             totalChunks = 1,
             mime = "audio/wav",
             ext = "wav",
-            baselineBufferBytes = RecordTimeBaseline,
+            sentAtUtc = sentAtUtc ?? DateTime.UtcNow,
             resumed,
         });
         return (resp.StatusCode, await resp.Content.ReadFromJsonAsync<JsonElement>());

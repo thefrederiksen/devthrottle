@@ -166,7 +166,7 @@ public sealed class DictationExitedSessionLoopTests : IAsyncLifetime
         var uploadId = Guid.NewGuid().ToString();
         using var reg = new HttpRequestMessage(HttpMethod.Post, "/dictation/upload")
         {
-            Content = JsonContent.Create(new { sessionId = sid, baselineBufferBytes = 0 }),
+            Content = JsonContent.Create(new { sessionId = sid }),
         };
         reg.Headers.Add("Idempotency-Key", uploadId);
         var regResp = await _http.SendAsync(reg);
@@ -183,7 +183,7 @@ public sealed class DictationExitedSessionLoopTests : IAsyncLifetime
     private async Task<(HttpStatusCode status, JsonElement body)> CompleteAsync(string uploadId, string sid)
     {
         var resp = await _http.PostAsJsonAsync($"/dictation/{uploadId}/complete",
-            new { sessionId = sid, totalChunks = 1, mime = "audio/webm", ext = "webm" });
+            new { sessionId = sid, totalChunks = 1, mime = "audio/webm", ext = "webm", sentAtUtc = DateTime.UtcNow });
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
         return (resp.StatusCode, body);
     }

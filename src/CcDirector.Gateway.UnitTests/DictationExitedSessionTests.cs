@@ -291,7 +291,7 @@ public sealed class DictationExitedSessionTests : IDisposable
     private Task<DictationOutcome> RunAsync(string uploadId, string sid, List<string> prompts)
         => GatewayDictationEndpoint.RunCompleteCoreAsync(
             uploadId, TenantId.Local,
-            new DictationCompleteRequest { SessionId = sid, TotalChunks = 1, Mime = "audio/webm", Ext = "webm" },
+            new DictationCompleteRequest { SessionId = sid, TotalChunks = 1, Mime = "audio/webm", Ext = "webm", SentAtUtc = DateTime.UtcNow },
             _store, _registry, owners: null, Transcription(), _marks,
             deliverySurface: "mobile", deliveryIdentityKind: "device-key",
             pushedSessions: _pushed,
@@ -304,7 +304,7 @@ public sealed class DictationExitedSessionTests : IDisposable
                 }
                 return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success("{}"));
             },
-            streamStale: TimeSpan.FromSeconds(20));
+            streamStale: TimeSpan.FromSeconds(20), clock: TimeProvider.System);
 
     /// <summary>Render an outcome through its real HTTP result and read the JSON back, so an assertion about
     /// "what the phone is told" is made against the bytes the phone would receive rather than against a field
