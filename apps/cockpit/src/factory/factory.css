@@ -390,3 +390,167 @@
   color: var(--text-dim);
   font-size: 11px;
 }
+
+/* The factory map (issue #3383). The tone class sets the colour once, through currentColor; the shapes and lines
+   read it. Positions, words and tones are the Gateway's; nothing here decides anything. */
+.fa-map-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+  align-items: start;
+}
+.fa-map-grid > * {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .fa-map-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.fa-map-frame {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.fa-map {
+  display: block;
+  width: 100%;
+  min-width: 560px;
+  height: auto;
+  font-family: inherit;
+}
+.fa-map-node {
+  cursor: pointer;
+  color: var(--border);
+}
+.fa-map-node rect,
+.fa-map-node ellipse {
+  fill: var(--surface-2);
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.fa-map-node:focus {
+  outline: none;
+}
+.fa-map-node:focus rect,
+.fa-map-node:focus ellipse,
+.fa-map-selected rect,
+.fa-map-selected ellipse {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.fa-map-dashed rect {
+  stroke-dasharray: 5 4;
+  fill: transparent;
+}
+.fa-map-node.fa-tone-ok,
+.fa-map-node.fa-tone-working {
+  color: var(--ok);
+}
+.fa-map-node.fa-tone-red {
+  color: var(--attention);
+}
+.fa-map-node.fa-tone-red rect {
+  fill: var(--needsyou-bg);
+}
+.fa-map-node.fa-tone-amber {
+  color: var(--warn);
+}
+.fa-map-node.fa-tone-paused {
+  color: var(--pin-mark-border);
+}
+.fa-map-node.fa-tone-paused rect {
+  fill: var(--needsyou-fyi-bg);
+}
+.fa-map-title {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.fa-map-line {
+  fill: var(--text-dim);
+  font-size: 10px;
+}
+.fa-map-status {
+  fill: currentColor;
+  font-size: 10px;
+  font-weight: 600;
+}
+.fa-map-node.fa-tone-idle .fa-map-status,
+.fa-map-node.fa-tone-grey .fa-map-status {
+  fill: var(--text-dim);
+}
+.fa-map-edge {
+  color: var(--text-dim);
+}
+.fa-map-edge path {
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.fa-map-edge polygon {
+  fill: currentColor;
+}
+.fa-map-edge.fa-tone-ok {
+  color: var(--ok);
+}
+.fa-map-edge.fa-tone-red {
+  color: var(--attention);
+}
+.fa-map-edge.fa-tone-amber {
+  color: var(--warn);
+}
+.fa-map-edge.fa-tone-grey {
+  color: var(--border);
+}
+.fa-map-line-dashed path {
+  stroke-dasharray: 5 4;
+}
+.fa-map-line-dotted path {
+  stroke-dasharray: 1 4;
+  stroke-linecap: round;
+}
+.fa-map-edge-label {
+  fill: currentColor;
+  font-size: 9.5px;
+}
+.fa-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.fa-map-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fa-map-side {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.fa-map-side-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.fa-map-spec {
+  margin: 0 0 10px;
+}
+.fa-map-spec dt {
+  font-weight: 600;
+  margin-top: 8px;
+}
+.fa-map-spec dd {
+  margin: 2px 0 0;
+  color: var(--text-dim);
+}
+.fa-map-link {
+  text-decoration: none;
+}

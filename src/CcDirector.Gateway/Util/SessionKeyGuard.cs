@@ -521,6 +521,11 @@ public static class SessionKeyGuard
             // The Fleet Manager's one line of advice on a record (step 7). IsFleetManagerRoute admits PUT on that
             // one literal shape only.
             if (IsFleetManagerRoute(verb, s)) return true;
+
+            // A factory publishes its map (issue #3383): the layout its own tool drew from its files. It replaces
+            // that factory's last map in the caller's own account and reaches nothing outside the Gateway; the
+            // route is only mapped while the factory agents switch is on.
+            if (Join(s) == "gateway/factory/map") return true;
             return false;
         }
 

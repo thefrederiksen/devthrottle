@@ -247,6 +247,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// database shape does not depend on it; only the routes do.</summary>
     public Factory.FactoryActivityRecord FactoryActivity { get; }
 
+    /// <summary>The factory maps (issue #3383): the latest map each factory published, per account.</summary>
+    internal Factory.FactoryMapStore FactoryMaps { get; }
+
     /// <summary>The factory triggers (Website Business Factory, product track): the definitions, their run
     /// history, and the decision to start a session when a check counts work. Constructed whatever the switch
     /// says, so the database shape does not depend on it; only the routes do.</summary>
@@ -266,7 +269,8 @@ public sealed class GatewayHost : IAsyncDisposable
         LiveSessionIds: tenant => LiveSessionIdsFor(tenant),
         TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
         NowUtc: () => DateTime.UtcNow,
-        Reports: new Factory.FactoryReportStore(_tenantSettings));
+        Reports: new Factory.FactoryReportStore(_tenantSettings),
+        Maps: FactoryMaps);
 
     // The sessions alive in the account's roster: what every one of its Directors last pushed.
     private IReadOnlySet<string> LiveSessionIdsFor(Core.Tenancy.TenantId tenant)
@@ -1859,6 +1863,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // The factory agents switch per account: the machine switch, or the account's own recorded decision, which
         // lives in the per-tenant settings just built - so no new table, and the administrator route writes it.
         FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings);
+        FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
@@ -4357,6 +4362,9 @@ public sealed class GatewayHost : IAsyncDisposable
         var factoryGate = Api.FactoryAgentsGate.Group(_app, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
         Api.FactoryActivityEndpoints.Map(factoryGate, FactoryActivity);
+        // A factory publishes its map (issue #3383): the layout its own tool drew from its files, kept per factory.
+        Api.FactoryMapEndpoints.Map(factoryGate, FactoryMaps,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
         Api.FactoryAgentsViewEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: FactoryAgentsViewSources());

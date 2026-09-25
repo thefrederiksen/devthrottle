@@ -15,6 +15,7 @@ import { HistoryView } from "./history/HistoryView";
 import { FactoryAreaGate } from "./factory/FactoryAreaGate";
 import { FactoryAgentsView } from "./factory/FactoryAgentsView";
 import { FactoryAgentPageView } from "./factory/FactoryAgentPageView";
+import { FactoryPageView } from "./factory/FactoryPageView";
 import { FactoryWaitingView } from "./factory/FactoryWaitingView";
 import { DirectorsView } from "./fleet/DirectorsView";
 import { DirectorDetailView } from "./fleet/DirectorDetailView";
@@ -123,6 +124,8 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // Gateway says it is off, every one of these routes is the ordinary "Page not found".
           { path: "/factory-agents", element: <FactoryAreaGate><FactoryAgentsView /></FactoryAreaGate> },
           { path: "/factory-agents/waiting", element: <FactoryAreaGate><FactoryWaitingView /></FactoryAreaGate> },
+          // One factory's page, opening on its Map tab (issue #3383). "waiting" above is the static route and wins.
+          { path: "/factory-agents/:factory", element: <FactoryAreaGate><FactoryPageView /></FactoryAreaGate> },
           { path: "/factory-agents/:factory/:agent", element: <FactoryAreaGate><FactoryAgentPageView /></FactoryAreaGate> },
           // The History page (issue #2194): what was worked on over a picked range, grouped by
           // repository and day, from the Gateway's durable per-session record (GET /history/report).

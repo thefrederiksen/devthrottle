@@ -81,6 +81,68 @@ export interface FactoryCard {
   agents: FactoryAgentRow[];
   pause: FactoryPause | null;
   waitingHref: string;
+  /** The factory's page, which opens on its Map tab (issue #3383). */
+  mapHref: string;
+}
+
+// The factory map (issue #3383), mirroring FactoryMapDtos.cs. The layout is the factory's own (Graphviz, in the
+// factory's tool); the Gateway adds each agent's status and returns every word, tone, line style and path finished.
+export interface FactoryMapSpecRow {
+  label: string;
+  text: string;
+}
+
+export interface FactoryMapNode {
+  id: string;
+  kind: "agent" | "owner" | "source";
+  title: string;
+  lines: string[];
+  statusWord: string | null;
+  tone: FactoryTone;
+  lastRun: string | null;
+  dashed: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  spec: FactoryMapSpecRow[];
+  href: string | null;
+}
+
+export interface FactoryMapEdge {
+  from: string;
+  to: string;
+  label: string;
+  tone: FactoryTone;
+  line: "solid" | "dashed" | "dotted";
+  path: string;
+  head: string | null;
+  labelX: number | null;
+  labelY: number | null;
+}
+
+export interface FactoryMapLegend {
+  text: string;
+  tone: FactoryTone;
+  line: "solid" | "dashed" | "dotted";
+}
+
+export interface FactoryMapView {
+  factoryId: string;
+  title: string;
+  emptyText: string | null;
+  sourceText: string | null;
+  statusNote: string;
+  width: number;
+  height: number;
+  nodes: FactoryMapNode[];
+  edges: FactoryMapEdge[];
+  legend: FactoryMapLegend[];
+  changeLabel: string;
+  changeHref: string;
+  tabs: FactoryTab[];
+  agents: FactoryAgentRow[];
+  waitingHref: string;
 }
 
 export interface FactoriesView {
@@ -121,6 +183,8 @@ export interface FactoryActivityLine {
 export interface FactoryAgentPage {
   factoryId: string;
   factoryTitle: string;
+  /** The factory's page (its Map tab), for the breadcrumb (issue #3383). */
+  factoryHref: string;
   agentId: string;
   name: string;
   statusWord: string;
@@ -305,6 +369,10 @@ export function getFactoryAgent(factory: string, agent: string, signal?: AbortSi
     `${PREFIX}/factories/${encodeURIComponent(factory)}/agents/${encodeURIComponent(agent)}`,
     signal,
   );
+}
+
+export function getFactoryMap(factory: string, signal?: AbortSignal): Promise<FactoryMapView> {
+  return getJson<FactoryMapView>(`${PREFIX}/factories/${encodeURIComponent(factory)}/map`, signal);
 }
 
 export function getFactoryActivity(q: FactoryQuery, signal?: AbortSignal): Promise<FactoryActivityView> {

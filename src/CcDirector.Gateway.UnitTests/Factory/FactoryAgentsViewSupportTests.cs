@@ -36,7 +36,8 @@ public sealed class FactoryAgentsViewSupportTests
         LiveSessionIds: _ => new HashSet<string>(),
         TimeZone: _ => TimeZoneInfo.Utc,
         NowUtc: () => Now,
-        Reports: reports!);
+        Reports: reports!,
+        Maps: null!);
 
     [Fact]
     public void ReadAll_PagesThroughEveryRow_AndSaysItWasNotCut()

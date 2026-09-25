@@ -7,7 +7,6 @@ import {
   getFactoryReports,
   type FactoriesView,
   type FactoryActivityView,
-  type FactoryAgentRow,
   type FactoryCard,
   type FactoryQuery,
   type FactoryReportView,
@@ -15,6 +14,7 @@ import {
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import {
   ActivityTable,
+  AgentTable,
   ExportCsvButton,
   Faults,
   FilterBar,
@@ -128,6 +128,9 @@ function FactoryCardView({ card, onChanged }: { card: FactoryCard; onChanged: ()
           <div className="fa-card-sub">{card.subtitle}</div>
         </div>
         <div className="fa-card-actions">
+          <Link className="ui-btn ui-btn-secondary fa-map-link" to={card.mapHref} data-testid={`fa-map-${card.id}`}>
+            Map
+          </Link>
           <Link className="fa-link" to={card.waitingHref}>
             Waiting for you
           </Link>
@@ -148,37 +151,6 @@ function FactoryCardView({ card, onChanged }: { card: FactoryCard; onChanged: ()
       )}
       <AgentTable rows={card.agents} showFactory={false} />
     </section>
-  );
-}
-
-function AgentTable({ rows, showFactory }: { rows: FactoryAgentRow[]; showFactory: boolean }) {
-  return (
-    <table className="fa-table">
-      <thead>
-        <tr>
-          <th>Factory agent</th>
-          {showFactory && <th>Factory</th>}
-          <th>Woken by</th>
-          <th>Last run</th>
-          <th style={{ width: "110px" }}>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((a) => (
-          <tr key={`${a.factoryId}/${a.agentId}`}>
-            <td>
-              <Link to={a.href}>{a.name}</Link>
-            </td>
-            {showFactory && <td>{a.factoryTitle}</td>}
-            <td>{a.wokenBy}</td>
-            <td>{a.lastRun}</td>
-            <td>
-              <ToneChip word={a.statusWord} tone={a.statusTone} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 

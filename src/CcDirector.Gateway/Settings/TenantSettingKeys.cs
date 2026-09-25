@@ -255,6 +255,13 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FactoryAgentsSwitch = "factory_agents_switch";
 
+    /// <summary>
+    /// The factory maps (issue #3383): a JSON object, factory id to the latest map that factory published with
+    /// <c>PUT /gateway/factory/map</c> - its boxes, arrows and layout, when and by whom. The Cockpit draws it on the
+    /// factory's Map tab. See <c>Factory.FactoryMapStore</c>.
+    /// </summary>
+    public const string FactoryMaps = "factory_maps";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -270,6 +277,6 @@ public static class TenantSettingKeys
         FleetManagerSuccessorSessionId, FleetManagerSuccessorReplaces,
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
-        FactoryReports, FactoryAgentsSwitch,
+        FactoryReports, FactoryAgentsSwitch, FactoryMaps,
     };
 }
