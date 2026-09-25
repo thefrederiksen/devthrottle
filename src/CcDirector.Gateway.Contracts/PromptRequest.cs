@@ -232,13 +232,23 @@ public sealed class PromptResponse
     public bool IdleChecked { get; set; }
 
     /// <summary>
-    /// What became of the delivery named by <see cref="PromptRequest.DeliveryId"/>, as the Director's record says after
-    /// this answer: <see cref="Contracts.DeliveryState.Delivered"/> when it was typed now, or when it had ALREADY been
-    /// delivered and this copy was refused with nothing typed (<see cref="Accepted"/> false);
-    /// <see cref="Contracts.DeliveryState.Delivering"/> when another copy is still being typed and this one was refused;
-    /// <see cref="Contracts.DeliveryState.NotDelivered"/> when nothing was typed for a reason
-    /// (<see cref="DeliveryStateReason"/>). Null when the prompt carried no delivery id, or from a Director older than
-    /// the field. A send that throws is a failure, not an answer: ask the Director what became of the id.
+    /// What the Director knows of this send when it answers. SET ON EVERY PROMPT SENT WITH ENTER
+    /// (<see cref="PromptRequest.AppendEnter"/>), with or without a delivery id (Voice Delivery mission, phases 1 and 3):
+    /// <see cref="Contracts.DeliveryState.Delivered"/> when the send finished and was proven before the answer;
+    /// <see cref="Contracts.DeliveryState.Delivering"/> when it was not yet proven at the answer - still going at the
+    /// Director's answer budget, or its words left the composer of a working agent and have not yet shown in its
+    /// records. The send carries on after a <c>delivering</c> answer, is never typed a second time, and for a prompt with
+    /// a delivery id its late outcome is written to the Director's record, where the delivery-state verb reads it.
+    ///
+    /// For a prompt with a <see cref="PromptRequest.DeliveryId"/> it is also what the Director's record says of a copy
+    /// that was refused with nothing typed (<see cref="Accepted"/> false): <see cref="Contracts.DeliveryState.Delivered"/>
+    /// when that id had ALREADY been delivered, <see cref="Contracts.DeliveryState.Delivering"/> when another copy is still
+    /// being delivered, and <see cref="Contracts.DeliveryState.NotDelivered"/> when nothing was typed for a reason
+    /// (<see cref="DeliveryStateReason"/>).
+    ///
+    /// Null for a prompt sent without Enter that carries no delivery id, for a prompt refused because the session was
+    /// not waiting for input, and from a Director older than the field. A send that throws is a failure, not an answer:
+    /// ask the Director what became of the id.
     /// </summary>
     public DeliveryState? DeliveryState { get; set; }
 

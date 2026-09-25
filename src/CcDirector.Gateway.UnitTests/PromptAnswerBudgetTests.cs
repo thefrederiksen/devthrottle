@@ -34,8 +34,8 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         return (session, terminal);
     }
 
-    private static PromptRequest Prompt(string text, string? deliveryId = null) =>
-        new() { Text = text, AppendEnter = true, Surface = "cockpit", DeliveryUploadId = deliveryId };
+    private static PromptRequest Prompt(string text) =>
+        new() { Text = text, AppendEnter = true, Surface = "cockpit" };
 
     private static PromptResponse Body(DirectorCommandResult result)
     {
@@ -144,7 +144,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
 
         // Act
         var late = await LateOutcomeFor(deliveryId, async () => response = Body(
-            await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Prompt(text, deliveryId))));
+            await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Recording(text, deliveryId), SendSource.Delivery, NewDeliveryRecord())));
 
         // Assert: answered "delivering" - never a failure, never "delivered" before the records say so - then delivered.
         Assert.True(response!.Accepted);
@@ -168,7 +168,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
 
         // Act
         var late = await LateOutcomeFor(deliveryId, async () => response = Body(
-            await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Prompt(text, deliveryId))));
+            await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Recording(text, deliveryId), SendSource.Delivery, NewDeliveryRecord())));
 
         // Assert: "delivering" at the answer and still "delivering" when the watch ends - never "not-delivered", which a
         // holder of the record would retry by typing - and the words were typed once.
