@@ -3644,6 +3644,7 @@ public sealed class Session : IDisposable
         while (true)
         {
             notice.Check();
+            LateWatchReadForTests?.Invoke();
             if (ArrivedIn(proof, typed))
             {
                 notice.End("it arrived");
@@ -3754,6 +3755,10 @@ public sealed class Session : IDisposable
 
     /// <summary>Test seam: overrides <see cref="LateArrivalLimit"/> for this session. Null in every real session.</summary>
     internal TimeSpan? LateArrivalLimitForTests { get; set; }
+
+    /// <summary>Test seam: runs before each read of the agent's records in the late records watch, so a test can make that
+    /// read fail. Null in every real session.</summary>
+    internal Action? LateWatchReadForTests { get; set; }
 
     /// <summary>
     /// HOW LONG THE RECORDS ARE STILL WATCHED AFTER A SEND RETURNED "STILL DELIVERING" (Voice Delivery mission, phase 3,

@@ -260,6 +260,139 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "RECLOST1"));
     }
 
+    // ===== Round 2c: nothing stays delivering forever (the Tech Lead's ruling on the three open cases) =====
+
+    /// <summary>A working Codex on the scripted agent terminal, whose composer is hidden under a menu for the whole window
+    /// after the Enter: the Director has no records to watch for a Codex send mid-turn, and cannot read the composer.</summary>
+    private (Session Session, ScriptedAgentTerminal Terminal) WorkingCodexUnderAMenu()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-verb-late-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        _cleanup.Add(new FolderRemoval(dir));
+        var transcript = Path.Combine(dir, Guid.NewGuid() + ".jsonl");
+        File.WriteAllText(transcript, "");
+        var terminal = new ScriptedAgentTerminal(AgentKind.Codex, transcript, dir) { Working = true, SwallowEnter = true, MenuAfterEnter = true };
+        var session = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.Codex };
+        _cleanup.Add(terminal);
+        _cleanup.Add(session);
+        terminal.StartDrawing();
+        session.ApplyTerminalActivityState(ActivityState.Working);
+        return (session, terminal);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_NoRecordsToWatch_DeliveryRecordIsDeliveringUntilTheLimitThenNotDelivered()
+    {
+        // Arrange (case 1): a working Codex whose composer cannot be read for the whole window after the Enter. Nothing is
+        // known about the words, and the Director has no records of this agent's to watch for them.
+        var (session, terminal) = WorkingCodexUnderAMenu();
+        session.ComposerReleaseWindowForTests = TimeSpan.FromSeconds(1);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(4);
+        var record = NewDeliveryRecord();
+        const string text = "Token NORECORDS1. Reply with exactly: ACK";
+        var deliveryId = Guid.NewGuid().ToString("N");
+        DeliveryState? atAnswer = null;
+        var sinceAnswer = new Stopwatch();
+
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () =>
+        {
+            var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
+                session, Recording(text, deliveryId), SendSource.Delivery, record));
+            sinceAnswer.Start();
+            Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
+            atAnswer = record.Read(session.Id, deliveryId).State;
+        });
+        var lateAfter = sinceAnswer.Elapsed;
+
+        // Assert: "delivering" at the answer and for the whole limit - never not-delivered early, which would invite a
+        // retry that doubles the words - then "not-delivered" with the ruled reason. Typed once, never cleared.
+        Assert.Equal(DeliveryState.Delivering, atAnswer);
+        Assert.Equal(DeliveryStates.NotDelivered, late);
+        Assert.True(lateAfter >= TimeSpan.FromSeconds(2.5), $"not-delivered was written {lateAfter.TotalSeconds:F1}s after the answer, before the limit");
+        var entry = record.Read(session.Id, deliveryId);
+        Assert.Equal(DeliveryState.NotDelivered, entry.State);
+        Assert.Equal("could not be confirmed: the Director had no records to watch for this agent", entry.Reason);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "NORECORDS1"));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_TheRecordsWatchThrows_DeliveryRecordIsDeliveringUntilTheLimitThenNotDeliveredNamingTheFailure()
+    {
+        // Arrange (case 2): a working Claude Code takes the Enter, the records never show the prompt, and every read of the
+        // records in the late watch fails.
+        var (session, terminal) = WorkingClaudeCode();
+        terminal.NeverRecord = true;
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(4);
+        session.LateWatchReadForTests = () => throw new IOException("the records file is locked");
+        var record = NewDeliveryRecord();
+        const string text = "Token WATCHFAIL1. Reply with exactly: ACK";
+        var deliveryId = Guid.NewGuid().ToString("N");
+        DeliveryState? atAnswer = null;
+        var sinceAnswer = new Stopwatch();
+
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () =>
+        {
+            var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
+                session, Recording(text, deliveryId), SendSource.Delivery, record));
+            sinceAnswer.Start();
+            Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
+            atAnswer = record.Read(session.Id, deliveryId).State;
+        });
+        var lateAfter = sinceAnswer.Elapsed;
+
+        // Assert: the failure does not end the wait - "delivering" until the limit - then "not-delivered" naming it.
+        Assert.Equal(DeliveryState.Delivering, atAnswer);
+        Assert.Equal(DeliveryStates.NotDelivered, late);
+        Assert.True(lateAfter >= TimeSpan.FromSeconds(2.5), $"not-delivered was written {lateAfter.TotalSeconds:F1}s after the answer, before the limit");
+        var entry = record.Read(session.Id, deliveryId);
+        Assert.Equal(DeliveryState.NotDelivered, entry.State);
+        Assert.Equal("could not be confirmed: the records watch failed: the records file is locked", entry.Reason);
+        Assert.Equal(1, terminal.EntersAccepted);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "WATCHFAIL1"));
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_TheSessionEndsBeforeTheLimit_DeliveryRecordIsNotDeliveredAtOnce()
+    {
+        // Arrange (case 3): a working Claude Code takes the Enter, the records never show the prompt, and the session ends
+        // while the one-minute watch still runs.
+        var (session, terminal) = WorkingClaudeCode();
+        terminal.NeverRecord = true;
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromMinutes(1);
+        var record = NewDeliveryRecord();
+        const string text = "Token ENDED1. Reply with exactly: ACK";
+        var deliveryId = Guid.NewGuid().ToString("N");
+        DeliveryState? atAnswer = null;
+        var sinceEnd = new Stopwatch();
+
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () =>
+        {
+            var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
+                session, Recording(text, deliveryId), SendSource.Delivery, record));
+            Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
+            atAnswer = record.Read(session.Id, deliveryId).State;
+            session.Dispose();
+            sinceEnd.Start();
+        });
+        var lateAfter = sinceEnd.Elapsed;
+
+        // Assert: "not-delivered" as soon as the session ended - a retry into an ended session cannot double anything -
+        // not a minute later at the limit. Typed once.
+        Assert.Equal(DeliveryState.Delivering, atAnswer);
+        Assert.Equal(DeliveryStates.NotDelivered, late);
+        Assert.True(lateAfter < TimeSpan.FromSeconds(10), $"not-delivered came {lateAfter.TotalSeconds:F1}s after the session ended");
+        var entry = record.Read(session.Id, deliveryId);
+        Assert.Equal(DeliveryState.NotDelivered, entry.State);
+        Assert.Equal("the session ended before the words appeared in its records", entry.Reason);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "ENDED1"));
+    }
+
     [Fact]
     public async Task SendPromptAsync_SendFailsWithinTheBudget_StaysAFailure()
     {
