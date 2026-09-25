@@ -11915,8 +11915,8 @@ export interface components {
             before?: null | string;
             after?: null | string;
             prefix?: null | string;
-            /** Format: int64 */
-            baselineBufferBytes?: number | string;
+            /** Format: date-time */
+            sentAtUtc?: null | string;
             resumed?: boolean;
             /** Format: double */
             clientRecordedMs?: null | number | string;
@@ -11928,8 +11928,6 @@ export interface components {
         };
         DictationUploadRequest: {
             sessionId?: null | string;
-            /** Format: int64 */
-            baselineBufferBytes?: number | string;
         };
         DirectorRegistrationRequest: {
             directorId?: string;

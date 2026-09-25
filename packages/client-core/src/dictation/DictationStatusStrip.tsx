@@ -69,6 +69,21 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
         setUploadingNow(false);
       }
     };
+    // Still delivering (voice delivery, #3398): the words may already be in the session. Shown calm and in
+    // progress, like a send under way - not amber, not red - and with nothing that could send a second copy:
+    // no "Send anyway" and no fresh-id "Retry". "Upload now" re-drives this same upload id, which the
+    // Director refuses to type twice, so it stays.
+    if (status.delivering) {
+      return (
+        <div className="dictate-strip dictate-strip-busy dictate-strip-delivering" role="status">
+          <span className="dictate-strip-spin" aria-hidden="true" />
+          <span className="dictate-strip-text">{status.error ?? "Still delivering"}</span>
+          <button type="button" className="dictate-strip-btn" onClick={() => void onUploadNow()} disabled={uploadingNow}>
+            {uploadingNow ? "Uploading..." : "Upload now"}
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="dictate-strip dictate-strip-held" role="status">
         <span className="dictate-strip-icon" aria-hidden="true">!</span>

@@ -22,6 +22,9 @@ import { useMemo, useSyncExternalStore } from "react";
 // held        - kept durably and will keep retrying in the background (waiting for a connection, or
 //               retrying, or throttled after the first hard hour). This is NOT a failure: the audio is
 //               safe and delivery continues automatically. retryable is true so the UI offers Upload now.
+//               With `delivering` set it is the "Still delivering" state (voice delivery, #3398): the
+//               Gateway could not yet say whether the words reached the session, so the UI shows it calm
+//               and in progress, and never offers "Send anyway" or a fresh-id "Retry" for it.
 // parked      - a genuinely permanent, non-retryable failure stopped the auto-loop (issue #1184): the clip
 //               is over the provider size cap or an unsupported format. The audio is KEPT and the clip is
 //               saved-and-retryable, but delivery does NOT auto-retry - retryable is true so the UI offers
@@ -79,6 +82,10 @@ export interface DictationStatus {
    *  nothing else - a strip that quotes one thing and sends another is its own small lie. Empty/absent on the
    *  rare drop before transcription with no typed text, where the audio is kept for a fresh-id Retry instead. */
   recoverableText?: string;
+  /** True on a `held` status whose last attempt the Gateway answered 202 "still delivering" (voice
+   *  delivery, #3398): the words may already be in the session, so the UI shows "Still delivering" - calm,
+   *  not an error - and offers nothing that could send a second copy. Absent on every other status. */
+  delivering?: boolean;
   /** A non-blocking caution shown alongside a DELIVERED send (the `done` phase): the words were sent, but
    *  the capture-health check found a material audio-loss deficit, so the transcript may be missing words
    *  and the user should check it (issue #863, "never fail silently on mobile"). Unlike a plain `done`, a

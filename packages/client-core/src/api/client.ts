@@ -842,6 +842,18 @@ function spokenSpanClaims(spans?: readonly SpokenSpan[]): { start: number; lengt
 // recording that was shown back). The Gateway checks the recording is this account's and this session's
 // and then makes it the delivery's id, so the Director can refuse the words if that recording already
 // reached the session (Voice Delivery mission, phase 1). It says nothing about spoken versus typed.
+//
+// With that claim the Gateway may answer 202 "still delivering" (Voice Delivery mission, phase 2): the
+// Director did not answer in time and may already have the words. That is not a failure and not a
+// delivery, so it is returned as `delivering` for the caller to act on. A prompt without the claim never
+// gets a 202.
+export interface PromptSendResult {
+  /** True on a 202: the words may already be in, and pressing the same claim again is safe. */
+  delivering: boolean;
+  /** The Director's answer behind a 202 ("delivering" or "no-answer"). Informational only. */
+  directorState?: string;
+}
+
 export async function sendPrompt(
   sessionId: string,
   text: string,
@@ -850,7 +862,7 @@ export async function sendPrompt(
   spokenDeliveryId?: string,
   spokenSpans?: readonly SpokenSpan[],
   recordingUploadId?: string,
-): Promise<void> {
+): Promise<PromptSendResult> {
   const sid = encodeURIComponent(sessionId);
   const body: PromptRequest = { text, appendEnter };
   if (spokenDeliveryId) body.deliveryUploadId = spokenDeliveryId;
@@ -870,6 +882,11 @@ export async function sendPrompt(
   if (!res.ok) {
     throw await GatewayError.from(res, "send that to the session");
   }
+  if (res.status === 202) {
+    const answer = (await res.json().catch(() => ({}))) as { directorState?: string };
+    return { delivering: true, directorState: answer.directorState };
+  }
+  return { delivering: false };
 }
 
 // What a session's live screen is right now (GET /sessions/{sid}/wingman/waiting-screen). "menu" means a
@@ -2310,6 +2327,17 @@ export interface DictationSubmitResult {
   terminal: boolean;
   submitted: boolean;
   movedOn: boolean;
+  /** Why a `movedOn` clip was not sent: "too-old" (more than 5 minutes from Send) or "session-exited".
+   *  Absent when the Gateway gave none (a tombstone from before the reason existed). */
+  movedOnReason?: string;
+  /** True when the Gateway answered 202 "still delivering" (voice delivery, #3398): the Director is
+   *  still delivering this upload id, or could not say whether an earlier send landed. NOT terminal and
+   *  NOT a failure - the driver keeps the copy and retries this same upload id, which the Director
+   *  refuses to type twice. */
+  delivering?: boolean;
+  /** The Director's answer behind a 202: "delivering", "unknown" or "no-answer". Informational only;
+   *  the client shows one state for all three. */
+  directorState?: string;
   /** True when the server returned an ABANDONED upload id (the dictation was given up server-side, issue
    *  #1183): terminal like a delivered turn, so the driver drops the on-device copy and does not re-drive,
    *  but nothing was injected. */
@@ -2350,12 +2378,12 @@ export interface DictationUploadArgs {
   before: string;
   after: string;
   prefix: string;
-  /** The session's TotalBufferBytes when the clip was recorded, for the server's moved-on guard.
-   *  Omitted when genuinely unknown - JSON.stringify drops the key, and the server's absent-field
-   *  default skips the guard for this clip. Never a fabricated zero: zero is a real reading (a
-   *  terminal that had produced nothing yet), and unknown must stay distinguishable from it
-   *  (issue #2478). */
-  baselineBufferBytes?: number;
+  /** The moment the owner pressed Send, as an ISO 8601 UTC string. Required on every complete call
+   *  (the Gateway refuses one without it) and the SAME value on every retry of this upload id: the
+   *  Gateway's 5-minute age rule is measured from it (voice delivery, #3398). */
+  sentAtUtc: string;
+  /** True for any attempt after the first. It decides nothing on the Gateway; it is written to the
+   *  delivery decision record as the "retried" line. */
   resumed: boolean;
   /** Capture-health (issue #863), optional: the recording wall-clock, the decoded audio duration, and
    *  the source blob size, measured once at Send time. Forwarded on the complete call so the Gateway
@@ -2423,7 +2451,7 @@ export async function uploadDictationToSession(
     reg = await gatewayFetch(`/dictation/upload`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", "Idempotency-Key": args.uploadId, ...authHeaders() },
-      body: JSON.stringify({ sessionId: args.sessionId, baselineBufferBytes: args.baselineBufferBytes }),
+      body: JSON.stringify({ sessionId: args.sessionId }),
       signal,
     });
   } catch {
@@ -2445,6 +2473,7 @@ export async function uploadDictationToSession(
     movedOn?: boolean;
     dropped?: boolean;
     transcript?: string;
+    reason?: string;
   };
   const id = encodeURIComponent(regBody.upload_id ?? args.uploadId);
 
@@ -2458,6 +2487,7 @@ export async function uploadDictationToSession(
       terminal: true,
       submitted: Boolean(regBody.submitted),
       movedOn: Boolean(regBody.movedOn),
+      movedOnReason: regBody.movedOn === true ? regBody.reason : undefined,
       abandoned: Boolean(regBody.dropped),
       transcript: regBody.transcript ?? "",
     };
@@ -2501,7 +2531,7 @@ export async function uploadDictationToSession(
     before: args.before,
     after: args.after,
     prefix: args.prefix,
-    baselineBufferBytes: args.baselineBufferBytes,
+    sentAtUtc: args.sentAtUtc,
     resumed: args.resumed,
     // Capture-health (issue #863): forwarded so the Gateway persists this path's audio-loss deficit
     // into the same dictation session log every other surface writes. Undefined fields are omitted.
@@ -2590,6 +2620,16 @@ export async function uploadDictationToSession(
       return held(dictationHeld402Message(err.info), true);
     }
 
+    if (comp.status === 202) {
+      // Still delivering (voice delivery, #3398): the Gateway ran out of time waiting for the Director,
+      // asked it what became of this upload id, and the answer was "delivering", "unknown" or nothing. The
+      // words may already be in the session, so this is neither a failure nor terminal: no ack (the
+      // record is not resolved), and the driver retries this SAME upload id, which the Director refuses
+      // to type a second time.
+      const body = (await comp.json().catch(() => ({}))) as { directorState?: string };
+      return { terminal: false, submitted: false, movedOn: false, transcript: "", delivering: true, directorState: body.directorState };
+    }
+
     const body = (await comp.json().catch(() => ({}))) as {
       submitted?: boolean; movedOn?: boolean; dropped?: boolean; transcript?: string; error?: string;
       permanent?: boolean; reason?: string; record?: string;
@@ -2612,7 +2652,7 @@ export async function uploadDictationToSession(
     }
 
     // 200: the server made a final decision. submitted -> the turn was injected; movedOn -> the server
-    // deliberately dropped a stale resumed clip; dropped -> the upload id was abandoned server-side (issue
+    // did not send the words and hands them back (reason "too-old" or "session-exited"); dropped -> the upload id was abandoned server-side (issue
     // #1183); neither -> a silent/empty clip with nothing to submit. All are terminal: the server owns the
     // outcome and holds a durable delivery record. Acknowledge it so the server can retire that tombstone
     // (best-effort, idempotent), then return terminal so the driver drops the durable local copy. The
@@ -2622,6 +2662,7 @@ export async function uploadDictationToSession(
       terminal: true,
       submitted: Boolean(body.submitted),
       movedOn: Boolean(body.movedOn),
+      movedOnReason: body.movedOn === true ? body.reason : undefined,
       abandoned: Boolean(body.dropped),
       transcript: body.transcript ?? "",
     };
