@@ -1020,16 +1020,21 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
 
     private sealed class FakeBringBackGateway : IBringBackGateway
     {
-        public List<(string WorkspaceId, string DirectorId, string[] Seats)> Requests { get; } = new();
+        public List<(string WorkspaceId, string DirectorId, string[] Seats, IReadOnlyDictionary<string, string>? Seeds)> Requests { get; } = new();
         public Exception? Refuse { get; set; }
         public int Reads { get; private set; }
 
         /// <summary>What the record says on the n-th read (1-based); the last entry repeats.</summary>
         public List<WorkspaceDocument> Record { get; } = new();
 
-        public Task RequestRestoreAsync(string workspaceId, string directorId, IReadOnlyList<string> seatSessionIds, CancellationToken ct)
+        public Task RequestRestoreAsync(
+            string workspaceId,
+            string directorId,
+            IReadOnlyList<string> seatSessionIds,
+            IReadOnlyDictionary<string, string>? seeds,
+            CancellationToken ct)
         {
-            Requests.Add((workspaceId, directorId, seatSessionIds.ToArray()));
+            Requests.Add((workspaceId, directorId, seatSessionIds.ToArray(), seeds));
             return Refuse is null ? Task.CompletedTask : Task.FromException(Refuse);
         }
 

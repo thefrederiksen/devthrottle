@@ -10,7 +10,19 @@ public interface IBringBackGateway
 {
     /// <summary>Ask the Gateway's restore door to restore these seats onto this Director. Throws with the
     /// Gateway's reason when the restore is not taken.</summary>
-    Task RequestRestoreAsync(string workspaceId, string directorId, IReadOnlyList<string> seatSessionIds, CancellationToken ct);
+    /// <param name="workspaceId">The record.</param>
+    /// <param name="directorId">The Director to restore onto - this one.</param>
+    /// <param name="seatSessionIds">The captured session ids to bring back.</param>
+    /// <param name="seeds">A seed file per seat (captured session id to path), or null when the caller wrote
+    /// none. The way up writes one per seat before it asks, and the door is the only way they reach the
+    /// Director that performs the restore.</param>
+    /// <param name="ct">Cancellation.</param>
+    Task RequestRestoreAsync(
+        string workspaceId,
+        string directorId,
+        IReadOnlyList<string> seatSessionIds,
+        IReadOnlyDictionary<string, string>? seeds,
+        CancellationToken ct);
 
     /// <summary>The workspace as it is stored now, or null when there is none.</summary>
     Task<WorkspaceDocument?> GetWorkspaceAsync(string workspaceId, CancellationToken ct);
@@ -27,9 +39,24 @@ public sealed class GatewayClientBringBackGateway : IBringBackGateway
         => _client = client ?? throw new ArgumentNullException(nameof(client));
 
     /// <inheritdoc />
-    public Task RequestRestoreAsync(string workspaceId, string directorId, IReadOnlyList<string> seatSessionIds, CancellationToken ct)
+    public Task RequestRestoreAsync(
+        string workspaceId,
+        string directorId,
+        IReadOnlyList<string> seatSessionIds,
+        IReadOnlyDictionary<string, string>? seeds,
+        CancellationToken ct)
         => _client.RequestWorkspaceRestoreAsync(workspaceId,
-            new WorkspaceRestoreRequest { DirectorId = directorId, Seats = seatSessionIds.ToList() }, ct);
+            new WorkspaceRestoreRequest
+            {
+                DirectorId = directorId,
+                Seats = seatSessionIds.ToList(),
+
+                // A SEED FILE IS NOT OPTIONAL DETAIL - it is the document the restored session is pointed at.
+                // The way up writes one per seat and then asks here, so dropping them would bring every seat
+                // back with nothing to read. An EMPTY dictionary is sent as none, so the wire carries the
+                // same thing the cancel path has always carried.
+                Seeds = seeds is { Count: > 0 } ? new Dictionary<string, string>(seeds, StringComparer.OrdinalIgnoreCase) : null,
+            }, ct);
 
     /// <inheritdoc />
     public Task<WorkspaceDocument?> GetWorkspaceAsync(string workspaceId, CancellationToken ct)
@@ -50,6 +77,12 @@ public sealed class GatewayClientBringBackGateway : IBringBackGateway
 /// The door answers "taken", not "done". Each seat's result is written onto the record as it happens,
 /// so this reads the record until every seat asked for has an answer, and stops waiting after
 /// <see cref="Patience"/>: a seat with no answer by then is reported as exactly that.
+///
+/// THE WAY UP GOES THROUGH THIS SAME CLASS (product issue 3395). "Bring back" on the start-up window and on
+/// File, Restart history used to construct <see cref="DirectorRestore"/> in the Director instead - the very
+/// thing the paragraph above says cannot work - so its first mark was refused and nothing ever came back.
+/// The way up needs one thing the cancel path does not, a seed file per seat, so that is a parameter here
+/// rather than a second copy of this class: see <see cref="DirectorRestoreWayUp"/>.
 /// </summary>
 public sealed class GatewaySmartShutdownBringBack
 {
@@ -88,10 +121,31 @@ public sealed class GatewaySmartShutdownBringBack
     /// entry point into another part of the product, so a restore that cannot start is caught HERE and
     /// handed back as the sentence that says why; it is never thrown into a run that is half way through
     /// telling sessions the restart is off.</summary>
-    public async Task<SmartShutdownBringBack> BringBackAsync(
+    /// <param name="workspaceId">The record.</param>
+    /// <param name="seatSessionIds">The captured session ids to bring back.</param>
+    /// <param name="ct">Cancellation.</param>
+    public Task<SmartShutdownBringBack> BringBackAsync(
         string workspaceId, IReadOnlyList<string> seatSessionIds, CancellationToken ct)
+        => BringBackAsync(workspaceId, seatSessionIds, seeds: null, ct);
+
+    /// <summary>
+    /// Bring the named seats back, each pointed at its own seed file. The way up (product issue 3395) writes a
+    /// seed per seat before it asks, and this is the same door with those seeds on it: there is deliberately no
+    /// second way in, because a restore started anywhere else holds no lease and cannot write what it did.
+    /// </summary>
+    /// <param name="workspaceId">The record.</param>
+    /// <param name="seatSessionIds">The captured session ids to bring back.</param>
+    /// <param name="seeds">A seed file per seat (captured session id to path), or null for none.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<SmartShutdownBringBack> BringBackAsync(
+        string workspaceId,
+        IReadOnlyList<string> seatSessionIds,
+        IReadOnlyDictionary<string, string>? seeds,
+        CancellationToken ct)
     {
-        FileLog.Write($"[GatewaySmartShutdownBringBack] BringBackAsync: workspace={workspaceId}, seats={seatSessionIds.Count}");
+        ArgumentNullException.ThrowIfNull(seatSessionIds);
+        FileLog.Write($"[GatewaySmartShutdownBringBack] BringBackAsync: workspace={workspaceId}, " +
+                      $"seats={seatSessionIds.Count}, seeds={seeds?.Count ?? 0}");
 
         var gateway = _gateway();
         if (gateway is null)
@@ -99,7 +153,7 @@ public sealed class GatewaySmartShutdownBringBack
 
         try
         {
-            await gateway.RequestRestoreAsync(workspaceId, _directorId, seatSessionIds, ct).ConfigureAwait(false);
+            await gateway.RequestRestoreAsync(workspaceId, _directorId, seatSessionIds, seeds, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
