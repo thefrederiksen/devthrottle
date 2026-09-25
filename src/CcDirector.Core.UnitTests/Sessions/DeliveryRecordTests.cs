@@ -215,4 +215,12 @@ public sealed class DeliveryRecordTests : IDisposable
         Assert.Equal(state, parsed);
         Assert.False(DeliveryStates.TryParse("NotDelivered", out _));
     }
+
+    [Fact]
+    public void NeverInAgentRecordsReason_TheDirectorsWatch_IsTheWordingTheDeliveryLeadRuled()
+    {
+        // The reason a still-delivering send gets when the late records watch ends without it (round 2b ruling).
+        Assert.Equal("never appeared in the agent's records within 15 minutes", DeliveryRecord.NeverInAgentRecordsReason(TimeSpan.FromMinutes(15)));
+        Assert.Equal("never appeared in the agent's records within 2 seconds", DeliveryRecord.NeverInAgentRecordsReason(TimeSpan.FromSeconds(2)));
+    }
 }

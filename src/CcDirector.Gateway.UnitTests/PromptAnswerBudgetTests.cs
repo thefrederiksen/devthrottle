@@ -155,7 +155,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     }
 
     [Fact]
-    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_StaysDeliveringAndIsNeverTypedAgain()
+    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_AnswersDeliveringThenNotDeliveredAtTheWatchLimit()
     {
         // Arrange (review finding 3, case b): the composer empties on the Enter; the records never show the prompt.
         var (session, terminal) = WorkingClaudeCode();
@@ -170,10 +170,11 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         var late = await LateOutcomeFor(deliveryId, async () => response = Body(
             await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Recording(text, deliveryId), SendSource.Delivery, NewDeliveryRecord())));
 
-        // Assert: "delivering" at the answer and still "delivering" when the watch ends - never "not-delivered", which a
-        // holder of the record would retry by typing - and the words were typed once.
+        // Assert: "delivering" at the answer - never a failure inside the first window - and "not-delivered" when the watch
+        // ends without the records showing it (the Delivery Lead's ruling: nothing stays delivering forever). The words
+        // were typed once: nothing types them a second time by itself.
         Assert.Equal(DeliveryState.Delivering, response!.DeliveryState);
-        Assert.Equal(DeliveryStates.Delivering, late);
+        Assert.Equal(DeliveryStates.NotDelivered, late);
         Assert.Equal(1, terminal.EntersAccepted);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "VERBLOST1"));
     }
@@ -228,7 +229,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     }
 
     [Fact]
-    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_DeliveryRecordStaysDelivering()
+    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_DeliveryRecordIsDeliveringWhileTheWatchRunsThenNotDelivered()
     {
         // Arrange (round 2b): as case (b) above, with the durable record. The records never show the prompt.
         var (session, terminal) = WorkingClaudeCode();
@@ -239,18 +240,22 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         const string text = "Token RECLOST1. Reply with exactly: ACK";
         var deliveryId = Guid.NewGuid().ToString("N");
 
-        // Act
-        var late = await LateOutcomeFor(deliveryId, async () => Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
-            session, Recording(text, deliveryId), SendSource.Delivery, record)));
+        DeliveryState? atAnswer = null;
 
-        // Assert: the record stays "delivering" - never "delivered" without proof, never "not-delivered", which a retry
-        // would type again - and a second copy of the id is refused with nothing typed.
-        Assert.Equal(DeliveryStates.Delivering, late);
-        Assert.Equal(DeliveryState.Delivering, record.Read(session.Id, deliveryId).State);
-        var copy = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
-            session, Recording(text, deliveryId), SendSource.Delivery, record));
-        Assert.False(copy.Accepted);
-        Assert.Equal(DeliveryState.Delivering, copy.DeliveryState);
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () =>
+        {
+            Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Recording(text, deliveryId), SendSource.Delivery, record));
+            atAnswer = record.Read(session.Id, deliveryId).State;
+        });
+
+        // Assert: the record says "delivering" while the watch runs - never "delivered" without proof - and "not-delivered"
+        // when the watch ends without the records showing it, with the reason the Delivery Lead ruled. Typed once.
+        Assert.Equal(DeliveryState.Delivering, atAnswer);
+        Assert.Equal(DeliveryStates.NotDelivered, late);
+        var entry = record.Read(session.Id, deliveryId);
+        Assert.Equal(DeliveryState.NotDelivered, entry.State);
+        Assert.Equal("never appeared in the agent's records within 2 seconds", entry.Reason);
         Assert.Equal(1, terminal.EntersAccepted);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "RECLOST1"));
     }

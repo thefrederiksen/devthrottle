@@ -3609,9 +3609,10 @@ public sealed class Session : IDisposable
                              (release == ComposerRelease.Left
                                  ? "but the text has left its composer: the agent holds it until its running tool ends"
                                  : "and its composer cannot be read, so the text is not known to be still there");
+                var lateLimit = LateArrivalLimitForTests ?? LateArrivalLimit;
                 FileLog.Write($"[Session] STILL DELIVERING: session={Id}: {reason}. Nothing is typed again; the records are watched " +
-                              $"for up to {(LateArrivalLimitForTests ?? LateArrivalLimit).TotalMinutes:F1} minutes. len={current.Length}");
-                return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(proof, current, label));
+                              $"for up to {lateLimit.TotalMinutes:F1} minutes. len={current.Length}");
+                return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(proof, current, label, lateLimit), lateLimit);
             }
         }
         if (outcome == Drivers.PromptArrivalOutcome.NotArrived)
@@ -3629,13 +3630,13 @@ public sealed class Session : IDisposable
 
     /// <summary>
     /// After a send returned "still delivering", keep reading the agent's records for the prompt, up to
-    /// <see cref="LateArrivalLimit"/> (review finding 3). True once the records hold it word for word; false when the limit
-    /// ends first or the session ends. It reads only - it never types, presses a key, or resends. A different prompt
-    /// arriving is not taken for this one: the owner's next send could be that prompt.
+    /// <paramref name="limit"/> (<see cref="LateArrivalLimit"/>; review finding 3). <see cref="LateArrival.Arrived"/> once the
+    /// records hold it word for word; <see cref="LateArrival.LimitEnded"/> when the limit ends first;
+    /// <see cref="LateArrival.SessionEnded"/> when the session ends first. It reads only - it never types, presses a key,
+    /// or resends. A different prompt arriving is not taken for this one: the owner's next send could be that prompt.
     /// </summary>
-    private async Task<bool> WatchLateArrivalAsync(ArrivalProof proof, string typed, string label)
+    private async Task<LateArrival> WatchLateArrivalAsync(ArrivalProof proof, string typed, string label, TimeSpan limit)
     {
-        var limit = LateArrivalLimitForTests ?? LateArrivalLimit;
         var notice = new Drivers.SendWaitNotice("Session",
             $"'{label}' to reach the agent's conversation records late (session {Id}; the send already answered still delivering)",
             $"{limit.TotalMinutes:F1} minutes");
@@ -3648,20 +3649,20 @@ public sealed class Session : IDisposable
                 notice.End("it arrived");
                 FileLog.Write($"[Session] late arrival: session={Id}: the prompt reached the records " +
                               $"{(DateTime.UtcNow - proof.StartedUtc).TotalSeconds:F0}s after the send began - delivered. len={typed.Length}");
-                return true;
+                return LateArrival.Arrived;
             }
             if (_disposed)
             {
                 notice.End("the session ended");
-                FileLog.Write($"[Session] late arrival: session={Id}: the session ended before the records showed the prompt; it stays delivering");
-                return false;
+                FileLog.Write($"[Session] late arrival: session={Id}: the session ended before the records showed the prompt");
+                return LateArrival.SessionEnded;
             }
             if (DateTime.UtcNow - started >= limit)
             {
                 notice.End("the limit ended without it");
                 FileLog.Write($"[Session] WARNING late arrival: session={Id}: the records still do not show the prompt " +
-                              $"{limit.TotalMinutes:F1} minutes after the send returned; it stays delivering, and is not typed again. len={typed.Length}");
-                return false;
+                              $"{limit.TotalMinutes:F1} minutes after the send returned; the send is not delivered, and is not typed again. len={typed.Length}");
+                return LateArrival.LimitEnded;
             }
             await Task.Delay(Drivers.PromptArrival.DefaultPoll);
         }
@@ -3801,7 +3802,7 @@ public sealed class Session : IDisposable
         var reason = $"the composer could not be read for the {window.TotalSeconds:F0}s after the Enter while {AgentKind} was working, " +
                      "so whether the text left it is not known; its output proves nothing while it works";
         FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: STILL DELIVERING - {reason}. Nothing is cleared or typed again.");
-        return TextSendOutcome.StillDelivering(reason, lateProof: null);
+        return TextSendOutcome.StillDelivering(reason);
     }
 
     /// <summary>True when the session's state or the rendered screen says the agent is running a turn.</summary>

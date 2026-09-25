@@ -235,7 +235,7 @@ public sealed class BusyAgentSendTests : IDisposable
         // typed once, one Enter, nothing cleared, and in the records once.
         Assert.False(outcome.Confirmed);
         Assert.Equal("", composerAtAnswer);
-        Assert.True(provenLater);
+        Assert.Equal(LateArrival.Arrived, provenLater);
         Assert.Equal(new[] { text }, terminal.Recorded);
         Assert.Equal(1, CountOf(terminal.TypedText, text));
         Assert.Equal(1, terminal.EntersAccepted);
@@ -243,7 +243,7 @@ public sealed class BusyAgentSendTests : IDisposable
     }
 
     [Fact]
-    public async Task SendTextAsync_WorkingClaudeCodeNeverRecordsThePrompt_StaysDeliveringAndIsNeverTypedAgain()
+    public async Task SendTextAsync_WorkingClaudeCodeNeverRecordsThePrompt_IsDeliveringUntilTheWatchLimitAndIsNeverTypedAgain()
     {
         // Arrange (review finding 3, case b): the composer empties on the Enter, and the records never show the prompt.
         var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode);
@@ -256,9 +256,11 @@ public sealed class BusyAgentSendTests : IDisposable
         var outcome = await session.SendTextAsync(text, SessionTestDoors.TestDoor);
         var provenLater = await outcome.LateProof!;
 
-        // Assert: still delivering, never not-delivered; the watch ends unproven; nothing typed a second time.
+        // Assert: still delivering when the send returned, never a failure; the watch ends at its limit, which the verb
+        // records as not-delivered (the Delivery Lead's ruling: nothing stays delivering forever); nothing typed a second time.
         Assert.False(outcome.Confirmed);
-        Assert.False(provenLater);
+        Assert.Equal(LateArrival.LimitEnded, provenLater);
+        Assert.Equal(TimeSpan.FromSeconds(2), outcome.LateWatchLimit);
         Assert.Equal(1, CountOf(terminal.TypedText, text));
         Assert.Equal(1, terminal.EntersAccepted);
         Assert.Equal(0, terminal.ClearKeysPressed);

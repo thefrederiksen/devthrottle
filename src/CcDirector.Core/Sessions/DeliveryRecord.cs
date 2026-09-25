@@ -56,9 +56,12 @@ public sealed class DeliveryRecordUnreadableException : Exception
 /// being delivered is refused without typing anything. On 25 September 2026 a spoken prompt reached the agent twice
 /// because nothing remembered the first copy.
 ///
-/// THE STATES FOLLOW <c>Session.SubmitTextAsync</c>, which either returns (delivered) or throws (not delivered): there
-/// is no third outcome of a send. <c>Delivering</c> is written BEFORE the first character is typed, so a Director that
-/// dies while typing leaves <c>Delivering</c> on disk.
+/// THE STATES FOLLOW THE SEND (<c>TextSendOutcome</c>): a send that throws is not delivered; one that returns confirmed is
+/// delivered; one that returns still delivering (phase 3: the words left the composer of a working agent and are not yet
+/// in its records, or the send outlived the prompt verb's answer budget) stays <c>Delivering</c> while the Director
+/// watches the agent's records, then becomes <c>Delivered</c> when they show it, or <c>NotDelivered</c> with
+/// <see cref="NeverInAgentRecordsReason"/> when the watch ends without it. <c>Delivering</c> is written BEFORE the first
+/// character is typed, so a Director that dies while typing leaves <c>Delivering</c> on disk.
 ///
 /// A <c>Delivering</c> ENTRY FOUND AT START-UP STAYS <c>Delivering</c>. It is the honest answer: the words may be in,
 /// wholly or partly, and nothing on this side can tell. It never becomes <c>Unknown</c> (which would let a retry type
@@ -148,6 +151,21 @@ public sealed class DeliveryRecord
             FileLog.Write($"[DeliveryRecord] TryBeginDelivery: began session={sessionId}, deliveryId={deliveryId}, was={DeliveryStates.Format(existing.State)}");
             return new DeliveryClaim(true, existing);
         }
+    }
+
+    /// <summary>
+    /// The reason written when a send that was still delivering never showed in the agent's records before the Director's
+    /// late watch ended (the Delivery Lead's ruling, round 2b: nothing stays delivering forever): "never appeared in the
+    /// agent's records within 15 minutes". The Gateway reads the resulting not-delivered as known-not-in and shows the owner
+    /// his words with "Send anyway"; nothing types them a second time by itself.
+    /// </summary>
+    public static string NeverInAgentRecordsReason(TimeSpan watch)
+    {
+        if (watch <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(watch), watch, "A records watch has a positive limit.");
+        var within = watch.TotalMinutes >= 1 && watch.TotalMinutes == Math.Floor(watch.TotalMinutes)
+            ? $"{watch.TotalMinutes:F0} minute{(watch.TotalMinutes == 1 ? "" : "s")}"
+            : $"{watch.TotalSeconds:0.#} second{(watch.TotalSeconds == 1 ? "" : "s")}";
+        return $"never appeared in the agent's records within {within}";
     }
 
     /// <summary>The send completed: the words reached the session.</summary>

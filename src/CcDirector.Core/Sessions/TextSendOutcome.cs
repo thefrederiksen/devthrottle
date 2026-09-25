@@ -13,22 +13,32 @@ namespace CcDirector.Core.Sessions;
 public sealed class TextSendOutcome
 {
     /// <summary>The send was proven delivered.</summary>
-    public static readonly TextSendOutcome Delivered = new(true, null, null);
+    public static readonly TextSendOutcome Delivered = new(true, null, null, null);
 
-    private TextSendOutcome(bool confirmed, string? reason, Task<bool>? lateProof)
+    private TextSendOutcome(bool confirmed, string? reason, Task<LateArrival>? lateProof, TimeSpan? lateWatchLimit)
     {
         Confirmed = confirmed;
         Reason = reason;
         LateProof = lateProof;
+        LateWatchLimit = lateWatchLimit;
+    }
+
+    /// <summary>A send that left the composer but is not yet proven, with no records to watch: <paramref name="reason"/>
+    /// says why.</summary>
+    public static TextSendOutcome StillDelivering(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return new TextSendOutcome(false, reason, null, null);
     }
 
     /// <summary>A send that left the composer but is not yet proven: <paramref name="reason"/> says why, and
-    /// <paramref name="lateProof"/>, when there is one, is the bounded watch of the agent's records that answers true if
-    /// the words show up there later and false if its limit ends first.</summary>
-    public static TextSendOutcome StillDelivering(string reason, Task<bool>? lateProof)
+    /// <paramref name="lateProof"/> is the watch of the agent's records, bounded by <paramref name="limit"/>, that answers
+    /// how it ended (<see cref="LateArrival"/>).</summary>
+    public static TextSendOutcome StillDelivering(string reason, Task<LateArrival> lateProof, TimeSpan limit)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-        return new TextSendOutcome(false, reason, lateProof);
+        ArgumentNullException.ThrowIfNull(lateProof);
+        return new TextSendOutcome(false, reason, lateProof, limit);
     }
 
     /// <summary>True when the send was proven delivered; false when it is still delivering.</summary>
@@ -39,5 +49,23 @@ public sealed class TextSendOutcome
 
     /// <summary>The watch of the agent's records that goes on after the send returned, or null when there is none (the
     /// agent keeps no records the Director can read for this send). It types nothing, ever.</summary>
-    public Task<bool>? LateProof { get; }
+    public Task<LateArrival>? LateProof { get; }
+
+    /// <summary>How long <see cref="LateProof"/> watches the records at most; null when there is no watch.</summary>
+    public TimeSpan? LateWatchLimit { get; }
+}
+
+/// <summary>How the watch of the agent's records after a still-delivering send ended (<see cref="TextSendOutcome.LateProof"/>).</summary>
+public enum LateArrival
+{
+    /// <summary>The records showed the prompt word for word: delivered.</summary>
+    Arrived,
+
+    /// <summary>The watch's limit ended and the records never showed the prompt. The Director's record for a delivery id
+    /// becomes not-delivered (the Delivery Lead's ruling: nothing stays delivering forever); nothing is typed again by
+    /// itself.</summary>
+    LimitEnded,
+
+    /// <summary>The session ended before the records showed the prompt or the limit ended.</summary>
+    SessionEnded,
 }
