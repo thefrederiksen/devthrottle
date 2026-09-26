@@ -44,9 +44,43 @@ public sealed class OwnedSessionInputTests
     }
 
     [Fact]
-    public void Refusal_CallerIsTheTargetAndNamesItselfOwner_IsNotYourSession()
-        => Assert.Equal(AgentInputRefusal.NotYourSession,
+    public void Refusal_CallerIsTheTarget_IsItself()
+        => Assert.Equal(AgentInputRefusal.Itself,
+            OwnedSessionInput.Refusal(Parent, Session(Parent, owner: null), true, true));
+
+    [Fact]
+    public void Refusal_CallerIsTheTargetAndNamesItselfOwner_IsItself()
+        => Assert.Equal(AgentInputRefusal.Itself,
             OwnedSessionInput.Refusal(Parent, Session(Parent, Parent), true, true));
+
+    [Fact]
+    public void Refusal_OwnershipWaivedForARaisedCaller_StillRequiresTheCheckingDirector()
+    {
+        Assert.Null(OwnedSessionInput.Refusal(Parent, Session(Child, Stranger), true, true, ownershipWaived: true));
+        Assert.Equal(AgentInputRefusal.DirectorTooOld,
+            OwnedSessionInput.Refusal(Parent, Session(Child, Stranger), false, true, ownershipWaived: true));
+    }
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, false)]
+    public void ProvesGuardedSend_OnlyAnAcceptanceWithTheCheck_Counts(bool accepted, bool idleChecked, bool expected)
+        => Assert.Equal(expected, OwnedSessionInput.ProvesGuardedSend(new PromptResponse { Accepted = accepted, IdleChecked = idleChecked }));
+
+    [Theory]
+    [InlineData(int.MaxValue, OwnedSessionInput.MaxWaitMs)]
+    [InlineData(5_000, 5_000)]
+    [InlineData(-1, 0)]
+    public void ApplyTo_TheWaitIsBoundedForAnAgent(int asked, int expected)
+    {
+        var req = new PromptRequest { Text = "go", WaitForIdle = true, TimeoutMs = asked };
+
+        OwnedSessionInput.ApplyTo(req);
+
+        Assert.Equal(expected, req.TimeoutMs);
+    }
 
     [Fact]
     public void Refusal_DirectorDoesNotCheckBeforeTyping_IsDirectorTooOld()

@@ -3448,9 +3448,14 @@ internal static class GatewayEndpoints
                 FileLog.Write($"[GatewayEndpoints] POST prompt: caller={callerSessionId} sid={sid} NOT TYPED ({body.RefusedFor ?? "busy"}): {body.Error}");
                 return Results.Json(body, statusCode: StatusCodes.Status409Conflict);
             }
-            if (!body.IdleChecked)
-                FileLog.Write($"[GatewayEndpoints] POST prompt: caller={callerSessionId} sid={sid} WARNING the Director accepted without " +
-                              "reporting the idle check, although its Hello said it makes one");
+            if (!OwnedSessionInput.ProvesGuardedSend(body))
+            {
+                FileLog.Write($"[GatewayEndpoints] POST prompt: caller={callerSessionId} sid={sid} NOT COUNTED: the Director accepted " +
+                              "without reporting the check, although its Hello said it makes one");
+                body.Accepted = false;
+                body.Error = OwnedSessionInput.AcceptedWithoutTheCheck;
+                return Results.Json(body, statusCode: StatusCodes.Status502BadGateway);
+            }
             return await AnswerAcceptedPromptAsync(director, sid, req, body);
         }
 
@@ -4955,8 +4960,13 @@ internal static class GatewayEndpoints
             // it only on a session it owns (Parent Control, fix 1). A plain compaction sends nothing afterwards and stays
             // open to every session key. The session-key guard cannot make this call - it sees a method and a path, never
             // a body or the roster - so it is made here.
+            //
+            // A RAISED session may type into any session of the account, so it is not held to ownership here either - but
+            // its follow-up goes the same guarded way, because the Director's own continuation looks at no composer.
             if (AuthMiddleware.CallingSession(ctx) is { } compactCaller && !string.IsNullOrWhiteSpace(req?.ContinuePrompt))
-                return await CompactOwnedThenContinueAsync(ctx, compactCaller.SessionId.ToString(), director, session, sid, req!.ContinuePrompt!);
+                return await CompactOwnedThenContinueAsync(ctx, compactCaller.SessionId.ToString(), director, session, sid,
+                    req!.ContinuePrompt!, ownershipWaived: raisedSessions is not null && ResolveReadTenant(ctx, tenantBoundary) is { } raisedTenant
+                        && raisedSessions.IsRaised(raisedTenant, compactCaller.SessionId.ToString()));
 
             FileLog.Write($"[GatewayEndpoints] POST /compact-context: sid={sid}, director={director.DirectorId}, " +
                           $"continue={(string.IsNullOrWhiteSpace(req?.ContinuePrompt) ? "no" : "yes")}");
@@ -4974,17 +4984,17 @@ internal static class GatewayEndpoints
         // compaction runs plain, and the follow-up goes as a prompt the Director types only when the session is waiting
         // for one with nothing of the owner's in its composer - the same send a session makes with `session prompt`.
         async Task<IResult> CompactOwnedThenContinueAsync(HttpContext ctx, string callerSessionId, DirectorDto director,
-            SessionDto session, string sid, string continuePrompt)
+            SessionDto session, string sid, string continuePrompt, bool ownershipWaived)
         {
             var tenant = ResolveReadTenant(ctx, tenantBoundary);
             if (tenant is null)
                 return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
 
             var checks = directorChecksBeforeTyping?.Invoke(tenant.Value, director.DirectorId) ?? false;
-            var refusal = OwnedSessionInput.Refusal(callerSessionId, session, checks, appendEnter: true);
+            var refusal = OwnedSessionInput.Refusal(callerSessionId, session, checks, appendEnter: true, ownershipWaived);
             if (refusal is not null)
             {
-                FileLog.Write($"[GatewayEndpoints] POST /compact-context REFUSED: caller={callerSessionId} sid={sid} " +
+                FileLog.Write($"[GatewayEndpoints] POST /compact-context REFUSED: caller={callerSessionId} sid={sid} raised={ownershipWaived} " +
                               $"owner={session.ControllerSessionId ?? "(the owner)"} directorChecks={checks}; nothing compacted");
                 var said = refusal == AgentInputRefusal.NotYourSession ? AgentInputRefusal.CompactContinue : refusal;
                 return Results.Json(new { error = said }, statusCode: StatusCodes.Status403Forbidden);
@@ -5029,13 +5039,22 @@ internal static class GatewayEndpoints
                     return Results.Json(answer);
                 }
                 if (sent.Accepted || sent.RefusedFor is not null || DateTime.UtcNow >= settleUntil) break;
-                await Task.Delay(OwnedSessionInput.SettlePoll, ctx.RequestAborted);
+                if (ctx.RequestAborted.IsCancellationRequested)
+                {
+                    // The caller hung up while the session settled. Nothing more is sent, and the log says so.
+                    FileLog.Write($"[GatewayEndpoints] POST /compact-context: sid={sid} follow-up ABANDONED: the caller disconnected " +
+                                  "while the session was still settling from the compaction; nothing was typed");
+                    return Results.Empty;
+                }
+                await Task.Delay(OwnedSessionInput.SettlePoll, CancellationToken.None);
             }
 
-            answer.Continued = sent.Accepted;
-            answer.Detail = sent.Accepted
+            answer.Continued = OwnedSessionInput.ProvesGuardedSend(sent);
+            answer.Detail = answer.Continued
                 ? $"{answer.Detail} Then sent the follow-up."
-                : $"{answer.Detail} {OwnedSessionInput.DescribeRefusedSend(sent)}";
+                : sent.Accepted
+                    ? $"{answer.Detail} {OwnedSessionInput.AcceptedWithoutTheCheck}"
+                    : $"{answer.Detail} {OwnedSessionInput.DescribeRefusedSend(sent)}";
             FileLog.Write($"[GatewayEndpoints] POST /compact-context: sid={sid} follow-up accepted={sent.Accepted} refusedFor={sent.RefusedFor ?? "-"}");
             return Results.Json(answer);
         }

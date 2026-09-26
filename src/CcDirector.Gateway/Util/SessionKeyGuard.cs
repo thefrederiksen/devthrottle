@@ -61,6 +61,11 @@ public static class AgentInputRefusal
         "An agent may type only into a session it owns: this session is not owned by yours - the owner runs it, " +
         "another session owns it, or it is owned by a session you own rather than by you. " + Instead;
 
+    /// <summary>A session key asked to type into its own session.</summary>
+    public const string Itself =
+        "A session does not type into itself: its own prompt is already its own. Name the session you own that you " +
+        "mean to prompt.";
+
     /// <summary>A session key asked to leave its text in a session's composer without pressing Enter.</summary>
     public const string NoSubmit =
         "An agent's prompt is always submitted: text left unsent in a composer cannot be told apart from the owner's " +

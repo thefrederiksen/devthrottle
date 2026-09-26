@@ -323,9 +323,10 @@ cc-devthrottle message send <session> "<their words, exactly>"
 ```
 
 - A queued message is how the owner's answer reaches a session, and it is the way to prefer even when
-  you are raised. Typing into a session is refused to every session key that is not raised. Not
-  raised, you may message only the sessions you started, so the sessions you own are exactly the
-  sessions you can answer; raised, you may message any session of the account.
+  you are raised. Not raised, you may type only into a session you own - only when it is waiting,
+  never over the owner's unsent words - and you may message only the sessions you started, so the
+  sessions you own are exactly the sessions you can answer; raised, you may message any session of
+  the account.
 - **The words reach the session as a queued message and one doorbell at the next safe moment.**
   `message send` answers `queued`, never `delivered`. The Gateway keeps the words and asks that
   session's Director to ring ONE doorbell line - it rings only when the session is not working, its

@@ -323,6 +323,23 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
     }
 
     [Fact]
+    public async Task A_session_key_prompting_a_session_it_owns_is_not_told_delivered_without_the_directors_check()
+    {
+        // A Director that answers accepted but does not say it made the check is not believed: the same reading the Fleet
+        // Manager's events give that answer. The text may have been typed, so the answer never says it was not.
+        var key = await KeyOfTheOwningSession();
+        _promptAnswer = _ => new PromptResponse { Accepted = true, IdleChecked = false, ActivityState = "Working" };
+
+        var resp = await PostPrompt(new { text = "carry on" }, bearer: key);
+
+        Assert.Equal(HttpStatusCode.BadGateway, resp.StatusCode);
+        var answer = await resp.Content.ReadFromJsonAsync<PromptResponse>();
+        Assert.False(answer!.Accepted);
+        Assert.Contains("not counted as delivered", answer.Error);
+        Assert.DoesNotContain("Nothing was typed", answer.Error);
+    }
+
+    [Fact]
     public async Task A_session_key_prompting_a_session_it_owns_that_takes_it_gets_the_directors_answer()
     {
         var key = await KeyOfTheOwningSession();

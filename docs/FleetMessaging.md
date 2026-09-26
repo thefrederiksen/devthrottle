@@ -67,9 +67,12 @@ The Gateway decides, and refuses everything else with the reason:
   the limits.
 - A **whole-account broadcast** (`message send all --everyone --reason "..." --grant <id>`) needs a
   human-issued grant (issue #1229). Its copies are queued like any other message.
-- **Typing into a session is the owner's alone.** `session prompt`, `session interrupt`,
-  `session compact-continue` with a message, and answering a judged stop are refused to every
-  session key. The owner, typing from his own screens, is never queued or gated.
+- **Typing into a session is the owner's, except into a session you own.** A session may use
+  `session prompt` and `session compact-continue` on a session it OWNS (started with
+  `--controlled-by self`, or handed to it), and the text is typed only when that session is waiting
+  for a prompt and never over words the owner typed and did not send. On every other session those
+  are refused to a session key, and `session interrupt` and answering a judged stop are refused to a
+  session key on every session. The owner, typing from his own screens, is never queued or gated.
 
 ## How a message reaches its reader
 

@@ -225,6 +225,17 @@ public sealed class OwnedSessionInputHostTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Prompt_SessionKeyOnItself_IsRefusedWithTheSentenceForItself()
+    {
+        DirectorChecksBeforeTyping(true);
+
+        var answer = await Send(_parent, $"sessions/{_parentId}/prompt", new { text = "carry on" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, answer.Status);
+        Assert.Equal(AgentInputRefusal.Itself, Field(answer.Body, "error"));
+    }
+
+    [Fact]
     public async Task Prompt_OwnChildOnADirectorThatDoesNotCheckFirst_IsRefusedAndNothingIsSent()
     {
         DirectorChecksBeforeTyping(false);

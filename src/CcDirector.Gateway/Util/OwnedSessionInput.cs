@@ -42,13 +42,16 @@ public static class OwnedSessionInput
     /// caller asked to leave its text in the composer unsent, which is refused: text a session left there is
     /// indistinguishable from the owner's own draft, and would be sent with the owner's next Enter.
     /// </summary>
-    public static string? Refusal(string callerSessionId, SessionDto target, bool directorChecksBeforeTyping, bool appendEnter)
+    public static string? Refusal(string callerSessionId, SessionDto target, bool directorChecksBeforeTyping, bool appendEnter,
+        bool ownershipWaived = false)
     {
         ArgumentNullException.ThrowIfNull(target);
         if (string.IsNullOrWhiteSpace(callerSessionId))
             throw new ArgumentException("the calling session's id is required", nameof(callerSessionId));
 
-        if (!OwnsDirectly(callerSessionId, target))
+        if (string.Equals(target.SessionId, callerSessionId, StringComparison.OrdinalIgnoreCase))
+            return AgentInputRefusal.Itself;
+        if (!ownershipWaived && !OwnsDirectly(callerSessionId, target))
             return AgentInputRefusal.NotYourSession;
         if (!appendEnter)
             return AgentInputRefusal.NoSubmit;
@@ -56,6 +59,29 @@ public static class OwnedSessionInput
             return AgentInputRefusal.DirectorTooOld;
         return null;
     }
+
+    /// <summary>The longest a session key may ask the prompt route to wait for the session to go idle afterwards: the
+    /// request's own default. A longer wait would hold a Gateway request open on an agent's say-so.</summary>
+    public const int MaxWaitMs = 120_000;
+
+    /// <summary>
+    /// True when the Director's answer proves the guarded send was made: accepted, AND the Director says it made the
+    /// check. An acceptance without the check is not counted as delivered - the same reading the Fleet Manager's events
+    /// give it (<c>FleetManagerEventService.Classify</c>) and <see cref="PromptRequest.OnlyWhenWaitingForInput"/> asks of
+    /// every sender that relies on the flag.
+    /// </summary>
+    public static bool ProvesGuardedSend(PromptResponse answer)
+    {
+        ArgumentNullException.ThrowIfNull(answer);
+        return answer.Accepted && answer.IdleChecked;
+    }
+
+    /// <summary>The sentence for a Director that accepted a guarded send without saying it checked first. The text may
+    /// have been typed, so this never says it was not.</summary>
+    public const string AcceptedWithoutTheCheck =
+        "That session's Director took the prompt without confirming it checked that the session was waiting and that the " +
+        "owner had no unsent words in its composer, so it is not counted as delivered. Read the session's terminal " +
+        "(cc-devthrottle session buffer) before sending anything again.";
 
     /// <summary>
     /// The sentence for a send the Director refused and typed nothing of, from its own answer: the owner has unsent words
@@ -93,5 +119,6 @@ public static class OwnedSessionInput
         req.AgentDriven = true;
         req.AppendEnter = true;
         req.OnlyWhenWaitingForInput = true;
+        req.TimeoutMs = Math.Clamp(req.TimeoutMs, 0, MaxWaitMs);
     }
 }

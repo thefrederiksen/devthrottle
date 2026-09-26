@@ -291,7 +291,8 @@ enforces the limit and also rate-limits repeated broadcasts). See issue #1229.
 
 ## Typing into a session: the sessions you own
 
-You may type into a session YOU OWN - one you started with `--controlled-by self`, or were handed -
+You may type into a session YOU OWN - one you started with `--controlled-by self`, or were handed
+(including one you took with `session hand-over <session> --to me`, which you do only on the owner's direction) -
 with `cc-devthrottle session prompt <session> "<text>"`, and rescue a stuck one with
 `cc-devthrottle session compact-continue <session> "<text>"`. The Gateway types it only when that
 session is waiting for a prompt, and never over words the owner typed into its composer and did not
