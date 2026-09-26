@@ -432,7 +432,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 }
 
                 FileLog.Write($"[GatewayStreamClient] Command received: verb={cmd.Verb}, sid={cmd.SessionId}, cmdId={cmd.CommandId}");
-                return await _commandDispatcher(cmd);
+                var dispatcher = _commandDispatcher;
+                return await CommandAnswerTiming.AnswerAsync(cmd, () => dispatcher(cmd));
             }
             catch (Exception ex)
             {

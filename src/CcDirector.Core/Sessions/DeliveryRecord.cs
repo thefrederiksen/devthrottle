@@ -124,12 +124,12 @@ public sealed class DeliveryRecord
     {
         RequireId(deliveryId);
         FileLog.Write($"[DeliveryRecord] Read: session={sessionId}, deliveryId={deliveryId}");
-        lock (LockFor(sessionId))
+        return UnderSessionLock(sessionId, "a read", () =>
         {
             var lookup = Latest(ReadEntries(sessionId), deliveryId);
             FileLog.Write($"[DeliveryRecord] Read: session={sessionId}, deliveryId={deliveryId}, state={DeliveryStates.Format(lookup.State)}");
             return lookup;
-        }
+        });
     }
 
     /// <summary>
@@ -141,7 +141,7 @@ public sealed class DeliveryRecord
     {
         RequireId(deliveryId);
         FileLog.Write($"[DeliveryRecord] TryBeginDelivery: session={sessionId}, deliveryId={deliveryId}");
-        lock (LockFor(sessionId))
+        return UnderSessionLock(sessionId, "the claim before typing", () =>
         {
             var entries = ReadEntries(sessionId);
             var existing = Latest(entries, deliveryId);
@@ -153,7 +153,7 @@ public sealed class DeliveryRecord
             Append(sessionId, entries, deliveryId, DeliveryState.Delivering, null);
             FileLog.Write($"[DeliveryRecord] TryBeginDelivery: began session={sessionId}, deliveryId={deliveryId}, was={DeliveryStates.Format(existing.State)}");
             return new DeliveryClaim(true, existing);
-        }
+        });
     }
 
     /// <summary>
@@ -201,13 +201,49 @@ public sealed class DeliveryRecord
     {
         RequireId(deliveryId);
         FileLog.Write($"[DeliveryRecord] Write: session={sessionId}, deliveryId={deliveryId}, state={DeliveryStates.Format(state)}");
-        lock (LockFor(sessionId))
+        UnderSessionLock(sessionId, $"writing {DeliveryStates.Format(state)}", () =>
         {
             Append(sessionId, ReadEntries(sessionId), deliveryId, state, reason);
-        }
+            return true;
+        });
     }
 
+    /// <summary>Test seam: the per-session lock, so a test can hold it the way a long write would.</summary>
+    internal object SessionLockForTests(Guid sessionId) => LockFor(sessionId);
+
+    /// <summary>Test seam: runs just before the session's file is read. Null in the Director.</summary>
+    internal Action? BeforeFileReadForTests { get; set; }
+
     private object LockFor(Guid sessionId) => _sessionLocks.GetOrAdd(sessionId, _ => new object());
+
+    /// <summary>
+    /// Runs <paramref name="body"/> under this session's lock. A wait for the lock that runs past a few seconds says what
+    /// it waits for and, when it gets the lock, how long it waited (the phase 3 lines, <see cref="Drivers.SendWaitNotice"/>)
+    /// - so a slow answer from the delivery-state verb can be told apart from a slow file or a starved process (phase 6).
+    /// </summary>
+    private T UnderSessionLock<T>(Guid sessionId, string doing, Func<T> body)
+    {
+        var gate = LockFor(sessionId);
+        if (!Monitor.TryEnter(gate))
+        {
+            var notice = new Drivers.SendWaitNotice("DeliveryRecord",
+                $"the delivery record lock for session {sessionId}, for {doing}", "none - it waits for the record's current reader or writer");
+            if (!Monitor.TryEnter(gate, Drivers.SendWaitNotice.NoticeAfter))
+            {
+                notice.Check();
+                Monitor.Enter(gate);
+            }
+            notice.End("got the lock");
+        }
+        try
+        {
+            return body();
+        }
+        finally
+        {
+            Monitor.Exit(gate);
+        }
+    }
 
     private static void RequireId(string deliveryId)
     {
@@ -235,9 +271,13 @@ public sealed class DeliveryRecord
         if (!File.Exists(path)) return new List<DeliveryRecordEntry>();
 
         string[] lines;
+        var notice = new Drivers.SendWaitNotice("DeliveryRecord",
+            $"the file system to read the delivery record {path} (session {sessionId})", "none - one small file");
         try
         {
+            BeforeFileReadForTests?.Invoke();
             lines = File.ReadAllLines(path, Encoding.UTF8);
+            notice.End($"read {lines.Length} lines");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
