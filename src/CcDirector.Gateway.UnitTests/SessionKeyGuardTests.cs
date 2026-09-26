@@ -122,7 +122,6 @@ public sealed class SessionKeyGuardTests
     // message, because an agent told only "may not call POST /sessions/x/prompt" does not learn what to do.
 
     [Theory]
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/prompt")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/interrupt")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/escape")]
     [InlineData("POST", "/fanout")]
@@ -131,7 +130,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
     [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/Turn-Verdict/ANSWER/")]
     // Case is folded before matching, as ASP.NET routing folds it; an upper-cased path is the same route.
-    [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/PROMPT")]
+    [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/INTERRUPT")]
     [InlineData("post", "/fanout/")]
     public void Typing_into_a_session_is_refused_with_the_queued_message_named(string method, string path)
     {
@@ -139,6 +138,36 @@ public sealed class SessionKeyGuardTests
         Assert.False(verdict.Allowed, $"{method} {path} must be refused to a session key");
         Assert.Equal(AgentInputRefusal.Typing, verdict.Reason);
         Assert.Contains("cc-devthrottle message send", verdict.Reason);
+    }
+
+    // ---------- A session may type into a session it owns (Parent Control, fix 1) ----------
+    //
+    // The guard cannot read an id, so it lets the one prompt shape through for every session key and the ROUTE
+    // decides ownership (OwnedSessionInput, and the route tests). Only this exact shape: nothing deeper, no other verb.
+
+    [Theory]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/prompt")]
+    [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/PROMPT/")]
+    public void The_prompt_route_is_let_through_for_its_route_to_decide_ownership(string method, string path)
+    {
+        var verdict = SessionKeyGuard.Check(method, path);
+        Assert.True(verdict.Allowed, $"{method} {path} should reach its route, which decides ownership");
+        Assert.Equal(RaisedGrant.None, verdict.RaisedGrant);
+    }
+
+    [Theory]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/prompt/extra")]
+    [InlineData("PUT", "/sessions/11111111-1111-1111-1111-111111111111/prompt")]
+    [InlineData("POST", "/sessions/prompt")]
+    public void Only_the_exact_prompt_shape_is_let_through(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must stay refused");
+
+    [Fact]
+    public void The_typing_refusal_names_what_a_session_may_do_instead()
+    {
+        Assert.Contains("session it owns", AgentInputRefusal.Typing);
+        Assert.Contains("cc-devthrottle session prompt", AgentInputRefusal.Typing);
+        Assert.Contains("cc-devthrottle message send", AgentInputRefusal.Typing);
     }
 
     [Theory]

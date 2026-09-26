@@ -56,6 +56,10 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
     /// <summary>What reached the Director: every prompt verb's deserialized body, in order.</summary>
     private readonly List<PromptRequest> _arrived = new();
 
+    /// <summary>When set, the Director answers a prompt with this instead of running it - to stand in for an answer the
+    /// real session cannot be put into here (an owner's unsent draft needs a real terminal, which an embedded one is not).</summary>
+    private Func<PromptRequest, PromptResponse>? _promptAnswer;
+
     /// <summary>What the session's submission ledger recorded, in order.</summary>
     private readonly List<(SendSource? Source, InputOrigin? Origin, SubmissionEvidence Evidence)> _ledger = new();
 
@@ -129,11 +133,15 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
             {
                 var body = JsonSerializer.Deserialize<PromptRequest>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
                 if (body is not null) lock (_arrived) _arrived.Add(body);
+                if (body is not null && _promptAnswer is { } answer)
+                    return DirectorCommandResult.Success(JsonSerializer.Serialize(answer(body), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             }
             return await SessionCommandExecutor.DispatchAsync(_sm, DirectorId, cmd);
         });
         await _conn.StartAsync();
-        await _conn.InvokeAsync("Hello", new DirectorStreamHello { DirectorId = DirectorId, Version = "test" });
+        // This Director is the real executor, which checks a session is waiting before it types - and says so, as a
+        // running Director does: a session types into a session it owns only through such a Director.
+        await _conn.InvokeAsync("Hello", new DirectorStreamHello { DirectorId = DirectorId, Version = "test", ChecksIdleBeforeTyping = true });
         await _conn.InvokeAsync("PushSnapshot", 1L, new[] { new SessionDto { SessionId = _sid, ActivityState = "WaitingForInput" } });
     }
 
@@ -233,13 +241,12 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
     }
 
     [Fact]
-    public async Task A_session_key_caller_cannot_prompt_at_all_whatever_its_body_says()
+    public async Task A_session_key_caller_cannot_prompt_a_session_it_does_not_own_whatever_its_body_says()
     {
-        // CHANGED BY THE MESSAGE LOAD MISSION (16 September 2026, ruling 17). This test used to prove that a
-        // session key's prompt was recorded as agent-driven whatever the body claimed. A session key now cannot
-        // prompt at all - the session key guard refuses the route before it runs - which is the stronger form of
-        // the same guarantee: no agent turn can be counted as the person's, because no agent turn arrives. The
-        // route's own agent-driven stamp stays as a second line behind the guard.
+        // CHANGED BY THE MESSAGE LOAD MISSION (16 September 2026, ruling 17), and again by Parent Control, fix 1
+        // (26 September 2026). A session key may type only into a session it owns; this one names a session that no
+        // session owns, so it is refused by the route before anything reaches the Director - which is the strongest
+        // form of the attribution guarantee: no agent turn can be counted as the person's, because none arrives.
         var key = GatewaySessionKey.Mint();
         Assert.True(_gateway.SessionKeys.Register(TenantId.Local, DirectorId, Guid.NewGuid().ToString(),
             GatewaySessionKey.Hash(key), DateTime.UtcNow.AddHours(1)));
@@ -247,10 +254,103 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
         var resp = await PostPrompt(new { text = "do the next task", appendEnter = true, agentDriven = false }, bearer: key);
 
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
-        Assert.Contains("An agent may not type into", await resp.Content.ReadAsStringAsync());
+        Assert.Contains("An agent may type only into a session it owns", await resp.Content.ReadAsStringAsync());
         lock (_arrived) Assert.Empty(_arrived);
         Assert.Empty(_ledger);
         Assert.Equal(0, _session.InputStats.Snapshot().AgentDrivenTurns);
+    }
+
+    /// <summary>A key for a new session that OWNS this test's session, as <c>--controlled-by self</c> makes it.</summary>
+    private async Task<string> KeyOfTheOwningSession()
+    {
+        var parent = Guid.NewGuid().ToString();
+        var key = GatewaySessionKey.Mint();
+        Assert.True(_gateway.SessionKeys.Register(TenantId.Local, DirectorId, parent,
+            GatewaySessionKey.Hash(key), DateTime.UtcNow.AddHours(1)));
+        await _conn.InvokeAsync("PushSnapshot", 2L, new[]
+        {
+            new SessionDto { SessionId = _sid, ActivityState = "WaitingForInput", IsControlled = true, ControllerSessionId = parent },
+        });
+        return key;
+    }
+
+    [Fact]
+    public async Task A_session_key_prompting_a_session_it_owns_is_sent_as_the_guarded_agent_send_whatever_its_body_says()
+    {
+        // Parent Control, fix 1. What reaches the Director is the Gateway's ruling, not the body's: an agent's turn,
+        // submitted, and typed only when the session is waiting for a prompt with nothing of the owner's in its composer.
+        var key = await KeyOfTheOwningSession();
+        _session.ApplyTerminalActivityState(ActivityState.Working);
+        _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+
+        var resp = await PostPrompt(new { text = "carry on", appendEnter = true, agentDriven = false, onlyWhenWaitingForInput = false },
+            bearer: key);
+
+        var arrived = LastArrived();
+        Assert.True(arrived.OnlyWhenWaitingForInput);
+        Assert.True(arrived.AgentDriven);
+        Assert.True(arrived.AppendEnter);
+        Assert.Equal("carry on", arrived.Text);
+        // The REAL executor ran the check. This test's session is an embedded one, whose terminal submits a whole turn
+        // in one call, so the guarded send is refused before anything is typed - and the route says so, 409, in words.
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("Nothing was typed", body);
+        Assert.Contains("one call", body);
+        Assert.Empty(_ledger);
+        Assert.Equal(0, _session.InputStats.Snapshot().AgentDrivenTurns);
+    }
+
+    [Fact]
+    public async Task A_session_key_prompting_a_session_it_owns_whose_owner_has_unsent_words_types_nothing_and_says_why()
+    {
+        var key = await KeyOfTheOwningSession();
+        _promptAnswer = _ => new PromptResponse
+        {
+            Accepted = false, RefusedBusy = true, IdleChecked = true, RefusedFor = PromptResponse.RefusedForOwnerDraft,
+            ActivityState = "WaitingForInput", Error = "the owner has unsent text in the composer; nothing was typed",
+        };
+
+        var resp = await PostPrompt(new { text = "carry on" }, bearer: key);
+
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+        var answer = await resp.Content.ReadFromJsonAsync<PromptResponse>();
+        Assert.NotNull(answer);
+        Assert.False(answer!.Accepted);
+        Assert.Equal(PromptResponse.RefusedForOwnerDraft, answer.RefusedFor);
+        Assert.Contains("never typed over", answer.Error);
+        Assert.Contains("cc-devthrottle message send", answer.Error);
+    }
+
+    [Fact]
+    public async Task A_session_key_prompting_a_session_it_owns_is_not_told_delivered_without_the_directors_check()
+    {
+        // A Director that answers accepted but does not say it made the check is not believed: the same reading the Fleet
+        // Manager's events give that answer. The text may have been typed, so the answer never says it was not.
+        var key = await KeyOfTheOwningSession();
+        _promptAnswer = _ => new PromptResponse { Accepted = true, IdleChecked = false, ActivityState = "Working" };
+
+        var resp = await PostPrompt(new { text = "carry on" }, bearer: key);
+
+        Assert.Equal(HttpStatusCode.BadGateway, resp.StatusCode);
+        var answer = await resp.Content.ReadFromJsonAsync<PromptResponse>();
+        Assert.False(answer!.Accepted);
+        Assert.Contains("not counted as delivered", answer.Error);
+        Assert.DoesNotContain("Nothing was typed", answer.Error);
+    }
+
+    [Fact]
+    public async Task A_session_key_prompting_a_session_it_owns_that_takes_it_gets_the_directors_answer()
+    {
+        var key = await KeyOfTheOwningSession();
+        _promptAnswer = _ => new PromptResponse { Accepted = true, IdleChecked = true, ActivityState = "Working" };
+
+        var resp = await PostPrompt(new { text = "carry on" }, bearer: key);
+
+        await AssertOk(resp);
+        var answer = await resp.Content.ReadFromJsonAsync<PromptResponse>();
+        Assert.True(answer!.Accepted);
+        Assert.True(answer.IdleChecked);
     }
 
     [Fact]

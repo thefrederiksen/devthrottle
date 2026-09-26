@@ -704,9 +704,11 @@ _ACTIONS = [
     {
         "id": "session-compact-continue",
         "description": (
-            "Compact a session's context and THEN type a prompt into it - the owner's rescue for a stuck "
-            "session. The Gateway REFUSES this to every agent: only the owner types into a session. An "
-            "agent compacts with session-compact and then queues a message with message-send."
+            "Compact a session's context and THEN type a prompt into it - the rescue for a stuck session. "
+            "An agent may do this only to a session it OWNS (one it started with --controlled-by self, or "
+            "was handed); the follow-up is typed only when the session is waiting for a prompt and never "
+            "over words the owner typed and did not send. For any other session, compact with "
+            "session-compact and queue a message with message-send."
         ),
         "command": 'cc-devthrottle session compact-continue [target] ["<message>"]',
         "mutatesState": True,
@@ -2183,10 +2185,15 @@ def prompt(
         False, "--no-submit", help="Type the text but do not press Enter - leave it in the composer."
     ),
 ) -> None:
-    """Type raw text into a session. REFUSED to agents: only the owner may type.
+    """Type text into a session YOU OWN, and press Enter.
 
-    The Gateway refuses this to every session key and says what to do instead - queue a message
-    with `message send`, which the recipient reads when it is free.
+    An agent may type only into a session it owns - one it started with --controlled-by self, or
+    was handed. Any other session is refused, and the refusal says to queue a message with
+    `message send` instead, which the recipient reads when it is free.
+
+    It is typed only when that session is waiting for a prompt, and NEVER over words the owner typed
+    into its composer and did not send: then nothing is typed and the answer says why. An agent's
+    prompt is always submitted, so --no-submit is refused to agents.
     """
     prompt_session(target, text, no_submit=no_submit)
 
@@ -2197,7 +2204,10 @@ def interrupt(
         None, help="Session to interrupt. Defaults to THIS session (CC_SESSION_ID)."
     ),
 ) -> None:
-    """Interrupt a session. REFUSED to agents: only the owner interrupts a session."""
+    """Interrupt a session. REFUSED to agents: only the owner interrupts a session.
+
+    Even a session the agent owns: Ctrl+C clears the owner's unsent words from the composer.
+    """
     interrupt_session(target)
 
 
@@ -2368,9 +2378,11 @@ def compact_continue(
     swallowed and the tool just reprints its context-limit line. Compaction is the only thing that
     unblocks it, and this verb also gets it moving again afterwards.
 
-    THE OWNER'S TOOL. The message it sends afterwards is typed into the session, so the Gateway
-    refuses this verb to every session key (an agent may not type into a session). An agent rescuing
-    its own worker runs `cc-devthrottle session compact` and queues a message instead.
+    AN AGENT MAY RESCUE ONLY A SESSION IT OWNS - one it started with --controlled-by self, or was
+    handed. The message sent afterwards is typed into the session, so for any other session the
+    Gateway refuses this verb; compact that one with `cc-devthrottle session compact` and queue a
+    message instead. For a session it owns, the message is typed only when the session is waiting for
+    a prompt and never over words the owner typed into its composer and did not send.
 
     The message is sent only once the compaction has actually FINISHED - never on a timer. A prompt
     fired while the tool is still summarizing gets swallowed exactly like the ones that were lost
