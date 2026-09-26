@@ -223,7 +223,8 @@ public partial class MainPage : ContentPage
         var options = new List<string> { isPlaying ? "Stop playing" : "Play recording" };
         if (!string.IsNullOrWhiteSpace(row.Transcript)) options.Add("Read transcript");
         if (row.State is "Queued" or "Retry") options.Add("Upload now");
-        if (row.Interrupted) options.Add("Why was it interrupted?");
+        if (row.State == RecordingUploadGate.NoAudio) options.Add("Why is it empty?");
+        else if (row.Interrupted) options.Add("Why was it interrupted?");
         if (!string.IsNullOrWhiteSpace(row.UploadError)) options.Add("Why did upload fail?");
         if (!string.IsNullOrWhiteSpace(row.TranscriptError)) options.Add("Why did transcription fail?");
 
@@ -239,6 +240,9 @@ public partial class MainPage : ContentPage
                     (row.CaptureError ?? "The recording was cut off before it was stopped.")
                     + " Everything that could be saved was kept and queued for upload;"
                     + " the tail of the audio may be missing.", "OK");
+                break;
+            case "Why is it empty?":
+                await DisplayAlert("Nothing recorded", row.CaptureError ?? RecordingUploadGate.NoAudioReason, "OK");
                 break;
             case "Why did upload fail?": await DisplayAlert("Upload error", row.UploadError ?? "", "OK"); break;
             case "Why did transcription fail?": await DisplayAlert("Transcription error", row.TranscriptError ?? "", "OK"); break;
@@ -373,6 +377,7 @@ public partial class MainPage : ContentPage
         {
             "Recording" => "Recording...",
             "Queued" => "Queued for upload",
+            RecordingUploadGate.NoAudio => "Nothing recorded (tap for details)",
             "Uploading" => string.IsNullOrWhiteSpace(r.UploadProgress) ? "Uploading..." : r.UploadProgress,
             "Retry" => "Upload failed - tap to retry",
             "Uploaded" => r.TranscriptionState switch
