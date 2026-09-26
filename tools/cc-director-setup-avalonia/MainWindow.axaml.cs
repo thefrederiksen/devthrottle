@@ -126,7 +126,40 @@ public partial class MainWindow : Window
             _installStep?.SetUpdateMode();
 
         if (step == StepInstall)
-            _ = RunInstallAsync();
+            _ = RunGuardedAsync(RunInstallAsync, "install");
+    }
+
+    /// <summary>
+    /// Run an install or repair so that an exception can never leave the window on a disabled
+    /// "Installing..." button with no message. That happened when a download threw out of the Director
+    /// placement: the fire-and-forget task swallowed it, nothing was logged, nothing was reported (#3311).
+    /// </summary>
+    private async Task RunGuardedAsync(Func<Task> run, string step)
+    {
+        try
+        {
+            await run();
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[MainWindow] {step} FAILED with an exception: {ex}");
+            var sent = await WizardErrorReport.SendAsync("wizard", step, $"The {step} stopped: {ex.GetType().Name}: {ex.Message}", ex);
+            ShowUnexpectedError(ex, sent);
+        }
+    }
+
+    /// <summary>Say on screen that the wizard hit an error, where its log is, and offer Retry.</summary>
+    public void ShowUnexpectedError(Exception ex, bool? reportSent = null)
+    {
+        var reported = reportSent switch
+        {
+            true => " A report of this error was sent to DevThrottle.",
+            false => " A report could not be sent.",
+            null => "",
+        };
+        _installStep?.SetStatus($"ERROR: {ex.Message}.{reported} The log is at {SetupLog.Path}");
+        NextButton.Content = "Retry";
+        NextButton.IsEnabled = true;
     }
 
     private void UpdateSidebar()
@@ -225,6 +258,7 @@ public partial class MainWindow : Window
         catch (GitHubRateLimitException ex)
         {
             SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED (rate limit): {ex.Message}");
+            _ = WizardErrorReport.SendAsync("wizard", "release-fetch", $"GitHub rate limit while fetching the release: {ex.Message}", ex);
             _installStep?.SetNotStarted();
             _installStep?.SetStatus(ex.UserMessage());
             NextButton.Content = "Retry";
@@ -245,7 +279,9 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED: {ex.Message}");
+            SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED: {ex}");
+            // Shown on screen, and the most likely first failure on a brand-new machine - it was never reported.
+            _ = WizardErrorReport.SendAsync("wizard", "release-fetch", $"Could not fetch release info: {ex.GetType().Name}: {ex.Message}", ex);
             _installStep?.SetNotStarted();
             _installStep?.SetStatus("ERROR: Could not fetch release info from GitHub.");
             NextButton.Content = "Retry";
@@ -281,7 +317,7 @@ public partial class MainWindow : Window
     {
         SetupLog.Write("[MainWindow] OnRepairRequested: user requested repair reinstall");
         _alreadyUpToDate = false;
-        _ = RunRepairAsync();
+        _ = RunGuardedAsync(RunRepairAsync, "repair");
     }
 
     private async Task RunRepairAsync()
