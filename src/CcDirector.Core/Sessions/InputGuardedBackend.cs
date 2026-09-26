@@ -151,6 +151,11 @@ public sealed record GuardedSendResult(bool Accepted, bool RefusedBusy, bool Exi
     /// <summary>Which fixed refusal this was, or null for the others.</summary>
     public PromptRefusal? RefusedFor { get; init; }
 
+    /// <summary>True when nothing was typed because the prompt was strictly older than the delivery age limit (phase
+    /// 5, QA finding F6). Not a busy refusal: the sender does not wait and try again, it answers the delivery
+    /// not-delivered with the too-old reason.</summary>
+    public bool RefusedTooOld { get; init; }
+
     public static GuardedSendResult Sent(ActivityState state) => new(true, false, false, state, null);
 
     /// <summary>The session was not waiting for a prompt, or the send was abandoned and its text taken back out.</summary>
@@ -166,6 +171,12 @@ public sealed record GuardedSendResult(bool Accepted, bool RefusedBusy, bool Exi
         $"the session's {backend} terminal submits a whole turn in one call, which cannot be taken back once started, " +
         "so a send that holds the owner's input is never made to it; nothing was sent")
     { RefusedFor = PromptRefusal.OneCallSubmit };
+
+    /// <summary>The prompt was strictly older than the delivery age limit (phase 5, QA finding F6); nothing was
+    /// typed. A refusal the sender must NOT retry: the delivery is answered not-delivered with the too-old
+    /// reason, not held for the session's next idle moment.</summary>
+    public static GuardedSendResult TooOld(ActivityState state, string reason) => new(false, false, false, state, reason)
+    { RefusedTooOld = true };
 
     public static GuardedSendResult NotRunning(ActivityState state) => new(false, false, true, state, "session has exited");
 }
