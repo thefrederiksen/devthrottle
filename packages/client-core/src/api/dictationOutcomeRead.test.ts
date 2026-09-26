@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readDictationOutcome } from "./client";
+import { readDictationOutcome, readPromptOutcome } from "./client";
 
 // GET /dictation/{uploadId}/outcome (voice delivery phase 5, #3398): the client's only call for a delivery the
 // Gateway owns. Read-only on the Gateway; the client reads its 200 bodies by the complete call's own rules.
@@ -91,6 +91,67 @@ describe("readDictationOutcome", () => {
     mockFetch(() => fakeResponse(404, { error: "no such upload" }));
 
     expect(await readDictationOutcome(UPLOAD_ID)).toEqual({ kind: "not-found" });
+  });
+
+  // THE HANDBACK ANSWERS (voice delivery phase 5, review round): a Gateway-driven attempt that hit something
+  // only the client can act on. The outcome read answers the SAME bodies the complete path gives - never 404
+  // "the server has lost track" - so each is read by the complete path's own rules.
+  it("a 402 handback is out-of-credits, carrying the Gateway's mapped copy (rule 7), not acknowledged", async () => {
+    const calls = mockFetch(() => fakeResponse(402, {
+      error: "Out of credits", state: "NeedsCredits", text: "Out of credits",
+      ctaLabel: "Add credits", ctaAction: "Url", ctaUrl: "/credits",
+    }));
+
+    const read = await readDictationOutcome(UPLOAD_ID);
+
+    expect(read.kind).toBe("out-of-credits");
+    if (read.kind !== "out-of-credits") throw new Error("not out-of-credits");
+    expect(read.message).toContain("Out of transcription credits");
+    expect(calls.some((c) => c.url.endsWith("/ack"))).toBe(false);
+  });
+
+  it("a 402 handback with a non-credits state shows the Gateway's own mapped copy, never credits wording", async () => {
+    mockFetch(() => fakeResponse(402, {
+      error: "A subscription is required", state: "SubscriptionRequired", text: "A subscription is required",
+      ctaLabel: "", ctaAction: "None", ctaUrl: null,
+    }));
+
+    const read = await readDictationOutcome(UPLOAD_ID);
+
+    if (read.kind !== "out-of-credits") throw new Error("not out-of-credits");
+    expect(read.message).toContain("A subscription is required");
+    expect(read.message).not.toContain("credits");
+  });
+
+  it("a 422 handback is a permanent failure with the allow-listed reason", async () => {
+    mockFetch(() => fakeResponse(422, { permanent: true, reason: "unsupported-format" }));
+
+    const read = await readDictationOutcome(UPLOAD_ID);
+
+    expect(read).toEqual({ kind: "permanent", reason: "unsupported-format" });
+  });
+
+  it("a 409 handback is incomplete with the chunks to send again", async () => {
+    mockFetch(() => fakeResponse(409, { status: "incomplete", missing: [0, 2] }));
+
+    const read = await readDictationOutcome(UPLOAD_ID);
+
+    expect(read).toEqual({ kind: "incomplete", missing: [0, 2] });
+  });
+
+  it("a 409 that is not an incomplete handback is the record refusal, thrown with its reason", async () => {
+    mockFetch(() => fakeResponse(409, {
+      error: "the delivery record is Malformed; refusing to re-open it",
+      record: "Malformed", file: "C:/record.json",
+    }));
+
+    await expect(readDictationOutcome(UPLOAD_ID)).rejects.toThrow("refusing to re-open");
+  });
+
+  it("the prompt outcome route never answers a handback: its 402 still throws", async () => {
+    mockFetch(() => fakeResponse(402, { error: "no credits", state: "Unavailable" }));
+
+    await expect(readPromptOutcome("sid", UPLOAD_ID)).rejects.toThrow();
   });
 
   it("any other answer is a read that did not happen, and throws", async () => {

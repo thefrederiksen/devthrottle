@@ -962,7 +962,12 @@ async function readOwnedOutcome(rec: PendingDictation): Promise<void> {
 }
 
 // Render one outcome read. 202: still delivering, read again later. 200: final - delivered (delete the copy),
-// shown back (the phase 2 shown-back states, from the Gateway's reason and offer), or nothing heard. 404 for a
+// shown back (the phase 2 shown-back states, from the Gateway's reason and offer), or nothing heard. The
+// HANDBACK answers (voice delivery phase 5, review round) end the Gateway's ownership and hand the recording
+// back: the client clears its "held by the Gateway" mark and shows the state it already has for that answer -
+// out of credits is the same held strip the complete's 402 always showed (Retry, throttled), a permanent
+// failure is the parked strip with Retry, and an incomplete upload resumes its own chunk upload. Dismiss is
+// never the only action on any of them, and nothing is deleted: the recording is still on the device. 404 for a
 // record the Gateway owns: an error naming the upload id, the copy kept, and NOTHING re-driven.
 async function applyOwnedOutcome(rec: PendingDictation, read: DictationOutcomeRead): Promise<void> {
   if (read.kind === "delivering") {
@@ -973,6 +978,32 @@ async function applyOwnedOutcome(rec: PendingDictation, read: DictationOutcomeRe
     }
     publishDelivering(owned);
     scheduleOutcomeRead(owned);
+    return;
+  }
+  if (read.kind === "out-of-credits") {
+    // The Gateway drove the delivery and the transcription provider answered out of credits. The client
+    // owns the delivery again: the mark is cleared so the ordinary driver (and the owner's Retry, and the
+    // throttled retry below) completes again - a new complete re-enters through the Gateway's FAILED
+    // re-entry and delivers once credits are added.
+    const handed = await clearOwnedMark(rec);
+    publishHeld(handed, read.message);
+    scheduleNext(handed, 0, true);
+    return;
+  }
+  if (read.kind === "permanent") {
+    // The clip can never be transcribed: the Gateway handed it back parked, exactly as the complete's 422
+    // always did. The recording is kept on the device and only an explicit Retry re-drives it.
+    const handed = await clearOwnedMark({ ...rec, parkedReason: read.reason });
+    publishParked(handed, read.reason);
+    return;
+  }
+  if (read.kind === "incomplete") {
+    // A staged chunk is gone on the Gateway, and only this device has the bytes. The mark is cleared so the
+    // ordinary driver resumes the upload: register, send exactly the missing chunks, complete again - the
+    // Gateway takes the delivery over once every chunk is staged.
+    const handed = await clearOwnedMark(rec);
+    publishHeld(handed, RETRYING_MESSAGE);
+    scheduleNext(handed, 0, false);
     return;
   }
   if (read.kind === "not-found") {
@@ -987,6 +1018,21 @@ async function applyOwnedOutcome(rec: PendingDictation, read: DictationOutcomeRe
     return;
   }
   await applyFinalOutcome(rec, read.result);
+}
+
+// A delivery the Gateway handed back: clear the "held by the Gateway" mark on the durable record, so every
+// automatic trigger drives it again, and return the cleared record. The Gateway is no longer driving this
+// delivery - keeping the mark would strand it behind read-only logic.
+async function clearOwnedMark(rec: PendingDictation): Promise<PendingDictation> {
+  const handed: PendingDictation = { ...rec, heldByGateway: undefined };
+  try {
+    await savePending(handed);
+  } catch (err) {
+    // The store hiccuped. The state below is still shown; a reload finds the mark and reads again, and the
+    // handback answer is what it reads - so the copy is never stranded either way.
+    console.error(`[backgroundSend] could not clear the Gateway-owned mark of ${rec.id}: ${errText(err)}`);
+  }
+  return handed;
 }
 
 // A final answer for an owned record. For a "Send anyway" the words shown back are the ones the record already

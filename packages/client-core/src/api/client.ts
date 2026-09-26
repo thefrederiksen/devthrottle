@@ -439,7 +439,16 @@ export class GatewayError extends Error {
  *  must never turn a failed request into a thrown parse error. */
 async function readFailureDetail(res: Response): Promise<GatewayFailureDetail> {
   try {
-    const text = await res.text();
+    return failureDetailFromText(await res.text());
+  } catch {
+    return {};
+  }
+}
+
+// The parse half of readFailureDetail, shared with a caller that has already read the body's text (the
+// dictation handback reader, which must not re-read a consumed response).
+function failureDetailFromText(text: string): GatewayFailureDetail {
+  try {
     if (!text.trim()) return {};
     try {
       const body = JSON.parse(text) as Record<string, unknown>;
@@ -2706,18 +2715,29 @@ export async function uploadDictationToSession(
  *  - `resolved`: 200, final - delivered, or shown back with the Gateway's reason and offer. Already
  *    acknowledged, exactly as a final complete answer is.
  *  - `not-found`: 404, the Gateway does not own this upload (not owned yet, or no such upload for this
- *    account). */
+ *    account).
+ *  - `out-of-credits` / `permanent` / `incomplete` (voice delivery phase 5, review round): the Gateway
+ *    HANDED the recording back - its own attempt ran out of transcription credits, found a permanent
+ *    transcription failure, or lost a staged chunk. Each carries the same body the complete path gives
+ *    for it, so the caller shows the state it already has: the mapped 402 copy with Retry, the parked
+ *    permanent failure with Retry, or the missing chunk list to send again. Dictation-only: a typed
+ *    prompt is never transcribed, so the prompt outcome route never answers these. */
 export type DictationOutcomeRead =
   | { kind: "delivering"; directorState?: string }
   | { kind: "resolved"; result: DictationSubmitResult }
-  | { kind: "not-found" };
+  | { kind: "not-found" }
+  | { kind: "out-of-credits"; message: string }
+  | { kind: "permanent"; reason: PermanentDictationReason }
+  | { kind: "incomplete"; missing: number[] };
 
 // GET /dictation/{uploadId}/outcome (voice delivery phase 5, #3398): once the Gateway has answered a complete
 // (or a "Send anyway") with 202, it drives the delivery to its end itself, and the client only READS what it
 // ruled. The 200 bodies are the complete call's own shapes - for a dictation and for a "Send anyway" of it - so
 // they are read by the same rules: a shown-back answer must carry the Gateway's offerSendAnyway, and a final
-// answer is acknowledged before it is returned, as the complete path does. Anything but 200, 202 and 404 is a
-// read that did not happen and is thrown as such (a network failure throws too); the caller reads again later.
+// answer is acknowledged before it is returned, as the complete path does. The handback answers (402, 422,
+// 409-incomplete) are read by the same bodies' own rules, exactly as a complete answer is. Anything but 200,
+// 202, 404 and the handbacks is a read that did not happen and is thrown as such (a network failure throws
+// too); the caller reads again later.
 export async function readDictationOutcome(uploadId: string): Promise<DictationOutcomeRead> {
   const id = encodeURIComponent(uploadId);
   return readDeliveryOutcome(
@@ -2725,7 +2745,38 @@ export async function readDictationOutcome(uploadId: string): Promise<DictationO
     () => ackDictation(id),
     `upload ${uploadId}`,
     "read what became of that recording",
+    readDictationHandback,
   );
+}
+
+// The handback answers of the dictation outcome route (voice delivery phase 5, review round: the Gateway
+// drove the delivery and hit something only the CLIENT can act on). Each is read EXACTLY as the complete path
+// reads the same status: the 402 through the one credits parse and copy (rule 7 - the Gateway's mapped
+// state, never a guess), the 422 through the same allow-listed permanent reason, the 409 through the same
+// incomplete body. A 409 that is not an incomplete handback is the record refusal (issue #2745): its body is
+// already read, so the error is built here rather than re-reading a consumed response. Returns undefined only
+// for a status it did not read, leaving the shared reader to throw for it.
+async function readDictationHandback(res: Response, action: string): Promise<DictationOutcomeRead | undefined> {
+  if (res.status === 402) {
+    const err = creditsErrorFrom(await res.json().catch(() => ({})));
+    return { kind: "out-of-credits", message: dictationHeld402Message(err.info) };
+  }
+  if (res.status === 422) {
+    const body = (await res.json().catch(() => ({}))) as { permanent?: boolean; reason?: string };
+    return { kind: "permanent", reason: permanentReasonFrom(body.permanent, body.reason) ?? "audio-too-large" };
+  }
+  if (res.status === 409) {
+    const text = await res.text().catch(() => "");
+    let body: { status?: string; missing?: unknown } = {};
+    try { body = JSON.parse(text) as typeof body; } catch { /* not JSON: not a handback; the refusal below names it */ }
+    if (body.status === "incomplete" && Array.isArray(body.missing)) {
+      const missing = body.missing.filter((n): n is number => typeof n === "number");
+      if (missing.length > 0) return { kind: "incomplete", missing };
+    }
+    const detail = failureDetailFromText(text);
+    throw new GatewayError(res.status, detail.reason ?? `Could not ${action} (error ${res.status}).`, detail);
+  }
+  return undefined;
 }
 
 // GET /sessions/{sid}/prompts/{deliveryId}/outcome (voice delivery phase 5, contract section 7, T5): a typed
@@ -2748,12 +2799,14 @@ export async function readPromptOutcome(sessionId: string, deliveryId: string): 
 // The one reader of a held delivery's outcome, for a recording and for a typed prompt alike. 404 is
 // `not-found`; 202 is `delivering`; 200 is final and read by the complete call's rules (a shown-back answer
 // must carry offerSendAnyway, or it is an error naming the delivery, thrown BEFORE the acknowledgement so the
-// Gateway keeps its record). Anything else, or a network failure, throws: the read did not happen.
+// Gateway keeps its record). `namedStatuses`, when given, reads the route's own handback answers first
+// (dictation-only today); anything else, or a network failure, throws: the read did not happen.
 async function readDeliveryOutcome(
   path: string,
   ack: () => Promise<void>,
   subject: string,
   action: string,
+  namedStatuses?: (res: Response, action: string) => Promise<DictationOutcomeRead | undefined>,
 ): Promise<DictationOutcomeRead> {
   const res = await gatewayFetch(path, {
     method: "GET",
@@ -2763,6 +2816,10 @@ async function readDeliveryOutcome(
   if (res.status === 202) {
     const body = (await res.json().catch(() => ({}))) as { directorState?: string };
     return { kind: "delivering", directorState: body.directorState };
+  }
+  if (namedStatuses) {
+    const named = await namedStatuses(res, action);
+    if (named !== undefined) return named;
   }
   if (res.status !== 200) throw await GatewayError.from(res, action);
   const body = (await res.json().catch(() => ({}))) as {

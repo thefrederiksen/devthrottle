@@ -7,6 +7,7 @@ using CcDirector.Core;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Transcription;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
@@ -430,6 +431,249 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         Assert.Equal(1, driver.HeldCount);
     }
 
+    // ===== a delivery the Gateway HANDED BACK to the client (review round, the ruling on finding 1) =========
+
+    [Fact]
+    public async Task AnOutOfCreditsDriverAttempt_IsHandedBack_TheOutcomeReadAnswers402_AndARetryDeliversOnce()
+    {
+        // The reviewer's scenario: the first complete is held waiting-for-director (nothing transcribed), the
+        // Director comes back, and the DRIVER's attempt is the one that discovers the account is out of
+        // transcription credits - there is no client listening to that 402. The ruling: the Gateway hands the
+        // recording back - the outcome read answers the SAME 402 body the complete path gives (never 404 "the
+        // server has lost track"), the record is kept, the owner sees the out-of-credits state with Retry, and
+        // his Retry complete re-enters through the FAILED re-entry and delivers once.
+        var (driver, _) = NewDriver();
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _pushed.UnregisterConnection(TenantId.Local, DirectorId, "conn-1");   // the Director's tunnel is down
+
+        var first = await OwnAndAttemptAsync(driver, uploadId, sid);
+        Assert.Equal(202, first.Status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, first.Body.GetProperty("directorState").GetString());
+        Assert.Equal(0, _transcriber.Calls);
+        Assert.Equal(0, Prompts());
+
+        // The tunnel comes back - and the transcription provider answers out of credits.
+        _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-2");
+        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-2", ++_pushedSeq, new[] { Session(sid) }));
+        _transcriber.OutOfCredits = true;
+        driver.OnSessionsArrived(TenantId.Local, DirectorId);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } && DateTime.UtcNow < deadline)
+            await Task.Delay(50);
+
+        // The driver stopped driving it and said why.
+        Assert.Equal(0, driver.HeldCount);
+        var handback = Lines(uploadId).Single(l => l.Decision == DeliveryDecisions.GatewayHandedBack);
+        Assert.Equal(DeliveryDecisions.HandbackOutOfCredits, handback.Facts!.Reason);
+        // The record is KEPT: parked FAILED with the provider's code, its chunks retained for the retry.
+        var parked = _store.ReadRecord(uploadId)!;
+        Assert.Equal(DictationDeliveryState.Failed, parked.State);
+        Assert.Equal("insufficient_credits", parked.Reason);
+        Assert.True(File.Exists(ChunkPath(uploadId)));
+
+        // The outcome read answers the same 402 the complete path gives - never 404.
+        var read = await RenderAsync(GatewayDictationEndpoint.OutcomeOf(_store, uploadId));
+        Assert.Equal(402, read.Status);
+        Assert.Equal("NeedsCredits", read.Body.GetProperty("state").GetString());
+
+        // The owner's Retry: a new complete, which re-enters through the FAILED re-entry, is owned again,
+        // and delivers ONCE.
+        _transcriber.OutOfCredits = false;
+        var owned = Owned(sid);
+        Assert.True(_store.OpenPending(uploadId, sid).Opened);   // the register half of the retry
+        Assert.Equal(DictationOwnership.Taken, _store.TakeOwnership(uploadId, owned).Result);
+        var outcome = await _delivery!.AttemptAsync(TenantId.Local, _store, uploadId, owned, driveTrigger: null);
+        Assert.True((await RenderAsync(outcome.ToResult())).Body.GetProperty("submitted").GetBoolean());
+        Assert.Equal(1, Prompts());
+        Assert.Equal(2, _transcriber.Calls);   // the one that ran out of credits, and the retry's
+        Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
+    }
+
+    [Fact]
+    public async Task APermanentFailureOnADriverAttempt_IsHandedBack_TheOutcomeReadAnswers422_AndARetryReEnters()
+    {
+        // The same ruling for a clip that can never be transcribed: nothing before ownership proved it
+        // (the first attempt held at the reachability gate), so the DRIVER's attempt is the first to hear
+        // the permanent failure. The outcome read answers the same 422 the complete path gives, and the
+        // owner's Retry re-enters PENDING and is owned again - no dead end.
+        if (!OperatingSystem.IsWindows()) return;   // the failing-ffmpeg transcode path below is Windows-shaped
+        var (driver, _) = NewDriver();
+        var sid = Seat();
+        var uploadId = await StagedBigNonWavClipAsync(sid);
+        _pushed.UnregisterConnection(TenantId.Local, DirectorId, "conn-1");
+
+        var first = await OwnAndAttemptAsync(driver, uploadId, sid);
+        Assert.Equal(202, first.Status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, first.Body.GetProperty("directorState").GetString());
+        Assert.Equal(0, _transcriber.Calls);
+
+        // The tunnel comes back; the clip is over-budget non-WAV, so the pipeline transcodes it - and the
+        // ffmpeg the test points at cannot decode anything, which is the REAL permanent path: a clip
+        // ffmpeg cannot decode is a permanent failure, never retried forever.
+        var failingFfmpeg = Path.Combine(_root, "failing-ffmpeg.bat");
+        File.WriteAllText(failingFfmpeg, "@exit /b 1\r\n");
+        var prevFfmpeg = Environment.GetEnvironmentVariable("CCDIRECTOR_FFMPEG");
+        Environment.SetEnvironmentVariable("CCDIRECTOR_FFMPEG", failingFfmpeg);
+        try
+        {
+            _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-2");
+            Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-2", ++_pushedSeq, new[] { Session(sid) }));
+            driver.OnSessionsArrived(TenantId.Local, DirectorId);
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } && DateTime.UtcNow < deadline)
+                await Task.Delay(50);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CCDIRECTOR_FFMPEG", prevFfmpeg);
+        }
+
+        Assert.Equal(0, driver.HeldCount);
+        var handback = Lines(uploadId).Single(l => l.Decision == DeliveryDecisions.GatewayHandedBack);
+        Assert.Equal(DeliveryDecisions.HandbackPermanent, handback.Facts!.Reason);
+        Assert.Equal(TranscriptionPermanentException.UnsupportedFormat, _store.ReadRecord(uploadId)!.Reason);
+        Assert.True(File.Exists(ChunkPath(uploadId)));
+
+        // The outcome read answers the same 422 the complete path gives - never 404.
+        var read = await RenderAsync(GatewayDictationEndpoint.OutcomeOf(_store, uploadId));
+        Assert.Equal(422, read.Status);
+        Assert.True(read.Body.GetProperty("permanent").GetBoolean());
+        Assert.Equal("unsupported-format", read.Body.GetProperty("reason").GetString());
+
+        // The owner's Retry re-enters through the FAILED re-entry and is owned again (the same clip then
+        // parks again, honestly - it can never be transcribed): no dead end either way.
+        Assert.True(_store.OpenPending(uploadId, sid).Opened);
+        var owned = Owned(sid);
+        Assert.Equal(DictationOwnership.Taken, _store.TakeOwnership(uploadId, owned).Result);
+        Assert.Equal(DictationOwnership.AlreadyOwned, _store.TakeOwnership(uploadId, owned).Result);
+    }
+
+    [Fact]
+    public async Task AnOwnedRecordWhoseChunkVanished_IsHandedBack_TheOutcomeReadAnswers409_AndTheClientCanCompleteAgain()
+    {
+        // The third handback: a staged chunk is gone, so only the client - which holds the audio - can
+        // finish the upload. The driver hands it back (ownership leaves with it, so a re-uploading
+        // client's complete takes the delivery over again instead of being answered "still delivering"
+        // by a record the Gateway can no longer finish), the outcome read answers the same 409 with the
+        // missing chunks, and once the client has sent them the delivery is taken over and delivered.
+        var (driver, _) = NewDriver();
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _pushed.UnregisterConnection(TenantId.Local, DirectorId, "conn-1");
+        var first = await OwnAndAttemptAsync(driver, uploadId, sid);
+        Assert.Equal(202, first.Status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, first.Body.GetProperty("directorState").GetString());
+
+        // The staged chunk vanishes after ownership (a sweep, a disk fault). The Director's tunnel comes
+        // BACK first - the handback is discovered by an attempt that gets PAST the reachability gate to the
+        // assemble, where the missing chunk is found before any transcription.
+        File.Delete(ChunkPath(uploadId));
+        _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-2");
+        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-2", ++_pushedSeq, new[] { Session(sid) }));
+        driver.OnSessionsArrived(TenantId.Local, DirectorId);
+
+        // The director-connected wake runs off the caller's thread, exactly as it does in the host: wait for
+        // the handback to land, bounded.
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Pending, Owned: null }
+               && DateTime.UtcNow < deadline)
+            await Task.Delay(50);
+
+        // The driver handed it back and stopped driving it.
+        Assert.Equal(0, driver.HeldCount);
+        var handback = Lines(uploadId).Single(l => l.Decision == DeliveryDecisions.GatewayHandedBack);
+        Assert.Equal(DeliveryDecisions.HandbackIncomplete, handback.Facts!.Reason);
+        Assert.Equal(1, handback.Facts!.TotalChunks);
+        // Ownership left with the handback; the words, the session and the register-time Director stay.
+        var record = _store.ReadRecord(uploadId)!;
+        Assert.Equal(DictationDeliveryState.Pending, record.State);
+        Assert.Null(record.Owned);
+        Assert.Equal(sid, record.SessionId);
+
+        // The outcome read answers the same 409 the complete path gives, naming the missing chunk.
+        var read = await RenderAsync(GatewayDictationEndpoint.OutcomeOf(_store, uploadId));
+        Assert.Equal(409, read.Status);
+        Assert.Equal("incomplete", read.Body.GetProperty("status").GetString());
+        Assert.Equal(new[] { 0 }, read.Body.GetProperty("missing").EnumerateArray().Select(m => m.GetInt32()).ToArray());
+
+        // The client re-uploads the chunk and completes again: the delivery is taken over and delivered once.
+        _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-2");
+        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-2", ++_pushedSeq, new[] { Session(sid) }));
+        await _store.StoreChunkAsync(uploadId, 0, Encoding.UTF8.GetBytes("fake-opus-bytes"), null);
+        var owned = Owned(sid);
+        Assert.Equal(DictationOwnership.Taken, _store.TakeOwnership(uploadId, owned).Result);
+        var outcome = await _delivery!.AttemptAsync(TenantId.Local, _store, uploadId, owned, driveTrigger: null);
+        Assert.True((await RenderAsync(outcome.ToResult())).Body.GetProperty("submitted").GetBoolean());
+        Assert.Equal(1, Prompts());
+        Assert.Equal(1, _transcriber.Calls);
+        Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
+    }
+
+    // ===== the Director is remembered at REGISTER, before any locate (review round, finding 2) ===========
+
+    [Fact]
+    public async Task ASessionDeletedBeforeTheFirstComplete_IsProvedEndedAtOnce_ByTheDirectorTheRegisterWrote()
+    {
+        // The reviewer's probe. The owner starts a recording - the session is live enough for that - and
+        // deletes it while the clip is uploading, so NO attempt ever locates the session and the
+        // locate-time remember never runs. Until this fix the record named no Director, the end could not
+        // be proved, and the owner was held for five minutes and then offered "Send anyway" to a session
+        // that does not exist. The register now writes the session's Director on the record the moment the
+        // Gateway first knows the upload, so the FIRST complete proves the end at once: session-exited, no
+        // "Send anyway", nothing sent, and the words the record kept are what the answer carries.
+        var (driver, _) = NewDriver();
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        // The register, exactly as the route performs it: the session is live, so its Director is located
+        // and written on the record before anything else happens.
+        var (directorAtRegister, _) = await GatewayEndpoints.LocateSessionAsync(
+            _registry, sid, _pushed, TimeSpan.FromSeconds(20), TenantId.Local, owners: null);
+        Assert.NotNull(directorAtRegister);
+        Assert.True(_store.RememberSessionDirector(uploadId, directorAtRegister!.DirectorId));
+        Assert.Equal(DirectorId, _store.ReadRecord(uploadId)!.DirectorId);
+
+        // The owner deletes the session: its Director is connected and fresh and no longer lists it.
+        Assert.True(_pushed.ApplyRemove(TenantId.Local, DirectorId, "conn-1", ++_pushedSeq, sid));
+
+        var first = await OwnAndAttemptAsync(driver, uploadId, sid);
+        Assert.Equal(200, first.Status);
+        Assert.False(first.Body.GetProperty("submitted").GetBoolean());
+        Assert.True(first.Body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal("session-exited", first.Body.GetProperty("reason").GetString());
+        Assert.False(first.Body.GetProperty("offerSendAnyway").GetBoolean());
+        // The words the record kept are what travels - here none were kept (resolving at once precedes any
+        // transcription), and the recording is still on the device.
+        Assert.Equal(_store.SentWords(uploadId), first.Body.GetProperty("transcript").GetString());
+        Assert.Equal(0, Prompts());
+        Assert.Equal(0, _transcriber.Calls);
+        // The driver notices on its next pass that the record is no longer an owned one, and drops it.
+        _clock.Ahead = TimeSpan.FromSeconds(3);
+        await driver.TickAsync();
+        Assert.Equal(0, driver.HeldCount);
+        Assert.Equal(DeliveryDecisions.SessionExited, Names(uploadId).Last());
+    }
+
+    [Fact]
+    public async Task ARegisterWhoseSessionCannotBeLocated_WritesNoDirector_AndTheDeliveryHolds()
+    {
+        // The other half of the ruling: a register whose session cannot be located at that moment writes
+        // nothing, and the record then holds exactly as before - a record that names no Director proves
+        // nothing and must never guess an ending.
+        var (driver, _) = NewDriver();
+        var sid = Guid.NewGuid().ToString();   // no Director holds this session
+        var uploadId = await StagedClipAsync(sid);
+        var (directorAtRegister, _) = await GatewayEndpoints.LocateSessionAsync(
+            _registry, sid, _pushed, TimeSpan.FromSeconds(20), TenantId.Local, owners: null);
+        Assert.Null(directorAtRegister);   // the register writes nothing
+        Assert.Null(_store.ReadRecord(uploadId)!.DirectorId);
+
+        var first = await OwnAndAttemptAsync(driver, uploadId, sid);
+        Assert.Equal(202, first.Status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, first.Body.GetProperty("directorState").GetString());
+        Assert.Equal(1, driver.HeldCount);
+    }
+
     // ===== the Director itself refused it for age (contract section 9, F6) ================================
 
     [Fact]
@@ -611,6 +855,20 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         return uploadId;
     }
 
+    // A staged clip over the pipeline's per-request byte budget and not a WAV - the one shape whose
+    // transcription goes through the transcode, where a clip nothing can decode is a PERMANENT failure.
+    private async Task<string> StagedBigNonWavClipAsync(string sid)
+    {
+        var uploadId = Guid.NewGuid().ToString();
+        _store.Register(uploadId);
+        await _store.StoreChunkAsync(uploadId, 0, new byte[5_000_000], null);
+        _store.MarkPending(uploadId, sid);
+        return uploadId;
+    }
+
+    private string ChunkPath(string uploadId)
+        => Path.Combine(_root, "uploads", VoiceUploadStore.NormalizeUploadId(uploadId)!, "00000.part");
+
     private IReadOnlyList<DeliveryDecisionLine> Lines(string uploadId) => _store.ReadDecisions(uploadId).Lines;
     private string[] Names(string uploadId) => Lines(uploadId).Select(l => l.Decision).ToArray();
 
@@ -664,10 +922,17 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         public int Calls => Volatile.Read(ref _calls);
         /// <summary>Set by a test to make every transcription fail - a recording that can never be transcribed.</summary>
         public bool Fail;
+        /// <summary>Set by a test to make the provider answer out of credits (the hosted proxy's 402 shape).</summary>
+        public bool OutOfCredits;
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Interlocked.Increment(ref _calls);
+            if (OutOfCredits)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.PaymentRequired)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":\"insufficient_credits\"}}", Encoding.UTF8, "application/json"),
+                });
             if (Fail)
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
                 {

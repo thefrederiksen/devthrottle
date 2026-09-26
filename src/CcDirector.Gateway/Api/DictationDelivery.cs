@@ -116,7 +116,43 @@ internal sealed class DictationDelivery
         if (GatewayDictationEndpoint.TryJoin(tenant, uploadId, out _))
             return DriveResult.Held;
         var outcome = await AttemptAsync(tenant, store, uploadId, owned, trigger);
-        return outcome.IsHeld ? DriveResult.Held : DriveResult.Finished;
+        if (outcome.IsHeld) return DriveResult.Held;
+        // AN ATTEMPT ONLY THE CLIENT CAN ACT ON (Voice Delivery phase 5, review round: the Delivery Lead's
+        // ruling on the review's finding 1). Out of credits, a permanent transcription failure, or an
+        // incomplete upload - on the client's own complete these answers went straight back to it; on a
+        // driver attempt there is nobody listening, and until this ruling the delivery simply stopped with
+        // the answer lost. So the driver says on the decision record that it handed the recording back and
+        // why, and the outcome read answers the same body the complete path would have given.
+        HandBack(store, uploadId, owned, outcome);
+        return DriveResult.Finished;
+    }
+
+    /// <summary>
+    /// Write the <see cref="DeliveryDecisions.GatewayHandedBack"/> line for an owned dictation whose driver attempt
+    /// ended in an answer only the client can act on - out of credits, a permanent transcription failure, or an
+    /// incomplete upload (Voice Delivery phase 5, review round). The line names which of the three it is; for an
+    /// incomplete upload it also carries the chunk count the outcome read needs. An incomplete upload LOSES its
+    /// ownership as part of the handback: a staged chunk is gone, the Gateway cannot finish the delivery, and a
+    /// client re-uploading the missing chunks must be able to complete and take ownership again - a repeated
+    /// complete for a record the Gateway still owned would be answered "still delivering" and drive nothing,
+    /// which is the dead end this ruling exists to end.
+    /// </summary>
+    private static void HandBack(VoiceUploadStore store, string uploadId, DictationOwnedDelivery owned, DictationOutcome outcome)
+    {
+        string why;
+        if (outcome.IsOutOfCredits) why = DeliveryDecisions.HandbackOutOfCredits;
+        else if (outcome.IsPermanentFailure) why = DeliveryDecisions.HandbackPermanent;
+        else if (outcome.IsIncomplete) why = DeliveryDecisions.HandbackIncomplete;
+        else return;   // delivered, shown back or given up: the recording's end, not a handback
+        store.RecordDecision(uploadId, DeliveryDecisions.GatewayHandedBack, new DeliveryDecisionFacts
+        {
+            SessionId = owned.SessionId,
+            Reason = why,
+            TotalChunks = outcome.IsIncomplete ? owned.TotalChunks : null,
+        });
+        if (outcome.IsIncomplete)
+            store.HandBackToClient(uploadId);
+        FileLog.Write($"[DictationDelivery] upload {uploadId} handed back to the client by the driver: {why}");
     }
 
     /// <summary>

@@ -148,6 +148,24 @@ public static class DeliveryDecisions
     /// never will guess at it. The error says what could not be read.
     /// </summary>
     public const string GatewayDriveRefused = "gateway-drive-refused";
+    /// <summary>
+    /// The driver HANDED a delivery back to the client (Voice Delivery phase 5, review round: the Delivery
+    /// Lead's ruling on the review's finding 1). A Gateway-driven attempt can end in an answer that only the
+    /// CLIENT can act on - out of transcription credits, a permanent transcription failure, or an incomplete
+    /// upload whose staged chunk is gone - and on a driver attempt there is no client listening to the
+    /// answer. So the driver says so here and stops: the owner learns it from the outcome read, which answers
+    /// the same body and status the complete path gives, and his words are never stranded behind a 404 that
+    /// says the server "lost track" of a recording it still holds. The reason names which of the three it
+    /// is; for an incomplete upload the facts also carry the chunk count, which the outcome read needs to
+    /// name the chunks that must be sent again.
+    /// </summary>
+    public const string GatewayHandedBack = "gateway-handed-back";
+    /// <summary>Why a handback happened: the transcription provider answered out of credits.</summary>
+    public const string HandbackOutOfCredits = "out-of-credits";
+    /// <summary>Why a handback happened: the clip can never be transcribed (a permanent failure).</summary>
+    public const string HandbackPermanent = "permanent";
+    /// <summary>Why a handback happened: a staged chunk vanished, so only the client can finish the upload.</summary>
+    public const string HandbackIncomplete = "incomplete";
     /// <summary>What woke the driver: the session's Director connected again and its sessions arrived.</summary>
     public const string DriveDirectorConnected = "director-connected";
     /// <summary>What woke the driver: the steady tick, for a delivery whose next attempt was due.</summary>

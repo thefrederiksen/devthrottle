@@ -274,6 +274,14 @@ async function applyOutcome(rec: HeldPrompt, read: DictationOutcomeRead): Promis
     publishFailed(rec, notFoundMessage(rec.deliveryId));
     return;
   }
+  if (read.kind !== "resolved") {
+    // The dictation-only handback kinds (out of credits, permanent, incomplete) are never answered for a
+    // typed prompt - it is not transcribed, and its outcome reader produces none of them - so a kind that
+    // is neither delivering, not-found nor resolved is a defect, not a state: said loudly, never guessed at.
+    console.error(`[typedPromptDelivery] outcome for typed message ${rec.deliveryId} answered ${read.kind}, which a typed prompt cannot`);
+    publishFailed(rec, unexpectedAnswerMessage(rec.deliveryId));
+    return;
+  }
   const result = read.result;
   if (result.submitted) {
     await forgetHeld(rec.deliveryId);

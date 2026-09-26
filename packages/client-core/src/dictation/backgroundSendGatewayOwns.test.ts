@@ -471,6 +471,76 @@ describe("a reload", () => {
   });
 });
 
+describe("what the Gateway handed back (voice delivery phase 5, review round)", () => {
+  // The Delivery Lead's ruling on the review's finding 1: a Gateway-driven attempt that hits out of credits,
+  // a permanent transcription failure, or an incomplete upload must never end in a 404 "lost track" dead
+  // end. The outcome read answers the same body the complete path gives, the client clears its "held by the
+  // Gateway" mark, shows the state it already has for that answer, and nothing is deleted - Dismiss is never
+  // the only action.
+  async function ownedThenRead(read: DictationOutcomeRead): Promise<string> {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(DELIVERING_202);
+    await backgroundTranscribeAndSend("sid", captured);
+    const id = vi.mocked(savePending).mock.calls[0][0].id;
+    vi.mocked(readDictationOutcome).mockResolvedValue(read);
+    await vi.advanceTimersByTimeAsync(10_000);
+    return id;
+  }
+
+  it("out of credits: the held strip with the Gateway's copy, Retry, and a later complete delivers once", async () => {
+    const id = await ownedThenRead({ kind: "out-of-credits", message: "Out of transcription credits - your recording is saved and will send when credits are added." });
+
+    const status = statusFor(id);
+    expect(status?.phase).toBe("held");
+    expect(status?.error).toContain("Out of transcription credits");
+    expect(status?.retryable).toBe(true); // Retry is offered
+    expect(status?.delivering).toBeUndefined(); // the Gateway no longer owns it
+    expect(disk.get(id)?.heldByGateway).toBeUndefined(); // the mark is cleared on disk
+    expect(deletePending).not.toHaveBeenCalled(); // nothing is destroyed
+
+    // The owner's Retry (and the throttled auto-retry) is a new complete - it re-enters and delivers once.
+    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
+    await retryPendingDictation(id);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(2);
+    expect(statusFor(id)?.phase).toBe("done");
+  });
+
+  it("a permanent failure: parked with Retry, and an explicit Retry re-drives it", async () => {
+    const id = await ownedThenRead({ kind: "permanent", reason: "unsupported-format" });
+
+    const status = statusFor(id);
+    expect(status?.phase).toBe("parked");
+    expect(status?.error).toContain("format we can't transcribe");
+    expect(status?.retryable).toBe(true); // Retry is offered, not only Dismiss
+    expect(disk.get(id)?.heldByGateway).toBeUndefined();
+    expect(disk.get(id)?.parkedReason).toBe("unsupported-format");
+    expect(deletePending).not.toHaveBeenCalled();
+
+    // Parked: no automatic trigger re-drives it.
+    await vi.advanceTimersByTimeAsync(FAR_PAST_THE_OLD_CADENCE_MS);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
+    // The owner's explicit Retry re-enters and delivers once.
+    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
+    await retryPendingDictation(id);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(2);
+    expect(statusFor(id)?.phase).toBe("done");
+  });
+
+  it("an incomplete upload: the client resumes its own chunk upload and delivers", async () => {
+    const id = await ownedThenRead({ kind: "incomplete", missing: [0] });
+
+    expect(disk.get(id)?.heldByGateway).toBeUndefined(); // the mark is cleared: the client drives again
+    expect(deletePending).not.toHaveBeenCalled();
+    expect(statusFor(id)?.delivering).toBeUndefined();
+
+    // The ordinary driver resumes the upload on its own cadence (a fresh register, the missing chunks, a
+    // complete that takes the delivery over again) and it delivers once.
+    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(2);
+    expect(statusFor(id)?.phase).toBe("done");
+  });
+});
+
 describe("Check now", () => {
   it("reads /outcome once, at once, and sends nothing", async () => {
     disk.set("id-check", record("id-check", { heldByGateway: true }));

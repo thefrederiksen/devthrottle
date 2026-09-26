@@ -3,6 +3,7 @@ using CcDirector.Core.HostedAi;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Transcription;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
@@ -230,7 +231,7 @@ internal static class GatewayDictationEndpoint
         var delivery = new DictationDelivery(registry, owners, transcription, transcribingSessions, pushedSessions, sendCommand,
             stale, ageClock);
         heldDeliveries?.Attach(delivery);
-        app.MapPost("/dictation/upload", (DictationUploadRequest? body, HttpContext ctx) =>
+        app.MapPost("/dictation/upload", async (DictationUploadRequest? body, HttpContext ctx) =>
         {
             if (!AuthMiddleware.HasValidToken(ctx, token, devices))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
@@ -282,6 +283,18 @@ internal static class GatewayDictationEndpoint
                 FileLog.Write($"[GatewayDictation] upload re-register clears FAILED uploadId={uploadId}, retrying");
             _uploadSids.Set(tenant, uploadId, sid);
             try { transcribingSessions.Begin(tenant, sid); } catch { /* the orange mark is a nicety */ }
+            // THE SESSION'S DIRECTOR, WRITTEN ON THE RECORD THE MOMENT THE GATEWAY FIRST KNOWS THE UPLOAD (Voice
+            // Delivery phase 5, review round: the ruling on the review's finding 1). The session was live enough to
+            // start a recording, so its Director is located and remembered NOW, at register - a session the owner
+            // deletes while the clip is uploading can then be PROVED ended by the first complete, which finds nothing
+            // at its own locate but a record that names its Director. It is the register-time half of the one fact the
+            // ended proof reads; TakeOwnership carries it into the owned delivery when the delivery is taken over.
+            // A session that cannot be located right now writes nothing, and the delivery then holds, exactly as
+            // before this existed.
+            var (directorAtRegister, _) = await GatewayEndpoints.LocateSessionAsync(
+                registry, sid, pushedSessions, stale, tenant, owners);
+            if (directorAtRegister is not null)
+                store.RememberSessionDirector(uploadId, directorAtRegister.DirectorId);
             FileLog.Write($"[GatewayDictation] upload registered sid={sid} uploadId={uploadId}");
             return Results.Json(new { upload_id = uploadId });
         });
@@ -604,6 +617,15 @@ internal static class GatewayDictationEndpoint
             return Held(store.LastHeldState(uploadId));
         if (record is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned })
             return TerminalOutcome(record).ToResult();
+        // A delivery the Gateway HANDED BACK to the client (Voice Delivery phase 5, review round: the Delivery
+        // Lead's ruling on the review's finding 1). A Gateway-driven attempt can end in an answer only the
+        // CLIENT can act on - out of credits, a permanent transcription failure, an incomplete upload - and
+        // on a driver attempt there is no client listening. Such a record must never answer 404 "the server
+        // has lost track": it answers the SAME body and status the complete path gives the client for it,
+        // so the owner is handed his failure named, his words if any were kept, and a recording that is
+        // still retryable. Anything else keeps today's honest 404 below.
+        if (HandedBackAnswer(store, uploadId, record, log.Lines) is { } handedBack)
+            return handedBack;
         var what = record is null ? "has no record" : $"is {record.State} and not held by the Gateway";
         return Results.Json(new { error = $"upload {uploadId} {what}" }, statusCode: StatusCodes.Status404NotFound);
 
@@ -613,6 +635,107 @@ internal static class GatewayDictationEndpoint
             => Results.Json(new { delivering = true, directorState = directorState ?? DeliverySendAndAsk.RetryingState },
                 statusCode: StatusCodes.Status202Accepted);
     }
+
+    /// <summary>
+    /// The answer <see cref="OutcomeOf"/> gives a delivery the Gateway HANDED BACK to the client (Voice
+    /// Delivery phase 5, review round, the Delivery Lead's ruling on the review's finding 1), or null when
+    /// the record is not one. Three shapes, each the SAME body and status the complete path gives the client
+    /// for it - never 404:
+    /// <list type="bullet">
+    /// <item>FAILED, parked out of credits: 402 with the hosted-AI payload for the state the provider's code
+    /// maps to - the exact body the complete answered, rebuilt from the record's own parked reason.</item>
+    /// <item>FAILED, parked with a permanent transcription failure: 422 { permanent, reason }.</item>
+    /// <item>PENDING with no owner and an incomplete handback line: 409 { status: incomplete, missing }, the
+    /// chunks named live, so the client sends exactly those again. Ownership left with the handback - the
+    /// Gateway cannot finish a recording whose staged chunk is gone - so the chunk count the answer needs
+    /// travels on the handback line, which also says why.</item>
+    /// </list>
+    /// Words already kept on the record travel with the 402 and the 422 when there are any (the ruling:
+    /// "nothing destroyed"). Every reachable path to these parks happens before a transcript exists, so
+    /// that field is the belt the ruling asks for, not a case production has been seen to reach.
+    /// </summary>
+    private static IResult? HandedBackAnswer(VoiceUploadStore store, string uploadId,
+        DictationDeliveryRecord? record, IReadOnlyList<DeliveryDecisionLine> lines)
+    {
+        if (record is { State: DictationDeliveryState.Failed } failed)
+        {
+            if (IsCreditsParkReason(failed.Reason)) return HandedBackOutOfCredits(failed);
+            // A permanent park names its code when it has one; a permanent failure whose provider sent no
+            // code parked with an empty reason, and only the driver's handback line can say it was permanent.
+            if (IsPermanentParkReason(failed.Reason)
+                || HandbackLine(lines) is { Reason: DeliveryDecisions.HandbackPermanent })
+                return HandedBackPermanent(failed);
+            return null;
+        }
+        if (record is { State: DictationDeliveryState.Pending, Owned: null }
+            && HandbackLine(lines) is { Reason: DeliveryDecisions.HandbackIncomplete, TotalChunks: { } chunks })
+        {
+            var missing = store.MissingChunks(uploadId, chunks);
+            if (missing is { Count: > 0 })
+                return DictationOutcome.Incomplete(missing).ToResult();
+        }
+        return null;
+    }
+
+    // The newest gateway-handed-back line's facts, when the driver wrote one.
+    private static DeliveryDecisionFacts? HandbackLine(IReadOnlyList<DeliveryDecisionLine> lines)
+        => lines.LastOrDefault(l => l.Decision == DeliveryDecisions.GatewayHandedBack)?.Facts;
+
+    // Whether a FAILED record's parked reason is an out-of-credits one: the provider's own code (the four
+    // hosted-AI codes), or the no-code literal the park writes when the provider's 402 carried none.
+    private static bool IsCreditsParkReason(string? reason) => reason switch
+    {
+        "out_of_credits" => true,
+        HostedAiErrorMapper.InsufficientCreditsCode => true,
+        HostedAiErrorMapper.MonthlyLimitReachedCode => true,
+        HostedAiErrorMapper.SubscriptionRequiredCode => true,
+        HostedAiErrorMapper.FairUseLimitReachedCode => true,
+        _ => false,
+    };
+
+    // Whether a FAILED record's parked reason is a permanent transcription failure's code.
+    private static bool IsPermanentParkReason(string? reason) => reason switch
+    {
+        TranscriptionPermanentException.AudioTooLarge => true,
+        TranscriptionPermanentException.UnsupportedFormat => true,
+        TranscriptionPermanentException.NonDecodable => true,
+        _ => false,
+    };
+
+    private static IResult HandedBackOutOfCredits(DictationDeliveryRecord failed)
+    {
+        // MapCode of the parked provider code rebuilds the EXACT state the complete path answered with -
+        // including its honest unknown ("out_of_credits", a 402 that carried no code) never being dressed up
+        // as "needs credits" (issue #1360's rule).
+        var state = HostedAiErrorMapper.MapCode(failed.Reason);
+        return failed.Transcript.Length == 0
+            ? HostedAiHttp.PaymentRequiredResult(state)
+            : Results.Json(WithKeptWords(HostedAiPayload.For(state), failed.Transcript),
+                statusCode: HostedAiHttp.PaymentRequired);
+    }
+
+    private static IResult HandedBackPermanent(DictationDeliveryRecord failed)
+    {
+        var reason = TranslatePermanentReason(failed.Reason);
+        return failed.Transcript.Length == 0
+            ? DictationOutcome.Permanent(reason).ToResult()
+            : Results.Json(new { permanent = true, reason, transcript = failed.Transcript },
+                statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+
+    // The hosted-AI 402 payload with the record's kept words riding along: the payload's own pinned
+    // field names, plus the transcript. A client that knows the payload ignores the extra field; the
+    // ruling's "words travel" is honoured for a record that somehow holds them.
+    private static object WithKeptWords(HostedAiPayload payload, string transcript) => new
+    {
+        payload.Error,
+        payload.State,
+        payload.Text,
+        payload.CtaLabel,
+        payload.CtaAction,
+        payload.CtaUrl,
+        transcript,
+    };
 
     /// <summary>
     /// Start the one attempt of an owned delivery, or JOIN the one already running for this upload. Keyed by tenant and
@@ -707,9 +830,12 @@ internal static class GatewayDictationEndpoint
         {
             // Park the record so the session stops reading "Uploading from phone" while there is no credit
             // to transcribe it with; the client still gets 402, and adding credit + retrying re-enters
-            // PENDING and delivers. NOTE: never once observed to fire - zero OutOfCredits in any log on this
-            // machine, ever, across 846 terminal outcomes. The mechanism is real; the cause is not this.
-            store.MarkFailed(uploadId, "out_of_credits");
+            // PENDING and delivers. The reason parked is the PROVIDER'S CODE (not a literal), so the outcome
+            // read can map the record back to the exact hosted-AI state this answer gave (Voice Delivery
+            // phase 5 review round: a driver attempt parks the same way, and GET /outcome must answer the
+            // SAME body the complete path gives - the state is part of that body). NOTE: never once observed
+            // to fire - zero OutOfCredits in any log on this machine, ever, across 846 terminal outcomes.
+            store.MarkFailed(uploadId, result.Code ?? "out_of_credits");
             FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: out of credits " +
                 $"code={result.Code}; parked FAILED (chunks retained, retryable)");
             return DictationOutcome.OutOfCredits(HostedAiErrorMapper.MapCode(result.Code));
@@ -1384,10 +1510,12 @@ internal static class GatewayDictationEndpoint
     /// the locator's own (<see cref="GatewayEndpoints.LocateGrace"/> over the stream staleness), so "fresh" here
     /// means exactly what "locatable" means there.
     ///
-    /// A RECORD THAT NAMES NO DIRECTOR PROVES NOTHING (no fallback programming). The owned record and its
-    /// <see cref="DictationOwnedDelivery.DirectorId"/> ship in the same release, never deployed apart, so no
-    /// real record exists without the field: one that names no Director is one whose session was never located
-    /// by any attempt, and there is no second source for the fact. The in-memory owner cache is NOT consulted -
+    /// A RECORD THAT NAMES NO DIRECTOR PROVES NOTHING (no fallback programming). Since the review round of
+    /// phase 5 the Director is written on the upload's record at REGISTER - the moment the Gateway first knows
+    /// the upload, while its session is live enough to have started a recording - and carried into the owned
+    /// delivery when ownership is taken, so a record that still names no Director is one whose session could
+    /// be located neither at register nor by any attempt, and there is no second source for the fact. The
+    /// in-memory owner cache is NOT consulted -
     /// any fresh roster read may prune it, so it is not a durable answer, and answering "ended" from it would be
     /// a second way to answer the same question. Such a record is held (section 8) and one log line says so.
     /// </summary>
@@ -1492,6 +1620,16 @@ internal sealed class DictationOutcome
 
     /// <summary>Held, not final: the 202 "still delivering" answer. The Gateway's driver attempts it again.</summary>
     public bool IsHeld => _kind == Kind.StillDelivering;
+
+    /// <summary>Out of transcription credits (a 402 the client must be told: the Delivery Lead's handback
+    /// ruling, phase 5 review round). On a driver attempt there is no client listening, so the driver
+    /// reads this, hands the recording back and stops.</summary>
+    public bool IsOutOfCredits => _kind == Kind.OutOfCredits;
+
+    /// <summary>A permanent transcription failure (a 422 the client must be told: the Delivery Lead's
+    /// handback ruling, phase 5 review round). On a driver attempt there is no client listening, so the
+    /// driver reads this, hands the recording back and stops.</summary>
+    public bool IsPermanentFailure => _kind == Kind.Permanent;
 
     /// <param name="reason">Why a recording was shown back instead of sent (<c>too-old</c>, <c>session-exited</c>,
     /// <c>unconfirmed</c>), on a
