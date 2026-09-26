@@ -325,7 +325,7 @@ public sealed class LauncherMacInstaller
     /// <summary>
     /// Everything that explains a failure, gathered at the moment it happens: launchd's view of the job
     /// (asked afresh, because the job may have changed since the wait gave up), the tail of the launcher's
-    /// launchd stderr and stdout, and the steps taken. Gathering is itself fallible - launchctl can be
+    /// launchd stderr and stdout, the tail of the launcher's own log, and the steps taken. Gathering is itself fallible - launchctl can be
     /// missing or refuse - and when it is, the report SAYS so rather than going quiet.
     /// </summary>
     private string GatherDiagnostics(List<string> steps)
@@ -359,6 +359,7 @@ public sealed class LauncherMacInstaller
         [
             ("launchd-stderr.log (last lines)", LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stderr.log"), 40)),
             ("launchd-stdout.log (last lines)", LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stdout.log"), 15)),
+            ("launcher log (last lines)", LaunchdDiagnostics.LauncherLogTail(LauncherLogDir, 60)),
         ]);
         var header = gatherError is null ? "" : $"launchd query failed: {gatherError}\n";
         // The binary checks go LAST: the Gateway keeps the first 16,000 characters of a report, and the
