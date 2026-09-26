@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import {
   enqueuePrompt,
-  sendPrompt,
   uploadImage,
   GatewayError,
   type QueueItem,
@@ -13,11 +12,14 @@ import { DictationStatusStrip } from "@devthrottle/client-core/dictation/Dictati
 import { backgroundTranscribeAndSend, type CapturedUtterance } from "@devthrottle/client-core/dictation/backgroundSend";
 import { insertAt, joinText } from "@devthrottle/client-core/dictation/transcript";
 import { ComposerProvenance } from "@devthrottle/client-core/dictation/composerProvenance";
+import { sendTypedPrompt } from "@devthrottle/client-core/dictation/typedPromptDelivery";
 
 // The composer (issue #972, completed in issue #1210) - the React port of the Blazor Cockpit composer.
 // It drives the selected session's reply through the shared Gateway client:
 //
 //   Send  -> POST /sessions/{sid}/prompt { appendEnter: true }  (submit the typed line; Ctrl+Enter)
+//            through sendTypedPrompt: a 202 "still delivering" holds the words in the DictationStatusStrip
+//            below and reads what the Gateway rules - never a second send (voice delivery phase 5, T6).
 //   Speak -> mounts the shared DictationDialog (packages/client-core), exactly as the mobile
 //            SessionControls does; the transcript inserts at the caret (Insert) or inserts + submits
 //            (Send). Insert transcribes synchronously (transcribeUtterance -> the Gateway's
@@ -198,9 +200,15 @@ export function SessionComposer({
     onChange(""); // clear immediately, like the desktop composer
     provenanceRef.current.reset();
     try {
-      await sendPrompt(sessionId, text, true, undefined, undefined, sent.spans);
-      setStatus("Sent");
-      onSent?.(text);
+      // Held by the Gateway: the strip below shows it "Still delivering", so this line says nothing - and the
+      // words are NOT restored to the box, because they may already be in.
+      const outcome = await sendTypedPrompt(sessionId, text, { spokenSpans: sent.spans });
+      if (outcome === "delivered") {
+        setStatus("Sent");
+        onSent?.(text);
+      } else {
+        setStatus(null);
+      }
     } catch (err) {
       onChange(text); // restore so a failed send never loses the typed text
       setError(describeAndReport(SURFACE, "send that to the session", err));
@@ -386,9 +394,13 @@ export function SessionComposer({
       onChange("");
       provenanceRef.current.reset();
       try {
-        await sendPrompt(sessionId, combined, true, undefined, spoken, sent.spans);
-        setStatus("Sent");
-        onSent?.(combined);
+        const outcome = await sendTypedPrompt(sessionId, combined, { spokenDeliveryId: spoken, spokenSpans: sent.spans });
+        if (outcome === "delivered") {
+          setStatus("Sent");
+          onSent?.(combined);
+        } else {
+          setStatus(null);
+        }
       } catch (err) {
         onChange(combined); // restore so a failed send never loses the typed + dictated text
         setError(describeAndReport(SURFACE, "send that to the session", err));

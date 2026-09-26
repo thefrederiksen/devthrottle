@@ -480,6 +480,62 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
         Assert.DoesNotContain(session, restarted.LockedSessionIds());
     }
 
+    // ===== the read never blocks a writer of the same file (phase 5 review round, the IOException) =====
+
+    [Fact]
+    public void ARecordReadDoesNotBlockAWriterOfTheSameFile()
+    {
+        // Once under load, the corrupt-tombstone HOST test failed with "The process cannot access the file
+        // ... record.json because it is being used by another process" - the test's own raw write of the
+        // corrupt bytes collided with a READER holding the file: the phase 5 driver's tick reads every
+        // record in the partition every second, and File.ReadAllText opens with FileShare.Read, which
+        // DENIES write access to anyone else while the read is in flight. The fix is the share mode of the
+        // store's own small-file reads: a reader blocks nobody. Proved on the real handle the reads use -
+        // a writer opening exactly as the colliding write did must succeed while that handle is open.
+        var id = Guid.NewGuid().ToString();
+        _store.Register(id);
+        _store.MarkPending(id, Guid.NewGuid().ToString());
+        var path = RecordPath(id);
+
+        using (var read = VoiceUploadStore.OpenSmallFileForRead(path))
+        {
+            // The writer, exactly as the host test wrote its corrupt bytes (and as any operator or external
+            // tool writes a file): create, write, share with readers only.
+            using var writer = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+            writer.Write(Encoding.UTF8.GetBytes("{}"), 0, 2);
+        }
+
+        // And the read still gives an honest answer for what it opened: the bytes the writer left.
+        Assert.Equal(DictationRecordReadKind.Malformed, _store.Read(id).Kind);
+    }
+
+    [Fact]
+    public void ARecordHeldOpenForWriteByAnotherProcess_StillReads_RatherThanAnsweringUnreadable()
+    {
+        // The other side of the same share mode: a writer that shares reads (an external tool mid-write, or
+        // a peer process replacing the file) no longer makes OUR read fail - the reader opens
+        // ReadWrite-shared, so the writer's own FileShare.Read permits it. What it reads is what it opened,
+        // never a guess.
+        if (!OperatingSystem.IsWindows()) return;   // share locks against a reader are a Windows behaviour
+        var id = Guid.NewGuid().ToString();
+        _store.Register(id);
+        _store.MarkPending(id, Guid.NewGuid().ToString());
+        var path = RecordPath(id);
+
+        using (new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.Read))
+        {
+            var read = _store.Read(id);
+            Assert.True(read.Kind == DictationRecordReadKind.Present, $"the read did not happen: {read.Kind} {read.Problem}");
+        }
+
+        // A writer that shares NOTHING still refuses us - the locked-tombstone contract (issue #2745) is
+        // untouched by this change.
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.Equal(DictationRecordReadKind.Unreadable, _store.Read(id).Kind);
+        }
+    }
+
     // ===== helpers ================================================================================
 
     // A real DELIVERED tombstone written by the store itself, then its bytes replaced: the directory, the

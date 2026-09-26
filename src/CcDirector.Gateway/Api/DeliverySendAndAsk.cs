@@ -33,9 +33,16 @@ internal enum DeliverySendKind
 
 /// <summary>What <see cref="DeliverySendAndAsk.SendAsync"/> came to. <paramref name="NoAnswerKind"/> says which kind of no
 /// answer the question got (<c>no-answer</c>, <c>director-too-old</c>, <c>never-left-the-gateway</c>), on
-/// <see cref="DeliverySendKind.NoAnswer"/> only.</summary>
+/// <see cref="DeliverySendKind.NoAnswer"/> only.
+/// <paramref name="NeverLeft"/> is true on <see cref="DeliverySendKind.NotDelivered"/> when the prompt never left this
+/// Gateway at all - the Director is not connected - which the owned delivery holds as "waiting for the Director" rather
+/// than "retrying" (Voice Delivery phase 5).
+/// <paramref name="DirectorReason"/> is the Director's OWN reason for a refused delivery (its
+/// <c>DeliveryStateReason</c>, or the reason it answered the question with), on <see cref="DeliverySendKind.NotDelivered"/>
+/// only - for the age refusal of contract section 9, F6, so the delivery core can rule a recording the DIRECTOR refused
+/// for age as too old without guessing at error text.</summary>
 internal sealed record DeliverySendResult(DeliverySendKind Kind, PromptResponse? Body, string? Error, bool RefusedDuplicate = false,
-    string? NoAnswerKind = null);
+    string? NoAnswerKind = null, bool NeverLeft = false, string? DirectorReason = null);
 
 /// <summary>What the prompt verb's own answer meant, before any question: the fact a caller writes as the Director's answer.</summary>
 internal sealed record PromptAnswerReading(bool Unanswered, bool Delivered, string? Error, bool RefusedDuplicate);
@@ -61,15 +68,17 @@ internal static class DeliverySendAndAsk
     /// <paramref name="recordAnswer"/> writes the Director's answer to the send, before any question, with the prompt
     /// verb's outcome and what it was read to mean.
     /// </summary>
-    public static async Task<DeliverySendResult> SendAsync(SessionVerbClient route, VoiceUploadStore store, string uploadId,
+    public static async Task<DeliverySendResult> SendAsync(SessionVerbClient route, IClaimDecisionLog store, string uploadId,
         string sid, string deliveryId, PromptRequest prompt,
         Action<SessionVerbClient.PromptSendOutcome, PromptAnswerReading> recordAnswer)
     {
         var sent = await route.SendPromptAsync(sid, prompt);
-        var (kind, error, refusedDuplicate) = Read(sent);
+        var (kind, error, refusedDuplicate, directorReason) = Read(sent);
         recordAnswer(sent, new PromptAnswerReading(kind is null, kind == DeliverySendKind.Delivered, error, refusedDuplicate));
         if (kind is { } settled)
-            return new DeliverySendResult(settled, sent.Body, error, refusedDuplicate);
+            return new DeliverySendResult(settled, sent.Body, error, refusedDuplicate,
+                NeverLeft: sent.Kind == SessionVerbClient.PromptSendKind.NeverLeftTheGateway,
+                DirectorReason: directorReason);
 
         // UNANSWERED: the prompt went out and no answer came back. Ask; never call it a failure.
         var asked = await AskAsync(store, uploadId, sid, deliveryId, route, DeliveryDecisions.AskReasonPromptUnanswered);
@@ -82,7 +91,8 @@ internal static class DeliverySendAndAsk
             DeliveryState.Unknown => new DeliverySendResult(DeliverySendKind.NeverSeen, null,
                 $"the Director never received delivery {deliveryId}; the send that went out got no answer ({error})"),
             DeliveryState.NotDelivered => new DeliverySendResult(DeliverySendKind.NotDelivered, null,
-                $"the Director did not deliver the words: {asked.Answer.Reason ?? error ?? "no reason given"}"),
+                $"the Director did not deliver the words: {asked.Answer.Reason ?? error ?? "no reason given"}",
+                DirectorReason: asked.Answer.Reason),
             _ => throw new InvalidOperationException($"the Director answered delivery state {asked.Answer.State}, which this Gateway does not know"),
         };
     }
@@ -90,17 +100,18 @@ internal static class DeliverySendAndAsk
     /// <summary>
     /// Read the prompt verb's answer: a settled kind, or null when the send went out and no answer came back (ask). An
     /// accepted answer that carries no delivery state (a Director older than the field) is read exactly as it always
-    /// was: delivered.
+    /// was: delivered. Internal so the typed prompt route reads its answer here too (Voice Delivery phase 5, T2).
+    /// The fourth element is the Director's own refusal reason when it gave one.
     /// </summary>
-    private static (DeliverySendKind? Kind, string? Error, bool RefusedDuplicate) Read(SessionVerbClient.PromptSendOutcome sent)
+    internal static (DeliverySendKind? Kind, string? Error, bool RefusedDuplicate, string? DirectorReason) Read(SessionVerbClient.PromptSendOutcome sent)
     {
         switch (sent.Kind)
         {
             case SessionVerbClient.PromptSendKind.Unanswered:
-                return (null, sent.Detail, false);
+                return (null, sent.Detail, false, null);
             case SessionVerbClient.PromptSendKind.NeverLeftTheGateway:
             case SessionVerbClient.PromptSendKind.DirectorRefused:
-                return (DeliverySendKind.NotDelivered, sent.Detail, false);
+                return (DeliverySendKind.NotDelivered, sent.Detail, false, null);
             case SessionVerbClient.PromptSendKind.Accepted:
                 break;
             default:
@@ -113,17 +124,19 @@ internal static class DeliverySendAndAsk
             // being delivered. Delivered means an earlier attempt landed after this Gateway had stopped waiting for it.
             return body.DeliveryState switch
             {
-                DeliveryState.Delivered => (DeliverySendKind.Delivered, null, true),
-                DeliveryState.Delivering => (DeliverySendKind.StillDelivering, body.DeliveryStateReason ?? body.Error, false),
+                DeliveryState.Delivered => (DeliverySendKind.Delivered, null, true, null),
+                DeliveryState.Delivering => (DeliverySendKind.StillDelivering, body.DeliveryStateReason ?? body.Error, false,
+                    body.DeliveryStateReason),
                 _ => (DeliverySendKind.NotDelivered,
-                    body.Error ?? $"the Director refused the delivery (state {DeliveryStates.Format(body.DeliveryState.Value)})", false),
+                    body.Error ?? $"the Director refused the delivery (state {DeliveryStates.Format(body.DeliveryState.Value)})",
+                    false, body.DeliveryStateReason),
             };
         }
         // Accepted, and the Director answered at its own budget with the send still going (Voice Delivery phase 3): the
         // words may yet land or fail, so this is held like any other "still delivering".
         if (body is { Accepted: true, DeliveryState: DeliveryState.Delivering })
-            return (DeliverySendKind.StillDelivering, null, false);
-        return (DeliverySendKind.Delivered, null, false);
+            return (DeliverySendKind.StillDelivering, null, false, null);
+        return (DeliverySendKind.Delivered, null, false, null);
     }
 
     /// <summary>
@@ -133,7 +146,7 @@ internal static class DeliverySendAndAsk
     /// gave none, which kind of no-answer it was - they are different facts and are never folded into "unknown".
     /// </summary>
     public static async Task<SessionVerbClient.DeliveryStateAsk> AskAsync(
-        VoiceUploadStore store, string uploadId, string sid, string deliveryId, SessionVerbClient route, string why)
+        IClaimDecisionLog store, string uploadId, string sid, string deliveryId, SessionVerbClient route, string why)
     {
         store.RecordDecision(uploadId, DeliveryDecisions.AskedDirector, new DeliveryDecisionFacts { SessionId = sid, Reason = why });
         var asked = await route.GetDeliveryStateAsync(sid, deliveryId);
@@ -166,21 +179,22 @@ internal static class DeliverySendAndAsk
     /// <summary>
     /// "COULD NOT CONFIRM IT ARRIVED" (Voice Delivery phase 2, change 1; the Delivery Lead's ruling): a recording whose
     /// question got no answer of any kind is not held forever. Once more than the age limit
-    /// (<see cref="GatewayDictationEndpoint.MaxDeliveryAge"/>, the same strict boundary) has passed since
-    /// <paramref name="since"/> - Send on the dictation path, the first verified claim on a "Send anyway" - the Gateway
-    /// rules it unconfirmed. The two routes share this one test so they cannot disagree about where the line is.
+    /// (<see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/>, the same strict boundary the Director's own age
+    /// check reads) has passed since <paramref name="since"/> - Send on the dictation path, the first verified claim on
+    /// a "Send anyway" - the Gateway rules it unconfirmed. The two routes share this one test so they cannot disagree
+    /// about where the line is.
     /// </summary>
     public static bool IsPastConfirmLimit(DateTime nowUtc, DateTime since, out TimeSpan age)
     {
         age = nowUtc - since;
-        return age > GatewayDictationEndpoint.MaxDeliveryAge;
+        return age > CcDirector.Gateway.Contracts.MaxDeliveryAge.Span;
     }
 
     /// <summary>
     /// Write that a recording which may already be in the session is HELD as still delivering, with the Director's state
     /// as the client is told it (<c>delivering</c>, <c>unknown</c> or <c>no-answer</c>).
     /// </summary>
-    public static void RecordHeld(VoiceUploadStore store, string uploadId, string sid, string directorState)
+    public static void RecordHeld(IClaimDecisionLog store, string uploadId, string sid, string directorState)
     {
         store.RecordDecision(uploadId, DeliveryDecisions.StillDelivering, new DeliveryDecisionFacts
         {
@@ -195,4 +209,23 @@ internal static class DeliverySendAndAsk
     /// be asked, or silent. The other held states are the Director's own words (<see cref="DeliveryStates"/>).
     /// </summary>
     public const string NoAnswerState = "no-answer";
+
+    /// <summary>
+    /// The <c>directorState</c> of an owned delivery the Gateway cannot reach right now (Voice Delivery phase 5): the
+    /// session's Director is not connected - the session could not be located, or the prompt never left the Gateway.
+    /// The Gateway sends it itself when that Director's tunnel comes back.
+    /// </summary>
+    public const string WaitingForDirectorState = "waiting-for-director";
+
+    /// <summary>
+    /// The <c>directorState</c> of an owned delivery the Gateway will try again itself (Voice Delivery phase 5): the
+    /// Director said the words are not in, or a Gateway-side step such as the transcription failed.
+    /// </summary>
+    public const string RetryingState = "retrying";
+
+    /// <summary>
+    /// Which kind of no answer is written on the "could not confirm it arrived" line when the session's Director was
+    /// not connected at all, so the question could not even be asked.
+    /// </summary>
+    public const string DirectorNotConnected = "director-not-connected";
 }

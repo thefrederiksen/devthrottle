@@ -408,6 +408,17 @@ public sealed class GatewayHost : IAsyncDisposable
     public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
 
     /// <summary>
+    /// The Gateway's driver of held deliveries (Voice Delivery phase 5): once a recording's delivery is taken over, the
+    /// Gateway itself finishes it - when its Director's tunnel comes back, on a steady tick, and when the Gateway starts.
+    /// Created in <see cref="StartAsync"/>; null before it.
+    /// </summary>
+    internal Api.HeldDeliveryDriver? HeldDeliveries { get; private set; }
+
+    /// <summary>How often the held-delivery driver looks for an attempt that is due. A test may set it BEFORE
+    /// <see cref="StartAsync"/> - a long one proves an attempt was woken by something other than the tick.</summary>
+    internal TimeSpan HeldDeliveryTickInterval { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
     /// Production-readiness B2 (process-control): the seam DELETE /directors/{id} FORCE-KILL calls to kill a
     /// Director's process tree by pid. Null (production) uses the real Process.GetProcessById(pid).Kill. A test
     /// injects a recorder that observes the kill WITHOUT killing anything, so a proof can assert the force-kill
@@ -1217,6 +1228,28 @@ public sealed class GatewayHost : IAsyncDisposable
     // inside that partition. Naming Local here reproduces exactly the path this store has always used.
     private readonly Voice.VoiceUploadStore _dictationUploads =
         new(CcDirector.Core.Storage.CcStorage.DictationUploads(), CcDirector.Core.Tenancy.TenantId.Local);
+    // Voice Delivery phase 5, contract section 7: the held TYPED prompts - a typed prompt the Director did not answer as
+    // delivered, kept (per tenant, like the dictation staging) so the Gateway can ask what became of it, after a restart
+    // too. Built on first use rather than here, because it is judged by DeliveryClock, which a test sets after
+    // construction. This is the BASE handle; every reader re-scopes it with ForTenant.
+    private Prompts.TypedPromptStore? _typedPrompts;
+
+    /// <summary>The held typed prompt store (base handle, local partition): the prompt route writes it, the driver drives it.</summary>
+    internal Prompts.TypedPromptStore TypedPrompts
+        => _typedPrompts ??= new Prompts.TypedPromptStore(CcDirector.Core.Storage.CcStorage.TypedPrompts(),
+            CcDirector.Core.Tenancy.TenantId.Local, DeliveryClock);
+
+    private Api.TypedPromptDelivery? _typedPromptDriver;
+
+    /// <summary>
+    /// One attempt at a held typed prompt (<see cref="Api.TypedPromptDelivery.DriveOnceAsync"/>): what the Gateway's driver
+    /// calls on every wake-up - the Director's tunnel back, the tick, the Gateway starting - for each of
+    /// <see cref="Prompts.TypedPromptStore.HeldDeliveries"/> in each of <see cref="Prompts.TypedPromptStore.TenantsWithPartitions"/>.
+    /// </summary>
+    internal Api.TypedPromptDelivery TypedPromptDriver
+        => _typedPromptDriver ??= new Api.TypedPromptDelivery(Registry, SessionOwners, PushedSessions,
+            (directorId, command, ct) => SendCommandAsync(directorId, command, ct),
+            TimeSpan.FromSeconds(Core.Configuration.GatewayConfig.DefaultStreamStaleAfterSeconds), DeliveryClock);
     // Store injection points (Hosted Gateway, Step 1b): the host owns ONE instance of each durable store
     // that was previously reached through a process-wide static, and hands it to the endpoint/service that
     // uses it, so a tenant id can reach the storage layer in a later pull request. Same default paths as
@@ -3166,6 +3199,20 @@ public sealed class GatewayHost : IAsyncDisposable
     {
         FileLog.Write($"[GatewayHost] StartAsync: port={(Port == OperatingSystemAssignedPort ? "operating-system-assigned" : Port.ToString())}");
 
+        // Voice Delivery phase 5: the one driver of held deliveries, created before the routes that hand it deliveries
+        // are mapped, woken when a Director's new connection delivers its sessions, and started once the Gateway serves.
+        HeldDeliveries = new Api.HeldDeliveryDriver(_dictationUploads,
+            tenant => _tenantBoundary.EnterScope(tenant),
+            (tenant, sessionId) => PushedSessions.TryLocateIgnoringFreshness(tenant, sessionId)?.DirectorId,
+            GatewayHostedMode.IsHosted)
+        {
+            TickInterval = HeldDeliveryTickInterval,
+        };
+        PushedSessions.SessionsArrivedOnNewConnection += HeldDeliveries.OnSessionsArrived;
+        // Voice Delivery phase 5, contract section 7 (T4): the held typed prompts are driven by the same driver, on the same
+        // three wake-ups, one attempt each through TypedPromptDriver.
+        HeldDeliveries.AttachTypedPrompts(TypedPrompts, () => TypedPromptDriver);
+
         // Seed the central vault from a DevThrottle account-key environment value once when present.
         // The vault is the live source of truth thereafter and SetIfAbsent never clobbers it.
         SeedKeyVaultFromEnvironment();
@@ -3958,6 +4005,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // Voice Delivery mission, phase 1: "Send anyway" names its recording; the prompt route checks it here.
             dictationUploads: new Api.DictationTenantGate(_dictationUploads, _tenantBoundary),
             deliveryClock: DeliveryClock,
+            heldDeliveries: HeldDeliveries,
+            // Voice Delivery phase 5: a typed prompt not answered as delivered is held here, and its outcome read here.
+            typedPrompts: TypedPrompts,
             // Parent Control, fix 1: a session types into a session it owns only through a Director that checks first.
             directorChecksBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
@@ -4314,7 +4364,8 @@ public sealed class GatewayHost : IAsyncDisposable
             _dictationTranscription ?? new Transcription.GatewayTranscriptionService(_keyVault, history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, transcripts: _transcripts), _transcribingSessions, new Api.DictationTenantGate(_dictationUploads, _tenantBoundary), Devices,
             pushedSessions: PushedSessions,
             sendCommand: SendCommandAsync,
-            clock: DeliveryClock);
+            clock: DeliveryClock,
+            heldDeliveries: HeldDeliveries);
         // Durable per-upload-id dictation record (issue #1183): a PENDING upload's chunks are retained
         // until it becomes DELIVERED or ABANDONED, and the delivered/abandoned tombstone (the durable
         // de-dupe marker) is retained until the client acknowledges it - so an undelivered dictation
@@ -5183,6 +5234,9 @@ public sealed class GatewayHost : IAsyncDisposable
                         // leaving it for the next tick six hours later.
                         uploads.ExpireStalePending(StalePendingMaxAge);
                         uploads.SweepResolvedTombstones(DictationTombstoneMaxAge);
+                        // Held typed prompts (Voice Delivery phase 5) are retired by the same thirty-day rule, in the
+                        // same per-tenant pass, so no account's typed prompt records are left unbounded.
+                        TypedPrompts.ForTenant(tenant).SweepOlderThan(DictationTombstoneMaxAge);
                     });
                 }
                 catch (Exception ex) { FileLog.Write($"[GatewayHost] dictation tombstone sweep error: {ex.Message}"); }
@@ -5192,6 +5246,16 @@ public sealed class GatewayHost : IAsyncDisposable
             $"{dictationTombstoneSchedule.TotalHours:0.###}h, retiring unacknowledged terminal records older " +
             $"than {DictationTombstoneMaxAge.TotalDays:0.###} days, and abandoning PENDING records with no " +
             $"activity for {StalePendingMaxAge.TotalHours:0.###}h so their session lock is released");
+
+        // Voice Delivery phase 5: pick up every held delivery from disk and drive it, then keep ticking. Not awaited: an
+        // attempt can wait out a Director's answer, and the Gateway's start must never wait on one. A start that fails is
+        // written to the log, never swallowed.
+        var heldDeliveries = HeldDeliveries ?? throw new InvalidOperationException("the held-delivery driver was not created");
+        _ = Task.Run(async () =>
+        {
+            try { await heldDeliveries.StartAsync(); }
+            catch (Exception ex) { FileLog.Write($"[GatewayHost] held-delivery driver FAILED to start: {ex}"); }
+        });
 
         // Remove-the-network-port phase 1b: retire lapsed session keys. This is HOUSEKEEPING, and saying so
         // matters - a lapsed key is ALREADY refused, because the expiry is checked on every resolution, so
@@ -6010,6 +6074,11 @@ public sealed class GatewayHost : IAsyncDisposable
         _voiceTurnUploadSweepTimer = null;
         try { _dictationTombstoneSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictation tombstone sweep timer dispose error: {ex.Message}"); }
         _dictationTombstoneSweepTimer = null;
+        if (HeldDeliveries is { } driver)
+        {
+            PushedSessions.SessionsArrivedOnNewConnection -= driver.OnSessionsArrived;
+            try { driver.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] held-delivery driver dispose error: {ex.Message}"); }
+        }
         try { _sessionKeySweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session key sweep timer dispose error: {ex.Message}"); }
         _sessionKeySweepTimer = null;
 

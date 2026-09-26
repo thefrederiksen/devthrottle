@@ -24,7 +24,9 @@ import { useMemo, useSyncExternalStore } from "react";
 //               safe and delivery continues automatically. retryable is true so the UI offers Upload now.
 //               With `delivering` set it is the "Still delivering" state (voice delivery, #3398): the
 //               Gateway could not yet say whether the words reached the session, so the UI shows it calm
-//               and in progress, and never offers "Send anyway" or a fresh-id "Retry" for it.
+//               and in progress, and never offers "Send anyway" or a fresh-id "Retry" for it. Its one
+//               button is "Check now": the Gateway drives that delivery itself (phase 5), and the
+//               button only reads what it ruled.
 // parked      - a genuinely permanent, non-retryable failure stopped the auto-loop (issue #1184): the clip
 //               is over the provider size cap or an unsupported format. The audio is KEPT and the clip is
 //               saved-and-retryable, but delivery does NOT auto-retry - retryable is true so the UI offers
@@ -98,6 +100,10 @@ export interface DictationStatus {
    *  `done` carrying a warning does NOT auto-clear - the user dismisses it, so a Send that dropped audio is
    *  never silent. Absent on a clean send. */
   warning?: string;
+  /** True when this status is a TYPED prompt the Gateway held (voice delivery phase 5, contract section 7, T6),
+   *  not a recording: `uploadId` then carries the Gateway's delivery id, and the strip's buttons act on the held
+   *  typed prompt (typedPromptDelivery) instead of a recording. Absent for every recording. */
+  typed?: boolean;
   /** Epoch milliseconds of the last update (newest-first ordering, and the done auto-clear timer). */
   updatedAt: number;
 }

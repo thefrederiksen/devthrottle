@@ -125,11 +125,13 @@ public sealed class DictationPermanentFailureTests : IDisposable
         Assert.NotNull(outcome);
         Assert.False(outcome!.Terminal);
 
-        // (b) the INVERTED half: parked, so the session stops claiming an upload is in progress.
+        // (b) the INVERTED half: parked, so the session stops claiming an upload is in progress. The parked
+        // reason is the PROVIDER'S OWN CODE (phase 5 review round: the outcome read rebuilds the 402's exact
+        // hosted-AI state from it), never a literal of our own.
         var record = _store.ReadRecord(id);
         Assert.NotNull(record);
         Assert.Equal(DictationDeliveryState.Failed, record!.State);
-        Assert.Equal("out_of_credits", record.Reason);
+        Assert.Equal("insufficient_credits", record.Reason);
         Assert.False(_store.IsSessionLocked("session-1"));
 
         // The recording is KEPT: adding credit and retrying must still deliver the words.

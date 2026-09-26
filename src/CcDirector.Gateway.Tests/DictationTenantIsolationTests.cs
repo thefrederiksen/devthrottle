@@ -386,6 +386,31 @@ public sealed class DictationTenantIsolationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, (await _httpUnbound.GetAsync($"/dictation/{id}/decisions")).StatusCode);
     }
 
+    // ===== leg 7: the outcome read (Voice Delivery phase 5) =========================================
+
+    [Fact]
+    public async Task The_outcome_reads_for_its_own_account_and_is_not_found_for_another()
+    {
+        // Proves GET /dictation/{id}/outcome - what the client reads once the Gateway drives a delivery - answers the
+        // owner's own recording with the complete's body, and another account "not found" for the same upload id, with
+        // none of the owner's words; a key with no account is refused before anything is read.
+        var id = Guid.NewGuid().ToString();
+        Assert.Equal(HttpStatusCode.OK, (await RegisterAsync(_httpA, id)).StatusCode);
+        Store(_tenantA).MarkDelivered(id, submitted: true, movedOn: false, transcript: SecretTranscriptA);
+
+        var own = await _httpA.GetAsync($"/dictation/{id}/outcome");
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+        var ownBody = JsonDocument.Parse(await own.Content.ReadAsStringAsync()).RootElement;
+        Assert.True(ownBody.GetProperty("submitted").GetBoolean());
+        Assert.Equal(SecretTranscriptA, ownBody.GetProperty("transcript").GetString());
+
+        var other = await _httpB.GetAsync($"/dictation/{id}/outcome");
+        Assert.Equal(HttpStatusCode.NotFound, other.StatusCode);
+        Assert.DoesNotContain(SecretTranscriptA, await other.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _httpUnbound.GetAsync($"/dictation/{id}/outcome")).StatusCode);
+    }
+
     // ===== helpers =================================================================================
 
     // A store bound to ONE tenant's partition of the SAME on-disk dictation root the running Gateway reads

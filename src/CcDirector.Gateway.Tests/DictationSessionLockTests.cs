@@ -64,9 +64,10 @@ public sealed class DictationSessionLockTests : IAsyncLifetime
         var regResp = await _http.SendAsync(reg);
         Assert.Equal(HttpStatusCode.OK, regResp.StatusCode);
 
-        // The typed prompt proceeds past any lock to the session lookup (404: no Director is running).
+        // The typed prompt proceeds past any lock to the session lookup. No Director is running, so since Voice Delivery
+        // phase 5 (contract section 8) it is held 202 waiting for its Director - not refused by the dictation lock.
         var (status, _) = await PromptAsync(sessionId);
-        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(HttpStatusCode.Accepted, status);
     }
 
     [Fact]

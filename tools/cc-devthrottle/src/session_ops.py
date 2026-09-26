@@ -675,6 +675,18 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
             f"could not send the prompt to session {sid}: {err}",
             [f'cc-devthrottle message send {axi_cli.bare(sid, "<session-id>")} "<message>"', *_CHECK_SESSION],
         )
+    # HELD (Voice Delivery phase 5): a 202 { delivering: true } means the Director has not said whether the words are
+    # in - they may already be. It is a success-class answer, never a reason to send again: the Gateway asks what
+    # became of the delivery id itself. Sending the text a second time is how a prompt reaches an agent twice.
+    if isinstance(resp, dict) and resp.get("delivering") is True:
+        delivery_id = resp.get("deliveryId") or "(none given)"
+        console.print(
+            f"[yellow]Held[/yellow]: the prompt to {sid} may already be in - the Director has not said yet "
+            f"(its state: {axi_cli.ascii_text(str(resp.get('directorState')))}, delivery id {delivery_id}). "
+            "The Gateway is finding out. Do not send it again."
+        )
+        axi_cli.print_next([f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"])
+        return resp
     # A 200 can still carry accepted: false - a menu on the screen blocks typing - so the verdict is read.
     _accepted_or_fail(resp, f"the prompt to session {sid}", [
         f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}", *_CHECK_SESSION,
