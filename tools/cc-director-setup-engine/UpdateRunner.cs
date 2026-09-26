@@ -119,11 +119,21 @@ public sealed class UpdateRunner
             // refusal reads as a crash: launchd reports OS_REASON_CODESIGNING, then 78: EX_CONFIG, and the
             // program never writes a line (#3411). The self-update paths already strip it through
             // RunnableBuild; the first install is the path that did not.
+            // Best effort, never fatal: a Mac whose xattr cannot even start must not fail every install.
+            // If the flag stays, the launcher step's own diagnostics report it.
             if (OperatingSystem.IsMacOS())
             {
-                var (xattrExit, xattrOutput) = ProcessRunner.Run("/usr/bin/xattr", $"-d com.apple.quarantine \"{target}\"");
-                // Non-zero is the normal case: a file that was never quarantined has nothing to remove.
-                EngineLog.Write($"[UpdateRunner] {item.ComponentId}: xattr quarantine strip -> exit={xattrExit} {xattrOutput.Trim()}");
+                try
+                {
+                    var (xattrExit, xattrOutput) = ProcessRunner.Run("/usr/bin/xattr", $"-d com.apple.quarantine \"{target}\"",
+                        onStdoutLine: null, TimeSpan.FromSeconds(30));
+                    // Non-zero is the normal case: a file that was never quarantined has nothing to remove.
+                    EngineLog.Write($"[UpdateRunner] {item.ComponentId}: xattr quarantine strip -> exit={xattrExit} {xattrOutput.Trim()}");
+                }
+                catch (Exception ex)
+                {
+                    EngineLog.Write($"[UpdateRunner] {item.ComponentId}: xattr quarantine strip could not run ({ex.GetType().Name}): {ex.Message}");
+                }
             }
 
             var status = wasPresent ? ApplyStatus.Updated : ApplyStatus.Installed;
