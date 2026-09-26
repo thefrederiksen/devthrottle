@@ -97,14 +97,14 @@ internal sealed class TypedPromptDelivery
     /// </summary>
     public static TypedSendReading ReadSend(SessionVerbClient.PromptSendOutcome sent)
     {
-        var (kind, error, refusedDuplicate) = DeliverySendAndAsk.Read(sent);
+        var (kind, error, refusedDuplicate, directorReason) = DeliverySendAndAsk.Read(sent);
         var body = sent.Body;
         var answer = new TypedPromptDecisionFacts
         {
             Ok = body?.Accepted ?? false,
             State = body?.DeliveryState is { } state ? DeliveryStates.Format(state) : null,
             RefusedDuplicate = refusedDuplicate,
-            Reason = kind is null ? Voice.DeliveryDecisions.AskReasonPromptUnanswered : null,
+            Reason = kind is null ? Voice.DeliveryDecisions.AskReasonPromptUnanswered : directorReason,
             Error = kind is null ? error : body is { Accepted: false } ? body.DeliveryStateReason ?? body.Error : null,
         };
         return kind switch

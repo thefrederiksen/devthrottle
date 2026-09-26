@@ -336,11 +336,13 @@ public sealed class HeldDeliveryDriverTests : IDisposable
     [InlineData(SendAnywayOutcomes.Delivered, 200)]
     [InlineData(SendAnywayOutcomes.Unconfirmed, 200)]
     [InlineData(SendAnywayOutcomes.TooOld, 200)]
+    [InlineData(SendAnywayOutcomes.SessionExited, 200)]
     public async Task TheOutcomeRead_OfASendAnyway_AnswersInTheDictationsOwnShapes(string? outcome, int status)
     {
         // Proves the "Send anyway" rows of the outcome table, on a recording already acknowledged (as every real "Send
         // anyway" names one): held is 202; delivered is 200 submitted with the words; unconfirmed is shown back with no
-        // "Send anyway"; too old is shown back with it.
+        // "Send anyway"; too old is shown back with it; session-exited (contract section 9, F4) is shown back with the
+        // words and NO "Send anyway" - there is no session left to send to.
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _store.MarkDelivered(uploadId, submitted: false, movedOn: true, SpokenWords, reason: DeliveryDecisions.TooOld);

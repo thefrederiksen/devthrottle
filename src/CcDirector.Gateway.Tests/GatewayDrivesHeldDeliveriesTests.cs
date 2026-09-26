@@ -116,7 +116,7 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
         Assert.Equal(new[]
         {
             DeliveryDecisions.GatewayDrive, DeliveryDecisions.AskedDirector, DeliveryDecisions.DeliveryStateAnswer,
-            DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer,
+            DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer,
             DeliveryDecisions.Delivered,
         }, afterDrive);
         Assert.Equal("unknown", decisions.Single(d => d.Name == DeliveryDecisions.DeliveryStateAnswer

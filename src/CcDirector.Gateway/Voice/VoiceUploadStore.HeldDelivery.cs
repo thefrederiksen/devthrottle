@@ -78,6 +78,29 @@ public sealed partial class VoiceUploadStore
     }
 
     /// <summary>
+    /// Remember on an owned dictation's PENDING record which Director held its session when an attempt located it
+    /// (contract section 9, F4). Written the moment a locate succeeds, so the record - not the in-memory owner
+    /// cache, which any roster read may prune - is the durable answer to "which Director is its Director?" when a
+    /// later attempt must decide whether the session has provably ended. No-op when the record is not an owned
+    /// PENDING one or already remembers this Director.
+    /// </summary>
+    public bool RememberOwningDirector(string uploadId, string directorId)
+    {
+        if (string.IsNullOrWhiteSpace(directorId)) return false;
+        var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
+        return WithRecordLock(uid, () =>
+        {
+            var read = Read(uid);
+            if (read.Record is not { State: DictationDeliveryState.Pending, Owned: { } owned } record)
+                return false;
+            if (string.Equals(owned.DirectorId, directorId, StringComparison.Ordinal)) return false;
+            WriteRecordMarker(DirFor(uid), record with { Owned = owned with { DirectorId = directorId } });
+            FileLog.Write($"[VoiceUploadStore] RememberOwningDirector: uploadId={uid} director={directorId}");
+            return true;
+        });
+    }
+
+    /// <summary>
     /// The <c>directorState</c> a held delivery was last answered with: the state on its newest
     /// <see cref="DeliveryDecisions.StillDelivering"/> line, or null when it has none yet. A repeated complete and the
     /// outcome read answer this, so they report the Gateway's own last word rather than drive anything to find one.
@@ -251,6 +274,10 @@ public sealed partial class VoiceUploadStore
 /// surface and credential kind that call was authenticated with. Every later attempt - the driver's, after a tunnel
 /// comes back, after a restart - is run from exactly these, so it cannot deliver anything the owner did not send.
 /// </summary>
+/// <param name="DirectorId">The Director that held the session when an attempt last located it, remembered on the
+/// record the moment a locate succeeds. Null until then. It is what lets a LATER attempt prove the session has ENDED
+/// (contract section 9, F4): "its Director is connected and fresh and no longer lists the session" needs its Director,
+/// and the in-memory owner cache can be pruned by any roster read in between - the record cannot.</param>
 public sealed record DictationOwnedDelivery(
     DateTime OwnedAtUtc,
     string SessionId,
@@ -266,13 +293,17 @@ public sealed record DictationOwnedDelivery(
     double? ClientRecordedMs = null,
     double? ClientDecodedSeconds = null,
     long? ClientSourceBytes = null,
-    string? ClientSurface = null);
+    string? ClientSurface = null,
+    string? DirectorId = null);
 
 /// <summary>
 /// A "Send anyway" the Gateway took over (contract section 4): the prompt as it was sent, the session, and what the
 /// Director is told about who sent it. <see cref="Outcome"/> is null while held, then one of
 /// <see cref="SendAnywayOutcomes"/>.
 /// </summary>
+/// <param name="DirectorId">The Director that held the session when the owner pressed (the press located it - a
+/// held "Send anyway" is only ever created by a press that did). Kept so a later driver attempt can prove the
+/// session has ENDED without guessing which Director is "its" (contract section 9, F4).</param>
 public sealed record SendAnywayDelivery(
     DateTime OwnedAtUtc,
     string SessionId,
@@ -280,7 +311,8 @@ public sealed record SendAnywayDelivery(
     string? Surface,
     SubmissionProvenanceDto? Provenance,
     string? Outcome = null,
-    DateTime? ResolvedAtUtc = null);
+    DateTime? ResolvedAtUtc = null,
+    string? DirectorId = null);
 
 /// <summary>The final outcomes of a Gateway-driven "Send anyway".</summary>
 public static class SendAnywayOutcomes
@@ -291,6 +323,10 @@ public static class SendAnywayOutcomes
     public const string Unconfirmed = DeliveryDecisions.Unconfirmed;
     /// <summary>The Director said the words are not in, past the limit from the first claim: shown back with "Send anyway".</summary>
     public const string TooOld = DeliveryDecisions.TooOld;
+    /// <summary>The session has provably ended (located and exited, or its Director fresh and no longer listing it):
+    /// the words are kept and shown back with Dismiss and NO "Send anyway" - there is no session left to send to
+    /// (contract section 9, F4).</summary>
+    public const string SessionExited = DeliveryDecisions.SessionExited;
 }
 
 public enum DictationOwnership { Taken, AlreadyOwned, NotPending }
