@@ -36,7 +36,8 @@ public sealed class StarvedProcessCollection
 /// THE REPRODUCTION. This process is set to Below Normal, as the scheduled task set the Director, and pinned to one
 /// processor that a Normal-priority process keeps busy - the case2f machine in miniature, without loading the whole
 /// machine. Then the Director's own start-up step runs (<see cref="ProcessPriorityFloor.Apply()"/>), and the verbs must
-/// answer in time.
+/// answer in time. The delivery record's writes are held to the same bound (task D, on QA finding F5: the claim before
+/// typing took about 6 seconds on that starved Director - the same cause, so the same fix, pinned by the same test).
 /// </summary>
 [Collection(StarvedProcessCollection.Name)]
 [SupportedOSPlatform("windows")]
@@ -116,6 +117,45 @@ public sealed class VerbAnswersWhenStarvedTests
         // Assert
         Assert.True(took.Max() < TimeSpan.FromSeconds(1),
             "a delivery-state answer is a read of one small file; these took " +
+            string.Join(", ", took.Select(t => $"{t.TotalSeconds:F2}s")));
+    }
+
+    /// <summary>
+    /// The record's write is quick once the floor has run, however the Director was started (phase 6, task D, QA finding
+    /// F5). What was measured with the real <see cref="DeliveryRecord"/> code: the claim before typing and the delivered
+    /// write after it took 8-19 milliseconds at Normal priority with 24 busy Normal threads loading all 24 processors
+    /// (and 7-17 milliseconds on an idle machine, 2000-entry file included); on this process Below Normal and pinned to
+    /// a busy processor the same pair took 5-45 seconds; with the floor applied, again 9-352 milliseconds. So the write
+    /// is not slow at Normal under load - the Below Normal start was the whole cause, and this test pins the fix.
+    /// </summary>
+    [WindowsOnlyFact(WindowsOnly)]
+    public void RecordWrite_DirectorStartedBelowNormalOnABusyMachine_AfterThePriorityFloor_WritesWithinASecond()
+    {
+        using var busy = BusyProcessor.StarveThisProcess();
+        ProcessPriorityFloor.Apply();
+
+        // Arrange: a record with history, as a busy session's has.
+        var sessionId = Guid.NewGuid();
+        for (var i = 0; i < 10; i++) busy.Record.MarkDelivered(sessionId, Guid.NewGuid().ToString("N"));
+
+        // Act: write ten claim-and-finish pairs, a moment apart, the way the Gateway's deliveries arrive. The pause
+        // matters for the same reason as in the verb test above: each write wakes from idle, which is exactly what a
+        // starved process waits for. Stops at the first slow pair, so a starved run does not take minutes.
+        var took = new List<TimeSpan>();
+        for (var i = 0; i < 10; i++)
+        {
+            Thread.Sleep(300);
+            var deliveryId = Guid.NewGuid().ToString("N");
+            var sw = Stopwatch.StartNew();
+            Assert.True(busy.Record.TryBeginDelivery(sessionId, deliveryId).Began);
+            busy.Record.MarkDelivered(sessionId, deliveryId);
+            took.Add(sw.Elapsed);
+            if (sw.Elapsed >= TimeSpan.FromSeconds(1)) break;
+        }
+
+        // Assert: the claim before typing and the delivered write after it are a read and rewrite of one small file.
+        Assert.True(took.Max() < TimeSpan.FromSeconds(1),
+            "a delivery record write is a read and rewrite of one small file; these pairs took " +
             string.Join(", ", took.Select(t => $"{t.TotalSeconds:F2}s")));
     }
 
