@@ -594,7 +594,7 @@ internal static class GatewayDictationEndpoint
             {
                 null => Held(store.LastHeldState(uploadId)),
                 SendAnywayOutcomes.Delivered => Results.Json(new { submitted = true, movedOn = false, transcript = claim.Text }),
-                SendAnywayOutcomes.Unconfirmed or SendAnywayOutcomes.TooOld => Results.Json(new
+                SendAnywayOutcomes.Unconfirmed or SendAnywayOutcomes.TooOld or SendAnywayOutcomes.SessionExited => Results.Json(new
                 {
                     submitted = false, movedOn = true, reason = claim.Outcome, offerSendAnyway = OffersSendAnyway(claim.Outcome),
                     transcript = claim.Text,
@@ -824,6 +824,13 @@ internal static class GatewayDictationEndpoint
             // first. A dictation aimed at a session that cannot receive it now costs one in-memory lookup.
             var (director, session) = await GatewayEndpoints.LocateSessionAsync(
                 registry, sid, pushedSessions, streamStale, tenant, owners);
+            // The Director that holds the session, remembered on the durable record the moment a locate finds it: it
+            // is what lets a LATER attempt - whose own locate finds nothing - prove the session has ENDED rather than
+            // hold it forever (contract section 9, F4). The in-memory owner cache answers the same question, but any
+            // roster read may prune it between two attempts; the record cannot be pruned by anything but the
+            // delivery's own end.
+            if (director is not null)
+                store.RememberOwningDirector(uploadId, director.DirectorId);
             if (director is null || session is null)
             {
                 // THE SESSION CANNOT BE REACHED RIGHT NOW - its Director is not connected (Voice Delivery phase 5). The
@@ -832,6 +839,14 @@ internal static class GatewayDictationEndpoint
                 // still apply when no Director ever returns, so nothing waits forever:
                 store.RecordDecision(uploadId, DeliveryDecisions.SessionNotFound,
                     new DeliveryDecisionFacts { SessionId = sid, StatusCode = StatusCodes.Status404NotFound });
+                // ENDED ONLY WHEN PROVABLE (contract section 9, F4): its Director is connected and fresh and no longer
+                // lists the session. Resolved AT ONCE, session-exited, with whatever words an earlier attempt paid for
+                // (contract section 8: a transcript that was paid for is never thrown away) and NO "Send anyway" - there
+                // is no session left to send to.
+                if (SessionEndedOnAFreshDirector(store.Read(uploadId).Record?.Owned?.DirectorId, owners,
+                        pushedSessions, streamStale, tenant, sid))
+                    return ResolveAsUndeliverable(store, uploadId, sid, "no longer listed by its connected Director",
+                        store.SentWords(uploadId));
                 // - words that may already be in (an earlier attempt sent them) are "could not confirm it arrived" past
                 //   the limit from Send, with the words kept, and held until then;
                 if (store.MayHaveBeenSentToDirector(uploadId))
@@ -844,7 +859,9 @@ internal static class GatewayDictationEndpoint
                     return HoldAsStillDelivering(store, uploadId, sid, DeliverySendAndAsk.WaitingForDirectorState);
             }
             else if (IsExited(session))
-                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript: "");
+                // The words an earlier attempt may already have paid for are handed back here too (contract section 8):
+                // a retry whose session exited between attempts must not throw them away.
+                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", store.SentWords(uploadId));
 
             // A RETRY ASKS FIRST, BEFORE IT PAYS FOR A TRANSCRIPT (Voice Delivery mission, phase 2). When an earlier
             // attempt of this upload handed the words to the Director, they may already be in the session - the 09:05
@@ -871,8 +888,19 @@ internal static class GatewayDictationEndpoint
                     case DeliveryState.Delivering:
                         return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Delivering);
                     case DeliveryState.NotDelivered:
+                        // The DIRECTOR ITSELF refused it for age (contract section 9, F6: its own check types nothing
+                        // past the limit and answers not-delivered with reason too-old). Known not to be in, and past
+                        // the limit from Send: shown back too old AT ONCE, with the words an earlier attempt kept -
+                        // re-sending what the Director has already refused for age buys nothing. The decision record
+                        // says the Director refused it for age: the delivery-state-answer line above carries the
+                        // Director's own reason.
+                        if (IsTooOld(clock, sentAtUtc, out var refusedForAge)
+                            && string.Equals(earlier.Answer.Reason, TooOldReason, StringComparison.Ordinal))
+                            return ResolveTooOld(store, uploadId, sid, store.SentWords(uploadId), refusedForAge);
+                        goto case DeliveryState.Unknown;
                     case DeliveryState.Unknown:
-                        // Known not to be in: carry on as a first attempt - transcribe, the age limit, send.
+                        // Known not to be in: carry on as a first attempt - transcribe (or reuse the kept words), the age
+                        // limit, send.
                         break;
                     default:
                         throw new InvalidOperationException($"the Director answered delivery state {earlier.Answer.State}, which this Gateway does not know");
@@ -888,6 +916,13 @@ internal static class GatewayDictationEndpoint
             // never outlives the run.
             transcribingSessions.MarkActivelyTranscribing(tenant, sid);
 
+            // THE TRANSCRIPT IS REUSED, NEVER PAID FOR TWICE (contract section 8): the words are on the record the
+            // MOMENT they exist - written below the first time this recording was transcribed - so every later attempt,
+            // including one after the Director said not-delivered or unknown, reads them back and transcribes nothing.
+            // A paid transcript thrown away while its words have not been shown to the owner was QA case 8's damage.
+            var transcript = store.SentWords(uploadId);
+            if (transcript.Length == 0)
+            {
             // The configured mode's key must be present before we pay the reassembly + transcribe cost.
             var routing = transcription.Resolve();
             if (routing.Key is null)
@@ -897,7 +932,11 @@ internal static class GatewayDictationEndpoint
                     StatusCode = StatusCodes.Status503ServiceUnavailable,
                     Error = $"no key configured for transcription mode {routing.Mode}",
                 });
-                // A Gateway-side problem worth another try: the Gateway owns the delivery and tries again itself.
+                // A recording that could never be transcribed is not held forever (contract section 8): past the limit
+                // from Send it has no words and nothing was ever sent, so it is shown back too old - the recording is
+                // still on the device - and within it the Gateway owns the delivery and tries again itself.
+                if (IsTooOld(clock, sentAtUtc, out var noKeyAge))
+                    return ResolveTooOld(store, uploadId, sid, "", noKeyAge);
                 return HoldToRetry(store, uploadId, sid);
             }
 
@@ -931,6 +970,10 @@ internal static class GatewayDictationEndpoint
             // It is no longer parked FAILED - that parking existed so the colour told the truth while the client re-drove
             // it every few seconds, and the client no longer drives an owned delivery at all. Out of credits and a
             // permanent failure are answered exactly as before (contract section 1: out of scope, not held).
+            //
+            // A recording whose transcription KEEPS failing is not held to the 24-hour expiry (contract section 8):
+            // past the limit from Send it is shown back too old with no words and "Send anyway" - the client already
+            // has the no-words wording, and the recording is still on the device. Within the limit it stays held.
             if (result.Outcome is not (TranscriptionOutcome.Ok or TranscriptionOutcome.OutOfCredits or TranscriptionOutcome.PermanentError))
             {
                 store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
@@ -941,17 +984,24 @@ internal static class GatewayDictationEndpoint
                 });
                 FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: retryable transcription failure " +
                     $"code={result.Code} error={result.Error}; the Gateway will try again itself");
+                if (IsTooOld(clock, sentAtUtc, out var failedAge))
+                    return ResolveTooOld(store, uploadId, sid, "", failedAge);
                 return HoldToRetry(store, uploadId, sid);
             }
             if (MapNonOkTranscription(result, uploadId, store) is { } nonOk)
                 return nonOk;
 
-            var transcript = (result.Text ?? "").Trim();
+            transcript = (result.Text ?? "").Trim();
             store.RecordDecision(uploadId, DeliveryDecisions.Transcribed, new DeliveryDecisionFacts
             {
                 Characters = transcript.Length,
                 AudioBytes = audio.Length,
             });
+            // THE WORDS ARE ON THE RECORD THE MOMENT THEY EXIST (contract section 8) - before the second locate and
+            // before the send - so any later ruling (held, too old, could not confirm, session ended) hands them back,
+            // and no later attempt ever pays for them again. Written over the PENDING record, as the tombstones keep
+            // them; the acknowledgement deletes them exactly as it deletes a tombstone's.
+            store.KeepSentWords(uploadId, transcript);
             // Capture-health (issue #863): persist the fire-and-forget Send path's audio-loss deficit into
             // the SAME dictation session log the Voice-mode and desktop paths write, via the one shared
             // helper. The assembled audio byte count is what the server actually transcribed. When the client
@@ -960,6 +1010,7 @@ internal static class GatewayDictationEndpoint
                 uploadId, MobileCaptureHealthLog.SurfaceOr(req.ClientSurface, "mobile-send"),
                 req.ClientRecordedMs, req.ClientDecodedSeconds, req.ClientSourceBytes,
                 audio.Length, transcript);
+            }
             // Compose the final message: any typed text the caret split the dictation around (before /
             // after), any earlier paused dictation segments already turned to text (prefix), and this
             // clip's transcript, space-joined skipping empties. The common voice case is transcript alone.
@@ -1003,10 +1054,17 @@ internal static class GatewayDictationEndpoint
             // path here that falls back to a shared/Local locate on hosted.
             (director, session) = await GatewayEndpoints.LocateSessionAsync(
                 registry, sid, pushedSessions, streamStale, tenant, owners);
+            if (director is not null)
+                store.RememberOwningDirector(uploadId, director.DirectorId);
             if (director is null || session is null)
             {
                 store.RecordDecision(uploadId, DeliveryDecisions.SessionNotFound,
                     new DeliveryDecisionFacts { SessionId = sid, StatusCode = StatusCodes.Status404NotFound });
+                // Ended only when provable (contract section 9, F4) - and this gate holds the words in hand, so an
+                // ended session resolves with them: session-exited, no "Send anyway".
+                if (SessionEndedOnAFreshDirector(store.Read(uploadId).Record?.Owned?.DirectorId, owners,
+                        pushedSessions, streamStale, tenant, sid))
+                    return ResolveAsUndeliverable(store, uploadId, sid, "no longer listed by its connected Director", transcript);
                 // Known not to be in, and the session cannot be reached: past the limit the words are shown back as too
                 // old (they were transcribed for exactly this); within it the Gateway waits for the Director.
                 if (IsTooOld(clock, sentAtUtc, out var unreachableAge))
@@ -1052,11 +1110,6 @@ internal static class GatewayDictationEndpoint
             var spokenAlone = SpokenTurnRule.IsSpokenAlone(req.Before, req.Prefix, req.After);
             if (!spokenAlone)
                 FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: composed with typed text around the transcript; delivered as ONE TYPED turn (ruling R10)");
-            // THE WORDS ARE KEPT ON THE PENDING RECORD ONCE THEY ARE SENT (phase 2, change 1), as the tombstones keep them,
-            // so an answer that does not transcribe again - delivered heard by a retry that asked first, or "could not
-            // confirm it arrived" - hands them back. Written before the send, so a send that is never answered still
-            // left them there.
-            store.KeepSentWords(uploadId, transcript);
             store.RecordDecision(uploadId, DeliveryDecisions.SentToDirector, new DeliveryDecisionFacts
             {
                 SessionId = sid,
@@ -1113,6 +1166,14 @@ internal static class GatewayDictationEndpoint
                     // Held: the client's next attempt asks again, and "unknown" then counts as not in (contract section 4).
                     return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Unknown);
                 case DeliverySendKind.NotDelivered:
+                    // The DIRECTOR ITSELF refused this send for age (contract section 9, F6): its check types nothing
+                    // past the limit and answers not-delivered with reason too-old. Known not to in, and past the
+                    // limit from Send by the Gateway's own clock: shown back too old with the words, and the decision
+                    // record's director-answer line above already says the Director refused it for age.
+                    if (sent.NeverLeft is false
+                        && IsTooOld(clock, sentAtUtc, out var refusedAge)
+                        && string.Equals(sent.DirectorReason, TooOldReason, StringComparison.Ordinal))
+                        return ResolveTooOld(store, uploadId, sid, transcript, refusedAge);
                     // Definitely not in: the Gateway tries again itself (phase 5), and that attempt asks first and then
                     // types, under the age limit. A prompt that never left this Gateway is waiting for its Director.
                     FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: not delivered ({sent.Error}); " +
@@ -1177,14 +1238,17 @@ internal static class GatewayDictationEndpoint
     /// <summary>
     /// Whether a shown-back recording (<c>movedOn</c>) offers "Send anyway" - the Gateway's ruling, read by the client
     /// verbatim (rule 7; phase 2, change 1). Decided from the record's reason alone, so the fresh answer, the cached
-    /// re-complete and the register-time answer cannot disagree: true for <see cref="TooOldReason"/> and
-    /// <see cref="ExitedSessionReason"/> (the words are known not to be in the live session) and for a tombstone written
-    /// before reasons were kept; false for <see cref="UnconfirmedReason"/>, where the words may already be in and a second
-    /// copy could double them. The Delivery Lead: "'Send anyway' is offered only when the Director has answered
-    /// not-delivered or unknown (so we never offer a second copy that might double)".
+    /// re-complete and the register-time answer cannot disagree. True for <see cref="TooOldReason"/> (the words are
+    /// known not to be in the session, and a live session may still take them) and for a tombstone written before
+    /// reasons were kept. False for <see cref="UnconfirmedReason"/>, where the words may already be in and a second
+    /// copy could double them - and, since phase 5 round 2 (contract section 9, F4), FALSE FOR
+    /// <see cref="ExitedSessionReason"/> too: the session has ended, so there is nothing left to send to, and the
+    /// client shows the words, the ended-session label and Dismiss. The Delivery Lead: "'Send anyway' is offered only
+    /// when the Director has answered not-delivered or unknown (so we never offer a second copy that might double)";
+    /// a dead session is the strongest "not deliverable" there is.
     /// </summary>
     internal static bool OffersSendAnyway(string? reason)
-        => !string.Equals(reason, UnconfirmedReason, StringComparison.Ordinal);
+        => reason is null || string.Equals(reason, TooOldReason, StringComparison.Ordinal);
 
     /// <summary>
     /// A recording whose question got no answer of any kind: HELD while it is within the limit from Send, and resolved as
@@ -1297,10 +1361,30 @@ internal static class GatewayDictationEndpoint
         try { t.End(tenant, sid); } catch { /* the Gateway's stale-mark backstop clears it if this throws */ }
     }
 
-    private static bool IsExited(SessionDto session)
+    internal static bool IsExited(SessionDto session)
         => string.Equals(session.Status, "Exited", StringComparison.OrdinalIgnoreCase)
         || string.Equals(session.Status, "Failed", StringComparison.OrdinalIgnoreCase)
         || string.Equals(session.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether the Gateway can PROVE a session it cannot locate has ENDED - one of the only two proofs there are
+    /// (contract section 9, F4): its Director (the one an attempt remembered on the record, or the in-memory owner
+    /// cache when the record predates that) is connected and fresh, and its fresh snapshot no longer lists the
+    /// session. Anything else - a stale Director, a disconnected one, no Director known at all - is NOT ended and
+    /// stays a held delivery (contract section 8): "a Director that is stale or unreachable is a HELD delivery,
+    /// never 'session gone'". The freshness horizon is the locator's own (<see cref="GatewayEndpoints.LocateGrace"/>
+    /// over the stream staleness), so "fresh" here means exactly what "locatable" means there.
+    /// </summary>
+    /// <param name="rememberedDirector">The Director a delivery's own durable record names as its session's
+    /// Director, when it does; null otherwise.</param>
+    internal static bool SessionEndedOnAFreshDirector(string? rememberedDirector, SessionOwnerCache? owners,
+        Streaming.PushedSessionStore? pushedSessions, TimeSpan streamStale, TenantId tenant, string sid)
+    {
+        var directorId = rememberedDirector ?? owners?.OwnerOf(tenant, sid);
+        if (string.IsNullOrWhiteSpace(directorId) || pushedSessions is null) return false;
+        var fresh = pushedSessions.TryGetFresh(tenant, directorId, streamStale + GatewayEndpoints.LocateGrace);
+        return fresh is not null && fresh.All(s => !string.Equals(s.SessionId, sid, StringComparison.Ordinal));
+    }
 }
 
 /// <summary>Register-time body: the session the recording is for.</summary>

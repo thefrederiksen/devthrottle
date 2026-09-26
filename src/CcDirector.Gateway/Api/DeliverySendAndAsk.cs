@@ -36,9 +36,13 @@ internal enum DeliverySendKind
 /// <see cref="DeliverySendKind.NoAnswer"/> only.
 /// <paramref name="NeverLeft"/> is true on <see cref="DeliverySendKind.NotDelivered"/> when the prompt never left this
 /// Gateway at all - the Director is not connected - which the owned delivery holds as "waiting for the Director" rather
-/// than "retrying" (Voice Delivery phase 5).</summary>
+/// than "retrying" (Voice Delivery phase 5).
+/// <paramref name="DirectorReason"/> is the Director's OWN reason for a refused delivery (its
+/// <c>DeliveryStateReason</c>, or the reason it answered the question with), on <see cref="DeliverySendKind.NotDelivered"/>
+/// only - for the age refusal of contract section 9, F6, so the delivery core can rule a recording the DIRECTOR refused
+/// for age as too old without guessing at error text.</summary>
 internal sealed record DeliverySendResult(DeliverySendKind Kind, PromptResponse? Body, string? Error, bool RefusedDuplicate = false,
-    string? NoAnswerKind = null, bool NeverLeft = false);
+    string? NoAnswerKind = null, bool NeverLeft = false, string? DirectorReason = null);
 
 /// <summary>What the prompt verb's own answer meant, before any question: the fact a caller writes as the Director's answer.</summary>
 internal sealed record PromptAnswerReading(bool Unanswered, bool Delivered, string? Error, bool RefusedDuplicate);
@@ -69,11 +73,12 @@ internal static class DeliverySendAndAsk
         Action<SessionVerbClient.PromptSendOutcome, PromptAnswerReading> recordAnswer)
     {
         var sent = await route.SendPromptAsync(sid, prompt);
-        var (kind, error, refusedDuplicate) = Read(sent);
+        var (kind, error, refusedDuplicate, directorReason) = Read(sent);
         recordAnswer(sent, new PromptAnswerReading(kind is null, kind == DeliverySendKind.Delivered, error, refusedDuplicate));
         if (kind is { } settled)
             return new DeliverySendResult(settled, sent.Body, error, refusedDuplicate,
-                NeverLeft: sent.Kind == SessionVerbClient.PromptSendKind.NeverLeftTheGateway);
+                NeverLeft: sent.Kind == SessionVerbClient.PromptSendKind.NeverLeftTheGateway,
+                DirectorReason: directorReason);
 
         // UNANSWERED: the prompt went out and no answer came back. Ask; never call it a failure.
         var asked = await AskAsync(store, uploadId, sid, deliveryId, route, DeliveryDecisions.AskReasonPromptUnanswered);
@@ -86,7 +91,8 @@ internal static class DeliverySendAndAsk
             DeliveryState.Unknown => new DeliverySendResult(DeliverySendKind.NeverSeen, null,
                 $"the Director never received delivery {deliveryId}; the send that went out got no answer ({error})"),
             DeliveryState.NotDelivered => new DeliverySendResult(DeliverySendKind.NotDelivered, null,
-                $"the Director did not deliver the words: {asked.Answer.Reason ?? error ?? "no reason given"}"),
+                $"the Director did not deliver the words: {asked.Answer.Reason ?? error ?? "no reason given"}",
+                DirectorReason: asked.Answer.Reason),
             _ => throw new InvalidOperationException($"the Director answered delivery state {asked.Answer.State}, which this Gateway does not know"),
         };
     }
@@ -94,17 +100,17 @@ internal static class DeliverySendAndAsk
     /// <summary>
     /// Read the prompt verb's answer: a settled kind, or null when the send went out and no answer came back (ask). An
     /// accepted answer that carries no delivery state (a Director older than the field) is read exactly as it always
-    /// was: delivered.
+    /// was: delivered. The fourth element is the Director's own refusal reason when it gave one.
     /// </summary>
-    private static (DeliverySendKind? Kind, string? Error, bool RefusedDuplicate) Read(SessionVerbClient.PromptSendOutcome sent)
+    private static (DeliverySendKind? Kind, string? Error, bool RefusedDuplicate, string? DirectorReason) Read(SessionVerbClient.PromptSendOutcome sent)
     {
         switch (sent.Kind)
         {
             case SessionVerbClient.PromptSendKind.Unanswered:
-                return (null, sent.Detail, false);
+                return (null, sent.Detail, false, null);
             case SessionVerbClient.PromptSendKind.NeverLeftTheGateway:
             case SessionVerbClient.PromptSendKind.DirectorRefused:
-                return (DeliverySendKind.NotDelivered, sent.Detail, false);
+                return (DeliverySendKind.NotDelivered, sent.Detail, false, null);
             case SessionVerbClient.PromptSendKind.Accepted:
                 break;
             default:
@@ -117,17 +123,19 @@ internal static class DeliverySendAndAsk
             // being delivered. Delivered means an earlier attempt landed after this Gateway had stopped waiting for it.
             return body.DeliveryState switch
             {
-                DeliveryState.Delivered => (DeliverySendKind.Delivered, null, true),
-                DeliveryState.Delivering => (DeliverySendKind.StillDelivering, body.DeliveryStateReason ?? body.Error, false),
+                DeliveryState.Delivered => (DeliverySendKind.Delivered, null, true, null),
+                DeliveryState.Delivering => (DeliverySendKind.StillDelivering, body.DeliveryStateReason ?? body.Error, false,
+                    body.DeliveryStateReason),
                 _ => (DeliverySendKind.NotDelivered,
-                    body.Error ?? $"the Director refused the delivery (state {DeliveryStates.Format(body.DeliveryState.Value)})", false),
+                    body.Error ?? $"the Director refused the delivery (state {DeliveryStates.Format(body.DeliveryState.Value)})",
+                    false, body.DeliveryStateReason),
             };
         }
         // Accepted, and the Director answered at its own budget with the send still going (Voice Delivery phase 3): the
         // words may yet land or fail, so this is held like any other "still delivering".
         if (body is { Accepted: true, DeliveryState: DeliveryState.Delivering })
-            return (DeliverySendKind.StillDelivering, null, false);
-        return (DeliverySendKind.Delivered, null, false);
+            return (DeliverySendKind.StillDelivering, null, false, null);
+        return (DeliverySendKind.Delivered, null, false, null);
     }
 
     /// <summary>

@@ -3274,7 +3274,8 @@ internal static class GatewayEndpoints
                     return await AnswerAcceptedPromptAsync(director, sid, req, attempt.Body!);
                 case ClaimAttemptKind.Held:
                     outcome(false);
-                    var owned = new Voice.SendAnywayDelivery(claimClock.GetUtcNow().UtcDateTime, sid, req.Text, req.Surface, req.Provenance);
+                    var owned = new Voice.SendAnywayDelivery(claimClock.GetUtcNow().UtcDateTime, sid, req.Text, req.Surface,
+                        req.Provenance, DirectorId: director.DirectorId);
                     if (!store.TakeSendAnywayOwnership(deliveryId, owned))
                         throw new InvalidOperationException($"the held Send anyway of upload {deliveryId} could not be kept for the Gateway to finish");
                     heldDeliveries?.Track(store.Tenant, deliveryId, Voice.HeldDeliveryKind.SendAnyway);

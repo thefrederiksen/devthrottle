@@ -314,7 +314,8 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         {
             Assert.True(body.GetProperty("movedOn").GetBoolean());
             Assert.Equal("session-exited", body.GetProperty("reason").GetString());
-            Assert.True(body.GetProperty("offerSendAnyway").GetBoolean());
+            // No "Send anything" for an ended session (contract section 9, F4): there is no session left to send to.
+            Assert.False(body.GetProperty("offerSendAnyway").GetBoolean());
         }
     }
 

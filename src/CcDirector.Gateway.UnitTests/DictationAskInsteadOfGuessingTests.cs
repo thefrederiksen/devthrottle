@@ -263,22 +263,28 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     [Theory]
     [InlineData(DeliveryState.NotDelivered)]
     [InlineData(DeliveryState.Unknown)]
-    public async Task ARetryTheDirectorSaysIsNotIn_TranscribesAndSendsAgain(DeliveryState answer)
+    public async Task ARetryTheDirectorSaysIsNotIn_ReusesTheKeptWordsAndSendsAgain(DeliveryState answer)
     {
         // Proves a retry the Director says is not in (a failed send, or an id it never saw) carries on as a first
-        // attempt: it transcribes and sends, and delivers.
+        // attempt - but on the words the first attempt already paid for (contract section 8: a transcript is kept
+        // the moment it exists and NEVER paid for twice): one transcription across both attempts, one send each,
+        // and delivers. This replaces phase 2's "transcribes again", which handed a stale Director a second bill
+        // for the same clip - QA case 8's paid transcript, thrown away.
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => Timeout();
         _deliveryState = _ => StateIs(DeliveryState.NotDelivered);
         Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+        Assert.Equal(1, _transcriber.Calls);
+        Assert.Equal(SpokenWords, _store.SentWords(uploadId));
 
         _prompt = _ => Accepted();
         _deliveryState = _ => StateIs(answer);
         var retry = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
 
         Assert.Equal(200, retry.Status);
-        Assert.Equal(2, _transcriber.Calls);
+        Assert.Equal(SpokenWords, retry.Body.GetProperty("transcript").GetString());
+        Assert.Equal(1, _transcriber.Calls);
         Assert.Equal(2, _commands.Count(c => c.Verb == "prompt"));
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
     }
@@ -482,13 +488,15 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
 
     [Theory]
     [InlineData("too-old", true)]
-    [InlineData("session-exited", true)]
+    [InlineData("session-exited", false)]
     [InlineData(null, true)]
     [InlineData("unconfirmed", false)]
     public void OfferSendAnyway_IsRuledFromTheReasonAlone(string? reason, bool offered)
     {
-        // Pins the Gateway's ruling every shown-back answer carries: "Send anyway" for words known not to be in (too
-        // old, session exited) and for an old tombstone with no reason; never for unconfirmed, where it could double.
+        // Pins the Gateway's ruling every shown-back answer carries: "Send anyway" for words known not to be in a LIVE
+        // session (too old) and for an old tombstone with no reason; never for unconfirmed, where it could double, and
+        // since phase 5 round 2 (contract section 9, F4) never for a session that has ENDED - there is no session left
+        // to send to.
         Assert.Equal(offered, GatewayDictationEndpoint.OffersSendAnyway(reason));
     }
 

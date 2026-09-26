@@ -156,7 +156,23 @@ internal sealed class DictationDelivery
         {
             store.RecordDecision(deliveryId, DeliveryDecisions.SessionNotFound,
                 new DeliveryDecisionFacts { SessionId = held.SessionId, StatusCode = StatusCodes.Status404NotFound });
+            // Ended only when provable (contract section 9, F4): its Director is connected and fresh and no longer
+            // lists the session - the Director the owner's own press named on the held record, or the in-memory owner
+            // cache. Resolved at once with the words kept and NO "Send anyway"; anything else stays held.
+            if (GatewayDictationEndpoint.SessionEndedOnAFreshDirector(held.DirectorId, _owners, _pushedSessions,
+                    _streamStale, tenant, held.SessionId))
+            {
+                SettleEnded(store, deliveryId, held, Clock.GetUtcNow().UtcDateTime);
+                return DriveResult.Finished;
+            }
             attempt = ClaimedSendCore.DirectorNotConnected(store, held.SessionId, deliveryId, Clock);
+        }
+        else if (GatewayDictationEndpoint.IsExited(session))
+        {
+            // Located and exited: the other proof, and the same resolution (contract section 9, F4) - a held "Send
+            // anyway" is never retried to the limit against a session that has ended.
+            SettleEnded(store, deliveryId, held, Clock.GetUtcNow().UtcDateTime);
+            return DriveResult.Finished;
         }
         else
         {
@@ -191,6 +207,20 @@ internal sealed class DictationDelivery
             });
         FileLog.Write($"[DictationDelivery] Send anyway of upload {deliveryId} settled by the Gateway: {settled}");
         return DriveResult.Finished;
+    }
+
+    // A held "Send anyway" whose session has provably ENDED (contract section 9, F4): settled session-exited at
+    // once - the words kept on the delivery so the outcome read hands them back - and never retried to the limit.
+    private static void SettleEnded(VoiceUploadStore store, string deliveryId, SendAnywayDelivery held, DateTime nowUtc)
+    {
+        store.ResolveSendAnyway(deliveryId, SendAnywayOutcomes.SessionExited, nowUtc);
+        store.RecordDecision(deliveryId, DeliveryDecisions.SessionExited, new DeliveryDecisionFacts
+        {
+            SessionId = held.SessionId,
+            Characters = held.Text.Length,
+        });
+        FileLog.Write($"[DictationDelivery] Send anyway of upload {deliveryId}: the session has ended; " +
+            $"resolved as {SendAnywayOutcomes.SessionExited} with chars={held.Text.Length}, nothing sent");
     }
 
     // "I could not read what I own" is written where it will be read afterwards, and the delivery is left alone.
