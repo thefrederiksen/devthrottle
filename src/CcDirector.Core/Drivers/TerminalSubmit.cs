@@ -103,6 +103,12 @@ public static class TerminalSubmit
     /// <param name="composerText">Where the caller can read the agent's composer: the text it holds right now, or null
     /// when it holds nothing or cannot be read. Read whatever the agent is doing - a working agent still draws its
     /// composer - and used to see a paste taken in (see <see cref="WaitForPasteTakenInAsync"/>).</param>
+    /// <param name="composerRegion">Where the caller can read the composer REGION - the rows between the agent's rules
+    /// around the prompt, which the composer reader locates: the reading and the text it holds, or NotFound when the
+    /// region cannot be read. The echo check's screen witness and the retained-text check judge from this region and
+    /// NEVER from occurrences of the text anywhere on the screen (Voice Delivery mission, phase 6: a prompt identical
+    /// to words already visible in the conversation above could not be sent, and a retained-text check read that
+    /// conversation as the composer).</param>
     /// <returns>The exact line typed into the composer: the text itself, or the file instruction or @-reference that
     /// carries it. That is what the agent's records will hold.</returns>
     public static async Task<string> SharedSubmitAsync(
@@ -123,7 +129,8 @@ public static class TerminalSubmit
         bool clearRetainedUnconditionally = false,
         Func<bool>? nudgeOnlyWhen = null,
         Func<string?>? composerText = null,
-        Func<string>? composerSeen = null)
+        Func<string>? composerSeen = null,
+        Func<(ComposerReading Reading, string Text)>? composerRegion = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         var throwWhenParked = !recordsProofFollows;
@@ -133,7 +140,7 @@ public static class TerminalSubmit
         {
             return await SharedSubmitCoreAsync(backend, text, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout,
                 pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, clearKeysFor,
-                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally, composerText, composerSeen);
+                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally, composerText, composerSeen, composerRegion);
         }
         finally
         {
@@ -153,7 +160,8 @@ public static class TerminalSubmit
         ISessionBackend backend, string text, string driverTag, bool bracketedPasteEnabled, bool requireEcho,
         TimeSpan? echoTimeout, TimeSpan? pollInterval, TimeSpan? enterSettleDelay, Func<string[]>? screenSnapshot,
         TimeSpan? submitVerifyBeat, Guid sessionId, Func<int, byte[]?>? clearKeysFor, Func<bool>? composerHoldsNothing,
-        bool throwWhenParked, bool clearRetainedUnconditionally, Func<string?>? composerText, Func<string>? composerSeen)
+        bool throwWhenParked, bool clearRetainedUnconditionally, Func<string?>? composerText, Func<string>? composerSeen,
+        Func<(ComposerReading Reading, string Text)>? composerRegion)
     {
 
         // RESOLVE A RETAINED COMPOSER BEFORE CHOOSING A ROUTE, NOT INSIDE ONE OF THEM (issue #2818).
@@ -167,7 +175,7 @@ public static class TerminalSubmit
         // prevent, reintroduced through a route the guard did not cover.
         //
         // Every route that writes new text is downstream of this line.
-        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeysFor, composerHoldsNothing, clearRetainedUnconditionally, composerSeen);
+        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeysFor, composerHoldsNothing, clearRetainedUnconditionally, composerSeen, composerRegion);
 
         var textForCheck = text.TrimEnd('\r', '\n');
         if (ShouldUseInstructionFile(driverTag, textForCheck)
@@ -185,7 +193,8 @@ public static class TerminalSubmit
                 screenSnapshot,
                 submitVerifyBeat,
                 sessionId,
-                throwWhenParked);
+                throwWhenParked,
+                composerRegion);
             ComposerRetention.Clear(backend);
             return instruction;
         }
@@ -196,7 +205,7 @@ public static class TerminalSubmit
         // itself, so its size no longer decides whether it arrives on a busy machine.
         if (ShouldReferenceRatherThanPaste(driverTag, textForCheck) && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
         {
-            var reference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked);
+            var reference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
             ComposerRetention.Clear(backend);
             return reference;
         }
@@ -212,7 +221,7 @@ public static class TerminalSubmit
 
             if (!string.IsNullOrWhiteSpace(backend.WorkingDirectory))
             {
-                var atReference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked);
+                var atReference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
                 ComposerRetention.Clear(backend);
                 return atReference;
             }
@@ -230,7 +239,8 @@ public static class TerminalSubmit
                 screenSnapshot,
                 submitVerifyBeat,
                 sessionId,
-                throwWhenParked);
+                throwWhenParked,
+                composerRegion);
         }
         else
         {
@@ -381,7 +391,8 @@ public static class TerminalSubmit
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
         Guid sessionId = default,
-        bool throwWhenParked = true)
+        bool throwWhenParked = true,
+        Func<(ComposerReading Reading, string Text)>? composerRegion = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
 
@@ -417,27 +428,43 @@ public static class TerminalSubmit
         // prompt twice, run together - and the next send was appended to that. A text that is not proven to be in the
         // composer is now reported, with the composer left as it is and marked, never typed again here.
         var cursor = buffer.TotalBytesWritten;
-        var prefixBefore = ScreenPrefixLength(screenSnapshot, needle);
         // TEXT ALREADY ON SCREEN IS NOT AN ECHO (issue #3290). Measured on 24 September 2026 under full processor load:
         // the payload instruction sent to Codex ends in the same words every time, an earlier one was still visible in
         // Codex's history, and its tail passed for the echo of a new instruction Codex was still taking in one letter at
         // a time. Enter went in half way through, the prompt was lost, and the rest of it ran into the next prompt. So a
-        // tail already on screen is never used, and the whole text counts only when the screen shows it MORE often than
-        // it did before the typing.
+        // tail already on screen is never used, and the byte stream is not trusted either while the whole text is
+        // already visible on screen: a repaint can re-send an old copy into it.
+        //
+        // BUT THE ECHO ITSELF IS JUDGED IN THE COMPOSER REGION, NEVER BY COUNTING COPIES ANYWHERE ON THE SCREEN (Voice
+        // Delivery mission, phase 6). Counting the whole screen made a prompt identical to words already visible in the
+        // conversation above unsendable: the count demanded a new copy ANYWHERE on the screen, and an old copy scrolling
+        // off at the same moment the composer drew the new one cancelled it - measured in the rig on 25 September 2026,
+        // a 167-character prompt reported not-delivered with its text sitting in the composer, and repeated short
+        // prompts ("yes", "continue") could never be sent at all. Where the composer region can be read, the echo is
+        // its question alone: does the region hold this text now?
         var rowsBefore = screenSnapshot is null ? null : ReadScreen(screenSnapshot);
         var needleBefore = rowsBefore is null ? 0 : CountIn(NormalizeForEcho(string.Concat(rowsBefore)), needle);
+        var regionHayBefore = ReadRegionText(composerRegion);
+        var regionNeedleBefore = regionHayBefore is null ? 0 : CountIn(regionHayBefore, needle);
+        var prefixBefore = regionHayBefore is not null
+            ? PrefixLengthIn(regionHayBefore, needle)
+            : ScreenPrefixLength(screenSnapshot, needle);
         if (visibleTailNeedle is not null && rowsBefore is not null
             && NormalizeForEcho(string.Concat(rowsBefore)).Contains(visibleTailNeedle, StringComparison.Ordinal))
             visibleTailNeedle = null;
         if (needleBefore > 0)
-            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the same text is already on screen {needleBefore} time(s); " +
-                          "only a new copy on screen counts as its echo");
+            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the same text is already on screen {needleBefore} time(s) - " +
+                          (composerRegion is not null
+                              ? "in the conversation above the composer; the echo is judged in the composer region alone, " +
+                                "never by counting copies anywhere on the screen"
+                              : "only a new copy on screen counts as its echo"));
         await WriteTextAsync(backend, text);
 
         if (needle.Length == 0 || await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, to, poll, cap,
                 screenSnapshot, prefixBefore, needleBefore,
                 new SendWaitNotice(driverTag, $"the composer to echo a {text.Length}-character text",
-                    $"{to.TotalSeconds:F0}s after the terminal last moved, at most {cap.TotalSeconds:F0}s")))
+                    $"{to.TotalSeconds:F0}s after the terminal last moved, at most {cap.TotalSeconds:F0}s"),
+                composerRegion, regionNeedleBefore))
         {
             await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
             ComposerRetention.Clear(backend);
@@ -447,7 +474,7 @@ public static class TerminalSubmit
         // The byte stream is a poor witness for input that WRAPPED across composer rows (issue #1592), so the rendered
         // screen is asked before the text is called missing. The reading is taken NOW, not before typing.
         pressure = MemoryPressure.Level(MemoryProbe.Read());
-        var evidence = await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure, needleBefore);
+        var evidence = await ObserveComposerAsync(screenSnapshot, composerRegion, needle, visibleTailNeedle, pressure, regionNeedleBefore);
         if (evidence == ComposerEvidence.Present)
         {
             FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: byte-stream echo missed but the rendered screen shows the " +
@@ -467,8 +494,9 @@ public static class TerminalSubmit
                           $"screen cannot say whether the text is there. Watching for a further {extra.TotalSeconds:F0}s. " +
                           $"{MemoryPressure.Describe(pressure)}.");
             if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll, needleBefore: needleBefore,
-                    notice: new SendWaitNotice(driverTag, "a late composer echo", $"{extra.TotalSeconds:F0}s"))
-                || await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure, needleBefore) == ComposerEvidence.Present)
+                    notice: new SendWaitNotice(driverTag, "a late composer echo", $"{extra.TotalSeconds:F0}s"),
+                    composerRegion: composerRegion, regionNeedleBefore: regionNeedleBefore)
+                || await ObserveComposerAsync(screenSnapshot, composerRegion, needle, visibleTailNeedle, pressure, regionNeedleBefore) == ComposerEvidence.Present)
             {
                 FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the text arrived while waiting - pressing Enter.");
                 await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
@@ -550,7 +578,8 @@ public static class TerminalSubmit
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
         Guid sessionId = default,
-        bool throwWhenParked = true)
+        bool throwWhenParked = true,
+        Func<(ComposerReading Reading, string Text)>? composerRegion = null)
     {
         var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
@@ -567,7 +596,8 @@ public static class TerminalSubmit
             screenSnapshot,
             submitVerifyBeat,
             sessionId,
-            throwWhenParked);
+            throwWhenParked,
+            composerRegion);
         return atReference;
     }
 
@@ -583,7 +613,8 @@ public static class TerminalSubmit
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
         Guid sessionId = default,
-        bool throwWhenParked = true)
+        bool throwWhenParked = true,
+        Func<(ComposerReading Reading, string Text)>? composerRegion = null)
     {
         var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
@@ -608,7 +639,8 @@ public static class TerminalSubmit
                 screenSnapshot,
                 submitVerifyBeat,
                 sessionId,
-                throwWhenParked);
+                throwWhenParked,
+                composerRegion);
         }
         else
         {
@@ -633,7 +665,7 @@ public static class TerminalSubmit
     private static async Task ResolveRetainedComposerAsync(
         ISessionBackend backend, string driverTag, Func<string[]>? screenSnapshot,
         Func<int, byte[]?>? clearKeysFor = null, Func<bool>? composerHoldsNothing = null, bool unconditionally = false,
-        Func<string>? composerSeen = null)
+        Func<string>? composerSeen = null, Func<(ComposerReading Reading, string Text)>? composerRegion = null)
     {
         if (ComposerRetention.TakeRetainedText(backend) is not { } retained) return;
         // SIZED BY THE TEXT THAT WAS LEFT, not the one about to be sent (review finding 8): sixty-four Backspaces cannot
@@ -642,8 +674,14 @@ public static class TerminalSubmit
 
         var pressure = MemoryPressure.Level(MemoryProbe.Read());
         var retainedNeedle = NormalizeForEcho(retained);
+        // THE ORPHAN IS SOUGHT IN THE COMPOSER REGION, NEVER BY OCCURRENCES ANYWHERE ON SCREEN (Voice Delivery mission,
+        // phase 6). The words of a failed send are usually still visible in the conversation above the composer - the
+        // owner sent them themselves, or they match an earlier prompt there - and the whole-screen search read those
+        // copies as the orphan still being in the composer, so every later send cleared first and, when the clear could
+        // not be confirmed, refused forever while the composer on screen was empty. Where the region can be read, only
+        // the region answers: the orphan is there, or it is not.
         var orphan = await ObserveComposerAsync(
-            screenSnapshot, retainedNeedle, VisibleTailNeedle(retainedNeedle), pressure);
+            screenSnapshot, composerRegion, retainedNeedle, VisibleTailNeedle(retainedNeedle), pressure);
 
         // UNCONDITIONALLY only for the retry inside the same held-input send (issue #3290): nothing in the composer can
         // be the owner's then, and a partly echoed text does not read as "present", so the evidence rule would leave it
@@ -710,6 +748,27 @@ public static class TerminalSubmit
         }
         else
         {
+            // THE COMPOSER HOLDS SOMETHING THIS SEND CANNOT ACCOUNT FOR (Voice Delivery mission, phase 6). Where the
+            // region can be read and it holds text - the owner's own words typed since, or a remnant of the orphan too
+            // short to be recognised - typing now would run the new text together with it (the corruption of pull
+            // request #1513), and the whole-screen search that used to answer this question licensed a CLEAR over it
+            // whenever the orphan's words were merely visible in the conversation above, destroying the owner's words
+            // on the word of copies that were never in the composer at all. So nothing is typed and nothing is cleared:
+            // the send is refused, the owner's words stay theirs, and the refusal lasts exactly as long as the region
+            // shows text - the next send reads the screen afresh.
+            var regionNow = ReadRegionText(composerRegion);
+            if (regionNow is not null && regionNow.Length > 0)
+            {
+                var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
+                FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's text is not in the composer, " +
+                              "but the composer holds other text this send cannot account for - nothing is typed and " +
+                              $"nothing is cleared. What it read: {seen}");
+                ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
+                throw new ComposerNotAcceptingInputException(
+                    $"[{driverTag}] ResolveRetainedComposer: the composer holds text this send cannot account for, so " +
+                    "nothing is typed - typing now would run the new text together with what is there. The previous " +
+                    $"send's {retained.Length} characters are not it; what it read: {seen}. The next send looks again.");
+            }
             FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's text is provably gone from " +
                           "this composer - not clearing, so nothing typed since is disturbed.");
         }
@@ -873,6 +932,13 @@ public static class TerminalSubmit
     /// LOOK AT THE COMPOSER AND SAY WHAT IS KNOWN - the three-valued replacement for the boolean
     /// the old boolean screen check (issue #2818).
     ///
+    /// THE COMPOSER REGION, NOT THE WHOLE SCREEN (Voice Delivery mission, phase 6): where a region reader is given,
+    /// the question is asked of the region alone - the rows between the agent's rules around the prompt, which the
+    /// composer reader locates. The whole-screen search counted copies in the conversation above the composer, so
+    /// the words of a failed send, still visible in that conversation, read as the orphan still being in the composer
+    /// and licensed a clear over it, and a prompt identical to words already on screen could not prove its own echo.
+    /// An agent whose composer cannot be read keeps the whole-screen search.
+    ///
     /// Two samples, not one. A single negative reading is not proof of absence, because the rows can be
     /// captured mid-repaint: the existing code already records that disease for the byte stream and for
     /// the screen (issue #1592). Two consecutive readings that both render something and neither shows
@@ -883,10 +949,30 @@ public static class TerminalSubmit
     /// deleted the owner's words.
     /// </summary>
     private static async Task<ComposerEvidence> ObserveComposerAsync(
-        Func<string[]>? screenSnapshot, string needle, string? visibleTailNeedle, MemoryPressureLevel pressure,
+        Func<string[]>? screenSnapshot, Func<(ComposerReading Reading, string Text)>? composerRegion, string needle,
+        string? visibleTailNeedle, MemoryPressureLevel pressure,
         int needleBefore = 0)
     {
-        if (screenSnapshot is null || needle.Length == 0) return ComposerEvidence.Unknown;
+        if (needle.Length == 0) return ComposerEvidence.Unknown;
+
+        if (composerRegion is not null)
+        {
+            var regionFirst = ReadRegionText(composerRegion);
+            if (regionFirst is null) return ComposerEvidence.Unknown;
+            if (RegionShowsText(regionFirst, needle, visibleTailNeedle, needleBefore)) return ComposerEvidence.Present;
+
+            await Task.Delay(BetweenScreenSamples);
+
+            var regionSecond = ReadRegionText(composerRegion);
+            if (regionSecond is null) return ComposerEvidence.Unknown;
+            if (RegionShowsText(regionSecond, needle, visibleTailNeedle, needleBefore)) return ComposerEvidence.Present;
+
+            if (MemoryPressure.IsUnderPressure(pressure)) return ComposerEvidence.Unknown;
+
+            return ComposerEvidence.Absent;
+        }
+
+        if (screenSnapshot is null) return ComposerEvidence.Unknown;
 
         var first = ReadScreen(screenSnapshot);
         if (first is null) return ComposerEvidence.Unknown;
@@ -955,6 +1041,54 @@ public static class TerminalSubmit
             return true;
 
         return visibleTailNeedle is not null && hay.Contains(visibleTailNeedle, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The composer region's text in the echo comparison alphabet, or null when the region cannot be read (no composer
+    /// recognised, a menu over it, or the reader failed) - the same rule as <see cref="ReadScreen"/>: an unanswered
+    /// question is never a "no".
+    /// </summary>
+    private static string? ReadRegionText(Func<(ComposerReading Reading, string Text)>? composerRegion)
+    {
+        if (composerRegion is null) return null;
+        try
+        {
+            var (reading, text) = composerRegion();
+            return reading is ComposerReading.NotFound or ComposerReading.MenuOpen ? null : NormalizeForEcho(text);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TerminalSubmit] ReadRegionText FAILED, treating the composer as unreadable: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Does the composer region show the text? The region's twin of <see cref="ScreenRowsShowText"/>, asked of
+    /// the region's text instead of the whole screen's rows.</summary>
+    private static bool RegionShowsText(string regionHay, string needle, string? visibleTailNeedle, int needleBefore = 0)
+    {
+        if (needle.Length == 0) return false;
+
+        if (needleBefore > 0)
+            return CountIn(regionHay, needle) > needleBefore;
+        if (regionHay.Contains(needle, StringComparison.Ordinal))
+            return true;
+
+        // The region's rows can be snapshotted mid-paint exactly as the whole screen's can (issue #1592): the same
+        // question, same answer.
+        if (IndexOfInterleaved(regionHay, needle) >= 0)
+            return true;
+
+        return visibleTailNeedle is not null && regionHay.Contains(visibleTailNeedle, StringComparison.Ordinal);
+    }
+
+    /// <summary>How much of the start of <paramref name="needle"/> the composer region shows, in normalized characters.
+    /// The region's twin of <see cref="ScreenPrefixLength"/>: a region showing more of the text than it did before is
+    /// the agent taking the typing in.</summary>
+    private static int RegionPrefixLength(Func<(ComposerReading Reading, string Text)>? composerRegion, string needle)
+    {
+        var region = ReadRegionText(composerRegion);
+        return region is null ? 0 : PrefixLengthIn(region, needle);
     }
 
     /// <summary>
@@ -1064,17 +1198,19 @@ public static class TerminalSubmit
     private static async Task<bool> WaitForEchoAsync(
         CircularTerminalBuffer buffer, long cursor, string needle, string? visibleTailNeedle, TimeSpan timeout, TimeSpan poll,
         TimeSpan? hardCap = null, Func<string[]>? screenSnapshot = null, int prefixBefore = 0, int needleBefore = 0,
-        SendWaitNotice? notice = null)
+        SendWaitNotice? notice = null, Func<(ComposerReading Reading, string Text)>? composerRegion = null,
+        int regionNeedleBefore = 0)
     {
         var found = await WaitForEchoCoreAsync(buffer, cursor, needle, visibleTailNeedle, timeout, poll, hardCap, screenSnapshot,
-            prefixBefore, needleBefore, notice);
+            prefixBefore, needleBefore, notice, composerRegion, regionNeedleBefore);
         notice?.End(found ? "the composer echoed the text" : "no echo - the text is not proven to be in the composer");
         return found;
     }
 
     private static async Task<bool> WaitForEchoCoreAsync(
         CircularTerminalBuffer buffer, long cursor, string needle, string? visibleTailNeedle, TimeSpan timeout, TimeSpan poll,
-        TimeSpan? hardCap, Func<string[]>? screenSnapshot, int prefixBefore, int needleBefore, SendWaitNotice? notice)
+        TimeSpan? hardCap, Func<string[]>? screenSnapshot, int prefixBefore, int needleBefore, SendWaitNotice? notice,
+        Func<(ComposerReading Reading, string Text)>? composerRegion = null, int regionNeedleBefore = 0)
     {
         var started = DateTime.UtcNow;
         var cap = hardCap ?? timeout;
@@ -1101,7 +1237,9 @@ public static class TerminalSubmit
             {
                 lastScreenLook = now;
                 agentWorking = ReadScreen(screenSnapshot) is { } rowsSeen && DoorbellSafety.ShowsWorking(rowsSeen);
-                var prefix = ScreenPrefixLength(screenSnapshot, needle);
+                var prefix = composerRegion is not null
+                    ? RegionPrefixLength(composerRegion, needle)
+                    : ScreenPrefixLength(screenSnapshot, needle);
                 if (prefix > lastPrefix)
                 {
                     lastPrefix = prefix;
@@ -1124,11 +1262,20 @@ public static class TerminalSubmit
                 ? NoReactionAllowance
                 : quiet;
 
-            // The same text already on screen: a repaint can re-send the old copy, so only the screen counting a NEW
-            // copy is an echo.
+            // THE ECHO OF A REPEATED PROMPT IS JUDGED IN THE COMPOSER REGION (Voice Delivery mission, phase 6). The
+            // text is already visible on screen, so the byte stream cannot be trusted (a repaint re-sends the old
+            // copy); where the region can be read it alone answers - the copies in the conversation above are not
+            // counted against the echo and never read as its arrival. An agent whose composer cannot be read keeps
+            // the old count: only a NEW copy anywhere on screen counts as the echo.
             if (needleBefore > 0)
             {
-                if (screenSnapshot is not null && ReadScreen(screenSnapshot) is { } rowsNow
+                if (composerRegion is not null)
+                {
+                    var region = ReadRegionText(composerRegion);
+                    if (region is not null && RegionShowsText(region, needle, visibleTailNeedle, regionNeedleBefore))
+                        return true;
+                }
+                else if (screenSnapshot is not null && ReadScreen(screenSnapshot) is { } rowsNow
                     && CountIn(NormalizeForEcho(string.Concat(rowsNow)), needle) > needleBefore)
                     return true;
                 if (now - lastProgress >= timeoutNow || now - started >= cap) return false;

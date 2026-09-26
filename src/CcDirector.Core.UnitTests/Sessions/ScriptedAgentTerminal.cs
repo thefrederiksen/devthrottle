@@ -77,6 +77,23 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     public bool IgnoreClearKeys { get; set; }
     public int Width { get; set; } = 120;
     public int Height { get; set; } = 30;
+
+    /// <summary>
+    /// Lines the agent paints ABOVE its spinner and composer, the way Claude Code paints a transcript: each accepted
+    /// prompt as "❯ <text>" (a past prompt in the transcript carries the same glyph as the live composer) followed by a
+    /// one-line answer. Drawn only while <see cref="ShowTranscript"/> is true, and clipped to the screen: when the
+    /// transcript outgrows the terminal the oldest lines scroll off the top, exactly as the real terminal does.
+    /// </summary>
+    public bool ShowTranscript { get; set; }
+    public List<string> TranscriptLines { get; } = new();
+
+    /// <summary>
+    /// A line added to the transcript on the NEXT paint - the previous turn's answer landing while the next prompt is
+    /// being typed. It pushes the whole transcript down, so the oldest visible line scrolls off the top of the screen
+    /// at the same moment the composer draws the new text (Voice Delivery mission, phase 6: the echo check used to
+    /// count copies of the text anywhere on screen, and a copy scrolling off cancelled the new one arriving).
+    /// </summary>
+    public string? TranscriptLineOnNextPaint { get; set; }
     private string[]? _painted;
 
     public string Composer { get { lock (_lock) return ComposerShown(); } }
@@ -187,6 +204,11 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         EntersAccepted++;
         _composer.Clear();
         _pasteHeld = null;
+        if (ShowTranscript)
+        {
+            TranscriptLines.Add("❯ " + submitted);
+            TranscriptLines.Add("OK");
+        }
         var line = Working
             ? JsonSerializer.Serialize(new { type = "queue-operation", operation = "enqueue", content = submitted })
             : JsonSerializer.Serialize(new { type = "user", message = new { role = "user", content = submitted } });
@@ -259,10 +281,15 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         string frame;
         lock (_lock)
         {
+            if (TranscriptLineOnNextPaint is { } pending)
+            {
+                TranscriptLines.Add(pending);
+                TranscriptLineOnNextPaint = null;
+            }
             _frame++;
             var shown = DateTime.UtcNow < _drawTypedFrom ? "" : ComposerShown();
             var rule = new string('─', Width);
-            var rows = new[]
+            var painted = new[]
             {
                 Working ? $"* Working... ({_frame})" : "Done.",
                 rule,
@@ -270,30 +297,37 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
                 rule,
                 Working ? "  esc to interrupt" : "  ? for shortcuts",
             };
-            var top = Height - rows.Length;
-            var composerRow = top + 2;
+            // The transcript sits above the frame, and the whole screen is clipped to the terminal: a transcript that
+            // outgrows the screen scrolls its oldest lines off the top, as a real terminal does.
+            var rows = (ShowTranscript ? TranscriptLines : []).Concat(painted).ToList();
+            if (rows.Count > Height) rows = rows[^Height..];
+            var top = Height - rows.Count;
+            var composerRow = top + rows.Count - 3;
             var sb = new StringBuilder();
+            // A clip window that moved (the transcript grew) shifts every row, so the previous frame's rows no longer
+            // line up with these: paint everything again, as the terminal does when its content scrolls.
+            if (_painted is not null && _painted.Length != rows.Count) _painted = null;
             if (_painted is null)
             {
                 sb.Append($"\x1b[{top + 1};1H");
-                for (var i = 0; i < rows.Length; i++)
+                for (var i = 0; i < rows.Count; i++)
                 {
                     sb.Append(rows[i]);
                     if (rows[i].Length >= Width) continue; // a full row wraps by itself: no line break is sent
                     sb.Append("\x1b[K");
-                    if (i < rows.Length - 1) sb.Append("\r\n");
+                    if (i < rows.Count - 1) sb.Append("\r\n");
                 }
             }
             else
             {
-                for (var i = 0; i < rows.Length; i++)
+                for (var i = 0; i < rows.Count; i++)
                 {
                     if (rows[i] == _painted[i]) continue;
                     sb.Append($"\x1b[{top + i + 1};1H").Append(rows[i]);
                     if (rows[i].Length < Width) sb.Append("\x1b[K");
                 }
             }
-            _painted = rows;
+            _painted = rows.ToArray();
             sb.Append($"\x1b[{composerRow + 1};{3 + shown.Length}H");
             frame = sb.ToString();
         }

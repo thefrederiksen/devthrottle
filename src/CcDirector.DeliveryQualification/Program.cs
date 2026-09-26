@@ -27,6 +27,7 @@ namespace CcDirector.DeliveryQualification;
 ///                                    [--out DIR] [--first-wait 30] [--args-claude "..."] [--cpu-load 24]
 ///   CcDirector.DeliveryQualification --busy [--shapes short,long-line] [--cpu-load 24]   (Claude Code, sent to while it works)
 ///   CcDirector.DeliveryQualification --fail-then-send [--thaw-wait 8] [--cpu-load 24]   (a forced failed send, then more sends, same session)
+///   CcDirector.DeliveryQualification --repeat-short-prompt [--cpu-load 24]   (the same short prompt sent twice in a row, same session)
 /// </summary>
 public static class Program
 {
@@ -105,6 +106,13 @@ public static class Program
             var failArgs = opts.ArgsOverride.TryGetValue("claude", out var fa) ? fa : Agents["claude"].Args;
             return await FailThenSendExperiment.RunAsync(manager, failArgs, Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")), opts.Out,
                 TimeSpan.FromSeconds(opts.ThawWaitSeconds));
+        }
+
+        if (opts.RepeatShortPrompt)
+        {
+            using var repeatLoad = opts.CpuLoadThreads > 0 ? new CpuLoad(opts.CpuLoadThreads) : null;
+            var repeatArgs = opts.ArgsOverride.TryGetValue("claude", out var ra) ? ra : Agents["claude"].Args;
+            return await RepeatShortPromptExperiment.RunAsync(manager, repeatArgs, Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")), opts.Out);
         }
 
         if (opts.KeysAgent is { } keysAgent)
@@ -265,6 +273,7 @@ public sealed class Options
     public string? CharsAgent { get; private set; }
     public bool Busy { get; private set; }
     public bool FailThenSend { get; private set; }
+    public bool RepeatShortPrompt { get; private set; }
     public int ThawWaitSeconds { get; private set; } = 8;
 
     public static Options Parse(string[] args)
@@ -290,6 +299,7 @@ public sealed class Options
                 case "--chars": o.CharsAgent = Next(); break;
                 case "--busy": o.Busy = true; break;
                 case "--fail-then-send": o.FailThenSend = true; break;
+                case "--repeat-short-prompt": o.RepeatShortPrompt = true; break;
                 case "--thaw-wait": o.ThawWaitSeconds = int.Parse(Next()); break;
                 default:
                     if (args[i].StartsWith("--args-", StringComparison.Ordinal)) { o.ArgsOverride[args[i]["--args-".Length..]] = Next(); break; }

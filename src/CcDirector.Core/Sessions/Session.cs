@@ -3727,18 +3727,29 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
+    /// The composer region's reading and the text it holds, from the real screen - the rows between the agent's rules
+    /// around the prompt, which <see cref="Drivers.DoorbellSafety"/> locates. The echo check's screen witness and the
+    /// retained-text check judge from this region, never from occurrences of the text anywhere on the screen (Voice
+    /// Delivery mission, phase 6).
+    /// </summary>
+    private (Drivers.ComposerReading Reading, string Text) ReadComposerRegion()
+    {
+        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+        return Drivers.DoorbellSafety.ReadComposerText(
+            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+    }
+
+    /// <summary>
     /// The composer holds nothing - asked of an agent whose composer can be read, for the step that clears text an
     /// earlier send left behind. Null for an agent whose composer cannot be read.
     /// </summary>
     private Func<bool>? ComposerEmptyCheck() => Drivers.FirstPromptGate.CanProve(AgentKind)
         ? () =>
         {
-            var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-            var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
-                AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+            var (reading, composerText) = ReadComposerRegion();
             var nothing = Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText);
             if (!nothing)
-                FileLog.Write($"[Session] composer not empty: session={Id}, {DescribeComposer(rows, cursorRow, cursorCol, cursorVisible, reading, composerText)}");
+                FileLog.Write($"[Session] composer not empty: session={Id}, {DescribeComposer(reading, composerText)}");
             return nothing;
         }
         : null;
@@ -3751,17 +3762,15 @@ public sealed class Session : IDisposable
     private Func<string>? ComposerSeen() => Drivers.FirstPromptGate.CanProve(AgentKind)
         ? () =>
         {
-            var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-            var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
-                AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
-            return DescribeComposer(rows, cursorRow, cursorCol, cursorVisible, reading, composerText);
+            var (reading, composerText) = ReadComposerRegion();
+            return DescribeComposer(reading, composerText);
         }
         : null;
 
-    private string DescribeComposer(string[] rows, int cursorRow, int cursorCol, bool cursorVisible,
-        Drivers.ComposerReading reading, string composerText)
+    private string DescribeComposer(Drivers.ComposerReading reading, string composerText)
     {
         static string Cut(string s) => s.Length > 80 ? s[..80] + "..." : s;
+        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
         var row = cursorRow >= 0 && cursorRow < rows.Length ? rows[cursorRow] : "";
         return $"reading={reading}, text='{Cut(composerText)}', cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
                $"row='{Cut(row)}', screen={_screenCols}x{_screenRows}";
@@ -3774,15 +3783,19 @@ public sealed class Session : IDisposable
     private Func<string?>? ComposerTextReader() => Drivers.FirstPromptGate.CanProve(AgentKind)
         ? () =>
         {
-            var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-            var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
-                AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+            var (reading, composerText) = ReadComposerRegion();
             return reading == Drivers.ComposerReading.HoldsText && composerText.Length > 0
                    && !Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText)
                 ? composerText
                 : null;
         }
         : null;
+
+    /// <summary>The composer region for a submit's own witnesses: its reading and text, for an agent whose composer can
+    /// be read - null otherwise. The submit's echo check and retained-text check judge from this region, never from
+    /// occurrences of the text anywhere on the screen (Voice Delivery mission, phase 6).</summary>
+    private Func<(Drivers.ComposerReading Reading, string Text)>? ComposerRegionReader() =>
+        Drivers.FirstPromptGate.CanProve(AgentKind) ? ReadComposerRegion : null;
 
     /// <summary>True when the rendered screen shows the agent's working marker ("esc to interrupt").</summary>
     private bool ScreenShowsWorking() => Drivers.DoorbellSafety.ShowsWorking(SnapshotScreenRows());
@@ -3994,7 +4007,8 @@ public sealed class Session : IDisposable
                     clearRetainedUnconditionally: clearFirst,
                     nudgeOnlyWhen: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : () => false,
                     composerText: ComposerTextReader(),
-                    composerSeen: ComposerSeen());
+                    composerSeen: ComposerSeen(),
+                    composerRegion: ComposerRegionReader());
 
                 string typed;
                 try
