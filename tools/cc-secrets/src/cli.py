@@ -148,6 +148,7 @@ def _owner_command(command: str, entry: str, owner_approved: Optional[str]) -> O
     session_id = os.environ.get("CC_SESSION_ID", "")
     text = (owner_approved or "").strip()
     if owner_approved is not None and not text:
+        _audit().record(entry, command, "refused", "--owner-approved was given with no words")
         _say("--owner-approved was given with no words. Give the owner's approval of this command, verbatim.", err=True)
         raise typer.Exit(EXIT_REFUSED)
     if not session_id:
@@ -256,6 +257,8 @@ def add(
     approval = _owner_command("add", name, owner_approved)
     interactive = _stdin_is_tty()
     if interactive and os.environ.get("CC_SESSION_ID"):
+        _audit().record(name, "add", "refused", "inside a session the secret must be piped, not typed at a prompt",
+                        approval)
         # A prompt here would be typed into the session's own terminal. Inside a session the value comes piped,
         # from a file or command the owner provided - never typed through the session, never on the command line.
         _say("Inside a session 'cc-secrets add' reads the secret only piped on standard input, from a file or command "
@@ -292,12 +295,12 @@ def add(
         audit = _audit()
         # The audit line is built and checked before the store changes, so an approval text that carries the secret
         # is refused with nothing saved, rather than after the entry is already in.
-        exists = store.get(name) is not None
-        prepared = audit.prepare(name, "add", "ok", "replaced" if exists else "added", approval)
+        # Both possible lines are prepared, and the one matching what put reports is written, so a store that
+        # changed underneath still gets a true line.
+        prepared = {was_there: audit.prepare(name, "add", "ok", "replaced" if was_there else "added", approval)
+                    for was_there in (False, True)}
         replaced = store.put(entry)
-        if replaced != exists:
-            raise CcSecretsError("The store changed while adding. Run the command again.")
-        audit.write_prepared([prepared])
+        audit.write_prepared([prepared[replaced]])
         _say(f"{'Replaced' if replaced else 'Added'} '{name}' in {store.location}. "
              f"Agents may use it: {'yes' if entry.agents_may_use else 'no'}. Uses: {', '.join(entry.uses)}. "
              f"Allowed addresses: {', '.join(entry.allowed_domains) or 'none'}.")

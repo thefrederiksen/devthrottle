@@ -1958,6 +1958,7 @@ OPTIONS:
   --skip TEXT             Comma-separated keys NOT to import
   --replace               Replace entries that already exist
   --dry-run               Show what would happen, by name only, and change nothing
+  --owner-approved TEXT   Inside a session: the owner's approval of this command, verbatim
 ```
 
 Each `KEY=VALUE` line becomes its own entry, named after the key in lower case with hyphens

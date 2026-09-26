@@ -84,6 +84,7 @@ def test_EmptyApproval_IsRefused_EvenOutsideASession(store, monkeypatch):
         result = runner.invoke(cli.app, ["edit", "web", "--username", "x", "--owner-approved=   "])
         assert result.exit_code == cli.EXIT_REFUSED
         assert store.get("web").username == "me"
+        assert (_audit_lines()[-1]["entry"], _audit_lines()[-1]["outcome"]) == ("web", "refused")
 
 
 def test_Add_InsideASession_WithApproval_TakesTheValueOnStdin_AndNeverShowsIt(store, in_session):
@@ -119,6 +120,8 @@ def test_Add_InsideASession_FromATerminal_IsRefused_NoPromptInTheSession(store, 
     assert result.exit_code == cli.EXIT_REFUSED
     assert "piped on standard input" in " ".join(_text(result).split())
     assert store.get("mailbox") is None
+    line = _audit_lines()[-1]
+    assert (line["entry"], line["command"], line["outcome"]) == ("mailbox", "add", "refused")
 
 
 def test_Add_AnApprovalThatQuotesTheSecret_NeverWritesItToTheLog(store, in_session):
