@@ -218,7 +218,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                 if (_manifest is not null)
                 {
                     _manifest.EndedAt = DateTime.UtcNow.ToString("o");
-                    _manifest.State = "Queued"; // queued for background upload; never deleted
+                    MarkStopped(); // queued for background upload; never deleted
                     SaveManifest();
                 }
             }
@@ -232,9 +232,9 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                 if (_manifest is not null)
                 {
                     _manifest.EndedAt ??= DateTime.UtcNow.ToString("o");
-                    _manifest.State = "Queued";
                     _manifest.Interrupted = true;
                     _manifest.CaptureError = "Stop failed: " + ex.Message;
+                    MarkStopped();
                     try { SaveManifest(); } catch { /* disk write failing is the very error being handled */ }
                 }
             }
@@ -619,9 +619,9 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         if (_manifest is not null)
         {
             _manifest.EndedAt = DateTime.UtcNow.ToString("o");
-            _manifest.State = "Queued"; // whatever was captured still uploads
             _manifest.Interrupted = true;
             _manifest.CaptureError = reason;
+            MarkStopped(); // whatever was captured still uploads
             // The service and wake lock below must be released even if this
             // write fails; the manifest on disk then keeps its last good state.
             try { SaveManifest(); } catch { }
@@ -629,6 +629,22 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         StopForegroundService();
         // If the enqueue fails, the next app open drains the queue instead.
         try { UploadScheduler.EnqueueNow(global::Android.App.Application.Context); } catch { }
+    }
+
+    /// <summary>
+    /// Queue a stopped recording for upload, or - when not one segment holds audio - mark it
+    /// <see cref="RecordingUploadGate.NoAudio"/> with the reason, so it never waits in "Queued" for an upload
+    /// that has nothing to send. Must be called inside the gate.
+    /// </summary>
+    private void MarkStopped()
+    {
+        if (_manifest is null) return;
+        _manifest.State = RecordingUploadGate.StateAfterStop(_manifest.Chunks.Count);
+        if (_manifest.State == RecordingUploadGate.NoAudio)
+        {
+            _manifest.CaptureError ??= RecordingUploadGate.NoAudioReason;
+            RecorderLog.Write($"[AndroidAudioRecorder] MarkStopped: recording {_manifest.RecordingId} has no audio segment");
+        }
     }
 
     /// <summary>
@@ -683,20 +699,39 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         if (_recorder is null || _manifest is null) return;
         var file = $"{_segmentIndex:D4}.m4a";
         var path = Path.Combine(_recordingDir, file);
+        var ran = DateTime.UtcNow - _segmentStartedUtc;
+        Exception? stopFailure = null;
         try
         {
             _recorder.Stop();
         }
-        catch
+        catch (Exception ex)
         {
-            // A segment stopped almost immediately can throw; the partial file
-            // is still on disk. We keep whatever was captured.
+            // Android throws here when the recorder received no valid audio, and the file it leaves is not
+            // playable (no index). Uploading it made the Gateway fail the whole recording on 25 September
+            // 2026, so it is dropped below instead of kept as a segment.
+            stopFailure = ex;
         }
         finally
         {
             _recorder.Reset();
             _recorder.Release();
             _recorder = null;
+        }
+
+        if (stopFailure is not null)
+        {
+            RecorderLog.Write($"[AndroidAudioRecorder] FinalizeSegment: segment {file} dropped after {ran.TotalSeconds:F1} s, "
+                + $"the recorder could not finish it: {stopFailure.Message}");
+            if (File.Exists(path)) File.Delete(path);
+            var note = SegmentTiming.DroppedSegmentNote(ran);
+            if (note is not null)
+                _manifest.Notes.Add(new NoteInfo
+                {
+                    TMs = (long)(DateTime.UtcNow - _startedUtc).TotalMilliseconds,
+                    Text = note,
+                });
+            return;
         }
 
         if (File.Exists(path))
