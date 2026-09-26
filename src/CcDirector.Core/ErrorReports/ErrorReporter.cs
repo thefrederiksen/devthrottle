@@ -268,7 +268,18 @@ public sealed class ErrorReporter : IDisposable
             try
             {
                 while (await timer.WaitForNextTickAsync(_stop.Token).ConfigureAwait(false))
-                    await SendPendingAsync(_stop.Token).ConfigureAwait(false);
+                {
+                    // One bad tick costs that tick, never the loop: a failure here used to end error reporting
+                    // for the life of the process, silently (review of #3425).
+                    try
+                    {
+                        await SendPendingAsync(_stop.Token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        FileLog.Write($"{ErrorLine.ReporterTag} send failed this tick ({ex.GetType().Name}): {ex.Message}; next tick tries again");
+                    }
+                }
             }
             catch (OperationCanceledException) when (_stop.IsCancellationRequested)
             {

@@ -172,7 +172,7 @@ public sealed class PreSignInOutbox
         var outcome = await InstallReportClient.PostAsync(_http, url, payload, ct).ConfigureAwait(false);
         if (outcome.Accepted)
         {
-            lock (_lock) Remove(sent, notKeptSent);
+            TryRemove(sent, notKeptSent);
             FileLog.Write($"{ErrorLine.ReporterTag} {sent.Count} error(s) from before sign-in sent to DevThrottle ({outcome})");
             return sent.Count;
         }
@@ -202,10 +202,20 @@ public sealed class PreSignInOutbox
     {
         if (max <= 0) return 0;
         List<ErrorReportItem> batch;
-        lock (_lock) batch = Read().Items.Take(Math.Min(max, ErrorReportLimits.MaxReportsPerBatch)).ToList();
+        try
+        {
+            lock (_lock) batch = Read().Items.Take(Math.Min(max, ErrorReportLimits.MaxReportsPerBatch)).ToList();
+        }
+        catch (Exception ex) when (IsFileFailure(ex))
+        {
+            // Runs on every tick of a signed-in machine whose file still exists: a file that cannot be read
+            // must cost this tick, never the send loop.
+            FileLog.Write($"{ErrorLine.ReporterTag} errors kept from before sign-in could not be read ({ex.GetType().Name}): {ex.Message}; next tick tries again");
+            return 0;
+        }
         if (batch.Count == 0) return 0;
         if (!await send(batch).ConfigureAwait(false)) return 0;
-        lock (_lock) Remove(batch.Select(i => (SignatureOf(i), i.RepeatCount)).ToList(), notKeptSent: 0);
+        TryRemove(batch.Select(i => (SignatureOf(i), i.RepeatCount)).ToList(), notKeptSent: 0);
         FileLog.Write($"{ErrorLine.ReporterTag} {batch.Count} error(s) kept from before sign-in sent with this machine's credential");
         return batch.Count;
     }
@@ -267,6 +277,25 @@ public sealed class PreSignInOutbox
 
     internal static string SignatureOf(ErrorReportItem item)
         => string.Join('|', item.Component, item.Source, item.Kind, item.ExceptionType, Digits.Replace(item.Message ?? "", "#"));
+
+    /// <summary>
+    /// <see cref="Remove"/>, where a file that cannot be read or written costs duplicates, never the send loop:
+    /// an exception here used to escape into the reporter's loop, which then stopped for the life of the
+    /// process (review of #3425). The delivered errors stay in the file and are sent again next time.
+    /// </summary>
+    private void TryRemove(List<(string Signature, int Count)> delivered, long notKeptSent)
+    {
+        try
+        {
+            lock (_lock) Remove(delivered, notKeptSent);
+        }
+        catch (Exception ex) when (IsFileFailure(ex))
+        {
+            FileLog.Write($"{ErrorLine.ReporterTag} {delivered.Count} delivered error(s) could not be taken out of {_path} ({ex.GetType().Name}): {ex.Message}; they will be sent again as duplicates");
+        }
+    }
+
+    private static bool IsFileFailure(Exception ex) => ex is IOException or UnauthorizedAccessException;
 
     /// <summary>Take what was delivered out of the file. An entry that was seen AGAIN while its report was in
     /// flight keeps the occurrences the report did not carry, so a count is never lost.</summary>

@@ -207,6 +207,45 @@ public sealed class PreSignInOutboxTests : IDisposable
     }
 
     [Fact]
+    public async Task SendSignedIn_AFileThatCannotBeRead_CostsTheTick_NeverThrows()
+    {
+        // Review of #3425: this read ran unguarded on every tick of a signed-in machine, and an exception
+        // from it ended the reporter's send loop for the life of the process.
+        var (outbox, _) = NewOutbox();
+        outbox.Keep(new[] { Item("Save FAILED: locked") });
+
+        int delivered;
+        using (new FileStream(FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            delivered = await outbox.SendSignedInAsync(10, _ => Task.FromResult(true));
+
+        Assert.Equal(0, delivered);
+        Assert.Equal(1, outbox.Count);
+    }
+
+    [Fact]
+    public async Task SendBeforeSignIn_AcceptedButTheFileIsLockedAfterwards_NeverThrows_AndKeepsTheErrorsToSendAgain()
+    {
+        var (outbox, handler) = NewOutbox();
+        outbox.Keep(new[] { Item("Save FAILED: locked after send") });
+        FileStream? held = null;
+        handler.DuringSend = () => held = new FileStream(FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        int sent;
+        try
+        {
+            sent = await outbox.SendBeforeSignInAsync(final: true, CancellationToken.None);
+        }
+        finally
+        {
+            held?.Dispose();
+        }
+
+        Assert.Equal(1, sent);
+        // Could not be taken out, so it goes again: a duplicate, never a loss.
+        Assert.Equal(1, outbox.Count);
+    }
+
+    [Fact]
     public void AnUnreadableFile_IsMovedAsideNotDeleted()
     {
         Directory.CreateDirectory(_dir);
