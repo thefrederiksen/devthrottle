@@ -59,6 +59,9 @@ const resolved = (result: Partial<DictationSubmitResult>): DictationOutcomeRead 
 const DELIVERED = resolved({ submitted: true, transcript: TEXT });
 const NOT_DELIVERED = resolved({ movedOn: true, movedOnReason: "not-delivered", offerSendAnyway: true, transcript: TEXT });
 const UNCONFIRMED = resolved({ movedOn: true, movedOnReason: "unconfirmed", offerSendAnyway: false, transcript: TEXT });
+// The Gateway's F4 ruling (phase 5): a session that really ended is resolved with NO "Send anyway" - there
+// is no session left to send anything to. The words come back with the ended-session label, Dismiss only.
+const SESSION_EXITED = resolved({ movedOn: true, movedOnReason: "session-exited", offerSendAnyway: false, transcript: TEXT });
 
 // Far past any cadence: the read interval is 10 seconds, the old dictation retry capped at 5 minutes.
 const FAR_PAST_ANY_CADENCE_MS = 20 * 60 * 1000;
@@ -229,6 +232,55 @@ describe("each outcome of a held typed prompt", () => {
     });
   });
 
+  it("the session ended: the words, the ended-session label and Dismiss only - and it is final (QA F4)", async () => {
+    await holdOne();
+    vi.mocked(readPromptOutcome).mockResolvedValueOnce(SESSION_EXITED);
+
+    await checkTypedPromptNow(DELIVERY_ID);
+
+    expect(statusFor(DELIVERY_ID)).toMatchObject({
+      phase: "dropped",
+      typed: true,
+      offerSendAnyway: false, // the button comes only from the Gateway's offer
+      retryable: false, // Dismiss is the only action
+      recoverableText: TEXT,
+      error: "The session has ended, so this message was not sent. Here is what you wrote.",
+    });
+    // Kept on the device so a reload still shows it, and never read again: the ruling is final.
+    expect(disk.get(DELIVERY_ID)).toMatchObject({ shownBack: true, shownBackReason: "session-exited", offerSendAnyway: false });
+    vi.mocked(readPromptOutcome).mockClear();
+    await vi.advanceTimersByTimeAsync(FAR_PAST_ANY_CADENCE_MS);
+    await fireEveryBrowserTrigger();
+    await vi.advanceTimersByTimeAsync(FAR_PAST_ANY_CADENCE_MS);
+    expect(readPromptOutcome).not.toHaveBeenCalled();
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("Send anyway on a session-ended prompt sends nothing", async () => {
+    await holdOne();
+    vi.mocked(readPromptOutcome).mockResolvedValueOnce(SESSION_EXITED);
+    await checkTypedPromptNow(DELIVERY_ID);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await sendTypedPromptAnyway(DELIVERY_ID);
+
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    expect(disk.has(DELIVERY_ID)).toBe(true);
+    errors.mockRestore();
+  });
+
+  it("Dismiss on a session-ended prompt deletes the copy", async () => {
+    await holdOne();
+    vi.mocked(readPromptOutcome).mockResolvedValueOnce(SESSION_EXITED);
+    await checkTypedPromptNow(DELIVERY_ID);
+
+    await dismissTypedPrompt(DELIVERY_ID);
+
+    expect(disk.has(DELIVERY_ID)).toBe(false);
+    expect(deleteHeldPrompt).toHaveBeenCalledWith(DELIVERY_ID);
+    expect(statusFor(DELIVERY_ID)).toBeUndefined();
+  });
+
   it("Send anyway on an unconfirmed prompt sends nothing", async () => {
     await holdOne();
     vi.mocked(readPromptOutcome).mockResolvedValueOnce(UNCONFIRMED);
@@ -349,6 +401,24 @@ describe("a reload with a held typed prompt", () => {
 
     expect(readPromptOutcome).not.toHaveBeenCalled();
     expect(statusFor(DELIVERY_ID)).toMatchObject({ phase: "dropped", offerSendAnyway: false, recoverableText: TEXT });
+  });
+
+  it("a session-ended prompt survives a reload with its own label, and is never read again (QA F4)", async () => {
+    disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "session-exited", offerSendAnyway: false }));
+
+    await resumeHeldPrompts();
+    await vi.advanceTimersByTimeAsync(FAR_PAST_ANY_CADENCE_MS);
+    await fireEveryBrowserTrigger();
+
+    expect(statusFor(DELIVERY_ID)).toMatchObject({
+      phase: "dropped",
+      typed: true,
+      offerSendAnyway: false,
+      recoverableText: TEXT,
+      error: "The session has ended, so this message was not sent. Here is what you wrote.",
+    });
+    expect(readPromptOutcome).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 });
 

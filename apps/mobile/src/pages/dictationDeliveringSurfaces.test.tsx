@@ -154,3 +154,30 @@ describe("phone: could not confirm it arrived (phase 2, change 1)", () => {
     expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
 });
+
+// QA finding F4, phase 5: a session that really ended is resolved - the words are handed back with the
+// ended-session label and Dismiss only, because the Gateway offers no "Send anyway" for it (there is no
+// session left to send anything to) and the label must not invite one.
+describe("phone: the session has ended", () => {
+  it("the strip shows the words, the ended-session label and Dismiss, and no Send anyway or Retry", () => {
+    publishDictationStatus({
+      sessionId: SESSION_ID,
+      uploadId: "up-ended",
+      phase: "dropped",
+      retryable: false,
+      offerSendAnyway: false,
+      recoverableText: "the words for the session that ended",
+      error: "The session has ended, so this recording was not sent. Here is what you said.",
+    });
+    render(<DictationStatusStrip sessionId={SESSION_ID} />);
+
+    const strip = screen
+      .getByText("The session has ended, so this recording was not sent. Here is what you said.")
+      .closest(".dictate-strip") as HTMLElement;
+    expect(within(strip).getByText("the words for the session that ended")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
+  });
+});

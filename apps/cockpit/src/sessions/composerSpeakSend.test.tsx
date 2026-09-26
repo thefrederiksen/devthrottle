@@ -338,6 +338,34 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
     await waitFor(() => expect(dismissDictationStatus).toHaveBeenCalledWith("up-unconfirmed"));
   });
 
+  // QA finding F4, phase 5: a session that really ended is resolved - the words are handed back with the
+  // ended-session label and Dismiss only, because the Gateway offers no "Send anyway" for it (there is no
+  // session left to send anything to) and the label must not invite one.
+  it("the session ended: the words, the ended-session label and Dismiss, with no Send anyway or Retry", async () => {
+    publishDictationStatus({
+      sessionId: "sess-42",
+      uploadId: "up-ended",
+      phase: "dropped",
+      retryable: false,
+      offerSendAnyway: false,
+      recoverableText: "the words for the session that ended",
+      error: "The session has ended, so this recording was not sent. Here is what you said.",
+    });
+    render(<Harness sessionId="sess-42" />);
+    const strip = (await screen.findByText("The session has ended, so this recording was not sent. Here is what you said.")).closest(
+      ".dictate-strip",
+    ) as HTMLElement;
+    expect(within(strip).getByText("the words for the session that ended")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
+
+    // Dismiss is the one way out, and it goes to the driver's dismiss for this exact recording.
+    fireEvent.click(within(strip).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(dismissDictationStatus).toHaveBeenCalledWith("up-ended"));
+  });
+
   it("a shown-back status that does not carry the Gateway's offer offers no second send", async () => {
     publishDictationStatus({
       sessionId: "sess-42",

@@ -996,11 +996,15 @@ describe("still delivering (a 202 from the Gateway, voice delivery #3398)", () =
 });
 
 describe("the not-sent wording follows the Gateway's reason (voice delivery, #3398)", () => {
-  const movedOn = (reason: string | undefined, transcript = "the words I said"): DictationSubmitResult => ({
+  const movedOn = (
+    reason: string | undefined,
+    transcript = "the words I said",
+    offerSendAnyway = true,
+  ): DictationSubmitResult => ({
     terminal: true,
     submitted: false,
     movedOn: true,
-    offerSendAnyway: true,
+    offerSendAnyway,
     movedOnReason: reason,
     transcript,
   });
@@ -1022,14 +1026,29 @@ describe("the not-sent wording follows the Gateway's reason (voice delivery, #33
     );
   });
 
-  it("session exited: says the session has ended", async () => {
-    vi.mocked(uploadDictationToSession).mockResolvedValue(movedOn("session-exited"));
+  it("session exited: the ended-session label with the words, and no Send anyway (QA F4, phase 5)", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(movedOn("session-exited", "the words I said", false));
 
     await backgroundTranscribeAndSend("sid", captured);
 
     const id = vi.mocked(savePending).mock.calls[0][0].id;
-    expect(statusFor(id)?.error).toContain("The session has ended");
+    expect(statusFor(id)?.phase).toBe("dropped");
+    expect(statusFor(id)?.error).toBe("The session has ended, so this recording was not sent. Here is what you said.");
     expect(statusFor(id)?.recoverableText).toBe("the words I said");
+    expect(statusFor(id)?.offerSendAnyway).toBe(false); // the Gateway offered nothing: Dismiss only
+    expect(statusFor(id)?.retryable).toBe(false);
+  });
+
+  it("session exited with no words: the ended-session label that points at the saved recording", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(movedOn("session-exited", "", false));
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const id = vi.mocked(savePending).mock.calls[0][0].id;
+    expect(statusFor(id)?.error).toBe("The session has ended, so this recording was not sent. Your recording is saved on your device.");
+    expect(statusFor(id)?.offerSendAnyway).toBe(false);
+    expect(statusFor(id)?.retryable).toBe(false);
+    expect(deletePending).not.toHaveBeenCalled();
   });
 
   it("no reason: the generic wording, without the words moved on", async () => {

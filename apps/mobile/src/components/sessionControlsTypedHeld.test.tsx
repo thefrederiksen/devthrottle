@@ -172,6 +172,28 @@ describe("phone: a typed send answered 202", () => {
     expect(disk.has(DELIVERY_ID)).toBe(false);
     expect(sendPrompt).toHaveBeenCalledTimes(1);
   });
+  // QA finding F4, phase 5: a session that really ended is resolved - the words come back with the
+  // ended-session label and Dismiss only. The Gateway offers no "Send anyway" (there is no session left to
+  // send anything to), so the strip must not show one.
+  it("the session ended: the words, the ended-session label and Dismiss, and no Send anyway", async () => {
+    await sendHeld();
+    readPromptOutcome.mockResolvedValueOnce(
+      resolved({ movedOn: true, movedOnReason: "session-exited", offerSendAnyway: false }),
+    );
+
+    fireEvent.click(within(strip()).getByRole("button", { name: "Check now" }));
+
+    await screen.findByText("The session has ended, so this message was not sent. Here is what you wrote.");
+    const s = strip();
+    expect(within(s).getByText(TEXT)).toBeTruthy();
+    expect(within(s).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(within(s).queryByRole("button", { name: "Send anyway" })).toBeNull();
+
+    fireEvent.click(within(s).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(document.querySelector(".dictate-strip")).toBeNull());
+    expect(disk.has(DELIVERY_ID)).toBe(false);
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("phone: a 200 and a 502 behave exactly as before", () => {

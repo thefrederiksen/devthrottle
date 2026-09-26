@@ -23,7 +23,8 @@ import { clearDictationStatus, publishDictationStatus } from "./status";
 //   connection returning, a modest timer while visible, and "Check now". Nothing on any of those sends.
 // - Delivered: the copy is removed and the strip shows "Sent". Not delivered: the words come back with "Send
 //   anyway" (a FRESH typed send, which the Gateway gives a fresh id) and Dismiss. Could not confirm: the words
-//   come back with Dismiss only, because they may already be in.
+//   come back with Dismiss only, because they may already be in. The session ended (QA finding F4): the words
+//   come back with the ended-session label and Dismiss only - there is no session left to send anything to.
 
 // How often an owned delivery is read while the page is visible - the recordings' own interval. A hidden page
 // does not read on this timer at all; it reads when it becomes visible again.
@@ -33,6 +34,10 @@ const STILL_DELIVERING_MESSAGE =
   "Still delivering - checking that your message reached the session. It will not be sent twice.";
 const NOT_DELIVERED_MESSAGE = "This message was not delivered. Here is what you wrote - send it?";
 const UNCONFIRMED_MESSAGE = "We could not confirm this message arrived. Here is what you wrote.";
+// A session that has ended is FINAL (QA finding F4, phase 5): there is no session left to send anything to,
+// so the Gateway offers no "Send anyway" for it and the label must not invite one. The words are handed
+// back so the owner can read what they wrote, with Dismiss the only action.
+const SESSION_EXITED_MESSAGE = "The session has ended, so this message was not sent. Here is what you wrote.";
 const SEND_ANYWAY_FAILED_MESSAGE = "Couldn't send that just now. Your words are still here - try again.";
 const NO_DELIVERY_ID_MESSAGE =
   "The server said it is still delivering this message but gave no delivery id, so it cannot be followed. It was not sent again - check the session to see whether it arrived.";
@@ -359,10 +364,21 @@ function publishDelivering(rec: HeldPrompt): void {
   });
 }
 
-// The words come back. "Send anyway" only when the Gateway offered it; "could not confirm" gets Dismiss only.
+// The words come back. "Send anyway" only when the Gateway offered it; the label follows the Gateway's
+// REASON ("not-delivered", "unconfirmed", "session-exited"), never a guess from the offer - and the
+// button never comes from the reason, only from the offer (QA finding F4, phase 5). An ended session gets
+// its own label that does not invite a send, with Dismiss only.
+function shownBackMessage(rec: HeldPrompt): string {
+  if (rec.shownBackReason === "session-exited") return SESSION_EXITED_MESSAGE;
+  if (rec.shownBackReason === "unconfirmed") return UNCONFIRMED_MESSAGE;
+  if (rec.shownBackReason === "not-delivered") return NOT_DELIVERED_MESSAGE;
+  // No (or an unknown) reason: keep the defensive phase 2 reading - with no offer there is nothing that
+  // could safely send a second copy, so the label is the could-not-confirm one.
+  return rec.offerSendAnyway === true ? NOT_DELIVERED_MESSAGE : UNCONFIRMED_MESSAGE;
+}
+
 function publishShownBack(rec: HeldPrompt, message?: string): void {
   const offer = rec.offerSendAnyway === true;
-  const unconfirmed = rec.shownBackReason === "unconfirmed" || !offer;
   publishDictationStatus({
     sessionId: rec.sessionId,
     uploadId: rec.deliveryId,
@@ -371,7 +387,7 @@ function publishShownBack(rec: HeldPrompt, message?: string): void {
     typed: true,
     offerSendAnyway: offer,
     recoverableText: rec.text,
-    error: message ?? (unconfirmed ? UNCONFIRMED_MESSAGE : NOT_DELIVERED_MESSAGE),
+    error: message ?? shownBackMessage(rec),
   });
 }
 

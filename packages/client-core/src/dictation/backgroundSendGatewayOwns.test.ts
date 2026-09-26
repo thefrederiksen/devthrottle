@@ -33,6 +33,7 @@ import {
 } from "../api/client";
 import {
   backgroundTranscribeAndSend,
+  dismissDictationStatus,
   resumePendingDictations,
   retryPendingDictation,
   sendDroppedDictationAnyway,
@@ -76,7 +77,10 @@ const resolved = (result: Partial<DictationSubmitResult>): DictationOutcomeRead 
 const DELIVERED = resolved({ submitted: true, transcript: "the words" });
 const TOO_OLD = resolved({ movedOn: true, movedOnReason: "too-old", offerSendAnyway: true, transcript: "the words I said" });
 const UNCONFIRMED = resolved({ movedOn: true, movedOnReason: "unconfirmed", offerSendAnyway: false, transcript: "the words I said" });
-const SESSION_EXITED = resolved({ movedOn: true, movedOnReason: "session-exited", offerSendAnyway: true, transcript: "the words I said" });
+// The Gateway's F4 ruling (phase 5): a session that really ended is resolved with NO "Send anyway" - there
+// is no session left to send anything to. The words are handed back with the ended-session label.
+const SESSION_EXITED = resolved({ movedOn: true, movedOnReason: "session-exited", offerSendAnyway: false, transcript: "the words I said" });
+const SESSION_EXITED_NO_WORDS = resolved({ movedOn: true, movedOnReason: "session-exited", offerSendAnyway: false, transcript: "" });
 
 // Far past every cadence the old client used: its fast retries capped at 15 seconds, its slow one at 5 minutes.
 const FAR_PAST_THE_OLD_CADENCE_MS = 20 * 60 * 1000;
@@ -284,11 +288,62 @@ describe("rendering what /outcome says", () => {
     expect(readDictationOutcome).toHaveBeenCalledTimes(1);
   });
 
-  it("200 session ended: the session-ended wording with the words", async () => {
+  it("200 session ended: the words, the ended-session label and Dismiss only - and it is final", async () => {
     const id = await heldThenRead(SESSION_EXITED);
 
-    expect(statusFor(id)?.error).toContain("The session has ended");
-    expect(statusFor(id)?.recoverableText).toBe("the words I said");
+    const status = statusFor(id);
+    expect(status?.phase).toBe("dropped");
+    expect(status?.error).toBe("The session has ended, so this recording was not sent. Here is what you said.");
+    expect(status?.recoverableText).toBe("the words I said");
+    expect(status?.offerSendAnyway).toBe(false); // the button comes only from the Gateway's offer
+    expect(status?.retryable).toBe(false); // Dismiss is the only action
+    const onDisk = disk.get(id);
+    expect(onDisk?.staleDropped).toBe(true);
+    expect(onDisk?.droppedReason).toBe("session-exited");
+    expect(onDisk?.droppedOfferSendAnyway).toBe(false);
+    // Final: no further complete, prompt or read for this record, ever.
+    await vi.advanceTimersByTimeAsync(FAR_PAST_THE_OLD_CADENCE_MS);
+    await fireEveryBrowserTrigger();
+    await vi.advanceTimersByTimeAsync(FAR_PAST_THE_OLD_CADENCE_MS);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(readDictationOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it("200 session ended with no words: the ended-session label that points at the saved recording, Dismiss only", async () => {
+    const id = await heldThenRead(SESSION_EXITED_NO_WORDS);
+
+    const status = statusFor(id);
+    expect(status?.phase).toBe("dropped");
+    expect(status?.error).toBe("The session has ended, so this recording was not sent. Your recording is saved on your device.");
+    expect(status?.offerSendAnyway).toBe(false);
+    expect(status?.retryable).toBe(false); // no words, and the Gateway offered no fresh send either
+    expect(disk.has(id)).toBe(true); // the audio is kept until the owner dismisses it
+  });
+
+  it("a session-ended record survives a reload and drives nothing on it", async () => {
+    disk.set("id-ended", shownBack("id-ended", { droppedReason: "session-exited", droppedOfferSendAnyway: false }));
+
+    await resumePendingDictations();
+    await vi.advanceTimersByTimeAsync(FAR_PAST_THE_OLD_CADENCE_MS);
+    await fireEveryBrowserTrigger();
+
+    const status = statusFor("id-ended");
+    expect(status?.phase).toBe("dropped");
+    expect(status?.error).toBe("The session has ended, so this recording was not sent. Here is what you said.");
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(readDictationOutcome).not.toHaveBeenCalled();
+  });
+
+  it("Dismiss on a session-ended record deletes the copy", async () => {
+    const id = await heldThenRead(SESSION_EXITED);
+
+    await dismissDictationStatus(id);
+
+    expect(disk.has(id)).toBe(false);
+    expect(deletePending).toHaveBeenCalledWith(id);
+    expect(statusFor(id)).toBeUndefined();
   });
 
   it("404 for a record the client marked as held: an error naming the upload id, the copy kept, nothing re-driven", async () => {

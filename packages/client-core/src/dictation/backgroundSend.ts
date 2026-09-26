@@ -93,10 +93,13 @@ const TOO_OLD_WITH_WORDS_MESSAGE =
   "This recording is more than 5 minutes old, so it was not sent automatically. Here is what you said - send it?";
 const TOO_OLD_NO_WORDS_MESSAGE =
   "This recording is more than 5 minutes old, so it was not sent automatically. Your recording is saved on your device and you can try again.";
+// A session that has ended is FINAL (QA finding F4, phase 5): there is no session left to send anything to,
+// so the Gateway offers no "Send anyway" for it and the label must not invite one. The words are handed
+// back so the owner can read what they said; without words, the recording is named as saved on the device.
 const SESSION_EXITED_WITH_WORDS_MESSAGE =
-  "The session has ended, so this recording wasn't sent. Here is what you said - send it?";
+  "The session has ended, so this recording was not sent. Here is what you said.";
 const SESSION_EXITED_NO_WORDS_MESSAGE =
-  "The session has ended, so this recording wasn't sent. Your recording is saved on your device and you can try again.";
+  "The session has ended, so this recording was not sent. Your recording is saved on your device.";
 // No reason: a tombstone the Gateway wrote before reasons existed.
 const NOT_SENT_WITH_WORDS_MESSAGE = "This recording wasn't sent automatically. Here is what you said - send it?";
 const NOT_SENT_NO_WORDS_MESSAGE =
