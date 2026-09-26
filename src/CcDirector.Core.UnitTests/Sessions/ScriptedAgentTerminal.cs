@@ -64,6 +64,21 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     public DateTime? FirstEnterAt { get; private set; }
     public List<string> Recorded { get; } = new();
 
+    /// <summary>
+    /// Paint the way the Windows pseudo console hands a Claude Code screen to the Director (issue #3406): the frame is
+    /// anchored to the bottom of a terminal of <see cref="Width"/> by <see cref="Height"/>; the first paint writes the
+    /// rows in sequence and lets a full-width row (a rule) wrap by itself, with no line break after it; every later
+    /// paint rewrites only the rows that changed, each at its absolute position. A reader that renders at the real size
+    /// sees exactly the frame; a reader at any other size sees rows run together and rows left over from earlier frames.
+    /// </summary>
+    public bool ConPtyPaint { get; set; }
+
+    /// <summary>Backspace does nothing, so a clear cannot empty the composer.</summary>
+    public bool IgnoreClearKeys { get; set; }
+    public int Width { get; set; } = 120;
+    public int Height { get; set; } = 30;
+    private string[]? _painted;
+
     public string Composer { get { lock (_lock) return ComposerShown(); } }
     public string TypedText { get { lock (_lock) return _typed.ToString(); } }
 
@@ -97,11 +112,20 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         });
     }
 
+    /// <summary>
+    /// Characters an earlier send typed that the agent has not read yet - an agent starved of processor time, or frozen,
+    /// reads its input late. They stay unread (nothing drawn) until the next write reaches the terminal, and are read
+    /// first, ahead of it: a terminal's input is read in the order it was written.
+    /// </summary>
+    public void HoldUnreadInput(string text) { lock (_lock) _unread = text; }
+    private string? _unread;
+
     public void Write(byte[] data)
     {
         var text = Encoding.UTF8.GetString(data);
         lock (_lock)
         {
+            if (_unread is not null) { text = _unread + text; _unread = null; }
             for (var i = 0; i < text.Length; i++)
             {
                 if (text.AsSpan(i).StartsWith("\x1b[200~")) { _inPaste = true; _paste.Clear(); i += 5; continue; }
@@ -112,6 +136,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
                 if (ch is '\x7f' or '\b')
                 {
                     ClearKeysPressed++;
+                    if (IgnoreClearKeys) continue;
                     if (_pasteHeld is not null) _pasteHeld = null;
                     else if (_composer.Length > 0) _composer.Length--;
                     continue;
@@ -186,9 +211,20 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     private string ComposerShown() =>
         _pasteHeld is null ? _composer.ToString() : _composer + $"[Pasted text #1 +{_pasteHeld.Count(c => c == '\n')} lines]";
 
+    /// <summary>Paint the current screen again, as the agent does when its state changes on its own.</summary>
+    public void Redraw() => Draw();
+
+    /// <summary>Paint every row again in sequence, as the pseudo console does after the terminal is resized.</summary>
+    public void RepaintAll()
+    {
+        lock (_lock) _painted = null;
+        Draw();
+    }
+
     /// <summary>Draw the whole screen: a spinner row, then the agent's composer, then its footer.</summary>
     private void Draw()
     {
+        if (ConPtyPaint) { PaintLikeConPty(); return; }
         string frame;
         lock (_lock)
         {
@@ -213,6 +249,52 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
                     .Append("\r\n").Append(rule).Append("\r\n").Append(footer);
                 sb.Append($"\x1b[3;{3 + shown.Length}H");
             }
+            frame = sb.ToString();
+        }
+        Buffer!.Write(Encoding.UTF8.GetBytes(frame));
+    }
+
+    private void PaintLikeConPty()
+    {
+        string frame;
+        lock (_lock)
+        {
+            _frame++;
+            var shown = DateTime.UtcNow < _drawTypedFrom ? "" : ComposerShown();
+            var rule = new string('─', Width);
+            var rows = new[]
+            {
+                Working ? $"* Working... ({_frame})" : "Done.",
+                rule,
+                "❯ " + shown,
+                rule,
+                Working ? "  esc to interrupt" : "  ? for shortcuts",
+            };
+            var top = Height - rows.Length;
+            var composerRow = top + 2;
+            var sb = new StringBuilder();
+            if (_painted is null)
+            {
+                sb.Append($"\x1b[{top + 1};1H");
+                for (var i = 0; i < rows.Length; i++)
+                {
+                    sb.Append(rows[i]);
+                    if (rows[i].Length >= Width) continue; // a full row wraps by itself: no line break is sent
+                    sb.Append("\x1b[K");
+                    if (i < rows.Length - 1) sb.Append("\r\n");
+                }
+            }
+            else
+            {
+                for (var i = 0; i < rows.Length; i++)
+                {
+                    if (rows[i] == _painted[i]) continue;
+                    sb.Append($"\x1b[{top + i + 1};1H").Append(rows[i]);
+                    if (rows[i].Length < Width) sb.Append("\x1b[K");
+                }
+            }
+            _painted = rows;
+            sb.Append($"\x1b[{composerRow + 1};{3 + shown.Length}H");
             frame = sb.ToString();
         }
         Buffer!.Write(Encoding.UTF8.GetBytes(frame));

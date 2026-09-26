@@ -122,7 +122,8 @@ public static class TerminalSubmit
         bool recordsProofFollows = false,
         bool clearRetainedUnconditionally = false,
         Func<bool>? nudgeOnlyWhen = null,
-        Func<string?>? composerText = null)
+        Func<string?>? composerText = null,
+        Func<string>? composerSeen = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         var throwWhenParked = !recordsProofFollows;
@@ -132,7 +133,7 @@ public static class TerminalSubmit
         {
             return await SharedSubmitCoreAsync(backend, text, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout,
                 pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, clearKeysFor,
-                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally, composerText);
+                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally, composerText, composerSeen);
         }
         finally
         {
@@ -152,7 +153,7 @@ public static class TerminalSubmit
         ISessionBackend backend, string text, string driverTag, bool bracketedPasteEnabled, bool requireEcho,
         TimeSpan? echoTimeout, TimeSpan? pollInterval, TimeSpan? enterSettleDelay, Func<string[]>? screenSnapshot,
         TimeSpan? submitVerifyBeat, Guid sessionId, Func<int, byte[]?>? clearKeysFor, Func<bool>? composerHoldsNothing,
-        bool throwWhenParked, bool clearRetainedUnconditionally, Func<string?>? composerText)
+        bool throwWhenParked, bool clearRetainedUnconditionally, Func<string?>? composerText, Func<string>? composerSeen)
     {
 
         // RESOLVE A RETAINED COMPOSER BEFORE CHOOSING A ROUTE, NOT INSIDE ONE OF THEM (issue #2818).
@@ -166,7 +167,7 @@ public static class TerminalSubmit
         // prevent, reintroduced through a route the guard did not cover.
         //
         // Every route that writes new text is downstream of this line.
-        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeysFor, composerHoldsNothing, clearRetainedUnconditionally);
+        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeysFor, composerHoldsNothing, clearRetainedUnconditionally, composerSeen);
 
         var textForCheck = text.TrimEnd('\r', '\n');
         if (ShouldUseInstructionFile(driverTag, textForCheck)
@@ -631,7 +632,8 @@ public static class TerminalSubmit
     /// </summary>
     private static async Task ResolveRetainedComposerAsync(
         ISessionBackend backend, string driverTag, Func<string[]>? screenSnapshot,
-        Func<int, byte[]?>? clearKeysFor = null, Func<bool>? composerHoldsNothing = null, bool unconditionally = false)
+        Func<int, byte[]?>? clearKeysFor = null, Func<bool>? composerHoldsNothing = null, bool unconditionally = false,
+        Func<string>? composerSeen = null)
     {
         if (ComposerRetention.TakeRetainedText(backend) is not { } retained) return;
         // SIZED BY THE TEXT THAT WAS LEFT, not the one about to be sent (review finding 8): sixty-four Backspaces cannot
@@ -673,12 +675,38 @@ public static class TerminalSubmit
                 notice.End(empty ? "the composer is empty" : "the composer still holds text - nothing is typed");
                 if (!empty)
                 {
+                    // REPORTED WITH WHAT WAS READ (Voice Delivery mission, phase 6). The mark stands - the text may
+                    // really be there, and typing now would run the new text into it (#3290) - but it is only a reason
+                    // to LOOK: the next send reads the screen afresh before it clears or types, so the refusal lasts
+                    // exactly as long as the screen shows text. What the reader saw goes into the refusal, so a wrong
+                    // reading can be seen for what it is rather than read as a stuck session (case 2f read a stale row
+                    // of a 220-column grid, issue #3406).
+                    var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
                     ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
                     throw new ComposerNotAcceptingInputException(
                         $"[{driverTag}] ResolveRetainedComposer: the composer still holds text after it was cleared, so " +
-                        "nothing was typed - typing now would run the new text together with what is there.");
+                        "nothing was typed - typing now would run the new text together with what is there. " +
+                        $"The Director believes an earlier send may have left {retained.Length} characters there; " +
+                        $"what it read after the clear: {seen}. The next send looks again.");
                 }
             }
+        }
+        else if (clearKeys is not null && composerHoldsNothing is not null && composerHoldsNothing())
+        {
+            // NOT ON THE SCREEN IS NOT GONE (Voice Delivery mission, phase 6, found by the delivery rig on a real Claude
+            // Code). The earlier send typed its text ONCE into an agent too starved to read it; the characters can still be
+            // waiting in the terminal's input when this send looks, and they are read before anything typed after them. On
+            // 25 September 2026 the next send found the composer empty, called the text gone, typed - and the agent read
+            // the old characters first and submitted both as one prompt (the corruption of pull request #1513).
+            // A terminal's input is read in the order it was written, so the measured clear keys, pressed now, fall
+            // behind any of those characters and remove them; on a composer that is empty they do nothing. Pressed only
+            // when the composer reads EMPTY, so they can never fall on text someone has typed since.
+            FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's {retained.Length} characters are not on " +
+                          "screen and the composer reads empty - pressing the clear keys anyway, because characters still " +
+                          "unread in the terminal's input are read before them and would otherwise run into this send.");
+            await WaitForQuietAsync(backend, driverTag);
+            backend.Write(clearKeys);
+            await Task.Delay(TimeSpan.FromMilliseconds(300));
         }
         else
         {
