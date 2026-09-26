@@ -425,8 +425,11 @@ public static class DoorbellSafety
                 var codexPrompt = frame.CursorRow;
                 while (!rows[codexPrompt].StartsWith('›')) codexPrompt--;
                 segments = [(codexPrompt, AfterGlyph(rows[codexPrompt]))];
+                // The same length guard the reader has (review round 2, finding 2): a continuation row may be EMPTY
+                // (trailing-trimmed, a blank line in a multi-line draft), and slicing it without the guard throws; an
+                // empty segment is then not exactly the line, by the rule the segments already carry.
                 for (var row = codexPrompt + 1; row <= frame.CursorRow; row++)
-                    segments.Add((row, rows[row][ContinuationIndent.Length..]));
+                    segments.Add((row, rows[row].Length >= ContinuationIndent.Length ? rows[row][ContinuationIndent.Length..] : rows[row]));
                 break;
             }
             default:

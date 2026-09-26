@@ -415,6 +415,23 @@ public sealed class DoorbellSafetyTests
         Assert.Equal(line[..cut] + "\n" + rest, text);
     }
 
+    [Fact]
+    public void Codex_holding_a_draft_with_the_cursor_on_an_empty_continuation_row_answers_false_instead_of_throwing()
+    {
+        // Review round 2, finding 2. The reader accepts an EMPTY row as part of the composer block (a multi-line
+        // draft with a blank line in it), and the rows arrive trailing-trimmed - so the exactness check was
+        // handed an empty segment and sliced it without the length guard the reader has. The ring then crashed
+        // with an argument-out-of-range exception instead of deferring. An empty segment is not exactly the
+        // line (the rule the segments already carry), so the answer is false.
+        var frame = new ScreenFrame(["", "", "› hello", "", "", "  gpt footer"], CursorRow: 3, CursorCol: 2, CursorVisible: true);
+
+        var (reading, text) = DoorbellSafety.ReadComposerText(AgentKind.Codex, frame);
+        Assert.Equal(ComposerReading.HoldsText, reading);
+        Assert.Equal("hello", text);
+
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.Codex, frame, "hello"));
+    }
+
     // ---------- Inspection 5, ruling 1: exactly means exactly ----------
 
     private static ScreenFrame CodexHolding(string row, int cursorCol)

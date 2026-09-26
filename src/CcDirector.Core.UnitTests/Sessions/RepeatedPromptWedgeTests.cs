@@ -206,6 +206,39 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         Assert.True(terminal.ClearKeysPressed > 0, "the fragment is cleared with the measured keys, not typed over");
     }
 
+    [Theory]
+    [InlineData("Please fix the login", "Please fix the login bug on the settings page and run the tests.")]
+    [InlineData("Mark", "Reply with only the word OK. Marker: fresh quokka seventy.")]
+    public async Task SendTextAsync_TheOwnersDraftIsPartOfTheRetainedTextButNotItsTail_IsRefusedWithTheDraftIntact(
+        string draft, string orphan)
+    {
+        // Review round 2, finding 1. The containment rule cleared ANY piece of the retained text, and a prefix is
+        // exactly what the owner types when told their voice prompt did not arrive, and a short word is any name
+        // they are drafting - the next send then erased their words and typed over them. The Delivery Lead's
+        // ruling: a remnant of a clear that raced characters still arriving is the TAIL of the retained text - the
+        // clear took the front and the characters still on their way were left behind it - so region text is
+        // accounted for ONLY when the normalized retained text ENDS WITH it. Prefixes and inner pieces are the
+        // owner's own draft again: refused, with the draft intact. What this does not cover - a short draft that
+        // happens to equal the tail of the failed prompt - is accepted in writing by the Delivery Lead (see
+        // proof.md, "What this does not cover").
+        using var machine = PinnedMachineMemory.Healthy();
+        var (session, terminal) = NewClaudeSession(120, 30, composer: draft);
+        ComposerRetention.MarkMayHoldText(terminal, "ClaudeCode", orphan);
+        const string next = "Reply with only the word OK. Marker: onward quokka ninety.";
+
+        // Act
+        var refused = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
+
+        // Assert: the owner's draft is untouched - nothing cleared, nothing typed over it.
+        Assert.Equal(draft, terminal.Composer);
+        Assert.Equal("", terminal.TypedText);
+        Assert.Empty(terminal.Recorded);
+        Assert.Equal(0, terminal.ClearKeysPressed);
+        Assert.Contains("cannot account for", refused.Message);
+        Assert.Contains($"text='{draft}'", refused.Message);
+    }
+
     [Fact]
     public async Task SendTextAsync_ComposerReallyHoldsTheRetainedTextWithCopiesAbove_IsStillRefused()
     {

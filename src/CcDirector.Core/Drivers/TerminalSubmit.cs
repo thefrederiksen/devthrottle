@@ -728,18 +728,24 @@ public static class TerminalSubmit
             // the send is refused, the owner's words stay theirs, and the refusal lasts exactly as long as the region
             // shows text - the next send reads the screen afresh.
             var regionNow = ReadRegionText(composerRegion);
-            if (regionNow is not null && regionNow.Length > 0 && retainedNeedle.Contains(regionNow, StringComparison.Ordinal))
+            if (regionNow is not null && regionNow.Length > 0 && retainedNeedle.EndsWith(regionNow, StringComparison.Ordinal))
             {
-                // A FRAGMENT OF THE RETAINED TEXT IS ACCOUNTED FOR (phase 6 review finding 3). The phase 3 shape: a
-                // clear that raced characters still on their way left a PIECE of the retained text in the composer -
-                // shorter than every needle the orphan check can recognise, so the evidence above says Absent while
-                // the region plainly holds text. It is part of the text the DIRECTOR ITSELF retained, so it is not
-                // the owner's words on the screen: cleared with the measured keys and confirmed empty, exactly as the
-                // whole text is - before this, the fragment refused EVERY later send, and on the phone nothing can
-                // empty the composer. A draft of the owner's that happens to spell a piece of the retained text is
-                // indistinguishable from a remnant and is cleared with it; a draft that is not part of the retained
-                // text is still refused below.
-                FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the composer holds a fragment of the previous " +
+                // A TAIL OF THE RETAINED TEXT IS ACCOUNTED FOR (phase 6 review finding 3, narrowed by round 2 to the
+                // tail). The phase 3 shape: a clear that raced characters still on their way took the FRONT of the
+                // retained text and left its LATER characters standing in the composer - a remnant is always a TAIL
+                // of the retained text (the reviewer's own example, "seventy.", is one), shorter than every needle
+                // the orphan check can recognise, so the evidence above says Absent while the region plainly holds
+                // text. It is the end of the text the DIRECTOR ITSELF retained, so it is not the owner's words on
+                // the screen: cleared with the measured keys and confirmed empty, exactly as the whole text is -
+                // before this, the remnant refused EVERY later send, and on the phone nothing can empty the
+                // composer. EVERYTHING ELSE THAT IS PART OF THE RETAINED TEXT - a prefix, a word in the middle -
+                // stays refused (review round 2, finding 1): a prefix is exactly what the owner types when told
+                // their voice prompt did not arrive and they start typing it themselves, and a short word is any
+                // name they are drafting; the round-1 containment rule read both as a remnant and erased them. A
+                // short draft of the owner's that happens to EQUAL the tail of the failed prompt is accepted in
+                // writing by the Delivery Lead (proof.md, "What this does not cover") - no cheaper rule tells a
+                // remnant from a draft that spells the same tail.
+                FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the composer holds the TAIL of the previous " +
                               $"send's {retained.Length} characters ({regionNow.Length} of them) - clearing it with the " +
                               "measured keys before typing, as for the whole text.");
                 await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen);
