@@ -888,19 +888,12 @@ internal static class GatewayDictationEndpoint
                     case DeliveryState.Delivering:
                         return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Delivering);
                     case DeliveryState.NotDelivered:
-                        // The DIRECTOR ITSELF refused it for age (contract section 9, F6: its own check types nothing
-                        // past the limit and answers not-delivered with reason too-old). Known not to be in, and past
-                        // the limit from Send: shown back too old AT ONCE, with the words an earlier attempt kept -
-                        // re-sending what the Director has already refused for age buys nothing. The decision record
-                        // says the Director refused it for age: the delivery-state-answer line above carries the
-                        // Director's own reason.
-                        if (IsTooOld(clock, sentAtUtc, out var refusedForAge)
-                            && string.Equals(earlier.Answer.Reason, TooOldReason, StringComparison.Ordinal))
-                            return ResolveTooOld(store, uploadId, sid, store.SentWords(uploadId), refusedForAge);
-                        goto case DeliveryState.Unknown;
                     case DeliveryState.Unknown:
-                        // Known not to be in: carry on as a first attempt - transcribe (or reuse the kept words), the age
-                        // limit, send.
+                        // Known not to be in: carry on as a first attempt - reuse the kept words, the age limit, send.
+                        // A not-delivered reason of too-old (the DIRECTOR's own age check, contract section 9, F6) needs
+                        // no arm of its own here: the age limit below the send shows the words back as too old on any
+                        // attempt that is past it, and the send's own answer arm catches a refusal that arrives past
+                        // the limit - so the decision record always says the Director refused it for age.
                         break;
                     default:
                         throw new InvalidOperationException($"the Director answered delivery state {earlier.Answer.State}, which this Gateway does not know");
