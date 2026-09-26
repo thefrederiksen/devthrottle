@@ -73,6 +73,32 @@ internal static class TurnVerdictJudge
         return new HostedInferenceBrain(baseUrl, apiKey, model, log: FileLog.Write,
             callTimeout: TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds), tag: tag);
     }
+
+    /// <summary>The most output Call A may write: one word, with room for a stray quote or full stop. The phase 1
+    /// measurement ran with this cap and averaged two output tokens a call.</summary>
+    public const int CallAMaxTokens = 16;
+
+    /// <summary>
+    /// CALL A'S BRAIN (contract v4): the same model, timeout and tag as <see cref="BuildBrain"/>, asked at
+    /// TEMPERATURE 0, with its reasoning OFF and its output capped at <see cref="CallAMaxTokens"/> - exactly the
+    /// request the phase 1 measurement sent (devthrottle_internal docs/missions/turn-pipeline-2026-09-25/phase-1/
+    /// MEASUREMENT.md, "Temperature 0, proved from the request body").
+    ///
+    /// WHY THIS IS NOT THE 2026-09-20 OUTAGE AGAIN (the type comment above). That was the THINKING tier asked for a
+    /// five-field JSON object with no output cap, which wrote 3,397 tokens in 46 seconds. This is the fast tier, the
+    /// one the judge already runs on, asked for one word with a sixteen-token cap: the answer cannot run long.
+    ///
+    /// ONLY CALL A. The narration call writes a paragraph and keeps <see cref="BuildBrain"/> unchanged - a cap of
+    /// sixteen tokens there would cut every narration to a few words.
+    /// </summary>
+    public static HostedInferenceBrain BuildCallABrain(string baseUrl, string apiKey, IncludedModelId model, TurnVerdictSettings settings, Core.HostedAi.AiCallTag tag)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(tag);
+        return new HostedInferenceBrain(baseUrl, apiKey, model, log: FileLog.Write,
+            callTimeout: TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds), thinkingOff: true, tag: tag,
+            temperature: 0, maxTokens: CallAMaxTokens);
+    }
 }
 
 /// <summary>
@@ -138,7 +164,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly TimeSpan _streamStale;
     private readonly Func<TenantId, string, SessionVerbClient?> _route;
     private readonly Func<TenantId, string, StoredConversation?> _conversation;
-    private readonly Func<TenantId, TurnVerdictSettings, string, IAgentBrain> _judgeBrain;
+    private readonly Func<TenantId, TurnVerdictSettings, string, bool, IAgentBrain> _judgeBrain;
     private readonly Func<TenantId, string> _judgeModel;
     private readonly TurnVerdictStore _store;
     private readonly TurnVerdictTraceWriter _traces;
@@ -150,9 +176,11 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
 
-    /// <param name="judgeBrain">Builds the judge's brain for an account and usage feature. Production passes a
-    /// builder that goes through <see cref="TurnVerdictJudge.BuildBrain"/>, so the brain carries the settings'
-    /// timeout and the call site receives its own usage tag.</param>
+    /// <param name="judgeBrain">Builds the judge's brain for an account, a usage feature, and whether it is CALL A's
+    /// one-word question (true) or a call that writes prose or probes the host (false). Production passes a builder
+    /// that goes through <see cref="TurnVerdictJudge.BuildCallABrain"/> for Call A and
+    /// <see cref="TurnVerdictJudge.BuildBrain"/> otherwise, so every brain carries the settings' timeout and the call
+    /// site receives its own usage tag.</param>
     /// <param name="customSpokenRules">The account's own narration instructions, or null when it uses the
     /// shipped default.</param>
     public GatewayTurnVerdictEnvironment(
@@ -161,7 +189,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         TimeSpan streamStale,
         Func<TenantId, string, SessionVerbClient?> route,
         Func<TenantId, string, StoredConversation?> conversation,
-        Func<TenantId, TurnVerdictSettings, string, IAgentBrain> judgeBrain,
+        Func<TenantId, TurnVerdictSettings, string, bool, IAgentBrain> judgeBrain,
         Func<TenantId, string> judgeModel,
         TurnVerdictStore store,
         TurnVerdictTraceWriter traces,
@@ -230,7 +258,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         // the single re-attempt a listened-to stop may get. Built through the same builder either way.
         var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
         var model = _judgeModel(tenant);
-        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdict);
+        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdict, true);
         var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
         return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
     }
@@ -239,7 +267,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     {
         var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
         var model = _judgeModel(tenant);
-        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdictProbe);
+        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdictProbe, false);
         var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
         return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
     }
@@ -250,7 +278,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         // the old translator's prompt on this model, and a second provider would be a second thing to keep working.
         var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
         var model = _judgeModel(tenant);
-        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdict);
+        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdict, false);
         var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
         return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
     }

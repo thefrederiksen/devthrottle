@@ -47,6 +47,8 @@ internal static class TurnVerdictDtoCopy
             RetriesMade = v.RetriesMade,
             NextRetryAtUtc = v.NextRetryAtUtc,
             OptionsDroppedReason = v.OptionsDroppedReason,
+            DecidedBy = v.DecidedBy,
+            DecisionReason = v.DecisionReason,
         };
     }
 }

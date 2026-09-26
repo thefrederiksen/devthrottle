@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Wingman;
@@ -34,6 +35,13 @@ public static class WingmanDebugFold
     /// <summary>What is shown where the judge was never asked - a stop that stood down, or one that reused
     /// an answer it already had.</summary>
     public const string JudgeNotAsked = "The judge was not asked about this stop.";
+
+    /// <summary>What is shown where the model was not asked: which code step decided instead, when one did (contract
+    /// v4), so a reader of a stop can see at once that code, not the model, made the call.</summary>
+    internal static string JudgeNotAskedFor(TurnVerdictDto? verdict)
+        => verdict is { Failed: false, DecidedBy: { Length: > 0 } step } && step != CallACodeSteps.ModelStep
+            ? $"The model was not asked: code decided this stop at the '{step}' step - {verdict.DecisionReason}"
+            : JudgeNotAsked;
 
     /// <summary>What is shown where the narration call was not made.</summary>
     public const string NarrationNotMade =
@@ -80,6 +88,8 @@ public static class WingmanDebugFold
             Failed = verdict?.Failed ?? false,
             FailureReason = verdict?.FailureReason,
             OptionsDroppedReason = verdict?.OptionsDroppedReason,
+            DecidedBy = verdict?.DecidedBy,
+            DecisionReason = verdict?.DecisionReason,
             RetriesMade = verdict?.RetriesMade ?? 0,
             NextRetryAtUtc = verdict?.NextRetryAtUtc,
             RowColour = trace.RowColour,
@@ -97,7 +107,7 @@ public static class WingmanDebugFold
             JudgeRawReply = trace.RawReply,
             JudgeRawReplyCutText = trace.RawReplyTruncated ? "This answer was longer than the record keeps and was cut." : null,
             JudgeSeconds = trace.ReplySeconds,
-            JudgeNotAskedText = trace.Prompt is null ? JudgeNotAsked : null,
+            JudgeNotAskedText = trace.Prompt is null ? JudgeNotAskedFor(verdict) : null,
 
             // ---- call two
             NarrationPrompt = trace.NarrationPrompt,
@@ -147,6 +157,12 @@ public sealed class WingmanDebugStop
 
     /// <summary>Why this reading's buttons were dropped while the reading itself was kept, or null.</summary>
     public string? OptionsDroppedReason { get; set; }
+
+    /// <summary>Which step of Call A decided this stop - a code step, or "model" - or null before contract v4.</summary>
+    public string? DecidedBy { get; set; }
+
+    /// <summary>Why that step decided, in words a person can read, or null before contract v4.</summary>
+    public string? DecisionReason { get; set; }
 
     /// <summary>On a failed reading: how many scheduled retries the stop had spent when this was stored.</summary>
     public int RetriesMade { get; set; }

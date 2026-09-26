@@ -138,7 +138,7 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
 
         var stored = rig.Env.Latest(Tenant, Sid)!;
         Assert.False(stored.Failed, stored.FailureReason);
-        Assert.Equal(TurnVerdictStates.FinishedReport, stored.State);
+        Assert.Equal(TurnVerdictStates.FinishedDone, stored.State);   // v4's "done"
         Assert.Equal(Spoken, stored.Spoken);
 
         // Narrated once, with the reading's own words, tied to its id.
@@ -253,20 +253,25 @@ public sealed class VoiceIsNeverSilencedByAVerdictCheckTests : IDisposable
         Assert.Equal(Spoken, rig.Voice.Get(Tenant, Sid)!.Spoken);
     }
 
+    /// <summary>
+    /// AN ANSWER THAT IS NOT ONE OF THE THREE WORDS IS NOT RE-ATTEMPTED, EVEN FOR A LISTENER (contract v4). Under v3 an
+    /// answer that was not JSON got the listened-to re-attempt. Call A now asks at temperature 0, so the same prompt gets
+    /// the same answer, and a second call would buy the same refusal. The stop is a failed, red record on the retry
+    /// schedule instead - the same schedule every other failure takes. Only a call that got NO answer is re-attempted.
+    /// </summary>
     [Fact]
-    public async Task AVoiceSessionWhoseJudgeAnswersSomethingThatIsNotJson_GetsOneReattempt()
+    public async Task AVoiceSessionWhoseJudgeAnswersSomethingThatIsNotAWord_IsNotReattempted_AndGoesOnTheRetrySchedule()
     {
         var env = ServiceEnv();
         env.VoiceSession = _ => true;
-        var calls = 0;
-        env.Judge = (_, _) => Task.FromResult(Interlocked.Increment(ref calls) == 1
-            ? "The session finished and nothing is needed."
-            : FakeTurnVerdictEnvironment.Finished(ReplyText, Spoken));
+        env.Judge = (_, _) => Task.FromResult("The session finished and nothing is needed.");
 
         var outcome = await new TurnVerdictService(env).StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
 
-        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-        Assert.Equal(2, env.JudgeCalls);
+        Assert.Equal(TurnVerdictOutcomeKind.Failed, outcome.Kind);
+        Assert.Equal(TurnVerdictFailureKind.Refused, outcome.Failure);
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.NotNull(env.Latest(Tenant, Sid)!.NextRetryAtUtc);
     }
 
     [Fact]

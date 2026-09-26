@@ -274,13 +274,6 @@ public sealed record TurnVerdictOutcome
     /// </summary>
     public Lazy<TurnVerdictPackage>? NarrationPackage { get; init; }
 
-    /// <summary>
-    /// For a REFUSED but readable judge answer only: the judge's decision as it wrote it - how the person answers, the
-    /// menu, the options - read by <see cref="TurnVerdictContract.SalvageNarrationDecision"/> for the narration call's
-    /// input (slice J, Architect ruling). Never stored, never on the row, never offered as a button: the record in
-    /// <see cref="Verdict"/> stays refused with none of them. Null on an accepted verdict, whose own fields are the decision.
-    /// </summary>
-    public TurnVerdictDto? NarrationDecision { get; init; }
 
     /// <summary>True when there is an accepted verdict to act on.</summary>
     public bool HasAcceptedVerdict => Verdict is { Failed: false }
@@ -1196,108 +1189,45 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             var signal = new TurnEndSignal(sid, directorId, tenant, observedAt, IsNewTurn: trigger == TurnVerdictTrigger.TurnEnd);
-            // The owner's own sessions (owner ruling, 2026-09-15), counted by the same crew summary the row prints.
-            var owned = _env.OwnedSessions(tenant, sid);
+            // No previous label and no owned-sessions counts (contract v4, design v2): Call A is given the screen and
+            // the latest reply and nothing else, and the narration call never read either.
             var package = TurnVerdictPackageBuilder.Build(
                 signal,
                 facts ?? new SessionDto { SessionId = sid },
                 conversation,
                 grid,
-                latest is { Failed: false } ? latest.Label : null,
-                owned is null ? null : new OwnedSessionCounts(owned.Working, owned.Stopped, owned.NeedYou));
-            // The judge is asked the contract's own question and nothing else from contract v3: it answers no
-            // prose a person hears, so the account's language and its own narration instructions belong to the
-            // narration call below, which takes both.
-            var prompt = TurnVerdictPrompt.BuildVerdictPrompt(package);
+                previousVerdictLabel: null);
             flight.Package = package;
-            flight.Prompt = prompt;
 
-            TurnVerdictDto record;
             var failure = TurnVerdictFailureKind.None;
             TimeSpan? retryAfter = null;
             string? detail = null;
             double replySeconds = 0;
             string? rawReply = null;
-            // ONE CALL PER STOP, WITH ONE EXCEPTION (owner ruling, 2026-09-16, slice I). A stop somebody is listening
-            // to - a voice session, or a person who pressed explain - gets exactly ONE re-attempt, with the wider
-            // deadline, when the first call got no usable words at all: the judge did not answer, or its answer was
-            // not a JSON object. Those are the two failures that leave voice with nothing to say. A refusal of
-            // READABLE JSON keeps its spoken text (TurnVerdictContract), a rate limit names its own wait, and every
-            // stop nobody is listening to keeps the one-call rule.
-            var timeout = TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds);
-            for (var attempt = 1; ; attempt++)
+            string? prompt = null;
+
+            // ---- CALL A, CODE FIRST (contract v4, design v2) ----
+            // Four plain rules, in order, the first to fire deciding: a picker on the screen, the agent's own
+            // needs-human verdict, a real question in the reply, a way back the agent set itself. A stop one of them
+            // decides costs NO model call, and its record says which step decided and why.
+            var codeDecision = CallACodeSteps.Decide(package, TurnVerdictPackageBuilder.LastTurnToolUses(conversation.Widgets));
+            TurnVerdictDto record;
+            if (codeDecision is not null)
             {
-                failure = TurnVerdictFailureKind.None;
-                retryAfter = null;
-                detail = null;
-                var answerWasReadable = false;
-                try
-                {
-                    var answer = await _env.AskJudgeAsync(tenant, prompt, timeout, ct).ConfigureAwait(false);
-                    replySeconds = answer.ReplySeconds;
-                    rawReply = answer.Raw;
-                    flight.RawReply = answer.Raw;
-                    flight.ReplySeconds = answer.ReplySeconds;
-                    record = TurnVerdictContract.ParseAndValidate(answer.Raw, package, answer.Model, observedAt);
-                    // The carrying-on clock's first source travels on the stored record, so it survives a restart.
-                    record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
-                    // CODE DECIDES WHETHER THERE IS A PICKER (issue 2976, owner ruling 2026-09-20). A menu on a screen
-                    // with no picker drawn is corrected to a reply here, before the record is stored, so nothing
-                    // downstream - the row's buttons, the narration's menu shape - is built on a menu the judge
-                    // invented. EVERY stop logs the decision and its evidence, corrected or not: the sign list is
-                    // applied unverified to agents it was not checked against, and this line is how its misses are found.
-                    var claimedMenu = record.AnswerVia == TurnVerdictContract.AnswerViaKeys;
-                    var corrected = InventedMenuCheck.Correct(record, rows, package.AgentKind, out var picker);
-                    FileLog.Write($"[TurnVerdictService] picker check: sid={sid} id={record.VerdictId} judgeClaimedMenu={claimedMenu} {picker.Describe()}"
-                        + (corrected ? " - CORRECTED: stored as a reply with no options" : ""));
-                    answerWasReadable = TurnVerdictContract.IsReadableJsonObject(answer.Raw);
-                    if (record.Failed)
-                    {
-                        failure = TurnVerdictFailureKind.Refused;
-                        detail = record.FailureReason;
-                    }
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (WingmanModelRateLimitedException rl)
-                {
-                    failure = TurnVerdictFailureKind.RateLimited;
-                    retryAfter = rl.RetryAfter;
-                    detail = rl.Message;
-                    record = FailedRecord(package, tenant, observedAt, "the judge was rate limited: " + rl.Message);
-                }
-                catch (TimeoutException ex)
-                {
-                    NoteModelHostTimeout(tenant, "judge");
-                    failure = TurnVerdictFailureKind.DidNotAnswer;
-                    detail = ex.Message;
-                    record = FailedRecord(package, tenant, observedAt, "the judge did not answer: " + ex.Message);
-                }
-                catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
-                {
-                    failure = TurnVerdictFailureKind.DidNotAnswer;
-                    detail = ex.Message;
-                    record = FailedRecord(package, tenant, observedAt, "the judge did not answer: " + ex.Message);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    failure = TurnVerdictFailureKind.Unavailable;
-                    detail = ex.Message;
-                    record = FailedRecord(package, tenant, observedAt, "the judge could not be asked: " + ex.Message);
-                }
-
-                var gotNoWords = failure == TurnVerdictFailureKind.DidNotAnswer
-                                 || (failure == TurnVerdictFailureKind.Refused && !answerWasReadable);
-                if (!flight.DecideReattempt(attempt < MaxJudgeAttemptsWhenListenedTo && gotNoWords,
-                        () => _env.IsVoiceSession(tenant, sid)))
-                    break;
-
-                ct.ThrowIfCancellationRequested();
-                FileLog.Write($"[TurnVerdictService] sid={sid}: the judge gave no usable words ({failure}: {detail}) and somebody is listening - one re-attempt with a {TurnVerdictSettings.ListenedToReattemptTimeoutSeconds}s deadline");
-                timeout = TimeSpan.FromSeconds(TurnVerdictSettings.ListenedToReattemptTimeoutSeconds);
+                record = TurnVerdictContract.FromCodeStep(codeDecision, package, observedAt);
+                FileLog.Write($"[TurnVerdictService] Call A decided by code: sid={sid} id={record.VerdictId} step={codeDecision.Step} word={codeDecision.Word} - no model call");
             }
+            else
+            {
+                // ---- the model, for the rest: the screen and the reply, one word back ----
+                prompt = TurnVerdictPrompt.BuildVerdictPrompt(package);
+                flight.Prompt = prompt;
+                (record, failure, retryAfter, detail, replySeconds, rawReply) =
+                    await AskCallAModelAsync(tenant, sid, flight, package, prompt, settings, observedAt, ct).ConfigureAwait(false);
+            }
+
+            // The carrying-on clock's first source travels on the stored record, so it survives a restart.
+            record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
 
             ct.ThrowIfCancellationRequested();
 
@@ -1382,16 +1312,6 @@ public sealed class TurnVerdictService : IDisposable
             {
                 if (failure == TurnVerdictFailureKind.RateLimited && retryAfter is { } namedWait)
                     WriteRateLimitHoldIfCurrent(key, flight, (record.VerdictId, _env.NowUtc() + namedWait, source?.Content));
-                // The refused answer's own decision, for a narration call about this record - now or on a later reuse.
-                var narrationDecision = failure == TurnVerdictFailureKind.Refused
-                    ? TurnVerdictContract.SalvageNarrationDecision(rawReply)
-                    : null;
-                // A refused answer's salvaged decision is checked against the screen too (issue 2976): it reaches the
-                // narration call, which would otherwise tell a listener to press a button that is not there.
-                if (InventedMenuCheck.Correct(narrationDecision, rows, package.AgentKind, out var salvagedPicker))
-                    FileLog.Write($"[TurnVerdictService] invented menu corrected on a refused record's salvaged decision: sid={sid} id={record.VerdictId} {salvagedPicker.Describe()}");
-                if (narrationDecision is not null)
-                    _refusedNarrationDecisions[key] = (record.VerdictId, narrationDecision);
                 _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictFailed,
                     FailureCause(failure),
                     $"trigger={TriggerWord(trigger)} kind={record.PackageKind} id={record.VerdictId} model={record.Model}"));
@@ -1406,18 +1326,19 @@ public sealed class TurnVerdictService : IDisposable
                     SourceText = source?.Content,
                     ReplySeconds = replySeconds,
                     NarrationPackage = new Lazy<TurnVerdictPackage>(package),
-                    NarrationDecision = narrationDecision,
                 };
             }
 
-            // The menu cache the send-time guards read (WaitingScreenReader.ConfirmedMenuAsync) is fed from the
-            // verdict, under the same full-grid hash, so an unchanged screen is answered without a second call.
-            if (rows.Count > 0)
-                WingmanScreenVerdictCache.Store($"{tenant}/{sid}", hash, ScreenNeeds(record));
+            // THE MENU CACHE THE SEND-TIME GUARDS READ IS NO LONGER FED FROM HERE (contract v4). It was fed the judge's
+            // own menu answer, so an unchanged screen was answered without a second call. Call A no longer answers
+            // whether a menu is drawn - a picker is simply needs-you - so feeding it "answer" or "nothing" for a real
+            // picker would tell WaitingScreenReader.ConfirmedMenuAsync there is no menu, and a voice reply would be
+            // typed into a picker. The guard now asks its own question on a menu-shaped screen, as it always did on a
+            // cache miss, and fails closed.
 
             _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictJudged,
                 ActivityCauses.JudgeAnswered,
-                $"trigger={TriggerWord(trigger)} verdict={record.Verdict} confidence={record.Confidence} kind={record.PackageKind} id={record.VerdictId} model={record.Model}"));
+                $"trigger={TriggerWord(trigger)} verdict={record.Verdict} decidedBy={record.DecidedBy} kind={record.PackageKind} id={record.VerdictId} model={record.Model}"));
             return new TurnVerdictOutcome
             {
                 Kind = TurnVerdictOutcomeKind.Judged,
@@ -1433,6 +1354,96 @@ public sealed class TurnVerdictService : IDisposable
             _reading.TryRemove(key, out _);
             if (capped) Interlocked.Decrement(ref load.Value);
         }
+    }
+
+    /// <summary>
+    /// CALL A'S MODEL STEP (contract v4): ask the model the one-word question about a stop no code step decided, and
+    /// read its answer. Every failure - no answer, a rate limit, an unusable provider, an answer that is not one of the
+    /// three words - comes back as a failed record, which is red and goes on the retry schedule.
+    ///
+    /// ONE CALL PER STOP, WITH ONE EXCEPTION (owner ruling, 2026-09-16, slice I). A stop somebody is listening to - a
+    /// voice session, or a person who pressed explain - gets exactly ONE re-attempt, with the wider deadline, when the
+    /// model did not answer at all. An answer that is not one of the three words is NOT re-attempted: the call is at
+    /// temperature 0, so the same prompt gets the same answer, and asking again would buy the same refusal. It goes on
+    /// the retry schedule like every other failure. A rate limit names its own wait, and every stop nobody is listening
+    /// to keeps the one-call rule.
+    /// </summary>
+    private async Task<(TurnVerdictDto Record, TurnVerdictFailureKind Failure, TimeSpan? RetryAfter, string? Detail, double ReplySeconds, string? RawReply)>
+        AskCallAModelAsync(TenantId tenant, string sid, Flight flight, TurnVerdictPackage package, string prompt,
+            TurnVerdictSettings settings, DateTime observedAt, CancellationToken ct)
+    {
+        TurnVerdictDto record;
+        TurnVerdictFailureKind failure;
+        TimeSpan? retryAfter;
+        string? detail;
+        double replySeconds = 0;
+        string? rawReply = null;
+        var timeout = TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds);
+        for (var attempt = 1; ; attempt++)
+        {
+            failure = TurnVerdictFailureKind.None;
+            retryAfter = null;
+            detail = null;
+            try
+            {
+                var answer = await _env.AskJudgeAsync(tenant, prompt, timeout, ct).ConfigureAwait(false);
+                replySeconds = answer.ReplySeconds;
+                rawReply = answer.Raw;
+                flight.RawReply = answer.Raw;
+                flight.ReplySeconds = answer.ReplySeconds;
+                record = TurnVerdictContract.ParseWord(answer.Raw, package, answer.Model, observedAt);
+                FileLog.Write($"[TurnVerdictService] Call A decided by the model: sid={sid} id={record.VerdictId} failed={record.Failed} verdict={record.Verdict}");
+                if (record.Failed)
+                {
+                    failure = TurnVerdictFailureKind.Refused;
+                    detail = record.FailureReason;
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (WingmanModelRateLimitedException rl)
+            {
+                failure = TurnVerdictFailureKind.RateLimited;
+                retryAfter = rl.RetryAfter;
+                detail = rl.Message;
+                record = FailedRecord(package, tenant, observedAt, "the judge was rate limited: " + rl.Message);
+            }
+            catch (TimeoutException ex)
+            {
+                NoteModelHostTimeout(tenant, "judge");
+                failure = TurnVerdictFailureKind.DidNotAnswer;
+                detail = ex.Message;
+                record = FailedRecord(package, tenant, observedAt, "the judge did not answer: " + ex.Message);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+            {
+                failure = TurnVerdictFailureKind.DidNotAnswer;
+                detail = ex.Message;
+                record = FailedRecord(package, tenant, observedAt, "the judge did not answer: " + ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                failure = TurnVerdictFailureKind.Unavailable;
+                detail = ex.Message;
+                record = FailedRecord(package, tenant, observedAt, "the judge could not be asked: " + ex.Message);
+            }
+
+            var gotNoAnswer = failure == TurnVerdictFailureKind.DidNotAnswer;
+            if (!flight.DecideReattempt(attempt < MaxJudgeAttemptsWhenListenedTo && gotNoAnswer,
+                    () => _env.IsVoiceSession(tenant, sid)))
+                break;
+
+            ct.ThrowIfCancellationRequested();
+            FileLog.Write($"[TurnVerdictService] sid={sid}: the judge gave no usable answer ({failure}: {detail}) and somebody is listening - one re-attempt with a {TurnVerdictSettings.ListenedToReattemptTimeoutSeconds}s deadline");
+            timeout = TimeSpan.FromSeconds(TurnVerdictSettings.ListenedToReattemptTimeoutSeconds);
+        }
+
+        // A failed record says which step it failed at, so the debug view can show it beside a code decision.
+        record.DecidedBy ??= CallACodeSteps.ModelStep;
+        record.DecisionReason ??= record.FailureReason;
+        return (record, failure, retryAfter, detail, replySeconds, rawReply);
     }
 
     /// <param name="epoch">The epoch the flight captured before <paramref name="latest"/> was read. A Working edge
@@ -1510,10 +1521,6 @@ public sealed class TurnVerdictService : IDisposable
                 ScreenHash = hash,
                 SourceText = source?.Content,
                 NarrationPackage = narrationPackage,
-                NarrationDecision = _refusedNarrationDecisions.TryGetValue(key, out var salvaged)
-                                    && string.Equals(salvaged.VerdictId, verdict.VerdictId, StringComparison.Ordinal)
-                    ? salvaged.Decision
-                    : null,
             }
             : new TurnVerdictOutcome
             {
@@ -1537,14 +1544,13 @@ public sealed class TurnVerdictService : IDisposable
     {
         if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is not { } lazyPackage)
             throw new ArgumentException("A narration call needs a verdict and the package it was formed from.", nameof(outcome));
-        return NarrateAsync(tenant, sid, verdict, lazyPackage, ct, outcome.NarrationDecision);
+        return NarrateAsync(tenant, sid, verdict, lazyPackage, ct);
     }
 
     /// <summary>The same call, given its verdict and package directly - the form the reading itself uses, before
     /// there is an outcome to carry them in.</summary>
     internal async Task<NarrationCallResult> NarrateAsync(
-        TenantId tenant, string sid, TurnVerdictDto verdict, Lazy<TurnVerdictPackage> lazyPackage, CancellationToken ct,
-        TurnVerdictDto? salvagedDecision = null)
+        TenantId tenant, string sid, TurnVerdictDto verdict, Lazy<TurnVerdictPackage> lazyPackage, CancellationToken ct)
     {
 
         // THE PLAN FIRST (owner ruling, 2026-09-17): an account whose plan does not include the Wingman gets the Pro
@@ -1559,11 +1565,11 @@ public sealed class TurnVerdictService : IDisposable
                 return new NarrationCallResult(null, "the account's plan could not be read, so the narration call was not made", "", 0);
         }
 
-        // A refused record carries no decision of its own; the call is given the one its readable answer held.
-        var decision = verdict.Failed && salvagedDecision is { } salvaged ? salvaged : verdict;
-        var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, decision);
+        // A refused record is narrated from what it is: a reading whose state could not be read. Contract v4's answer is
+        // one word, so a refused one holds no decision to salvage.
+        var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, verdict);
         var timeout = TimeSpan.FromSeconds(TurnVerdictSettings.NarrationCallTimeoutSeconds);
-        FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} failed={verdict.Failed} answerVia={decision.AnswerVia} salvagedDecision={!ReferenceEquals(decision, verdict)} promptLen={prompt.Length}");
+        FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} failed={verdict.Failed} answerVia={verdict.AnswerVia} promptLen={prompt.Length}");
         try
         {
             var answer = await _env.AskNarratorAsync(tenant, prompt, timeout, ct).ConfigureAwait(false);
@@ -1827,10 +1833,6 @@ public sealed class TurnVerdictService : IDisposable
     // A RATE LIMIT'S OWN WAIT, per session: the failed record it produced and when the wait it named ends. An explain
     // on the unchanged screen does not ask again inside it.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string VerdictId, DateTime Until, string? SourceText)> _rateLimitHolds = new();
-
-    // THE DECISION A REFUSED BUT READABLE ANSWER HELD, per session, keyed by the refused record's verdict id: the narration
-    // call's input only (slice J). One per session - a newer refused record replaces it - and never read for the row.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string VerdictId, TurnVerdictDto Decision)> _refusedNarrationDecisions = new();
 
     // THE HOLD GENERATION, per session: every clear (a new turn, a Working event) moves it on, under _holdGate, and a
     // flight writes its hold only when the generation is still the one it captured at start. Without it a flight that

@@ -4,7 +4,8 @@ namespace CcDirector.Gateway.Wingman;
 
 /// <summary>
 /// The whole question the Gateway asks the turn-verdict judge. From contract v3 (owner ruling, 2026-09-18) that is
-/// the contract's own prompt and nothing else, and this class is the one place that says why.
+/// the contract's own prompt and nothing else, and this class is the one place that says why. From contract v4 it is
+/// asked only about a stop no code step decided (<see cref="CallACodeSteps"/>), and the answer is one word.
 ///
 /// WHAT IT USED TO ADD, AND WHY IT NO LONGER DOES. The judge used to answer a "spoken" field - the words a person
 /// heard in the car - so this builder carried two things Core cannot know: the account's spoken language, and the
@@ -26,7 +27,7 @@ public static class TurnVerdictPrompt
 {
     /// <summary>The line that closes the untrusted screen block. Kept because the tests that prove a screen cannot
     /// forge the end of the screen block read it from here.</summary>
-    internal const string EndOfScreenMarker = "=== END OF THE LIVE SCREEN ===";
+    internal const string EndOfScreenMarker = "=== END OF THE SCREEN ===";
 
     /// <summary>The prompt for one stop.</summary>
     /// <param name="package">The stop being judged.</param>

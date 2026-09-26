@@ -838,7 +838,7 @@ public sealed class TurnVerdictTraceTests : IDisposable
             streamStale: TimeSpan.FromMinutes(5),
             route: (_, directorId) => RouteServing(directorId, () => Screen(Sid, ReplyText, "> ")),
             conversation: (_, _) => Reply("push it", ReplyText),
-            judgeBrain: (_, _, _) => new CountingBrain(() => FinishedAnswer),
+            judgeBrain: (_, _, _, _) => new CountingBrain(() => FinishedAnswer),
             judgeModel: _ => FakeTurnVerdictEnvironment.Model,
             store: new TurnVerdictStore(db),
             traces: writer,

@@ -68,7 +68,7 @@ public sealed class TurnVerdictOwnedSessionsTests
     }
 
     [Fact]
-    public async Task AStopOnAnOwner_TellsTheJudgeTheSessionsItOwns()
+    public async Task AStopOnAnOwner_DoesNotTellTheJudgeTheSessionsItOwns()
     {
         const string reply = "I have handed the migration to the workers and am waiting on them.";
         var env = new FakeTurnVerdictEnvironment
@@ -81,7 +81,12 @@ public sealed class TurnVerdictOwnedSessionsTests
 
         var outcome = await service.StartTurnEnd(new TurnEndSignal("architect", "dir-1", TenantId.Local, T0, IsNewTurn: true));
 
+        // CONTRACT v4 (design v2): the owned-sessions line is NOT fed to Call A. The phase 1 data says owning working
+        // sessions points the other way - a manager waiting on the owner while its workers run was labelled needs-you
+        // 56 times of 72 - so it is not given to the model until it is measured.
         Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-        Assert.Contains("Sessions this session owns: 2 working, 1 stopped, 0 need a person", Assert.Single(env.Prompts));
+        var prompt = Assert.Single(env.Prompts);
+        Assert.DoesNotContain("Sessions this session owns", prompt);
+        Assert.DoesNotContain("2 working", prompt);
     }
 }
