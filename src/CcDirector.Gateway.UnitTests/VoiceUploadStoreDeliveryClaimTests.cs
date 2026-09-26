@@ -35,7 +35,7 @@ public sealed class VoiceUploadStoreDeliveryClaimTests : IDisposable
     private string MovedOnAndAcknowledged()
     {
         var id = _store.OpenPending(null, _sessionId).UploadId;
-        _store.MarkDelivered(id, submitted: false, movedOn: true, transcript: Words);
+        _store.MarkDelivered(id, submitted: false, movedOn: true, transcript: Words, reason: DeliveryDecisions.TooOld);
         Assert.True(_store.Acknowledge(id));
         return id;
     }
@@ -116,7 +116,7 @@ public sealed class VoiceUploadStoreDeliveryClaimTests : IDisposable
         // Proves the claim window runs from when the recording was resolved, not from the acknowledgement, which can
         // come days later and would stretch the window past the Director's record.
         var id = _store.OpenPending(null, _sessionId).UploadId;
-        _store.MarkDelivered(id, submitted: false, movedOn: true, transcript: Words);
+        _store.MarkDelivered(id, submitted: false, movedOn: true, transcript: Words, reason: DeliveryDecisions.TooOld);
         var resolved = ResolvedAt(id);
         Thread.Sleep(20);
 

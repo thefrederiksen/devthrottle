@@ -225,7 +225,7 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
     }
 
     [Fact]
-    public void MarkFailed_ClearFailed_and_the_rebaseline_over_a_corrupt_tombstone_write_nothing()
+    public void MarkFailed_and_ClearFailed_over_a_corrupt_tombstone_write_nothing()
     {
         var id = Guid.NewGuid().ToString();
         var path = CorruptDeliveredTombstone(id, "{ this is not json");
@@ -233,7 +233,6 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
 
         Assert.Throws<UnreadableDictationRecordException>(() => _store.MarkFailed(id, "audio_too_large"));
         Assert.False(_store.ClearFailed(id));
-        Assert.False(_store.RecordFailedDeliveryBaseline(id, 4096));
 
         Assert.Equal(before, File.ReadAllBytes(path));
     }
@@ -256,16 +255,15 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
         // A blank id mints one, as Register does.
         Assert.True(_store.OpenPending(null, session).Opened);
 
-        // FAILED: re-opened, carrying the re-baseline forward (issue #1593).
+        // FAILED: re-opened as PENDING for the same session.
         var failed = Guid.NewGuid().ToString();
         _store.Register(failed);
         _store.MarkPending(failed, session);
-        Assert.True(_store.RecordFailedDeliveryBaseline(failed, 4096));
         _store.MarkFailed(failed, "audio_too_large");
         var reopened = _store.OpenPending(failed, session);
         Assert.True(reopened.Opened);
         Assert.Equal(DictationDeliveryState.Failed, reopened.Before.Record!.State);
-        Assert.Equal(4096, _store.ReadRecord(failed)!.RebaselineBufferBytes);
+        Assert.Equal(DictationDeliveryState.Pending, _store.ReadRecord(failed)!.State);
 
         // DELIVERED: NOT opened; the terminal record is handed back for the cached-outcome answer, and the
         // tombstone is exactly what it was.

@@ -141,7 +141,7 @@ public sealed class DurableDictationDedupeTests : IAsyncLifetime
 
         using var req = new HttpRequestMessage(HttpMethod.Post, "/dictation/upload")
         {
-            Content = JsonContent.Create(new { sessionId = Guid.NewGuid().ToString(), baselineBufferBytes = 0 }),
+            Content = JsonContent.Create(new { sessionId = Guid.NewGuid().ToString() }),
         };
         req.Headers.Add("Idempotency-Key", uploadId);
         var resp = await _http.SendAsync(req);
@@ -189,7 +189,7 @@ public sealed class DurableDictationDedupeTests : IAsyncLifetime
 
         using var req = new HttpRequestMessage(HttpMethod.Post, "/dictation/upload")
         {
-            Content = JsonContent.Create(new { sessionId = Guid.NewGuid().ToString(), baselineBufferBytes = 0 }),
+            Content = JsonContent.Create(new { sessionId = Guid.NewGuid().ToString() }),
         };
         req.Headers.Add("Idempotency-Key", uploadId);
         var resp = await _http.SendAsync(req);
@@ -213,7 +213,7 @@ public sealed class DurableDictationDedupeTests : IAsyncLifetime
     private static async Task<(HttpStatusCode status, JsonElement body)> CompleteAsync(HttpClient http, string uploadId)
     {
         var resp = await http.PostAsJsonAsync($"/dictation/{uploadId}/complete",
-            new { sessionId = Guid.NewGuid().ToString(), totalChunks = 1 });
+            new { sessionId = Guid.NewGuid().ToString(), totalChunks = 1, sentAtUtc = DateTime.UtcNow });
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
         return (resp.StatusCode, body);
     }

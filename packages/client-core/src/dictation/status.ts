@@ -22,6 +22,9 @@ import { useMemo, useSyncExternalStore } from "react";
 // held        - kept durably and will keep retrying in the background (waiting for a connection, or
 //               retrying, or throttled after the first hard hour). This is NOT a failure: the audio is
 //               safe and delivery continues automatically. retryable is true so the UI offers Upload now.
+//               With `delivering` set it is the "Still delivering" state (voice delivery, #3398): the
+//               Gateway could not yet say whether the words reached the session, so the UI shows it calm
+//               and in progress, and never offers "Send anyway" or a fresh-id "Retry" for it.
 // parked      - a genuinely permanent, non-retryable failure stopped the auto-loop (issue #1184): the clip
 //               is over the provider size cap or an unsupported format. The audio is KEPT and the clip is
 //               saved-and-retryable, but delivery does NOT auto-retry - retryable is true so the UI offers
@@ -30,13 +33,14 @@ import { useMemo, useSyncExternalStore } from "react";
 // done        - the server confirmed it owns the turn (delivered). Brief, then auto-clears.
 // failed      - a genuine, non-recoverable failure (durable storage unavailable, so the clip could not
 //               be saved at all). Distinct from held: nothing is retrying.
-// dropped     - the server deliberately DROPPED this clip as stale: the session moved on while it was in
-//               flight, so the words were never delivered (issue #1590). Nothing is retrying and re-driving
-//               the same upload id is useless by design (its moved-on tombstone is permanent, issue #1183) -
-//               so this is a STICKY state that must never clear itself. It carries `transcript` when the
-//               server heard something, and the UI offers "Send anyway" (a fresh turn) plus Dismiss. On the
-//               rare drop before transcription the transcript is empty, retryable is true, and the audio is
-//               kept for an explicit Retry under a FRESH upload id.
+// dropped     - the Gateway did NOT send this clip and handed the words back (issue #1590; voice delivery,
+//               #3398): it was more than 5 minutes old, the session had ended, or nobody could confirm it
+//               arrived. The copy is kept on the device. Nothing is retrying and re-driving the same upload
+//               id is useless by design (the Gateway's answer for it is permanent, issue #1183) - so this is
+//               a STICKY state that must never clear itself. It carries the words when the server heard
+//               something. When the Gateway offers it (`offerSendAnyway`), the UI offers "Send anyway" (a
+//               fresh turn) plus Dismiss, or - with no words - an explicit Retry under a FRESH upload id
+//               (retryable true); when it does not ("could not confirm"), Dismiss only.
 // unheard     - the clip was delivered to the server, which heard NOTHING in it (silence, no typed text), so
 //               there was no turn to submit (issue #1590). Nothing was lost and there is nothing to retry;
 //               this is a visible, dismissible notice so a Send never ends in silence.
@@ -79,6 +83,15 @@ export interface DictationStatus {
    *  nothing else - a strip that quotes one thing and sends another is its own small lie. Empty/absent on the
    *  rare drop before transcription with no typed text, where the audio is kept for a fresh-id Retry instead. */
   recoverableText?: string;
+  /** True on a `held` status whose last attempt the Gateway answered 202 "still delivering" (voice
+   *  delivery, #3398): the words may already be in the session, so the UI shows "Still delivering" - calm,
+   *  not an error - and offers nothing that could send a second copy. Absent on every other status. */
+  delivering?: boolean;
+  /** On a `dropped` status: whether the UI offers "Send anyway" (words to hand back) or "Retry" (only the
+   *  recording). The Gateway's decision, passed through verbatim (phase 2, change 1): false for a recording the
+   *  Gateway "could not confirm arrived", which is shown back with Dismiss only, because a second copy might
+   *  double the words. The UI offers either button only when this is exactly true. */
+  offerSendAnyway?: boolean;
   /** A non-blocking caution shown alongside a DELIVERED send (the `done` phase): the words were sent, but
    *  the capture-health check found a material audio-loss deficit, so the transcript may be missing words
    *  and the user should check it (issue #863, "never fail silently on mobile"). Unlike a plain `done`, a

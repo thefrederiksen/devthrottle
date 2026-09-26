@@ -144,7 +144,7 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
         var before = File.ReadAllBytes(path);
 
         var resp = await _http.PostAsJsonAsync($"/dictation/{uploadId}/complete",
-            new { sessionId = Guid.NewGuid().ToString(), totalChunks = 1 });
+            new { sessionId = Guid.NewGuid().ToString(), totalChunks = 1, sentAtUtc = DateTime.UtcNow });
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
 
         Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
@@ -209,7 +209,7 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, "/dictation/upload")
         {
-            Content = JsonContent.Create(new { sessionId = Guid.NewGuid().ToString(), baselineBufferBytes = 0 }),
+            Content = JsonContent.Create(new { sessionId = Guid.NewGuid().ToString() }),
         };
         req.Headers.Add("Idempotency-Key", uploadId);
         var resp = await _http.SendAsync(req);

@@ -307,7 +307,10 @@ internal static class GatewayEndpoints
         // recording a client names ("Send anyway") is an upload of the caller's own tenant for that session before it
         // becomes the prompt's delivery id. Null (tests, older callers) means no claim can be honoured - every one is
         // dropped and logged, and the text is sent as an ordinary prompt.
-        DictationTenantGate? dictationUploads = null)
+        DictationTenantGate? dictationUploads = null,
+        // Voice Delivery phase 2, change 1: the clock a "Send anyway" is judged by for "could not confirm it arrived" -
+        // the real one in production; a test injects its own so the five-minute boundary needs no five-minute wait.
+        TimeProvider? deliveryClock = null)
     {
         if ((raisedSessions is null) != (raisedRecord is null))
             throw new ArgumentException(
@@ -3229,10 +3232,13 @@ internal static class GatewayEndpoints
         }
 
         // The Director's answer to a "Send anyway" that carried a delivery id, written to that recording's decision log
-        // (review finding 2): accepted and typed, refused as delivered or delivering with nothing typed, or failed. This
-        // is the line that answers "why did my words go in once when I pressed Send twice?" without the container log.
-        static void RecordClaimAnswer(Voice.VoiceUploadStore store, string deliveryId, string sid, PromptResponse? body, string? error)
+        // (review finding 2): accepted and typed, refused as delivered or delivering with nothing typed, failed, or - phase
+        // 2 - unanswered, which the next lines of the log follow with the question. This is the line that answers "why did
+        // my words go in once when I pressed Send twice?" without the container log.
+        static void RecordClaimAnswer(Voice.VoiceUploadStore store, string deliveryId, string sid,
+            SessionVerbClient.PromptSendOutcome sent, PromptAnswerReading reading)
         {
+            var body = sent.Body;
             var refused = body is { Accepted: false, DeliveryState: DeliveryState.Delivered or DeliveryState.Delivering };
             store.RecordDecision(deliveryId, Voice.DeliveryDecisions.ClaimDirectorAnswer, new Voice.DeliveryDecisionFacts
             {
@@ -3240,12 +3246,132 @@ internal static class GatewayEndpoints
                 Ok = body?.Accepted ?? false,
                 State = body?.DeliveryState is { } state ? DeliveryStates.Format(state) : null,
                 RefusedDuplicate = refused,
-                Error = body is null ? error : body.Accepted ? null : body.DeliveryStateReason ?? body.Error,
+                Error = body is null ? reading.Error : body.Accepted ? null : body.DeliveryStateReason ?? body.Error,
+                Reason = reading.Unanswered ? Voice.DeliveryDecisions.AskReasonPromptUnanswered : null,
             });
         }
 
-        async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null,
-            Action<PromptResponse?, string?>? answered = null)
+        var claimClock = deliveryClock ?? TimeProvider.System;
+
+        // A "SEND ANYWAY" WITH A VERIFIED CLAIM (Voice Delivery mission, phase 2, contract section 4). It carries the
+        // recording's delivery id and can run out of time exactly as a dictation can, so it goes through the SAME send-and-
+        // ask piece the dictation path uses - one mechanism - and answers: 200 with the prompt answer when the words are in;
+        // 202 "still delivering" when the Director says delivering or the question gets no answer; 502 when the question
+        // says the words are not in (never seen, or not delivered). It never asks FIRST: the owner pressed "Send anyway",
+        // and the Director refuses a repeat of an id it holds as delivered or delivering.
+        //
+        // A RE-PRESS ASKS FIRST (change 1). When an earlier "Send anyway" of the same recording may have reached the
+        // Director, this one asks before it sends: a Director too old to keep a delivery record refuses nothing, so a
+        // plain second send to it would be a SECOND COPY - the double the Delivery Lead's ruling forbids. Delivered is
+        // 200 (nothing typed again); delivering is 202; not-delivered or unknown sends (so once the Director's watch has
+        // ended the re-press is typed, as ruled before); no answer of any kind is 202 "no-answer" - or, once more than the
+        // age limit has passed since the FIRST verified claim, the verdict "could not confirm it arrived": 200
+        // { unconfirmed, offerSendAnyway: false }, so a "Send anyway" is never re-pressed forever.
+        async Task<IResult> DeliverClaimedPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req,
+            Voice.VoiceUploadStore store, string deliveryId, Action<bool> outcome)
+        {
+            var route = new SessionVerbClient(director, sendCommand);
+            var history = store.ReadClaimSends(deliveryId);
+            if (history.MayHaveReachedDirector)
+            {
+                var earlier = await DeliverySendAndAsk.AskAsync(store, deliveryId, sid, deliveryId, route,
+                    Voice.DeliveryDecisions.AskReasonSendAnywayAsksFirst);
+                if (earlier.Kind != SessionVerbClient.DeliveryStateAskKind.Answered)
+                    return HoldOrUnconfirmedClaim(store, sid, deliveryId, history, DeliverySendAndAsk.NoAnswerName(earlier.Kind)!, outcome);
+                switch (earlier.Answer!.State)
+                {
+                    case DeliveryState.Delivered:
+                        // The words are already in: answered as the Director's own refusal of a copy would be, and
+                        // nothing is sent.
+                        outcome(false);
+                        FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId} already delivered; nothing sent again");
+                        return await AnswerAcceptedPromptAsync(director, sid, req, new PromptResponse
+                        {
+                            Accepted = false,
+                            DeliveryState = DeliveryState.Delivered,
+                            DeliveryStateReason = AlreadyDeliveredBySendAnyway,
+                            Error = AlreadyDeliveredBySendAnyway,
+                            ActivityState = session.ActivityState,
+                        });
+                    case DeliveryState.Delivering:
+                        return HeldClaim(store, sid, deliveryId, DeliveryStates.Delivering, outcome);
+                    case DeliveryState.NotDelivered:
+                    case DeliveryState.Unknown:
+                        // Known not to be in: send, exactly as a first press does.
+                        break;
+                    default:
+                        throw new InvalidOperationException($"the Director answered delivery state {earlier.Answer.State}, which this Gateway does not know");
+                }
+            }
+
+            var sent = await DeliverySendAndAsk.SendAsync(route, store, deliveryId, sid, deliveryId, req,
+                (answer, reading) => RecordClaimAnswer(store, deliveryId, sid, answer, reading));
+            switch (sent.Kind)
+            {
+                case DeliverySendKind.Delivered:
+                    // The Director's own answer when it gave one; when the question settled it, the words are in.
+                    var body = sent.Body ?? new PromptResponse
+                    {
+                        Accepted = true,
+                        DeliveryState = DeliveryState.Delivered,
+                        ActivityState = session.ActivityState,
+                    };
+                    outcome(body.Accepted);
+                    return await AnswerAcceptedPromptAsync(director, sid, req, body);
+                case DeliverySendKind.StillDelivering:
+                    return HeldClaim(store, sid, deliveryId, DeliveryStates.Delivering, outcome);
+                case DeliverySendKind.NoAnswer:
+                    return HoldOrUnconfirmedClaim(store, sid, deliveryId, history, sent.NoAnswerKind!, outcome);
+                case DeliverySendKind.NeverSeen:
+                case DeliverySendKind.NotDelivered:
+                    outcome(false);
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId} NOT delivered: {sent.Error}");
+                    return Results.Json(new PromptResponse
+                    {
+                        Accepted = false,
+                        Error = sent.Error,
+                        ActivityState = session.ActivityState,
+                    }, statusCode: StatusCodes.Status502BadGateway);
+                default:
+                    throw new InvalidOperationException($"unknown delivery send outcome {sent.Kind}");
+            }
+        }
+
+        // A claimed "Send anyway" that may already be in: held, 202 "still delivering", with the Director's state as the
+        // client is told it.
+        static IResult HeldClaim(Voice.VoiceUploadStore store, string sid, string deliveryId, string directorState, Action<bool> outcome)
+        {
+            outcome(false);
+            DeliverySendAndAsk.RecordHeld(store, deliveryId, sid, directorState);
+            FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId} HELD as still delivering ({directorState})");
+            return Results.Json(new { delivering = true, directorState }, statusCode: StatusCodes.Status202Accepted);
+        }
+
+        // A claimed "Send anyway" whose question got no answer of any kind: held within the limit from the FIRST verified
+        // claim, and past it the verdict "could not confirm it arrived" - written to the recording's log with the age and
+        // which kind of no answer, and answered 200 { unconfirmed, offerSendAnyway: false } so the client stops
+        // re-pressing. The first claim's time is the Gateway's own record; the client sends nothing new for it.
+        IResult HoldOrUnconfirmedClaim(Voice.VoiceUploadStore store, string sid, string deliveryId, Voice.ClaimSendHistory history,
+            string noAnswerKind, Action<bool> outcome)
+        {
+            // This press's own claim was verified and written before it got here, so there is always a first one.
+            var firstClaim = history.FirstClaimVerifiedAtUtc
+                ?? throw new InvalidOperationException($"claimed delivery {deliveryId} has no verified claim in its decision log");
+            if (!DeliverySendAndAsk.IsPastConfirmLimit(claimClock.GetUtcNow().UtcDateTime, firstClaim, out var age))
+                return HeldClaim(store, sid, deliveryId, DeliverySendAndAsk.NoAnswerState, outcome);
+            outcome(false);
+            store.RecordDecision(deliveryId, Voice.DeliveryDecisions.Unconfirmed, new Voice.DeliveryDecisionFacts
+            {
+                SessionId = sid,
+                AgeSeconds = (long)Math.Floor(age.TotalSeconds),
+                DirectorNoAnswer = noAnswerKind,
+            });
+            FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} claimed delivery {deliveryId}: {age.TotalSeconds:0}s since the " +
+                $"first Send anyway and the Director gave no answer ({noAnswerKind}); ruled unconfirmed, nothing more is sent");
+            return Results.Json(new { unconfirmed = true, offerSendAnyway = false });
+        }
+
+        async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null)
         {
             // Post-cut: tunnel-only. A null result means the Director is not connected -> 502. The WaitForIdle
             // poll below is unchanged - it observes the session regardless of how the prompt was delivered.
@@ -3263,7 +3389,6 @@ internal static class GatewayEndpoints
                 body = streamResult.Ok ? DirectorCommandRouter.ReadBody<PromptResponse>(streamResult) : null;
                 err = streamResult.Ok ? null : DirectorCommandRouter.DescribeFailure(streamResult);
             }
-            answered?.Invoke(ok ? body : null, ok && body is null ? "the Director answered with no response body" : err);
             if (!ok || body is null)
             {
                 outcome?.Invoke(false);
@@ -3275,7 +3400,13 @@ internal static class GatewayEndpoints
                 }, statusCode: StatusCodes.Status502BadGateway);
             }
             outcome?.Invoke(body.Accepted);
+            return await AnswerAcceptedPromptAsync(director, sid, req, body);
+        }
 
+        // The answer to a prompt the Director answered: the body as it came, or - when the caller asked to wait for the
+        // session to go idle - the body with the wait's outcome and the output since the prompt.
+        async Task<IResult> AnswerAcceptedPromptAsync(DirectorDto director, string sid, PromptRequest req, PromptResponse body)
+        {
             if (!req.WaitForIdle)
                 return Results.Json(body);
 
@@ -3722,11 +3853,24 @@ internal static class GatewayEndpoints
                 }
             }
 
+            // A verified "Send anyway" claim whose prompt stops here, before the Director, would otherwise leave its
+            // decision log ending at the claim with no answer - the one outcome the record could not name (phase 1 review,
+            // round 2, first note). Nothing was typed and the Director never answered, so the line says where it stopped.
+            void RecordClaimStoppedBeforeDirector(string where)
+            {
+                if (claimStore is null || claimedDeliveryId is null) return;
+                claimStore.RecordDecision(claimedDeliveryId, Voice.DeliveryDecisions.ClaimStoppedBeforeDirector,
+                    new Voice.DeliveryDecisionFacts { SessionId = sid, Reason = where });
+            }
+
             async Task<IResult> PromptAfterAttributionAsync()
             {
             var (director, session) = await LocateSessionForRequestAsync(httpCtx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
+            {
+                RecordClaimStoppedBeforeDirector(ClaimStopSessionNotFound);
                 return SessionUnavailable(httpCtx, tenantBoundary, pushedSessions, sid);
+            }
 
             FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid}, director={director.DirectorId}, waitForIdle={req.WaitForIdle}");
 
@@ -3749,8 +3893,11 @@ internal static class GatewayEndpoints
                 // both need it, and a menu-guard request that cannot resolve one has no honest answer.
                 var guardTenant = ResolveReadTenant(httpCtx, tenantBoundary);
                 if (guardTenant is null)
+                {
+                    RecordClaimStoppedBeforeDirector(ClaimStopNoTenant);
                     return Results.Json(new { error = "a tenant could not be resolved for this request" },
                         statusCode: StatusCodes.Status403Forbidden);
+                }
                 var guardRoute = new SessionVerbClient(director, sendCommand);
                 if (await Wingman.WaitingScreenReader.ConfirmedMenuAsync(guardRoute, sid, guardTenant.Value, wingmanTranslator, CancellationToken.None))
                 {
@@ -3763,6 +3910,7 @@ internal static class GatewayEndpoints
                             "The menu guard speaks a refusal, so GatewayEndpoints.Map must be given a "
                             + "TenantSettingsResolver to read the account's spoken language from.");
                     FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} REFUSED - a menu owns the live screen (menu guard); nothing typed, no Enter pressed");
+                    RecordClaimStoppedBeforeDirector(ClaimStopMenu);
                     return Results.Json(new PromptResponse
                     {
                         Accepted = false,
@@ -3778,9 +3926,9 @@ internal static class GatewayEndpoints
                 }
             }
 
-            return await DeliverPromptAsync(director, session, sid, req, wasAccepted => accepted = wasAccepted,
-                claimStore is null || claimedDeliveryId is null ? null
-                    : (body, error) => RecordClaimAnswer(claimStore, claimedDeliveryId, sid, body, error));
+            return claimStore is not null && claimedDeliveryId is not null
+                ? await DeliverClaimedPromptAsync(director, session, sid, req, claimStore, claimedDeliveryId, wasAccepted => accepted = wasAccepted)
+                : await DeliverPromptAsync(director, session, sid, req, wasAccepted => accepted = wasAccepted);
             }
         });
 
@@ -6649,6 +6797,17 @@ internal static class GatewayEndpoints
         if (!reported.Accepted) Refused(reported.Code, reported.VerdictId);
         return Answer(reported);
     }
+
+    /// <summary>The answer's reason when a "Send anyway" re-press asked first and heard the words were already delivered
+    /// (Voice Delivery phase 2, change 1): nothing was sent again.</summary>
+    internal const string AlreadyDeliveredBySendAnyway = "an earlier Send anyway of this recording was delivered; nothing was sent again";
+
+    /// <summary>Where a verified "Send anyway" prompt stopped before the Director: no live session was found for it.</summary>
+    internal const string ClaimStopSessionNotFound = "session-not-found";
+    /// <summary>Where a verified "Send anyway" prompt stopped before the Director: a menu owned the live screen.</summary>
+    internal const string ClaimStopMenu = "menu";
+    /// <summary>Where a verified "Send anyway" prompt stopped before the Director: the menu guard could resolve no tenant.</summary>
+    internal const string ClaimStopNoTenant = "no-tenant";
 
     private static IResult SessionUnavailable(
         HttpContext ctx,

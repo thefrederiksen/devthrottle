@@ -7,6 +7,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Voice;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -44,6 +45,15 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     private VoiceUploadStore _uploads = null!;
     private readonly List<PromptRequest> _arrived = new();
     private readonly ExecuteActionTestBackend _backend = new();
+    private readonly AheadClock _clock = new();
+
+    /// <summary>When set, the Director answers the prompt verb with this instead of running the real prompt core - how
+    /// a send that runs out of time is played (phase 2). Null: the real core.</summary>
+    private Func<DirectorCommand, DirectorCommandResult>? _promptAnswer;
+
+    /// <summary>When set, the Director answers "what became of delivery id X?" with this. Null: the real verb over this
+    /// test's own delivery record.</summary>
+    private Func<DirectorCommand, DirectorCommandResult>? _deliveryStateAnswer;
 
     public DeliveryIdIsGatewayAuthoritativeTests()
     {
@@ -60,6 +70,7 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
             keyVaultPath: Path.Combine(_root, "keyvault.json"),
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             streamMode: true);
+        _gateway.DeliveryClock = _clock;
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -88,6 +99,18 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         // THE DIRECTOR SIDE IS THE REAL PROMPT CORE, over this test's own delivery record.
         _conn.On<DirectorCommand, DirectorCommandResult>("Command", async cmd =>
         {
+            if (cmd.Verb == DeliveryStateRequest.Verb)
+            {
+                var stateAnswer = _deliveryStateAnswer?.Invoke(cmd) ?? SessionReadExecutor.DeliveryStateOf(cmd, _directorRecord);
+                stateAnswer.CommandId = cmd.CommandId;
+                return stateAnswer;
+            }
+            if (cmd.Verb == "prompt" && _promptAnswer is { } played)
+            {
+                var playedAnswer = played(cmd);
+                playedAnswer.CommandId = cmd.CommandId;
+                return playedAnswer;
+            }
             if (cmd.Verb != "prompt") return await SessionCommandExecutor.DispatchAsync(_sm, DirectorId, cmd);
             var body = JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             lock (_arrived) _arrived.Add(body);
@@ -207,7 +230,7 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     private async Task<string> MovedOnAndAcknowledged()
     {
         var uploadId = Upload(_uploads, _sid);
-        _uploads.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript: "send me once");
+        _uploads.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript: "send me once", reason: DeliveryDecisions.TooOld);
         var ack = await _http.PostAsync($"dictation/{uploadId}/ack", content: null);
         var ackText = await ack.Content.ReadAsStringAsync();
         Assert.True(ack.StatusCode == HttpStatusCode.OK, $"the acknowledgement answered {(int)ack.StatusCode}: {ackText}");
@@ -278,5 +301,262 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         Assert.Equal("delivered", answer.GetProperty("deliveryState").GetString());
         Assert.True(_backend.TextsSent > typedBefore, "nothing was typed for a recording the Director never received");
         Assert.Equal(DeliveryState.Delivered, _directorRecord.Read(_session.Id, canonical).State);
+    }
+
+    [Fact]
+    public async Task A_verified_claim_whose_session_cannot_be_found_writes_where_it_stopped()
+    {
+        // Proves the phase 1 review's first note is closed: a verified "Send anyway" whose prompt stops at the session
+        // lookup, before the Director, no longer leaves the recording's decision record ending at the claim. The line
+        // after the verified claim says it stopped before the Director and why, and nothing reached the Director.
+        var elsewhere = Guid.NewGuid().ToString();
+        var uploadId = Upload(_uploads, elsewhere);
+        int arrivedBefore;
+        lock (_arrived) arrivedBefore = _arrived.Count;
+
+        var resp = await _http.PostAsJsonAsync($"sessions/{elsewhere}/prompt",
+            new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.NotEqual(HttpStatusCode.OK, resp.StatusCode);
+        lock (_arrived) Assert.Equal(arrivedBefore, _arrived.Count);
+        var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
+        var lines = read.GetProperty("decisions").EnumerateArray().ToList();
+        var names = lines.Select(l => l.GetProperty("decision").GetString()).ToList();
+        Assert.Equal(new[] { DeliveryDecisions.ClaimVerified, DeliveryDecisions.ClaimStoppedBeforeDirector }, names.TakeLast(2));
+        var stopped = lines[^1].GetProperty("facts");
+        Assert.Equal(GatewayEndpoints.ClaimStopSessionNotFound, stopped.GetProperty("reason").GetString());
+        Assert.Equal(elsewhere, stopped.GetProperty("sessionId").GetString());
+    }
+
+    // ===== phase 2: a "Send anyway" that runs out of time asks, through the same piece as dictation =============
+
+    private static DirectorCommandResult RanOutOfTime(DirectorCommand _)
+        => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
+
+    private async Task<(HttpStatusCode Status, JsonElement Body)> PostPromptRaw(object body)
+    {
+        var resp = await _http.PostAsJsonAsync($"sessions/{_sid}/prompt", body);
+        var text = await resp.Content.ReadAsStringAsync();
+        return (resp.StatusCode, JsonDocument.Parse(text).RootElement.Clone());
+    }
+
+    private async Task<List<string?>> DecisionsAfterTheClaim(string uploadId)
+    {
+        var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
+        var names = read.GetProperty("decisions").EnumerateArray().Select(l => l.GetProperty("decision").GetString()).ToList();
+        return names.Skip(names.LastIndexOf(DeliveryDecisions.ClaimVerified)).ToList();
+    }
+
+    [Fact]
+    public async Task Send_anyway_that_runs_out_of_time_asks_and_answers_200_when_the_Director_says_delivered()
+    {
+        // Proves the "Send anyway" prompt route no longer calls a slow send a failure: the prompt verb runs out of time,
+        // the Gateway asks the Director through the same piece dictation uses, and the answer "delivered" is today's
+        // 200 prompt answer. The log reads claim, answer (unanswered), question, answer.
+        var uploadId = Upload(_uploads, _sid);
+        var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
+        Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
+        _directorRecord.MarkDelivered(_session.Id, canonical);
+        _promptAnswer = RanOutOfTime;
+
+        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(body.GetProperty("accepted").GetBoolean());
+        Assert.Equal("delivered", body.GetProperty("deliveryState").GetString());
+        Assert.Equal(new[]
+        {
+            DeliveryDecisions.ClaimVerified, DeliveryDecisions.ClaimDirectorAnswer, DeliveryDecisions.AskedDirector,
+            DeliveryDecisions.DeliveryStateAnswer,
+        }, await DecisionsAfterTheClaim(uploadId));
+    }
+
+    [Fact]
+    public async Task Send_anyway_that_runs_out_of_time_answers_202_while_the_Director_is_still_delivering()
+    {
+        // Proves the held answer on the prompt route: the Director says it is still typing this delivery id, so the
+        // caller is told 202 "still delivering" - not a failure, and not an offer to send it yet again.
+        var uploadId = Upload(_uploads, _sid);
+        Assert.True(_directorRecord.TryBeginDelivery(_session.Id, VoiceUploadStore.NormalizeUploadId(uploadId)!).Began);
+        _promptAnswer = RanOutOfTime;
+
+        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        Assert.True(body.GetProperty("delivering").GetBoolean());
+        Assert.Equal("delivering", body.GetProperty("directorState").GetString());
+        Assert.Equal(DeliveryDecisions.StillDelivering, (await DecisionsAfterTheClaim(uploadId)).Last());
+    }
+
+    [Fact]
+    public async Task Send_anyway_that_runs_out_of_time_answers_202_no_answer_when_the_question_gets_none()
+    {
+        // Proves a question that gets no answer holds the words too: 202 with directorState "no-answer".
+        var uploadId = Upload(_uploads, _sid);
+        _promptAnswer = RanOutOfTime;
+        _deliveryStateAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer to the question");
+
+        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        Assert.Equal("no-answer", body.GetProperty("directorState").GetString());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Send_anyway_that_runs_out_of_time_answers_502_when_the_words_are_not_in(bool markedNotDelivered)
+    {
+        // Proves the 502 on the prompt route: the question says the words are not in - the Director marked the id not
+        // delivered (the end of its fifteen-minute watch, contract section 5), or never saw it - so the caller is told
+        // it failed and can show the words back again.
+        var uploadId = Upload(_uploads, _sid);
+        var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
+        if (markedNotDelivered)
+        {
+            Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
+            _directorRecord.MarkNotDelivered(_session.Id, canonical, "never appeared in the agent's records within 15 minutes");
+        }
+        _promptAnswer = RanOutOfTime;
+
+        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(HttpStatusCode.BadGateway, status);
+        Assert.False(body.GetProperty("accepted").GetBoolean());
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
+        var answer = (await DecisionsAfterTheClaim(uploadId)).Last();
+        Assert.Equal(DeliveryDecisions.DeliveryStateAnswer, answer);
+    }
+
+    [Fact]
+    public async Task Send_anyway_of_a_recording_the_Director_marked_not_delivered_is_typed_without_asking_first()
+    {
+        // Proves the Tech Lead's correction to contract section 5: a "Send anyway" re-press does not ask first. It is a
+        // plain send with the claim, the Director accepts a not-delivered id again, and the words are typed once - 200.
+        var uploadId = Upload(_uploads, _sid);
+        var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
+        Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
+        _directorRecord.MarkNotDelivered(_session.Id, canonical, "never appeared in the agent's records within 15 minutes");
+        var typedBefore = _backend.TextsSent;
+
+        var answer = await PostPrompt(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.True(answer.GetProperty("accepted").GetBoolean());
+        Assert.True(_backend.TextsSent > typedBefore, "nothing was typed for a recording the Director marked not delivered");
+        Assert.DoesNotContain(DeliveryDecisions.AskedDirector, await DecisionsAfterTheClaim(uploadId));
+    }
+
+    // ===== change 1: a re-press asks first, and is never held forever =====================================
+
+    /// <summary>A Director too old for the question: it refuses the delivery-state verb as unknown, keeps no delivery
+    /// record, and so refuses no second copy.</summary>
+    private static DirectorCommandResult TooOldForTheQuestion(DirectorCommand _)
+        => DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unknown verb '{DeliveryStateRequest.Verb}'");
+
+    [Fact]
+    public async Task A_send_anyway_re_press_to_a_Director_too_old_for_the_question_sends_no_second_copy()
+    {
+        // Proves the double this change closes. The first "Send anyway" reaches an old Director and runs out of time (the
+        // words may well be in); its question is refused as unknown, so the answer is 202 "no-answer". The client
+        // re-presses on its cadence. An old Director keeps no delivery record and refuses nothing, so a plain second send
+        // IS a second copy - which is what the re-press did before this change. Now it asks first, hears nothing, and
+        // holds: exactly one prompt reaches the Director.
+        var uploadId = Upload(_uploads, _sid);
+        var prompts = 0;
+        _promptAnswer = cmd =>
+        {
+            Interlocked.Increment(ref prompts);
+            return RanOutOfTime(cmd);
+        };
+        _deliveryStateAnswer = TooOldForTheQuestion;
+
+        var first = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+        var rePress = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(HttpStatusCode.Accepted, first.Status);
+        Assert.Equal(HttpStatusCode.Accepted, rePress.Status);
+        Assert.Equal("no-answer", rePress.Body.GetProperty("directorState").GetString());
+        Assert.Equal(1, prompts);
+        var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
+        var asked = read.GetProperty("decisions").EnumerateArray()
+            .Where(l => l.GetProperty("decision").GetString() == DeliveryDecisions.AskedDirector)
+            .Select(l => l.GetProperty("facts").GetProperty("reason").GetString()).ToList();
+        Assert.Equal(new[] { DeliveryDecisions.AskReasonPromptUnanswered, DeliveryDecisions.AskReasonSendAnywayAsksFirst }, asked);
+    }
+
+    [Theory]
+    [InlineData(299, false)]
+    [InlineData(301, true)]
+    public async Task A_send_anyway_never_answered_for_is_unconfirmed_only_past_five_minutes_from_the_first_claim(int secondsSinceFirstClaim, bool unconfirmed)
+    {
+        // Proves the claimed route is never re-pressed forever: with no answer of any kind, a re-press 4:59 after the
+        // FIRST verified claim is still the 202 "no-answer"; at 5:01 it is ruled "could not confirm it arrived" - 200
+        // { unconfirmed, offerSendAnyway: false } - with the age and the kind of no answer on the recording's decision
+        // line, and nothing more is sent.
+        var uploadId = Upload(_uploads, _sid);
+        var prompts = 0;
+        _promptAnswer = cmd =>
+        {
+            Interlocked.Increment(ref prompts);
+            return RanOutOfTime(cmd);
+        };
+        _deliveryStateAnswer = TooOldForTheQuestion;
+        Assert.Equal(HttpStatusCode.Accepted, (await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId })).Status);
+
+        _clock.Ahead = TimeSpan.FromSeconds(secondsSinceFirstClaim);
+        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(1, prompts);
+        var decisions = await DecisionsAfterTheClaim(uploadId);
+        if (!unconfirmed)
+        {
+            Assert.Equal(HttpStatusCode.Accepted, status);
+            Assert.Equal("no-answer", body.GetProperty("directorState").GetString());
+            Assert.DoesNotContain(DeliveryDecisions.Unconfirmed, decisions);
+            return;
+        }
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(body.GetProperty("unconfirmed").GetBoolean());
+        Assert.False(body.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal(DeliveryDecisions.Unconfirmed, decisions.Last());
+        var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
+        var line = read.GetProperty("decisions").EnumerateArray().Last().GetProperty("facts");
+        Assert.True(line.GetProperty("ageSeconds").GetInt64() >= 301);
+        Assert.Equal("director-too-old", line.GetProperty("directorNoAnswer").GetString());
+    }
+
+    [Fact]
+    public async Task A_send_anyway_re_press_that_hears_delivered_sends_nothing_and_answers_200()
+    {
+        // Proves the delivered arm of the re-press's question: the first press ran out of time, the words did land (the
+        // Director's record says delivered), and the re-press asks first, hears delivered, sends nothing and is answered
+        // 200 in the shape of the Director's own refusal of a copy.
+        var uploadId = Upload(_uploads, _sid);
+        var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
+        var prompts = 0;
+        _promptAnswer = cmd =>
+        {
+            Interlocked.Increment(ref prompts);
+            return RanOutOfTime(cmd);
+        };
+        _deliveryStateAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer to the question");
+        Assert.Equal(HttpStatusCode.Accepted, (await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId })).Status);
+
+        Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
+        _directorRecord.MarkDelivered(_session.Id, canonical);
+        _deliveryStateAnswer = null;
+        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.False(body.GetProperty("accepted").GetBoolean());
+        Assert.Equal("delivered", body.GetProperty("deliveryState").GetString());
+        Assert.Equal(1, prompts);
+    }
+
+    /// <summary>The real clock moved ahead by <see cref="Ahead"/>: the routes judge the five-minute limits by it.</summary>
+    private sealed class AheadClock : TimeProvider
+    {
+        public TimeSpan Ahead;
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow + Ahead;
     }
 }

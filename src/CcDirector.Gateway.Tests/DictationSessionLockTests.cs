@@ -58,7 +58,7 @@ public sealed class DictationSessionLockTests : IAsyncLifetime
         // Register a dictation for the session through the real front door: this writes the PENDING marker.
         using var reg = new HttpRequestMessage(HttpMethod.Post, "/dictation/upload")
         {
-            Content = JsonContent.Create(new { sessionId, baselineBufferBytes = 0 }),
+            Content = JsonContent.Create(new { sessionId }),
         };
         reg.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
         var regResp = await _http.SendAsync(reg);

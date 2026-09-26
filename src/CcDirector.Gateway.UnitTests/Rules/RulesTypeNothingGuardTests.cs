@@ -375,7 +375,7 @@ public sealed class RulesTypeNothingGuardTests
             ". They are the same, so the traversal is not traversing.");
     }
 
-    /// <summary>The types allowed to CALL the send seam directly. Five, named, and no more: the verb client
+    /// <summary>The types allowed to CALL the send seam directly. Six, named, and no more: the verb client
     /// itself - whose older tuple-returning method is now a wrapper over the seam - and four callers that
     /// need the three outcomes the wrapper's boolean cannot carry: this feature's production wiring, and the
     /// answer route's tunnel channel (the Wingman-on-every-turn mission, slice E), whose ledger says "refused"
@@ -385,9 +385,13 @@ public sealed class RulesTypeNothingGuardTests
     /// second time. The fifth is the Fleet Manager's event delivery (the Fleet Manager mission, step 4), which
     /// types ONE prompt into an idle Fleet Manager session at its turn-end boundary and records the events as
     /// delivered only on an accepted send - a send nothing confirmed must leave them owed, and a send that never
-    /// left must say so in the log. Every other caller in the Gateway goes through the wrapper.</summary>
+    /// left must say so in the log. The sixth is the voice delivery's send-and-ask piece (the Voice Delivery mission,
+    /// phase 2), shared by the dictation complete and a claimed "Send anyway": a send that went out unanswered is
+    /// followed by a question to the Director, never read as a failure that types the words again - so it must see
+    /// "unanswered" apart from "never left" and "refused". Every other caller in the Gateway goes through the wrapper.</summary>
     private static readonly string[] AllowedDirectCallersOfTheSeam =
     {
+        "CcDirector.Gateway.Api.DeliverySendAndAsk",
         "CcDirector.Gateway.Api.SessionVerbClient",
         "CcDirector.Gateway.Api.TunnelTurnVerdictAnswerChannel",
         "CcDirector.Gateway.DevReports.DevReportDelivery",

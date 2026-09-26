@@ -754,13 +754,10 @@ export function useVoiceMode(
         setMenuBlocked(null);
         void backgroundTranscribeAndSend(sid, captured, {
           onError: (message) => setError(message),
-          // Record the session's terminal-byte position now, so a clip resumed later is not injected
-          // into a session that has moved on (issue #1006 guard).
-          baselineBufferBytes: Number(session?.totalBufferBytes ?? 0),
         });
       })();
     },
-    [sid, session, speakBlocked],
+    [sid, speakBlocked],
   );
 
   // The speaking state (and its play-triangle) is suppressed while the agent is working again: the

@@ -29,22 +29,19 @@ import { useState } from "react";
 
 // vi.mock is hoisted above module scope, so the spies it references must be created in the same
 // hoisted phase (vi.hoisted) rather than as ordinary consts.
-const { sendPrompt, transcribeUtterance, backgroundTranscribeAndSend, listSessions } = vi.hoisted(() => ({
+const { sendPrompt, transcribeUtterance, backgroundTranscribeAndSend } = vi.hoisted(() => ({
   // The synchronous POST /prompt path: PAUSED-stage Send (text already in hand) and Insert use it.
   sendPrompt: vi.fn(async () => {}),
   // The synchronous /wingman/utterance/* transcription: the Pause checkpoint and Insert use it.
   transcribeUtterance: vi.fn(async () => ({ text: "the dictated words", deliveryId: "utt-77" })),
   // The durable background pipeline (POST /dictation/*) the recording-stage Send now rides.
   backgroundTranscribeAndSend: vi.fn(async () => {}),
-  // The roster read the Speak press snapshots its moved-on baseline from (issue #2478).
-  listSessions: vi.fn(async () => [{ sessionId: "sess-42", totalBufferBytes: 4321 }]),
 }));
 
 // The Gateway client boundary.
 vi.mock("@devthrottle/client-core/api/client", () => ({
   sendPrompt,
   transcribeUtterance,
-  listSessions,
   enqueuePrompt: vi.fn(async () => []),
   uploadImage: vi.fn(async () => ""),
   gatewayErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
@@ -114,6 +111,12 @@ vi.mock("@devthrottle/client-core/dictation/readyCue", () => ({
 }));
 
 import { SessionComposer } from "./SessionComposer";
+import { dismissDictationStatus } from "@devthrottle/client-core/dictation/backgroundSend";
+import {
+  allDictationStatuses,
+  clearDictationStatus,
+  publishDictationStatus,
+} from "@devthrottle/client-core/dictation/status";
 
 // A parent that owns the composer text exactly like SessionDetail does, so onChange updates the value
 // the composer reads back when it composes the dictation at the caret.
@@ -161,19 +164,18 @@ describe("Cockpit Speak Send-direct (recording-stage)", () => {
     await waitFor(() => expect(backgroundTranscribeAndSend).toHaveBeenCalledTimes(1));
     const [sid, captured, opts] = backgroundTranscribeAndSend.mock.calls[0] as unknown as [
       string,
-      { blob: Blob; recordedMs: number },
-      { composeParts?: { before: string; after: string }; baselineBufferBytes?: Promise<number | undefined> },
+      { blob: Blob; recordedMs: number; sentAt: number },
+      Record<string, unknown> & { composeParts?: { before: string; after: string } },
     ];
     expect(sid).toBe("sess-42");
     expect(captured.blob).toBeInstanceOf(Blob);
     expect(captured.recordedMs).toBe(1000);
     expect(opts.composeParts).toEqual({ before: "A", after: "B" });
-    // The moved-on guard's baseline (issue #2478): the session's terminal-byte position, whose roster
-    // read the Speak press STARTED - handed to the pipeline as a promise it awaits, so a quick Send
-    // waits for the answer instead of racing it. Resolves above zero, so the Gateway's guard actually
-    // ARMS for a clip resumed later - this flow used to omit the field, it defaulted to zero, and the
-    // guard was unreachable from the shipped Speak Send.
-    await expect(opts.baselineBufferBytes).resolves.toBe(4321);
+    // The Send time (voice delivery, #3398): stamped by the dialog at the press, and the byte baseline the
+    // old moved-on rule needed is gone from the hand-off.
+    expect(typeof captured.sentAt).toBe("number");
+    expect(captured.sentAt).toBeGreaterThan(0);
+    expect(opts).not.toHaveProperty("baselineBufferBytes");
 
     // The screen is released immediately: the dialog is gone without waiting for any transcription.
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Dictate" })).toBeNull());
@@ -257,5 +259,94 @@ describe("Cockpit Speak Send-direct (recording-stage)", () => {
       // survives, because those are no longer the characters the transcription produced.
       expect(sendPrompt).toHaveBeenCalledWith("sess-42", "the dictated words, reworded", true, undefined, undefined, []),
     );
+  });
+});
+
+// What the shared status strip shows on THIS surface for the two phase 2 states (voice delivery, #3398).
+// The status store is real; the Gateway's answer is published exactly as the driver publishes it.
+describe("Cockpit composer: the Still delivering and too-old states", () => {
+  afterEach(() => {
+    cleanup();
+    for (const s of allDictationStatuses()) clearDictationStatus(s.uploadId);
+  });
+
+  it("Still delivering is calm and offers neither Send anyway nor a fresh-id Retry", async () => {
+    publishDictationStatus({
+      sessionId: "sess-42",
+      uploadId: "up-delivering",
+      phase: "held",
+      retryable: true,
+      delivering: true,
+      error: "Still delivering - checking that your words reached the session. They will not be sent twice.",
+    });
+    render(<Harness sessionId="sess-42" />);
+    const strip = (await screen.findByText(/Still delivering/)).closest(".dictate-strip") as HTMLElement;
+    // Calm: the in-progress look, never the red alert or the amber held strip.
+    expect(strip.className).toContain("dictate-strip-delivering");
+    expect(strip.className).not.toContain("dictate-strip-failed");
+    expect(strip.className).not.toContain("dictate-strip-held");
+    expect(strip.getAttribute("role")).toBe("status");
+    // Nothing that could send a second copy.
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
+    // Upload now re-drives the SAME upload id, which the Director refuses to type twice.
+    expect(within(strip).getByRole("button", { name: "Upload now" })).toBeTruthy();
+  });
+
+  it("too old shows the words back with Send anyway and the age wording", async () => {
+    publishDictationStatus({
+      sessionId: "sess-42",
+      uploadId: "up-too-old",
+      phase: "dropped",
+      retryable: false,
+      recoverableText: "the words from six minutes ago",
+      offerSendAnyway: true,
+      error: "This recording is more than 5 minutes old, so it was not sent automatically. Here is what you said - send it?",
+    });
+    render(<Harness sessionId="sess-42" />);
+    const strip = (await screen.findByText(/more than 5 minutes old/)).closest(".dictate-strip") as HTMLElement;
+    expect(within(strip).getByText("the words from six minutes ago")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Send anyway" })).toBeTruthy();
+  });
+
+  // Phase 2, change 1: the Gateway could not confirm the words arrived, so it says not to offer them again.
+  it("could not confirm shows the words, the label and Dismiss, and no Send anyway or Retry", async () => {
+    publishDictationStatus({
+      sessionId: "sess-42",
+      uploadId: "up-unconfirmed",
+      phase: "dropped",
+      retryable: false,
+      offerSendAnyway: false,
+      recoverableText: "the words nobody confirmed",
+      error: "We could not confirm this arrived. Here is what you said.",
+    });
+    render(<Harness sessionId="sess-42" />);
+    const strip = (await screen.findByText("We could not confirm this arrived. Here is what you said.")).closest(
+      ".dictate-strip",
+    ) as HTMLElement;
+    expect(within(strip).getByText("the words nobody confirmed")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
+
+    // Dismiss is the one way out, and it goes to the driver's dismiss for this exact recording.
+    fireEvent.click(within(strip).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(dismissDictationStatus).toHaveBeenCalledWith("up-unconfirmed"));
+  });
+
+  it("a shown-back status that does not carry the Gateway's offer offers no second send", async () => {
+    publishDictationStatus({
+      sessionId: "sess-42",
+      uploadId: "up-no-offer",
+      phase: "dropped",
+      retryable: false,
+      recoverableText: "words with no verdict",
+      error: "This recording wasn't sent automatically. Here is what you said - send it?",
+    });
+    render(<Harness sessionId="sess-42" />);
+    const strip = (await screen.findByText("words with no verdict")).closest(".dictate-strip") as HTMLElement;
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
 });

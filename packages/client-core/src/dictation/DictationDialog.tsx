@@ -441,6 +441,9 @@ export function DictationDialog({
       await commit(onSend);
       return;
     }
+    // The Send time (voice delivery, #3398), stamped at the press and before stopping the recorder, which
+    // awaits. The Gateway measures its 5-minute age rule from this moment.
+    const sentAt = Date.now();
     busyRef.current = true;
     elapsedBeforeRef.current += performance.now() - segmentStartRef.current;
     let captured: Blob;
@@ -455,6 +458,7 @@ export function DictationDialog({
       return;
     }
     onSendAudio({
+      sentAt,
       deviceLabel: recorderRef.current.deviceLabel,
       deviceId: recorderRef.current.deviceId,
       blob: captured,

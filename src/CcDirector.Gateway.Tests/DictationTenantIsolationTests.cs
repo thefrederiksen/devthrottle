@@ -418,7 +418,7 @@ public sealed class DictationTenantIsolationTests : IAsyncLifetime
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, "/dictation/upload")
         {
-            Content = JsonContent.Create(new { sessionId = sessionId ?? Guid.NewGuid().ToString(), baselineBufferBytes = 0 }),
+            Content = JsonContent.Create(new { sessionId = sessionId ?? Guid.NewGuid().ToString() }),
         };
         req.Headers.Add("Idempotency-Key", uploadId);
         return await http.SendAsync(req);
@@ -433,7 +433,7 @@ public sealed class DictationTenantIsolationTests : IAsyncLifetime
 
     private static Task<HttpResponseMessage> CompleteAsync(HttpClient http, string uploadId)
         => http.PostAsJsonAsync($"/dictation/{uploadId}/complete",
-            new { sessionId = Guid.NewGuid().ToString(), totalChunks = 1 });
+            new { sessionId = Guid.NewGuid().ToString(), totalChunks = 1, sentAtUtc = DateTime.UtcNow });
 
     private static async Task<bool> AckRetiredAsync(HttpClient http, string uploadId)
     {

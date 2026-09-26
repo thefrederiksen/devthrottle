@@ -33,12 +33,14 @@ import "./dictationStrip.css";
 // failure (durable storage unavailable, so nothing could be queued) shows a red alert with Dismiss; it
 // does NOT disappear on its own, so it can never be missed.
 //
-// A DROPPED send (issue #1590) is the loud one: the session moved on before the recording arrived, so the
-// server threw the user's words away. It shows a red alert that never clears itself, quotes the words back,
-// and offers "Send anyway" - which sends them as a fresh, normal turn (re-driving the dictation itself is
-// useless by design; its moved-on tombstone is permanent). On the rare drop before transcription there are no
-// words to show, so it offers "Retry" instead, which re-sends the recording under a fresh upload id. Both
-// carry a Dismiss, and Dismiss is the ONLY thing that throws the words away - never a timer.
+// A DROPPED send (issue #1590; voice delivery, #3398) is the loud one: the Gateway did NOT send the words -
+// the recording was more than 5 minutes old, the session had ended, or nobody could confirm it arrived - and
+// handed them back. Nothing is thrown away: the copy is kept on the device. It shows a red alert that never
+// clears itself and quotes the words back. When the Gateway offers it (offerSendAnyway), it offers "Send
+// anyway" - the words as a fresh, normal turn, since re-driving the dictation itself can only return the same
+// answer - or, on the rare case with no words, "Retry", which re-sends the recording under a fresh upload id.
+// When it does not (the "could not confirm" case, where a second copy might double the words), only Dismiss.
+// Dismiss is the ONLY thing that throws the words away - never a timer.
 // An UNHEARD send is the quiet cousin: the clip arrived and had no speech in it, so there was no turn to
 // make. Nothing was lost and there is nothing to retry, but it is still an answer rather than silence.
 
@@ -69,6 +71,21 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
         setUploadingNow(false);
       }
     };
+    // Still delivering (voice delivery, #3398): the words may already be in the session. Shown calm and in
+    // progress, like a send under way - not amber, not red - and with nothing that could send a second copy:
+    // no "Send anyway" and no fresh-id "Retry". "Upload now" re-drives this same upload id, which the
+    // Director refuses to type twice, so it stays.
+    if (status.delivering) {
+      return (
+        <div className="dictate-strip dictate-strip-busy dictate-strip-delivering" role="status">
+          <span className="dictate-strip-spin" aria-hidden="true" />
+          <span className="dictate-strip-text">{status.error ?? "Still delivering"}</span>
+          <button type="button" className="dictate-strip-btn" onClick={() => void onUploadNow()} disabled={uploadingNow}>
+            {uploadingNow ? "Uploading..." : "Upload now"}
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="dictate-strip dictate-strip-held" role="status">
         <span className="dictate-strip-icon" aria-hidden="true">!</span>
@@ -106,7 +123,7 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
     );
   }
 
-  // Dropped as stale (issue #1590). Sticky by construction: there is no timer on this arm, and nothing but
+  // Not sent, shown back (issue #1590). Sticky by construction: there is no timer on this arm, and nothing but
   // an explicit user action removes it. role="alert" because the user's words were NOT delivered.
   if (status.phase === "dropped") {
     // The FULL message that would have been delivered (typed text included), which is exactly what "Send
@@ -135,15 +152,18 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
           <span className="dictate-strip-text">{status.error ?? "That recording wasn't sent."}</span>
           {words.length > 0 && <blockquote className="dictate-strip-quote">{words}</blockquote>}
         </div>
-        {words.length > 0 ? (
-          <button type="button" className="dictate-strip-btn" onClick={() => void onSendAnyway()} disabled={uploadingNow}>
-            {uploadingNow ? "Sending..." : "Send anyway"}
-          </button>
-        ) : (
-          <button type="button" className="dictate-strip-btn" onClick={() => void onRetryFresh()} disabled={uploadingNow}>
-            {uploadingNow ? "Retrying..." : "Retry"}
-          </button>
-        )}
+        {/* Whether to offer a second send at all is the Gateway's decision (phase 2, change 1): a recording it
+            could not confirm arrived is shown back with Dismiss only, because the words may be in already. */}
+        {status.offerSendAnyway === true &&
+          (words.length > 0 ? (
+            <button type="button" className="dictate-strip-btn" onClick={() => void onSendAnyway()} disabled={uploadingNow}>
+              {uploadingNow ? "Sending..." : "Send anyway"}
+            </button>
+          ) : (
+            <button type="button" className="dictate-strip-btn" onClick={() => void onRetryFresh()} disabled={uploadingNow}>
+              {uploadingNow ? "Retrying..." : "Retry"}
+            </button>
+          ))}
         <button
           type="button"
           className="dictate-strip-btn dictate-strip-dismiss"

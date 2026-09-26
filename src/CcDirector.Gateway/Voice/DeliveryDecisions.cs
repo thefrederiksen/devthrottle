@@ -34,10 +34,60 @@ public static class DeliveryDecisions
     /// <summary>A FAILED record was put back to PENDING so an explicit retry can re-drive it.</summary>
     public const string ClearedFailed = "cleared-failed";
     /// <summary>
-    /// Today's byte rule judged the session to have moved on and did not deliver. Phase 2 of the mission
-    /// replaces the rule with an age limit and adds its own decision name.
+    /// The byte rule judged the session to have moved on and did not deliver. That rule was deleted in phase 2 of the
+    /// Voice Delivery mission and nothing writes this name any more; it stays so the records written before then
+    /// still read with the name they were written under. Its replacement is <see cref="TooOld"/>.
     /// </summary>
     public const string MovedOn = "moved-on";
+    /// <summary>
+    /// The recording was more than the age limit old from Send when its words were known not to be in the session,
+    /// so it was not typed: it is kept and shown back to the owner with "Send anyway". Facts carry the age in
+    /// seconds (<see cref="DeliveryDecisionFacts.AgeSeconds"/>). See <c>GatewayDictationEndpoint.MaxDeliveryAgeMinutes</c>.
+    /// </summary>
+    public const string TooOld = "too-old";
+    /// <summary>
+    /// "Could not confirm it arrived" (Voice Delivery phase 2, change 1): the recording was sent, the Director gave no
+    /// answer of any kind to the question of what became of it, and more than the age limit has passed - from Send on the
+    /// dictation path, from the first verified claim on a "Send anyway". It is not held forever: the words are kept and
+    /// shown back with a Dismiss and no "Send anyway", because they may already be in and a second copy could double
+    /// them. Facts carry the age in seconds and which kind of no answer it was
+    /// (<see cref="DeliveryDecisionFacts.DirectorNoAnswer"/>).
+    /// </summary>
+    public const string Unconfirmed = "unconfirmed";
+    /// <summary>
+    /// The Gateway asked the Director what became of this delivery id instead of guessing. The reason says why:
+    /// <see cref="AskReasonPromptUnanswered"/> (the prompt verb went out and no answer came back) or
+    /// <see cref="AskReasonRetryAsksFirst"/> (a retry of a recording already sent once asks before paying for a
+    /// transcript).
+    /// </summary>
+    public const string AskedDirector = "asked-director";
+    /// <summary>
+    /// The Director's answer to <see cref="AskedDirector"/>: the delivery state it holds for the id
+    /// (<see cref="DeliveryDecisionFacts.State"/>), or, when it gave none, which kind of no-answer it was
+    /// (<see cref="DeliveryDecisionFacts.Reason"/>: <c>no-answer</c>, <c>director-too-old</c> or
+    /// <c>never-left-the-gateway</c>).
+    /// </summary>
+    public const string DeliveryStateAnswer = "delivery-state-answer";
+    /// <summary>
+    /// The recording may already be in the session, so it is HELD as still delivering: the client is answered 202,
+    /// keeps its copy and asks again. Never shown back and never judged too old. Facts carry the Director's state
+    /// as the client is told it (<c>delivering</c>, <c>unknown</c> or <c>no-answer</c>).
+    /// </summary>
+    public const string StillDelivering = "still-delivering";
+    /// <summary>
+    /// A verified "Send anyway" claim whose prompt stopped on the Gateway before it reached the Director, so nothing
+    /// was typed and the Director never answered; the reason says where it stopped (the menu guard, the session
+    /// lookup, no tenant for the menu guard).
+    /// </summary>
+    public const string ClaimStoppedBeforeDirector = "send-anyway-stopped-before-director";
+
+    /// <summary>Why the Gateway asked: the prompt verb went out and no answer came back.</summary>
+    public const string AskReasonPromptUnanswered = "prompt-unanswered";
+    /// <summary>Why the Gateway asked: a retry of a recording already sent once asks before it transcribes again.</summary>
+    public const string AskReasonRetryAsksFirst = "retry-asks-first";
+    /// <summary>Why the Gateway asked: a "Send anyway" of a recording an earlier "Send anyway" may already have sent asks
+    /// before it sends again (Voice Delivery phase 2, change 1).</summary>
+    public const string AskReasonSendAnywayAsksFirst = "send-anyway-asks-first";
     /// <summary>The session had exited, so the recording was resolved without being typed anywhere.</summary>
     public const string SessionExited = "session-exited";
     /// <summary>The upload reached the DELIVERED tombstone with the words submitted (or an empty clip resolved).</summary>
@@ -108,13 +158,19 @@ public sealed record DeliveryDecisionFacts
     /// <summary>A character count: of the transcript, or of the composed message. Never the characters.</summary>
     public int? Characters { get; init; }
     public long? AudioBytes { get; init; }
-    public long? BaselineBufferBytes { get; init; }
-    public long? BufferBytes { get; init; }
     public long? BytesDeleted { get; init; }
     public int? TotalChunks { get; init; }
     public int? MissingChunks { get; init; }
     /// <summary>When the recording was resolved, on a "Send anyway" claim line: the claim window is measured from it.</summary>
     public DateTime? ResolvedAtUtc { get; init; }
+    /// <summary>When the owner pressed Send, as the client stamped it on the complete call.</summary>
+    public DateTime? SentAtUtc { get; init; }
+    /// <summary>How long after Send (or after the first verified claim) the recording was judged, in whole seconds, on a
+    /// <see cref="DeliveryDecisions.TooOld"/> or <see cref="DeliveryDecisions.Unconfirmed"/> line.</summary>
+    public long? AgeSeconds { get; init; }
+    /// <summary>Which kind of no answer the Director gave to the question (<c>no-answer</c>, <c>director-too-old</c>,
+    /// <c>never-left-the-gateway</c>), on a <see cref="DeliveryDecisions.Unconfirmed"/> line.</summary>
+    public string? DirectorNoAnswer { get; init; }
 
     /// <summary>Error text, cut to <see cref="MaxErrorLength"/> characters.</summary>
     public string? Error

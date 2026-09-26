@@ -1,7 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { sendEscape, sendInterrupt, sendPrompt, uploadImage } from "@devthrottle/client-core/api/client";
 import { backgroundTranscribeAndSend, type CapturedUtterance } from "@devthrottle/client-core/dictation/backgroundSend";
-import { useDictationBaseline } from "@devthrottle/client-core/dictation/baseline";
 import { DictationDialog } from "@devthrottle/client-core/dictation/DictationDialog";
 import { insertAt, joinText } from "@devthrottle/client-core/dictation/transcript";
 import { ComposerProvenance } from "@devthrottle/client-core/dictation/composerProvenance";
@@ -65,10 +64,6 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
   // Where to move the caret after an Insert drops text mid-box; applied post-render below. Null except
   // in the render right after an Insert.
   const pendingCaretRef = useRef<number | null>(null);
-  // The session's terminal-byte position, snapshotted when Speak is pressed, so the Gateway's
-  // "session moved on" guard can judge a clip resumed later against where the terminal stood when it
-  // was recorded (issue #2478 - this flow used to omit the field, so the guard never armed).
-  const baseline = useDictationBaseline(sessionId);
 
   // Auto-grow the textarea to fit its content (up to a cap, after which it scrolls). Re-run on every
   // input change so it grows as you type AND shrinks back when the box is cleared (Send) or replaced
@@ -257,10 +252,6 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
         // Insert the dictated words at the snapshotted caret inside the typed text: the Gateway submits
         // before + dictation + after. The caret splits the typed text into the two halves.
         composeParts: { before: composerText.slice(0, caret), after: composerText.slice(caret) },
-        // The terminal-byte position snapshot the Speak press started, for the moved-on guard
-        // (issue #2478). A promise: the pipeline awaits it before persisting, so a quick Send
-        // cannot outrun the roster read.
-        baselineBufferBytes: baseline.read(),
         // On a send that does not complete the audio is kept durably for resume, but the typed text is
         // client-only: put it back (ahead of anything typed since) so Send never silently loses it. If
         // the user navigated away this component is unmounted and setInput is a harmless no-op.
@@ -269,7 +260,7 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
         },
       });
     },
-    [sessionId, input, onFlash, onError, baseline],
+    [sessionId, input, onFlash, onError],
   );
 
   return (
@@ -305,8 +296,6 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
           onClick={() => {
             // Snapshot the caret so the dictation lands where the cursor was, not at the end.
             caretRef.current = inputRef.current?.selectionStart ?? input.length;
-            // Snapshot the terminal-byte position at record start, for the moved-on guard (#2478).
-            baseline.snapshot();
             setDictating(true);
           }}
           disabled={dictating}

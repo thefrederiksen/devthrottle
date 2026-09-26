@@ -23,7 +23,13 @@ vi.mock("./pendingStore", () => ({
   listPending: vi.fn(),
 }));
 
-import { abandonDictation, sendPrompt, uploadDictationToSession, type DictationSubmitResult } from "../api/client";
+import {
+  abandonDictation,
+  sendPrompt,
+  uploadDictationToSession,
+  type DictationSubmitResult,
+  type PromptSendResult,
+} from "../api/client";
 import {
   abandonPendingDictation,
   backgroundTranscribeAndSend,
@@ -37,7 +43,10 @@ import {
 import { deletePending, getPending, listPending, savePending, type PendingDictation } from "./pendingStore";
 import { allDictationStatuses, clearDictationStatus } from "./status";
 
-const captured: CapturedUtterance = { blob: new Blob(["x"]), recordedMs: 1000, prefixText: "" };
+// The moment Send was pressed in these tests: deliberately NOT "now", so a test can tell the Send time
+// apart from the moment the record was saved.
+const SENT_AT = Date.parse("2026-09-25T09:05:12.345Z");
+const captured: CapturedUtterance = { sentAt: SENT_AT, blob: new Blob(["x"]), recordedMs: 1000, prefixText: "" };
 
 const SUBMITTED: DictationSubmitResult = { terminal: true, submitted: true, movedOn: false, transcript: "hi" };
 const HELD: DictationSubmitResult = {
@@ -60,13 +69,24 @@ const MOVED_ON: DictationSubmitResult = {
   terminal: true,
   submitted: false,
   movedOn: true,
+  offerSendAnyway: true,
   transcript: "the words the user actually said",
 };
 const MOVED_ON_NO_TRANSCRIPT: DictationSubmitResult = {
   terminal: true,
   submitted: false,
   movedOn: true,
+  offerSendAnyway: true,
   transcript: "",
+};
+// The 202 "still delivering" answer (voice delivery, #3398).
+const DELIVERING: DictationSubmitResult = {
+  terminal: false,
+  submitted: false,
+  movedOn: false,
+  transcript: "",
+  delivering: true,
+  directorState: "delivering",
 };
 const EMPTY_CLIP: DictationSubmitResult = { terminal: true, submitted: false, movedOn: false, transcript: "" };
 const ABANDONED: DictationSubmitResult = {
@@ -90,8 +110,8 @@ function makeRecord(id: string): PendingDictation {
     before: "",
     after: "",
     prefix: "",
-    baselineBufferBytes: 0,
     createdAt: Date.now(),
+    sentAt: SENT_AT,
   };
 }
 
@@ -108,7 +128,7 @@ beforeEach(() => {
   vi.mocked(getPending).mockResolvedValue(null);
   vi.mocked(listPending).mockResolvedValue([]);
   vi.mocked(abandonDictation).mockResolvedValue(true);
-  vi.mocked(sendPrompt).mockResolvedValue(undefined);
+  vi.mocked(sendPrompt).mockResolvedValue({ delivering: false });
 });
 
 afterEach(() => {
@@ -121,7 +141,7 @@ describe("the empty-capture gate (an empty recording must never enter the durabl
   // any other and then re-driven forever - it can never produce a chunk, so the Gateway can never complete
   // it, and the phone said "Saved - still sending" about a recording that did not exist. Every Send surface
   // goes through this one function, so this is the one gate that covers all of them.
-  const emptyCapture: CapturedUtterance = { blob: new Blob([]), recordedMs: 1000, prefixText: "" };
+  const emptyCapture: CapturedUtterance = { sentAt: SENT_AT, blob: new Blob([]), recordedMs: 1000, prefixText: "" };
 
   it("refuses a zero-byte capture: nothing is queued, nothing is uploaded, and the user is told", async () => {
     const onFailed = vi.fn();
@@ -194,132 +214,6 @@ describe("backgroundTranscribeAndSend", () => {
     expect(saveOrder).toBeLessThan(uploadOrder);
     // The persisted record carries the recorded audio.
     expect(vi.mocked(savePending).mock.calls[0][0].blob).toBe(captured.blob);
-  });
-
-  it("saves the clip durably AT ONCE (baseline unknown), then enriches it from the press-time snapshot before upload (issue #2478)", async () => {
-    // Two contracts at once, in the right order. Durability never waits on the roster: the clip is on
-    // disk immediately, so a slow or timed-out roster read cannot leave it memory-only. And a quick
-    // Send still cannot outrun the snapshot: the UPLOAD holds until the press-time promise resolves,
-    // and the durable record is enriched with the reading before the first attempt.
-    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
-    let releaseBaseline: (bytes: number | undefined) => void = () => {};
-    const pending = new Promise<number | undefined>((resolve) => { releaseBaseline = resolve; });
-
-    const send = backgroundTranscribeAndSend("sid", captured, { baselineBufferBytes: pending });
-    await flush();
-    // The snapshot has not answered yet - the clip is ALREADY durable (unknown baseline), and the
-    // upload is holding for the press-time answer.
-    expect(savePending).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(savePending).mock.calls[0][0].baselineBufferBytes).toBeUndefined();
-    expect(uploadDictationToSession).not.toHaveBeenCalled();
-
-    releaseBaseline(48213);
-    await send;
-    // The durable record was enriched with the press-time reading before the first upload carried it.
-    expect(savePending).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(savePending).mock.calls[1][0].baselineBufferBytes).toBe(48213);
-    expect(vi.mocked(savePending).mock.calls[1][0].id).toBe(vi.mocked(savePending).mock.calls[0][0].id);
-    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].baselineBufferBytes).toBe(48213);
-  });
-
-  it("a kick landing between the first save and enrichment cannot drive the unknown record (issue #2478 round three)", async () => {
-    // The first durable write makes the record visible to every automatic trigger, and the
-    // enrichment window is as long as a roster read. A kick (online, foreground, app load) that
-    // listed and drove the record inside that window would upload with the baseline still unknown
-    // and race the enrichment write and the original drive. The upload id is reserved from the kick
-    // machinery for the whole window, so the kick must no-op.
-    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
-    let releaseBaseline: (bytes: number | undefined) => void = () => {};
-    const pending = new Promise<number | undefined>((resolve) => { releaseBaseline = resolve; });
-
-    const send = backgroundTranscribeAndSend("sid", captured, { baselineBufferBytes: pending });
-    await flush();
-    expect(savePending).toHaveBeenCalledTimes(1);
-    const saved = vi.mocked(savePending).mock.calls[0][0];
-    expect(saved.baselineBufferBytes).toBeUndefined();
-
-    // The kick lands mid-window: the durable store lists the unknown record and the kick machinery
-    // tries to drive it, exactly as the online/visibility listeners would.
-    vi.mocked(listPending).mockResolvedValue([saved]);
-    await resumePendingDictations();
-    expect(uploadDictationToSession).not.toHaveBeenCalled(); // the reservation held: no unguarded upload
-
-    releaseBaseline(48213);
-    await send;
-    // Exactly ONE upload happened, from the original flow: enriched with the press-time reading and
-    // an immediate (not resumed) send - never the kick's resumed, unknown-baseline drive.
-    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].baselineBufferBytes).toBe(48213);
-    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].resumed).toBe(false);
-  });
-
-  it("a crash or reload still resumes the durable unknown record - the reservation dies with the process", async () => {
-    // The reservation lives only in memory, deliberately. After a crash mid-enrichment a fresh
-    // process holds no reservation, and the resume path drives the durable unknown record from the
-    // on-device copy - unguarded, which is exactly what that copy honestly knows.
-    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
-    const rec: PendingDictation = { ...makeRecord("id-unknown-crash"), baselineBufferBytes: undefined };
-    vi.mocked(listPending).mockResolvedValue([rec]);
-
-    await resumePendingDictations();
-
-    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].baselineBufferBytes).toBeUndefined();
-    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].resumed).toBe(true);
-  });
-
-  it("an UNKNOWN press-time baseline is FINAL - persisted as unknown, no later re-read, never a fabricated zero (issue #2478)", async () => {
-    // Unknown (the press-time read could not answer) and zero (a terminal that had produced nothing
-    // yet) are different facts. Collapsing unknown into zero at persist time was how the moved-on
-    // guard silently stayed unarmed; and substituting a LATER roster reading would be worse - it can
-    // include bytes produced after recording, masking the movement the guard detects. Unknown stays
-    // absent all the way to the wire, where JSON omits the field and the server skips the guard.
-    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
-
-    await backgroundTranscribeAndSend("sid", captured, {
-      baselineBufferBytes: Promise.resolve(undefined),
-    });
-
-    // Exactly one durable write - no enrich pass, and no roster call of the pipeline's own.
-    expect(savePending).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(savePending).mock.calls[0][0].baselineBufferBytes).toBeUndefined();
-    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].baselineBufferBytes).toBeUndefined();
-  });
-
-  it("passes a GENUINE zero baseline through as a real reading, distinct from unknown (issue #2478)", async () => {
-    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
-
-    await backgroundTranscribeAndSend("sid", captured, { baselineBufferBytes: Promise.resolve(0) });
-
-    // Zero is an answer: it lands in the enriched durable record and on the upload.
-    expect(vi.mocked(savePending).mock.calls.at(-1)?.[0].baselineBufferBytes).toBe(0);
-    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].baselineBufferBytes).toBe(0);
-  });
-
-  it("a plain-number baseline (the Voice screen) rides the FIRST durable write, unchanged", async () => {
-    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
-
-    await backgroundTranscribeAndSend("sid", captured, { baselineBufferBytes: 321 });
-
-    expect(savePending).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(savePending).mock.calls[0][0].baselineBufferBytes).toBe(321);
-    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].baselineBufferBytes).toBe(321);
-  });
-
-  it("a foreign baseline promise that REJECTS costs the guard, never the words", async () => {
-    // The shared snapshot never rejects, but the hooks contract cannot force that on every caller. A
-    // rejection must not escape and strand the clip - it is already durable by then, and it still
-    // delivers, unguarded.
-    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
-
-    await backgroundTranscribeAndSend("sid", captured, {
-      baselineBufferBytes: Promise.reject(new Error("roster exploded")),
-    });
-
-    expect(vi.mocked(savePending).mock.calls[0][0].baselineBufferBytes).toBeUndefined();
-    // The clip still delivered: persisted durably and driven through one upload attempt.
-    expect(savePending).toHaveBeenCalledTimes(1);
-    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
   });
 
   it("a delivered send that dropped audio carries a capture-loss warning on done (never silent)", async () => {
@@ -580,8 +474,9 @@ describe("a terminal outcome that did NOT submit is never silent (#1590)", () =>
     // The words are handed back so the UI can offer "Send anyway".
     expect(status?.recoverableText).toBe("the words the user actually said");
     // Honest about what happened - it says the recording was NOT sent, never a success.
-    expect(status?.error).toContain("moved on");
     expect(status?.error).toContain("wasn't sent");
+    // The byte rule is gone, and so are its words (voice delivery, #3398).
+    expect(status?.error).not.toContain("moved on");
     // "Send anyway" is a fresh turn, not a retry of a tombstoned upload id.
     expect(status?.retryable).toBe(false);
 
@@ -609,6 +504,7 @@ describe("a terminal outcome that did NOT submit is never silent (#1590)", () =>
     const dropped: PendingDictation = {
       ...makeRecord("id-dropped"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "words from before the reload",
     };
     vi.mocked(listPending).mockResolvedValue([dropped]);
@@ -679,6 +575,7 @@ describe("recovering a dropped dictation (#1590)", () => {
   const droppedRecord = (id: string, transcript: string): PendingDictation => ({
     ...makeRecord(id),
     staleDropped: true,
+    droppedOfferSendAnyway: true,
     droppedTranscript: transcript,
   });
 
@@ -704,7 +601,9 @@ describe("recovering a dropped dictation (#1590)", () => {
     // gets their words twice.
     vi.mocked(getPending).mockResolvedValue(droppedRecord("id-race", "say this once"));
     let resolveSend!: () => void;
-    vi.mocked(sendPrompt).mockImplementation(() => new Promise<void>((res) => { resolveSend = () => res(); }));
+    vi.mocked(sendPrompt).mockImplementation(
+      () => new Promise<PromptSendResult>((res) => { resolveSend = () => res({ delivering: false }); }),
+    );
 
     const first = sendDroppedDictationAnyway("id-race");
     const second = sendDroppedDictationAnyway("id-race");
@@ -748,6 +647,7 @@ describe("recovering a dropped dictation (#1590)", () => {
     const composed: PendingDictation = {
       ...makeRecord("id-compose"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "the spoken words",
       before: "typed before",
       prefix: "an earlier paused segment",
@@ -774,6 +674,7 @@ describe("recovering a dropped dictation (#1590)", () => {
     const composed: PendingDictation = {
       ...makeRecord("id-quote"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "spoken",
       before: "typed",
       after: "",
@@ -796,6 +697,7 @@ describe("recovering a dropped dictation (#1590)", () => {
     const typedOnly: PendingDictation = {
       ...makeRecord("id-typed-only"),
       staleDropped: true,
+      droppedOfferSendAnyway: true,
       droppedTranscript: "",
       before: "please run the tests",
     };
@@ -821,7 +723,7 @@ describe("recovering a dropped dictation (#1590)", () => {
     expect(status?.error).toContain("still here");
   });
 
-  it("Retry re-drives the recording under a FRESH upload id, with the stale baseline cleared", async () => {
+  it("Retry re-drives the recording under a FRESH upload id, as a NEW Send with a new Send time", async () => {
     const old = droppedRecord("id-old", "");
     vi.mocked(getPending).mockResolvedValue(old);
     vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
@@ -834,10 +736,11 @@ describe("recovering a dropped dictation (#1590)", () => {
     expect(fresh?.id).not.toBe("id-old");
     expect(fresh?.blob).toBe(old.blob); // the SAME recording, under a new id - the audio is what we are retrying
     expect(fresh?.staleDropped).toBeUndefined();
-    // The record-time baseline describes a terminal that has long since moved on; re-sending it would just
-    // invite the same drop. The user asked for this send now. Cleared to UNKNOWN (field omitted on the
-    // wire, guard skipped) - never a fabricated zero, which is a real reading (issue #2478).
-    expect(fresh?.baselineBufferBytes).toBeUndefined();
+    // "Retry this clip" is a new Send (voice delivery, #3398): the old Send time is what made it too old,
+    // so the fresh copy stamps now and the wire carries the new time.
+    expect(fresh?.sentAt).toBe(Date.now());
+    expect(fresh?.sentAt).not.toBe(old.sentAt);
+    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].sentAtUtc).toBe(new Date(Date.now()).toISOString());
     // The fresh clip really was driven, and the old id is retired.
     expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].uploadId).toBe(fresh?.id);
     expect(deletePending).toHaveBeenCalledWith("id-old");
@@ -965,5 +868,444 @@ describe("a record refusal from the Gateway (issue #2745): the driver keeps the 
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(vi.mocked(uploadDictationToSession).mock.calls.length).toBeGreaterThan(2);
+  });
+});
+
+describe("the Send time rides every complete call (voice delivery, #3398)", () => {
+  it("the first attempt carries the Send press time, not the moment the record was saved", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const saved = vi.mocked(savePending).mock.calls[0][0];
+    expect(saved.sentAt).toBe(SENT_AT);
+    expect(saved.createdAt).not.toBe(SENT_AT); // the save is a different, later moment
+    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].sentAtUtc).toBe("2026-09-25T09:05:12.345Z");
+  });
+
+  it("a resumed retry carries the SAME Send time as the first attempt", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValueOnce(HELD).mockResolvedValueOnce(SUBMITTED);
+
+    await backgroundTranscribeAndSend("sid", captured);
+    const saved = vi.mocked(savePending).mock.calls[0][0];
+    vi.mocked(getPending).mockResolvedValue(saved);
+    await vi.advanceTimersByTimeAsync(3_000); // past the first two-second retry
+
+    const calls = vi.mocked(uploadDictationToSession).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[1][0].resumed).toBe(true);
+    expect(calls[1][0].sentAtUtc).toBe(calls[0][0].sentAtUtc);
+    expect(calls[1][0].sentAtUtc).toBe("2026-09-25T09:05:12.345Z");
+  });
+
+  it("a resume after a reload carries the durable Send time", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
+    vi.mocked(listPending).mockResolvedValue([makeRecord("id-reload")]);
+
+    await resumePendingDictations();
+
+    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0].sentAtUtc).toBe("2026-09-25T09:05:12.345Z");
+  });
+
+  it("a record that reaches the driver with no Send time is an error naming the record, never a guess", async () => {
+    // The pending store migrates old records on read (pendingStore.test.ts), so this cannot happen through
+    // the store; if it ever does, nothing is sent with an invented time.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const broken = { ...makeRecord("id-no-send-time"), sentAt: undefined } as unknown as PendingDictation;
+    vi.mocked(listPending).mockResolvedValue([broken]);
+
+    await resumePendingDictations();
+
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("id-no-send-time"))).toBe(true);
+    expect(statusFor("id-no-send-time")?.phase).toBe("held"); // the words are kept
+    errors.mockRestore();
+  });
+
+  it("a durable record saved with the old byte baseline never sends it", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
+    const legacy = { ...makeRecord("id-legacy"), baselineBufferBytes: 48213 } as PendingDictation;
+    vi.mocked(listPending).mockResolvedValue([legacy]);
+
+    await resumePendingDictations();
+
+    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0]).not.toHaveProperty("baselineBufferBytes");
+  });
+
+  it("a fresh Send never writes a byte baseline to the durable record", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(SUBMITTED);
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    expect(vi.mocked(savePending).mock.calls[0][0]).not.toHaveProperty("baselineBufferBytes");
+    expect(vi.mocked(uploadDictationToSession).mock.calls[0][0]).not.toHaveProperty("baselineBufferBytes");
+  });
+});
+
+describe("still delivering (a 202 from the Gateway, voice delivery #3398)", () => {
+  it("keeps the copy, shows Still delivering (not a failure, no fresh-id retry), and retries the same upload id", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(DELIVERING);
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const saved = vi.mocked(savePending).mock.calls[0][0];
+    // The copy is kept: the words may already be in, and they may not.
+    expect(deletePending).not.toHaveBeenCalled();
+    const status = statusFor(saved.id);
+    expect(status?.phase).toBe("held");
+    expect(status?.delivering).toBe(true);
+    expect(status?.error).toContain("Still delivering");
+    // Nothing that sends a second copy: no words handed back for "Send anyway".
+    expect(status?.recoverableText).toBeUndefined();
+    // Not marked dropped or parked, so no automatic trigger skips it.
+    expect(vi.mocked(savePending).mock.calls.some((c) => c[0].staleDropped || c[0].parkedReason)).toBe(false);
+
+    // A retry is scheduled on the ordinary cadence, for the SAME upload id, as a resumed attempt.
+    vi.mocked(getPending).mockResolvedValue(saved);
+    await vi.advanceTimersByTimeAsync(3_000);
+    const calls = vi.mocked(uploadDictationToSession).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[1][0].uploadId).toBe(saved.id);
+    expect(calls[1][0].resumed).toBe(true);
+  });
+
+  it("a 202 followed by a delivered 200 ends in done with the copy deleted", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValueOnce(DELIVERING).mockResolvedValueOnce(SUBMITTED);
+
+    await backgroundTranscribeAndSend("sid", captured);
+    const saved = vi.mocked(savePending).mock.calls[0][0];
+    vi.mocked(getPending).mockResolvedValue(saved);
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(deletePending).toHaveBeenCalledWith(saved.id);
+    const status = statusFor(saved.id);
+    expect(status?.phase).toBe("done");
+    expect(status?.delivering).toBeUndefined();
+  });
+});
+
+describe("the not-sent wording follows the Gateway's reason (voice delivery, #3398)", () => {
+  const movedOn = (reason: string | undefined, transcript = "the words I said"): DictationSubmitResult => ({
+    terminal: true,
+    submitted: false,
+    movedOn: true,
+    offerSendAnyway: true,
+    movedOnReason: reason,
+    transcript,
+  });
+
+  it("too old: keeps the copy, shows the words and Send anyway, with the age wording", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(movedOn("too-old"));
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    expect(deletePending).not.toHaveBeenCalled();
+    const droppedSave = vi.mocked(savePending).mock.calls.find((c) => c[0].staleDropped)?.[0];
+    expect(droppedSave?.droppedReason).toBe("too-old");
+    const status = statusFor(droppedSave!.id);
+    expect(status?.phase).toBe("dropped");
+    expect(status?.recoverableText).toBe("the words I said");
+    expect(status?.retryable).toBe(false); // the action is Send anyway
+    expect(status?.error).toBe(
+      "This recording is more than 5 minutes old, so it was not sent automatically. Here is what you said - send it?",
+    );
+  });
+
+  it("session exited: says the session has ended", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(movedOn("session-exited"));
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const id = vi.mocked(savePending).mock.calls[0][0].id;
+    expect(statusFor(id)?.error).toContain("The session has ended");
+    expect(statusFor(id)?.recoverableText).toBe("the words I said");
+  });
+
+  it("no reason: the generic wording, without the words moved on", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(movedOn(undefined));
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const id = vi.mocked(savePending).mock.calls[0][0].id;
+    const error = statusFor(id)?.error ?? "";
+    expect(error).toContain("wasn't sent");
+    expect(error).not.toContain("moved on");
+    expect(error).not.toContain("5 minutes");
+  });
+
+  it("too old with no words: the recording is kept for a fresh-id retry, with the age wording", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(movedOn("too-old", ""));
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const id = vi.mocked(savePending).mock.calls[0][0].id;
+    expect(statusFor(id)?.retryable).toBe(true);
+    expect(statusFor(id)?.error).toContain("more than 5 minutes old");
+    expect(deletePending).not.toHaveBeenCalled();
+  });
+
+  it("the reason survives a reload", async () => {
+    const dropped: PendingDictation = {
+      ...makeRecord("id-old-words"),
+      staleDropped: true,
+      droppedOfferSendAnyway: true,
+      droppedTranscript: "still mine",
+      droppedReason: "too-old",
+    };
+    vi.mocked(listPending).mockResolvedValue([dropped]);
+
+    await resumePendingDictations();
+
+    expect(statusFor("id-old-words")?.error).toContain("more than 5 minutes old");
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("Send anyway answered 202 still delivering (voice delivery, #3398, contract section 4)", () => {
+  const droppedRecord = (id: string): PendingDictation => ({
+    ...makeRecord(id),
+    staleDropped: true,
+    droppedOfferSendAnyway: true,
+    droppedTranscript: "the words I said",
+    droppedReason: "too-old",
+  });
+  const STILL_DELIVERING: PromptSendResult = { delivering: true, directorState: "no-answer" };
+
+  it("keeps the copy, marks it durably, shows Still delivering without Send anyway, and presses again with the same claim", async () => {
+    const rec = droppedRecord("id-anyway");
+    vi.mocked(getPending).mockResolvedValue(rec);
+    vi.mocked(sendPrompt).mockResolvedValueOnce(STILL_DELIVERING);
+
+    await sendDroppedDictationAnyway("id-anyway");
+
+    expect(deletePending).not.toHaveBeenCalled();
+    const marked = vi.mocked(savePending).mock.calls.at(-1)?.[0];
+    expect(marked?.sendingAnyway).toBe(true);
+    expect(marked?.staleDropped).toBe(true);
+    const status = statusFor("id-anyway");
+    expect(status?.phase).toBe("held");
+    expect(status?.delivering).toBe(true);
+    expect(status?.recoverableText).toBeUndefined(); // no words on the strip, so no Send anyway button
+
+    // The next press comes by itself on the ordinary cadence, with the SAME claim, and a 200 ends it.
+    vi.mocked(getPending).mockResolvedValue(marked!);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(sendPrompt).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(sendPrompt).mock.calls[1]).toEqual(vi.mocked(sendPrompt).mock.calls[0]);
+    expect(vi.mocked(sendPrompt).mock.calls[1][6]).toBe("id-anyway");
+    expect(deletePending).toHaveBeenCalledWith("id-anyway");
+    expect(statusFor("id-anyway")?.phase).toBe("done");
+    // Never a fresh upload id.
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+  });
+
+  it("a later failure shows the words back and stops the repeats", async () => {
+    const rec = droppedRecord("id-anyway-fail");
+    vi.mocked(getPending).mockResolvedValue(rec);
+    vi.mocked(sendPrompt).mockResolvedValueOnce(STILL_DELIVERING);
+    await sendDroppedDictationAnyway("id-anyway-fail");
+    const marked = vi.mocked(savePending).mock.calls.at(-1)![0];
+
+    vi.mocked(getPending).mockResolvedValue(marked);
+    vi.mocked(sendPrompt).mockRejectedValueOnce(new Error("502 not delivered"));
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const status = statusFor("id-anyway-fail");
+    expect(status?.phase).toBe("dropped");
+    expect(status?.recoverableText).toBe("the words I said");
+    expect(vi.mocked(savePending).mock.calls.at(-1)?.[0].sendingAnyway).toBeUndefined();
+    expect(deletePending).not.toHaveBeenCalled();
+    // No further automatic presses.
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(sendPrompt).toHaveBeenCalledTimes(2);
+  });
+
+  it("survives a reload: the marked record is pressed again on load, never re-uploaded", async () => {
+    const marked: PendingDictation = { ...droppedRecord("id-anyway-reload"), sendingAnyway: true };
+    vi.mocked(listPending).mockResolvedValue([marked]);
+    vi.mocked(getPending).mockResolvedValue(marked);
+
+    await resumePendingDictations();
+
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendPrompt).mock.calls[0][6]).toBe("id-anyway-reload");
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+    expect(statusFor("id-anyway-reload")?.phase).toBe("done");
+  });
+
+  it("Upload now on it presses the same claim again, never a fresh-id copy", async () => {
+    const marked: PendingDictation = { ...droppedRecord("id-anyway-now"), sendingAnyway: true };
+    vi.mocked(getPending).mockResolvedValue(marked);
+
+    await retryPendingDictation("id-anyway-now");
+
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendPrompt).mock.calls[0][6]).toBe("id-anyway-now");
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+    expect(vi.mocked(savePending).mock.calls.some((c) => c[0].id !== "id-anyway-now")).toBe(false);
+  });
+});
+
+// Phase 2, change 1: "could not confirm it arrived". The Gateway decides whether a shown-back recording
+// offers "Send anyway" (offerSendAnyway); for "unconfirmed" it does not, because the words may be in already
+// and a second copy could double them. The client renders that decision and never re-sends on its own.
+describe("could not confirm it arrived (phase 2, change 1)", () => {
+  const UNCONFIRMED: DictationSubmitResult = {
+    terminal: true,
+    submitted: false,
+    movedOn: true,
+    movedOnReason: "unconfirmed",
+    offerSendAnyway: false,
+    transcript: "the words nobody confirmed",
+  };
+  const LABEL = "We could not confirm this arrived. Here is what you said.";
+
+  it("C1: keeps the copy, shows the words with the label, offers no Send anyway, and never retries", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue(UNCONFIRMED);
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    expect(deletePending).not.toHaveBeenCalled();
+    const saved = vi.mocked(savePending).mock.calls.find((c) => c[0].staleDropped)?.[0];
+    expect(saved?.droppedReason).toBe("unconfirmed");
+    expect(saved?.droppedOfferSendAnyway).toBe(false);
+    const status = statusFor(saved!.id);
+    expect(status?.phase).toBe("dropped");
+    expect(status?.error).toBe(LABEL);
+    expect(status?.recoverableText).toBe("the words nobody confirmed");
+    expect(status?.offerSendAnyway).toBe(false);
+    expect(status?.retryable).toBe(false);
+    // No automatic attempt of any kind follows.
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("C1: too old with the Gateway's offer still offers Send anyway", async () => {
+    vi.mocked(uploadDictationToSession).mockResolvedValue({ ...UNCONFIRMED, movedOnReason: "too-old", offerSendAnyway: true });
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const saved = vi.mocked(savePending).mock.calls.find((c) => c[0].staleDropped)?.[0];
+    expect(saved?.droppedOfferSendAnyway).toBe(true);
+    expect(statusFor(saved!.id)?.offerSendAnyway).toBe(true);
+    expect(statusFor(saved!.id)?.error).toContain("more than 5 minutes old");
+  });
+
+  it("C1: an unconfirmed recording is re-published after a reload with the same verdict", async () => {
+    const stored: PendingDictation = {
+      ...makeRecord("id-unconfirmed-reload"),
+      staleDropped: true,
+      droppedTranscript: "still unconfirmed",
+      droppedReason: "unconfirmed",
+      droppedOfferSendAnyway: false,
+    };
+    vi.mocked(listPending).mockResolvedValue([stored]);
+
+    await resumePendingDictations();
+
+    const status = statusFor("id-unconfirmed-reload");
+    expect(status?.error).toBe(LABEL);
+    expect(status?.offerSendAnyway).toBe(false);
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("C1: nothing can send an unconfirmed recording - not Send anyway, not a fresh-id Retry, not Upload now", async () => {
+    const stored: PendingDictation = {
+      ...makeRecord("id-unconfirmed-guard"),
+      staleDropped: true,
+      droppedTranscript: "",
+      droppedReason: "unconfirmed",
+      droppedOfferSendAnyway: false,
+      before: "typed words",
+    };
+    vi.mocked(getPending).mockResolvedValue(stored);
+
+    await sendDroppedDictationAnyway("id-unconfirmed-guard");
+    await retryDroppedDictation("id-unconfirmed-guard");
+    await retryPendingDictation("id-unconfirmed-guard");
+
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(uploadDictationToSession).not.toHaveBeenCalled();
+    expect(savePending).not.toHaveBeenCalled();
+    expect(deletePending).not.toHaveBeenCalled();
+    expect(statusFor("id-unconfirmed-guard")?.offerSendAnyway).toBe(false);
+  });
+
+  it("C1: a shown-back answer without the Gateway's offer keeps the copy and is logged with the upload id", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(uploadDictationToSession).mockRejectedValue(
+      new Error("[uploadDictationToSession] the Gateway's shown-back answer for upload up-1 carries no offerSendAnyway"),
+    );
+
+    await backgroundTranscribeAndSend("sid", captured);
+
+    const id = vi.mocked(savePending).mock.calls[0][0].id;
+    expect(deletePending).not.toHaveBeenCalled();
+    expect(statusFor(id)?.phase).toBe("held");
+    expect(errors.mock.calls.some((c) => String(c[0]).includes(id) && String(c[0]).includes("offerSendAnyway"))).toBe(true);
+    errors.mockRestore();
+  });
+
+  it("C2: a Send anyway re-press answered unconfirmed stops pressing, clears the mark on disk, and shows the words back", async () => {
+    const marked: PendingDictation = {
+      ...makeRecord("id-repress"),
+      staleDropped: true,
+      droppedTranscript: "the words I said",
+      droppedReason: "too-old",
+      droppedOfferSendAnyway: true,
+      sendingAnyway: true,
+    };
+    vi.mocked(getPending).mockResolvedValue(marked);
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: false, unconfirmed: true });
+
+    await sendDroppedDictationAnyway("id-repress");
+
+    const saved = vi.mocked(savePending).mock.calls.at(-1)?.[0];
+    expect(saved?.sendingAnyway).toBeUndefined();
+    expect(saved?.droppedReason).toBe("unconfirmed");
+    expect(saved?.droppedOfferSendAnyway).toBe(false);
+    expect(saved?.staleDropped).toBe(true);
+    expect(deletePending).not.toHaveBeenCalled();
+    const status = statusFor("id-repress");
+    expect(status?.phase).toBe("dropped");
+    expect(status?.error).toBe(LABEL);
+    expect(status?.recoverableText).toBe("the words I said");
+    expect(status?.offerSendAnyway).toBe(false);
+    // No further automatic presses.
+    vi.mocked(getPending).mockResolvedValue(saved!);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+
+    // Dismiss is the one way out, and it deletes the copy.
+    await dismissDictationStatus("id-repress");
+    expect(deletePending).toHaveBeenCalledWith("id-repress");
+    expect(statusFor("id-repress")).toBeUndefined();
+  });
+
+  it("C2: a 202 re-press followed by unconfirmed stops the repeats on the cadence too", async () => {
+    const rec: PendingDictation = {
+      ...makeRecord("id-repress-202"),
+      staleDropped: true,
+      droppedTranscript: "the words I said",
+      droppedReason: "too-old",
+      droppedOfferSendAnyway: true,
+    };
+    vi.mocked(getPending).mockResolvedValue(rec);
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: true, directorState: "no-answer" });
+    await sendDroppedDictationAnyway("id-repress-202");
+    const marked = vi.mocked(savePending).mock.calls.at(-1)![0];
+    expect(marked.sendingAnyway).toBe(true);
+
+    vi.mocked(getPending).mockResolvedValue(marked);
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: false, unconfirmed: true });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(sendPrompt).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(savePending).mock.calls.at(-1)?.[0].sendingAnyway).toBeUndefined();
+    expect(statusFor("id-repress-202")?.error).toBe(LABEL);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(sendPrompt).toHaveBeenCalledTimes(2);
   });
 });

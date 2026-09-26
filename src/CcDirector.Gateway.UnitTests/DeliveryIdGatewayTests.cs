@@ -142,8 +142,9 @@ public sealed class DeliveryIdGatewayTests : IDisposable
     [Fact]
     public async Task Complete_DirectorSaysStillDelivering_IsNotResolvedAsDelivered()
     {
-        // Proves any other refusal keeps the failure path: the words may still be going in, so nothing is written as
-        // delivered and the record stays PENDING for the retry (asking the Director instead is phase 2).
+        // Proves a refusal as still delivering is not a delivery: the words may still be going in, so nothing is written
+        // as delivered and the record stays PENDING for the retry, which asks the Director first (phase 2; the answer's
+        // HTTP shape is proved in DictationAskInsteadOfGuessingTests).
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
 
@@ -273,6 +274,7 @@ public sealed class DeliveryIdGatewayTests : IDisposable
             new DictationCompleteRequest
             {
                 SessionId = sid, TotalChunks = 1, Mime = "audio/webm", Ext = "webm", Before = before, After = after,
+                SentAtUtc = DateTime.UtcNow,
             },
             _store, _registry, owners: null, Transcription(), _marks,
             deliverySurface: "cockpit", deliveryIdentityKind: "device-key",
@@ -285,7 +287,7 @@ public sealed class DeliveryIdGatewayTests : IDisposable
                 sent.Add(prompt);
                 return Task.FromResult<DirectorCommandResult?>(director(prompt));
             },
-            streamStale: TimeSpan.FromSeconds(20));
+            streamStale: TimeSpan.FromSeconds(20), clock: TimeProvider.System);
 
     private GatewayTranscriptionService Transcription() => new(
         new KeyVault(_vaultPath),
