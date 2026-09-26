@@ -49,15 +49,8 @@ const NOW: WingmanNow = {
   wholeReply: null,
   needs: {
     heading: "What it needs from you",
-    recommends: null,
     question: null,
-    options: [
-      { index: 0, number: 1, key: "Commit and deploy", note: "It commits the fixes and deploys them.", recommended: true },
-      { index: 1, number: 2, key: "Do not commit", note: "Nothing is committed or deployed.", recommended: false },
-    ],
   },
-  canAnswerByOption: true,
-  verdictId: "v-1",
   replyPlaceholder: PLACEHOLDER,
   calmCard: null,
   carryingOnDeadline: null,
@@ -87,8 +80,6 @@ const WORKING: WingmanNow = {
   headline: null,
   story: null,
   needs: null,
-  canAnswerByOption: false,
-  verdictId: null,
   replyPlaceholder: "Send it something while it works - it is queued until it is ready.",
   replyHint: "Sent to the session as your message.",
   lastAsked: {
@@ -109,8 +100,6 @@ const DONE: WingmanNow = {
   pillColourHex: "#06b6d4",
   headline: "Release v2.5.0 is tagged and published",
   needs: null,
-  canAnswerByOption: false,
-  verdictId: null,
   replyPlaceholder: "Give it something else to do.",
   replyHint: "Sent to the session as your message.",
   calmCard: {

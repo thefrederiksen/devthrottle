@@ -139,13 +139,14 @@ public sealed class WingmanTranslatorTests
     // have invented one. These prove the title actually REACHES the model, which is the real fix.
 
     [Fact]
-    public void FidelityPrompt_V10_TellsTheWingmanNotToSayTheSessionName_BecauseCodePutsItInFront()
+    public void FidelityPrompt_TellsTheWingmanNotToSayTheSessionName_BecauseCodePutsItInFront()
     {
         // v10 (slice J): the prompt is the narration call's, and the name is prepended by SpokenForEar.Assemble as
         // it is for the judge's spoken text. A prompt that still asked for the title would say it twice.
         Assert.DoesNotContain("OPEN WITH THE SESSION TITLE", WingmanTranslator.FidelityPrompt);
         Assert.Contains("DO NOT SAY THE SESSION'S NAME", WingmanTranslator.FidelityPrompt);
-        Assert.Equal("10", WingmanTranslator.DefaultInstructionsVersion);
+        // v11 (the turn pipeline mission, phase 4) took the menu shape and its "press a button" sentence out.
+        Assert.Equal("11", WingmanTranslator.DefaultInstructionsVersion);
     }
 
     [Fact]

@@ -323,10 +323,13 @@ public sealed class CallACodeFirstTests : IDisposable
         Assert.Equal("red", ColourOf(stored));
     }
 
+    /// <summary>Call A answers no label (contract v4). Since phase 4 Call B writes it; a Call B that answers out of
+    /// shape gives none, and the row shows its plain state label beside Call A's colour.</summary>
     [Fact]
-    public async Task AV4Reading_HasNoLabel_SoTheRowShowsItsPlainStateLabel()
+    public async Task AV4ReadingWhoseCallBGaveNoLabel_ShowsThePlainStateLabel()
     {
         var env = Env(PlainReport);
+        env.Narrator = (_, _) => Task.FromResult("an answer with no label line");
 
         await new TurnVerdictService(env).StartTurnEnd(Signal());
 
@@ -339,7 +342,7 @@ public sealed class CallACodeFirstTests : IDisposable
     // ================================================================= a stored v3 record still renders
 
     [Fact]
-    public void AStoredV3Record_StillReadsAndRenders_WithItsLabelAndItsButtons()
+    public void AStoredV3Record_StillReadsAndRenders_WithItsLabelAndItsMenu()
     {
         // Exactly what TurnVerdictStore holds for a v3 reading: its JSON, with no step and no reason.
         const string v3Json = """
@@ -359,7 +362,8 @@ public sealed class CallACodeFirstTests : IDisposable
         Assert.Contains("Choose whether to push the guard", SessionOrdering.StateLabel(row));
         Assert.Equal(2, copy.Options.Count);
         Assert.Equal("Push the deploy guard?", copy.Menu!.Question);
-        Assert.Equal("Leave it on the branch.", copy.AgentRecommends);
+        // The v3 JSON still carries "AgentRecommends" (phase 4 removed the field). It is ignored, never a failure to
+        // read: the record above deserialized and renders.
     }
 
     [Fact]

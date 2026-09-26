@@ -83,7 +83,6 @@ public static class WingmanDebugFold
             // what it dropped without holding two screens side by side.
             State = verdict?.State,
             Label = verdict?.Label,
-            AgentRecommends = verdict?.AgentRecommends,
             Narration = verdict?.Narration,
             Failed = verdict?.Failed ?? false,
             FailureReason = verdict?.FailureReason,
@@ -150,7 +149,6 @@ public sealed class WingmanDebugStop
 
     public string? State { get; set; }
     public string? Label { get; set; }
-    public string? AgentRecommends { get; set; }
     public string? Narration { get; set; }
     public bool Failed { get; set; }
     public string? FailureReason { get; set; }

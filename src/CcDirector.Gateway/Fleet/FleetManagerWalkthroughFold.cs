@@ -360,8 +360,6 @@ internal static class FleetManagerWalkthroughFold
         reading.Summary = string.IsNullOrWhiteSpace(v.Summary) ? null : v.Summary;
         reading.EvidenceLead = string.IsNullOrWhiteSpace(v.Evidence) ? null : "In its own words:";
         reading.Evidence = string.IsNullOrWhiteSpace(v.Evidence) ? null : v.Evidence;
-        reading.AgentRecommendsLead = string.IsNullOrWhiteSpace(v.AgentRecommends) ? null : "It recommends:";
-        reading.AgentRecommends = string.IsNullOrWhiteSpace(v.AgentRecommends) ? null : v.AgentRecommends;
         reading.RiskLine = string.IsNullOrWhiteSpace(v.Risk) || v.Risk == "none" ? null : $"Risk: {v.Risk}";
         if (facts.Fresh is null)
             reading.Note = $"This reading is from {FleetManagerPlacementFold.FormatWhen(v.JudgedAtUtc, tz, now)}. The session's "

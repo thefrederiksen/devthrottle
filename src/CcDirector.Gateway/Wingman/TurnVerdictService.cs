@@ -134,12 +134,14 @@ public interface ITurnVerdictEnvironment
 /// person's own request reads a held session.</param>
 public sealed record TurnVerdictSessionState(SessionDto? Facts, bool Held);
 
-/// <summary>What one narration call produced: the finished spoken text, or why there is none. The prompt is kept so
-/// a test can read what the call was given.</summary>
+/// <summary>What one narration call (Call B) produced: the finished spoken text and the row's label, or why there is
+/// none. The prompt is kept so a test can read what the call was given.</summary>
 /// <param name="RawReply">The narrator's answer exactly as received, for the debug view. Null when no answer arrived -
 /// a timeout, a rate limit, or a call that was never made.</param>
+/// <param name="Label">Call B's label for the row, or null when it gave none - a failed call, or the Pro sentence that
+/// stands in with no model call. The row then shows its plain state label.</param>
 public sealed record NarrationCallResult(string? Spoken, string? FailureDetail, string Prompt, double ReplySeconds,
-    string? RawReply = null);
+    string? RawReply = null, string? Label = null);
 
 /// <summary>The judge's raw answer, which model gave it, and how long it took.</summary>
 public sealed record TurnVerdictJudgeAnswer(string Raw, string Model, double ReplySeconds);
@@ -1271,6 +1273,10 @@ public sealed class TurnVerdictService : IDisposable
                 record.Summary = words;
                 record.Spoken = words;
             }
+            // THE LABEL IS CALL B'S (phase 4): it arrives with the narration, before the store, so colour, label and words
+            // appear together. A Call B that failed leaves it empty and the row shows its plain state label.
+            if (narration.Label is { Length: > 0 } label)
+                record.Label = label;
 
             // A NARRATION THAT WAS OWED AND DID NOT COME IS A FAILED READING TO THE PERSON LOOKING AT IT. The judge's
             // answer stands - the row keeps its colour and its label - and the record says the words are missing, so it
@@ -1569,18 +1575,19 @@ public sealed class TurnVerdictService : IDisposable
         // one word, so a refused one holds no decision to salvage.
         var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, verdict);
         var timeout = TimeSpan.FromSeconds(TurnVerdictSettings.NarrationCallTimeoutSeconds);
-        FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} failed={verdict.Failed} answerVia={verdict.AnswerVia} promptLen={prompt.Length}");
+        FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} failed={verdict.Failed} state={verdict.State} decidedBy={verdict.DecidedBy} promptLen={prompt.Length}");
         try
         {
             var answer = await _env.AskNarratorAsync(tenant, prompt, timeout, ct).ConfigureAwait(false);
-            var spoken = NarrationCall.SpokenFrom(answer.Raw);
-            if (spoken.Length == 0)
+            // AN ANSWER NOT IN THE LABEL AND NARRATION SHAPE IS A FAILED CALL B: no label and no words, never a guess.
+            var parsed = NarrationCall.ParseAnswer(answer.Raw);
+            if (parsed.FailureReason is { } unreadable)
             {
-                FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} FAILED: the answer held no words");
-                return new NarrationCallResult(null, "the narration call answered with no words", prompt, answer.ReplySeconds, answer.Raw);
+                FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} FAILED: {unreadable}");
+                return new NarrationCallResult(null, unreadable, prompt, answer.ReplySeconds, answer.Raw);
             }
-            FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} OK: spokenLen={spoken.Length} replySeconds={answer.ReplySeconds:F1}");
-            return new NarrationCallResult(spoken, null, prompt, answer.ReplySeconds, answer.Raw);
+            FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} OK: labelLen={parsed.Label.Length} spokenLen={parsed.Spoken.Length} replySeconds={answer.ReplySeconds:F1}");
+            return new NarrationCallResult(parsed.Spoken, null, prompt, answer.ReplySeconds, answer.Raw, parsed.Label);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1786,7 +1793,8 @@ public sealed class TurnVerdictService : IDisposable
     /// Save a narration onto the verdict it describes, when that verdict is still this session's latest. A newer verdict
     /// has its own stop and its own narration, so text for an older one is dropped and logged. Returns whether it was saved.
     /// </summary>
-    internal bool SaveNarration(TenantId tenant, string sid, string verdictId, string narration)
+    /// <param name="label">Call B's label from the same answer, saved beside the words; null keeps the stored label.</param>
+    internal bool SaveNarration(TenantId tenant, string sid, string verdictId, string narration, string? label = null)
     {
         lock (_storeGate)
         {
@@ -1798,6 +1806,7 @@ public sealed class TurnVerdictService : IDisposable
             }
             var updated = Copy(latest);
             updated.Narration = narration;
+            if (!string.IsNullOrWhiteSpace(label)) updated.Label = label;
             // THE WORDS ARRIVED, so this reading is no longer one with no words: the tag clears and nothing stays booked.
             if (updated.NarrationFailureReason is not null)
             {

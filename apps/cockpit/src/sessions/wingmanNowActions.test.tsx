@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 // What the Cockpit's Now actions do with what the Gateway answers (the Wingman tab, version 3, item 3).
 //
-// THE DEFECT THESE EXIST FOR. The first wiring was fire-and-forget: `void sendPrompt(...)` and an option answer whose
-// result was thrown away. A refused answer showed the owner NOTHING - the buttons stayed put, he could click again,
-// and the route's own sentence, which the settled design says he sees unedited, never left this file. A failed send
-// was an unhandled rejection, and the reply box had already emptied itself, so his typed words were gone too.
+// THE DEFECT THESE EXIST FOR. The first wiring was fire-and-forget: `void sendPrompt(...)` whose result was thrown
+// away. A failed send was an unhandled rejection, and the reply box had already emptied itself, so his typed words
+// were gone too.
 //
 // So every test below drives a REAL Gateway answer through the real client and asserts on the outcome the view is
 // handed: accepted or not, and the sentence. An action that swallowed its answer, or that rejected instead of
@@ -14,7 +13,6 @@ import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { wingmanNowActions } from "./wingmanNowActions";
 
 const SID = "6e4a7c30-0000-4000-8000-000000000070";
-const OPTION = { index: 1, number: 1, key: "Allow the merge", note: null, recommended: true };
 
 const GO = { openTerminal: () => {}, goToSession: () => {}, openSettings: () => {}, openStop: () => {} };
 
@@ -43,47 +41,11 @@ function fakeGateway(routes: Record<string, [number, unknown]>) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("what Now can do, and what it says about it", () => {
-  it("hands back the answer route's own refusal sentence, unedited, instead of discarding it", async () => {
-    fakeGateway({
-      "turn-verdict/answer": [409, { error: "The screen has moved on since that question was asked." }],
-    });
-
-    const outcome = await actions().onAnswerOption!(OPTION, "v-3002");
-
-    expect(outcome.accepted).toBe(false);
-    expect(outcome.message).toContain("The screen has moved on since that question was asked.");
-  });
-
-  it("hands back what the answer route said when it accepted the answer", async () => {
-    fakeGateway({
-      "turn-verdict/answer": [200, { accepted: true, code: "written", reason: "Sent option 1 to the session." }],
-    });
-
-    const outcome = await actions().onAnswerOption!(OPTION, "v-3002");
-
-    expect(outcome).toEqual({ accepted: true, message: "Sent option 1 to the session." });
-    expect(calls[0]).toBe(`/sessions/${SID}/turn-verdict/answer`);
-  });
-
-  it("reports a 200 the route did NOT accept as not accepted, in the route's own words", async () => {
-    fakeGateway({
-      "turn-verdict/answer": [200, { accepted: false, code: "stale", reason: "That stop is no longer on screen." }],
-    });
-
-    const outcome = await actions().onAnswerOption!(OPTION, "v-3002");
-
-    expect(outcome).toEqual({ accepted: false, message: "That stop is no longer on screen." });
-  });
-
-  it("sends a verdict identifier the Gateway can refuse rather than doing nothing at all", async () => {
-    fakeGateway({ "turn-verdict/answer": [400, { error: "No stop was named." }] });
-
-    const outcome = await actions().onAnswerOption!(OPTION, null);
-
-    // The call was MADE. A shell that quietly skipped it would leave buttons that look enabled and do nothing.
-    expect(calls[0]).toBe(`/sessions/${SID}/turn-verdict/answer`);
-    expect(outcome.accepted).toBe(false);
-    expect(outcome.message).toContain("No stop was named.");
+  it("offers no way to answer a stop by option: the answer buttons are gone (the turn pipeline mission, phase 4)", () => {
+    // CONTROL: the same actions object does carry the Now view's other writes, so the absence is not an empty object.
+    const now = actions();
+    expect(now.onSnooze).toBeDefined();
+    expect("onAnswerOption" in now).toBe(false);
   });
 
   it("says what snoozing did, including a snooze that arms when the work ends", async () => {

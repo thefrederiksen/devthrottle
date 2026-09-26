@@ -154,7 +154,6 @@ public static class TurnVerdictWatchdog
             // ONE BODY, written once, in all three fields - see the note above. The correction opens it and the
             // description follows behind its frame, so the news leads and the fact is said once.
             Summary = body,
-            AgentRecommends = null,
             AnswerVia = "reply",
             Menu = null,
             Options = new List<TurnVerdictOptionDto>(),
@@ -221,7 +220,6 @@ public static class TurnVerdictWatchdog
             Evidence = expired.Evidence,
             Label = CarryingOnAgainLabel,
             Summary = CarryingOnAgainSummary,
-            AgentRecommends = null,
             AnswerVia = "reply",
             Menu = null,
             Options = new List<TurnVerdictOptionDto>(),

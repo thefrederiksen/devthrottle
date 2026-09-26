@@ -50,8 +50,6 @@ const NOW: WingmanNow = {
   agentSaid: null,
   wholeReply: null,
   needs: null,
-  canAnswerByOption: false,
-  verdictId: null,
   replyPlaceholder: "Answer the session directly.",
   calmCard: null,
   carryingOnDeadline: null,

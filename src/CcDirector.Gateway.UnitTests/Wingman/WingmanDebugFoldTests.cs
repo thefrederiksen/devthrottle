@@ -69,7 +69,6 @@ public sealed class WingmanDebugFoldTests
         Verdict = TurnVerdictVocabulary.Finished,
         FinishedKind = "report",
         Label = "Retention sweep done",
-        AgentRecommends = "Turn the daily schedule off.",
         Narration = "The retention sweep is done and the test covers it.",
     };
 
@@ -183,7 +182,6 @@ public sealed class WingmanDebugFoldTests
 
         Assert.Equal(TurnVerdictStates.FinishedReport, stop.State);
         Assert.Equal("Retention sweep done", stop.Label);
-        Assert.Equal("Turn the daily schedule off.", stop.AgentRecommends);
         Assert.Equal("The retention sweep is done and the test covers it.", stop.Narration);
     }
 

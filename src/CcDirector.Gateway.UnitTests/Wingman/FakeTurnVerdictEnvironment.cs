@@ -158,11 +158,15 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// this to the narration prompt - see <see cref="CountingBrain"/>.</summary>
     public static string DefaultNarration() => NarratedAnswer(LastCannedSpoken);
 
-    /// <summary>A narrator answer as the real model writes one: the words between the two markers.</summary>
-    public static string NarratedAnswer(string spoken)
+    /// <summary>The label every default narration answers with (Call B writes the row's label from phase 4).</summary>
+    public const string NarratedLabel = "The Wingman's label for this stop";
+
+    /// <summary>A narrator answer as the real model writes one (Call B, phase 4): the label line and the words, between
+    /// the two markers.</summary>
+    public static string NarratedAnswer(string spoken, string label = NarratedLabel)
         => spoken.Length == 0
             ? ""
-            : $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
+            : $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{NarrationCall.LabelTag} {label}\n{NarrationCall.NarrationTag}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
 
     private int _narratorCalls;
     /// <summary>How many narration calls were made. Never counted as judge calls.</summary>
@@ -431,8 +435,8 @@ internal sealed class CountingBrain : IAgentBrain
 
     public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
     {
-        // The narration prompt is the one that asks for the spoken version between two markers.
-        if (prompt.Contains("Output ONLY the spoken version", StringComparison.Ordinal))
+        // The narration prompt is the one that asks for the label line and the spoken version between two markers.
+        if (prompt.Contains(NarrationCall.LabelTag + " <label>", StringComparison.Ordinal))
         {
             Interlocked.Increment(ref _narrations);
             return Task.FromResult(new AskResult { Text = NarrationAnswer(), ReplySeconds = 0.1 });

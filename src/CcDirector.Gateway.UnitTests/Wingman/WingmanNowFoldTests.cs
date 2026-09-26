@@ -33,7 +33,6 @@ public sealed class WingmanNowFoldTests
         string label = "Merge pull request 3002, or allow me to merge it",
         string summary = "The release notes are pushed and the merge command was refused by a permission check.",
         string evidence = "Either merge 3002 yourself, or allow that command and I will do it.",
-        string? recommends = "allow the merge - the notes have been reviewed",
         string? menuQuestion = null,
         int options = 0) => new()
     {
@@ -46,7 +45,6 @@ public sealed class WingmanNowFoldTests
         Label = label,
         Summary = summary,
         Evidence = evidence,
-        AgentRecommends = recommends,
         Menu = menuQuestion is null ? null : new TurnVerdictMenuDto { Question = menuQuestion },
         Options = Enumerable.Range(0, options).Select(i => new TurnVerdictOptionDto
         {
@@ -96,7 +94,6 @@ public sealed class WingmanNowFoldTests
         Assert.Equal("Claude Code said", now.AgentSaid!.Who);
         Assert.Equal("Either merge 3002 yourself, or allow that command and I will do it.", now.AgentSaid.Text);
         Assert.Equal("What it needs from you", now.Needs!.Heading);
-        Assert.Equal("It recommends: allow the merge - the notes have been reviewed", now.Needs.Recommends);
         Assert.Equal(WingmanNowFold.ReplyPlaceholderNeedsYou, now.ReplyPlaceholder);
         Assert.Null(now.CalmCard);
         Assert.False(now.Unsure);
@@ -214,48 +211,30 @@ public sealed class WingmanNowFoldTests
         Assert.Null(Fold(row, verdict).When);
     }
 
+    /// <summary>
+    /// THERE ARE NO ANSWER BUTTONS ON THE NOW SCREEN (the turn pipeline mission, phase 4; the owner, 25 September:
+    /// "Drop the buttons for now. A menu is simply needs you, and the narration says open the session to choose"). A
+    /// record stored under contract v3 still carries a menu and options; the card shows its question, and the reply
+    /// box is the way to answer. The wire no longer has an options list, a recommendation, a risk warning or an
+    /// answerable flag at all - a test here cannot even name them, which is the strongest form of "gone".
+    /// </summary>
     [Fact]
-    public void The_options_carry_the_position_the_answer_route_takes_and_the_recommended_mark()
+    public void A_v3_menu_stop_shows_its_question_and_offers_the_reply_box_with_no_options_on_the_wire()
     {
         var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2, menuQuestion: "Which one?");
+        verdict.Risk = "irreversible";
         var now = Fold(Row(verdict), verdict);
 
+        Assert.Equal(WingmanNowStates.NeedsYou, now.State);
         Assert.Equal("Which one?", now.Needs!.Question);
-        Assert.Collection(now.Needs.Options,
-            first =>
-            {
-                Assert.Equal(0, first.Index);
-                Assert.Equal("Option 0", first.Key);
-                Assert.Equal("What option 0 does.", first.Note);
-                Assert.True(first.Recommended);
-            },
-            second =>
-            {
-                Assert.Equal(1, second.Index);
-                Assert.False(second.Recommended);
-            });
-        Assert.Equal("verdict-1", now.VerdictId);
-        Assert.True(now.CanAnswerByOption);
-    }
-
-    /// <summary>Each gate alone closes the one-tap path, and each leaves the options readable and the reply box open.</summary>
-    [Theory]
-    [InlineData(1, false, false)]   // one option is not a choice
-    [InlineData(2, true, false)]    // already answered
-    [InlineData(2, false, true)]    // the verdict in force is not in the history window, so it cannot be checked
-    public void An_option_cannot_be_tapped_unless_it_is_unanswered_and_a_real_choice(
-        int options, bool answered, bool missingFromHistory)
-    {
-        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: options);
-        var history = missingFromHistory
-            ? Array.Empty<AnsweredTurnVerdict>()
-            : new[] { new AnsweredTurnVerdict(verdict, answered ? Stopped.AddMinutes(2) : null) };
-
-        var now = WingmanNowFold.Fold(new WingmanNowInputs(Sid, Row(verdict), history, null));
-
-        Assert.False(now.CanAnswerByOption);
-        Assert.Equal(options, now.Needs!.Options.Count);
         Assert.Equal(WingmanNowFold.ReplyPlaceholderNeedsYou, now.ReplyPlaceholder);
+
+        var wire = System.Text.Json.JsonSerializer.Serialize(now.Needs);
+        foreach (var gone in new[] { "Options", "Recommends", "RiskFlag", "RiskLine", "ConfirmBeforeSending", "OptionsLead" })
+            Assert.DoesNotContain("\"" + gone + "\"", wire);
+        var whole = System.Text.Json.JsonSerializer.Serialize(now);
+        Assert.DoesNotContain("\"CanAnswerByOption\"", whole);
+        Assert.DoesNotContain("Option 0", whole);
     }
 
     [Fact]
@@ -349,7 +328,6 @@ public sealed class WingmanNowFoldTests
         Assert.NotEqual(WingmanNowFold.ReplyPlaceholderReport, now.ReplyPlaceholder);
         Assert.Equal(WingmanNowFold.ReplyHintPlain, now.ReplyHint);
         Assert.Null(now.Needs);
-        Assert.False(now.CanAnswerByOption);
     }
 
     /// <summary>
@@ -564,7 +542,6 @@ public sealed class WingmanNowFoldTests
         Assert.Null(now.Story);
         Assert.Null(now.Needs);
         Assert.Null(now.CalmCard);
-        Assert.Null(now.VerdictId);
     }
 
     /// <summary>No row at all - the session's machine has gone away and pushed nothing this fold can read. The record
@@ -612,13 +589,11 @@ public sealed class WingmanNowFoldTests
         var now = Fold(row, verdict);
 
         Assert.Equal(WingmanNowStates.Failed, now.State);
-        // Not the refused record's own label, summary, sentence, options or id - none of it was accepted.
+        // Not the refused record's own label, summary or sentence - none of it was accepted.
         Assert.Null(now.Headline);
         Assert.Null(now.Story);
         Assert.Null(now.AgentSaid);
         Assert.Null(now.Needs);
-        Assert.False(now.CanAnswerByOption);
-        Assert.Null(now.VerdictId);
         // What IS served is the refusal itself, in the Gateway's own words.
         Assert.Equal("The Wingman could not explain this stop", now.FailedHeadline);
     }
@@ -2111,111 +2086,6 @@ public sealed class WingmanNowFoldTests
 
         Assert.Equal("Wingman Inspector - Manager", Fold(Row(verdict), verdict).SessionLine);
         Assert.Equal(Sid, FoldWith(null, NoHistory).SessionLine);
-    }
-
-    /// <summary>
-    /// THE OPTIONS ARE NUMBERED FROM ONE FOR THE READER, and from zero for the answer route - both, on the same
-    /// option, because they answer different questions. He was being shown the route's number, so the first
-    /// option read "0".
-    /// </summary>
-    [Fact]
-    public void Options_carry_the_number_he_reads_as_well_as_the_one_the_answer_route_takes()
-    {
-        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 3);
-        var options = Fold(Row(verdict), verdict).Needs!.Options;
-
-        Assert.Equal(new[] { 1, 2, 3 }, options.Select(o => o.Number));
-        Assert.Equal(new[] { 0, 1, 2 }, options.Select(o => o.Index));
-        Assert.DoesNotContain(0, options.Select(o => o.Number));
-    }
-
-    /// <summary>The line that says a tap IS the answer going out, and nothing of the sort on a stop with no
-    /// options to tap.</summary>
-    [Fact]
-    public void The_options_are_led_by_what_a_tap_does_and_a_stop_with_none_says_nothing_about_tapping()
-    {
-        var withOptions = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
-        Assert.Equal("Click an option to send it as your answer",
-            Fold(Row(withOptions), withOptions).Needs!.OptionsLead);
-
-        var typedOnly = Verdict(TurnVerdictVocabulary.NeededYou);
-        Assert.Null(Fold(Row(typedOnly), typedOnly).Needs!.OptionsLead);
-    }
-
-    /// <summary>
-    /// A RISK WORD ON THE VERDICT REACHES THE SCREEN AS A WARNING, and the screen is told to ask once before it
-    /// sends. Three words carry one; "none" carries nothing, and so does a record that recorded none at all.
-    ///
-    /// IT IS ABOUT THE STOP, NOT ABOUT ONE OPTION. The judge answers one risk word for the whole answer and
-    /// nothing in the record says which option carries it - see the note on WingmanNowNeedsDto.RiskFlag.
-    /// </summary>
-    [Theory]
-    [InlineData("irreversible", "Cannot be undone")]
-    [InlineData("standing-grant", "Says yes from now on")]
-    [InlineData("spends-money", "Spends real money")]
-    public void A_risky_stop_carries_its_warning_and_asks_before_it_sends(string risk, string flag)
-    {
-        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
-        verdict.Risk = risk;
-
-        var needs = Fold(Row(verdict), verdict).Needs!;
-
-        Assert.Equal(flag, needs.RiskFlag);
-        Assert.False(string.IsNullOrWhiteSpace(needs.RiskLine));
-        Assert.True(needs.ConfirmBeforeSending);
-    }
-
-    [Theory]
-    [InlineData("none")]
-    [InlineData("")]
-    public void A_stop_with_no_risk_recorded_carries_no_warning_and_no_confirmation(string risk)
-    {
-        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
-        verdict.Risk = risk;
-
-        var needs = Fold(Row(verdict), verdict).Needs!;
-
-        Assert.Null(needs.RiskFlag);
-        Assert.Null(needs.RiskLine);
-        Assert.False(needs.ConfirmBeforeSending);
-    }
-
-    /// <summary>
-    /// A RECOMMENDATION THAT IS THE ASK AGAIN IS NOT SHOWN. The screen already carries the ask as the headline,
-    /// as the story and as the agent's own sentence; a fourth copy under "It recommends" is how the card stops
-    /// being read. The RECOMMENDED mark on the option says which way it leans without a sentence.
-    /// </summary>
-    [Theory]
-    // The one off the owner's screen: a question, and the same words as the receipt above it.
-    [InlineData("Want me to land it to main and deploy?")]
-    // A question that says something else. A recommendation cannot be a question, and rewriting one into a
-    // statement would be this fold putting words in the agent's mouth.
-    [InlineData("Should I run the tests first?")]
-    // The menu's own question back again, with the punctuation and the capital moved.
-    [InlineData("commit and deploy the fixes")]
-    // The Wingman's headline back again, inside a longer sentence.
-    [InlineData("I suggest you merge pull request 3002, or allow me to merge it")]
-    public void A_recommendation_that_adds_nothing_beyond_the_question_is_not_shown(string recommends)
-    {
-        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2, recommends: recommends,
-            menuQuestion: "Commit and deploy the fixes?",
-            evidence: "Want me to land it to main and deploy?");
-
-        Assert.Null(Fold(Row(verdict), verdict).Needs!.Recommends);
-    }
-
-    /// <summary>And one that DOES add something is shown, led so that the line reads as a statement. The control
-    /// for the theory above: the rule hides a repeat, not every recommendation.</summary>
-    [Fact]
-    public void A_recommendation_that_adds_something_is_shown_as_a_statement()
-    {
-        var verdict = Verdict(TurnVerdictVocabulary.NeededYou, options: 2,
-            recommends: "committing and deploying, because the notes have been reviewed",
-            menuQuestion: "Commit and deploy the fixes?",
-            evidence: "Want me to land it to main and deploy?");
-
-        Assert.Equal("It recommends: committing and deploying, because the notes have been reviewed",
-            Fold(Row(verdict), verdict).Needs!.Recommends);
     }
 
     /// <summary>

@@ -85,7 +85,7 @@ at your next idle moment. A stop is not sent while it is still waiting for its r
 
 Each event in it has its id and its kind. A `stop` or `died` event has the session's id and full
 name, and for a stop the Wingman's reading of it: the `verdictId` (the identity of that stop), the verdict, `finishedKind`, label, summary, risk,
-`answerVia`, options, `agentRecommends` and the evidence, copied exactly between `<<<` and `>>>`.
+`answerVia`, options and the evidence, copied exactly between `<<<` and `>>>`.
 Two more kinds come the same way:
 
 - **`answered`** - the owner pressed a button on one of your cards. It names the `record` (id and
@@ -153,7 +153,7 @@ In each event, and in each session's `turnVerdict` (`fleet digest --json`, or a 
 | `finishedKind` | On `finished` only: `done` (the work is complete) or `report` (it is only telling). |
 | `evidence` | The session's own decisive words, copied exactly. Pass it on unchanged. |
 | `label`, `summary` | The short label and summary the owner sees. |
-| `options`, `agentRecommends`, `answerVia`, `menu` | The answers on offer, the session's own pick, and whether the answer is words you can pass on as a message (`reply`) or menu keys (`keys`), which only the owner can press. |
+| `options`, `answerVia`, `menu` | The answers on offer, and whether the answer is words you can pass on as a message (`reply`) or menu keys (`keys`), which only the owner can press. |
 | `risk` | `none`, `irreversible`, `standing-grant` or `spends-money`. Anything other than `none` is theirs to answer. |
 | `spoken` | The version for reading aloud. |
 | `failed`, `failureReason` | The Wingman could not read this stop. Treat it as "cannot tell". |

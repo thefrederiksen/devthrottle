@@ -335,11 +335,6 @@ function WalkthroughItemPanel({ item, deps, onSettled, onSkip }: ItemPanelProps)
                   {reading.evidenceLead} <q data-testid="fmw-evidence">{reading.evidence}</q>
                 </p>
               )}
-              {reading.agentRecommends && (
-                <p className="fmw-recommends">
-                  {reading.agentRecommendsLead} {reading.agentRecommends}
-                </p>
-              )}
               {reading.riskLine && <p className="fmw-risk">{reading.riskLine}</p>}
             </>
           )}

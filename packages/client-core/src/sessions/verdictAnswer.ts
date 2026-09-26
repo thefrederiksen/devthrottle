@@ -33,7 +33,6 @@ export interface TurnVerdict {
   evidence: string;
   label: string;
   summary: string;
-  agentRecommends?: string | null;
   answerVia: string;
   menu?: TurnVerdictMenu | null;
   options: TurnVerdictOption[];

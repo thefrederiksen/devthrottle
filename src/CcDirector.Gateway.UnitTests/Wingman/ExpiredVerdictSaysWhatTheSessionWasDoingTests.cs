@@ -111,7 +111,6 @@ public sealed class ExpiredVerdictSaysWhatTheSessionWasDoingTests
         var expired = TurnVerdictWatchdog.Expire(CarryingOn("Slices F and G are mid-build."), JudgedAt.AddMinutes(11));
 
         Assert.Equal(TurnVerdictVocabulary.NeededYou, expired.Verdict);
-        Assert.Null(expired.AgentRecommends);
         Assert.Null(expired.Menu);
         Assert.Empty(expired.Options);
         Assert.Null(expired.NextScheduledWakeUtc);
