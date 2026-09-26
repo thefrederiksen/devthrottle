@@ -359,6 +359,77 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         Assert.Equal(DeliveryDecisions.SessionExited, Names(uploadId).Last());
     }
 
+    [Fact]
+    public async Task ARecordThatNamesNoDirector_CannotProveAnEnding_IsHeld_EvenWhenTheOwnerCacheKnowsItsDirector()
+    {
+        // NO FALLBACK (the repository's first law). The ended proof reads ONE source: the Director the delivery's
+        // own durable record names. A record that names none - its session was never located by any attempt -
+        // cannot prove an ending, and the in-memory owner cache is NOT consulted for it: that was a second way
+        // to answer the same question, and no production record can predate the field anyway (the record and
+        // its DirectorId ship in the same release). So here the cache DOES know the session's Director, and the
+        // Director is connected and FRESH and does not list the session - everything the old fallback needed
+        // to end it - and the delivery is HELD all the same: 202 waiting-for-director, never session-exited.
+        var owners = new SessionOwnerCache();
+        var (driver, _) = NewDriver(owners);
+        var sid = Guid.NewGuid().ToString();
+        // The Director is connected and fresh, and has never listed the session (no attempt ever located it,
+        // so the record never remembered a Director):
+        _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-1");
+        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", ++_pushedSeq,
+            Array.Empty<SessionDto>()));
+        owners.Remember(TenantId.Local, sid, DirectorId);   // what the removed fallback would have read
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Task.FromResult<DirectorCommandResult?>(Timeout());
+        _deliveryState = _ => NoAnswer();
+
+        var first = await OwnAndAttemptAsync(driver, uploadId, sid);
+        Assert.Equal(202, first.Status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, first.Body.GetProperty("directorState").GetString());
+        Assert.Null(_store.ReadRecord(uploadId)!.Owned!.DirectorId);
+
+        _clock.Ahead = TimeSpan.FromSeconds(5);
+        await driver.TickAsync();
+
+        var read = await RenderAsync(GatewayDictationEndpoint.OutcomeOf(_store, uploadId));
+        Assert.Equal(202, read.Status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, read.Body.GetProperty("directorState").GetString());
+        Assert.Equal(DictationDeliveryState.Pending, _store.ReadRecord(uploadId)!.State);
+        Assert.Equal(0, Prompts());
+        Assert.Equal(0, _transcriber.Calls);
+        Assert.Equal(1, driver.HeldCount);
+    }
+
+    [Fact]
+    public async Task AHeldSendAnyway_WhoseRecordNamesNoDirector_IsHeld_EvenWhenTheOwnerCacheKnowsItsDirector()
+    {
+        // The same rule on the "Send anyway" half: the Director named on the held delivery (the one the owner's
+        // own press located) is the ONE proof. A held record that names no Director - the press never located the
+        // session, so nothing was remembered - cannot prove an ending, the owner cache is not consulted, and
+        // the claim stays held for the driver to keep driving: never session-exited.
+        var owners = new SessionOwnerCache();
+        var (driver, _) = NewDriver(owners);
+        var sid = Guid.NewGuid().ToString();
+        _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-1");
+        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", ++_pushedSeq,
+            Array.Empty<SessionDto>()));
+        owners.Remember(TenantId.Local, sid, DirectorId);   // what the removed fallback would have read
+        var uploadId = await StagedClipAsync(sid);
+        _store.MarkDelivered(uploadId, submitted: false, movedOn: true, SpokenWords, reason: DeliveryDecisions.TooOld);
+        Assert.True(_store.ResolveDeliveryClaim(uploadId, sid, SpokenWords.Length, DateTime.UtcNow).Verified);
+        Assert.True(_store.TakeSendAnywayOwnership(uploadId, new SendAnywayDelivery(
+            DateTime.UtcNow, sid, SpokenWords, "cockpit", null, DirectorId: null)));
+        driver.Track(TenantId.Local, uploadId, HeldDeliveryKind.SendAnyway);
+
+        _clock.Ahead = TimeSpan.FromSeconds(5);
+        await driver.TickAsync();
+
+        var read = await RenderAsync(GatewayDictationEndpoint.OutcomeOf(_store, uploadId));
+        Assert.Equal(202, read.Status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, read.Body.GetProperty("directorState").GetString());
+        Assert.Equal(0, Prompts());
+        Assert.Equal(1, driver.HeldCount);
+    }
+
     // ===== the Director itself refused it for age (contract section 9, F6) ================================
 
     [Fact]
@@ -454,9 +525,9 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
 
     // ===== harness ==========================================================================================
 
-    private (HeldDeliveryDriver Driver, DictationDelivery Delivery) NewDriver()
+    private (HeldDeliveryDriver Driver, DictationDelivery Delivery) NewDriver(SessionOwnerCache? owners = null)
     {
-        var delivery = new DictationDelivery(_registry, owners: null, Transcription(), _marks, _pushed, SendAsync,
+        var delivery = new DictationDelivery(_registry, owners, Transcription(), _marks, _pushed, SendAsync,
             TimeSpan.FromSeconds(20), _clock);
         var driver = new HeldDeliveryDriver(_store, _ => new NoScope(),
             (tenant, sid) => _pushed.TryLocateIgnoringFreshness(tenant, sid)?.DirectorId, hosted: false)

@@ -157,9 +157,10 @@ internal sealed class DictationDelivery
             store.RecordDecision(deliveryId, DeliveryDecisions.SessionNotFound,
                 new DeliveryDecisionFacts { SessionId = held.SessionId, StatusCode = StatusCodes.Status404NotFound });
             // Ended only when provable (contract section 9, F4): its Director is connected and fresh and no longer
-            // lists the session - the Director the owner's own press named on the held record, or the in-memory owner
-            // cache. Resolved at once with the words kept and NO "Send anyway"; anything else stays held.
-            if (GatewayDictationEndpoint.SessionEndedOnAFreshDirector(held.DirectorId, _owners, _pushedSessions,
+            // lists the session - the Director the owner's own press named on the held record. A held record that
+            // names no Director proves nothing and stays held. Resolved at once with the words kept and NO "Send
+            // anyway"; anything else stays held.
+            if (GatewayDictationEndpoint.SessionEndedOnAFreshDirector(held.DirectorId, _pushedSessions,
                     _streamStale, tenant, held.SessionId))
             {
                 SettleEnded(store, deliveryId, held, Clock.GetUtcNow().UtcDateTime);

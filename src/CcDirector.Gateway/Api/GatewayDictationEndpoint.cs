@@ -822,9 +822,8 @@ internal static class GatewayDictationEndpoint
                 registry, sid, pushedSessions, streamStale, tenant, owners);
             // The Director that holds the session, remembered on the durable record the moment a locate finds it: it
             // is what lets a LATER attempt - whose own locate finds nothing - prove the session has ENDED rather than
-            // hold it forever (contract section 9, F4). The in-memory owner cache answers the same question, but any
-            // roster read may prune it between two attempts; the record cannot be pruned by anything but the
-            // delivery's own end.
+            // hold it forever (contract section 9, F4). It is the ONE source for that fact: the record names its
+            // Director or no ending can be proved at all, and nothing else is consulted.
             if (director is not null)
                 store.RememberOwningDirector(uploadId, director.DirectorId);
             if (director is null || session is null)
@@ -839,7 +838,7 @@ internal static class GatewayDictationEndpoint
                 // lists the session. Resolved AT ONCE, session-exited, with whatever words an earlier attempt paid for
                 // (contract section 8: a transcript that was paid for is never thrown away) and NO "Send anyway" - there
                 // is no session left to send to.
-                if (SessionEndedOnAFreshDirector(store.Read(uploadId).Record?.Owned?.DirectorId, owners,
+                if (SessionEndedOnAFreshDirector(store.Read(uploadId).Record?.Owned?.DirectorId,
                         pushedSessions, streamStale, tenant, sid))
                     return ResolveAsUndeliverable(store, uploadId, sid, "no longer listed by its connected Director",
                         store.SentWords(uploadId));
@@ -1051,7 +1050,7 @@ internal static class GatewayDictationEndpoint
                     new DeliveryDecisionFacts { SessionId = sid, StatusCode = StatusCodes.Status404NotFound });
                 // Ended only when provable (contract section 9, F4) - and this gate holds the words in hand, so an
                 // ended session resolves with them: session-exited, no "Send anyway".
-                if (SessionEndedOnAFreshDirector(store.Read(uploadId).Record?.Owned?.DirectorId, owners,
+                if (SessionEndedOnAFreshDirector(store.Read(uploadId).Record?.Owned?.DirectorId,
                         pushedSessions, streamStale, tenant, sid))
                     return ResolveAsUndeliverable(store, uploadId, sid, "no longer listed by its connected Director", transcript);
                 // Known not to be in, and the session cannot be reached: past the limit the words are shown back as too
@@ -1378,21 +1377,33 @@ internal static class GatewayDictationEndpoint
 
     /// <summary>
     /// Whether the Gateway can PROVE a session it cannot locate has ENDED - one of the only two proofs there are
-    /// (contract section 9, F4): its Director (the one an attempt remembered on the record, or the in-memory owner
-    /// cache when the record predates that) is connected and fresh, and its fresh snapshot no longer lists the
-    /// session. Anything else - a stale Director, a disconnected one, no Director known at all - is NOT ended and
-    /// stays a held delivery (contract section 8): "a Director that is stale or unreachable is a HELD delivery,
-    /// never 'session gone'". The freshness horizon is the locator's own (<see cref="GatewayEndpoints.LocateGrace"/>
-    /// over the stream staleness), so "fresh" here means exactly what "locatable" means there.
+    /// (contract section 9, F4): its Director - THE ONE THE DELIVERY'S OWN DURABLE RECORD NAMES - is connected and
+    /// fresh, and its fresh snapshot no longer lists the session. Anything else - a stale Director, a disconnected
+    /// one, no Director named on the record at all - is NOT ended and stays a held delivery (contract section 8):
+    /// "a Director that is stale or unreachable is a HELD delivery, never 'session gone'". The freshness horizon is
+    /// the locator's own (<see cref="GatewayEndpoints.LocateGrace"/> over the stream staleness), so "fresh" here
+    /// means exactly what "locatable" means there.
+    ///
+    /// A RECORD THAT NAMES NO DIRECTOR PROVES NOTHING (no fallback programming). The owned record and its
+    /// <see cref="DictationOwnedDelivery.DirectorId"/> ship in the same release, never deployed apart, so no
+    /// real record exists without the field: one that names no Director is one whose session was never located
+    /// by any attempt, and there is no second source for the fact. The in-memory owner cache is NOT consulted -
+    /// any fresh roster read may prune it, so it is not a durable answer, and answering "ended" from it would be
+    /// a second way to answer the same question. Such a record is held (section 8) and one log line says so.
     /// </summary>
     /// <param name="rememberedDirector">The Director a delivery's own durable record names as its session's
     /// Director, when it does; null otherwise.</param>
-    internal static bool SessionEndedOnAFreshDirector(string? rememberedDirector, SessionOwnerCache? owners,
+    internal static bool SessionEndedOnAFreshDirector(string? rememberedDirector,
         Streaming.PushedSessionStore? pushedSessions, TimeSpan streamStale, TenantId tenant, string sid)
     {
-        var directorId = rememberedDirector ?? owners?.OwnerOf(tenant, sid);
-        if (string.IsNullOrWhiteSpace(directorId) || pushedSessions is null) return false;
-        var fresh = pushedSessions.TryGetFresh(tenant, directorId, streamStale + GatewayEndpoints.LocateGrace);
+        if (string.IsNullOrWhiteSpace(rememberedDirector))
+        {
+            FileLog.Write($"[GatewayDictation] ended proof: sid={sid}: the delivery's record names no Director, " +
+                "so an ending cannot be proved and the delivery stays held");
+            return false;
+        }
+        if (pushedSessions is null) return false;
+        var fresh = pushedSessions.TryGetFresh(tenant, rememberedDirector, streamStale + GatewayEndpoints.LocateGrace);
         return fresh is not null && fresh.All(s => !string.Equals(s.SessionId, sid, StringComparison.Ordinal));
     }
 }
