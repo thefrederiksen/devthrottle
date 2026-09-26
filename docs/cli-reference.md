@@ -1073,8 +1073,8 @@ change is recorded in the governance audit trail (event type `handed-over`, with
 the Fleet Manager's session, as the actor).
 
 **Who may make the change.** The owner, from their own signed-in phone or browser - in the Cockpit, the
-"Hand sessions to the Fleet Manager..." list on the Fleet Manager page and the session menu's "Hand to the
-Fleet Manager" and "Hand back to me". And the account's Fleet Manager, with its own session key, when the
+session menu's "Hand to the Fleet Manager" and "Hand back to me". (The "Hand sessions to the Fleet
+Manager..." list lived in the Fleet Manager page's right panel, which is hidden for now.) And the account's Fleet Manager, with its own session key, when the
 owner has asked it to: it may take a session that asks the owner directly (`--to fleet-manager`) and hand
 a session it owns back (`--to owner`).
 
@@ -1492,7 +1492,10 @@ answer's `status.page` carries what the Fleet Manager page may show and use in t
 The Cockpit's Fleet Manager page (`/fleet-manager`, where the Cockpit opens) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is refused and reads the
 digest instead): the cards drawn from the records, the right panel (waiting on you, under way, answered
 today, and the sessions that still ask the owner directly - their count, and the list of them with a
-hand-over button each) and the rail's badge count. A card button is one call - the answer
+hand-over button each) and the rail's badge count. The right panel is hidden on the page for now, so
+the conversation takes the full width; the answer still carries it. The page's header also has "Start
+fresh" (`status.page.startFresh` on the placement answer): after one confirmation it makes the same
+`POST /gateway/fleet-manager/restart` as Settings, and it is offered exactly when that restart is. A card button is one call - the answer
 route - and the Gateway passes the words to the Fleet Manager as an `answered` event; the answered card
 says how far they have got (`answerDelivery`). Every open record is a card; only the answered history is
 limited (the newest 100). Hand over is `POST /gateway/fleet-manager/hand-over` (see
@@ -1505,8 +1508,8 @@ the session list. The Gateway routes that served only the Assistant were removed
 `/gateway/ai-provider` no longer carries `carModeModel` or `carModeEndPhrase`, and the stored values of
 those two settings are deleted when the Gateway next migrates its database.
 
-"Take me through them" (`/fleet-manager/walkthrough` in the Cockpit, opened from the Waiting on you
-panel) reads `/gateway/fleet-manager/walkthrough?round=<id>,<id>` (GET): one round of the waiting
+"Take me through them" (`/fleet-manager/walkthrough` in the Cockpit; its button was in the Waiting on
+you panel, which is hidden for now, so nothing on the page leads there) reads `/gateway/fleet-manager/walkthrough?round=<id>,<id>` (GET): one round of the waiting
 records, in the page's order, each with the Wingman's reading of its session (or the sentence saying
 why there is none), the Fleet Manager's advice, both picks marked, and whether snooze and close are
 offered. The client sends the round's ids back so answered items stay in the list as done. Three owner

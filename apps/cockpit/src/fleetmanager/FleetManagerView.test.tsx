@@ -345,6 +345,28 @@ describe("FleetManagerView", () => {
     expect(api.restart).toHaveBeenCalledTimes(1);
   });
 
+  it("Start fresh: when the Gateway withdraws the offer while the question is open, the question closes and says why", async () => {
+    const withdrawn = placement("running");
+    withdrawn.status.page.startFresh = { ...startFresh(false), note: "A restart is already under way (fake)." };
+    api.placement.mockResolvedValueOnce(placement("running")).mockResolvedValue(withdrawn);
+    api.page.mockResolvedValue(morningPage());
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Start fresh (fake)" }));
+      expect(screen.getByRole("alertdialog", { name: "Start a fresh one? (fake)" })).toBeTruthy();
+
+      await vi.advanceTimersByTimeAsync(9000);
+
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+      expect(screen.getByTestId("fmp-start-fresh-note").textContent).toBe("A restart is already under way (fake).");
+      expect(screen.queryByRole("button", { name: "Start fresh (fake)" })).toBeNull();
+      expect(api.restart).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("offers no Start fresh when the Gateway does not", async () => {
     api.placement.mockResolvedValue(placement("not-running"));
     api.page.mockResolvedValue(morningPage());

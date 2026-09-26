@@ -308,8 +308,11 @@ public sealed class FleetManagerPlacementFoldTests
         Assert.Equal("Start fresh", fresh.Label);
         Assert.Equal("Start a fresh Fleet Manager?", fresh.ConfirmTitle);
         Assert.Equal("A brand new Fleet Manager session starts and picks up from its records. The one running now finishes "
-                     + "its current turn and then closes, and this page then shows the new one's conversation. Nothing it "
-                     + "was watching is lost.", fresh.ConfirmMessage);
+                     + "its current turn and then closes. Nothing it was watching is lost. This page then shows the new "
+                     + "one's conversation.", fresh.ConfirmMessage);
+        Assert.Equal("A new Fleet Manager starts on Claude Code on WORKSTATION-A and picks up from its records. The one "
+                     + "running now finishes its current turn and then closes. Nothing it was watching is lost.",
+            dto.Status.Restart.ConfirmMessage);
         Assert.Equal(dto.Status.Restart.BusyLabel, fresh.BusyLabel);
         Assert.Null(fresh.Note);
     }

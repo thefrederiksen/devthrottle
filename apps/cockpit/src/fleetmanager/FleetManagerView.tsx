@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { sendPrompt } from "@devthrottle/client-core/api/client";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
@@ -9,6 +9,7 @@ import {
   getFleetManagerPlacement,
   restartFleetManager,
   startFleetManager,
+  type FleetManagerAction,
   type FleetManagerPlacement,
 } from "@devthrottle/client-core/settings/fleetManagerClient";
 import { Button, ConfirmDialog } from "../components";
@@ -85,7 +86,10 @@ export function FleetManagerView() {
   const [quickError, setQuickError] = useState<string | null>(null);
   const [startBusy, setStartBusy] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-  const [freshAsked, setFreshAsked] = useState(false);
+  // The Start fresh action as the Gateway offered it when the owner pressed the button: the question is asked in those
+  // words, and withdrawn if the Gateway withdraws the offer before the owner answers.
+  const [freshAsked, setFreshAsked] = useState<FleetManagerAction | null>(null);
+  const [freshBusy, setFreshBusy] = useState(false);
 
   const refreshAll = useCallback(() => {
     fleetManagerPageStore.refreshNow();
@@ -126,9 +130,22 @@ export function FleetManagerView() {
   // throws, and the confirmation stays open showing the Gateway's words. On success the answer still marks the old
   // one (it closes only once idle); the placement poll follows the mark to the new session's conversation.
   const startFresh = useCallback(async () => {
-    setPlacement(await restartFleetManager());
-    fleetManagerPageStore.refreshNow();
+    setFreshBusy(true);
+    try {
+      setPlacement(await restartFleetManager());
+      fleetManagerPageStore.refreshNow();
+    } finally {
+      setFreshBusy(false);
+    }
   }, [setPlacement]);
+
+  // The Gateway rules whether Start fresh may be used. When it stops offering it while the question is open and nothing
+  // has been sent yet (a restart began elsewhere, or the computer went out of reach), the question closes and the
+  // header shows the Gateway's reason. A restart already sent is left to finish.
+  const freshOffered = controls?.startFresh.offered === true;
+  useEffect(() => {
+    if (freshAsked !== null && !freshOffered && !freshBusy) setFreshAsked(null);
+  }, [freshAsked, freshOffered, freshBusy]);
 
   // Stick to the bottom of the conversation when the reader is already there.
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -178,9 +195,14 @@ export function FleetManagerView() {
             </Button>
           ))}
           {controls?.startFresh.offered && (
-            <Button onClick={() => setFreshAsked(true)} data-testid="fmp-start-fresh">
+            <Button onClick={() => setFreshAsked(controls.startFresh)} data-testid="fmp-start-fresh">
               {controls.startFresh.label}
             </Button>
+          )}
+          {controls && !controls.startFresh.offered && controls.startFresh.note && (
+            <span className="fmp-head-note" data-testid="fmp-start-fresh-note">
+              {controls.startFresh.note}
+            </span>
           )}
         </div>
       </header>
@@ -305,17 +327,17 @@ export function FleetManagerView() {
         </div>
       </div>
 
-      {controls && (
+      {freshAsked?.confirmTitle && freshAsked.confirmMessage && (
         <ConfirmDialog
-          open={freshAsked}
-          title={controls.startFresh.confirmTitle ?? ""}
-          message={controls.startFresh.confirmMessage ?? ""}
-          confirmLabel={controls.startFresh.label}
-          busyLabel={controls.startFresh.busyLabel}
+          open
+          title={freshAsked.confirmTitle}
+          message={freshAsked.confirmMessage}
+          confirmLabel={freshAsked.label}
+          busyLabel={freshAsked.busyLabel}
           danger={false}
           action="start a fresh Fleet Manager"
           onConfirm={startFresh}
-          onClose={() => setFreshAsked(false)}
+          onClose={() => setFreshAsked(null)}
         />
       )}
     </div>

@@ -286,9 +286,7 @@ internal static class FleetManagerPlacementFold
             {
                 status.Restart.Offered = true;
                 status.Restart.ConfirmTitle = "Restart the Fleet Manager?";
-                status.Restart.ConfirmMessage =
-                    $"A new Fleet Manager starts on {where} and picks up from its records. The one running now finishes "
-                    + "its current turn and then closes. Nothing it was watching is lost.";
+                status.Restart.ConfirmMessage = $"A new Fleet Manager starts on {where} and {HandOverSentence}";
             }
             else if (placement is not null)
             {
@@ -340,6 +338,11 @@ internal static class FleetManagerPlacementFold
         status.Start.Note = $"Starting can take up to {StartWaitSeconds} seconds when a Director has to be started first.";
         return status;
     }
+
+    /// <summary>What a restart does to the running one - said once, so Settings' Restart and the page's Start fresh
+    /// confirm the same thing in the same words.</summary>
+    private const string HandOverSentence = "picks up from its records. The one running now finishes its current turn "
+                                            + "and then closes. Nothing it was watching is lost.";
 
     private const string StartingLabel = "Starting... this can take up to 90 seconds while a Director is started.";
 
@@ -457,9 +460,8 @@ internal static class FleetManagerPlacementFold
         BusyLabel = restart.BusyLabel,
         ConfirmTitle = restart.Offered ? "Start a fresh Fleet Manager?" : null,
         ConfirmMessage = restart.Offered
-            ? "A brand new Fleet Manager session starts and picks up from its records. The one running now finishes "
-              + "its current turn and then closes, and this page then shows the new one's conversation. Nothing it "
-              + "was watching is lost."
+            ? $"A brand new Fleet Manager session starts and {HandOverSentence} This page then shows the new one's "
+              + "conversation."
             : null,
     };
 

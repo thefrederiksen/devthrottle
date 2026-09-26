@@ -579,6 +579,7 @@ a.fmp-item:hover { background: var(--surface-2); }
 .fmw-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .fmw-actions .ui-btn,
 .fmp-head-actions a.ui-btn { text-decoration: none; }
+.fmp-head-note { font-size: 12px; color: var(--text-dim); max-width: 360px; line-height: 1.4; }
 .fmw-why-not { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
 .fmw-end {
   max-width: 560px;
