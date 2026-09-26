@@ -11,7 +11,7 @@ import { render, screen, fireEvent, waitFor, within, cleanup } from "@testing-li
 // hoisted phase (vi.hoisted) rather than as ordinary consts.
 const { sendPrompt, transcribeUtterance, backgroundTranscribeAndSend } = vi.hoisted(() => ({
   // The synchronous POST /prompt path (typed Send, Insert-then-Enter).
-  sendPrompt: vi.fn(async () => {}),
+  sendPrompt: vi.fn(async () => ({ delivering: false })),
   // The synchronous /wingman/utterance/* transcription (the Pause checkpoint and Insert).
   transcribeUtterance: vi.fn(async () => ({ text: "the dictated words", deliveryId: "utt-77" })),
   // The durable background pipeline (POST /dictation/*) the recording-stage Send rides.
