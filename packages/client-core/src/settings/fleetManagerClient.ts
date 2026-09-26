@@ -69,6 +69,8 @@ export interface FleetManagerPageControls {
   thinkingShown: boolean;
   notRunningBarShown: boolean;
   settingsLabel: string;
+  /** The header's "Start fresh" button: the restart, with the page's label and its one confirmation. */
+  startFresh: FleetManagerAction;
 }
 
 export interface FleetManagerPlacement {

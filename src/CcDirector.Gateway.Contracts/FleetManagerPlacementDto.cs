@@ -210,6 +210,12 @@ public sealed class FleetManagerPageControlsDto
 
     /// <summary>The bar's link to the Fleet Manager tab in Settings, for example "Move it in Settings".</summary>
     public string SettingsLabel { get; set; } = "";
+
+    /// <summary>The header's "Start fresh" button: start a brand new Fleet Manager session in the saved place and close
+    /// the old one after its current turn. It is the same action as <see cref="FleetManagerStatusDto.Restart"/> - offered
+    /// exactly when a restart is, and sent to the same <c>POST /gateway/fleet-manager/restart</c> - with the page's own
+    /// label and its one confirmation.</summary>
+    public FleetManagerActionDto StartFresh { get; set; } = new();
 }
 
 /// <summary>One action the page may offer, with its label and, when it closes something, its confirmation.</summary>

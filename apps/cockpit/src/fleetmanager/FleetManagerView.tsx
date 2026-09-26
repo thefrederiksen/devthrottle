@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { sendPrompt } from "@devthrottle/client-core/api/client";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
@@ -7,25 +7,32 @@ import { usePollingStore } from "@devthrottle/client-core/polling/usePollingStor
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import {
   getFleetManagerPlacement,
+  restartFleetManager,
   startFleetManager,
+  type FleetManagerAction,
   type FleetManagerPlacement,
 } from "@devthrottle/client-core/settings/fleetManagerClient";
-import { Button } from "../components";
+import { Button, ConfirmDialog } from "../components";
 import { SessionComposer } from "../sessions/SessionComposer";
 import { mergeConversation } from "./conversation";
-import { FleetPanel } from "./FleetPanel";
 import { OutcomeCard } from "./OutcomeCard";
 import { fleetManagerPageStore } from "./pageStore";
 
 // THE FLEET MANAGER PAGE (the Fleet Manager mission, step 6) - the page the Cockpit opens on.
 //
-// Three regions, each reading its own Gateway answer and each failing on its own with the Gateway's words:
+// Two regions, each reading its own Gateway answer and each failing on its own with the Gateway's words:
 //
 //   the header        GET /gateway/fleet-manager/placement (step 5's answer: agent, computer, state line, and the
-//                     not-running sentence with what can be done about it - never a silent start elsewhere)
+//                     not-running sentence with what can be done about it - never a silent start elsewhere), and
+//                     the "Start fresh" button (status.page.startFresh), which asks once and then makes the same
+//                     POST /gateway/fleet-manager/restart the Settings tab makes
 //   the conversation  the marked Fleet Manager session's own history, through the Chat tab's reader, with each
-//                     outcome card from GET /gateway/fleet-manager/page placed at the time it was filed
-//   the right panel   GET /gateway/fleet-manager/page, polled like the session list
+//                     outcome card from GET /gateway/fleet-manager/page placed at the time it was filed; it takes
+//                     the full width
+//
+// The right panel (FleetPanel: what needs you, the sessions it watches, hand-over) is HIDDEN for now at the owner's
+// request - not deleted. FleetPanel.tsx and its parts are kept so it can come back by rendering it here again. The
+// page still polls GET /gateway/fleet-manager/page, because the outcome cards in the conversation come from it.
 //
 // The composer is the sessions' own (SessionComposer), so the microphone opens the same dictation window and the
 // words reach the Fleet Manager exactly as spoken. A message sent while it is thinking queues behind its turn, as
@@ -62,9 +69,7 @@ function usePlacement() {
 
 export function FleetManagerView() {
   const page = usePollingStore(fleetManagerPageStore);
-  // The session list's "Hand sessions to the Fleet Manager..." link opens the page with that list open (step 8).
   const [search] = useSearchParams();
-  const openHandOver = search.get("handover") === "1";
   const { placement, setPlacement, error: placementError, refresh: refreshPlacement } = usePlacement();
   const status = placement?.status;
   const controls = status?.page;
@@ -81,6 +86,10 @@ export function FleetManagerView() {
   const [quickError, setQuickError] = useState<string | null>(null);
   const [startBusy, setStartBusy] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  // The Start fresh action as the Gateway offered it when the owner pressed the button: the question is asked in those
+  // words, and withdrawn if the Gateway withdraws the offer before the owner answers.
+  const [freshAsked, setFreshAsked] = useState<FleetManagerAction | null>(null);
+  const [freshBusy, setFreshBusy] = useState(false);
 
   const refreshAll = useCallback(() => {
     fleetManagerPageStore.refreshNow();
@@ -116,6 +125,27 @@ export function FleetManagerView() {
       setStartBusy(false);
     }
   }, [setPlacement]);
+
+  // "Start fresh": the Gateway's restart - a new Fleet Manager session, the old one closed after its turn. A failure
+  // throws, and the confirmation stays open showing the Gateway's words. On success the answer still marks the old
+  // one (it closes only once idle); the placement poll follows the mark to the new session's conversation.
+  const startFresh = useCallback(async () => {
+    setFreshBusy(true);
+    try {
+      setPlacement(await restartFleetManager());
+      fleetManagerPageStore.refreshNow();
+    } finally {
+      setFreshBusy(false);
+    }
+  }, [setPlacement]);
+
+  // The Gateway rules whether Start fresh may be used. When it stops offering it while the question is open and nothing
+  // has been sent yet (a restart began elsewhere, or the computer went out of reach), the question closes and the
+  // header shows the Gateway's reason. A restart already sent is left to finish.
+  const freshOffered = controls?.startFresh.offered === true;
+  useEffect(() => {
+    if (freshAsked !== null && !freshOffered && !freshBusy) setFreshAsked(null);
+  }, [freshAsked, freshOffered, freshBusy]);
 
   // Stick to the bottom of the conversation when the reader is already there.
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -164,6 +194,16 @@ export function FleetManagerView() {
               {quickBusy === q.words ? controls?.quickPromptBusyLabel : q.label}
             </Button>
           ))}
+          {controls?.startFresh.offered && (
+            <Button onClick={() => setFreshAsked(controls.startFresh)} data-testid="fmp-start-fresh">
+              {controls.startFresh.label}
+            </Button>
+          )}
+          {controls && !controls.startFresh.offered && controls.startFresh.note && (
+            <span className="fmp-head-note" data-testid="fmp-start-fresh-note">
+              {controls.startFresh.note}
+            </span>
+          )}
         </div>
       </header>
       {quickError !== null && (
@@ -285,9 +325,21 @@ export function FleetManagerView() {
             {controls && <div className="fmp-hint">{controls.composerHint}</div>}
           </div>
         </div>
-
-        <FleetPanel state={page} openHandOver={openHandOver} onChanged={refreshAll} />
       </div>
+
+      {freshAsked?.confirmTitle && freshAsked.confirmMessage && (
+        <ConfirmDialog
+          open
+          title={freshAsked.confirmTitle}
+          message={freshAsked.confirmMessage}
+          confirmLabel={freshAsked.label}
+          busyLabel={freshAsked.busyLabel}
+          danger={false}
+          action="start a fresh Fleet Manager"
+          onConfirm={startFresh}
+          onClose={() => setFreshAsked(null)}
+        />
+      )}
     </div>
   );
 }
