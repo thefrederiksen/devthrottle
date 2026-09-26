@@ -310,7 +310,12 @@ internal static class GatewayEndpoints
         DictationTenantGate? dictationUploads = null,
         // Voice Delivery phase 2, change 1: the clock a "Send anyway" is judged by for "could not confirm it arrived" -
         // the real one in production; a test injects its own so the five-minute boundary needs no five-minute wait.
-        TimeProvider? deliveryClock = null)
+        TimeProvider? deliveryClock = null,
+        // Parent Control, fix 1: whether a Director said on its Hello that it checks a session is waiting for a prompt,
+        // with no unsent words of the owner's in its composer, before it types (PromptRequest.OnlyWhenWaitingForInput).
+        // A session types into a session it owns only through such a Director. Null means no Director is known to
+        // check, so nothing is typed for a session key - the refusal says why.
+        Func<TenantId, string, bool>? directorChecksBeforeTyping = null)
     {
         if ((raisedSessions is null) != (raisedRecord is null))
             throw new ArgumentException(
@@ -3403,6 +3408,52 @@ internal static class GatewayEndpoints
             return await AnswerAcceptedPromptAsync(director, sid, req, body);
         }
 
+        // A session typing into a session it owns (Parent Control, fix 1). Refused unless the target is the caller's own
+        // and its Director checks before typing; then sent with OnlyWhenWaitingForInput, so the Director types only
+        // when the session is waiting for a prompt and the owner has no unsent words in its composer. A send the Director
+        // refused typed nothing, and is answered 409 with the reason in one sentence the agent can act on.
+        async Task<IResult> DeliverOwnedPromptAsync(HttpContext ctx, string callerSessionId, DirectorDto director,
+            SessionDto session, string sid, PromptRequest req)
+        {
+            var tenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+
+            var checks = directorChecksBeforeTyping?.Invoke(tenant.Value, director.DirectorId) ?? false;
+            var refusal = OwnedSessionInput.Refusal(callerSessionId, session, checks, req.AppendEnter);
+            if (refusal is not null)
+            {
+                FileLog.Write($"[GatewayEndpoints] POST prompt REFUSED: caller={callerSessionId} sid={sid} " +
+                              $"owner={session.ControllerSessionId ?? "(the owner)"} directorChecks={checks} appendEnter={req.AppendEnter}");
+                return Results.Json(new PromptResponse { Accepted = false, Error = refusal, ActivityState = session.ActivityState },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            OwnedSessionInput.ApplyTo(req);
+            FileLog.Write($"[GatewayEndpoints] POST prompt: caller={callerSessionId} owns sid={sid}; typing only when it is waiting");
+            var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "prompt", sid, req,
+                CancellationToken.None, machineName: director.MachineName);
+            var body = streamResult is not null && streamResult.Ok ? DirectorCommandRouter.ReadBody<PromptResponse>(streamResult) : null;
+            if (body is null)
+                return Results.Json(new PromptResponse
+                {
+                    Accepted = false,
+                    Error = streamResult is null ? "director not connected to the tunnel" : DirectorCommandRouter.DescribeFailure(streamResult),
+                    ActivityState = session.ActivityState,
+                }, statusCode: StatusCodes.Status502BadGateway);
+
+            if (!body.Accepted)
+            {
+                body.Error = OwnedSessionInput.DescribeRefusedSend(body);
+                FileLog.Write($"[GatewayEndpoints] POST prompt: caller={callerSessionId} sid={sid} NOT TYPED ({body.RefusedFor ?? "busy"}): {body.Error}");
+                return Results.Json(body, statusCode: StatusCodes.Status409Conflict);
+            }
+            if (!body.IdleChecked)
+                FileLog.Write($"[GatewayEndpoints] POST prompt: caller={callerSessionId} sid={sid} WARNING the Director accepted without " +
+                              "reporting the idle check, although its Hello said it makes one");
+            return await AnswerAcceptedPromptAsync(director, sid, req, body);
+        }
+
         // The answer to a prompt the Director answered: the body as it came, or - when the caller asked to wait for the
         // session to go idle - the body with the wait's outcome and the output since the prompt.
         async Task<IResult> AnswerAcceptedPromptAsync(DirectorDto director, string sid, PromptRequest req, PromptResponse body)
@@ -3873,6 +3924,12 @@ internal static class GatewayEndpoints
             }
 
             FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid}, director={director.DirectorId}, waitForIdle={req.WaitForIdle}");
+
+            // A SESSION TYPES ONLY INTO A SESSION IT OWNS (Parent Control, fix 1). The guard let this route through for
+            // every session key because it cannot read an id; here the target is in hand. A raised session is the owner's
+            // own grant and is not held to this; any other session key is.
+            if (callingSessionForAttribution is { } typingCaller && AuthMiddleware.RaisedGrantOf(httpCtx) is null)
+                return await DeliverOwnedPromptAsync(httpCtx, typingCaller.SessionId.ToString(), director, session, sid, req);
 
             // THE WINGMAN MENU GUARD (issue #2193), opt-in per request and off for every existing caller.
             // A voice reply asks for it, so the live screen is read HERE - one hop before the send - rather
@@ -4890,19 +4947,16 @@ internal static class GatewayEndpoints
         // own 2-minute compaction wait so the inner bound always fires first and says what did not happen.
         app.MapPost("/sessions/{sid}/compact-context", async (HttpContext ctx, string sid, CompactContextRequest? req) =>
         {
-            // COMPACT-AND-CONTINUE IS TYPING INTO A SESSION, and an agent may not do that (the Message Load
-            // mission, ruling 17). A plain compaction sends nothing afterwards and stays open to a session key;
-            // the continue prompt is refused to one. The session-key guard cannot make this call - it sees a
-            // method and a path, never a body - so it is made here.
-            if (AuthMiddleware.CallingSession(ctx) is not null && !string.IsNullOrWhiteSpace(req?.ContinuePrompt))
-            {
-                FileLog.Write($"[GatewayEndpoints] POST /compact-context REFUSED: sid={sid}, a session key asked to continue the session");
-                return Results.Json(new { error = AgentInputRefusal.CompactContinue }, statusCode: StatusCodes.Status403Forbidden);
-            }
-
             var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+
+            // COMPACT-AND-CONTINUE IS TYPING INTO A SESSION (the Message Load mission, ruling 17), and a session key may do
+            // it only on a session it owns (Parent Control, fix 1). A plain compaction sends nothing afterwards and stays
+            // open to every session key. The session-key guard cannot make this call - it sees a method and a path, never
+            // a body or the roster - so it is made here.
+            if (AuthMiddleware.CallingSession(ctx) is { } compactCaller && !string.IsNullOrWhiteSpace(req?.ContinuePrompt))
+                return await CompactOwnedThenContinueAsync(ctx, compactCaller.SessionId.ToString(), director, session, sid, req!.ContinuePrompt!);
 
             FileLog.Write($"[GatewayEndpoints] POST /compact-context: sid={sid}, director={director.DirectorId}, " +
                           $"continue={(string.IsNullOrWhiteSpace(req?.ContinuePrompt) ? "no" : "yes")}");
@@ -4913,6 +4967,78 @@ internal static class GatewayEndpoints
                 ? Results.Content(streamResult.BodyJson, "application/json")
                 : TunnelFailure(streamResult);
         });
+
+        // A session compacting a session it owns and then sending it a follow-up (Parent Control, fix 1). Done as two steps
+        // on the Gateway rather than handing the Director the continuation: the Director's own continuation types
+        // without looking at the composer, and a session must never type over the owner's unsent words. So the
+        // compaction runs plain, and the follow-up goes as a prompt the Director types only when the session is waiting
+        // for one with nothing of the owner's in its composer - the same send a session makes with `session prompt`.
+        async Task<IResult> CompactOwnedThenContinueAsync(HttpContext ctx, string callerSessionId, DirectorDto director,
+            SessionDto session, string sid, string continuePrompt)
+        {
+            var tenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+
+            var checks = directorChecksBeforeTyping?.Invoke(tenant.Value, director.DirectorId) ?? false;
+            var refusal = OwnedSessionInput.Refusal(callerSessionId, session, checks, appendEnter: true);
+            if (refusal is not null)
+            {
+                FileLog.Write($"[GatewayEndpoints] POST /compact-context REFUSED: caller={callerSessionId} sid={sid} " +
+                              $"owner={session.ControllerSessionId ?? "(the owner)"} directorChecks={checks}; nothing compacted");
+                var said = refusal == AgentInputRefusal.NotYourSession ? AgentInputRefusal.CompactContinue : refusal;
+                return Results.Json(new { error = said }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            FileLog.Write($"[GatewayEndpoints] POST /compact-context: caller={callerSessionId} owns sid={sid}; compacting, then the follow-up as a guarded prompt");
+            var compacted = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "compact-context", sid,
+                new CompactContextRequest { ContinuePrompt = null }, ctx.RequestAborted,
+                timeout: DirectorCommandRouter.LanguageModelCommandTimeout, machineName: director.MachineName);
+            if (compacted is null || !compacted.Ok || string.IsNullOrEmpty(compacted.BodyJson))
+                return TunnelFailure(compacted);
+            var answer = DirectorCommandRouter.ReadBody<CompactContextResponse>(compacted);
+            if (answer is null)
+                return Results.Problem("the Director's answer to the compaction could not be read", statusCode: StatusCodes.Status502BadGateway);
+
+            if (!answer.CompactionObserved)
+            {
+                answer.Continued = false;
+                answer.Detail = $"{answer.Detail} The follow-up was not sent, because the compaction was not seen to finish.".Trim();
+                FileLog.Write($"[GatewayEndpoints] POST /compact-context: sid={sid} compaction not observed; follow-up NOT sent");
+                return Results.Json(answer);
+            }
+
+            // The compaction is seen finished in the tool's own record a moment before the session's state reads waiting,
+            // so a follow-up refused only because the session is still settling is tried again, briefly. A refusal for
+            // the owner's unsent words, or for a one-call terminal, is final.
+            var follow = new PromptRequest { Text = continuePrompt };
+            OwnedSessionInput.ApplyTo(follow);
+            var settleUntil = DateTime.UtcNow + OwnedSessionInput.SettleAfterCompaction;
+            PromptResponse? sent;
+            while (true)
+            {
+                var result = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "prompt", sid, follow,
+                    CancellationToken.None, machineName: director.MachineName);
+                sent = result is not null && result.Ok ? DirectorCommandRouter.ReadBody<PromptResponse>(result) : null;
+                if (sent is null)
+                {
+                    answer.Continued = false;
+                    answer.Detail = $"{answer.Detail} The follow-up was not sent: " +
+                                    (result is null ? "the Director is not connected." : DirectorCommandRouter.DescribeFailure(result));
+                    FileLog.Write($"[GatewayEndpoints] POST /compact-context: sid={sid} follow-up send FAILED: {answer.Detail}");
+                    return Results.Json(answer);
+                }
+                if (sent.Accepted || sent.RefusedFor is not null || DateTime.UtcNow >= settleUntil) break;
+                await Task.Delay(OwnedSessionInput.SettlePoll, ctx.RequestAborted);
+            }
+
+            answer.Continued = sent.Accepted;
+            answer.Detail = sent.Accepted
+                ? $"{answer.Detail} Then sent the follow-up."
+                : $"{answer.Detail} {OwnedSessionInput.DescribeRefusedSend(sent)}";
+            FileLog.Write($"[GatewayEndpoints] POST /compact-context: sid={sid} follow-up accepted={sent.Accepted} refusedFor={sent.RefusedFor ?? "-"}");
+            return Results.Json(answer);
+        }
 
         app.MapPost("/handover", async (HttpContext ctx, HandoverRequest req) =>
         {

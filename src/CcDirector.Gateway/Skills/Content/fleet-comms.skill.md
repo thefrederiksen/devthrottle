@@ -289,12 +289,19 @@ unless a human has issued a broadcast grant, and it requires a `--reason`:
 need this. If you think you do, ask the human for a grant - do not try to route around the Gateway (it
 enforces the limit and also rate-limits repeated broadcasts). See issue #1229.
 
-## Typing into a session is the owner's, and a raised session's
+## Typing into a session: the sessions you own
 
-`cc-devthrottle session prompt` and `session interrupt` are refused to every session the owner has not
-raised. The owner types into a session from his own screens, and a session he has raised may type into
-a session of his account - each time it does is recorded against it. `session compact-continue` with
-a message is refused to every session, raised or not. To reach a session you own, queue a message.
+You may type into a session YOU OWN - one you started with `--controlled-by self`, or were handed -
+with `cc-devthrottle session prompt <session> "<text>"`, and rescue a stuck one with
+`cc-devthrottle session compact-continue <session> "<text>"`. The Gateway types it only when that
+session is waiting for a prompt, and never over words the owner typed into its composer and did not
+send: then nothing is typed and the answer says why - try again later, or queue a message.
+
+Every other session is refused: one the owner runs himself, one another session owns, and one owned
+by a session you own (only the direct owner types). To reach those, queue a message. `session
+interrupt` stays the owner's even for a session you own, because Ctrl+C clears his unsent words. The
+owner types into any session from his own screens, and a session he has raised may type into any
+session of his account - each time it does is recorded against it.
 
 ## Health check
 

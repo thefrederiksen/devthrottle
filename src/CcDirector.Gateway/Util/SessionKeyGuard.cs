@@ -42,16 +42,41 @@ public static class AgentInputRefusal
         "To reach a session you started, or the session that started you, send a queued message: " +
         "cc-devthrottle message send <session> \"<text>\" - it is read when that session is free.";
 
-    /// <summary>A session key asked to type into, interrupt or escape a session, to fan a prompt out, or to
-    /// answer a judged stop (which types the verdict's option into the session).</summary>
-    public const string Typing =
-        "An agent may not type into, interrupt or escape another session: only the owner does that, from his " +
-        "own screens. " + Instead;
+    /// <summary>What a session MAY type, said once and appended to the refusals of what it may not (Parent Control,
+    /// fix 1).</summary>
+    public const string OwnedMay =
+        "A session may type into a session it owns - one it started with --controlled-by self, or was handed - with " +
+        "cc-devthrottle session prompt <session> \"<text>\" or session compact-continue.";
 
-    /// <summary>A session key asked to compact a session and then send it a prompt.</summary>
+    /// <summary>A session key asked to interrupt or escape a session, to fan a prompt out, or to answer a judged stop
+    /// (which types the verdict's option into the session). None of these is open to a session key, even on a session it
+    /// owns: Ctrl+C and Escape clear the owner's unsent words from the composer, and a fan-out or a verdict answer is
+    /// not addressed to one session the caller owns.</summary>
+    public const string Typing =
+        "An agent may not interrupt or escape a session, fan a prompt out, or answer a judged stop: only the owner " +
+        "does that, from his own screens. " + OwnedMay + " " + Instead;
+
+    /// <summary>A session key asked to type into a session it does not own directly.</summary>
+    public const string NotYourSession =
+        "An agent may type only into a session it owns: this session is not owned by yours - the owner runs it, " +
+        "another session owns it, or it is owned by a session you own rather than by you. " + Instead;
+
+    /// <summary>A session key asked to leave its text in a session's composer without pressing Enter.</summary>
+    public const string NoSubmit =
+        "An agent's prompt is always submitted: text left unsent in a composer cannot be told apart from the owner's " +
+        "own draft, and would go with his next Enter. Send it without --no-submit.";
+
+    /// <summary>A session key asked to type into a session it owns, on a Director too old to check the owner's
+    /// composer first.</summary>
+    public const string DirectorTooOld =
+        "Nothing was typed: that session's Director is older than the check that a session is waiting for a prompt " +
+        "and that the owner has no unsent words in its composer, so the Gateway will not type into it for an agent. " +
+        "Update that Director, or " + Instead;
+
+    /// <summary>A session key asked to compact a session it does not own and then send it a prompt.</summary>
     public const string CompactContinue =
-        "An agent may compact a session but may not send it a prompt afterwards: typing into a session is the " +
-        "owner's alone. Compact it with cc-devthrottle session compact, then " + Instead;
+        "An agent may compact any session but may send a follow-up only to a session it owns. Compact it with " +
+        "cc-devthrottle session compact, then " + Instead;
 }
 
 /// <summary>
@@ -102,6 +127,11 @@ public static class SmartRestartRefusal
 /// configuration at all: the
 /// diagnostics surface, and voice, dictation and transcription DATA - note the distinction from the voice
 /// SETTINGS above, which say how the product should behave and are therefore allowed.
+///
+/// A SESSION MAY TYPE INTO A SESSION IT OWNS (Parent Control, fix 1, 26 September 2026) - the prompt route, and
+/// the continuation of a compaction, on a session whose owner is the caller, never over the owner's unsent words.
+/// The guard lets the prompt shape through; the route decides ownership (<see cref="OwnedSessionInput"/>). The
+/// paragraph below is the rule for every other target, and for interrupt, escape, the fan-out and a verdict answer.
 ///
 /// TYPING INTO A SESSION IS NOT BEHAVING, IT IS THE OWNER'S (the Message Load mission, 16 September 2026).
 /// Prompt, interrupt, escape and the raw fan-out were on the allowed side until then. Every one of them put
@@ -191,9 +221,16 @@ public static class SessionKeyGuard
         // A RAISED session is the one exception (the Fleet Manager Improvement mission): the owner has let it type
         // for him. The verdict carries the grant, so the middleware records the action.
         if (IsAgentInput(verb, segments))
-            return raised
-                ? SessionKeyVerdict.AllowRaised(RaisedGrant.AgentInput)
-                : SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
+        {
+            if (raised) return SessionKeyVerdict.AllowRaised(RaisedGrant.AgentInput);
+
+            // A SESSION MAY TYPE INTO A SESSION IT OWNS (Parent Control, fix 1, 26 September 2026). This guard sees a
+            // path and never reads an id, so it cannot tell a child from a stranger: it lets the one prompt shape
+            // through, and the ROUTE decides, with the roster in hand, whether the target is the caller's own
+            // (OwnedSessionInput). Interrupt, escape, the fan-out and a verdict answer stay refused here.
+            if (IsPrompt(verb, segments)) return SessionKeyVerdict.Allow;
+            return SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
+        }
 
         // EMPTYING A DIRECTOR IS THE OWNER'S, and it is refused with its own sentence for the same reason
         // typing is: an agent told only "you may not call POST /directors/x/smart-restart" does not learn
@@ -236,6 +273,11 @@ public static class SessionKeyGuard
     /// </summary>
     private static bool IsSmartRestartStart(string verb, string[] s)
         => verb == "POST" && s.Length == 3 && s[0] == "directors" && s[2] == "smart-restart";
+
+    /// <summary><c>POST /sessions/{sid}/prompt</c> exactly - the one typing route a session key may reach, and only for
+    /// a session it owns, which its route decides.</summary>
+    private static bool IsPrompt(string verb, string[] s)
+        => verb == "POST" && s.Length == 3 && s[0] == "sessions" && s[2] == "prompt";
 
     private static bool IsAgentInput(string verb, string[] s)
     {

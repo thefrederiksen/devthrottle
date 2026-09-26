@@ -879,6 +879,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
     private readonly Streaming.TurnPushCapabilityRegistry _turnPushCapabilities = new();
+
+    /// <summary>What each Director said about itself on its Hello. Exposed for the host tests, which stand in for a
+    /// Director's Hello without connecting one.</summary>
+    internal Streaming.TurnPushCapabilityRegistry TurnPushCapabilities => _turnPushCapabilities;
     private readonly Streaming.FleetManagerHomeCapabilityRegistry _fleetManagerHomeCapabilities = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
     private History.SessionHistorySweep? _sessionHistorySweep;
@@ -3954,6 +3958,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // Voice Delivery mission, phase 1: "Send anyway" names its recording; the prompt route checks it here.
             dictationUploads: new Api.DictationTenantGate(_dictationUploads, _tenantBoundary),
             deliveryClock: DeliveryClock,
+            // Parent Control, fix 1: a session types into a session it owns only through a Director that checks first.
+            directorChecksBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),

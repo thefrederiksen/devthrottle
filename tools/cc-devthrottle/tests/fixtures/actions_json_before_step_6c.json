@@ -382,7 +382,7 @@
     },
     {
       "id": "session-compact-continue",
-      "description": "Compact a session's context and THEN type a prompt into it - the owner's rescue for a stuck session. The Gateway REFUSES this to every agent: only the owner types into a session. An agent compacts with session-compact and then queues a message with message-send.",
+      "description": "Compact a session's context and THEN type a prompt into it - the rescue for a stuck session. An agent may do this only to a session it OWNS (one it started with --controlled-by self, or was handed); the follow-up is typed only when the session is waiting for a prompt and never over words the owner typed and did not send. For any other session, compact with session-compact and queue a message with message-send.",
       "command": "cc-devthrottle session compact-continue [target] [\"<message>\"]",
       "mutatesState": true,
       "args": [

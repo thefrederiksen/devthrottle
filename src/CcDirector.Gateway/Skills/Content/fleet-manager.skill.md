@@ -265,8 +265,10 @@ Manager with `fleet-manager set` is marked but NOT raised - only the owner's own
 
 What a raised Fleet Manager may do that no other session may:
 
-- **Type into a session of the account**: `cc-devthrottle session prompt <session> "<text>"` and
-  `cc-devthrottle session interrupt <session>`. The Gateway also lets a raised key press Escape in a
+- **Type into ANY session of the account**: `cc-devthrottle session prompt <session> "<text>"` and
+  `cc-devthrottle session interrupt <session>`. (Every session, raised or not, may already type into a
+  session it OWNS with `session prompt` and `session compact-continue` - only when that session is
+  waiting, and never over the owner's unsent words.) The Gateway also lets a raised key press Escape in a
   session, send one prompt to several sessions at once, and answer a judged stop by its option.
 - **Message any session of the account, as often as the work needs.** The rule that you may message
   only the sessions you started, the six an hour, and the ten minutes between two messages to one
