@@ -354,7 +354,9 @@ public sealed class LauncherMacInstaller
             ("launchd-stdout.log (last lines)", LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stdout.log"), 15)),
         ]);
         var header = gatherError is null ? "" : $"launchd query failed: {gatherError}\n";
-        return header + composed + "\n" + GatherBinaryChecks() + "\nsteps:\n  " + string.Join("\n  ", steps);
+        // The binary checks go LAST: the Gateway keeps the first 16,000 characters of a report, and the
+        // system log is the only part long enough to be cut.
+        return header + composed + "\nsteps:\n  " + string.Join("\n  ", steps) + "\n" + GatherBinaryChecks();
     }
 
     /// <summary>

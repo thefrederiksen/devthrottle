@@ -91,7 +91,7 @@ public static class LaunchdDiagnostics
 
     /// <summary>The most lines of one binary check kept in a report. The security log can run to
     /// thousands of lines; the refusal is at the end.</summary>
-    public const int MaxBinaryCheckLines = 40;
+    public const int MaxBinaryCheckLines = 25;
 
     /// <summary>
     /// The answers macOS gave about the launcher binary (quarantine flag, signature, security log), one

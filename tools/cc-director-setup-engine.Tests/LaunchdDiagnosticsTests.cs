@@ -134,8 +134,8 @@ public sealed class LaunchdDiagnosticsTests
         var text = LaunchdDiagnostics.ComposeBinaryChecks([("log show", 0, log)]).Replace("\r\n", "\n");
 
         Assert.Contains($"({100 - LaunchdDiagnostics.MaxBinaryCheckLines} earlier lines left out)", text);
-        Assert.Contains("    line 61\n", text);
-        Assert.DoesNotContain("    line 60\n", text);
+        Assert.Contains("    line 76\n", text);
+        Assert.DoesNotContain("    line 75\n", text);
         Assert.EndsWith("    line 100", text);
     }
 }
