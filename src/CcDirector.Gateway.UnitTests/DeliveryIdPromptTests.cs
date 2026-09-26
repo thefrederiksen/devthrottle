@@ -134,6 +134,67 @@ public sealed class DeliveryIdPromptTests : IDisposable
         finally { manager.Dispose(); }
     }
 
+    /// <summary>A TYPED prompt carrying a delivery id (Voice Delivery mission, phase 6): the Gateway mints ids for typed
+    /// text too, and on 25 September 2026 (case 2f) a typed prompt that was refused was logged "(no delivery id)".</summary>
+    private static PromptRequest Typed(string deliveryId) => new()
+    {
+        Text = "typed words that did not go in",
+        AppendEnter = true,
+        Surface = "cockpit",
+        DeliveryId = deliveryId,
+    };
+
+    [Fact]
+    public async Task SendPromptAsync_TypedPromptWithDeliveryIdRefused_IsRecordedNotDeliveredAgainstItsId()
+    {
+        // Proves a typed prompt (not a dictation) whose send is refused is recorded against its delivery id with the
+        // reason, exactly as a spoken one is.
+        var backend = new HeldSendBackend { FailNext = "the composer still holds text after it was cleared" };
+        var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        try
+        {
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+            backend.Release.SetResult();
+
+            var thrown = await Assert.ThrowsAnyAsync<Exception>(
+                () => SessionCommandExecutor.SendPromptAsync(session, Typed("typed-1"), SendSource.UserInput, _record));
+
+            Assert.Contains("still holds text", thrown.Message);
+            var entry = _record.Read(session.Id, "typed-1");
+            Assert.Equal(DeliveryState.NotDelivered, entry.State);
+            Assert.Contains("still holds text", entry.Reason);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_TypedPromptWithDeliveryIdFailsAfterTheAnswer_IsRecordedNotDeliveredAgainstItsId()
+    {
+        // Proves a typed prompt answered "delivering" inside the Gateway's wait, whose send then fails, has that late
+        // outcome recorded against its delivery id - not only logged.
+        var backend = new HeldSendBackend { FailNext = "the composer never echoed the typed text" };
+        var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        try
+        {
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+
+            var answer = Body(await SessionCommandExecutor.SendPromptAsync(session, Typed("typed-2"), SendSource.UserInput, _record,
+                answerBudget: TimeSpan.FromMilliseconds(300)));
+            Assert.Equal(DeliveryState.Delivering, answer.DeliveryState);
+            Assert.Equal(DeliveryState.Delivering, _record.Read(session.Id, "typed-2").State);
+
+            backend.Release.SetResult();
+            var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (_record.Read(session.Id, "typed-2").State == DeliveryState.Delivering && DateTime.UtcNow < until)
+                await Task.Delay(50);
+
+            var entry = _record.Read(session.Id, "typed-2");
+            Assert.Equal(DeliveryState.NotDelivered, entry.State);
+            Assert.Contains("never echoed", entry.Reason);
+        }
+        finally { manager.Dispose(); }
+    }
+
     [Fact]
     public async Task SendPromptAsync_RecordCannotBeRead_RefusesAndTypesNothing()
     {

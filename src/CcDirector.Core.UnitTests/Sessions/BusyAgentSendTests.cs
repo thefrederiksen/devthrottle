@@ -303,7 +303,7 @@ public sealed class BusyAgentSendTests : IDisposable
     public async Task SendTextAsync_StateSaysWorkingButScreenMissesTheMarker_NeverClearsAndRetypes()
     {
         // Arrange (round-2 minor note 1): the session's state says the agent is working, but the screen read misses the
-        // working marker (as the fixed 220 by 40 grid can, issue #3406). The agent reacts to the typing but never draws
+        // working marker (as the old fixed 220 by 40 grid could, issue #3406). The agent reacts to the typing but never draws
         // it, so the echo is never confirmed. The clear-and-retype recovery must ask the same question as the rest of the
         // phase - the state or the screen - and must not fire the clear keys into a working agent.
         var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode, screenShowsWorking: false);

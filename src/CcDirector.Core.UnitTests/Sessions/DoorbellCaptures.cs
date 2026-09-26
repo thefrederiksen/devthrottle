@@ -15,12 +15,16 @@ internal static class DoorbellCaptures
         public bool CursorVisible { get; set; }
     }
 
-    public static ScreenFrame Load(string name)
+    public static ScreenFrame Load(string name) => Load(name, 40);
+
+    /// <summary>Load a capture whose grid is not the default 40 rows (the wrapped Codex composer was captured
+    /// at 100 by 30, because a wrap needs a screen narrower than the default 120 by 40).</summary>
+    public static ScreenFrame Load(string name, int expectedRows)
     {
         var path = Path.Combine(AppContext.BaseDirectory, "TestData", "doorbell", name + ".json");
         var capture = JsonSerializer.Deserialize<Capture>(File.ReadAllText(path),
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        Assert.True(capture.Rows.Length == 40, $"{name} should be a full 40-row capture");
+        Assert.True(capture.Rows.Length == expectedRows, $"{name} should be a full {expectedRows}-row capture");
         return new ScreenFrame(capture.Rows, capture.CursorRow, capture.CursorCol, capture.CursorVisible);
     }
 

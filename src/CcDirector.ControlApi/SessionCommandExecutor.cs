@@ -433,7 +433,7 @@ internal static class SessionCommandExecutor
         {
             var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin, request.SentAtUtc);
             var budget = answerBudget ?? PromptAnswerBudget;
-            if (!await FinishesWithinAsync(sending, budget))
+            if (!await FinishesWithinAsync(sending, budget, session.Id))
             {
                 FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: the send is still going after " +
                               $"{budget.TotalSeconds:F0}s - answering '{DeliveryStates.Delivering}' inside the Gateway's wait; the send carries on " +
@@ -524,14 +524,42 @@ internal static class SessionCommandExecutor
     /// </summary>
     internal static readonly TimeSpan PromptAnswerBudget = TimeSpan.FromSeconds(20);
 
-    /// <summary>True when <paramref name="sending"/> finished, well or badly, within <paramref name="budget"/>.</summary>
-    private static async Task<bool> FinishesWithinAsync(Task sending, TimeSpan budget)
+    /// <summary>
+    /// True when <paramref name="sending"/> finished, well or badly, within <paramref name="budget"/>. The wait says what it
+    /// waits for once it runs past a few seconds, and how it ended (the phase 3 lines, <see cref="SendWaitNotice"/>) - and
+    /// when the budget's own timer ran late, by how much (phase 6: in the case2f QA run the 20-second timer fired 12
+    /// seconds late, because the Director was not being given the processor).
+    /// </summary>
+    private static async Task<bool> FinishesWithinAsync(Task sending, TimeSpan budget, Guid sessionId)
     {
         if (sending.IsCompleted) return true;
+        var clock = Stopwatch.StartNew();
+        var notice = new SendWaitNotice("SessionCommandExecutor",
+            $"the send to finish before the prompt verb answers (session={sessionId})", $"{budget.TotalSeconds:0.#}s");
         using var cts = new CancellationTokenSource();
-        var finished = await Task.WhenAny(sending, Task.Delay(budget, cts.Token)) == sending;
+        var budgetEnds = Task.Delay(budget, cts.Token);
+        if (budget > SendWaitNotice.NoticeAfter
+            && await Task.WhenAny(sending, Task.Delay(SendWaitNotice.NoticeAfter, cts.Token)) != sending)
+            notice.Check();
+        var finished = await Task.WhenAny(sending, budgetEnds) == sending;
         cts.Cancel();
+        notice.End(finished
+            ? "the send finished"
+            : $"still sending - answering '{DeliveryStates.Delivering}'{DescribeBudgetEnd(budget, clock.Elapsed)}");
         return finished;
+    }
+
+    /// <summary>
+    /// How the answer budget ended, for its WAIT ENDED line: nothing when its timer fired on time, and when it fired more
+    /// than a second late, by how much and what that means. A timer that fires late is this process not being given the
+    /// processor - its threads are ready and waiting their turn - which is the one cause that delays every wait at once.
+    /// </summary>
+    internal static string DescribeBudgetEnd(TimeSpan budget, TimeSpan elapsed)
+    {
+        var late = elapsed - budget;
+        if (late <= TimeSpan.FromSeconds(1)) return "";
+        return $" (its {budget.TotalSeconds:0.#}s timer fired {late.TotalSeconds:F1}s late: this Director is not being given the " +
+               "processor - a busy machine, and a process started below normal priority, which ProcessPriorityFloor raises at start)";
     }
 
     /// <summary>
