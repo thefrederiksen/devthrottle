@@ -281,6 +281,10 @@ public sealed class DeliveryRecord
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // The wait names its end on the failure path too (phase 6 review, Pi finding 2): a slow read that then
+            // throws is the exact path where the diagnosis is hardest, and a WAITING line without its WAIT ENDED
+            // there breaks the pair the phase 3 lines exist for.
+            notice.End($"FAILED: {ex.Message}");
             FileLog.Write($"[DeliveryRecord] ReadEntries FAILED: {path}: {ex.Message}");
             throw new DeliveryRecordUnreadableException(path, ex.Message, ex);
         }

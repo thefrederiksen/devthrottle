@@ -691,43 +691,7 @@ public static class TerminalSubmit
             FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send may have left {retained.Length} " +
                           $"characters in this composer (evidence: {orphan}) - clearing before typing so the two " +
                           "cannot run together.");
-            await WaitForQuietAsync(backend, driverTag);
-            // THE MEASURED KEY, NOT A GUESSED ONE (issue #3290). A single Escape empties neither Claude Code's nor
-            // Codex's composer, so this step used to leave the orphan in place and the new send was appended to it -
-            // two prompts submitted as one. The caller passes the keys measured for its agent.
-            backend.Write(clearKeys ?? EscapeByte);
-            await Task.Delay(TimeSpan.FromMilliseconds(300));
-            if (composerHoldsNothing is not null)
-            {
-                // A loaded machine takes seconds to act on the clear, so the check runs for up to half a minute
-                // (review note) rather than five seconds that turned a slow clear into a failed send.
-                var empty = false;
-                var notice = new SendWaitNotice(driverTag, "the composer to read empty after the clear", "100 looks, about 30s");
-                for (var i = 0; i < 100 && !empty; i++)
-                {
-                    notice.Check();
-                    empty = composerHoldsNothing();
-                    if (empty) { await Task.Delay(BetweenScreenSamples); empty = composerHoldsNothing(); }
-                    if (!empty) await Task.Delay(TimeSpan.FromMilliseconds(150));
-                }
-                notice.End(empty ? "the composer is empty" : "the composer still holds text - nothing is typed");
-                if (!empty)
-                {
-                    // REPORTED WITH WHAT WAS READ (Voice Delivery mission, phase 6). The mark stands - the text may
-                    // really be there, and typing now would run the new text into it (#3290) - but it is only a reason
-                    // to LOOK: the next send reads the screen afresh before it clears or types, so the refusal lasts
-                    // exactly as long as the screen shows text. What the reader saw goes into the refusal, so a wrong
-                    // reading can be seen for what it is rather than read as a stuck session (case 2f read a stale row
-                    // of a 220-column grid, issue #3406).
-                    var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
-                    ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
-                    throw new ComposerNotAcceptingInputException(
-                        $"[{driverTag}] ResolveRetainedComposer: the composer still holds text after it was cleared, so " +
-                        "nothing was typed - typing now would run the new text together with what is there. " +
-                        $"The Director believes an earlier send may have left {retained.Length} characters there; " +
-                        $"what it read after the clear: {seen}. The next send looks again.");
-                }
-            }
+            await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen);
         }
         else if (clearKeys is not null && composerHoldsNothing is not null && composerHoldsNothing())
         {
@@ -737,8 +701,15 @@ public static class TerminalSubmit
             // 25 September 2026 the next send found the composer empty, called the text gone, typed - and the agent read
             // the old characters first and submitted both as one prompt (the corruption of pull request #1513).
             // A terminal's input is read in the order it was written, so the measured clear keys, pressed now, fall
-            // behind any of those characters and remove them; on a composer that is empty they do nothing. Pressed only
-            // when the composer reads EMPTY, so they can never fall on text someone has typed since.
+            // behind any of those characters and remove them; on a composer that is empty they do nothing.
+            //
+            // THE ONE THING THIS CANNOT PROMISE (issue #3417, accepted by the Delivery Lead in writing on 26 September
+            // 2026): the owner's own keystrokes, typed into this same starved session and still unread, queue BEHIND the
+            // failed send's characters and are emptied with them, with no report of it. Text someone has typed since
+            // is safe only once it is DRAWN - the composer reading EMPTY is the guarantee for what is on screen, not
+            // for what is still in the input queue. The branch stands anyway: it prevents the measured corruption
+            // above, and the unread queue cannot tell the failed send's characters from the owner's - no cheaper
+            // rule separates them.
             FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's {retained.Length} characters are not on " +
                           "screen and the composer reads empty - pressing the clear keys anyway, because characters still " +
                           "unread in the terminal's input are read before them and would otherwise run into this send.");
@@ -757,7 +728,23 @@ public static class TerminalSubmit
             // the send is refused, the owner's words stay theirs, and the refusal lasts exactly as long as the region
             // shows text - the next send reads the screen afresh.
             var regionNow = ReadRegionText(composerRegion);
-            if (regionNow is not null && regionNow.Length > 0)
+            if (regionNow is not null && regionNow.Length > 0 && retainedNeedle.Contains(regionNow, StringComparison.Ordinal))
+            {
+                // A FRAGMENT OF THE RETAINED TEXT IS ACCOUNTED FOR (phase 6 review finding 3). The phase 3 shape: a
+                // clear that raced characters still on their way left a PIECE of the retained text in the composer -
+                // shorter than every needle the orphan check can recognise, so the evidence above says Absent while
+                // the region plainly holds text. It is part of the text the DIRECTOR ITSELF retained, so it is not
+                // the owner's words on the screen: cleared with the measured keys and confirmed empty, exactly as the
+                // whole text is - before this, the fragment refused EVERY later send, and on the phone nothing can
+                // empty the composer. A draft of the owner's that happens to spell a piece of the retained text is
+                // indistinguishable from a remnant and is cleared with it; a draft that is not part of the retained
+                // text is still refused below.
+                FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the composer holds a fragment of the previous " +
+                              $"send's {retained.Length} characters ({regionNow.Length} of them) - clearing it with the " +
+                              "measured keys before typing, as for the whole text.");
+                await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen);
+            }
+            else if (regionNow is not null && regionNow.Length > 0)
             {
                 var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
                 FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's text is not in the composer, " +
@@ -772,6 +759,46 @@ public static class TerminalSubmit
             FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's text is provably gone from " +
                           "this composer - not clearing, so nothing typed since is disturbed.");
         }
+    }
+
+    /// <summary>
+    /// Clear the composer with the MEASURED keys - not a guessed Escape (issue #3290): a single Escape empties neither
+    /// Claude Code's nor Codex's composer, so it left the orphan in place and the new send was appended to it - then
+    /// confirm the composer reads EMPTY before anything is typed. A loaded machine takes seconds to act on the clear,
+    /// so the check runs for up to half a minute rather than five seconds that turned a slow clear into a failed send
+    /// (review note). A clear that cannot empty the composer refuses the send WITH WHAT WAS READ (Voice Delivery
+    /// mission, phase 6): the mark stands, but it is only a reason to LOOK - the next send reads the screen afresh, so
+    /// the refusal lasts exactly as long as the screen shows text, and a wrong reading can be seen for what it is
+    /// rather than read as a stuck session (case 2f read a stale row of a 220-column grid, issue #3406).
+    /// </summary>
+    private static async Task ClearRetainedAndConfirmEmptyAsync(
+        ISessionBackend backend, string driverTag, string retained, byte[]? clearKeys,
+        Func<bool>? composerHoldsNothing, Func<string>? composerSeen)
+    {
+        await WaitForQuietAsync(backend, driverTag);
+        backend.Write(clearKeys ?? EscapeByte);
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        if (composerHoldsNothing is null) return;
+
+        var empty = false;
+        var notice = new SendWaitNotice(driverTag, "the composer to read empty after the clear", "100 looks, about 30s");
+        for (var i = 0; i < 100 && !empty; i++)
+        {
+            notice.Check();
+            empty = composerHoldsNothing();
+            if (empty) { await Task.Delay(BetweenScreenSamples); empty = composerHoldsNothing(); }
+            if (!empty) await Task.Delay(TimeSpan.FromMilliseconds(150));
+        }
+        notice.End(empty ? "the composer is empty" : "the composer still holds text - nothing is typed");
+        if (empty) return;
+
+        var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
+        ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
+        throw new ComposerNotAcceptingInputException(
+            $"[{driverTag}] ResolveRetainedComposer: the composer still holds text after it was cleared, so " +
+            "nothing was typed - typing now would run the new text together with what is there. " +
+            $"The Director believes an earlier send may have left {retained.Length} characters there; " +
+            $"what it read after the clear: {seen}. The next send looks again.");
     }
 
     /// <summary>

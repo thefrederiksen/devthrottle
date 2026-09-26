@@ -79,6 +79,34 @@ public sealed class DeliveryRecordWaitTests : IDisposable
     }
 
     [Fact]
+    public void Read_TheFileTakesLongThenFails_TheWaitIsEndedWithTheFailure()
+    {
+        // Arrange: the read runs past the notice threshold and then the file cannot be read - the exact path
+        // (a slow file under load, then a failure) where the diagnosis is hardest, and the one place a WAITING
+        // line was left without its WAIT ENDED (phase 6 review, Pi finding 2).
+        var record = new DeliveryRecord(_directory);
+        record.MarkDelivered(_sessionId, "earlier");
+        var path = record.FileFor(_sessionId);
+        record.BeforeFileReadForTests = () =>
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(6));
+            File.Delete(path);
+            Directory.CreateDirectory(path); // the read now fails: the path is a directory
+        };
+
+        // Act
+        Assert.Throws<DeliveryRecordUnreadableException>(() => record.Read(_sessionId, "earlier"));
+        Directory.Delete(path);
+
+        // Assert: the WAITING line is answered by a WAIT ENDED line that names the failure - a wait names its
+        // end in one place, on the failure path too.
+        var lines = Lines();
+        Assert.Contains(lines, l => l.Contains("[DeliveryRecord] WAITING") && l.Contains("to read the delivery record"));
+        Assert.Contains(lines, l => l.Contains("[DeliveryRecord] WAIT ENDED") && l.Contains("to read the delivery record")
+                                     && l.Contains("FAILED"));
+    }
+
+    [Fact]
     public void Read_QuickRead_WritesNoWaitLine()
     {
         // Arrange

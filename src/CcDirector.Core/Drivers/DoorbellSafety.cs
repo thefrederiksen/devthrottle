@@ -90,9 +90,15 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///    composer EMPTY - the capture shows "❯" alone while the numbers are still streaming - so an empty composer
 ///    on its own is never permission to type.
 ///
-/// Codex (captured from Codex 0.154.0 on the same day):
-///  - Codex draws no rules. The composer is the row the visible cursor is on, and it starts with '›'. A row
-///    "› 1. ..." is a menu option, not a composer; so is any '›' row while the cursor is hidden.
+/// Codex (captured from Codex 0.154.0 on the same day; the wrapped composer captured from 0.157.1 on 26 September
+/// 2026, fixture codex-wrapped-composer):
+///  - Codex draws no rules. The composer is the block the visible cursor closes: the '›' row, plus every
+///    continuation row between it and the cursor, which sits at the end of the typed text. A prompt longer than
+///    the terminal is wide wraps onto continuation rows indented by the two columns the glyph and its separator
+///    take; reading only the cursor's row went blind for every wrapped prompt (Voice Delivery mission, phase 6,
+///    review finding 1). Every row between the glyph row and the cursor must carry that indent or be empty, or
+///    the block is not a composer. A row "› 1. ..." is a menu option, not a composer; so is any '›' row while
+///    the cursor is hidden.
 ///  - Codex, likewise: an empty row counts as empty only with the cursor at column
 ///    <see cref="EmptyComposerCursorColumn"/>; further right means whitespace was typed.
 ///  - Codex shows a dim placeholder in an empty composer ("Ask Codex to do anything"). The rows carry no colour,
@@ -295,19 +301,61 @@ public static class DoorbellSafety
         if (!frame.CursorVisible || frame.CursorRow < 0 || frame.CursorRow >= rows.Count)
             return (ComposerReading.NotFound, "");
 
-        var row = rows[frame.CursorRow];
-        if (!row.StartsWith('›')) return (ComposerReading.NotFound, "");
-        var text = AfterGlyph(row);
-        // A cursor past the glyph and its separator has something before it - whitespace included, which the
-        // trimmed row does not show (ruling 3).
-        var cursorAtStart = frame.CursorCol <= EmptyComposerCursorColumn;
-        if (text.Length == 0)
-            return cursorAtStart ? (ComposerReading.Empty, "") : (ComposerReading.HoldsText, "");
-        // A placeholder is drawn to the RIGHT of a cursor that sits straight after the glyph and its space.
-        return cursorAtStart && CodexPlaceholders.Contains(text, StringComparer.Ordinal)
-            ? (ComposerReading.Empty, "")
-            : (ComposerReading.HoldsText, text.Trim());
+        // THE WHOLE COMPOSER BLOCK, NOT ONE ROW (Voice Delivery mission, phase 6, review finding 1). Codex draws
+        // no rules around its composer; the block is the '›' row plus every continuation row between it and the
+        // cursor, which sits at the end of the typed text - the last row of the block. A prompt longer than the
+        // terminal is wide wraps onto continuation rows indented by the two columns the glyph and its separator
+        // take (captured from Codex 0.157.1, fixture codex-wrapped-composer); reading only the cursor's row read
+        // exactly that frame as NotFound, so the composer-region witness went blind for every wrapped prompt and
+        // the send fell into the clear-and-retype rescue. Every row between the glyph row and the cursor must be
+        // a continuation row - that indent, or empty - or this is not a composer block: a '›' row elsewhere (a
+        // menu option, a past prompt in the transcript) never frames one.
+        var prompt = frame.CursorRow;
+        if (!rows[prompt].StartsWith('›'))
+        {
+            for (var row = frame.CursorRow - 1; row >= 0; row--)
+            {
+                if (rows[row].StartsWith('›')) { prompt = row; break; }
+                if (!IsCodexContinuationRow(rows[row])) return (ComposerReading.NotFound, "");
+            }
+            if (prompt == frame.CursorRow) return (ComposerReading.NotFound, "");
+        }
+
+        if (prompt == frame.CursorRow)
+        {
+            var text = AfterGlyph(rows[prompt]);
+            // A cursor past the glyph and its separator has something before it - whitespace included, which the
+            // trimmed row does not show (ruling 3).
+            var cursorAtStart = frame.CursorCol <= EmptyComposerCursorColumn;
+            if (text.Length == 0)
+                return cursorAtStart ? (ComposerReading.Empty, "") : (ComposerReading.HoldsText, "");
+            // A placeholder is drawn to the RIGHT of a cursor that sits straight after the glyph and its space.
+            return cursorAtStart && CodexPlaceholders.Contains(text, StringComparer.Ordinal)
+                ? (ComposerReading.Empty, "")
+                : (ComposerReading.HoldsText, text.Trim());
+        }
+
+        // A wrapped composer holds text by construction - its rows are the text - but the whitespace ruling still
+        // applies to what the rows show: all-empty rows with the cursor past the start are a draft the trimmed
+        // grid cannot print (ruling 3).
+        var onPrompt = AfterGlyph(rows[prompt]);
+        var continuation = new List<string>();
+        for (var row = prompt + 1; row <= frame.CursorRow; row++)
+            continuation.Add(rows[row].Length >= ContinuationIndent.Length ? rows[row][ContinuationIndent.Length..] : rows[row]);
+        if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))
+        {
+            if (frame.CursorRow != prompt || frame.CursorCol > EmptyComposerCursorColumn)
+                return (ComposerReading.HoldsText, "");
+            return (ComposerReading.Empty, "");
+        }
+        var joined = string.Join("\n", new[] { onPrompt }.Concat(continuation)).Trim();
+        return (ComposerReading.HoldsText, joined);
     }
+
+    /// <summary>A row that can sit between Codex's '›' row and the cursor as part of one composer block: a
+    /// continuation row carrying the two-column indent, or an empty row.</summary>
+    private static bool IsCodexContinuationRow(string? row) =>
+        string.IsNullOrWhiteSpace(row) || row.StartsWith(ContinuationIndent, StringComparison.Ordinal);
 
     /// <summary>How many rows of the screen carry the doorbell's marker - the submitted doorbells the transcript
     /// shows, plus one in the composer if it is still there.</summary>
@@ -338,7 +386,8 @@ public static class DoorbellSafety
     /// ruling 1): no frame can prove the composer holds only the line. The composer is read as its rows, not as a
     /// squeezed string:
     ///  - Claude Code: the prompt row after the glyph and its one separator, then each continuation row after its
-    ///    two-column indent. Codex: the cursor's '›' row alone (a wrapped Codex composer is never "exactly").
+    ///    two-column indent. Codex: the '›' row after the glyph and its separator, then each continuation row after
+    ///    its two-column indent, up to the cursor's row (a wrapped composer is judged like Claude's).
     ///  - The rows, joined, must equal the line character for character. The only difference allowed is the one a
     ///    word wrap makes: at a row break, the single space of the line that the wrap consumed. A continuation row
     ///    that starts with a space, an empty row, or any other character is a difference.
@@ -369,9 +418,17 @@ public static class DoorbellSafety
                 }
                 break;
             case AgentKind.Codex:
+            {
                 if (ReadCodexComposer(frame).Item1 != ComposerReading.HoldsText) return false;
-                segments = [(frame.CursorRow, AfterGlyph(rows[frame.CursorRow]))];
+                // The whole block (phase 6, review finding 1): the '›' row and the continuation rows under it, up to
+                // the cursor's row, so a doorbell line longer than the screen is wide is still judged exactly.
+                var codexPrompt = frame.CursorRow;
+                while (!rows[codexPrompt].StartsWith('›')) codexPrompt--;
+                segments = [(codexPrompt, AfterGlyph(rows[codexPrompt]))];
+                for (var row = codexPrompt + 1; row <= frame.CursorRow; row++)
+                    segments.Add((row, rows[row][ContinuationIndent.Length..]));
                 break;
+            }
             default:
                 return false;
         }
@@ -385,7 +442,8 @@ public static class DoorbellSafety
                && frame.CursorCol == EmptyComposerCursorColumn + lastText.Length;
     }
 
-    /// <summary>The indent Claude Code draws in front of a composer continuation row, as wide as the glyph and its separator.</summary>
+    /// <summary>The indent Claude Code and Codex draw in front of a composer continuation row, as wide as the glyph
+    /// and its separator.</summary>
     private const string ContinuationIndent = "  ";
 
     /// <summary>The segments, in order, spell <paramref name="line"/> exactly, except that one space of the line may

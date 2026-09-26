@@ -2,7 +2,10 @@
 
 Real screens, not written ones. Each file is one frame of a real agent running in the Director's own
 terminal, read with `Session.SnapshotLiveScreen()` - the same call the doorbell's safety check makes -
-on the Mac mini on 17 September 2026, at the Director's default 120 by 40 grid.
+on the Mac mini on 17 September 2026, at the Director's default 120 by 40 grid. One later capture
+(`codex-wrapped-composer`) was taken on Windows on 26 September 2026 at 100 by 30, with the rig's
+`--codex-composer-capture` mode (`src/CcDirector.DeliveryQualification`), because a prompt that wraps
+needs a screen narrower than 120 columns.
 
 - Claude Code 2.1.274, started with `--dangerously-skip-permissions`.
 - Codex 0.154.0. The account hit its usage limit during the capture, so there is no mid-turn Codex
@@ -30,6 +33,7 @@ What each file shows:
 | `codex-owner-text` | One unsent sentence in the composer |
 | `codex-menu-rate-limit` | The model-switch menu Codex opened at its usage limit |
 | `codex-menu-trust-folder` | The folder-trust dialog, `› 1. Yes, continue` selected |
+| `codex-wrapped-composer` | Codex 0.157.1 with a 164-character prompt typed (no Enter) into a 100-column composer: the `›` row, then one continuation row indented by the two columns the glyph and its separator take, cursor at the end of the last row - the shape a wrapped Codex composer has, captured for the phase 6 review finding 1 |
 
 Two files are DERIVED, not captured (inspection 4, ruling 3), and say so in their own `derivedFrom` and
 `derivation` fields:

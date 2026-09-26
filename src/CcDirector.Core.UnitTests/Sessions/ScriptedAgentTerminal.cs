@@ -54,10 +54,22 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     /// <summary>An accepted Enter empties the composer, but the prompt never reaches the conversation file.</summary>
     public bool NeverRecord { get; set; }
 
+    /// <summary>How many bytes of answer the agent streams after an accepted Enter, as a real one does - the output
+    /// the submit verifier reads as the turn having started. Without it a scripted idle terminal produces a few dozen
+    /// bytes per paint and a send whose records cannot be read (a working-state session) is called parked.</summary>
+    public int ReplyBytesAfterEnter { get; set; }
+
     /// <summary>How long the agent takes to draw typed characters. Until then it answers a write with one invisible
     /// cursor sequence, so the terminal has reacted but shows nothing - a working agent that is behind on its input.</summary>
     public TimeSpan TypedDrawDelay { get; set; } = TimeSpan.Zero;
     private DateTime _drawTypedFrom = DateTime.MinValue;
+
+    /// <summary>How long the agent takes to draw the wrapped composer's LAST row after the rest - a loaded
+    /// Codex takes its characters in stages (issue #3290): until then only the earlier rows are on screen and the
+    /// cursor sits at the end of the last drawn one, so a reader that cannot see continuation rows sees nothing at
+    /// all while the composer fills up. Zero draws the whole composer at once.</summary>
+    public TimeSpan WrappedRowsDrawDelay { get; set; } = TimeSpan.Zero;
+    private DateTime _wrappedRowsDue = DateTime.MinValue;
     public int EntersAccepted { get; private set; }
     public int ClearKeysPressed { get; private set; }
     public DateTime? PasteDrawnAt { get; private set; }
@@ -174,6 +186,12 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
                 return;
             }
         }
+        if (WrappedRowsDrawDelay > TimeSpan.Zero && !text.Contains('\r') && !text.Contains('\x1b')
+            && _wrappedRowsDue == DateTime.MinValue)
+        {
+            _wrappedRowsDue = DateTime.UtcNow + WrappedRowsDrawDelay;
+            _ = Task.Run(async () => { await Task.Delay(WrappedRowsDrawDelay); Draw(); });
+        }
         Draw();
     }
 
@@ -217,6 +235,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         {
             Recorded.Add(submitted);
             File.AppendAllText(_transcript, line + "\n");
+            StreamReply();
             return;
         }
         _ = Task.Run(async () =>
@@ -230,8 +249,68 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         });
     }
 
+    private void StreamReply()
+    {
+        if (ReplyBytesAfterEnter <= 0) return;
+        // The answer streams in from the top of the screen, as a real agent's does; the frame repaint that follows
+        // puts the screen back the way the agent draws it, with the composer empty.
+        Buffer!.Write(Encoding.UTF8.GetBytes("\x1b[H" + new string('A', ReplyBytesAfterEnter)));
+        Draw();
+    }
+
     private string ComposerShown() =>
         _pasteHeld is null ? _composer.ToString() : _composer + $"[Pasted text #1 +{_pasteHeld.Count(c => c == '\n')} lines]";
+
+    /// <summary>The composer's rows as Codex draws them (fixture codex-wrapped-composer): the '›' row, then one
+    /// continuation row per wrapped line, indented by the two columns the glyph and its separator take, wrapped at
+    /// the terminal's width at a word boundary that consumes the one space of the break.</summary>
+    private List<string> WrapCodexComposer(string text)
+    {
+        const int indent = 2;
+        // One column short of the width, so no painted row ends exactly at the terminal's edge: a full-width row
+        // followed by a line break leaves a phantom row in the emulator, and the wrap point is not what these
+        // tests pin anyway.
+        var capacity = Math.Max(4, Width - indent - 1);
+        var rows = new List<string>();
+        var current = new StringBuilder();
+        var prefix = "› ";
+        var position = 0;
+
+        void Flush()
+        {
+            rows.Add(prefix + current);
+            current.Clear();
+            prefix = "  ";
+            position = 0;
+        }
+
+        foreach (var word in text.Split(' '))
+        {
+            var rest = word;
+            while (rest.Length > 0)
+            {
+                var room = capacity - position;
+                if (room <= 0)
+                {
+                    Flush();
+                    continue;
+                }
+                var take = Math.Min(rest.Length, room);
+                current.Append(rest, 0, take);
+                position += take;
+                rest = rest[take..];
+                if (rest.Length > 0) Flush(); // a word longer than the width is hard-broken, as the terminal does
+            }
+            if (position > 0 && position < capacity)
+            {
+                current.Append(' '); // the space of the break is consumed when the next word wraps
+                position++;
+            }
+        }
+        if (current.Length > 0 && current[^1] == ' ') current.Length--; // the text's own end carries no space
+        rows.Add(prefix + current);
+        return rows;
+    }
 
     /// <summary>Paint the current screen again, as the agent does when its state changes on its own.</summary>
     public void Redraw() => Draw();
@@ -262,12 +341,50 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
             var sb = new StringBuilder("\x1b[2J\x1b[H");
             if (_agent == AgentKind.Codex)
             {
-                sb.Append(spinner).Append("\r\n\r\n").Append(glyphless ? "  " : "› ").Append(shown).Append("\r\n\r\n").Append(footer);
-                sb.Append($"\x1b[3;{3 + shown.Length}H");
+                // The composer the way Codex draws it (captured from Codex 0.157.1, fixture codex-wrapped-composer):
+                // the '›' row, then continuation rows indented by the two columns the glyph and its separator take,
+                // wrapped at the terminal's width, with the cursor at the end of the last row. The transcript sits
+                // above, clipped to the screen so its oldest lines scroll off as it grows.
+                var rows = new List<string>();
+                if (ShowTranscript)
+                {
+                    if (TranscriptLineOnNextPaint is { } pending)
+                    {
+                        TranscriptLines.Add(pending);
+                        TranscriptLineOnNextPaint = null;
+                    }
+                    rows.AddRange(TranscriptLines);
+                }
+                var truncated = _wrappedRowsDue != DateTime.MinValue;
+                if (truncated && DateTime.UtcNow >= _wrappedRowsDue) { _wrappedRowsDue = DateTime.MinValue; truncated = false; }
+                var composerRows = (glyphless ? ["  " + shown] : WrapCodexComposer(shown)).ToList();
+                if (truncated && composerRows.Count > 1)
+                    composerRows.RemoveAt(composerRows.Count - 1); // the last row is still on its way
+                rows.Add(spinner);
+                rows.Add("");
+                rows.AddRange(composerRows);
+                rows.Add("");
+                rows.Add(footer);
+                var cut = Math.Max(0, rows.Count - Height);
+                if (cut > 0) rows = rows[cut..];
+                var sb2 = new StringBuilder("\x1b[2J\x1b[H");
+                var gridRow = 1;
+                var composerGridRow = -1;
+                for (var i = 0; i < rows.Count; i++)
+                {
+                    if (i == rows.Count - 3) composerGridRow = gridRow; // the composer's last row
+                    sb2.Append(rows[i]);
+                    if (i < rows.Count - 1) sb2.Append("\r\n");
+                    // a row longer than the width occupies several grid rows, as the terminal wraps it
+                    gridRow += Math.Max(1, (rows[i].Length + Width - 1) / Width);
+                }
+                var lastRowText = composerRows[^1]["› ".Length..].TrimEnd(' ');
+                sb2.Append($"\x1b[{composerGridRow};{3 + lastRowText.Length}H");
+                sb = sb2;
             }
             else
             {
-                sb.Append(spinner).Append("\r\n").Append(rule).Append("\r\n").Append(glyphless ? "  " : "❯ ").Append(shown)
+                sb.Append(spinner).Append("\r\n").Append(rule).Append("\r\n").Append(glyphless ? "  " : "❯ ").Append(shown)
                     .Append("\r\n").Append(rule).Append("\r\n").Append(footer);
                 sb.Append($"\x1b[3;{3 + shown.Length}H");
             }

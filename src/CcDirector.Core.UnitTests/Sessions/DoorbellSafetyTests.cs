@@ -364,6 +364,57 @@ public sealed class DoorbellSafetyTests
         Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
     }
 
+    // ---------- a wrapped Codex composer is the whole block, not one row (phase 6, review finding 1) ----------
+
+    /// <summary>The prompt the real capture holds, as the reader must return it: the '›' row and the continuation
+    /// row after their indents, joined by new lines (fixture codex-wrapped-composer, captured from Codex 0.157.1).</summary>
+    private const string WrappedCapturePrompt =
+        "Reply with only the word OK. Marker: fresh quokka seventy one two three four five six seven eight\nnine ten eleven twelve thirteen fourteen fifteen sixteen seventeen";
+
+    [Fact]
+    public void Codex_with_a_wrapped_prompt_in_the_composer_reads_the_whole_block_as_text()
+    {
+        // The cursor sits on the continuation row, which does not start with '›': the one-row reader answered
+        // NotFound for exactly this frame, and every region judgement on a wrapped Codex prompt went blind.
+        var frame = DoorbellCaptures.Load("codex-wrapped-composer", 30);
+
+        var (reading, text) = DoorbellSafety.ReadComposerText(AgentKind.Codex, frame);
+
+        Assert.Equal(ComposerReading.HoldsText, reading);
+        Assert.Equal(WrappedCapturePrompt, text);
+    }
+
+    [Fact]
+    public void Codex_with_a_wrapped_prompt_in_the_composer_defers_the_ring()
+    {
+        var frame = DoorbellCaptures.Load("codex-wrapped-composer", 30);
+
+        var verdict = DoorbellSafety.Check(Quiet(AgentKind.Codex, frame, frame));
+
+        Assert.False(verdict.Ring);
+        Assert.Equal(FleetRingDeferReasons.ComposerHoldsText, verdict.Reason);
+    }
+
+    [Fact]
+    public void Codex_holding_a_wrapped_doorbell_line_with_the_cursor_after_it_is_exactly_the_line()
+    {
+        // The doorbell line is longer than the captured screen is wide, so it wraps the same way. The frame is
+        // DERIVED from the capture (the doorbell line typed in place of the prompt), because the doorbell ringer
+        // needs exactly this shape on a screen narrower than its line.
+        var line = FleetDoorbellLine.For(1);
+        var cut = line.LastIndexOf(' ', 97); // the last space that fits the 100-column '›' row
+        var rest = line[(cut + 1)..];
+        var frame = DoorbellCaptures.Load("codex-wrapped-composer", 30);
+        frame = DoorbellCaptures.WithRow(frame, 25, ("› " + line[..cut]).TrimEnd());
+        frame = DoorbellCaptures.WithRow(frame, 26, "  " + rest);
+        frame = frame with { CursorRow = 26, CursorCol = 2 + rest.Length, CursorVisible = true };
+
+        Assert.True(DoorbellSafety.ComposerHoldsExactly(AgentKind.Codex, frame, line));
+        var (reading, text) = DoorbellSafety.ReadComposerText(AgentKind.Codex, frame);
+        Assert.Equal(ComposerReading.HoldsText, reading);
+        Assert.Equal(line[..cut] + "\n" + rest, text);
+    }
+
     // ---------- Inspection 5, ruling 1: exactly means exactly ----------
 
     private static ScreenFrame CodexHolding(string row, int cursorCol)

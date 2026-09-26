@@ -16,9 +16,16 @@ namespace CcDirector.Core.UnitTests.Sessions;
 ///    scrolled off at the same moment, and was reported not-delivered with its text left in the composer;
 ///  - the retained-text check then read those same conversation copies as the orphan still being in the composer,
 ///    and every later send was refused while the composer on screen was empty.
-/// Both must be judged from the COMPOSER REGION of the real screen - the rows between the two rules around the
-/// prompt, which the composer reader already locates - never from occurrences of the text anywhere on the screen.
-/// These tests draw a Claude Code screen with a transcript above the composer, the way the pseudo console does.
+/// Both must be judged from the COMPOSER REGION of the real screen - the rows between the two rules around
+/// the prompt, which the composer reader already locates - never from occurrences of the text anywhere on the
+/// screen. These tests draw a Claude Code screen with a transcript above the composer, the way the pseudo console
+/// does.
+///
+/// WHICH TESTS PIN THE REGION JUDGEMENT (phase 6 review finding 2, checked by reverting the fix): the scroll
+/// race and the owner's-own-text test go red with the region reader taken away; the recipe test and the
+/// empty-composer test below are GUARDS - the whole-screen code passes them too, because on the real grid the
+/// count rises when the composer draws the new copy and an empty composer is cleared harmlessly either way -
+/// and they are named as guards so nobody claims more of them than that.
 /// </summary>
 public sealed class RepeatedPromptWedgeTests : IDisposable
 {
@@ -59,12 +66,15 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
     // ===== the echo check judges the composer region, never the whole screen ==============================
 
     [Fact]
-    public async Task SendTextAsync_IdenticalPromptAlreadyVisibleInTheConversation_IsSentOnceAndAgainAfterIt()
+    public async Task SendTextAsync_IdenticalPromptAlreadyVisibleInTheConversation_GuardThreeIdenticalSendsAllGoThrough()
     {
-        // The owner's 09:26 case and QA's target 2 recipe: a prompt identical to text already visible on screen
-        // (the same words in the conversation above the composer), sent once, and a second identical short
-        // prompt after it. The echo is seen in the COMPOSER REGION - the copies in the conversation above are
-        // not counted against it and never counted as its echo.
+        // GUARD, not a pin of the region judgement (phase 6 review finding 2): with the region reader taken away,
+        // the whole-screen count also passes this, because the composer drawing the new copy raises the count on
+        // the real grid. The defect this guards against - the miss - is pinned by the scroll-race test below, and
+        // on the real screen by the rig log of 25 September 2026. The owner's 09:26 case and QA's target 2 recipe:
+        // a prompt identical to text already visible on screen, sent once, and a second identical short prompt
+        // after it. The echo is seen in the COMPOSER REGION - the copies in the conversation above are not counted
+        // against it and never counted as its echo.
         using var machine = PinnedMachineMemory.Healthy();
         var (session, terminal) = NewClaudeSession(120, 30);
         const string prompt = "yes";
@@ -115,12 +125,16 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
     // ===== the retained-text check reads the composer, not the conversation =================================
 
     [Fact]
-    public async Task SendTextAsync_RetainedTextOnlyInTheConversationAbove_AnEmptyComposerIsNotRefused()
+    public async Task SendTextAsync_RetainedTextOnlyInTheConversationAbove_GuardAnEmptyComposerIsNotRefused()
     {
-        // An earlier send of the same words gave up and left its mark; the words are visible in the conversation
-        // above the composer (the owner sent them themselves, or they match an earlier prompt there), and the
-        // composer on screen is EMPTY. The retained-text check must not read the conversation as the composer:
-        // no refusal, and the next prompt is typed and sent.
+        // GUARD, not a pin of the region judgement (phase 6 review finding 2): with the region reader taken away,
+        // this passes too - the whole-screen search reads the conversation copy as Present and clears, but the
+        // composer is empty, so the clear is harmless and the send goes through either way. The harm the region
+        // judgement prevents - a clear licensed by conversation copies falling on the owner's own words - is
+        // pinned by the owner's-own-text test below. An earlier send of the same words gave up and left its mark;
+        // the words are visible in the conversation above the composer, and the composer on screen is EMPTY. The
+        // retained-text check must not read the conversation as the composer: no refusal, and the next prompt is
+        // typed and sent.
         using var machine = PinnedMachineMemory.Healthy();
         var (session, terminal) = NewClaudeSession(120, 30);
         const string orphan = "yes";
@@ -163,6 +177,33 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         Assert.Empty(terminal.Recorded);
         Assert.Contains("cannot account for", refused.Message);
         Assert.Contains("text='keep my draft'", refused.Message);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_AFragmentOfTheRetainedTextLeftInTheComposer_IsClearedAndTheSendGoesThrough()
+    {
+        // The phase 3 shape (review finding 3): a clear that raced characters still on their way left a PIECE of
+        // the retained text in the composer - "seventy.", the tail of a 59-character prompt. The fragment is
+        // shorter than every needle the orphan check can recognise, so the check cannot name it - but it is part
+        // of the text the Director itself retained, so it is accounted for: cleared with the measured keys and
+        // confirmed empty, exactly as the whole text is. Without this, the fragment blocked EVERY later send - on
+        // the phone nothing can empty the composer - while text that is NOT part of the retained text (the
+        // owner's own draft, pinned above) is still refused.
+        using var machine = PinnedMachineMemory.Healthy();
+        var (session, terminal) = NewClaudeSession(120, 30, composer: "seventy.");
+        const string orphan = "Reply with only the word OK. Marker: fresh quokka seventy.";
+        ComposerRetention.MarkMayHoldText(terminal, "ClaudeCode", orphan);
+        const string next = "Reply with only the word OK. Marker: onward quokka ninety.";
+
+        // Act
+        await session.SendTextAsync(next, SessionTestDoors.TestDoor);
+
+        // Assert: the fragment was cleared with the measured keys, the composer was confirmed empty, and the send
+        // went through once - one Enter, nothing typed over the fragment, nothing welded to it.
+        Assert.Equal(new[] { next }, terminal.Recorded);
+        Assert.Equal("", terminal.Composer);
+        Assert.Equal(1, terminal.EntersAccepted);
+        Assert.True(terminal.ClearKeysPressed > 0, "the fragment is cleared with the measured keys, not typed over");
     }
 
     [Fact]

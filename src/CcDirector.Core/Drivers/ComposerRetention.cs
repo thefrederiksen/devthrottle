@@ -84,7 +84,11 @@ internal static class ComposerRetention
     ///   themselves, or the interface recovered. Do NOT clear: there is nothing to clear, and an Escape
     ///   would fall on whatever they have typed since. (One exception, made by the caller: when the composer
     ///   also reads EMPTY, the measured clear keys are pressed anyway, because characters of the earlier
-    ///   send still unread in the terminal's input are read before them - Voice Delivery mission, phase 6.)
+    ///   send still unread in the terminal's input are read before them - Voice Delivery mission, phase 6.
+    ///   That exception is not perfectly safe: the owner's own keystrokes, typed into the same starved
+    ///   session and still unread, queue behind the failed send's characters and are emptied with them -
+    ///   issue #3417, accepted by the Delivery Lead in writing on 26 September 2026, because the unread
+    ///   queue cannot tell the two apart and the branch prevents a measured corruption.)
     /// - <see cref="ComposerEvidence.Unknown"/> - we cannot see. Clear, and this is the one branch that
     ///   acts without proof. It is chosen deliberately: the cost of clearing wrongly is one prompt the
     ///   owner has already been told did not arrive, while the cost of NOT clearing is two prompts
