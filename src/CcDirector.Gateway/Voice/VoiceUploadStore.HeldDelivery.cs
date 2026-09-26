@@ -65,7 +65,14 @@ public sealed partial class VoiceUploadStore
             if (record.Owned is not null)
                 return new DictationOwnershipOutcome(DictationOwnership.AlreadyOwned, read);
             var dir = DirFor(uid);
-            WriteRecordMarker(dir, record with { Owned = owned });
+            // THE REGISTER-TIME DIRECTOR CARRIES INTO THE OWNED DELIVERY (Voice Delivery phase 5, review round:
+            // the ruling on the review's finding 1). The register wrote the session's Director on the record the
+            // moment the Gateway first knew the upload, so a session deleted before the first complete is still
+            // provable as ended. The owned delivery's DirectorId is the ONE field the ended proof reads - one
+            // source, one name - and this is the hand-off between the two halves of that one fact. A later
+            // locate still overwrites it with a fresher answer (RememberOwningDirector), which is the same
+            // field being kept true, not a second source.
+            WriteRecordMarker(dir, record with { Owned = owned with { DirectorId = owned.DirectorId ?? record.DirectorId } });
             AppendDecisionLine(dir, uid, DeliveryDecisions.GatewayOwnsDelivery, new DeliveryDecisionFacts
             {
                 SessionId = owned.SessionId,
@@ -96,6 +103,57 @@ public sealed partial class VoiceUploadStore
             if (string.Equals(owned.DirectorId, directorId, StringComparison.Ordinal)) return false;
             WriteRecordMarker(DirFor(uid), record with { Owned = owned with { DirectorId = directorId } });
             FileLog.Write($"[VoiceUploadStore] RememberOwningDirector: uploadId={uid} director={directorId}");
+            return true;
+        });
+    }
+
+    /// <summary>
+    /// HAND A DELIVERY BACK TO THE CLIENT (Voice Delivery phase 5, review round: the Delivery Lead's ruling
+    /// on the review's finding 1). The driver calls this when its attempt discovered that only the client can
+    /// finish the recording - today that is an INCOMPLETE upload, whose staged chunk is gone: the client
+    /// holds the audio and must send the chunk again. It drops the ownership from the PENDING record - the
+    /// words, the session id and the register-time Director stay - and keeps everything else exactly as it
+    /// is, so a client that re-uploads the missing chunks and completes again takes the delivery over the
+    /// ordinary way instead of being answered "still delivering" by a record the Gateway can no longer
+    /// finish. False, writing nothing, when the record is not an owned PENDING one.
+    /// </summary>
+    public bool HandBackToClient(string uploadId)
+    {
+        var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
+        return WithRecordLock(uid, () =>
+        {
+            var read = Read(uid);
+            if (read.Record is not { State: DictationDeliveryState.Pending, Owned: { } } record)
+                return false;
+            WriteRecordMarker(DirFor(uid), record with { Owned = null });
+            FileLog.Write($"[VoiceUploadStore] HandBackToClient: uploadId={uid}; the client drives this delivery again");
+            return true;
+        });
+    }
+
+    /// <summary>
+    /// Remember on an upload's PENDING record which Director held its session WHEN THE GATEWAY FIRST KNEW IT -
+    /// at register (Voice Delivery phase 5, review round, the ruling on the review's finding 1: a session
+    /// deleted before the first complete must still be provable as ended, and until the first locate nothing
+    /// on the record named its Director). The register route locates the session - it was live enough to
+    /// start a recording - and writes what the locate found. This is the ONE register-time source; a
+    /// register whose session cannot be located writes nothing, and the delivery then holds as before. When
+    /// the delivery is later taken over, <see cref="TakeOwnership"/> carries this field into the owned
+    /// delivery's own <see cref="DictationOwnedDelivery.DirectorId"/> - the one field the ended proof reads -
+    /// so there is never a second source for "which Director is its Director".
+    /// </summary>
+    public bool RememberSessionDirector(string uploadId, string directorId)
+    {
+        if (string.IsNullOrWhiteSpace(directorId)) return false;
+        var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
+        return WithRecordLock(uid, () =>
+        {
+            var read = Read(uid);
+            if (read.Record is not { State: DictationDeliveryState.Pending } record)
+                return false;
+            if (string.Equals(record.DirectorId, directorId, StringComparison.Ordinal)) return false;
+            WriteRecordMarker(DirFor(uid), record with { DirectorId = directorId });
+            FileLog.Write($"[VoiceUploadStore] RememberSessionDirector: uploadId={uid} director={directorId}");
             return true;
         });
     }
@@ -252,7 +310,7 @@ public sealed partial class VoiceUploadStore
     private static SendAnywayDelivery? ReadSendAnywayFile(string path)
     {
         string text;
-        try { text = File.ReadAllText(path); }
+        try { text = ReadAllTextNonBlocking(path); }
         catch (FileNotFoundException) { return null; }
         catch (DirectoryNotFoundException) { return null; }
         return JsonSerializer.Deserialize<SendAnywayDelivery>(text, RecordJson)
