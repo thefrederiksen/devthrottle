@@ -202,18 +202,31 @@ internal static class SessionCommandExecutor
     /// </summary>
     /// <param name="deliveries">The delivery record to consult when the request carries a
     /// <see cref="PromptRequest.DeliveryId"/>; the Director's own <see cref="DeliveryRecord.Shared"/> when not given.</param>
-    internal static async Task<DirectorCommandResult> SendPromptAsync(Session session, PromptRequest request, SendSource source = SendSource.UserInput, DeliveryRecord? deliveries = null, TimeSpan? answerBudget = null)
+    /// <param name="utcNow">The clock the prompt's age is measured against at receipt. Null in the Director - the
+    /// machine clock; a fixed clock in tests, so the age check is proven without a real wait.</param>
+    internal static async Task<DirectorCommandResult> SendPromptAsync(Session session, PromptRequest request, SendSource source = SendSource.UserInput, DeliveryRecord? deliveries = null, TimeSpan? answerBudget = null, Func<DateTime>? utcNow = null)
     {
         if (session is null) throw new ArgumentNullException(nameof(session));
         if (request is null) throw new ArgumentNullException(nameof(request));
 
+        var clock = utcNow ?? DefaultUtcNow;
+
+        // NO SEND TIME = A GATEWAY OLDER THAN THE FIELD (Voice Delivery mission, phase 5, QA finding F6): version skew
+        // between two separately shipped parts, not a second path - the prompt is typed as today, and this one line says so.
+        if (request.SentAtUtc is null)
+            FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: the prompt carries no Send time " +
+                          "(a Gateway older than the field); it is typed as today");
+
         // A RECORDING'S DELIVERY IS TYPED AT MOST ONCE (Voice Delivery mission, phase 1): it goes through the delivery
         // record, before and after the send below. Every other prompt is sent exactly as it always was.
         if (!string.IsNullOrWhiteSpace(request.DeliveryId))
-            return await SendRecordedDeliveryAsync(session, request, source, deliveries ?? DeliveryRecord.Shared, answerBudget);
+            return await SendRecordedDeliveryAsync(session, request, source, deliveries ?? DeliveryRecord.Shared, answerBudget, clock);
 
-        return await SendPromptCoreAsync(session, request, source, answerBudget, deliveries: null);
+        return await SendPromptCoreAsync(session, request, source, answerBudget, deliveries: null, clock);
     }
+
+    /// <summary>The Director machine's clock, the default of the age check's <c>utcNow</c> parameter.</summary>
+    private static DateTime DefaultUtcNow() => DateTime.UtcNow;
 
     /// <summary>
     /// A prompt that carries a <see cref="PromptRequest.DeliveryId"/>. The id is looked up and, unless it is already
@@ -229,7 +242,7 @@ internal static class SessionCommandExecutor
     /// A send that throws is still thrown, unchanged, so every caller's error path is what it was; the record now
     /// says what became of it. A record that cannot be read refuses the delivery and names the file.
     /// </summary>
-    private static async Task<DirectorCommandResult> SendRecordedDeliveryAsync(Session session, PromptRequest request, SendSource source, DeliveryRecord deliveries, TimeSpan? answerBudget)
+    private static async Task<DirectorCommandResult> SendRecordedDeliveryAsync(Session session, PromptRequest request, SendSource source, DeliveryRecord deliveries, TimeSpan? answerBudget, Func<DateTime> utcNow)
     {
         var deliveryId = request.DeliveryId!;
         FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: session={session.Id}, deliveryId={deliveryId}");
@@ -267,7 +280,21 @@ internal static class SessionCommandExecutor
         DirectorCommandResult result;
         try
         {
-            result = await SendPromptCoreAsync(session, request, source, answerBudget, deliveries);
+            // THE PROMPT'S AGE AT RECEIPT (Voice Delivery mission, phase 5, QA finding F6): a command that arrives
+            // already past the limit is refused without waiting - and, because it began in the record above, the
+            // refusal is WRITTEN to it, so the Gateway's question about this id gets "not-delivered, too-old"
+            // rather than "unknown". The same check sits at the first keystroke, for everything the send waits on
+            // in between.
+            if (PromptAgeLimit.IsTooOld(request.SentAtUtc, utcNow(), out var receiptAge))
+            {
+                var reason = PromptAgeLimit.TooOldReason(receiptAge, "when the Director received it");
+                FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: REFUSED session={session.Id}, deliveryId={deliveryId}: " +
+                              $"it was {PromptAgeLimit.Describe(receiptAge)} old from Send when the Director received it, " +
+                              $"past the {MaxDeliveryAge.Minutes}-minute limit; nothing was typed");
+                deliveries.MarkNotDelivered(session.Id, deliveryId, reason);
+                return TooOldAnswer(session, session.Buffer?.TotalBytesWritten ?? 0, reason);
+            }
+            result = await SendPromptCoreAsync(session, request, source, answerBudget, deliveries, utcNow);
         }
         catch (Exception ex)
         {
@@ -313,12 +340,25 @@ internal static class SessionCommandExecutor
     /// <summary>The prompt core itself: every prompt goes through here exactly once. <paramref name="deliveries"/> is the
     /// record a prompt with a <see cref="PromptRequest.DeliveryId"/> was begun in, and null for every other prompt: it is
     /// used only to write the late outcome of a send the verb answered "delivering" for (<see cref="RecordLateOutcomeAsync"/>).</summary>
-    private static async Task<DirectorCommandResult> SendPromptCoreAsync(Session session, PromptRequest request, SendSource source, TimeSpan? answerBudget, DeliveryRecord? deliveries)
+    private static async Task<DirectorCommandResult> SendPromptCoreAsync(Session session, PromptRequest request, SendSource source, TimeSpan? answerBudget, DeliveryRecord? deliveries, Func<DateTime> utcNow)
     {
         if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
 
         var bufferCursor = session.Buffer?.TotalBytesWritten ?? 0;
+
+        // THE PROMPT'S AGE AT RECEIPT (Voice Delivery mission, phase 5, QA finding F6): a command that arrives already
+        // past the limit is refused without waiting - nothing is typed, and the verb answers not-delivered with the
+        // too-old reason. The same check sits at the first keystroke inside the session, for every gate and wait the
+        // send passes through after this.
+        if (PromptAgeLimit.IsTooOld(request.SentAtUtc, utcNow(), out var receiptAge))
+        {
+            var reason = PromptAgeLimit.TooOldReason(receiptAge, "when the Director received it");
+            FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: REFUSED session={session.Id}: it was " +
+                          $"{PromptAgeLimit.Describe(receiptAge)} old from Send when the Director received it, " +
+                          $"past the {MaxDeliveryAge.Minutes}-minute limit; nothing was typed");
+            return TooOldAnswer(session, bufferCursor, reason);
+        }
 
         // DevThrottle Stats: build the origin for the Director's choke-point tally. Modality is voice for a
         // dictation delivery (SendSource.Delivery, set from the X-Dictation-Delivery marker) and typed
@@ -360,9 +400,15 @@ internal static class SessionCommandExecutor
         if (request.OnlyWhenWaitingForInput)
         {
             var sent = await session.SendTextOnlyWhenWaitingForInputAsync(
-                request.Text, provenance, effectiveSource, origin, request.AppendEnter);
+                request.Text, provenance, effectiveSource, origin, request.AppendEnter, request.SentAtUtc);
             if (sent.Exited)
                 return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
+            if (sent.RefusedTooOld)
+            {
+                // REFUSED FOR AGE (phase 5, QA finding F6): nothing was typed and the sender must not try again - a
+                // refusal the delivery answers not-delivered, unlike a busy refusal the events wait on.
+                return TooOldAnswer(session, bufferCursor, sent.Reason!);
+            }
             if (!sent.Accepted)
             {
                 FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: REFUSED session={session.Id}: {sent.Reason}");
@@ -385,7 +431,7 @@ internal static class SessionCommandExecutor
         }
         else if (request.AppendEnter)
         {
-            var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin);
+            var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin, request.SentAtUtc);
             var budget = answerBudget ?? PromptAnswerBudget;
             if (!await FinishesWithinAsync(sending, budget))
             {
@@ -404,6 +450,14 @@ internal static class SessionCommandExecutor
             }
             // Finished within the budget: a failure the send knows about is thrown here and stays a failure, as before.
             var outcome = await sending;
+            if (outcome.NothingTyped)
+            {
+                // REFUSED AT THE FIRST KEYSTROKE FOR AGE (phase 5, QA finding F6): the prompt waited past the limit
+                // behind a gate or another send and nothing was typed. The session has already written its one log
+                // line with the measured age; this is the verb's answer, which the recorded path also writes to the
+                // delivery record.
+                return TooOldAnswer(session, bufferCursor, outcome.Reason!);
+            }
             if (!outcome.Confirmed)
             {
                 // STILL DELIVERING (review finding 3): the Enter was pressed and the text was not seen left in the composer,
@@ -435,6 +489,26 @@ internal static class SessionCommandExecutor
             DeliveryState = request.AppendEnter ? DeliveryState.Delivered : null,
         };
         return DirectorCommandResult.Success(Serialize(response));
+    }
+
+    /// <summary>
+    /// THE VERB'S ANSWER TO A PROMPT REFUSED FOR AGE (Voice Delivery mission, phase 5, QA finding F6): a success whose
+    /// body says the delivery was not made and why - the same shape as every other refusal that typed nothing, so the
+    /// Gateway reads one kind of answer and knows the words are NOT in the session. Nothing was typed; the caller does
+    /// not retry.
+    /// </summary>
+    private static DirectorCommandResult TooOldAnswer(Session session, long bufferCursor, string reason)
+    {
+        return DirectorCommandResult.Success(Serialize(new PromptResponse
+        {
+            Accepted = false,
+            SentAt = DateTime.UtcNow,
+            BufferCursor = bufferCursor,
+            ActivityState = session.ActivityState.ToString(),
+            Error = reason,
+            DeliveryState = DeliveryState.NotDelivered,
+            DeliveryStateReason = reason,
+        }));
     }
 
     /// <summary>
@@ -509,6 +583,15 @@ internal static class SessionCommandExecutor
         if (outcome.Confirmed)
         {
             WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Delivered, null);
+            return;
+        }
+        if (outcome.NothingTyped)
+        {
+            // REFUSED AT THE FIRST KEYSTROKE FOR AGE (Voice Delivery mission, phase 5, QA finding F6): the verb
+            // answered "delivering" at its budget, the send then waited past the limit and typed NOTHING. The words
+            // are known not submitted, so the record is settled at once with the send's own too-old reason - no
+            // records watch runs for a turn that never began.
+            WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, outcome.Reason);
             return;
         }
         // STILL DELIVERING (review finding 3): the words left the composer, or it could not be read, while the agent

@@ -28,6 +28,18 @@ public static class RecordingUploadGate
     public const string Recording = "Recording";
 
     /// <summary>
+    /// A stopped recording with no audio segment at all (Stop pressed before the recorder delivered any audio).
+    /// Terminal: there is nothing to upload, so it must never sit in <see cref="Queued"/> forever.
+    /// </summary>
+    public const string NoAudio = "NoAudio";
+
+    /// <summary>The reason shown for <see cref="NoAudio"/>.</summary>
+    public const string NoAudioReason = "Nothing was recorded: the phone's recorder produced no usable audio.";
+
+    /// <summary>The state a recording takes when it stops: queued for upload, or <see cref="NoAudio"/>.</summary>
+    public static string StateAfterStop(int segmentCount) => segmentCount > 0 ? Queued : NoAudio;
+
+    /// <summary>
     /// An interrupted recording needs RECOVERY: it was never cleanly stopped (state is
     /// <see cref="Recording"/>, i.e. <c>EndedAt == null</c>) but it already has captured audio
     /// segments on disk. Recovery finalizes it into the normal upload path (sets <c>EndedAt</c>

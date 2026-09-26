@@ -140,6 +140,24 @@ public sealed class PromptRequest
     ///
     /// A client cannot set this: whatever arrives here is overwritten by the route from what it verified.</summary>
     public SubmissionProvenanceDto? Provenance { get; set; }
+
+    /// <summary>
+    /// WHEN THE GATEWAY SENT THIS PROMPT (Voice Delivery mission, phase 5, QA finding F6), as UTC. The Director
+    /// refuses to type a prompt strictly older than <see cref="MaxDeliveryAge"/> from this moment - on receipt,
+    /// and again immediately before the first character is typed, after every gate and wait the send passes
+    /// through: it types nothing, records the delivery id not-delivered with the too-old reason, and answers
+    /// not-delivered with that reason. That is the same rule the Gateway holds its own recordings to; before it,
+    /// a command already handed to the Director had no age limit at all (a frozen Director typed one seven
+    /// minutes old when it woke).
+    ///
+    /// GATEWAY-SET, NEVER TRUSTED FROM A CLIENT. The Gateway writes it on every prompt it sends - the recording's
+    /// <c>sentAtUtc</c> for a dictation; the moment the owner pressed "Send anyway" for a claim; the moment the
+    /// Gateway received a typed prompt on either route - and overwrites whatever a client body carries, the same
+    /// way <see cref="Provenance"/> is overwritten. A request with NO Send time comes from a Gateway older than
+    /// this field: the Director types it as today and logs that it had none - version skew between two separately
+    /// shipped parts, not a second path.
+    /// </summary>
+    public DateTime? SentAtUtc { get; set; }
 }
 
 /// <summary>One client claim: the text from <see cref="Start"/> for <see cref="Length"/> characters is the

@@ -67,19 +67,18 @@ internal static class GatewayDictationEndpoint
 {
     /// <summary>
     /// How old a recording may be, in minutes from the moment the owner pressed Send, and still be typed into the
-    /// session automatically (Voice Delivery mission, phase 2). Older than this - strictly more - and words known not
-    /// to be in the session are kept and shown back with "Send anyway" instead of typed.
-    ///
-    /// The owner, 25 September 2026: "if it's five minutes in, we don't send it" ... "I don't wanna wait 12 seconds
-    /// and then it says it's moved on." The limit was chosen in dev report de5eeaea: "5 minutes".
+    /// session automatically (Voice Delivery mission, phase 2). The NUMBER lives in
+    /// <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/> since phase 5: one limit the Gateway and the
+    /// Director both read, so a command handed to the Director cannot outlive it (QA finding F6). This field is
+    /// that number, kept under its old name for the code that reads it.
     ///
     /// It replaced a byte rule that dropped any retried recording once the session's terminal had printed 512 bytes,
     /// which a busy agent's spinner passes in seconds.
     /// </summary>
-    internal const int MaxDeliveryAgeMinutes = 5;
+    internal const int MaxDeliveryAgeMinutes = CcDirector.Gateway.Contracts.MaxDeliveryAge.Minutes;
 
-    /// <summary>The age limit as a span; see <see cref="MaxDeliveryAgeMinutes"/>.</summary>
-    internal static readonly TimeSpan MaxDeliveryAge = TimeSpan.FromMinutes(MaxDeliveryAgeMinutes);
+    /// <summary>The age limit as a span; see <see cref="MaxDeliveryAgeMinutes"/> - the one constant, read from the contracts.</summary>
+    internal static readonly TimeSpan MaxDeliveryAge = CcDirector.Gateway.Contracts.MaxDeliveryAge.Span;
 
     /// <summary>
     /// The <c>directorState</c> of the held answer when the Director gave no answer at all - not connected, too old

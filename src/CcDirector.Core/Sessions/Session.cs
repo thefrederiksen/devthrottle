@@ -2708,6 +2708,13 @@ public sealed class Session : IDisposable
     /// <summary>Test seam: overrides <see cref="GuardedSendLimit"/> for this session. Null in every real session.</summary>
     internal TimeSpan? GuardedSendLimitForTests { get; set; }
 
+    /// <summary>Test seam: the clock the prompt age check reads at the first keystroke, so a test can age a prompt
+    /// through a gate wait without a real wait. Null in every real session, which reads the machine clock.</summary>
+    internal Func<DateTime>? UtcNowForTests { get; set; }
+
+    /// <summary>The clock the prompt age check reads: the Director machine's, not corrected against the Gateway's.</summary>
+    private DateTime UtcNow() => UtcNowForTests?.Invoke() ?? DateTime.UtcNow;
+
     /// <summary>Test seam: runs after the guarded send's check, with its section open and before its first write, so a
     /// test can put the owner's input exactly there. Null in every real session.</summary>
     internal Action? AfterInputCheckForTests { get; set; }
@@ -3241,8 +3248,11 @@ public sealed class Session : IDisposable
 
     /// <param name="provenance">What the door this text came through knew at entry (source logging): required,
     /// so no door can send text without saying which door it is.</param>
-    /// <returns>Delivered, or still delivering (see <see cref="TextSendOutcome"/>). A send that did not deliver throws.</returns>
-    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null)
+    /// <param name="sentAtUtc">The Send time the GATEWAY put on this prompt (<see cref="PromptRequest.SentAtUtc"/>),
+    /// for its age check at the first keystroke; null for every send that is not a Gateway prompt (the owner's own
+    /// input, the framework, the fleet), which the check does not apply to.</param>
+    /// <returns>Delivered, or still delivering, or refused before typing (see <see cref="TextSendOutcome"/>). A send that did not deliver throws.</returns>
+    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null, DateTime? sentAtUtc = null)
     {
         ArgumentNullException.ThrowIfNull(provenance);
         // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
@@ -3250,9 +3260,11 @@ public sealed class Session : IDisposable
 
         FileLog.Write($"[Session] SendTextAsync: session={Id}, source={source}, driver={Driver.Kind}, text=\"{(text.Length > 60 ? text[..60] + "..." : text)}\", len={text.Length}");
         using var input = await BeginInputAsync();
-        var outcome = await SubmitTextAsync(_backend, text, provenance, source, origin, BracketedPasteEnabled);
+        var outcome = await SubmitTextAsync(_backend, text, provenance, source, origin, BracketedPasteEnabled, sentAtUtc);
         FileLog.Write($"[Session] SendTextAsync done: session={Id}, " +
-                      (outcome.Confirmed ? "delivered" : $"STILL DELIVERING - {outcome.Reason}"));
+                      (outcome.Confirmed ? "delivered"
+                       : outcome.NothingTyped ? $"REFUSED - {outcome.Reason}"
+                       : $"STILL DELIVERING - {outcome.Reason}"));
         return outcome;
     }
 
@@ -3267,13 +3279,26 @@ public sealed class Session : IDisposable
     /// owner has unsent text in the composer (<see cref="HasUnsentOwnerDraft"/>), and - for a submit - one whose
     /// terminal is not a terminal session, because a one-call submit cannot be abandoned and so cannot be bounded.
     /// </summary>
+    /// <param name="sentAtUtc">The Send time the GATEWAY put on this prompt (<see cref="PromptRequest.SentAtUtc"/>),
+    /// for its age check at receipt and at the first keystroke; null for a prompt the check does not apply to.</param>
     /// <returns>Sent, or why nothing was submitted.</returns>
     public async Task<GuardedSendResult> SendTextOnlyWhenWaitingForInputAsync(
-        string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter)
+        string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter, DateTime? sentAtUtc = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(provenance);
         FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: session={Id}, source={source}, len={text.Length}, appendEnter={appendEnter}");
+
+        // THE PROMPT'S AGE AT RECEIPT (Voice Delivery mission, phase 5, QA finding F6): a guarded send that is already
+        // past the limit is refused before its section opens - it must not hold the owner's input behind a prompt that
+        // can no longer be typed. The same check sits at the first keystroke, for everything that can be waited for in
+        // between.
+        if (PromptAgeLimit.IsTooOld(sentAtUtc, UtcNow(), out var receiptAge))
+        {
+            var reason = PromptAgeLimit.TooOldReason(receiptAge, "when the Director received it");
+            FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: REFUSED session={Id}: {reason}");
+            return GuardedSendResult.TooOld(ActivityState, reason);
+        }
 
         GuardedInputSection section;
         lock (_inputLock)
@@ -3311,15 +3336,15 @@ public sealed class Session : IDisposable
         }
         _ = AbandonAtDeadlineAsync(section);
 
-        Task sending;
+        Task<TextSendOutcome?> sending;
         try
         {
             AfterInputCheckForTests?.Invoke();
-            sending = SendInGuardedSectionAsync(section, text, provenance, source, origin, appendEnter);
+            sending = SendInGuardedSectionAsync(section, text, provenance, source, origin, appendEnter, sentAtUtc);
         }
         catch (Exception ex)
         {
-            sending = Task.FromException(ex);
+            sending = Task.FromException<TextSendOutcome?>(ex);
         }
 
         // An abandoned section answers at once; the submit's own task stops at its next write.
@@ -3335,7 +3360,11 @@ public sealed class Session : IDisposable
 
         try
         {
-            await sending;
+            var outcome = await sending;
+            // REFUSED AT THE FIRST KEYSTROKE FOR AGE (phase 5, QA finding F6): nothing was typed, so nothing was
+            // submitted and the sender must not try again - it is answered as the delivery's refusal, not as busy.
+            if (outcome?.NothingTyped == true)
+                return GuardedSendResult.TooOld(ActivityState, outcome.Reason!);
         }
         catch (Exception ex) when (TryAbandonOnFailure(section, ex))
         {
@@ -3344,8 +3373,11 @@ public sealed class Session : IDisposable
         return GuardedSendResult.Sent(ActivityState);
     }
 
-    private async Task SendInGuardedSectionAsync(
-        GuardedInputSection section, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter)
+    /// <summary>One guarded send: the submit through a guarded view of the terminal, or - with no Enter - the raw
+    /// write. Returns the submit's outcome so a refusal at the first keystroke can be told apart from a sent turn;
+    /// null only on the raw-write path, which types without a submit and checks its own age below.</summary>
+    private async Task<TextSendOutcome?> SendInGuardedSectionAsync(
+        GuardedInputSection section, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter, DateTime? sentAtUtc)
     {
         var guarded = new InputGuardedBackend(_backend, this, section);
         try
@@ -3354,13 +3386,19 @@ public sealed class Session : IDisposable
             {
                 // Never a paste: a pasted block can show as one placeholder of unknown width, and then an abandoned send
                 // could not take exactly its own text back out.
-                await SubmitTextAsync(guarded, text, provenance, source, origin, allowBracketedPaste: false);
+                return await SubmitTextAsync(guarded, text, provenance, source, origin, allowBracketedPaste: false, sentAtUtc);
             }
             else
             {
+                // THE PROMPT'S AGE AT THE FIRST KEYSTROKE (phase 5, QA finding F6): the raw write is the first keystroke.
+                // The check's own one log line says the age; this adds only the refusal's shape for this path.
+                var refused = TooOldAtFirstKeystroke(sentAtUtc);
+                if (refused is not null)
+                    return refused;
                 var data = System.Text.Encoding.UTF8.GetBytes(text);
                 guarded.Write(data);
                 AfterRawInput(data, origin, provenance, ContainsSubmit(data));
+                return null;
             }
         }
         finally
@@ -3940,8 +3978,10 @@ public sealed class Session : IDisposable
     /// <summary>How Claude Code draws a folded paste in its composer: "[Pasted text #1 +29 lines]".</summary>
     private const string ClaudePastePlaceholder = "[Pasted text";
 
-    /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
-    private async Task<TextSendOutcome> SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
+    /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.
+    /// <paramref name="sentAtUtc"/> is the Send time the Gateway put on the prompt, for the age check at the first
+    /// keystroke; null when there is nothing to check.</summary>
+    private async Task<TextSendOutcome> SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste, DateTime? sentAtUtc)
     {
         var outcome = TextSendOutcome.Delivered;
         long ownerTextBefore;
@@ -3975,6 +4015,17 @@ public sealed class Session : IDisposable
                     $"the send in front of this one to session {Id} to finish (one send at a time)", "none - it waits for that send's own limits");
                 try
                 {
+                // THE PROMPT'S AGE AT THE FIRST KEYSTROKE (Voice Delivery mission, phase 5, QA finding F6): this is the
+                // last moment before the first character is typed - past the send gate and every other wait - so the
+                // age is checked HERE, not only at receipt. A prompt that waited behind a frozen Director's send for
+                // longer than the limit types nothing: it is answered refused, never typed stale (on 25 September
+                // 2026 one waited seven minutes and was typed the moment the Director woke).
+                var refusedAtTheKeystroke = TooOldAtFirstKeystroke(sentAtUtc);
+                if (refusedAtTheKeystroke is not null)
+                {
+                    WorkingOrigin = priorOrigin;
+                    return refusedAtTheKeystroke;
+                }
                 var proof = BeginArrivalProof(target, text);
                 Task<string> Submit(bool clearFirst = false) => Drivers.TerminalSubmit.SharedSubmitAsync(
                     target,
@@ -4027,6 +4078,13 @@ public sealed class Session : IDisposable
             }
             else
             {
+                // The one-call submit is also the first keystroke, with nothing in front of it: same age check.
+                var refusedAtTheKeystroke = TooOldAtFirstKeystroke(sentAtUtc);
+                if (refusedAtTheKeystroke is not null)
+                {
+                    WorkingOrigin = priorOrigin;
+                    return refusedAtTheKeystroke;
+                }
                 await target.SendTextAsync(text);
             }
         }
@@ -4075,6 +4133,24 @@ public sealed class Session : IDisposable
         // the same test as WorkingOrigin, which is set from OriginFor at the top of this method.
         Storage.PromptAuthorBuffer.Record(Id.ToString(), OriginFor(source, origin), text ?? "");
         SetActivityState(ActivityState.Working);
+        return outcome;
+    }
+
+    /// <summary>
+    /// THE PROMPT'S AGE AT THE FIRST KEYSTROKE (Voice Delivery mission, phase 5, QA finding F6): the check the
+    /// Director makes at the last moment before it types, after every gate and wait. Strictly past
+    /// <see cref="Gateway.Contracts.MaxDeliveryAge"/> and nothing is typed - the outcome says refused with the
+    /// too-old reason and the measured age, which the one log line below also carries, so a skewed clock between the
+    /// Gateway and this machine is visible. Null when the prompt may be typed: it carries no Send time (a Gateway
+    /// older than the field - the verb has already logged that), or it is inside the limit.
+    /// </summary>
+    private TextSendOutcome? TooOldAtFirstKeystroke(DateTime? sentAtUtc)
+    {
+        if (!PromptAgeLimit.IsTooOld(sentAtUtc, UtcNow(), out var age))
+            return null;
+        var outcome = TextSendOutcome.RefusedBeforeTyping(PromptAgeLimit.TooOldReason(age, "at the first keystroke"));
+        FileLog.Write($"[Session] prompt refused at the first keystroke: session={Id}: it was " +
+                      $"{PromptAgeLimit.Describe(age)} old from Send, past the {Gateway.Contracts.MaxDeliveryAge.Minutes}-minute limit; nothing was typed");
         return outcome;
     }
 

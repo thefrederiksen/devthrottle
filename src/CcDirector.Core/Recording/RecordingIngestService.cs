@@ -384,6 +384,12 @@ public sealed class RecordingIngestService : IDisposable
                 // having touched the already-safe audio + notes. See ResolveTranscriber.
                 var transcriber = ResolveTranscriber();
 
+                // On the last attempt a segment that still fails is skipped and named instead of failing the
+                // whole recording: on 25 September 2026 one empty final segment left four good minutes behind
+                // an "error" for good. Earlier attempts still fail the job, so a passing outage loses nothing.
+                var lastAttempt = status.Attempts + 1 >= _maxJobAttempts;
+                status.UntranscribedSegments = null;
+
                 var ext = CodecToExt(status.Codec);
                 var (contentType, fileName) = CodecToHttp(status.Codec, ext);
 
@@ -397,10 +403,30 @@ public sealed class RecordingIngestService : IDisposable
                         throw new InvalidOperationException($"Chunk {chunk.Index} audio missing at {audioPath}.");
 
                     var audio = await File.ReadAllBytesAsync(audioPath, ct);
-                    var raw = await TranscribeChunkWithRetryAsync(transcriber, audio, contentType, fileName, chunk.Index, ct);
+                    string raw;
+                    try
+                    {
+                        raw = await TranscribeChunkWithRetryAsync(transcriber, audio, contentType, fileName, chunk.Index, ct);
+                    }
+                    catch (InvalidOperationException ex) when (lastAttempt)
+                    {
+                        (status.UntranscribedSegments ??= new()).Add(new UntranscribedSegment
+                        {
+                            Index = chunk.Index,
+                            StartMs = chunk.StartMs,
+                            Reason = ex.Message,
+                        });
+                        FileLog.Write($"[RecordingIngestService] chunk {chunk.Index} skipped on the last attempt: id={recordingId}: {ex.Message}");
+                        continue;
+                    }
                     await WriteAtomicAsync(txtPath, Encoding.UTF8.GetBytes(raw), ct);
                     FileLog.Write($"[RecordingIngestService] transcribed chunk {chunk.Index}: len={raw.Length}");
                 }
+
+                // Skipping exists to rescue the segments that worked. With none, there is no transcript to show.
+                if (status.UntranscribedSegments?.Count == manifest.Chunks.Count)
+                    throw new InvalidOperationException(
+                        "No segment could be transcribed: " + status.UntranscribedSegments[0].Reason);
 
                 var assembledRaw = AssembleRaw(recordingId, manifest);
 
@@ -802,17 +828,31 @@ public sealed class RecordingIngestService : IDisposable
         if (!string.IsNullOrWhiteSpace(s.Transcript))
         {
             var manifest = LoadManifest(recordingId);
-            if (manifest is not null && manifest.Notes.Count > 0)
+            var hasNotes = manifest is not null && manifest.Notes.Count > 0;
+            var skipped = s.UntranscribedSegments is { Count: > 0 } ? s.UntranscribedSegments : null;
+            if (!hasNotes && skipped is null)
+                return s.Transcript;
+
+            var sb = new StringBuilder();
+            if (hasNotes)
             {
-                var sb = new StringBuilder();
                 sb.AppendLine("Notes:");
-                foreach (var note in manifest.Notes.OrderBy(n => n.TMs))
+                foreach (var note in manifest!.Notes.OrderBy(n => n.TMs))
                     sb.Append('[').Append(FormatOffset(note.TMs)).Append("] ").AppendLine(note.Text);
                 sb.AppendLine();
-                sb.Append(s.Transcript);
-                return sb.ToString();
             }
-            return s.Transcript;
+            // A skipped segment is a hole in the text below; the served transcript must say so, not only
+            // the transcript.md file.
+            if (skipped is not null)
+            {
+                sb.AppendLine("Segments that could not be transcribed:");
+                foreach (var seg in skipped.OrderBy(x => x.Index))
+                    sb.Append('[').Append(FormatOffset(seg.StartMs)).Append("] segment ").Append(seg.Index)
+                      .Append(": ").AppendLine(seg.Reason);
+                sb.AppendLine();
+            }
+            sb.Append(s.Transcript);
+            return sb.ToString();
         }
         var md = Path.Combine(RecordingDir(recordingId), "transcript.md");
         return File.Exists(md) ? File.ReadAllText(md) : null;
@@ -865,6 +905,16 @@ public sealed class RecordingIngestService : IDisposable
             sb.AppendLine();
             foreach (var note in manifest.Notes.OrderBy(n => n.TMs))
                 sb.Append("- [").Append(FormatOffset(note.TMs)).Append("] ").AppendLine(note.Text);
+            sb.AppendLine();
+        }
+
+        if (status.UntranscribedSegments is { Count: > 0 } skipped)
+        {
+            sb.AppendLine("## Segments that could not be transcribed");
+            sb.AppendLine();
+            foreach (var s in skipped.OrderBy(s => s.Index))
+                sb.Append("- [").Append(FormatOffset(s.StartMs)).Append("] segment ").Append(s.Index)
+                  .Append(": ").AppendLine(s.Reason);
             sb.AppendLine();
         }
 
@@ -945,7 +995,8 @@ public sealed class RecordingIngestService : IDisposable
             // finishes (see CleanupSegmentFiles), so counting them on disk would
             // report 0 for a completed job. ChunksTotal is the authoritative
             // count of segments that were received and transcribed.
-            received = transcribed = s.ChunksTotal;
+            received = s.ChunksTotal;
+            transcribed = s.ChunksTotal - (s.UntranscribedSegments?.Count ?? 0);
         }
         else
         {
@@ -1045,6 +1096,17 @@ public sealed class RecordingIngestService : IDisposable
         // moment a complete call passes the gate. The client re-sends exactly
         // these indices, then calls complete again.
         public List<int>? MissingOrBadIndices { get; set; }
+
+        // Segments skipped on the last transcription attempt, each with the reason. Set only when the
+        // recording is transcribed without them; the transcript names them so nothing is silently lost.
+        public List<UntranscribedSegment>? UntranscribedSegments { get; set; }
+    }
+
+    private sealed class UntranscribedSegment
+    {
+        public int Index { get; set; }
+        public long StartMs { get; set; }
+        public string Reason { get; set; } = "";
     }
 
     public void Dispose()
