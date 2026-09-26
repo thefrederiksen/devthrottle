@@ -3,9 +3,11 @@
 Agents call `list`, `run` and `login`. None of them ever prints a secret: every line of output passes
 through the process-wide scrubber, and the commands that act with a secret hand back only the result.
 
-The owner calls `add` and `remove` from their own terminal. Those commands refuse to run inside a
-DevThrottle session, and `add` takes the secret only from a hidden prompt or piped on standard input -
-never as a command-line argument, where it would land in shell history and the process list.
+The owner calls `add`, `import`, `edit` and `remove` from their own terminal. Inside a DevThrottle session they
+refuse, unless the owner approved that exact command in the session's chat and the session reruns it with
+--owner-approved "<the owner's words>" (issue 3414); every such use is audited with those words. `add` takes the
+secret only from a hidden prompt or piped on standard input - never as a command-line argument, where it would land
+in shell history and the process list - and inside a session only piped, from a file or command the owner gave.
 
 No error is ever printed as a traceback. The console-script entry point is `main`, which shows an
 unexpected error by its type name alone: a traceback's messages and local variables can hold the whole
@@ -31,7 +33,7 @@ from rich.table import Table
 
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
 from . import __version__, filelog, paths
-from .audit import AuditLog
+from .audit import AuditLog, OwnerApproval
 from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
 from .errors import CcSecretsError, InputError
 from .redact import SCRUBBER
@@ -50,7 +52,8 @@ PROTECTION = ("It protects against accidental exposure (transcripts, logs, outpu
 
 app = typer.Typer(
     name="cc-secrets",
-    help="Use a stored password without the model ever seeing it. Agents: list, run, login, get. Owner: add, import, edit, remove. "
+    help="Use a stored password without the model ever seeing it. Agents: list, run, login, get. Owner: add, import, edit, remove "
+         "(inside a session only with --owner-approved). "
          "Anyone: log. " + PROTECTION,
     add_completion=False,
     no_args_is_help=True,
@@ -111,11 +114,52 @@ def _fail(command: str, name: str, label: str, exc: BaseException) -> NoReturn:
 
 
 def _owner_only(command: str) -> None:
-    """Owner commands are refused inside a DevThrottle session: a secret is never entered through one."""
+    """`list --all` is refused inside a DevThrottle session outright: it has no approval path."""
     if os.environ.get("CC_SESSION_ID"):
         _say(f"'cc-secrets {command}' is for the owner, in their own terminal. It does not run inside a "
-             "DevThrottle session, because a secret must never be entered through one.", err=True)
+             "DevThrottle session.", err=True)
         raise typer.Exit(EXIT_REFUSED)
+
+
+OWNER_APPROVED_HELP = ("Inside a session: the owner's approval of THIS command, in their words, verbatim. Without it "
+                       "an owner command refuses inside a session. Recorded in the audit log.")
+
+
+def _session_name(session_id: str) -> str:
+    """This session's name from the Gateway's fleet list, for the audit line. The id is always recorded; when the
+    name cannot be looked up, the line says so and why, rather than leaving the field quietly empty."""
+    from cc_shared import gateway
+
+    try:
+        sessions = gateway.get_fleet()[0]
+    except Exception as exc:  # the name is for the record only; why it is missing goes into the record
+        return f"(name not known: {type(exc).__name__})"
+    me = next((s for s in sessions if gateway.field(s, "sessionId", "SessionId").lower() == session_id.lower()), None)
+    if me is None:
+        return "(name not known: not in the fleet list)"
+    return gateway.field(me, "name", "Name") or "(unnamed)"
+
+
+def _owner_command(command: str, entry: str, owner_approved: Optional[str]) -> Optional[OwnerApproval]:
+    """Gate an owner command (add, import, edit, remove). Outside a session it runs as before. Inside one it runs only
+    with --owner-approved: the owner approved this exact command in the session's chat (issue 3414, owner decision
+    2026-09-26). The approval is per command - nothing is remembered - and cc-secrets cannot prove the words came
+    from the owner, so every use is recorded with them. Without it the command is refused, and that is audited too."""
+    session_id = os.environ.get("CC_SESSION_ID", "")
+    text = (owner_approved or "").strip()
+    if owner_approved is not None and not text:
+        _audit().record(entry, command, "refused", "--owner-approved was given with no words")
+        _say("--owner-approved was given with no words. Give the owner's approval of this command, verbatim.", err=True)
+        raise typer.Exit(EXIT_REFUSED)
+    if not session_id:
+        return OwnerApproval(text=text, session_name="") if text else None
+    if not text:
+        _audit().record(entry, command, "refused", "inside a session without --owner-approved")
+        _say(f"'cc-secrets {command}' is an owner command and this is a DevThrottle session. Ask the owner in this "
+             f"session's chat to approve this exact command, then rerun it with --owner-approved \"<the owner's words, "
+             f"verbatim>\". The approval covers this one command only and is recorded in the audit log.", err=True)
+        raise typer.Exit(EXIT_REFUSED)
+    return OwnerApproval(text=text, session_name=_session_name(session_id))
 
 
 def _stdin_is_tty() -> bool:
@@ -201,15 +245,26 @@ def add(
     replace: bool = typer.Option(False, "--replace", help="Replace an existing entry without asking."),
     setting: bool = typer.Option(False, "--setting", help="Store a setting that is not secret (a host, an email address): readable with get, not hidden from output."),
     env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in. Default CC_SECRET."),
+    owner_approved: Optional[str] = typer.Option(None, "--owner-approved", help=OWNER_APPROVED_HELP),
 ):
     """OWNER: add or replace an entry. The secret comes from a hidden prompt, or piped on stdin."""
-    _owner_only("add")
     try:
-        _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name)
+        _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name,
+                                  owner_approved=owner_approved)
     except InputError as exc:
         _say(f"add failed: {exc}", err=True)
         raise typer.Exit(EXIT_FAILED)
+    approval = _owner_command("add", name, owner_approved)
     interactive = _stdin_is_tty()
+    if interactive and os.environ.get("CC_SESSION_ID"):
+        _audit().record(name, "add", "refused", "inside a session the secret must be piped, not typed at a prompt",
+                        approval)
+        # A prompt here would be typed into the session's own terminal. Inside a session the value comes piped,
+        # from a file or command the owner provided - never typed through the session, never on the command line.
+        _say("Inside a session 'cc-secrets add' reads the secret only piped on standard input, from a file or command "
+             "the owner provided, for example: Get-Content <owner's file> | cc-secrets add NAME ... --owner-approved "
+             "\"...\". Never put the secret itself on the command line.", err=True)
+        raise typer.Exit(EXIT_REFUSED)
     if not interactive and _stdin_is_mintty():
         _say(MINTTY_MESSAGE, err=True)
         raise typer.Exit(EXIT_REFUSED)
@@ -237,8 +292,15 @@ def add(
             SCRUBBER.add(secret, username)
         entry = make_entry(name, username, secret, _split_list(domains), notes, agents, use_list,
                            env_name=env_name or "", kind=KIND_SETTING if setting else KIND_SECRET)
+        audit = _audit()
+        # The audit line is built and checked before the store changes, so an approval text that carries the secret
+        # is refused with nothing saved, rather than after the entry is already in.
+        # Both possible lines are prepared, and the one matching what put reports is written, so a store that
+        # changed underneath still gets a true line.
+        prepared = {was_there: audit.prepare(name, "add", "ok", "replaced" if was_there else "added", approval)
+                    for was_there in (False, True)}
         replaced = store.put(entry)
-        _audit().record(name, "add", "ok", "replaced" if replaced else "added")
+        audit.write_prepared([prepared[replaced]])
         _say(f"{'Replaced' if replaced else 'Added'} '{name}' in {store.location}. "
              f"Agents may use it: {'yes' if entry.agents_may_use else 'no'}. Uses: {', '.join(entry.uses)}. "
              f"Allowed addresses: {', '.join(entry.allowed_domains) or 'none'}.")
@@ -259,13 +321,19 @@ def edit(
     agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use it."),
     notes: Optional[str] = typer.Option(None, "--notes", help="A note for yourself. Agents see it in list."),
     env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in."),
+    owner_approved: Optional[str] = typer.Option(None, "--owner-approved", help=OWNER_APPROVED_HELP),
 ):
     """OWNER: change an entry's details - username, allowed addresses, uses, agents, notes, variable - WITHOUT
     touching its secret or setting value. For example, make an imported password usable by login:
     cc-secrets edit mindzie-qa-password-local --username qa@mindzie.com --domains https://localhost:7330 --uses login,run"""
-    _owner_only("edit")
     try:
-        _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name)
+        _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name,
+                                  owner_approved=owner_approved)
+    except InputError as exc:
+        _say(f"edit failed: {exc}", err=True)
+        raise typer.Exit(EXIT_FAILED)
+    approval = _owner_command("edit", name, owner_approved)
+    try:
         changed = [label for label, value in (("username", username), ("domains", domains), ("uses", uses),
                                               ("agents", agents), ("notes", notes), ("variable", env_name))
                    if value is not None]
@@ -289,8 +357,10 @@ def edit(
             env_name=current.env_name if env_name is None else env_name,
             kind=current.kind,
         )
+        audit = _audit()
+        prepared = audit.prepare(name, "edit", "ok", "changed " + ", ".join(changed), approval)
         store.put(updated)
-        _audit().record(name, "edit", "ok", "changed " + ", ".join(changed))
+        audit.write_prepared([prepared])
         _say(f"Changed {', '.join(changed)} of '{name}'. Its {'value' if updated.is_setting else 'secret'} is unchanged. "
              f"Agents may use it: {'yes' if updated.agents_may_use else 'no'}. Uses: {', '.join(updated.uses)}. "
              f"Allowed addresses: {', '.join(updated.allowed_domains) or 'none'}.")
@@ -306,16 +376,24 @@ def edit(
 def remove(
     name: str = typer.Argument(..., help="Entry name."),
     yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation."),
+    owner_approved: Optional[str] = typer.Option(None, "--owner-approved", help=OWNER_APPROVED_HELP),
 ):
     """OWNER: remove an entry."""
-    _owner_only("remove")
+    try:
+        _refuse_swallowed_options(owner_approved=owner_approved)
+    except InputError as exc:
+        _say(f"remove failed: {exc}", err=True)
+        raise typer.Exit(EXIT_FAILED)
+    approval = _owner_command("remove", name, owner_approved)
     try:
         if not yes and not typer.confirm(f"Remove '{name}'?", default=False):
             raise typer.Exit(EXIT_FAILED)
+        audit = _audit()
+        prepared = audit.prepare(name, "remove", "ok", "", approval)
         if not _store().remove(name):
             _say(f"There is no entry named '{name}'.", err=True)
             raise typer.Exit(EXIT_FAILED)
-        _audit().record(name, "remove", "ok")
+        audit.write_prepared([prepared])
         _say(f"Removed '{name}'.")
     except typer.Exit:
         raise
@@ -553,11 +631,17 @@ def import_entries(
     skip: Optional[str] = typer.Option(None, "--skip", help="Comma-separated keys NOT to import."),
     replace: bool = typer.Option(False, "--replace", help="Replace entries that already exist."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen, by name only, and change nothing."),
+    owner_approved: Optional[str] = typer.Option(None, "--owner-approved", help=OWNER_APPROVED_HELP),
 ):
     """OWNER: import every KEY=VALUE line of a file as its own entry. Each entry is named after its key
     (POSTHOG_API_KEY becomes posthog-api-key) and `run` supplies it in a variable of that same name. No value is
     ever printed."""
-    _owner_only("import")
+    try:
+        _refuse_swallowed_options(owner_approved=owner_approved)
+    except InputError as exc:
+        _say(f"import failed: {exc}", err=True)
+        raise typer.Exit(EXIT_FAILED)
+    approval = _owner_command("import", file.name, owner_approved)
     try:
         if agents is None:
             _say("Say whether sessions may use the imported entries: --agents or --no-agents.", err=True)
@@ -625,7 +709,7 @@ def import_entries(
             try:
                 prepared.append(audit.prepare(entry.name, "import",
                                               "unchanged" if expected[entry.name] == "exists" else "ok",
-                                              f"{expected[entry.name]} from {file.name} as {entry.env_name}"))
+                                              f"{expected[entry.name]} from {file.name} as {entry.env_name}", approval))
             except Exception as exc:
                 raise InputError(f"The audit line for entry '{entry.name}' would carry a secret, so nothing was imported. "
                                  "Rename the file or the key.") from exc
@@ -718,7 +802,8 @@ def show_log(
     count: int = typer.Option(50, "--count", "-n", help="How many of the most recent lines."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON."),
 ):
-    """Show the audit log: time, entry, session, command, outcome. Never a secret."""
+    """Show the audit log: time, entry, session, command, outcome, and the owner's approval where one was given.
+    Never a secret."""
     try:
         lines = _audit().read(count)
         if json_output:
@@ -728,10 +813,13 @@ def show_log(
             _say("The audit log is empty.")
             return
         table = Table(show_lines=False)
-        for column in ("Time", "Entry", "Session", "Command", "Outcome", "Detail"):
+        for column in ("Time", "Entry", "Session", "Command", "Outcome", "Detail", "Owner approved"):
             table.add_column(column)
         for l in lines:
-            table.add_row(*[SCRUBBER.scrub(str(l.get(k, ""))) for k in ("time", "entry", "session", "command", "outcome", "detail")])
+            session = " ".join(part for part in (str(l.get("session", "")), str(l.get("sessionName", ""))) if part)
+            row = [l.get("time", ""), l.get("entry", ""), session, l.get("command", ""), l.get("outcome", ""),
+                   l.get("detail", ""), l.get("ownerApproved", "")]
+            table.add_row(*[SCRUBBER.scrub(str(c)) for c in row])
         console.print(table)
     except Exception as exc:
         _log_failure("log", exc)
