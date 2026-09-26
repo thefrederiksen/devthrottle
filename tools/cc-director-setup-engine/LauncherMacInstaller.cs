@@ -354,6 +354,51 @@ public sealed class LauncherMacInstaller
             ("launchd-stdout.log (last lines)", LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stdout.log"), 15)),
         ]);
         var header = gatherError is null ? "" : $"launchd query failed: {gatherError}\n";
-        return header + composed + "\nsteps:\n  " + string.Join("\n  ", steps);
+        return header + composed + "\n" + GatherBinaryChecks() + "\nsteps:\n  " + string.Join("\n  ", steps);
+    }
+
+    /// <summary>
+    /// What macOS itself thinks of the launcher. launchd only knows THAT it refused the program
+    /// ("78: EX_CONFIG", "spawn failed"); the reason sits elsewhere - the file's quarantine flag and
+    /// signature, a switched-off background item, a device-management policy, the security log. A
+    /// user's Mac failed three installs in a row with nothing else to go on (#3411), so these answers
+    /// travel with every failure.
+    /// </summary>
+    private string GatherBinaryChecks()
+    {
+        var binary = _layout.PathFor(ComponentRegistry.Launcher);
+        var checks = new List<(string Name, int Exit, string Output)>();
+
+        void Check(string name, string exe, string args, Func<string, string>? keep = null)
+        {
+            try
+            {
+                var (exit, output) = _runCommand(exe, args);
+                checks.Add((name, exit, keep is null ? output : keep(output)));
+            }
+            catch (Exception ex)
+            {
+                checks.Add((name, -1, $"could not run {exe} ({ex.GetType().Name}): {ex.Message}"));
+            }
+        }
+
+        Check("xattr -l (quarantine flag)", "/usr/bin/xattr", $"-l \"{binary}\"");
+        Check("codesign -dv (signature)", "/usr/bin/codesign", $"-dv --verbose=2 \"{binary}\"");
+
+        // A background item the user (or macOS) switched off is refused without a word from launchd.
+        // The list names every service on the machine; only ours matters.
+        var (uidExit, uidOutput) = _runCommand("/usr/bin/id", "-u");
+        if (uidExit == 0 && int.TryParse(uidOutput.Trim(), out var uid))
+            Check("launchctl print-disabled (is our background item switched off)", "/bin/launchctl", $"print-disabled gui/{uid}",
+                output => string.Join('\n', output.Split('\n').Where(l => l.Contains("devthrottle", StringComparison.OrdinalIgnoreCase))));
+        else
+            checks.Add(("launchctl print-disabled (is our background item switched off)", uidExit, "could not resolve the user id"));
+
+        // A company-managed Mac can refuse unsigned background programs by policy.
+        Check("profiles status (device management)", "/usr/bin/profiles", "status -type enrollment");
+        Check("log show (last 3 minutes mentioning cc-launcher)", "/usr/bin/log",
+            "show --last 3m --style compact --predicate \"eventMessage CONTAINS 'cc-launcher'\"");
+
+        return LaunchdDiagnostics.ComposeBinaryChecks(checks);
     }
 }

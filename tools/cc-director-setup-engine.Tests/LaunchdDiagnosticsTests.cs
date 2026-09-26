@@ -110,4 +110,32 @@ public sealed class LaunchdDiagnosticsTests
         Assert.Contains("Unhandled exception. System.Exception: boom", text);
         Assert.Contains("launchd-stdout.log (last lines):\n  (missing or empty)", text.Replace("\r\n", "\n"));
     }
+
+    [Fact]
+    public void ComposeBinaryChecks_LabelsEachAnswerWithItsExitCode()
+    {
+        var text = LaunchdDiagnostics.ComposeBinaryChecks(
+        [
+            ("xattr -l (quarantine flag)", 0, "com.apple.quarantine: 0083;66f4a1b2;Safari;\n"),
+            ("codesign -dv (signature)", 1, "code object is not signed at all\n"),
+            ("log show (last 3 minutes mentioning cc-launcher)", 0, ""),
+        ]).Replace("\r\n", "\n");
+
+        Assert.StartsWith("launcher binary:", text);
+        Assert.Contains("xattr -l (quarantine flag) -> exit 0:\n    com.apple.quarantine: 0083;66f4a1b2;Safari;", text);
+        Assert.Contains("codesign -dv (signature) -> exit 1:\n    code object is not signed at all", text);
+        Assert.Contains("log show (last 3 minutes mentioning cc-launcher) -> exit 0:\n    (no output)", text);
+    }
+
+    [Fact]
+    public void ComposeBinaryChecks_KeepsOnlyTheLastLinesOfALongLog()
+    {
+        var log = string.Join("\n", Enumerable.Range(1, 100).Select(i => $"line {i}"));
+        var text = LaunchdDiagnostics.ComposeBinaryChecks([("log show", 0, log)]).Replace("\r\n", "\n");
+
+        Assert.Contains($"({100 - LaunchdDiagnostics.MaxBinaryCheckLines} earlier lines left out)", text);
+        Assert.Contains("    line 61\n", text);
+        Assert.DoesNotContain("    line 60\n", text);
+        Assert.EndsWith("    line 100", text);
+    }
 }

@@ -89,6 +89,37 @@ public static class LaunchdDiagnostics
         return string.Join('\n', lines.Skip(Math.Max(0, lines.Count - maxLines)));
     }
 
+    /// <summary>The most lines of one binary check kept in a report. The security log can run to
+    /// thousands of lines; the refusal is at the end.</summary>
+    public const int MaxBinaryCheckLines = 40;
+
+    /// <summary>
+    /// The answers macOS gave about the launcher binary (quarantine flag, signature, security log), one
+    /// labelled block each, with the exit code, so an empty answer and a failed command read differently.
+    /// </summary>
+    public static string ComposeBinaryChecks(IEnumerable<(string Name, int Exit, string Output)> checks)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("launcher binary:");
+        foreach (var (name, exit, output) in checks)
+        {
+            sb.AppendLine($"  {name} -> exit {exit}:");
+            var lines = (output ?? "").Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Trim().Length > 0).ToList();
+            if (lines.Count == 0)
+            {
+                sb.AppendLine("    (no output)");
+                continue;
+            }
+            if (lines.Count > MaxBinaryCheckLines)
+            {
+                sb.AppendLine($"    ({lines.Count - MaxBinaryCheckLines} earlier lines left out)");
+                lines = lines.Skip(lines.Count - MaxBinaryCheckLines).ToList();
+            }
+            foreach (var line in lines) sb.AppendLine("    " + line);
+        }
+        return sb.ToString().TrimEnd();
+    }
+
     /// <summary>Everything gathered, as one block of text for the report.</summary>
     public static string Compose(string? launchctlPrintOutput, bool jobLoaded, IEnumerable<(string Name, string? Text)> logTails)
     {

@@ -115,6 +115,17 @@ public sealed class UpdateRunner
                     UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
             }
 
+            // macOS refuses a quarantined copy of an ad-hoc signed, never notarized binary, and the
+            // refusal reads as a crash: launchd reports OS_REASON_CODESIGNING, then 78: EX_CONFIG, and the
+            // program never writes a line (#3411). The self-update paths already strip it through
+            // RunnableBuild; the first install is the path that did not.
+            if (OperatingSystem.IsMacOS())
+            {
+                var (xattrExit, xattrOutput) = ProcessRunner.Run("/usr/bin/xattr", $"-d com.apple.quarantine \"{target}\"");
+                // Non-zero is the normal case: a file that was never quarantined has nothing to remove.
+                EngineLog.Write($"[UpdateRunner] {item.ComponentId}: xattr quarantine strip -> exit={xattrExit} {xattrOutput.Trim()}");
+            }
+
             var status = wasPresent ? ApplyStatus.Updated : ApplyStatus.Installed;
             return new ApplyResult(item.ComponentId, status, item.FromVersion, item.ToVersion, null, backup);
         }
