@@ -17,7 +17,7 @@ const api = vi.hoisted(() => ({
   start: vi.fn<() => Promise<FleetManagerPlacement>>(),
   restart: vi.fn<() => Promise<FleetManagerPlacement>>(),
   page: vi.fn<() => Promise<FleetManagerPage>>(),
-  sendPrompt: vi.fn(async () => undefined),
+  sendPrompt: vi.fn(async () => ({ delivering: false })),
 }));
 
 vi.mock("@devthrottle/client-core/settings/fleetManagerClient", () => ({
@@ -232,7 +232,10 @@ describe("FleetManagerView", () => {
     await waitFor(() => expect((quick as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(quick);
 
-    await waitFor(() => expect(api.sendPrompt).toHaveBeenCalledWith(FM_SESSION, "What did I miss?", true));
+    // Through sendTypedPrompt (voice delivery phase 5), which passes no spoken id and no spans.
+    await waitFor(() =>
+      expect(api.sendPrompt).toHaveBeenCalledWith(FM_SESSION, "What did I miss?", true, undefined, undefined, undefined),
+    );
   });
 
   it("does not render the right panel: the conversation is the only thing in the body", async () => {

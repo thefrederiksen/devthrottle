@@ -3,6 +3,7 @@ using CcDirector.Core.HostedAi;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Transcription;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
@@ -33,6 +34,13 @@ namespace CcDirector.Gateway.Api;
 ///                                             | 200 { dropped, reason } | 409 { missing } | 400 | 402 | 5xx
 ///   POST /dictation/{uploadId}/ack        -> 200 { ok, retired }
 ///   GET  /dictation/{uploadId}/decisions  -> 200 { upload_id, state, decisions: [...] } | 404
+///   GET  /dictation/{uploadId}/outcome    -> 200 (the complete's final body) | 202 { delivering, directorState } | 404
+///
+/// ONCE THE GATEWAY HOLDS THE WORDS, THE GATEWAY DRIVES THE DELIVERY (Voice Delivery mission, phase 5). A complete that
+/// is authenticated, valid, carries its Send time and has every chunk staged is TAKEN OVER: its fields are written onto
+/// the PENDING record, and from then on the Gateway itself finishes the delivery (<see cref="HeldDeliveryDriver"/>) -
+/// the client only reads <c>/outcome</c>. After that moment a delivery is never answered 502, and a repeated complete
+/// answers the current state and drives nothing.
 ///
 /// A retried complete is single-flighted per uploadId (so the turn is submitted at most once WHILE this
 /// instance holds it), and de-duplicated durably by the per-upload-id delivery record on disk (issue
@@ -66,20 +74,16 @@ namespace CcDirector.Gateway.Api;
 internal static class GatewayDictationEndpoint
 {
     /// <summary>
-    /// How old a recording may be, in minutes from the moment the owner pressed Send, and still be typed into the
-    /// session automatically (Voice Delivery mission, phase 2). Older than this - strictly more - and words known not
-    /// to be in the session are kept and shown back with "Send anyway" instead of typed.
-    ///
-    /// The owner, 25 September 2026: "if it's five minutes in, we don't send it" ... "I don't wanna wait 12 seconds
-    /// and then it says it's moved on." The limit was chosen in dev report de5eeaea: "5 minutes".
+    /// How old a recording may be, from the moment the owner pressed Send, and still be typed into the session
+    /// automatically (Voice Delivery mission, phase 2): <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/> -
+    /// the ONE constant, the same number the Director's own age check reads, so a command handed to the Director
+    /// cannot outlive the limit (QA finding F6). Before phase 5 the number lived here alone, guarded only what the
+    /// Gateway still held, and on 25 September 2026 a frozen Director typed a spoken command seven minutes old the
+    /// moment it woke.
     ///
     /// It replaced a byte rule that dropped any retried recording once the session's terminal had printed 512 bytes,
     /// which a busy agent's spinner passes in seconds.
     /// </summary>
-    internal const int MaxDeliveryAgeMinutes = 5;
-
-    /// <summary>The age limit as a span; see <see cref="MaxDeliveryAgeMinutes"/>.</summary>
-    internal static readonly TimeSpan MaxDeliveryAge = TimeSpan.FromMinutes(MaxDeliveryAgeMinutes);
 
     /// <summary>
     /// The <c>directorState</c> of the held answer when the Director gave no answer at all - not connected, too old
@@ -212,7 +216,8 @@ internal static class GatewayDictationEndpoint
         Streaming.PushedSessionStore? pushedSessions = null,
         DirectorCommandRouter.SendDirectorCommandAsync? sendCommand = null,
         TimeSpan? streamStale = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        HeldDeliveryDriver? heldDeliveries = null)
     {
         // The clock the age limit reads: the real one in production; a test injects its own so the five-minute
         // boundary is proved without a five-minute wait.
@@ -221,7 +226,12 @@ internal static class GatewayDictationEndpoint
         // the dictation through the tunnel-first SessionVerbClient (the delivery marker rides the PromptRequest
         // DeliveryUploadId field, not an HTTP header), so this path no longer HTTP-dials the Director.
         var stale = streamStale ?? TimeSpan.FromSeconds(Core.Configuration.GatewayConfig.DefaultStreamStaleAfterSeconds);
-        app.MapPost("/dictation/upload", (DictationUploadRequest? body, HttpContext ctx) =>
+        // The one place an owned delivery is attempted, shared with the Gateway's driver so the two run every attempt
+        // through the same core and the same single-flight (Voice Delivery phase 5).
+        var delivery = new DictationDelivery(registry, owners, transcription, transcribingSessions, pushedSessions, sendCommand,
+            stale, ageClock);
+        heldDeliveries?.Attach(delivery);
+        app.MapPost("/dictation/upload", async (DictationUploadRequest? body, HttpContext ctx) =>
         {
             if (!AuthMiddleware.HasValidToken(ctx, token, devices))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
@@ -273,6 +283,18 @@ internal static class GatewayDictationEndpoint
                 FileLog.Write($"[GatewayDictation] upload re-register clears FAILED uploadId={uploadId}, retrying");
             _uploadSids.Set(tenant, uploadId, sid);
             try { transcribingSessions.Begin(tenant, sid); } catch { /* the orange mark is a nicety */ }
+            // THE SESSION'S DIRECTOR, WRITTEN ON THE RECORD THE MOMENT THE GATEWAY FIRST KNOWS THE UPLOAD (Voice
+            // Delivery phase 5, review round: the ruling on the review's finding 1). The session was live enough to
+            // start a recording, so its Director is located and remembered NOW, at register - a session the owner
+            // deletes while the clip is uploading can then be PROVED ended by the first complete, which finds nothing
+            // at its own locate but a record that names its Director. It is the register-time half of the one fact the
+            // ended proof reads; TakeOwnership carries it into the owned delivery when the delivery is taken over.
+            // A session that cannot be located right now writes nothing, and the delivery then holds, exactly as
+            // before this existed.
+            var (directorAtRegister, _) = await GatewayEndpoints.LocateSessionAsync(
+                registry, sid, pushedSessions, stale, tenant, owners);
+            if (directorAtRegister is not null)
+                store.RememberSessionDirector(uploadId, directorAtRegister.DirectorId);
             FileLog.Write($"[GatewayDictation] upload registered sid={sid} uploadId={uploadId}");
             return Results.Json(new { upload_id = uploadId });
         });
@@ -377,6 +399,15 @@ internal static class GatewayDictationEndpoint
             if (req.SentAtUtc is not { Kind: DateTimeKind.Utc })
                 return Results.Json(new { error = SentAtUtcRequired }, statusCode: StatusCodes.Status400BadRequest);
 
+            // A REPEATED COMPLETE FOR A DELIVERY THE GATEWAY ALREADY OWNS answers the current state and drives nothing - it
+            // never sends, asks or transcribes (Voice Delivery phase 5, contract section 2). The Gateway is finishing it; a
+            // complete whose first answer was lost on the way back learns where it stands and changes nothing.
+            if (settled is { State: DictationDeliveryState.Pending, Owned: not null })
+            {
+                FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: already owned by the Gateway; answering its state, driving nothing");
+                return (await delivery.AnswerRepeatedCompleteAsync(tenant, store, uploadId)).ToResult();
+            }
+
             // A completion attempt is progress - keep the orange mark alive across the server-side
             // transcribe so a slow transcribe cannot let it age out mid-flight (issue #1126).
             transcribingSessions.Refresh(tenant, req.SessionId!);
@@ -390,46 +421,49 @@ internal static class GatewayDictationEndpoint
                 FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: cleared FAILED, retrying");
             }
 
-            // Per-uploadId single-flight: concurrent or retried completes await the SAME in-flight run, so a
-            // still-PENDING id is assembled + transcribed + injected at most once even under a concurrent
-            // race. The entry is dropped once the run settles (below); the durable tombstone owns de-dupe
-            // from then on, so there is no age-swept cache window.
-            var entry = _completes.GetOrAdd(tenant, uploadId, completeKey =>
+            // EVERY CHUNK STAGED, checked BEFORE the session is looked up and without reading the audio (phase 5): the
+            // Gateway takes over only a recording it holds in full, and it must be able to take one over whose Director is
+            // offline at this very moment - so this cannot wait behind the session lookup the delivery core starts with.
+            // Missing chunks are the client's to send, exactly as before: 409, and nothing is taken over.
+            var missing = store.MissingChunks(uploadId, req.TotalChunks);
+            if (missing is null)
+                return Results.Json(new { error = "unknown upload id" }, statusCode: StatusCodes.Status404NotFound);
+            if (missing.Count > 0)
             {
-                OnCompleteEntryCreatedForTests?.Invoke(completeKey);
-                return new CompleteEntry(new Lazy<Task<DictationOutcome>>(() => RunCompleteCoreAsync(
-                    uploadId, tenant, req, store, registry, owners, transcription, transcribingSessions, deliverySurface, deliveryIdentityKind,
-                    pushedSessions, sendCommand, stale, ageClock)));
-            });
-
-            DictationOutcome outcome;
-            try
-            {
-                outcome = await entry.Task.Value;
-            }
-            catch (Exception ex)
-            {
-                _completes.Remove(tenant, uploadId); // transient: let a retry re-run
-                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+                store.RecordDecision(uploadId, DeliveryDecisions.Incomplete, new DeliveryDecisionFacts
+                {
+                    TotalChunks = req.TotalChunks,
+                    MissingChunks = missing.Count,
+                });
+                return DictationOutcome.Incomplete(missing).ToResult();
             }
 
-            // The Gateway OWNS the orange "Transcribing..." mark, so it clears it here - OUTSIDE the
-            // single-flight cache - on EVERY terminal outcome (issue #1048, extended by #1126). Doing the
-            // clear here, not inside the cached RunCompleteCoreAsync, means a RESENT completion for an
-            // already-finished upload id (which returns the cached outcome WITHOUT re-running the core, so
-            // the old in-core clear never fired again) still clears the mark. The ONLY outcome we keep the
-            // mark for is an incomplete upload: more chunks are still coming and the client completes again
-            // on the same upload id, so the session is genuinely still transcribing.
-            if (!outcome.IsIncomplete)
+            // THE GATEWAY TAKES THE DELIVERY OVER (phase 5, contract section 1): everything needed to finish it with no
+            // client at all is written onto the PENDING record, with the one "gateway-owns-delivery" line. From here the
+            // Gateway drives it to its end - when the Director's tunnel comes back, on a steady tick, after a restart.
+            var owned = new DictationOwnedDelivery(ageClock.GetUtcNow().UtcDateTime, req.SessionId!, req.TotalChunks,
+                req.Mime, req.Ext, req.Before, req.After, req.Prefix, req.SentAtUtc.Value, deliverySurface, deliveryIdentityKind,
+                req.ClientRecordedMs, req.ClientDecodedSeconds, req.ClientSourceBytes, req.ClientSurface);
+            var taken = store.TakeOwnership(uploadId, owned);
+            switch (taken.Result)
             {
-                EndTranscribing(transcribingSessions, tenant, req.SessionId!);
-                _uploadSids.Remove(tenant, uploadId);
+                case DictationOwnership.AlreadyOwned:
+                    // Another complete of the same upload took it over a moment ago: this one is a repeat.
+                    return (await delivery.AnswerRepeatedCompleteAsync(tenant, store, uploadId)).ToResult();
+                case DictationOwnership.NotPending when taken.Read.Refuses:
+                    return RecordRefusal(taken.Read, uploadId);
+                case DictationOwnership.NotPending when taken.Read.Record is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned } resolved:
+                    return TerminalOutcome(resolved).ToResult();
+                case DictationOwnership.NotPending:
+                    // Not a pending upload (never given a PENDING marker, or parked again meanwhile): the Gateway did not take
+                    // it over, which is the one thing a 502 on this route still means.
+                    FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: record is {taken.Read.Record?.State.ToString() ?? taken.Read.Kind.ToString()}, not PENDING; not taken over");
+                    return Results.Json(new { error = "the upload is not pending, so the Gateway did not take its delivery over; register it again" },
+                        statusCode: StatusCodes.Status502BadGateway);
             }
-            // Drop the in-memory single-flight entry once the run settles. A terminal run has already
-            // written the durable tombstone (inside the core), so a later retry short-circuits on the
-            // ReadRecord check above; a non-terminal run (transient error, incomplete upload, out-of-credits)
-            // leaves no tombstone, so the next complete re-runs the real work (issue #1183).
-            _completes.Remove(tenant, uploadId);
+            if (heldDeliveries is not null) heldDeliveries.Track(tenant, uploadId, HeldDeliveryKind.Dictation);
+
+            var outcome = await delivery.AttemptAsync(tenant, store, uploadId, owned, driveTrigger: null);
             return outcome.ToResult();
         });
 
@@ -533,6 +567,234 @@ internal static class GatewayDictationEndpoint
                 Decisions = log.Lines,
             }, DeliveryDecisionLine.Json);
         });
+
+        // Read what the Gateway has made of an owned delivery (Voice Delivery phase 5, contract section 5). The client no
+        // longer drives a delivery once the Gateway has taken it over: it reads this - on load, when the page becomes
+        // visible, when the connection returns - and renders it. READ-ONLY: it never sends, asks, transcribes or writes.
+        // Scoped to the caller's own partition like every other leg, so another account's upload id is simply not found.
+        app.MapGet("/dictation/{uploadId}/outcome", (string uploadId, HttpContext ctx) =>
+        {
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+                return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
+            if (!gate.TryOpen(ctx, out var store, out _, out var deny)) return deny;
+            return OutcomeOf(store, uploadId);
+        });
+    }
+
+    /// <summary>
+    /// The answer of <c>GET /dictation/{uploadId}/outcome</c>, from the durable record and the "Send anyway" delivery beside
+    /// it. One set of body shapes for both, the ones the complete and the prompt route already give, so the client reads
+    /// every answer the same way. Nothing here writes.
+    /// </summary>
+    internal static IResult OutcomeOf(VoiceUploadStore store, string uploadId)
+    {
+        var log = store.ReadDecisions(uploadId);
+        if (!log.Found)
+            return Results.Json(new { error = "unknown upload id" }, statusCode: StatusCodes.Status404NotFound);
+        if (log.Record.Refuses)
+            return RecordRefusal(log.Record, uploadId);
+
+        // A "Send anyway" the Gateway took over answers first: it is the newer delivery of the same words, and the record
+        // beneath it was already resolved (or acknowledged) before the owner pressed it.
+        var sendAnyway = store.ReadSendAnyway(uploadId);
+        if (sendAnyway is { } claim)
+        {
+            return claim.Outcome switch
+            {
+                null => Held(store.LastHeldState(uploadId)),
+                SendAnywayOutcomes.Delivered => Results.Json(new { submitted = true, movedOn = false, transcript = claim.Text }),
+                SendAnywayOutcomes.Unconfirmed or SendAnywayOutcomes.TooOld or SendAnywayOutcomes.SessionExited => Results.Json(new
+                {
+                    submitted = false, movedOn = true, reason = claim.Outcome, offerSendAnyway = OffersSendAnyway(claim.Outcome),
+                    transcript = claim.Text,
+                }),
+                _ => throw new InvalidOperationException($"upload {uploadId} has a Send anyway settled as '{claim.Outcome}', which this Gateway does not know"),
+            };
+        }
+
+        var record = log.Record.Record;
+        if (record is { State: DictationDeliveryState.Pending, Owned: not null })
+            return Held(store.LastHeldState(uploadId));
+        if (record is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned })
+            return TerminalOutcome(record).ToResult();
+        // A delivery the Gateway HANDED BACK to the client (Voice Delivery phase 5, review round: the Delivery
+        // Lead's ruling on the review's finding 1). A Gateway-driven attempt can end in an answer only the
+        // CLIENT can act on - out of credits, a permanent transcription failure, an incomplete upload - and
+        // on a driver attempt there is no client listening. Such a record must never answer 404 "the server
+        // has lost track": it answers the SAME body and status the complete path gives the client for it,
+        // so the owner is handed his failure named, his words if any were kept, and a recording that is
+        // still retryable. Anything else keeps today's honest 404 below.
+        if (HandedBackAnswer(store, uploadId, record, log.Lines) is { } handedBack)
+            return handedBack;
+        var what = record is null ? "has no record" : $"is {record.State} and not held by the Gateway";
+        return Results.Json(new { error = $"upload {uploadId} {what}" }, statusCode: StatusCodes.Status404NotFound);
+
+        // Held: 202 with the Gateway's last word on it. Before any attempt has answered, that word is "retrying" - true:
+        // the Gateway will try it itself.
+        static IResult Held(string? directorState)
+            => Results.Json(new { delivering = true, directorState = directorState ?? DeliverySendAndAsk.RetryingState },
+                statusCode: StatusCodes.Status202Accepted);
+    }
+
+    /// <summary>
+    /// The answer <see cref="OutcomeOf"/> gives a delivery the Gateway HANDED BACK to the client (Voice
+    /// Delivery phase 5, review round, the Delivery Lead's ruling on the review's finding 1), or null when
+    /// the record is not one. Three shapes, each the SAME body and status the complete path gives the client
+    /// for it - never 404:
+    /// <list type="bullet">
+    /// <item>FAILED, parked out of credits: 402 with the hosted-AI payload for the state the provider's code
+    /// maps to - the exact body the complete answered, rebuilt from the record's own parked reason.</item>
+    /// <item>FAILED, parked with a permanent transcription failure: 422 { permanent, reason }.</item>
+    /// <item>PENDING with no owner and an incomplete handback line: 409 { status: incomplete, missing }, the
+    /// chunks named live, so the client sends exactly those again. Ownership left with the handback - the
+    /// Gateway cannot finish a recording whose staged chunk is gone - so the chunk count the answer needs
+    /// travels on the handback line, which also says why.</item>
+    /// </list>
+    /// Words already kept on the record travel with the 402 and the 422 when there are any (the ruling:
+    /// "nothing destroyed"). Every reachable path to these parks happens before a transcript exists, so
+    /// that field is the belt the ruling asks for, not a case production has been seen to reach.
+    /// </summary>
+    private static IResult? HandedBackAnswer(VoiceUploadStore store, string uploadId,
+        DictationDeliveryRecord? record, IReadOnlyList<DeliveryDecisionLine> lines)
+    {
+        if (record is { State: DictationDeliveryState.Failed } failed)
+        {
+            if (IsCreditsParkReason(failed.Reason)) return HandedBackOutOfCredits(failed);
+            // A permanent park names its code when it has one; a permanent failure whose provider sent no
+            // code parked with an empty reason, and only the driver's handback line can say it was permanent.
+            if (IsPermanentParkReason(failed.Reason)
+                || HandbackLine(lines) is { Reason: DeliveryDecisions.HandbackPermanent })
+                return HandedBackPermanent(failed);
+            return null;
+        }
+        if (record is { State: DictationDeliveryState.Pending, Owned: null }
+            && HandbackLine(lines) is { Reason: DeliveryDecisions.HandbackIncomplete, TotalChunks: { } chunks })
+        {
+            var missing = store.MissingChunks(uploadId, chunks);
+            if (missing is { Count: > 0 })
+                return DictationOutcome.Incomplete(missing).ToResult();
+        }
+        return null;
+    }
+
+    // The newest gateway-handed-back line's facts, when the driver wrote one.
+    private static DeliveryDecisionFacts? HandbackLine(IReadOnlyList<DeliveryDecisionLine> lines)
+        => lines.LastOrDefault(l => l.Decision == DeliveryDecisions.GatewayHandedBack)?.Facts;
+
+    // Whether a FAILED record's parked reason is an out-of-credits one: the provider's own code (the four
+    // hosted-AI codes), or the no-code literal the park writes when the provider's 402 carried none.
+    private static bool IsCreditsParkReason(string? reason) => reason switch
+    {
+        "out_of_credits" => true,
+        HostedAiErrorMapper.InsufficientCreditsCode => true,
+        HostedAiErrorMapper.MonthlyLimitReachedCode => true,
+        HostedAiErrorMapper.SubscriptionRequiredCode => true,
+        HostedAiErrorMapper.FairUseLimitReachedCode => true,
+        _ => false,
+    };
+
+    // Whether a FAILED record's parked reason is a permanent transcription failure's code.
+    private static bool IsPermanentParkReason(string? reason) => reason switch
+    {
+        TranscriptionPermanentException.AudioTooLarge => true,
+        TranscriptionPermanentException.UnsupportedFormat => true,
+        TranscriptionPermanentException.NonDecodable => true,
+        _ => false,
+    };
+
+    private static IResult HandedBackOutOfCredits(DictationDeliveryRecord failed)
+    {
+        // MapCode of the parked provider code rebuilds the EXACT state the complete path answered with -
+        // including its honest unknown ("out_of_credits", a 402 that carried no code) never being dressed up
+        // as "needs credits" (issue #1360's rule).
+        var state = HostedAiErrorMapper.MapCode(failed.Reason);
+        return failed.Transcript.Length == 0
+            ? HostedAiHttp.PaymentRequiredResult(state)
+            : Results.Json(WithKeptWords(HostedAiPayload.For(state), failed.Transcript),
+                statusCode: HostedAiHttp.PaymentRequired);
+    }
+
+    private static IResult HandedBackPermanent(DictationDeliveryRecord failed)
+    {
+        var reason = TranslatePermanentReason(failed.Reason);
+        return failed.Transcript.Length == 0
+            ? DictationOutcome.Permanent(reason).ToResult()
+            : Results.Json(new { permanent = true, reason, transcript = failed.Transcript },
+                statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+
+    // The hosted-AI 402 payload with the record's kept words riding along: the payload's own pinned
+    // field names, plus the transcript. A client that knows the payload ignores the extra field; the
+    // ruling's "words travel" is honoured for a record that somehow holds them.
+    private static object WithKeptWords(HostedAiPayload payload, string transcript) => new
+    {
+        payload.Error,
+        payload.State,
+        payload.Text,
+        payload.CtaLabel,
+        payload.CtaAction,
+        payload.CtaUrl,
+        transcript,
+    };
+
+    /// <summary>
+    /// Start the one attempt of an owned delivery, or JOIN the one already running for this upload. Keyed by tenant and
+    /// upload id, so the complete route and the driver share it: at most one attempt of one upload is ever running in
+    /// this Gateway. The entry leaves the cache the moment its attempt settles - the durable record owns everything after
+    /// that - and the session's orange mark is cleared on every outcome but an incomplete upload (issue #1048).
+    /// </summary>
+    internal static Task<DictationOutcome> StartOrJoin(TenantId tenant, string uploadId, string sid,
+        TranscribingSessions transcribingSessions, Func<Task<DictationOutcome>> attempt)
+    {
+        var entry = _completes.GetOrAdd(tenant, uploadId, completeKey =>
+        {
+            OnCompleteEntryCreatedForTests?.Invoke(completeKey);
+            return new CompleteEntry(new Lazy<Task<DictationOutcome>>(
+                () => RunAndSettleAsync(tenant, uploadId, sid, transcribingSessions, attempt)));
+        });
+        return entry.Task.Value;
+    }
+
+    /// <summary>The attempt running for this upload right now, when there is one.</summary>
+    internal static bool TryJoin(TenantId tenant, string uploadId, out Task<DictationOutcome> running)
+    {
+        if (_completes.TryGet(tenant, uploadId, out var entry))
+        {
+            running = entry.Task.Value;
+            return true;
+        }
+        running = null!;
+        return false;
+    }
+
+    private static async Task<DictationOutcome> RunAndSettleAsync(TenantId tenant, string uploadId, string sid,
+        TranscribingSessions transcribingSessions, Func<Task<DictationOutcome>> attempt)
+    {
+        DictationOutcome outcome;
+        try
+        {
+            outcome = await attempt();
+        }
+        catch (Exception ex)
+        {
+            // The delivery core answers its own failures; reaching here means the attempt could not even start (its drive
+            // line could not be written, for one). The delivery is still the Gateway's, so it is held to be tried again -
+            // after ownership it is never a 502 - and the log says why.
+            FileLog.Write($"[GatewayDictation] attempt of uploadId={uploadId} could not run: {ex.Message}; held, the Gateway will try again");
+            outcome = DictationOutcome.StillDelivering(DeliverySendAndAsk.RetryingState);
+        }
+        finally
+        {
+            _completes.Remove(tenant, uploadId);
+        }
+        // The Gateway OWNS the orange "Transcribing..." mark, so it clears it on every outcome but an incomplete upload
+        // (issue #1048, extended by #1126): more chunks are coming only then.
+        if (!outcome.IsIncomplete)
+        {
+            EndTranscribing(transcribingSessions, tenant, sid);
+            _uploadSids.Remove(tenant, uploadId);
+        }
+        return outcome;
     }
 
     // Map a NON-Ok transcription result to the dictation outcome, or null when the result is Ok and the
@@ -568,9 +830,12 @@ internal static class GatewayDictationEndpoint
         {
             // Park the record so the session stops reading "Uploading from phone" while there is no credit
             // to transcribe it with; the client still gets 402, and adding credit + retrying re-enters
-            // PENDING and delivers. NOTE: never once observed to fire - zero OutOfCredits in any log on this
-            // machine, ever, across 846 terminal outcomes. The mechanism is real; the cause is not this.
-            store.MarkFailed(uploadId, "out_of_credits");
+            // PENDING and delivers. The reason parked is the PROVIDER'S CODE (not a literal), so the outcome
+            // read can map the record back to the exact hosted-AI state this answer gave (Voice Delivery
+            // phase 5 review round: a driver attempt parks the same way, and GET /outcome must answer the
+            // SAME body the complete path gives - the state is part of that body). NOTE: never once observed
+            // to fire - zero OutOfCredits in any log on this machine, ever, across 846 terminal outcomes.
+            store.MarkFailed(uploadId, result.Code ?? "out_of_credits");
             FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: out of credits " +
                 $"code={result.Code}; parked FAILED (chunks retained, retryable)");
             return DictationOutcome.OutOfCredits(HostedAiErrorMapper.MapCode(result.Code));
@@ -608,7 +873,7 @@ internal static class GatewayDictationEndpoint
 
     // Map a terminal delivery record to the outcome a re-complete returns: the cached submitted result for
     // DELIVERED (so the turn is never injected twice), or a clear dropped result for ABANDONED.
-    private static DictationOutcome TerminalOutcome(DictationDeliveryRecord record)
+    internal static DictationOutcome TerminalOutcome(DictationDeliveryRecord record)
         => record.State == DictationDeliveryState.Abandoned
             ? DictationOutcome.Dropped(record.Reason ?? "")
             : DictationOutcome.Submitted(record.Submitted, record.MovedOn, record.Transcript, record.Reason);
@@ -681,21 +946,50 @@ internal static class GatewayDictationEndpoint
             // first. A dictation aimed at a session that cannot receive it now costs one in-memory lookup.
             var (director, session) = await GatewayEndpoints.LocateSessionAsync(
                 registry, sid, pushedSessions, streamStale, tenant, owners);
+            // The Director that holds the session, remembered on the durable record the moment a locate finds it: it
+            // is what lets a LATER attempt - whose own locate finds nothing - prove the session has ENDED rather than
+            // hold it forever (contract section 9, F4). It is the ONE source for that fact: the record names its
+            // Director or no ending can be proved at all, and nothing else is consulted.
+            if (director is not null)
+                store.RememberOwningDirector(uploadId, director.DirectorId);
             if (director is null || session is null)
             {
+                // THE SESSION CANNOT BE REACHED RIGHT NOW - its Director is not connected (Voice Delivery phase 5). The
+                // Gateway owns this delivery, so this is not an error for the client to retry: it is held as "waiting for
+                // the Director", and the Gateway sends it itself when that Director's tunnel comes back. The time rules
+                // still apply when no Director ever returns, so nothing waits forever:
                 store.RecordDecision(uploadId, DeliveryDecisions.SessionNotFound,
                     new DeliveryDecisionFacts { SessionId = sid, StatusCode = StatusCodes.Status404NotFound });
-                return DictationOutcome.Error(StatusCodes.Status404NotFound, "session not found");
+                // ENDED ONLY WHEN PROVABLE (contract section 9, F4): its Director is connected and fresh and no longer
+                // lists the session. Resolved AT ONCE, session-exited, with whatever words an earlier attempt paid for
+                // (contract section 8: a transcript that was paid for is never thrown away) and NO "Send anyway" - there
+                // is no session left to send to.
+                if (SessionEndedOnAFreshDirector(store.Read(uploadId).Record?.Owned?.DirectorId,
+                        pushedSessions, streamStale, tenant, sid))
+                    return ResolveAsUndeliverable(store, uploadId, sid, "no longer listed by its connected Director",
+                        store.SentWords(uploadId));
+                // - words that may already be in (an earlier attempt sent them) are "could not confirm it arrived" past
+                //   the limit from Send, with the words kept, and held until then;
+                if (store.MayHaveBeenSentToDirector(uploadId))
+                    return HoldOrUnconfirmed(store, uploadId, sid, store.SentWords(uploadId), sentAtUtc, clock,
+                        DeliverySendAndAsk.DirectorNotConnected, DeliverySendAndAsk.WaitingForDirectorState);
+                // - words never sent are held until the limit, and past it are transcribed below so they can be shown
+                //   back as too old: the delivery gate after the transcript finds the session still unreachable and
+                //   resolves them there.
+                if (!IsTooOld(clock, sentAtUtc, out _))
+                    return HoldAsStillDelivering(store, uploadId, sid, DeliverySendAndAsk.WaitingForDirectorState);
             }
-            if (IsExited(session))
-                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript: "");
+            else if (IsExited(session))
+                // The words an earlier attempt may already have paid for are handed back here too (contract section 8):
+                // a retry whose session exited between attempts must not throw them away.
+                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", store.SentWords(uploadId));
 
             // A RETRY ASKS FIRST, BEFORE IT PAYS FOR A TRANSCRIPT (Voice Delivery mission, phase 2). When an earlier
             // attempt of this upload handed the words to the Director, they may already be in the session - the 09:05
             // incident on 25 September 2026 was exactly that: a slow success read as a failure, retried, and doubled by
             // "Send anyway". The Director is the one place that knows, so it is asked, and only a recording it says is
             // not in (never seen, or a send that failed) is transcribed and sent again.
-            if (store.MayHaveBeenSentToDirector(uploadId))
+            if (director is not null && store.MayHaveBeenSentToDirector(uploadId))
             {
                 var earlier = await DeliverySendAndAsk.AskAsync(store, uploadId, sid, deliveryId,
                     new SessionVerbClient(director, sendCommand), DeliveryDecisions.AskReasonRetryAsksFirst);
@@ -716,7 +1010,11 @@ internal static class GatewayDictationEndpoint
                         return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Delivering);
                     case DeliveryState.NotDelivered:
                     case DeliveryState.Unknown:
-                        // Known not to be in: carry on as a first attempt - transcribe, the age limit, send.
+                        // Known not to be in: carry on as a first attempt - reuse the kept words, the age limit, send.
+                        // A not-delivered reason of too-old (the DIRECTOR's own age check, contract section 9, F6) needs
+                        // no arm of its own here: the age limit below the send shows the words back as too old on any
+                        // attempt that is past it, and the send's own answer arm catches a refusal that arrives past
+                        // the limit - so the decision record always says the Director refused it for age.
                         break;
                     default:
                         throw new InvalidOperationException($"the Director answered delivery state {earlier.Answer.State}, which this Gateway does not know");
@@ -732,61 +1030,101 @@ internal static class GatewayDictationEndpoint
             // never outlives the run.
             transcribingSessions.MarkActivelyTranscribing(tenant, sid);
 
-            // The configured mode's key must be present before we pay the reassembly + transcribe cost.
-            var routing = transcription.Resolve();
-            if (routing.Key is null)
+            // THE TRANSCRIPT IS REUSED, NEVER PAID FOR TWICE (contract section 8): the words are on the record the
+            // MOMENT they exist - written below the first time this recording was transcribed - so every later attempt,
+            // including one after the Director said not-delivered or unknown, reads them back and transcribes nothing.
+            // A paid transcript thrown away while its words have not been shown to the owner was QA case 8's damage.
+            var transcript = store.SentWords(uploadId);
+            if (transcript.Length == 0)
             {
-                store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
+                // The configured mode's key must be present before we pay the reassembly + transcribe cost.
+                var routing = transcription.Resolve();
+                if (routing.Key is null)
                 {
-                    StatusCode = StatusCodes.Status503ServiceUnavailable,
-                    Error = $"no key configured for transcription mode {routing.Mode}",
-                });
-                return DictationOutcome.Error(StatusCodes.Status503ServiceUnavailable,
-                    $"no key configured for transcription mode {routing.Mode}");
-            }
+                    store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
+                    {
+                        StatusCode = StatusCodes.Status503ServiceUnavailable,
+                        Error = $"no key configured for transcription mode {routing.Mode}",
+                    });
+                    // A recording that could never be transcribed is not held forever (contract section 8): past the limit
+                    // from Send it has no words and nothing was ever sent, so it is shown back too old - the recording is
+                    // still on the device - and within it the Gateway owns the delivery and tries again itself.
+                    if (IsTooOld(clock, sentAtUtc, out var noKeyAge))
+                        return ResolveTooOld(store, uploadId, sid, "", noKeyAge);
+                    return HoldToRetry(store, uploadId, sid);
+                }
 
-            var assembled = await store.AssembleAsync(uploadId, req.TotalChunks);
-            if (assembled.Status == "unknown_upload")
-                return DictationOutcome.Error(StatusCodes.Status404NotFound, "unknown upload id");
-            if (assembled.Status == "incomplete")
-            {
-                store.RecordDecision(uploadId, DeliveryDecisions.Incomplete, new DeliveryDecisionFacts
+                var assembled = await store.AssembleAsync(uploadId, req.TotalChunks);
+                if (assembled.Status == "unknown_upload")
+                    return DictationOutcome.Error(StatusCodes.Status404NotFound, "unknown upload id");
+                if (assembled.Status == "incomplete")
                 {
-                    TotalChunks = req.TotalChunks,
-                    MissingChunks = assembled.Missing.Count,
+                    store.RecordDecision(uploadId, DeliveryDecisions.Incomplete, new DeliveryDecisionFacts
+                    {
+                        TotalChunks = req.TotalChunks,
+                        MissingChunks = assembled.Missing.Count,
+                    });
+                    return DictationOutcome.Incomplete(assembled.Missing);
+                }
+                var audio = assembled.Audio;
+                if (AssembledAudioForTests is { } substitute) audio = substitute(uploadId, audio);
+                if (audio is null || audio.Length == 0)
+                {
+                    // Retired in place rather than deleted, so this outcome stays readable in the decision log
+                    // (Voice Delivery mission). To every reader it is the deleted directory it replaces.
+                    store.ResolveEmptyRecording(uploadId);
+                    return DictationOutcome.Error(StatusCodes.Status502BadGateway, "assembled recording was empty");
+                }
+
+                var result = await transcription.TranscribeAsync(
+                    audio, "audio." + (req.Ext ?? "wav"), req.Mime ?? "audio/wav", applyCorrection: true, CancellationToken.None,
+                    tenant: tenant, source: "dictation");
+                // A transcription that failed but might succeed on another try is the Gateway's to try again (Voice Delivery
+                // phase 5): the record stays PENDING and owned, the client is told 202 "retrying", and the driver re-runs it.
+                // It is no longer parked FAILED - that parking existed so the colour told the truth while the client re-drove
+                // it every few seconds, and the client no longer drives an owned delivery at all. Out of credits and a
+                // permanent failure are answered exactly as before (contract section 1: out of scope, not held).
+                //
+                // A recording whose transcription KEEPS failing is not held to the 24-hour expiry (contract section 8):
+                // past the limit from Send it is shown back too old with no words and "Send anyway" - the client already
+                // has the no-words wording, and the recording is still on the device. Within the limit it stays held.
+                if (result.Outcome is not (TranscriptionOutcome.Ok or TranscriptionOutcome.OutOfCredits or TranscriptionOutcome.PermanentError))
+                {
+                    store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
+                    {
+                        StatusCode = StatusCodes.Status502BadGateway,
+                        Reason = result.Code ?? "transcription_error",
+                        Error = result.Error ?? "transcription failed",
+                    });
+                    FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: retryable transcription failure " +
+                        $"code={result.Code} error={result.Error}; the Gateway will try again itself");
+                    if (IsTooOld(clock, sentAtUtc, out var failedAge))
+                        return ResolveTooOld(store, uploadId, sid, "", failedAge);
+                    return HoldToRetry(store, uploadId, sid);
+                }
+                if (MapNonOkTranscription(result, uploadId, store) is { } nonOk)
+                    return nonOk;
+
+                transcript = (result.Text ?? "").Trim();
+                store.RecordDecision(uploadId, DeliveryDecisions.Transcribed, new DeliveryDecisionFacts
+                {
+                    Characters = transcript.Length,
+                    AudioBytes = audio.Length,
                 });
-                return DictationOutcome.Incomplete(assembled.Missing);
+                // THE WORDS ARE ON THE RECORD THE MOMENT THEY EXIST (contract section 8) - before the second locate and
+                // before the send - so any later ruling (held, too old, could not confirm, session ended) hands them back,
+                // and no later attempt ever pays for them again. Written over the PENDING record, as the tombstones keep
+                // them; the acknowledgement deletes them exactly as it deletes a tombstone's.
+                store.KeepSentWords(uploadId, transcript);
+                // Capture-health (issue #863): persist the fire-and-forget Send path's audio-loss deficit into
+                // the SAME dictation session log the Voice-mode and desktop paths write, via the one shared
+                // helper. The assembled audio byte count is what the server actually transcribed. When the client
+                // did not send its measurements this is a no-op. Fire-and-forget - never affects the outcome.
+                MobileCaptureHealthLog.Persist(
+                    uploadId, MobileCaptureHealthLog.SurfaceOr(req.ClientSurface, "mobile-send"),
+                    req.ClientRecordedMs, req.ClientDecodedSeconds, req.ClientSourceBytes,
+                    audio.Length, transcript);
             }
-            var audio = assembled.Audio;
-            if (AssembledAudioForTests is { } substitute) audio = substitute(uploadId, audio);
-            if (audio is null || audio.Length == 0)
-            {
-                // Retired in place rather than deleted, so this outcome stays readable in the decision log
-                // (Voice Delivery mission). To every reader it is the deleted directory it replaces.
-                store.ResolveEmptyRecording(uploadId);
-                return DictationOutcome.Error(StatusCodes.Status502BadGateway, "assembled recording was empty");
-            }
-
-            var result = await transcription.TranscribeAsync(
-                audio, "audio." + (req.Ext ?? "wav"), req.Mime ?? "audio/wav", applyCorrection: true, CancellationToken.None,
-                tenant: tenant, source: "dictation");
-            if (MapNonOkTranscription(result, uploadId, store) is { } nonOk)
-                return nonOk;
-
-            var transcript = (result.Text ?? "").Trim();
-            store.RecordDecision(uploadId, DeliveryDecisions.Transcribed, new DeliveryDecisionFacts
-            {
-                Characters = transcript.Length,
-                AudioBytes = audio.Length,
-            });
-            // Capture-health (issue #863): persist the fire-and-forget Send path's audio-loss deficit into
-            // the SAME dictation session log the Voice-mode and desktop paths write, via the one shared
-            // helper. The assembled audio byte count is what the server actually transcribed. When the client
-            // did not send its measurements this is a no-op. Fire-and-forget - never affects the outcome.
-            MobileCaptureHealthLog.Persist(
-                uploadId, MobileCaptureHealthLog.SurfaceOr(req.ClientSurface, "mobile-send"),
-                req.ClientRecordedMs, req.ClientDecodedSeconds, req.ClientSourceBytes,
-                audio.Length, transcript);
             // Compose the final message: any typed text the caret split the dictation around (before /
             // after), any earlier paused dictation segments already turned to text (prefix), and this
             // clip's transcript, space-joined skipping empties. The common voice case is transcript alone.
@@ -830,11 +1168,22 @@ internal static class GatewayDictationEndpoint
             // path here that falls back to a shared/Local locate on hosted.
             (director, session) = await GatewayEndpoints.LocateSessionAsync(
                 registry, sid, pushedSessions, streamStale, tenant, owners);
+            if (director is not null)
+                store.RememberOwningDirector(uploadId, director.DirectorId);
             if (director is null || session is null)
             {
                 store.RecordDecision(uploadId, DeliveryDecisions.SessionNotFound,
                     new DeliveryDecisionFacts { SessionId = sid, StatusCode = StatusCodes.Status404NotFound });
-                return DictationOutcome.Error(StatusCodes.Status404NotFound, "session not found");
+                // Ended only when provable (contract section 9, F4) - and this gate holds the words in hand, so an
+                // ended session resolves with them: session-exited, no "Send anyway".
+                if (SessionEndedOnAFreshDirector(store.Read(uploadId).Record?.Owned?.DirectorId,
+                        pushedSessions, streamStale, tenant, sid))
+                    return ResolveAsUndeliverable(store, uploadId, sid, "no longer listed by its connected Director", transcript);
+                // Known not to be in, and the session cannot be reached: past the limit the words are shown back as too
+                // old (they were transcribed for exactly this); within it the Gateway waits for the Director.
+                if (IsTooOld(clock, sentAtUtc, out var unreachableAge))
+                    return ResolveTooOld(store, uploadId, sid, transcript, unreachableAge);
+                return HoldAsStillDelivering(store, uploadId, sid, DeliverySendAndAsk.WaitingForDirectorState);
             }
             if (IsExited(session))
                 return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript);
@@ -846,16 +1195,8 @@ internal static class GatewayDictationEndpoint
             // however long it has been - showing it back could hand the owner a "Send anyway" that doubles it.
             // After the transcript on purpose, so the words can be shown back. Strictly more than the limit: 5:00
             // is sent, 5:01 is shown back.
-            var age = clock.GetUtcNow().UtcDateTime - sentAtUtc;
-            if (age > MaxDeliveryAge)
-            {
-                // Resolved, not dropped: the DELIVERED tombstone keeps the words, so a re-complete returns them and
-                // never types them (issue #1183), and the client shows them with "Send anyway".
-                store.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript, reason: TooOldReason, age: age);
-                FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: {age.TotalSeconds:0}s since Send, " +
-                    $"more than {MaxDeliveryAgeMinutes} minutes; shown back as {TooOldReason} with chars={transcript.Length}, nothing typed");
-                return DictationOutcome.Submitted(false, true, transcript, TooOldReason);
-            }
+            if (IsTooOld(clock, sentAtUtc, out var age))
+                return ResolveTooOld(store, uploadId, sid, transcript, age);
 
             // The Gateway injects the dictation by calling the owning Director's control API DIRECTLY, which
             // BYPASSES the Gateway's own /sessions/{sid}/prompt front door (issue #1188). That front door
@@ -883,11 +1224,6 @@ internal static class GatewayDictationEndpoint
             var spokenAlone = SpokenTurnRule.IsSpokenAlone(req.Before, req.Prefix, req.After);
             if (!spokenAlone)
                 FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: composed with typed text around the transcript; delivered as ONE TYPED turn (ruling R10)");
-            // THE WORDS ARE KEPT ON THE PENDING RECORD ONCE THEY ARE SENT (phase 2, change 1), as the tombstones keep them,
-            // so an answer that does not transcribe again - delivered heard by a retry that asked first, or "could not
-            // confirm it arrived" - hands them back. Written before the send, so a send that is never answered still
-            // left them there.
-            store.KeepSentWords(uploadId, transcript);
             store.RecordDecision(uploadId, DeliveryDecisions.SentToDirector, new DeliveryDecisionFacts
             {
                 SessionId = sid,
@@ -908,6 +1244,10 @@ internal static class GatewayDictationEndpoint
                 Surface = deliverySurface ?? "unknown",
                 DeliveryUploadId = spokenAlone ? uploadId : null,
                 DeliveryId = deliveryId,
+                // THE SEND TIME THE DIRECTOR'S AGE LIMIT IS MEASURED FROM (Voice Delivery phase 5, contract section 9,
+                // F6): the recording's own sentAtUtc - the moment the owner pressed Send - never the moment this
+                // attempt happened to run, so a re-send minutes later is not minutes fresher than the recording is.
+                SentAtUtc = sentAtUtc,
                 Provenance = new SubmissionProvenanceDto
                 {
                     Route = SubmissionRoutes.GatewayDictation,
@@ -944,19 +1284,31 @@ internal static class GatewayDictationEndpoint
                     // Held: the client's next attempt asks again, and "unknown" then counts as not in (contract section 4).
                     return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Unknown);
                 case DeliverySendKind.NotDelivered:
-                    // Definitely not in: the client retries, and its retry asks first and then types.
-                    FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: not delivered ({sent.Error}); retryable");
-                    return DictationOutcome.Error(StatusCodes.Status502BadGateway, sent.Error ?? "submit to session failed");
+                    // The DIRECTOR ITSELF refused this send for age (contract section 9, F6): its check types nothing
+                    // past the limit and answers not-delivered with reason too-old. Known not to in, and past the
+                    // limit from Send by the Gateway's own clock: shown back too old with the words, and the decision
+                    // record's director-answer line above already says the Director refused it for age.
+                    if (sent.NeverLeft is false
+                        && IsTooOld(clock, sentAtUtc, out var refusedAge)
+                        && IsTheDirectorsAgeRefusal(sent.DirectorReason))
+                        return ResolveTooOld(store, uploadId, sid, transcript, refusedAge);
+                    // Definitely not in: the Gateway tries again itself (phase 5), and that attempt asks first and then
+                    // types, under the age limit. A prompt that never left this Gateway is waiting for its Director.
+                    FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: not delivered ({sent.Error}); " +
+                        (sent.NeverLeft ? "waiting for the Director" : "the Gateway will try again"));
+                    return HoldAsStillDelivering(store, uploadId, sid,
+                        sent.NeverLeft ? DeliverySendAndAsk.WaitingForDirectorState : DeliverySendAndAsk.RetryingState);
                 default:
                     throw new InvalidOperationException($"unknown delivery send outcome {sent.Kind}");
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId} FAILED: {ex.Message}");
+            FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId} FAILED: {ex.Message}; the Gateway will try again");
             store.RecordDecision(uploadId, DeliveryDecisions.CompleteError,
                 new DeliveryDecisionFacts { StatusCode = StatusCodes.Status502BadGateway, Error = ex.Message });
-            return DictationOutcome.Error(StatusCodes.Status502BadGateway, ex.Message);
+            // After ownership a delivery is never answered 502 (contract section 2): the Gateway tries again itself.
+            return HoldToRetry(store, uploadId, sid);
         }
         finally
         {
@@ -986,16 +1338,33 @@ internal static class GatewayDictationEndpoint
 
     /// <summary>
     /// The reason stamped on the durable record, and answered to the client, when a recording is shown back instead of
-    /// sent because it is older than <see cref="MaxDeliveryAgeMinutes"/> from Send. Its own reason for the same cause
-    /// <see cref="ExitedSessionReason"/> has one: the two resolve with the same wire flags, and only the reason says
-    /// which it was.
+    /// sent because it is older than <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/> from Send. Its own reason
+    /// for the same cause <see cref="ExitedSessionReason"/> has one: the two resolve with the same wire flags, and only
+    /// the reason says which it was. One spelling, aliased from <see cref="DeliveryDecisions.TooOld"/>, which is the
+    /// contracts' <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge.TooOldReason"/> - the word the Director writes
+    /// its own age refusal with (Voice Delivery phase 5, F6).
     /// </summary>
     internal const string TooOldReason = DeliveryDecisions.TooOld;
 
     /// <summary>
+    /// Whether a Director's not-delivered answer is its AGE REFUSAL (Voice Delivery phase 5, F6). The Director refuses a
+    /// prompt older than the limit with the one reason word <see cref="TooOldReason"/> followed by the measured age and
+    /// where it was measured (<c>PromptAgeLimit.TooOldReason</c> in Core: "too-old: the prompt was 5m 01s old from Send
+    /// ..."), so the word is matched at the START of the reason, never as an exact string - and never a contains-match,
+    /// which would read any other reason that happens to name the word as an age refusal. The word itself is the one
+    /// named constant both halves spell it by.
+    /// </summary>
+    internal static bool IsTheDirectorsAgeRefusal(string? reason)
+        => reason is not null
+           && (string.Equals(reason, TooOldReason, StringComparison.Ordinal)
+               || (reason.Length > TooOldReason.Length
+                   && reason[TooOldReason.Length] == ':'
+                   && reason.StartsWith(TooOldReason, StringComparison.Ordinal)));
+
+    /// <summary>
     /// The reason stamped on the durable record, and answered to the client, when a recording is resolved as "could not
     /// confirm it arrived" (Voice Delivery phase 2, change 1): it was sent, the Director gave no answer of any kind to the
-    /// question of what became of it, and more than <see cref="MaxDeliveryAgeMinutes"/> have passed since Send. Its own
+    /// question of what became of it, and more than <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/> have passed since Send. Its own
     /// reason beside <see cref="TooOldReason"/>: too old means the words are known NOT to be in, unconfirmed means they
     /// may be - so only too old offers "Send anyway" (<see cref="OffersSendAnyway"/>).
     /// </summary>
@@ -1004,14 +1373,17 @@ internal static class GatewayDictationEndpoint
     /// <summary>
     /// Whether a shown-back recording (<c>movedOn</c>) offers "Send anyway" - the Gateway's ruling, read by the client
     /// verbatim (rule 7; phase 2, change 1). Decided from the record's reason alone, so the fresh answer, the cached
-    /// re-complete and the register-time answer cannot disagree: true for <see cref="TooOldReason"/> and
-    /// <see cref="ExitedSessionReason"/> (the words are known not to be in the live session) and for a tombstone written
-    /// before reasons were kept; false for <see cref="UnconfirmedReason"/>, where the words may already be in and a second
-    /// copy could double them. The Delivery Lead: "'Send anyway' is offered only when the Director has answered
-    /// not-delivered or unknown (so we never offer a second copy that might double)".
+    /// re-complete and the register-time answer cannot disagree. True for <see cref="TooOldReason"/> (the words are
+    /// known not to be in the session, and a live session may still take them) and for a tombstone written before
+    /// reasons were kept. False for <see cref="UnconfirmedReason"/>, where the words may already be in and a second
+    /// copy could double them - and, since phase 5 round 2 (contract section 9, F4), FALSE FOR
+    /// <see cref="ExitedSessionReason"/> too: the session has ended, so there is nothing left to send to, and the
+    /// client shows the words, the ended-session label and Dismiss. The Delivery Lead: "'Send anyway' is offered only
+    /// when the Director has answered not-delivered or unknown (so we never offer a second copy that might double)";
+    /// a dead session is the strongest "not deliverable" there is.
     /// </summary>
     internal static bool OffersSendAnyway(string? reason)
-        => !string.Equals(reason, UnconfirmedReason, StringComparison.Ordinal);
+        => reason is null || string.Equals(reason, TooOldReason, StringComparison.Ordinal);
 
     /// <summary>
     /// A recording whose question got no answer of any kind: HELD while it is within the limit from Send, and resolved as
@@ -1020,16 +1392,42 @@ internal static class GatewayDictationEndpoint
     /// held forever (the Delivery Lead's ruling, change 1).
     /// </summary>
     private static DictationOutcome HoldOrUnconfirmed(VoiceUploadStore store, string uploadId, string sid, string words,
-        DateTime sentAtUtc, TimeProvider clock, string noAnswerKind)
+        DateTime sentAtUtc, TimeProvider clock, string noAnswerKind, string heldState = NoAnswerDirectorState)
     {
         if (!DeliverySendAndAsk.IsPastConfirmLimit(clock.GetUtcNow().UtcDateTime, sentAtUtc, out var age))
-            return HoldAsStillDelivering(store, uploadId, sid, NoAnswerDirectorState);
+            return HoldAsStillDelivering(store, uploadId, sid, heldState);
         store.MarkDelivered(uploadId, submitted: false, movedOn: true, words, reason: UnconfirmedReason, age: age,
             directorNoAnswer: noAnswerKind);
         FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: {age.TotalSeconds:0}s since Send and the " +
             $"Director gave no answer ({noAnswerKind}); resolved as {UnconfirmedReason} with chars={words.Length}, nothing typed");
         return DictationOutcome.Submitted(false, true, words, UnconfirmedReason);
     }
+
+    /// <summary>Whether a recording sent at <paramref name="sentAtUtc"/> is past the age limit now - strictly more than
+    /// <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/>, so 5:00 is still sent and 5:01 is shown back.</summary>
+    private static bool IsTooOld(TimeProvider clock, DateTime sentAtUtc, out TimeSpan age)
+    {
+        age = clock.GetUtcNow().UtcDateTime - sentAtUtc;
+        return age > MaxDeliveryAge.Span;
+    }
+
+    /// <summary>
+    /// Words known not to be in the session, past the age limit: resolved, not dropped. The DELIVERED tombstone keeps
+    /// the words, so a re-complete returns them and never types them (issue #1183), and the client shows them with
+    /// "Send anyway".
+    /// </summary>
+    private static DictationOutcome ResolveTooOld(VoiceUploadStore store, string uploadId, string sid, string transcript, TimeSpan age)
+    {
+        store.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript, reason: TooOldReason, age: age);
+        FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: {age.TotalSeconds:0}s since Send, " +
+            $"more than {MaxDeliveryAge.Minutes} minutes; shown back as {TooOldReason} with chars={transcript.Length}, nothing typed");
+        return DictationOutcome.Submitted(false, true, transcript, TooOldReason);
+    }
+
+    /// <summary>A Gateway-side problem, or words the Director said are not in: held as "retrying", because the Gateway
+    /// owns the delivery and tries again itself (Voice Delivery phase 5).</summary>
+    private static DictationOutcome HoldToRetry(VoiceUploadStore store, string uploadId, string sid)
+        => HoldAsStillDelivering(store, uploadId, sid, DeliverySendAndAsk.RetryingState);
 
     /// <summary>
     /// Hold a recording that may already be in the session: the record stays PENDING (nothing is resolved, nothing
@@ -1098,10 +1496,44 @@ internal static class GatewayDictationEndpoint
         try { t.End(tenant, sid); } catch { /* the Gateway's stale-mark backstop clears it if this throws */ }
     }
 
-    private static bool IsExited(SessionDto session)
+    internal static bool IsExited(SessionDto session)
         => string.Equals(session.Status, "Exited", StringComparison.OrdinalIgnoreCase)
         || string.Equals(session.Status, "Failed", StringComparison.OrdinalIgnoreCase)
         || string.Equals(session.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether the Gateway can PROVE a session it cannot locate has ENDED - one of the only two proofs there are
+    /// (contract section 9, F4): its Director - THE ONE THE DELIVERY'S OWN DURABLE RECORD NAMES - is connected and
+    /// fresh, and its fresh snapshot no longer lists the session. Anything else - a stale Director, a disconnected
+    /// one, no Director named on the record at all - is NOT ended and stays a held delivery (contract section 8):
+    /// "a Director that is stale or unreachable is a HELD delivery, never 'session gone'". The freshness horizon is
+    /// the locator's own (<see cref="GatewayEndpoints.LocateGrace"/> over the stream staleness), so "fresh" here
+    /// means exactly what "locatable" means there.
+    ///
+    /// A RECORD THAT NAMES NO DIRECTOR PROVES NOTHING (no fallback programming). Since the review round of
+    /// phase 5 the Director is written on the upload's record at REGISTER - the moment the Gateway first knows
+    /// the upload, while its session is live enough to have started a recording - and carried into the owned
+    /// delivery when ownership is taken, so a record that still names no Director is one whose session could
+    /// be located neither at register nor by any attempt, and there is no second source for the fact. The
+    /// in-memory owner cache is NOT consulted -
+    /// any fresh roster read may prune it, so it is not a durable answer, and answering "ended" from it would be
+    /// a second way to answer the same question. Such a record is held (section 8) and one log line says so.
+    /// </summary>
+    /// <param name="rememberedDirector">The Director a delivery's own durable record names as its session's
+    /// Director, when it does; null otherwise.</param>
+    internal static bool SessionEndedOnAFreshDirector(string? rememberedDirector,
+        Streaming.PushedSessionStore? pushedSessions, TimeSpan streamStale, TenantId tenant, string sid)
+    {
+        if (string.IsNullOrWhiteSpace(rememberedDirector))
+        {
+            FileLog.Write($"[GatewayDictation] ended proof: sid={sid}: the delivery's record names no Director, " +
+                "so an ending cannot be proved and the delivery stays held");
+            return false;
+        }
+        if (pushedSessions is null) return false;
+        var fresh = pushedSessions.TryGetFresh(tenant, rememberedDirector, streamStale + GatewayEndpoints.LocateGrace);
+        return fresh is not null && fresh.All(s => !string.Equals(s.SessionId, sid, StringComparison.Ordinal));
+    }
 }
 
 /// <summary>Register-time body: the session the recording is for.</summary>
@@ -1126,7 +1558,7 @@ public sealed class DictationCompleteRequest
     /// <summary>
     /// When the owner pressed Send, in UTC: an ISO 8601 string ending in Z (the client stamps it with
     /// <c>new Date(ms).toISOString()</c>). Required - a complete without it is refused with 400. The age limit
-    /// (<see cref="GatewayDictationEndpoint.MaxDeliveryAgeMinutes"/>) is measured from it.
+    /// (<see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/>) is measured from it.
     /// </summary>
     public DateTime? SentAtUtc { get; set; }
     /// <summary>True for every attempt after the client's first. It decides nothing: it is written to the decision
@@ -1185,6 +1617,19 @@ internal sealed class DictationOutcome
     /// the session is still genuinely transcribing - the ONE outcome that must NOT clear the orange mark
     /// (issue #1048).</summary>
     public bool IsIncomplete => _kind == Kind.Incomplete;
+
+    /// <summary>Held, not final: the 202 "still delivering" answer. The Gateway's driver attempts it again.</summary>
+    public bool IsHeld => _kind == Kind.StillDelivering;
+
+    /// <summary>Out of transcription credits (a 402 the client must be told: the Delivery Lead's handback
+    /// ruling, phase 5 review round). On a driver attempt there is no client listening, so the driver
+    /// reads this, hands the recording back and stops.</summary>
+    public bool IsOutOfCredits => _kind == Kind.OutOfCredits;
+
+    /// <summary>A permanent transcription failure (a 422 the client must be told: the Delivery Lead's
+    /// handback ruling, phase 5 review round). On a driver attempt there is no client listening, so the
+    /// driver reads this, hands the recording back and stops.</summary>
+    public bool IsPermanentFailure => _kind == Kind.Permanent;
 
     /// <param name="reason">Why a recording was shown back instead of sent (<c>too-old</c>, <c>session-exited</c>,
     /// <c>unconfirmed</c>), on a

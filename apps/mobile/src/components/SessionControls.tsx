@@ -4,6 +4,7 @@ import { backgroundTranscribeAndSend, type CapturedUtterance } from "@devthrottl
 import { DictationDialog } from "@devthrottle/client-core/dictation/DictationDialog";
 import { insertAt, joinText } from "@devthrottle/client-core/dictation/transcript";
 import { ComposerProvenance } from "@devthrottle/client-core/dictation/composerProvenance";
+import { sendTypedPrompt } from "@devthrottle/client-core/dictation/typedPromptDelivery";
 import {
   KEY_ARROW_DOWN,
   KEY_ARROW_LEFT,
@@ -105,8 +106,10 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
     if (text.trim().length === 0) return;
     setInput(""); // clear immediately (the Android tab clears the box before the call returns)
     try {
-      await sendPrompt(sessionId, text, true, undefined, undefined, provenanceRef.current.forSend().spans);
-      onFlash("Sent");
+      // A 202 "still delivering" holds the words in the status strip, which reads what the Gateway rules and
+      // never sends them again (voice delivery phase 5, T6) - so no "Sent" flash for it.
+      const outcome = await sendTypedPrompt(sessionId, text, { spokenSpans: provenanceRef.current.forSend().spans });
+      if (outcome === "delivered") onFlash("Sent");
     } catch (err) {
       onError(err instanceof Error ? err.message : "Send failed");
     }
@@ -221,8 +224,8 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
       setInput("");
       provenanceRef.current.reset();
       try {
-        await sendPrompt(sessionId, combined, true, undefined, spoken, sent.spans);
-        onFlash("Sent");
+        const outcome = await sendTypedPrompt(sessionId, combined, { spokenDeliveryId: spoken, spokenSpans: sent.spans });
+        if (outcome === "delivered") onFlash("Sent");
       } catch (err) {
         setInput(combined); // restore so a failed send never loses the typed + dictated text
         onError(err instanceof Error ? err.message : "Send failed");

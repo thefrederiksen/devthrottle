@@ -108,7 +108,7 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     [InlineData("delivered", 200, null, DictationDeliveryState.Delivered)]
     [InlineData("delivering", 202, "delivering", DictationDeliveryState.Pending)]
     [InlineData("unknown", 202, "unknown", DictationDeliveryState.Pending)]
-    [InlineData("not-delivered", 502, null, DictationDeliveryState.Pending)]
+    [InlineData("not-delivered", 202, "retrying", DictationDeliveryState.Pending)]
     [InlineData("no-answer", 202, "no-answer", DictationDeliveryState.Pending)]
     [InlineData("director-too-old", 202, "no-answer", DictationDeliveryState.Pending)]
     [InlineData("never-left-the-gateway", 202, "no-answer", DictationDeliveryState.Pending)]
@@ -117,8 +117,9 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     {
         // Proves each answer to the question maps to its HTTP answer and leaves the record where the contract says:
         // delivered resolves (200); delivering, unknown and every kind of no-answer hold (202, the record PENDING so the
-        // client's retry re-runs); not-delivered is the retryable 502. The answer line names the state, or which kind
-        // of no-answer it was - never folded into "unknown".
+        // Gateway's next attempt re-runs); not-delivered is held as "retrying" - since phase 5 the Gateway owns the
+        // delivery and tries again itself, so it is never a 502. The answer line names the state, or which kind of
+        // no-answer it was - never folded into "unknown".
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => Timeout();
@@ -190,17 +191,19 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     }
 
     [Fact]
-    public async Task APromptThatNeverLeftTheGateway_IsStillA502_AndNothingIsAsked()
+    public async Task APromptThatNeverLeftTheGateway_IsHeldWaitingForTheDirector_AndNothingIsAsked()
     {
-        // Proves the one case that is definitely not in stays the retryable 502: nothing was sent, so there is nothing
-        // to ask about.
+        // Proves the one case that is definitely not in - nothing was sent, so there is nothing to ask about - is held as
+        // "waiting for the Director" (phase 5): the Gateway owns the delivery and sends it itself when that Director's
+        // tunnel comes back. It used to be a 502 for the client to retry.
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => null;
 
-        var (status, _) = await CompleteAsync(uploadId, sid, sentAt: T0);
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0);
 
-        Assert.Equal(StatusCodes.Status502BadGateway, status);
+        Assert.Equal(StatusCodes.Status202Accepted, status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, body.GetProperty("directorState").GetString());
         Assert.Equal(new[] { "prompt" }, _commands.Select(c => c.Verb));
         Assert.True(_store.IsPending(uploadId));
     }
@@ -260,22 +263,28 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     [Theory]
     [InlineData(DeliveryState.NotDelivered)]
     [InlineData(DeliveryState.Unknown)]
-    public async Task ARetryTheDirectorSaysIsNotIn_TranscribesAndSendsAgain(DeliveryState answer)
+    public async Task ARetryTheDirectorSaysIsNotIn_ReusesTheKeptWordsAndSendsAgain(DeliveryState answer)
     {
         // Proves a retry the Director says is not in (a failed send, or an id it never saw) carries on as a first
-        // attempt: it transcribes and sends, and delivers.
+        // attempt - but on the words the first attempt already paid for (contract section 8: a transcript is kept
+        // the moment it exists and NEVER paid for twice): one transcription across both attempts, one send each,
+        // and delivers. This replaces phase 2's "transcribes again", which handed a stale Director a second bill
+        // for the same clip - QA case 8's paid transcript, thrown away.
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => Timeout();
         _deliveryState = _ => StateIs(DeliveryState.NotDelivered);
-        Assert.Equal(502, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+        Assert.Equal(1, _transcriber.Calls);
+        Assert.Equal(SpokenWords, _store.SentWords(uploadId));
 
         _prompt = _ => Accepted();
         _deliveryState = _ => StateIs(answer);
         var retry = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
 
         Assert.Equal(200, retry.Status);
-        Assert.Equal(2, _transcriber.Calls);
+        Assert.Equal(SpokenWords, retry.Body.GetProperty("transcript").GetString());
+        Assert.Equal(1, _transcriber.Calls);
         Assert.Equal(2, _commands.Count(c => c.Verb == "prompt"));
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
     }
@@ -324,9 +333,10 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     [Fact]
     public void TheLimitIsFiveMinutes_StatedInMinutes()
     {
-        // Pins the owner's number where it is stated, so a change to it is a change to this test too.
-        Assert.Equal(5, GatewayDictationEndpoint.MaxDeliveryAgeMinutes);
-        Assert.Equal(TimeSpan.FromMinutes(5), GatewayDictationEndpoint.MaxDeliveryAge);
+        // Pins the owner's number where it is stated - the one constant in the contracts, the same number the
+        // Director's own age check reads - so a change to it is a change to this test too.
+        Assert.Equal(5, CcDirector.Gateway.Contracts.MaxDeliveryAge.Minutes);
+        Assert.Equal(TimeSpan.FromMinutes(5), CcDirector.Gateway.Contracts.MaxDeliveryAge.Span);
     }
 
     [Fact]
@@ -479,13 +489,15 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
 
     [Theory]
     [InlineData("too-old", true)]
-    [InlineData("session-exited", true)]
+    [InlineData("session-exited", false)]
     [InlineData(null, true)]
     [InlineData("unconfirmed", false)]
     public void OfferSendAnyway_IsRuledFromTheReasonAlone(string? reason, bool offered)
     {
-        // Pins the Gateway's ruling every shown-back answer carries: "Send anyway" for words known not to be in (too
-        // old, session exited) and for an old tombstone with no reason; never for unconfirmed, where it could double.
+        // Pins the Gateway's ruling every shown-back answer carries: "Send anyway" for words known not to be in a LIVE
+        // session (too old) and for an old tombstone with no reason; never for unconfirmed, where it could double, and
+        // since phase 5 round 2 (contract section 9, F4) never for a session that has ENDED - there is no session left
+        // to send to.
         Assert.Equal(offered, GatewayDictationEndpoint.OffersSendAnyway(reason));
     }
 

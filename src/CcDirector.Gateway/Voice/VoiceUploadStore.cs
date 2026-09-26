@@ -53,7 +53,7 @@ namespace CcDirector.Gateway.Voice;
 /// error at the call site rather than a live object with the widest possible reach. See the constructor
 /// below for why the previous defaults were the wrong shape.
 /// </summary>
-public sealed class VoiceUploadStore
+public sealed partial class VoiceUploadStore : IClaimDecisionLog
 {
     /// <summary>The container directory hosting the non-local partitions, directly under the base root.</summary>
     public const string TenantPartitionDirectoryName = "tenants";
@@ -937,7 +937,7 @@ public sealed class VoiceUploadStore
         string text;
         try
         {
-            text = File.ReadAllText(path);
+            text = ReadAllTextNonBlocking(path);
         }
         catch (FileNotFoundException)
         {
@@ -1016,6 +1016,38 @@ public sealed class VoiceUploadStore
         ("Reason", new[] { JsonValueKind.String, JsonValueKind.Null }),
     };
 
+    /// <summary>
+    /// THE ONE SHARE MODE a small delivery file is opened for reading with (Voice Delivery phase 5, review round,
+    /// the IOException finding): <see cref="FileShare.ReadWrite"/> | <see cref="FileShare.Delete"/>, never
+    /// <see cref="File.ReadAllText"/>'s bare <see cref="FileShare.Read"/>. A reader holding FileShare.Read DENIES
+    /// write access to everyone else while it holds the file - so a standing reader such as the driver's tick, which
+    /// reads every record in the partition every second, made any concurrent writer of the same file fail with
+    /// "being used by another process" (observed once, under load, in the tombstone host tests, whose own
+    /// file-writes are not the store's and take no gate). With this share mode a reader blocks nobody: our own
+    /// writers replace these files atomically (temp + move), and a reader that is open across the replace keeps
+    /// reading the bytes it opened - the old content or the new, never a torn mix. A writer holding the file with
+    /// FileShare.None still refuses us, exactly as the locked-tombstone contract requires (issue #2745).
+    /// </summary>
+    internal static FileStream OpenSmallFileForRead(string path)
+        => new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+    private static string ReadAllTextNonBlocking(string path)
+    {
+        using var file = OpenSmallFileForRead(path);
+        using var reader = new StreamReader(file);
+        return reader.ReadToEnd();
+    }
+
+    private static string[] ReadAllLinesNonBlocking(string path)
+    {
+        using var file = OpenSmallFileForRead(path);
+        using var reader = new StreamReader(file);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line)
+            lines.Add(line);
+        return lines.ToArray();
+    }
+
     private static DictationRecordRead Malformed(string path, string problem)
     {
         FileLog.Write($"[VoiceUploadStore] ReadRecord {path} is not a delivery record: {problem}");
@@ -1063,11 +1095,15 @@ public sealed class VoiceUploadStore
             // writer never puts a fresh PENDING on top of a corrupt, locked or foreign one. Until phase 2 of the Voice
             // Delivery mission this refusal came as a side effect of reading the old re-baseline field; it is asked for
             // on purpose now that the field is gone.
-            _ = ReadRecord(uid);
+            var before = ReadRecord(uid);
             var dir = DirFor(uid);
             Directory.CreateDirectory(dir);
+            // The register-time Director (Voice Delivery phase 5, review round) survives a MarkPending, as it
+            // survives every fresh PENDING write: the fact was learned at register and nothing here knows a
+            // newer one.
             WriteRecordMarker(dir, new DictationDeliveryRecord(
-                DictationDeliveryState.Pending, false, false, "", null, sessionId ?? ""));
+                DictationDeliveryState.Pending, false, false, "", null, sessionId ?? "",
+                DirectorId: before?.DirectorId));
             FileLog.Write($"[VoiceUploadStore] MarkPending: uploadId={uid} sessionId={sessionId}");
             AppendDecisionLine(dir, uid, DeliveryDecisions.Received, new DeliveryDecisionFacts
             {
@@ -1114,8 +1150,12 @@ public sealed class VoiceUploadStore
             BetweenRecordReadAndWriteForTests?.Invoke(uid);
             // A re-register of a recording already sent to the Director keeps the words the send wrote onto the PENDING
             // record (Voice Delivery phase 2, change 1): a later answer that does not transcribe again hands them back.
+            // And a re-register of a recording the Gateway already owns keeps what the Gateway needs to finish it (Voice
+            // Delivery phase 5): an old client that re-registers must not erase the delivery the Gateway is driving.
             WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
-                DictationDeliveryState.Pending, false, false, before.Record?.Transcript ?? "", null, sessionId ?? ""));
+                DictationDeliveryState.Pending, false, false, before.Record?.Transcript ?? "", null, sessionId ?? "",
+                Owned: before.Record is { State: DictationDeliveryState.Pending } pending ? pending.Owned : null,
+                DirectorId: before.Record?.DirectorId));
             var was = before.Record is { } r ? r.State.ToString() : before.Kind.ToString();
             FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} sessionId={sessionId} opened (was {was})");
             AppendDecisionLine(DirFor(uid), uid, DeliveryDecisions.Received, new DeliveryDecisionFacts
@@ -1351,7 +1391,8 @@ public sealed class VoiceUploadStore
             try
             {
                 WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
-                    DictationDeliveryState.Pending, false, false, failed.Transcript, null, failed.SessionId));
+                    DictationDeliveryState.Pending, false, false, failed.Transcript, null, failed.SessionId,
+                    DirectorId: failed.DirectorId));
                 FileLog.Write($"[VoiceUploadStore] ClearFailed: uploadId={uid} back to PENDING (chunks retained)");
             }
             catch (Exception ex)
@@ -1785,7 +1826,7 @@ public sealed class VoiceUploadStore
     private static List<DeliveryDecisionLine> ReadDecisionLines(string path)
     {
         string[] raw;
-        try { raw = File.ReadAllLines(path); }
+        try { raw = ReadAllLinesNonBlocking(path); }
         catch (FileNotFoundException) { return new List<DeliveryDecisionLine>(); }
         catch (DirectoryNotFoundException) { return new List<DeliveryDecisionLine>(); }
 
@@ -2068,6 +2109,21 @@ public enum DictationDeliveryState { Pending, Delivered, Abandoned, Failed, Ackn
 /// window is measured from it (<see cref="CcDirector.Gateway.Contracts.DeliveryRetention.ClaimWindow"/>). Null for
 /// PENDING and FAILED, and for a resolved record written before the field existed.
 /// </param>
+/// <param name="Owned">
+/// On a PENDING record only: everything the Gateway needs to finish this delivery with no client at all, written the
+/// moment the Gateway takes the delivery over (Voice Delivery phase 5, <see cref="DictationOwnedDelivery"/>). Null on a
+/// record the Gateway does not own, and dropped by every transition out of PENDING - a tombstone, FAILED, an
+/// acknowledgement - because those write a fresh record, so the typed words it holds leave with the delivery.
+/// </param>
+/// <param name="DirectorId">
+/// The Director that held the recording's session WHEN THE GATEWAY FIRST KNEW THE UPLOAD - written at register
+/// (Voice Delivery phase 5, review round: the ruling on the review's finding 1), before any attempt has located
+/// anything, so a session the owner deleted while the clip was uploading is still provable as ended. It is the
+/// register-time half of ONE fact whose other half, <see cref="DictationOwnedDelivery.DirectorId"/>, is the one field
+/// the ended proof reads; <see cref="VoiceUploadStore.TakeOwnership"/> carries it across when the delivery is taken over,
+/// and every state write that composes a fresh PENDING record preserves it. Null on a record whose session could not
+/// be located at register - that record then holds, exactly as before the field existed.
+/// </param>
 public sealed record DictationDeliveryRecord(
     DictationDeliveryState State,
     bool Submitted,
@@ -2078,7 +2134,9 @@ public sealed record DictationDeliveryRecord(
     string Tenant = "",
     DictationDeliveryState? AcknowledgedFrom = null,
     int? TranscriptCharacters = null,
-    DateTime? ResolvedAtUtc = null);
+    DateTime? ResolvedAtUtc = null,
+    DictationOwnedDelivery? Owned = null,
+    string? DirectorId = null);
 
 /// <summary>
 /// Every answer a read of an upload id's record.json can give (issue #2745). The reader used to have two -

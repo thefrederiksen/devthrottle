@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { sendPrompt } from "@devthrottle/client-core/api/client";
+import { sendTypedPrompt } from "@devthrottle/client-core/dictation/typedPromptDelivery";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { usePollingStore } from "@devthrottle/client-core/polling/usePollingStore";
@@ -102,7 +102,8 @@ export function FleetManagerView() {
       setQuickBusy(words);
       setQuickError(null);
       try {
-        await sendPrompt(sessionId, words, true);
+        // A 202 "still delivering" is held in the composer's status strip below and only read from then on.
+        await sendTypedPrompt(sessionId, words);
         refreshAll();
       } catch (err) {
         setQuickError(describeAndReport(SURFACE, "send that to the Fleet Manager", err));

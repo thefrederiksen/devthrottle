@@ -42,9 +42,11 @@ public static class DeliveryDecisions
     /// <summary>
     /// The recording was more than the age limit old from Send when its words were known not to be in the session,
     /// so it was not typed: it is kept and shown back to the owner with "Send anyway". Facts carry the age in
-    /// seconds (<see cref="DeliveryDecisionFacts.AgeSeconds"/>). See <c>GatewayDictationEndpoint.MaxDeliveryAgeMinutes</c>.
+    /// seconds (<see cref="DeliveryDecisionFacts.AgeSeconds"/>). The word is
+    /// <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge.TooOldReason"/> - the ONE spelling, the same named
+    /// constant the Director writes its age refusal with, so the two halves cannot drift (Voice Delivery phase 5, F6).
     /// </summary>
-    public const string TooOld = "too-old";
+    public const string TooOld = CcDirector.Gateway.Contracts.MaxDeliveryAge.TooOldReason;
     /// <summary>
     /// "Could not confirm it arrived" (Voice Delivery phase 2, change 1): the recording was sent, the Director gave no
     /// answer of any kind to the question of what became of it, and more than the age limit has passed - from Send on the
@@ -125,6 +127,51 @@ public static class DeliveryDecisions
     public const string ClaimDirectorAnswer = "send-anyway-director-answer";
     /// <summary>A line of the log that could not be parsed on read, for example one half-written by a crash.</summary>
     public const string UnreadableLine = "unreadable-line";
+
+    /// <summary>
+    /// The Gateway took this delivery over (Voice Delivery phase 5): from here it finishes the delivery itself - when
+    /// the Director's tunnel comes back, on a steady tick, and when the Gateway starts - and the client only reads the
+    /// outcome. Written once, when ownership is first taken. Facts carry the session, the chunk count and the Send
+    /// time for a dictation; for a "Send anyway" the reason <see cref="OwnedSendAnyway"/> and the character count.
+    /// </summary>
+    public const string GatewayOwnsDelivery = "gateway-owns-delivery";
+    /// <summary>The reason on a <see cref="GatewayOwnsDelivery"/> line for a "Send anyway" answered "still delivering".</summary>
+    public const string OwnedSendAnyway = "send-anyway";
+    /// <summary>
+    /// The Gateway's driver is about to attempt an owned delivery. Facts carry what woke it
+    /// (<see cref="DeliveryDecisionFacts.Trigger"/>: <see cref="DriveDirectorConnected"/>, <see cref="DriveTick"/> or
+    /// <see cref="DriveGatewayStarted"/>) and the attempt number. The lines the attempt itself writes follow it.
+    /// </summary>
+    public const string GatewayDrive = "gateway-drive";
+    /// <summary>
+    /// The driver could not read an owned delivery (its record or its "Send anyway" file), so it did not drive it and
+    /// never will guess at it. The error says what could not be read.
+    /// </summary>
+    public const string GatewayDriveRefused = "gateway-drive-refused";
+    /// <summary>
+    /// The driver HANDED a delivery back to the client (Voice Delivery phase 5, review round: the Delivery
+    /// Lead's ruling on the review's finding 1). A Gateway-driven attempt can end in an answer that only the
+    /// CLIENT can act on - out of transcription credits, a permanent transcription failure, or an incomplete
+    /// upload whose staged chunk is gone - and on a driver attempt there is no client listening to the
+    /// answer. So the driver says so here and stops: the owner learns it from the outcome read, which answers
+    /// the same body and status the complete path gives, and his words are never stranded behind a 404 that
+    /// says the server "lost track" of a recording it still holds. The reason names which of the three it
+    /// is; for an incomplete upload the facts also carry the chunk count, which the outcome read needs to
+    /// name the chunks that must be sent again.
+    /// </summary>
+    public const string GatewayHandedBack = "gateway-handed-back";
+    /// <summary>Why a handback happened: the transcription provider answered out of credits.</summary>
+    public const string HandbackOutOfCredits = "out-of-credits";
+    /// <summary>Why a handback happened: the clip can never be transcribed (a permanent failure).</summary>
+    public const string HandbackPermanent = "permanent";
+    /// <summary>Why a handback happened: a staged chunk vanished, so only the client can finish the upload.</summary>
+    public const string HandbackIncomplete = "incomplete";
+    /// <summary>What woke the driver: the session's Director connected again and its sessions arrived.</summary>
+    public const string DriveDirectorConnected = "director-connected";
+    /// <summary>What woke the driver: the steady tick, for a delivery whose next attempt was due.</summary>
+    public const string DriveTick = "tick";
+    /// <summary>What woke the driver: the Gateway started and picked the delivery up from its durable record.</summary>
+    public const string DriveGatewayStarted = "gateway-started";
 }
 
 /// <summary>
@@ -171,6 +218,10 @@ public sealed record DeliveryDecisionFacts
     /// <summary>Which kind of no answer the Director gave to the question (<c>no-answer</c>, <c>director-too-old</c>,
     /// <c>never-left-the-gateway</c>), on a <see cref="DeliveryDecisions.Unconfirmed"/> line.</summary>
     public string? DirectorNoAnswer { get; init; }
+    /// <summary>What woke the Gateway's driver, on a <see cref="DeliveryDecisions.GatewayDrive"/> line.</summary>
+    public string? Trigger { get; init; }
+    /// <summary>Which attempt of the Gateway's driver this is, from 1, on a <see cref="DeliveryDecisions.GatewayDrive"/> line.</summary>
+    public int? Attempt { get; init; }
 
     /// <summary>Error text, cut to <see cref="MaxErrorLength"/> characters.</summary>
     public string? Error
