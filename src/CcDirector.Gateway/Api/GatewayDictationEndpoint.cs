@@ -916,93 +916,93 @@ internal static class GatewayDictationEndpoint
             var transcript = store.SentWords(uploadId);
             if (transcript.Length == 0)
             {
-            // The configured mode's key must be present before we pay the reassembly + transcribe cost.
-            var routing = transcription.Resolve();
-            if (routing.Key is null)
-            {
-                store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
+                // The configured mode's key must be present before we pay the reassembly + transcribe cost.
+                var routing = transcription.Resolve();
+                if (routing.Key is null)
                 {
-                    StatusCode = StatusCodes.Status503ServiceUnavailable,
-                    Error = $"no key configured for transcription mode {routing.Mode}",
-                });
-                // A recording that could never be transcribed is not held forever (contract section 8): past the limit
-                // from Send it has no words and nothing was ever sent, so it is shown back too old - the recording is
-                // still on the device - and within it the Gateway owns the delivery and tries again itself.
-                if (IsTooOld(clock, sentAtUtc, out var noKeyAge))
-                    return ResolveTooOld(store, uploadId, sid, "", noKeyAge);
-                return HoldToRetry(store, uploadId, sid);
-            }
+                    store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
+                    {
+                        StatusCode = StatusCodes.Status503ServiceUnavailable,
+                        Error = $"no key configured for transcription mode {routing.Mode}",
+                    });
+                    // A recording that could never be transcribed is not held forever (contract section 8): past the limit
+                    // from Send it has no words and nothing was ever sent, so it is shown back too old - the recording is
+                    // still on the device - and within it the Gateway owns the delivery and tries again itself.
+                    if (IsTooOld(clock, sentAtUtc, out var noKeyAge))
+                        return ResolveTooOld(store, uploadId, sid, "", noKeyAge);
+                    return HoldToRetry(store, uploadId, sid);
+                }
 
-            var assembled = await store.AssembleAsync(uploadId, req.TotalChunks);
-            if (assembled.Status == "unknown_upload")
-                return DictationOutcome.Error(StatusCodes.Status404NotFound, "unknown upload id");
-            if (assembled.Status == "incomplete")
-            {
-                store.RecordDecision(uploadId, DeliveryDecisions.Incomplete, new DeliveryDecisionFacts
+                var assembled = await store.AssembleAsync(uploadId, req.TotalChunks);
+                if (assembled.Status == "unknown_upload")
+                    return DictationOutcome.Error(StatusCodes.Status404NotFound, "unknown upload id");
+                if (assembled.Status == "incomplete")
                 {
-                    TotalChunks = req.TotalChunks,
-                    MissingChunks = assembled.Missing.Count,
-                });
-                return DictationOutcome.Incomplete(assembled.Missing);
-            }
-            var audio = assembled.Audio;
-            if (AssembledAudioForTests is { } substitute) audio = substitute(uploadId, audio);
-            if (audio is null || audio.Length == 0)
-            {
-                // Retired in place rather than deleted, so this outcome stays readable in the decision log
-                // (Voice Delivery mission). To every reader it is the deleted directory it replaces.
-                store.ResolveEmptyRecording(uploadId);
-                return DictationOutcome.Error(StatusCodes.Status502BadGateway, "assembled recording was empty");
-            }
-
-            var result = await transcription.TranscribeAsync(
-                audio, "audio." + (req.Ext ?? "wav"), req.Mime ?? "audio/wav", applyCorrection: true, CancellationToken.None,
-                tenant: tenant, source: "dictation");
-            // A transcription that failed but might succeed on another try is the Gateway's to try again (Voice Delivery
-            // phase 5): the record stays PENDING and owned, the client is told 202 "retrying", and the driver re-runs it.
-            // It is no longer parked FAILED - that parking existed so the colour told the truth while the client re-drove
-            // it every few seconds, and the client no longer drives an owned delivery at all. Out of credits and a
-            // permanent failure are answered exactly as before (contract section 1: out of scope, not held).
-            //
-            // A recording whose transcription KEEPS failing is not held to the 24-hour expiry (contract section 8):
-            // past the limit from Send it is shown back too old with no words and "Send anyway" - the client already
-            // has the no-words wording, and the recording is still on the device. Within the limit it stays held.
-            if (result.Outcome is not (TranscriptionOutcome.Ok or TranscriptionOutcome.OutOfCredits or TranscriptionOutcome.PermanentError))
-            {
-                store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
+                    store.RecordDecision(uploadId, DeliveryDecisions.Incomplete, new DeliveryDecisionFacts
+                    {
+                        TotalChunks = req.TotalChunks,
+                        MissingChunks = assembled.Missing.Count,
+                    });
+                    return DictationOutcome.Incomplete(assembled.Missing);
+                }
+                var audio = assembled.Audio;
+                if (AssembledAudioForTests is { } substitute) audio = substitute(uploadId, audio);
+                if (audio is null || audio.Length == 0)
                 {
-                    StatusCode = StatusCodes.Status502BadGateway,
-                    Reason = result.Code ?? "transcription_error",
-                    Error = result.Error ?? "transcription failed",
-                });
-                FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: retryable transcription failure " +
-                    $"code={result.Code} error={result.Error}; the Gateway will try again itself");
-                if (IsTooOld(clock, sentAtUtc, out var failedAge))
-                    return ResolveTooOld(store, uploadId, sid, "", failedAge);
-                return HoldToRetry(store, uploadId, sid);
-            }
-            if (MapNonOkTranscription(result, uploadId, store) is { } nonOk)
-                return nonOk;
+                    // Retired in place rather than deleted, so this outcome stays readable in the decision log
+                    // (Voice Delivery mission). To every reader it is the deleted directory it replaces.
+                    store.ResolveEmptyRecording(uploadId);
+                    return DictationOutcome.Error(StatusCodes.Status502BadGateway, "assembled recording was empty");
+                }
 
-            transcript = (result.Text ?? "").Trim();
-            store.RecordDecision(uploadId, DeliveryDecisions.Transcribed, new DeliveryDecisionFacts
-            {
-                Characters = transcript.Length,
-                AudioBytes = audio.Length,
-            });
-            // THE WORDS ARE ON THE RECORD THE MOMENT THEY EXIST (contract section 8) - before the second locate and
-            // before the send - so any later ruling (held, too old, could not confirm, session ended) hands them back,
-            // and no later attempt ever pays for them again. Written over the PENDING record, as the tombstones keep
-            // them; the acknowledgement deletes them exactly as it deletes a tombstone's.
-            store.KeepSentWords(uploadId, transcript);
-            // Capture-health (issue #863): persist the fire-and-forget Send path's audio-loss deficit into
-            // the SAME dictation session log the Voice-mode and desktop paths write, via the one shared
-            // helper. The assembled audio byte count is what the server actually transcribed. When the client
-            // did not send its measurements this is a no-op. Fire-and-forget - never affects the outcome.
-            MobileCaptureHealthLog.Persist(
-                uploadId, MobileCaptureHealthLog.SurfaceOr(req.ClientSurface, "mobile-send"),
-                req.ClientRecordedMs, req.ClientDecodedSeconds, req.ClientSourceBytes,
-                audio.Length, transcript);
+                var result = await transcription.TranscribeAsync(
+                    audio, "audio." + (req.Ext ?? "wav"), req.Mime ?? "audio/wav", applyCorrection: true, CancellationToken.None,
+                    tenant: tenant, source: "dictation");
+                // A transcription that failed but might succeed on another try is the Gateway's to try again (Voice Delivery
+                // phase 5): the record stays PENDING and owned, the client is told 202 "retrying", and the driver re-runs it.
+                // It is no longer parked FAILED - that parking existed so the colour told the truth while the client re-drove
+                // it every few seconds, and the client no longer drives an owned delivery at all. Out of credits and a
+                // permanent failure are answered exactly as before (contract section 1: out of scope, not held).
+                //
+                // A recording whose transcription KEEPS failing is not held to the 24-hour expiry (contract section 8):
+                // past the limit from Send it is shown back too old with no words and "Send anyway" - the client already
+                // has the no-words wording, and the recording is still on the device. Within the limit it stays held.
+                if (result.Outcome is not (TranscriptionOutcome.Ok or TranscriptionOutcome.OutOfCredits or TranscriptionOutcome.PermanentError))
+                {
+                    store.RecordDecision(uploadId, DeliveryDecisions.CompleteError, new DeliveryDecisionFacts
+                    {
+                        StatusCode = StatusCodes.Status502BadGateway,
+                        Reason = result.Code ?? "transcription_error",
+                        Error = result.Error ?? "transcription failed",
+                    });
+                    FileLog.Write($"[GatewayDictation] complete uploadId={uploadId}: retryable transcription failure " +
+                        $"code={result.Code} error={result.Error}; the Gateway will try again itself");
+                    if (IsTooOld(clock, sentAtUtc, out var failedAge))
+                        return ResolveTooOld(store, uploadId, sid, "", failedAge);
+                    return HoldToRetry(store, uploadId, sid);
+                }
+                if (MapNonOkTranscription(result, uploadId, store) is { } nonOk)
+                    return nonOk;
+
+                transcript = (result.Text ?? "").Trim();
+                store.RecordDecision(uploadId, DeliveryDecisions.Transcribed, new DeliveryDecisionFacts
+                {
+                    Characters = transcript.Length,
+                    AudioBytes = audio.Length,
+                });
+                // THE WORDS ARE ON THE RECORD THE MOMENT THEY EXIST (contract section 8) - before the second locate and
+                // before the send - so any later ruling (held, too old, could not confirm, session ended) hands them back,
+                // and no later attempt ever pays for them again. Written over the PENDING record, as the tombstones keep
+                // them; the acknowledgement deletes them exactly as it deletes a tombstone's.
+                store.KeepSentWords(uploadId, transcript);
+                // Capture-health (issue #863): persist the fire-and-forget Send path's audio-loss deficit into
+                // the SAME dictation session log the Voice-mode and desktop paths write, via the one shared
+                // helper. The assembled audio byte count is what the server actually transcribed. When the client
+                // did not send its measurements this is a no-op. Fire-and-forget - never affects the outcome.
+                MobileCaptureHealthLog.Persist(
+                    uploadId, MobileCaptureHealthLog.SurfaceOr(req.ClientSurface, "mobile-send"),
+                    req.ClientRecordedMs, req.ClientDecodedSeconds, req.ClientSourceBytes,
+                    audio.Length, transcript);
             }
             // Compose the final message: any typed text the caret split the dictation around (before /
             // after), any earlier paused dictation segments already turned to text (prefix), and this
