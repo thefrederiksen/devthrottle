@@ -148,7 +148,11 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Say on screen that the wizard hit an error, where its log is, and offer Retry.</summary>
+    /// <summary>
+    /// Say on screen, on whichever step is showing, that the wizard hit an error and where its log is. Only
+    /// the install step offers Retry: on the welcome step that button means "go on", and on the complete
+    /// step it means Close, so relabelling it there would make it lie.
+    /// </summary>
     public void ShowUnexpectedError(Exception ex, bool? reportSent = null)
     {
         var reported = reportSent switch
@@ -157,9 +161,15 @@ public partial class MainWindow : Window
             false => " A report could not be sent.",
             null => "",
         };
-        _installStep?.SetStatus($"ERROR: {ex.Message}.{reported} The log is at {SetupLog.Path}");
-        NextButton.Content = "Retry";
-        NextButton.IsEnabled = true;
+        var text = $"ERROR: {ex.Message}.{reported} The log is at {SetupLog.Path}";
+        ErrorBanner.Text = text;
+        ErrorBanner.IsVisible = true;
+        if (_currentStep == StepInstall)
+        {
+            _installStep?.SetStatus(text);
+            NextButton.Content = "Retry";
+            NextButton.IsEnabled = true;
+        }
     }
 
     private void UpdateSidebar()
@@ -412,6 +422,7 @@ public partial class MainWindow : Window
 
         if (_currentStep == StepInstall && NextButton.Content?.ToString() == "Retry")
         {
+            ErrorBanner.IsVisible = false;
             _installStep = null;
             ShowStep(StepInstall);
             return;

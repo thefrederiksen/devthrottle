@@ -8,6 +8,8 @@ namespace CcDirectorSetup;
 
 public partial class App : Application
 {
+    private bool _handlingUiException;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -22,13 +24,27 @@ public partial class App : Application
 
         // An exception on the window's thread: log it, report it, and say so on screen instead of letting
         // the wizard vanish. The install step is left where it stopped, with Retry offered (#3311).
-        Avalonia.Threading.Dispatcher.UIThread.UnhandledException += (_, e) =>
+        Avalonia.Threading.Dispatcher.UIThread.UnhandledException += async (_, e) =>
         {
-            SetupLog.Write($"[App] UI-thread exception: {e.Exception}");
-            _ = WizardErrorReport.SendAsync("wizard", "ui-thread", $"The setup wizard hit an error: {e.Exception.GetType().Name}: {e.Exception.Message}", e.Exception);
-            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: MainWindow window })
-                window.ShowUnexpectedError(e.Exception);
             e.Handled = true;
+            // Showing the error must not itself re-enter this handler in a loop.
+            if (_handlingUiException) { SetupLog.Write($"[App] UI-thread exception while showing one: {e.Exception}"); return; }
+            _handlingUiException = true;
+            try
+            {
+                SetupLog.Write($"[App] UI-thread exception: {e.Exception}");
+                var sent = await WizardErrorReport.SendAsync("wizard", "ui-thread", $"The setup wizard hit an error: {e.Exception.GetType().Name}: {e.Exception.Message}", e.Exception);
+                if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: MainWindow window })
+                    window.ShowUnexpectedError(e.Exception, sent);
+            }
+            catch (Exception showEx)
+            {
+                SetupLog.Write($"[App] could not show the UI-thread exception: {showEx}");
+            }
+            finally
+            {
+                _handlingUiException = false;
+            }
         };
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)

@@ -28,7 +28,9 @@ public static class WizardErrorReport
         try
         {
             using var cts = new CancellationTokenSource(SendTimeout);
-            var sent = await Reporter.Value.ReportAsync(component, step, message, Diagnostics(ex), cts.Token).ConfigureAwait(false);
+            // Reading the log tail is file input: never on the caller's thread, which is often the window's.
+            var diagnostics = await Task.Run(() => Diagnostics(ex)).ConfigureAwait(false);
+            var sent = await Reporter.Value.ReportAsync(component, step, message, diagnostics, cts.Token).ConfigureAwait(false);
             SetupLog.Write($"[WizardErrorReport] {component}/{step}: report {(sent ? "sent" : "NOT delivered")}");
             return sent;
         }

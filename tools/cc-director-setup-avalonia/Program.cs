@@ -38,8 +38,9 @@ public static class Program
         }
         catch (Exception ex)
         {
+            // Logged here and REPORTED once, by the UnhandledException handler above, when the rethrow leaves
+            // Main. Reporting here too sent every start failure twice and blocked twice as long.
             SetupLog.Write($"[Program] FATAL: the wizard could not run: {ex}");
-            WizardErrorReport.SendAndWait("wizard", "start", $"The setup wizard could not start: {ex.GetType().Name}: {ex.Message}", ex);
             throw;
         }
     }
