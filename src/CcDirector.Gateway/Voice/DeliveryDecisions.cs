@@ -125,6 +125,33 @@ public static class DeliveryDecisions
     public const string ClaimDirectorAnswer = "send-anyway-director-answer";
     /// <summary>A line of the log that could not be parsed on read, for example one half-written by a crash.</summary>
     public const string UnreadableLine = "unreadable-line";
+
+    /// <summary>
+    /// The Gateway took this delivery over (Voice Delivery phase 5): from here it finishes the delivery itself - when
+    /// the Director's tunnel comes back, on a steady tick, and when the Gateway starts - and the client only reads the
+    /// outcome. Written once, when ownership is first taken. Facts carry the session, the chunk count and the Send
+    /// time for a dictation; for a "Send anyway" the reason <see cref="OwnedSendAnyway"/> and the character count.
+    /// </summary>
+    public const string GatewayOwnsDelivery = "gateway-owns-delivery";
+    /// <summary>The reason on a <see cref="GatewayOwnsDelivery"/> line for a "Send anyway" answered "still delivering".</summary>
+    public const string OwnedSendAnyway = "send-anyway";
+    /// <summary>
+    /// The Gateway's driver is about to attempt an owned delivery. Facts carry what woke it
+    /// (<see cref="DeliveryDecisionFacts.Trigger"/>: <see cref="DriveDirectorConnected"/>, <see cref="DriveTick"/> or
+    /// <see cref="DriveGatewayStarted"/>) and the attempt number. The lines the attempt itself writes follow it.
+    /// </summary>
+    public const string GatewayDrive = "gateway-drive";
+    /// <summary>
+    /// The driver could not read an owned delivery (its record or its "Send anyway" file), so it did not drive it and
+    /// never will guess at it. The error says what could not be read.
+    /// </summary>
+    public const string GatewayDriveRefused = "gateway-drive-refused";
+    /// <summary>What woke the driver: the session's Director connected again and its sessions arrived.</summary>
+    public const string DriveDirectorConnected = "director-connected";
+    /// <summary>What woke the driver: the steady tick, for a delivery whose next attempt was due.</summary>
+    public const string DriveTick = "tick";
+    /// <summary>What woke the driver: the Gateway started and picked the delivery up from its durable record.</summary>
+    public const string DriveGatewayStarted = "gateway-started";
 }
 
 /// <summary>
@@ -171,6 +198,10 @@ public sealed record DeliveryDecisionFacts
     /// <summary>Which kind of no answer the Director gave to the question (<c>no-answer</c>, <c>director-too-old</c>,
     /// <c>never-left-the-gateway</c>), on a <see cref="DeliveryDecisions.Unconfirmed"/> line.</summary>
     public string? DirectorNoAnswer { get; init; }
+    /// <summary>What woke the Gateway's driver, on a <see cref="DeliveryDecisions.GatewayDrive"/> line.</summary>
+    public string? Trigger { get; init; }
+    /// <summary>Which attempt of the Gateway's driver this is, from 1, on a <see cref="DeliveryDecisions.GatewayDrive"/> line.</summary>
+    public int? Attempt { get; init; }
 
     /// <summary>Error text, cut to <see cref="MaxErrorLength"/> characters.</summary>
     public string? Error

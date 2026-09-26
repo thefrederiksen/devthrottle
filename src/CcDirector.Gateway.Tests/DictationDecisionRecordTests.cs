@@ -69,6 +69,9 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
             streamMode: true,
             dictationTranscription: StubTranscription());
         _gateway.DeliveryClock = _clock;
+        // The Gateway's own driver of held deliveries (phase 5) ticks only when a test says so: an hour-long tick keeps
+        // its attempts out of these sequences unless the test drives one on purpose (HeldDeliveries.TickAsync).
+        _gateway.HeldDeliveryTickInterval = TimeSpan.FromHours(1);
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
@@ -104,7 +107,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
 
         Assert.Equal(new[]
         {
-            DeliveryDecisions.Received, DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector,
+            DeliveryDecisions.Received, DeliveryDecisions.GatewayOwnsDelivery, DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector,
             DeliveryDecisions.DirectorAnswer, DeliveryDecisions.Delivered,
         }, Decisions(uploadId));
 
@@ -116,12 +119,14 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AnUnansweredPrompt_ThenAResumedRetry_EveryDecisionIsReadableThroughTheRoute()
+    public async Task AnUnansweredPrompt_ThenTheGatewaysOwnAttempt_EveryDecisionIsReadableThroughTheRoute()
     {
-        // Proves, through the real routes, the phase 2 sequence: the prompt verb goes out and no answer comes back, the
-        // Gateway asks the Director instead of calling it a failure, the Director says not delivered (502, retryable);
-        // the client's resumed retry asks FIRST, hears not delivered again, transcribes, sends and delivers. Every line
-        // is read back through GET /dictation/{uploadId}/decisions, in order, and none holds the words.
+        // Proves, through the real routes, the phase 2 sequence as phase 5 drives it: the prompt verb goes out and no
+        // answer comes back, the Gateway asks the Director instead of calling it a failure, the Director says not
+        // delivered - held as "retrying" (202), never a 502, because the Gateway owns it now. With NO further client
+        // call, the Gateway's own attempt (its driver's tick) asks FIRST, hears not delivered again, transcribes, sends
+        // and delivers. Every line - the ownership, the drive with what woke it and its attempt number, the question and
+        // why - is read back through GET /dictation/{uploadId}/decisions, in order, and none holds the words.
         var uploadId = await RegisterAndUploadAsync();
         var prompts = 0;
         _director.OnCommand(cmd => cmd.Verb switch
@@ -137,29 +142,40 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
             _ => FakeTunnelDirector.Ok(new PromptResponse()),
         });
 
-        Assert.Equal(HttpStatusCode.BadGateway, (await CompleteAsync(uploadId, resumed: false)).status);
-        Assert.Equal(HttpStatusCode.OK, (await CompleteAsync(uploadId, resumed: true)).status);
+        var first = await CompleteAsync(uploadId, resumed: false);
+        Assert.Equal(HttpStatusCode.Accepted, first.status);
+        Assert.Equal("retrying", first.body.GetProperty("directorState").GetString());
 
+        _clock.Ahead = TimeSpan.FromSeconds(5);   // the driver's first wait has passed
+        await _gateway.HeldDeliveries!.TickAsync();
+
+        var outcome = await _http.GetAsync($"/dictation/{uploadId}/outcome");
+        Assert.Equal(HttpStatusCode.OK, outcome.StatusCode);
+        Assert.True((await outcome.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("submitted").GetBoolean());
         var read = await _http.GetFromJsonAsync<JsonElement>($"/dictation/{uploadId}/decisions");
         var lines = read.GetProperty("decisions").EnumerateArray().ToList();
         Assert.Equal(new[]
         {
-            DeliveryDecisions.Received, DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector,
-            DeliveryDecisions.DirectorAnswer, DeliveryDecisions.AskedDirector, DeliveryDecisions.DeliveryStateAnswer,
-            DeliveryDecisions.Retried, DeliveryDecisions.AskedDirector, DeliveryDecisions.DeliveryStateAnswer,
+            DeliveryDecisions.Received, DeliveryDecisions.GatewayOwnsDelivery, DeliveryDecisions.Transcribed,
+            DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer, DeliveryDecisions.AskedDirector,
+            DeliveryDecisions.DeliveryStateAnswer, DeliveryDecisions.StillDelivering,
+            DeliveryDecisions.GatewayDrive, DeliveryDecisions.AskedDirector, DeliveryDecisions.DeliveryStateAnswer,
             DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer,
             DeliveryDecisions.Delivered,
         }, lines.Select(l => l.GetProperty("decision").GetString()));
-        Assert.Equal(DeliveryDecisions.AskReasonPromptUnanswered, lines[4].GetProperty("facts").GetProperty("reason").GetString());
-        Assert.Equal("not-delivered", lines[5].GetProperty("facts").GetProperty("state").GetString());
-        Assert.Equal(DeliveryDecisions.AskReasonRetryAsksFirst, lines[7].GetProperty("facts").GetProperty("reason").GetString());
-        Assert.True(lines[6].GetProperty("facts").GetProperty("resumed").GetBoolean());
-        Assert.True(lines[6].GetProperty("facts").TryGetProperty("sentAtUtc", out _));
+        Assert.Equal(DeliveryDecisions.AskReasonPromptUnanswered, lines[5].GetProperty("facts").GetProperty("reason").GetString());
+        Assert.Equal("not-delivered", lines[6].GetProperty("facts").GetProperty("state").GetString());
+        Assert.Equal("retrying", lines[7].GetProperty("facts").GetProperty("state").GetString());
+        Assert.Equal(DeliveryDecisions.DriveTick, lines[8].GetProperty("facts").GetProperty("trigger").GetString());
+        Assert.Equal(1, lines[8].GetProperty("facts").GetProperty("attempt").GetInt32());
+        Assert.Equal(DeliveryDecisions.AskReasonRetryAsksFirst, lines[9].GetProperty("facts").GetProperty("reason").GetString());
+        Assert.True(lines[1].GetProperty("facts").TryGetProperty("sentAtUtc", out _));
         Assert.Equal(2, prompts);
         var raw = read.GetRawText();
         Assert.DoesNotContain("zebra", raw);
         Assert.DoesNotContain("marmalade", raw);
         Assert.DoesNotContain("zebra", File.ReadAllText(DecisionsFile(uploadId)));
+        Assert.DoesNotContain("marmalade", File.ReadAllText(DecisionsFile(uploadId)));
     }
 
     [Fact]
@@ -276,7 +292,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         Assert.Equal(Transcript, record.Transcript);
         Assert.Equal(new[]
         {
-            DeliveryDecisions.Received, DeliveryDecisions.Transcribed, DeliveryDecisions.TooOld, DeliveryDecisions.Retried,
+            DeliveryDecisions.Received, DeliveryDecisions.GatewayOwnsDelivery, DeliveryDecisions.Transcribed, DeliveryDecisions.TooOld, DeliveryDecisions.Retried,
         }, Decisions(uploadId));
         var tooOld = Store().ReadDecisions(uploadId).Lines.Single(l => l.Decision == DeliveryDecisions.TooOld).Facts!;
         Assert.InRange(tooOld.AgeSeconds!.Value, 600, 660);
@@ -306,10 +322,11 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
     public async Task ARecordingNeverAnsweredFor_IsUnconfirmedPastFiveMinutes_OnEveryAnswer_WithItsWords_AndNoSendAnyway()
     {
         // Proves change 1 through the real routes: the prompt runs out of time and the Director never answers the
-        // question, so the recording is held (202). Five minutes and one second after Send its retry is ruled "could not
-        // confirm it arrived": 200, shown back with the words the send kept and offerSendAnyway false - and the cached
-        // re-complete and the re-register say exactly the same. Nothing is typed again, and the decision record read
-        // through the route ends in the unconfirmed line, with none of the words.
+        // question, so the recording is held (202). Five minutes and one second after Send the Gateway's own attempt (phase
+        // 5: no client call) rules it "could not confirm it arrived": shown back with the words the send kept and
+        // offerSendAnyway false - and the outcome read, the re-complete and the re-register say exactly the same. Nothing
+        // is typed again, and the decision record read through the route ends in the unconfirmed line, with none of the
+        // words.
         var uploadId = await RegisterAndUploadAsync();
         var prompts = 0;
         _director.OnCommand(cmd => cmd.Verb switch
@@ -325,12 +342,15 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         Assert.Equal("no-answer", held.body.GetProperty("directorState").GetString());
 
         _clock.Ahead = TimeSpan.FromSeconds(301);
-        var ruled = await CompleteAsync(uploadId, resumed: true, sentAtUtc: sentAt);
+        await _gateway.HeldDeliveries!.TickAsync();
+        var ruled = await _http.GetAsync($"/dictation/{uploadId}/outcome");
+        var ruledBody = await ruled.Content.ReadFromJsonAsync<JsonElement>();
         var cached = await CompleteAsync(uploadId, resumed: true, sentAtUtc: sentAt);
         var reRegister = await RegisterAsync(uploadId);
 
-        Assert.Equal(HttpStatusCode.OK, ruled.status);
-        foreach (var body in new[] { ruled.body, cached.body, reRegister })
+        Assert.Equal(HttpStatusCode.OK, ruled.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, cached.status);
+        foreach (var body in new[] { ruledBody, cached.body, reRegister })
         {
             Assert.False(body.GetProperty("submitted").GetBoolean());
             Assert.True(body.GetProperty("movedOn").GetBoolean());
@@ -374,7 +394,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         var result = await CompleteAsync(uploadId, resumed: false);
         Assert.True(result.body.GetProperty("movedOn").GetBoolean());
 
-        Assert.Equal(new[] { DeliveryDecisions.Received, DeliveryDecisions.SessionExited }, Decisions(uploadId));
+        Assert.Equal(new[] { DeliveryDecisions.Received, DeliveryDecisions.GatewayOwnsDelivery, DeliveryDecisions.SessionExited }, Decisions(uploadId));
     }
 
     [Fact]
@@ -449,7 +469,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         // The kept shape: the record (no words, retired from PENDING for this reason) and the decisions, no audio.
         Assert.Equal(new[] { "decisions.jsonl", "record.json" },
             Directory.EnumerateFileSystemEntries(UploadDir(uploadId)).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray());
-        Assert.Equal(new[] { DeliveryDecisions.Received, DeliveryDecisions.EmptyRecording }, Decisions(uploadId));
+        Assert.Equal(new[] { DeliveryDecisions.Received, DeliveryDecisions.GatewayOwnsDelivery, DeliveryDecisions.EmptyRecording }, Decisions(uploadId));
         var log = Store().ReadDecisions(uploadId);
         Assert.Equal(DictationDeliveryState.Acknowledged, log.Record.Record!.State);
         Assert.Equal(DictationDeliveryState.Pending, log.Record.Record.AcknowledgedFrom);

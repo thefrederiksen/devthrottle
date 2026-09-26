@@ -53,7 +53,7 @@ namespace CcDirector.Gateway.Voice;
 /// error at the call site rather than a live object with the widest possible reach. See the constructor
 /// below for why the previous defaults were the wrong shape.
 /// </summary>
-public sealed class VoiceUploadStore
+public sealed partial class VoiceUploadStore
 {
     /// <summary>The container directory hosting the non-local partitions, directly under the base root.</summary>
     public const string TenantPartitionDirectoryName = "tenants";
@@ -1114,8 +1114,11 @@ public sealed class VoiceUploadStore
             BetweenRecordReadAndWriteForTests?.Invoke(uid);
             // A re-register of a recording already sent to the Director keeps the words the send wrote onto the PENDING
             // record (Voice Delivery phase 2, change 1): a later answer that does not transcribe again hands them back.
+            // And a re-register of a recording the Gateway already owns keeps what the Gateway needs to finish it (Voice
+            // Delivery phase 5): an old client that re-registers must not erase the delivery the Gateway is driving.
             WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
-                DictationDeliveryState.Pending, false, false, before.Record?.Transcript ?? "", null, sessionId ?? ""));
+                DictationDeliveryState.Pending, false, false, before.Record?.Transcript ?? "", null, sessionId ?? "",
+                Owned: before.Record is { State: DictationDeliveryState.Pending } pending ? pending.Owned : null));
             var was = before.Record is { } r ? r.State.ToString() : before.Kind.ToString();
             FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} sessionId={sessionId} opened (was {was})");
             AppendDecisionLine(DirFor(uid), uid, DeliveryDecisions.Received, new DeliveryDecisionFacts
@@ -2068,6 +2071,12 @@ public enum DictationDeliveryState { Pending, Delivered, Abandoned, Failed, Ackn
 /// window is measured from it (<see cref="CcDirector.Gateway.Contracts.DeliveryRetention.ClaimWindow"/>). Null for
 /// PENDING and FAILED, and for a resolved record written before the field existed.
 /// </param>
+/// <param name="Owned">
+/// On a PENDING record only: everything the Gateway needs to finish this delivery with no client at all, written the
+/// moment the Gateway takes the delivery over (Voice Delivery phase 5, <see cref="DictationOwnedDelivery"/>). Null on a
+/// record the Gateway does not own, and dropped by every transition out of PENDING - a tombstone, FAILED, an
+/// acknowledgement - because those write a fresh record, so the typed words it holds leave with the delivery.
+/// </param>
 public sealed record DictationDeliveryRecord(
     DictationDeliveryState State,
     bool Submitted,
@@ -2078,7 +2087,8 @@ public sealed record DictationDeliveryRecord(
     string Tenant = "",
     DictationDeliveryState? AcknowledgedFrom = null,
     int? TranscriptCharacters = null,
-    DateTime? ResolvedAtUtc = null);
+    DateTime? ResolvedAtUtc = null,
+    DictationOwnedDelivery? Owned = null);
 
 /// <summary>
 /// Every answer a read of an upload id's record.json can give (issue #2745). The reader used to have two -

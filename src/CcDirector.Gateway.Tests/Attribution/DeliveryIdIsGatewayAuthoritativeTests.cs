@@ -71,6 +71,8 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             streamMode: true);
         _gateway.DeliveryClock = _clock;
+        // The Gateway's own driver of held deliveries (phase 5) ticks only when a test says so (HeldDeliveries.TickAsync).
+        _gateway.HeldDeliveryTickInterval = TimeSpan.FromHours(1);
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -385,7 +387,9 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Accepted, status);
         Assert.True(body.GetProperty("delivering").GetBoolean());
         Assert.Equal("delivering", body.GetProperty("directorState").GetString());
-        Assert.Equal(DeliveryDecisions.StillDelivering, (await DecisionsAfterTheClaim(uploadId)).Last());
+        // Held, and from that answer on the Gateway owns it (phase 5, contract section 4).
+        Assert.Equal(new[] { DeliveryDecisions.StillDelivering, DeliveryDecisions.GatewayOwnsDelivery },
+            (await DecisionsAfterTheClaim(uploadId)).TakeLast(2));
     }
 
     [Fact]
@@ -456,11 +460,11 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     [Fact]
     public async Task A_send_anyway_re_press_to_a_Director_too_old_for_the_question_sends_no_second_copy()
     {
-        // Proves the double this change closes. The first "Send anyway" reaches an old Director and runs out of time (the
-        // words may well be in); its question is refused as unknown, so the answer is 202 "no-answer". The client
-        // re-presses on its cadence. An old Director keeps no delivery record and refuses nothing, so a plain second send
-        // IS a second copy - which is what the re-press did before this change. Now it asks first, hears nothing, and
-        // holds: exactly one prompt reaches the Director.
+        // Proves the double change 1 closed, as phase 5 drives it. The first "Send anyway" reaches an old Director and runs
+        // out of time (the words may well be in); its question is refused as unknown, so the answer is 202 "no-answer" and
+        // the Gateway owns it. A press from an old client now answers that state and sends and asks NOTHING. The Gateway's
+        // own re-press asks first - an old Director keeps no delivery record and refuses nothing, so a plain second send
+        // IS a second copy - hears nothing, and holds: exactly one prompt reaches the Director.
         var uploadId = Upload(_uploads, _sid);
         var prompts = 0;
         _promptAnswer = cmd =>
@@ -472,16 +476,20 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
 
         var first = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
         var rePress = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+        Assert.Equal(new[] { DeliveryDecisions.AskReasonPromptUnanswered }, await AskReasons(uploadId));
+
+        _clock.Ahead = TimeSpan.FromSeconds(5);
+        await _gateway.HeldDeliveries!.TickAsync();
 
         Assert.Equal(HttpStatusCode.Accepted, first.Status);
         Assert.Equal(HttpStatusCode.Accepted, rePress.Status);
         Assert.Equal("no-answer", rePress.Body.GetProperty("directorState").GetString());
         Assert.Equal(1, prompts);
-        var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
-        var asked = read.GetProperty("decisions").EnumerateArray()
-            .Where(l => l.GetProperty("decision").GetString() == DeliveryDecisions.AskedDirector)
-            .Select(l => l.GetProperty("facts").GetProperty("reason").GetString()).ToList();
-        Assert.Equal(new[] { DeliveryDecisions.AskReasonPromptUnanswered, DeliveryDecisions.AskReasonSendAnywayAsksFirst }, asked);
+        Assert.Equal(new[] { DeliveryDecisions.AskReasonPromptUnanswered, DeliveryDecisions.AskReasonSendAnywayAsksFirst },
+            await AskReasons(uploadId));
+        var (outcomeStatus, outcome) = await Outcome(uploadId);
+        Assert.Equal(HttpStatusCode.Accepted, outcomeStatus);
+        Assert.Equal("no-answer", outcome.GetProperty("directorState").GetString());
     }
 
     [Theory]
@@ -489,10 +497,11 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     [InlineData(301, true)]
     public async Task A_send_anyway_never_answered_for_is_unconfirmed_only_past_five_minutes_from_the_first_claim(int secondsSinceFirstClaim, bool unconfirmed)
     {
-        // Proves the claimed route is never re-pressed forever: with no answer of any kind, a re-press 4:59 after the
-        // FIRST verified claim is still the 202 "no-answer"; at 5:01 it is ruled "could not confirm it arrived" - 200
-        // { unconfirmed, offerSendAnyway: false } - with the age and the kind of no answer on the recording's decision
-        // line, and nothing more is sent.
+        // Proves a held "Send anyway" is never pressed forever, now that the Gateway presses it (phase 5): with no answer
+        // of any kind, the Gateway's own re-press 4:59 after the FIRST verified claim still holds it (202 "no-answer" read
+        // through /outcome); at 5:01 it is ruled "could not confirm it arrived" - 200 with reason "unconfirmed",
+        // offerSendAnyway false and the words - with the age and the kind of no answer on the recording's decision line,
+        // and nothing more is sent.
         var uploadId = Upload(_uploads, _sid);
         var prompts = 0;
         _promptAnswer = cmd =>
@@ -504,10 +513,12 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Accepted, (await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId })).Status);
 
         _clock.Ahead = TimeSpan.FromSeconds(secondsSinceFirstClaim);
-        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+        await _gateway.HeldDeliveries!.TickAsync();
+        var (status, body) = await Outcome(uploadId);
 
         Assert.Equal(1, prompts);
         var decisions = await DecisionsAfterTheClaim(uploadId);
+        Assert.Contains(DeliveryDecisions.GatewayDrive, decisions);
         if (!unconfirmed)
         {
             Assert.Equal(HttpStatusCode.Accepted, status);
@@ -516,8 +527,11 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
             return;
         }
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.True(body.GetProperty("unconfirmed").GetBoolean());
+        Assert.False(body.GetProperty("submitted").GetBoolean());
+        Assert.True(body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal("unconfirmed", body.GetProperty("reason").GetString());
         Assert.False(body.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal("send me once", body.GetProperty("transcript").GetString());
         Assert.Equal(DeliveryDecisions.Unconfirmed, decisions.Last());
         var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
         var line = read.GetProperty("decisions").EnumerateArray().Last().GetProperty("facts");
@@ -528,9 +542,9 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     [Fact]
     public async Task A_send_anyway_re_press_that_hears_delivered_sends_nothing_and_answers_200()
     {
-        // Proves the delivered arm of the re-press's question: the first press ran out of time, the words did land (the
-        // Director's record says delivered), and the re-press asks first, hears delivered, sends nothing and is answered
-        // 200 in the shape of the Director's own refusal of a copy.
+        // Proves the delivered arm of the Gateway's own re-press (phase 5): the first press ran out of time, the words did
+        // land (the Director's record says delivered), and the Gateway's re-press asks first, hears delivered, sends
+        // nothing, and the outcome read answers 200 delivered with the words.
         var uploadId = Upload(_uploads, _sid);
         var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
         var prompts = 0;
@@ -545,12 +559,29 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
         _directorRecord.MarkDelivered(_session.Id, canonical);
         _deliveryStateAnswer = null;
-        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+        _clock.Ahead = TimeSpan.FromSeconds(5);
+        await _gateway.HeldDeliveries!.TickAsync();
+        var (status, body) = await Outcome(uploadId);
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.False(body.GetProperty("accepted").GetBoolean());
-        Assert.Equal("delivered", body.GetProperty("deliveryState").GetString());
+        Assert.True(body.GetProperty("submitted").GetBoolean());
+        Assert.False(body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal("send me once", body.GetProperty("transcript").GetString());
         Assert.Equal(1, prompts);
+    }
+
+    private async Task<List<string?>> AskReasons(string uploadId)
+    {
+        var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
+        return read.GetProperty("decisions").EnumerateArray()
+            .Where(l => l.GetProperty("decision").GetString() == DeliveryDecisions.AskedDirector)
+            .Select(l => l.GetProperty("facts").GetProperty("reason").GetString()).ToList();
+    }
+
+    private async Task<(HttpStatusCode Status, JsonElement Body)> Outcome(string uploadId)
+    {
+        var resp = await _http.GetAsync($"dictation/{uploadId}/outcome");
+        return (resp.StatusCode, JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement.Clone());
     }
 
     /// <summary>The real clock moved ahead by <see cref="Ahead"/>: the routes judge the five-minute limits by it.</summary>
