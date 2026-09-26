@@ -42,9 +42,11 @@ public static class DeliveryDecisions
     /// <summary>
     /// The recording was more than the age limit old from Send when its words were known not to be in the session,
     /// so it was not typed: it is kept and shown back to the owner with "Send anyway". Facts carry the age in
-    /// seconds (<see cref="DeliveryDecisionFacts.AgeSeconds"/>). See <c>GatewayDictationEndpoint.MaxDeliveryAgeMinutes</c>.
+    /// seconds (<see cref="DeliveryDecisionFacts.AgeSeconds"/>). The word is
+    /// <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge.TooOldReason"/> - the ONE spelling, the same named
+    /// constant the Director writes its age refusal with, so the two halves cannot drift (Voice Delivery phase 5, F6).
     /// </summary>
-    public const string TooOld = "too-old";
+    public const string TooOld = CcDirector.Gateway.Contracts.MaxDeliveryAge.TooOldReason;
     /// <summary>
     /// "Could not confirm it arrived" (Voice Delivery phase 2, change 1): the recording was sent, the Director gave no
     /// answer of any kind to the question of what became of it, and more than the age limit has passed - from Send on the

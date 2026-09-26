@@ -284,13 +284,25 @@ public sealed class PromptDeliveryAgeTests : IDisposable
     [Fact]
     public void TheGatewaysLimitAndTheDirectors_AreTheOneConstant()
     {
-        // The 5-minute limit moved into the contracts (phase 5) so the Gateway and the Director cannot drift:
-        // the dictation endpoint's two fields are that number, read from the same class the Director's check
-        // reads - and the strict-boundary test above proves the Director enforces exactly it.
-        Assert.Equal(CcDirector.Gateway.Contracts.MaxDeliveryAge.Minutes, GatewayDictationEndpoint.MaxDeliveryAgeMinutes);
-        Assert.Equal(CcDirector.Gateway.Contracts.MaxDeliveryAge.Span, GatewayDictationEndpoint.MaxDeliveryAge);
+        // The 5-minute limit moved into the contracts (phase 5) so the Gateway and the Director cannot drift: one
+        // name, one number - the dictation endpoint's old aliases are gone, and both halves read this class. The
+        // strict-boundary test above proves the Director enforces exactly it.
         Assert.Equal(MaxDeliveryAge.Minutes, 5);
-        Assert.Equal(MaxDeliveryAge.TooOldReason, "too-old");
+        // The reason WORD is one constant too (Voice Delivery phase 5, F6): the Director writes its age refusal
+        // with MaxDeliveryAge.TooOldReason, and the Gateway's decision name, its shown-back reason and its reading
+        // of the Director's answer are that same spelling - the aliases below are that constant, not a second
+        // string that could drift. And the Director's refusal is the word followed by the measured age, built by
+        // PromptAgeLimit.TooOldReason, so the Gateway must read THAT sentence - a bare-word match would miss every
+        // refusal the real Director ever sends.
+        Assert.Equal(MaxDeliveryAge.TooOldReason, CcDirector.Gateway.Voice.DeliveryDecisions.TooOld);
+        Assert.Equal(MaxDeliveryAge.TooOldReason, GatewayDictationEndpoint.TooOldReason);
+        var refused = PromptAgeLimit.TooOldReason(TimeSpan.FromSeconds(301), "when the Director received it");
+        Assert.StartsWith(MaxDeliveryAge.TooOldReason + ": ", refused);
+        Assert.True(GatewayDictationEndpoint.IsTheDirectorsAgeRefusal(refused));
+        Assert.True(GatewayDictationEndpoint.IsTheDirectorsAgeRefusal(MaxDeliveryAge.TooOldReason));
+        Assert.False(GatewayDictationEndpoint.IsTheDirectorsAgeRefusal("not too old at all"));
+        Assert.False(GatewayDictationEndpoint.IsTheDirectorsAgeRefusal("too-oldish"));
+        Assert.False(GatewayDictationEndpoint.IsTheDirectorsAgeRefusal(null));
     }
 
     // ===== the delivery-state verb ===================================================================

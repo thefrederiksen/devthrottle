@@ -333,9 +333,10 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     [Fact]
     public void TheLimitIsFiveMinutes_StatedInMinutes()
     {
-        // Pins the owner's number where it is stated, so a change to it is a change to this test too.
-        Assert.Equal(5, GatewayDictationEndpoint.MaxDeliveryAgeMinutes);
-        Assert.Equal(TimeSpan.FromMinutes(5), GatewayDictationEndpoint.MaxDeliveryAge);
+        // Pins the owner's number where it is stated - the one constant in the contracts, the same number the
+        // Director's own age check reads - so a change to it is a change to this test too.
+        Assert.Equal(5, CcDirector.Gateway.Contracts.MaxDeliveryAge.Minutes);
+        Assert.Equal(TimeSpan.FromMinutes(5), CcDirector.Gateway.Contracts.MaxDeliveryAge.Span);
     }
 
     [Fact]

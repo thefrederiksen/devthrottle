@@ -421,6 +421,37 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
             Lines(uploadId).Last(l => l.Decision == DeliveryDecisions.DirectorAnswer).Facts!.Reason);
     }
 
+    [Fact]
+    public async Task TheDirectorsOwnAgeRefusalSentence_IsReadAsTooOld_WithTheWordsShownBack()
+    {
+        // The one-constant proof, end to end (contract section 9, F6): the real Director does not answer with the
+        // bare word - its refusal is the word followed by the measured age and where it was measured, built by the
+        // SAME PromptAgeLimit.TooOldReason the Director builds it with. The Gateway must read that sentence as an
+        // age refusal, or a real Director refusing for age would be held as "retrying" while its words are known
+        // not to be in the session.
+        var (driver, _) = NewDriver();
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _clock.Fixed = _sentAt.AddSeconds(299);
+        _prompt = _ =>
+        {
+            _clock.Fixed = _sentAt.AddSeconds(310);   // the verb's wait moved the Gateway's clock past the limit
+            return Task.FromResult<DirectorCommandResult?>(Refused(DeliveryState.NotDelivered,
+                CcDirector.Core.Sessions.PromptAgeLimit.TooOldReason(TimeSpan.FromSeconds(310), "when the Director received it")));
+        };
+
+        var first = await OwnAndAttemptAsync(driver, uploadId, sid);
+
+        Assert.Equal(200, first.Status);
+        Assert.False(first.Body.GetProperty("submitted").GetBoolean());
+        Assert.True(first.Body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal(CcDirector.Gateway.Contracts.MaxDeliveryAge.TooOldReason, first.Body.GetProperty("reason").GetString());
+        Assert.True(first.Body.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal(SpokenWords, first.Body.GetProperty("transcript").GetString());
+        Assert.Equal(1, Prompts());
+        Assert.Equal(1, _transcriber.Calls);
+    }
+
     // ===== harness ==========================================================================================
 
     private (HeldDeliveryDriver Driver, DictationDelivery Delivery) NewDriver()

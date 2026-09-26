@@ -179,14 +179,15 @@ internal static class DeliverySendAndAsk
     /// <summary>
     /// "COULD NOT CONFIRM IT ARRIVED" (Voice Delivery phase 2, change 1; the Delivery Lead's ruling): a recording whose
     /// question got no answer of any kind is not held forever. Once more than the age limit
-    /// (<see cref="GatewayDictationEndpoint.MaxDeliveryAge"/>, the same strict boundary) has passed since
-    /// <paramref name="since"/> - Send on the dictation path, the first verified claim on a "Send anyway" - the Gateway
-    /// rules it unconfirmed. The two routes share this one test so they cannot disagree about where the line is.
+    /// (<see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/>, the same strict boundary the Director's own age
+    /// check reads) has passed since <paramref name="since"/> - Send on the dictation path, the first verified claim on
+    /// a "Send anyway" - the Gateway rules it unconfirmed. The two routes share this one test so they cannot disagree
+    /// about where the line is.
     /// </summary>
     public static bool IsPastConfirmLimit(DateTime nowUtc, DateTime since, out TimeSpan age)
     {
         age = nowUtc - since;
-        return age > GatewayDictationEndpoint.MaxDeliveryAge;
+        return age > CcDirector.Gateway.Contracts.MaxDeliveryAge.Span;
     }
 
     /// <summary>

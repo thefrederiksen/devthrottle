@@ -73,19 +73,16 @@ namespace CcDirector.Gateway.Api;
 internal static class GatewayDictationEndpoint
 {
     /// <summary>
-    /// How old a recording may be, in minutes from the moment the owner pressed Send, and still be typed into the
-    /// session automatically (Voice Delivery mission, phase 2). The NUMBER lives in
-    /// <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/> since phase 5: one limit the Gateway and the
-    /// Director both read, so a command handed to the Director cannot outlive it (QA finding F6). This field is
-    /// that number, kept under its old name for the code that reads it.
+    /// How old a recording may be, from the moment the owner pressed Send, and still be typed into the session
+    /// automatically (Voice Delivery mission, phase 2): <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/> -
+    /// the ONE constant, the same number the Director's own age check reads, so a command handed to the Director
+    /// cannot outlive the limit (QA finding F6). Before phase 5 the number lived here alone, guarded only what the
+    /// Gateway still held, and on 25 September 2026 a frozen Director typed a spoken command seven minutes old the
+    /// moment it woke.
     ///
     /// It replaced a byte rule that dropped any retried recording once the session's terminal had printed 512 bytes,
     /// which a busy agent's spinner passes in seconds.
     /// </summary>
-    internal const int MaxDeliveryAgeMinutes = CcDirector.Gateway.Contracts.MaxDeliveryAge.Minutes;
-
-    /// <summary>The age limit as a span; see <see cref="MaxDeliveryAgeMinutes"/> - the one constant, read from the contracts.</summary>
-    internal static readonly TimeSpan MaxDeliveryAge = CcDirector.Gateway.Contracts.MaxDeliveryAge.Span;
 
     /// <summary>
     /// The <c>directorState</c> of the held answer when the Director gave no answer at all - not connected, too old
@@ -1168,7 +1165,7 @@ internal static class GatewayDictationEndpoint
                     // record's director-answer line above already says the Director refused it for age.
                     if (sent.NeverLeft is false
                         && IsTooOld(clock, sentAtUtc, out var refusedAge)
-                        && string.Equals(sent.DirectorReason, TooOldReason, StringComparison.Ordinal))
+                        && IsTheDirectorsAgeRefusal(sent.DirectorReason))
                         return ResolveTooOld(store, uploadId, sid, transcript, refusedAge);
                     // Definitely not in: the Gateway tries again itself (phase 5), and that attempt asks first and then
                     // types, under the age limit. A prompt that never left this Gateway is waiting for its Director.
@@ -1216,16 +1213,33 @@ internal static class GatewayDictationEndpoint
 
     /// <summary>
     /// The reason stamped on the durable record, and answered to the client, when a recording is shown back instead of
-    /// sent because it is older than <see cref="MaxDeliveryAgeMinutes"/> from Send. Its own reason for the same cause
-    /// <see cref="ExitedSessionReason"/> has one: the two resolve with the same wire flags, and only the reason says
-    /// which it was.
+    /// sent because it is older than <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/> from Send. Its own reason
+    /// for the same cause <see cref="ExitedSessionReason"/> has one: the two resolve with the same wire flags, and only
+    /// the reason says which it was. One spelling, aliased from <see cref="DeliveryDecisions.TooOld"/>, which is the
+    /// contracts' <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge.TooOldReason"/> - the word the Director writes
+    /// its own age refusal with (Voice Delivery phase 5, F6).
     /// </summary>
     internal const string TooOldReason = DeliveryDecisions.TooOld;
 
     /// <summary>
+    /// Whether a Director's not-delivered answer is its AGE REFUSAL (Voice Delivery phase 5, F6). The Director refuses a
+    /// prompt older than the limit with the one reason word <see cref="TooOldReason"/> followed by the measured age and
+    /// where it was measured (<c>PromptAgeLimit.TooOldReason</c> in Core: "too-old: the prompt was 5m 01s old from Send
+    /// ..."), so the word is matched at the START of the reason, never as an exact string - and never a contains-match,
+    /// which would read any other reason that happens to name the word as an age refusal. The word itself is the one
+    /// named constant both halves spell it by.
+    /// </summary>
+    internal static bool IsTheDirectorsAgeRefusal(string? reason)
+        => reason is not null
+           && (string.Equals(reason, TooOldReason, StringComparison.Ordinal)
+               || (reason.Length > TooOldReason.Length
+                   && reason[TooOldReason.Length] == ':'
+                   && reason.StartsWith(TooOldReason, StringComparison.Ordinal)));
+
+    /// <summary>
     /// The reason stamped on the durable record, and answered to the client, when a recording is resolved as "could not
     /// confirm it arrived" (Voice Delivery phase 2, change 1): it was sent, the Director gave no answer of any kind to the
-    /// question of what became of it, and more than <see cref="MaxDeliveryAgeMinutes"/> have passed since Send. Its own
+    /// question of what became of it, and more than <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/> have passed since Send. Its own
     /// reason beside <see cref="TooOldReason"/>: too old means the words are known NOT to be in, unconfirmed means they
     /// may be - so only too old offers "Send anyway" (<see cref="OffersSendAnyway"/>).
     /// </summary>
@@ -1265,11 +1279,11 @@ internal static class GatewayDictationEndpoint
     }
 
     /// <summary>Whether a recording sent at <paramref name="sentAtUtc"/> is past the age limit now - strictly more than
-    /// <see cref="MaxDeliveryAge"/>, so 5:00 is still sent and 5:01 is shown back.</summary>
+    /// <see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/>, so 5:00 is still sent and 5:01 is shown back.</summary>
     private static bool IsTooOld(TimeProvider clock, DateTime sentAtUtc, out TimeSpan age)
     {
         age = clock.GetUtcNow().UtcDateTime - sentAtUtc;
-        return age > MaxDeliveryAge;
+        return age > MaxDeliveryAge.Span;
     }
 
     /// <summary>
@@ -1281,7 +1295,7 @@ internal static class GatewayDictationEndpoint
     {
         store.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript, reason: TooOldReason, age: age);
         FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: {age.TotalSeconds:0}s since Send, " +
-            $"more than {MaxDeliveryAgeMinutes} minutes; shown back as {TooOldReason} with chars={transcript.Length}, nothing typed");
+            $"more than {MaxDeliveryAge.Minutes} minutes; shown back as {TooOldReason} with chars={transcript.Length}, nothing typed");
         return DictationOutcome.Submitted(false, true, transcript, TooOldReason);
     }
 
@@ -1405,7 +1419,7 @@ public sealed class DictationCompleteRequest
     /// <summary>
     /// When the owner pressed Send, in UTC: an ISO 8601 string ending in Z (the client stamps it with
     /// <c>new Date(ms).toISOString()</c>). Required - a complete without it is refused with 400. The age limit
-    /// (<see cref="GatewayDictationEndpoint.MaxDeliveryAgeMinutes"/>) is measured from it.
+    /// (<see cref="CcDirector.Gateway.Contracts.MaxDeliveryAge"/>) is measured from it.
     /// </summary>
     public DateTime? SentAtUtc { get; set; }
     /// <summary>True for every attempt after the client's first. It decides nothing: it is written to the decision
