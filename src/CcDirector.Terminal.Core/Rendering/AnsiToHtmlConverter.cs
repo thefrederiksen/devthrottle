@@ -49,8 +49,10 @@ public static class AnsiToHtmlConverter
         List<TerminalCell[]> scrollback, TerminalCell[,] cells, int cols, int rows)
     {
         var scrollbackLines = new List<string>(scrollback.Count);
+        // Each scrollback row is rendered at its OWN width: rows scrolled off before the terminal was resized are as
+        // wide as the terminal was then, so the current width can overrun them (issue #3406).
         foreach (var row in scrollback)
-            scrollbackLines.Add(RenderCellRow(row, cols));
+            scrollbackLines.Add(RenderCellRow(row, row.Length));
         TrimTrailingEmpties(scrollbackLines);
 
         var gridLines = new List<string>(rows);

@@ -145,7 +145,7 @@ public static class BusyExperiment
     /// it count once; a user line with no enqueue before it counts once; the "remove" line and the "queued_command"
     /// attachment are the same prompt moving along and are not counted.
     /// </summary>
-    private static int CopiesInClaudeRecords(string repo, DateTime sinceUtc, string token)
+    internal static int CopiesInClaudeRecords(string repo, DateTime sinceUtc, string token)
     {
         var projects = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
         var key = Path.GetFileName(repo.TrimEnd('\\', '/'));

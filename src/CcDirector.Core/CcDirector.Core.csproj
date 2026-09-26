@@ -23,6 +23,9 @@
          behind the machine-wide Gateway test lock). Same tests, same access, one assembly over. -->
     <InternalsVisibleTo Include="CcDirector.Gateway.UnitTests" />
     <InternalsVisibleTo Include="TerminalTest" />
+    <!-- The prompt verb and the Gateway command handler use the send path's own wait notice
+         (Drivers.SendWaitNotice), so their long waits write the same two lines every send wait writes. -->
+    <InternalsVisibleTo Include="CcDirector.ControlApi" />
   </ItemGroup>
 
   <ItemGroup>

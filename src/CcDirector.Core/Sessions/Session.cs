@@ -101,49 +101,42 @@ public sealed class Session : IDisposable
     private readonly ISessionBackend _backend;
     private bool _disposed;
 
-    // ===== HTML-view terminal emulator =====
-    // The Avalonia terminal owns its own AnsiParser bound to the live window
-    // size. The HTML "Raw terminal" tab needs an independent emulator with a
-    // fixed grid (browser-side resize must not perturb ConPty width). We feed
-    // it from the buffer's OnBytesWritten event, gated by _htmlParserLock so
-    // request threads can take snapshots concurrently.
-    private const int HtmlGridCols = 220;
-    private const int HtmlGridRows = 40;
-    private const int HtmlMaxScrollback = 5000;
-    private readonly object _htmlParserLock = new();
-    private TerminalCell[,]? _htmlCells;
-    private List<TerminalCell[]>? _htmlScrollback;
-    private AnsiParser? _htmlParser;
+    // ===== THE SESSION'S SCREEN: one terminal emulator at the terminal's REAL size (issue #3406) =====
+    // Fed every byte the agent writes, from byte 0, and resized with the pseudo console in Resize(), so its grid is
+    // what the agent drew for. EVERY reader of the screen reads this one grid: the composer reader, the doorbell's
+    // check, the echo check, the terminal state detector, the Wingman, the turn review log, the Cockpit's "Raw
+    // terminal" tab, and the attach snapshot the live stream sends a browser (a freshly-attaching browser cannot
+    // rebuild a long session's screen from a mid-stream byte slice, so it is sent this grid as one "prime" frame -
+    // the reattach strategy tmux and mosh use).
+    //
+    // There used to be a second emulator beside it, at a fixed 220 by 40, and every reader except the attach snapshot
+    // read THAT one. It was never resized, so a full-width row the agent let wrap by itself (the Windows pseudo console
+    // sends a full row with no line break after it) ran together with the next row, and rows of earlier frames were
+    // left behind. On 25 September 2026 (Voice Delivery, case 2f) a session refused every send after one failed send:
+    // the composer reader read a stale row of the old text merged into a rule while the composer on screen was empty.
+    // The fixed grid had no reader left once they moved here, so it is gone.
+    //
+    // Parsed, resized and read under _screenLock, so no read sees a grid half way through a resize.
+    private const int ScreenMaxScrollback = 5000;
+    private readonly object _screenLock = new();
+    private List<TerminalCell[]>? _screenScrollback;
+    private AnsiParser? _screenParser;
+    private int _screenCols;
+    private int _screenRows;
 
-    // A copy of the parser's alternate-screen mode, written by the feed inside _htmlParserLock after
-    // every parse. IsAlternateScreen reads it without taking the lock, so a screen-thread reader (the
-    // session rail maps every session through it) never waits behind a slow parse. BracketedPasteEnabled
-    // deliberately stays under the lock: it is read once per submit, off the screen thread, and the bytes
-    // sent to the agent must be chosen from the parser's current mode, not the last completed one.
+    // A copy of the parser's alternate-screen mode, written by the feed inside _screenLock after every parse.
+    // IsAlternateScreen reads it without taking the lock, so a screen-thread reader (the session rail maps every
+    // session through it) never waits behind a slow parse. BracketedPasteEnabled deliberately stays under the lock:
+    // it is read once per submit, off the screen thread, and the bytes sent to the agent must be chosen from the
+    // parser's current mode, not the last completed one.
     private volatile bool _isAlternateScreen;
-    private Action<byte[]>? _htmlParserFeed;
+    private Action<byte[]>? _screenFeed;
 
-    // ===== Live-attach terminal emulator (the WebSocket stream's attach snapshot) =====
-    // A SECOND authoritative parser, fed the same bytes from byte 0 but sized to track the REAL
-    // PTY geometry (unlike the fixed-grid _htmlParser above). A freshly-attaching browser client
-    // cannot rebuild a long session's screen from a mid-stream byte slice (relative cursor moves and
-    // scrolls land on a baseline the slice never established, so an incrementally-repainting agent
-    // like Codex reconstructs torn). This parser always holds the correct current screen, so the
-    // stream endpoint serializes it into a self-contained "prime" frame on attach - the reattach
-    // strategy tmux/mosh use. Kept separate from _htmlParser so its geometry tracking cannot perturb
-    // the Cockpit "Raw terminal" tab or the Wingman screen detection that read _htmlParser. Fed and
-    // read under the same _htmlParserLock so both parsers and the snapshot are always consistent.
-    private const int StreamMaxScrollback = 5000;
-    private TerminalCell[,]? _streamCells;
-    private List<TerminalCell[]>? _streamScrollback;
-    private AnsiParser? _streamParser;
-    private int _streamGridCols;
-    private int _streamGridRows;
-    // Total bytes the live-attach parser has consumed. Captured with the snapshot (under the same
-    // lock) so the stream endpoint resumes live output at EXACTLY the byte the snapshot reflects -
-    // no gap (missing bytes) and no overlap (double-applied bytes). Equals the buffer's absolute
-    // position because the parser is subscribed from session start, before any output.
-    private long _streamBytesReflected;
+    // Total bytes the parser has consumed. Captured with the attach snapshot (under the same lock) so the stream
+    // endpoint resumes live output at EXACTLY the byte the snapshot reflects - no gap (missing bytes) and no overlap
+    // (double-applied bytes). Equals the buffer's absolute position because the parser is subscribed from session
+    // start, before any output.
+    private long _screenBytesReflected;
 
     public SessionBackendType BackendType { get; }
 
@@ -2195,7 +2188,7 @@ public sealed class Session : IDisposable
         // Subscribe to backend events
         _backend.ProcessExited += OnBackendProcessExited;
         _backend.StatusChanged += OnBackendStatusChanged;
-        InitializeHtmlParser();
+        InitializeScreen();
     }
 
     /// <summary>
@@ -2230,53 +2223,42 @@ public sealed class Session : IDisposable
 
         _backend.ProcessExited += OnBackendProcessExited;
         _backend.StatusChanged += OnBackendStatusChanged;
-        InitializeHtmlParser();
+        InitializeScreen();
 
         // Initialize history for restored sessions that already have a ClaudeSessionId
         InitializeHistory();
     }
 
-    private void InitializeHtmlParser()
+    private void InitializeScreen()
     {
         var buffer = _backend.Buffer;
         if (buffer is null)
         {
-            FileLog.Write($"[Session] InitializeHtmlParser: sessionId={Id}, backend has no buffer (Embedded?), skipping");
+            FileLog.Write($"[Session] InitializeScreen: sessionId={Id}, backend has no buffer (Embedded?), skipping");
             return;
         }
 
-        _htmlCells = new TerminalCell[HtmlGridCols, HtmlGridRows];
-        _htmlScrollback = new List<TerminalCell[]>();
-        _htmlParser = new AnsiParser(_htmlCells, HtmlGridCols, HtmlGridRows, _htmlScrollback, HtmlMaxScrollback);
-        _isAlternateScreen = _htmlParser.IsAlternateScreen;
+        // Starts at the size the pseudo console is started with, and is resized in Resize() as that changes.
+        _screenCols = Math.Max(1, (int)CurrentCols);
+        _screenRows = Math.Max(1, (int)CurrentRows);
+        _screenScrollback = new List<TerminalCell[]>();
+        _screenParser = new AnsiParser(new TerminalCell[_screenCols, _screenRows], _screenCols, _screenRows, _screenScrollback, ScreenMaxScrollback);
+        _isAlternateScreen = _screenParser.IsAlternateScreen;
 
-        // The live-attach parser tracks the real PTY size so its screen matches what a browser
-        // xterm at the same geometry shows. It starts at the current PTY dimensions and is resized
-        // in Resize() as the PTY changes.
-        _streamGridCols = Math.Max(1, (int)CurrentCols);
-        _streamGridRows = Math.Max(1, (int)CurrentRows);
-        _streamCells = new TerminalCell[_streamGridCols, _streamGridRows];
-        _streamScrollback = new List<TerminalCell[]>();
-        _streamParser = new AnsiParser(_streamCells, _streamGridCols, _streamGridRows, _streamScrollback, StreamMaxScrollback);
-
-        _htmlParserFeed = data =>
+        _screenFeed = data =>
         {
             // Raw "the terminal moved" timestamp -- every byte, no cosmetic filtering.
             // The Wingman tab reads this to show how long ago output last appeared.
             Volatile.Write(ref _lastOutputTicks, DateTime.UtcNow.Ticks);
-            lock (_htmlParserLock)
+            lock (_screenLock)
             {
-                if (_htmlParser is not null)
-                {
-                    _htmlParser.Parse(data);
-                    _isAlternateScreen = _htmlParser.IsAlternateScreen;
-                }
-                _streamParser?.Parse(data);
-                _streamBytesReflected += data.Length;
+                _screenParser.Parse(data);
+                _isAlternateScreen = _screenParser.IsAlternateScreen;
+                _screenBytesReflected += data.Length;
             }
         };
-        buffer.OnBytesWritten += _htmlParserFeed;
-        FileLog.Write($"[Session] InitializeHtmlParser: sessionId={Id}, grid={HtmlGridCols}x{HtmlGridRows}, streamGrid={_streamGridCols}x{_streamGridRows}, maxScrollback={HtmlMaxScrollback}");
+        buffer.OnBytesWritten += _screenFeed;
+        FileLog.Write($"[Session] InitializeScreen: sessionId={Id}, grid={_screenCols}x{_screenRows} (the terminal's size), maxScrollback={ScreenMaxScrollback}");
     }
 
     /// <summary>
@@ -2286,12 +2268,12 @@ public sealed class Session : IDisposable
     /// </summary>
     public string GetHtmlSnapshot()
     {
-        if (_htmlParser is null || _htmlCells is null || _htmlScrollback is null)
+        if (_screenParser is null || _screenScrollback is null)
             return string.Empty;
 
-        lock (_htmlParserLock)
+        lock (_screenLock)
         {
-            return AnsiToHtmlConverter.ConvertToHtml(_htmlScrollback, _htmlCells, HtmlGridCols, HtmlGridRows);
+            return AnsiToHtmlConverter.ConvertToHtml(_screenScrollback, _screenParser.ActiveCells, _screenCols, _screenRows);
         }
     }
 
@@ -2304,14 +2286,14 @@ public sealed class Session : IDisposable
     /// </summary>
     public (string ScrollbackHtml, string GridHtml, int ScrollbackCount) GetHtmlSnapshotSplit()
     {
-        if (_htmlParser is null || _htmlCells is null || _htmlScrollback is null)
+        if (_screenParser is null || _screenScrollback is null)
             return ("", "", 0);
 
-        lock (_htmlParserLock)
+        lock (_screenLock)
         {
             var (sb, grid) = AnsiToHtmlConverter.ConvertToHtmlSplit(
-                _htmlScrollback, _htmlCells, HtmlGridCols, HtmlGridRows);
-            return (sb, grid, _htmlScrollback.Count);
+                _screenScrollback, _screenParser.ActiveCells, _screenCols, _screenRows);
+            return (sb, grid, _screenScrollback.Count);
         }
     }
 
@@ -2490,8 +2472,8 @@ public sealed class Session : IDisposable
     {
         get
         {
-            lock (_htmlParserLock)
-                return _htmlParser?.BracketedPasteEnabled ?? false;
+            lock (_screenLock)
+                return _screenParser?.BracketedPasteEnabled ?? false;
         }
     }
 
@@ -2505,14 +2487,12 @@ public sealed class Session : IDisposable
     /// </summary>
     public (string[] Rows, int CursorRow, int CursorCol) SnapshotScreenRowsWithCursor()
     {
-        if (_htmlCells is null || _htmlParser is null)
+        if (_screenParser is null)
             return (System.Array.Empty<string>(), -1, -1);
-        // Read the parser's ACTIVE grid, not our held _htmlCells array. On the alternate
-        // screen (Grok, and now Claude Code) the parser draws into an internal buffer that
-        // _htmlCells no longer points at, so iterating _htmlCells here would return the
-        // frozen pre-alternate-screen content. SnapshotActiveRows reflects what is on screen.
-        lock (_htmlParserLock)
-            return _htmlParser.SnapshotActiveRows();
+        // Read the parser's ACTIVE grid: on the alternate screen (Grok, and now Claude Code) the parser draws into an
+        // internal buffer, and SnapshotActiveRows reflects what is on screen.
+        lock (_screenLock)
+            return _screenParser.SnapshotActiveRows();
     }
 
     /// <summary>
@@ -2525,15 +2505,15 @@ public sealed class Session : IDisposable
     /// </summary>
     public (string[] Rows, int CursorRow, int CursorCol, bool CursorVisible, bool IsAlternateScreen) SnapshotLiveScreen()
     {
-        if (_htmlCells is null || _htmlParser is null)
+        if (_screenParser is null)
             return (System.Array.Empty<string>(), -1, -1, false, false);
-        lock (_htmlParserLock)
+        lock (_screenLock)
         {
-            var (rows, cursorRow, cursorCol) = _htmlParser.SnapshotActiveRows();
+            var (rows, cursorRow, cursorCol) = _screenParser.SnapshotActiveRows();
             // Cursor VISIBILITY is captured in the SAME locked frame as the rows/cursor/alt-screen: it is the
             // discriminator between a text composer (cursor visible) and a drawn Ink menu (cursor hidden, a
             // stale cursor cell), so it must describe the same frame the rows do (issue #1777).
-            return (rows, cursorRow, cursorCol, _htmlParser.IsCursorVisible, _htmlParser.IsAlternateScreen);
+            return (rows, cursorRow, cursorCol, _screenParser.IsCursorVisible, _screenParser.IsAlternateScreen);
         }
     }
 
@@ -2549,18 +2529,19 @@ public sealed class Session : IDisposable
     public List<IReadOnlyList<ScreenSegment>> SnapshotScreenColoredRows()
     {
         var result = new List<IReadOnlyList<ScreenSegment>>();
-        if (_htmlCells is null || _htmlParser is null)
+        if (_screenParser is null)
             return result;
 
-        lock (_htmlParserLock)
+        lock (_screenLock)
         {
-            for (int r = 0; r < HtmlGridRows; r++)
+            var cells = _screenParser.ActiveCells;
+            for (int r = 0; r < _screenRows; r++)
             {
                 // Trim trailing blanks: the last column with a glyph or an explicit background.
                 int lastCol = -1;
-                for (int c = HtmlGridCols - 1; c >= 0; c--)
+                for (int c = _screenCols - 1; c >= 0; c--)
                 {
-                    var cell = _htmlCells[c, r];
+                    var cell = cells[c, r];
                     if ((cell.Character != '\0' && cell.Character != ' ') || cell.Background != default)
                     {
                         lastCol = c;
@@ -2571,13 +2552,13 @@ public sealed class Session : IDisposable
                 var row = new List<ScreenSegment>();
                 if (lastCol >= 0)
                 {
-                    var sb = new System.Text.StringBuilder(HtmlGridCols);
+                    var sb = new System.Text.StringBuilder(_screenCols);
                     string? curFg = null, curBg = null;
                     bool curBold = false, started = false;
 
                     for (int c = 0; c <= lastCol; c++)
                     {
-                        var cell = _htmlCells[c, r];
+                        var cell = cells[c, r];
                         var ch = cell.Character == '\0' ? ' ' : cell.Character;
                         // The parser paints uncoloured text with its default foreground
                         // (TerminalColor.LightGray); treat that - and an untouched cell - as
@@ -3746,22 +3727,54 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
+    /// The composer region's reading and the text it holds, from the real screen - the rows between the agent's rules
+    /// around the prompt, which <see cref="Drivers.DoorbellSafety"/> locates. The echo check's screen witness and the
+    /// retained-text check judge from this region, never from occurrences of the text anywhere on the screen (Voice
+    /// Delivery mission, phase 6).
+    /// </summary>
+    private (Drivers.ComposerReading Reading, string Text) ReadComposerRegion()
+    {
+        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+        return Drivers.DoorbellSafety.ReadComposerText(
+            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+    }
+
+    /// <summary>
     /// The composer holds nothing - asked of an agent whose composer can be read, for the step that clears text an
     /// earlier send left behind. Null for an agent whose composer cannot be read.
     /// </summary>
     private Func<bool>? ComposerEmptyCheck() => Drivers.FirstPromptGate.CanProve(AgentKind)
         ? () =>
         {
-            var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-            var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
-                AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+            var (reading, composerText) = ReadComposerRegion();
             var nothing = Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText);
             if (!nothing)
-                FileLog.Write($"[Session] composer not empty: session={Id}, reading={reading}, text='{(composerText.Length > 80 ? composerText[..80] : composerText)}', " +
-                              $"cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, row='{(cursorRow >= 0 && cursorRow < rows.Length ? rows[cursorRow] : "")}'");
+                FileLog.Write($"[Session] composer not empty: session={Id}, {DescribeComposer(reading, composerText)}");
             return nothing;
         }
         : null;
+
+    /// <summary>
+    /// What the composer reader sees right now, in words - its reading, the text it holds, and the row under the cursor -
+    /// for a refusal that must say what it read (Voice Delivery mission, phase 6). Null for an agent whose composer the
+    /// Director cannot read.
+    /// </summary>
+    private Func<string>? ComposerSeen() => Drivers.FirstPromptGate.CanProve(AgentKind)
+        ? () =>
+        {
+            var (reading, composerText) = ReadComposerRegion();
+            return DescribeComposer(reading, composerText);
+        }
+        : null;
+
+    private string DescribeComposer(Drivers.ComposerReading reading, string composerText)
+    {
+        static string Cut(string s) => s.Length > 80 ? s[..80] + "..." : s;
+        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
+        var row = cursorRow >= 0 && cursorRow < rows.Length ? rows[cursorRow] : "";
+        return $"reading={reading}, text='{Cut(composerText)}', cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
+               $"row='{Cut(row)}', screen={_screenCols}x{_screenRows}";
+    }
 
     /// <summary>
     /// The composer's text right now, whatever the agent is doing - a working agent still draws its composer - or null
@@ -3770,15 +3783,19 @@ public sealed class Session : IDisposable
     private Func<string?>? ComposerTextReader() => Drivers.FirstPromptGate.CanProve(AgentKind)
         ? () =>
         {
-            var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-            var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
-                AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+            var (reading, composerText) = ReadComposerRegion();
             return reading == Drivers.ComposerReading.HoldsText && composerText.Length > 0
                    && !Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText)
                 ? composerText
                 : null;
         }
         : null;
+
+    /// <summary>The composer region for a submit's own witnesses: its reading and text, for an agent whose composer can
+    /// be read - null otherwise. The submit's echo check and retained-text check judge from this region, never from
+    /// occurrences of the text anywhere on the screen (Voice Delivery mission, phase 6).</summary>
+    private Func<(Drivers.ComposerReading Reading, string Text)>? ComposerRegionReader() =>
+        Drivers.FirstPromptGate.CanProve(AgentKind) ? ReadComposerRegion : null;
 
     /// <summary>True when the rendered screen shows the agent's working marker ("esc to interrupt").</summary>
     private bool ScreenShowsWorking() => Drivers.DoorbellSafety.ShowsWorking(SnapshotScreenRows());
@@ -3989,7 +4006,9 @@ public sealed class Session : IDisposable
                     recordsProofFollows: proof is not null,
                     clearRetainedUnconditionally: clearFirst,
                     nudgeOnlyWhen: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : () => false,
-                    composerText: ComposerTextReader());
+                    composerText: ComposerTextReader(),
+                    composerSeen: ComposerSeen(),
+                    composerRegion: ComposerRegionReader());
 
                 string typed;
                 try
@@ -4001,7 +4020,7 @@ public sealed class Session : IDisposable
                           && !AgentShowsWorking())
                 {
                     // NEVER WHILE THE AGENT SHOWS WORKING - its state or its screen (Voice Delivery mission, phase 3; the
-                    // state added by the round-2 review, minor note 1, so a screen read that misses the marker, issue #3406,
+                    // state added by the round-2 review, minor note 1, so a screen read that misses the marker - as the old fixed grid did, issue #3406 -
                     // cannot fire the clear keys into a working agent). A working agent can
                     // still be reading the first typing, and the clear keys then empty only what has arrived - measured on
                     // 25 September 2026, the rest ran on and a fragment was left in the composer. Such a send is reported
@@ -4668,39 +4687,43 @@ public sealed class Session : IDisposable
         // feed a repaint storm (the Wingman repaint-loop invariant). Guard against it so a
         // chatty Cockpit (window-drag events) can't hammer the PTY.
         if (cols == CurrentCols && rows == CurrentRows) return;
-        // Re-size the live-attach parser to match the new PTY geometry BEFORE the PTY repaints, so
-        // the agent's post-resize output is parsed at the correct width/height. Overlapping content
-        // is copied so an agent that does not fully repaint on resize (Codex) keeps its screen; any
-        // imperfection self-heals on the repaint the resize triggers. The fixed-grid _htmlParser is
-        // intentionally left alone (its consumers depend on its stable geometry).
-        ResizeStreamParser(cols, rows);
+        // Re-size the screen to match the new PTY geometry BEFORE the PTY repaints, so the agent's post-resize output
+        // is parsed at the correct width/height. Overlapping content is copied so an agent that does not fully repaint
+        // on resize (Codex) keeps its screen; any imperfection self-heals on the repaint the resize triggers.
+        ResizeScreen(cols, rows);
         _backend.Resize(cols, rows);
         CurrentCols = cols;
         CurrentRows = rows;
     }
 
-    // Grow/shrink the live-attach parser's grid, copying the overlapping cells so existing content
-    // survives the resize (mirrors the desktop TerminalControl's resize path). Under _htmlParserLock
-    // because the buffer feed thread parses into this same parser.
-    private void ResizeStreamParser(int cols, int rows)
+    // Grow/shrink the screen's grid, copying the overlapping cells so existing content survives the resize (mirrors the
+    // desktop TerminalControl's resize path). Under _screenLock because the buffer feed thread parses into this same
+    // parser and every reader reads it: a read sees the grid before the resize or after it, never half way.
+    //
+    // THE COPY IS OF THE ACTIVE GRID. It used to copy the array the parser was first handed, which on the alternate
+    // screen is the HELD primary grid (the parser draws the alternate screen into a buffer of its own), so a resize while
+    // a full-screen agent was up replaced what it had drawn with the shell's old screen. The parser resizes the held
+    // primary grid itself (AnsiParser.UpdateGrid).
+    private void ResizeScreen(int cols, int rows)
     {
         cols = Math.Max(1, cols);
         rows = Math.Max(1, rows);
-        lock (_htmlParserLock)
+        lock (_screenLock)
         {
-            if (_streamParser is null || _streamCells is null) return;
-            if (cols == _streamGridCols && rows == _streamGridRows) return;
+            if (_screenParser is null) return;
+            if (cols == _screenCols && rows == _screenRows) return;
+            var active = _screenParser.ActiveCells;
             var newCells = new TerminalCell[cols, rows];
-            int copyC = Math.Min(_streamGridCols, cols);
-            int copyR = Math.Min(_streamGridRows, rows);
+            int copyC = Math.Min(_screenCols, cols);
+            int copyR = Math.Min(_screenRows, rows);
             for (int r = 0; r < copyR; r++)
                 for (int c = 0; c < copyC; c++)
-                    newCells[c, r] = _streamCells[c, r];
-            _streamParser.UpdateGrid(newCells, cols, rows);
-            _streamCells = newCells;
-            _streamGridCols = cols;
-            _streamGridRows = rows;
+                    newCells[c, r] = active[c, r];
+            _screenParser.UpdateGrid(newCells, cols, rows);
+            _screenCols = cols;
+            _screenRows = rows;
         }
+        FileLog.Write($"[Session] ResizeScreen: sessionId={Id}, grid={cols}x{rows}");
     }
 
     /// <summary>
@@ -4712,19 +4735,19 @@ public sealed class Session : IDisposable
     /// </summary>
     public (byte[] Snapshot, long ReflectedCursor, int Cols, int Rows) GetTerminalSnapshot()
     {
-        if (_streamParser is null) return (System.Array.Empty<byte>(), 0, CurrentCols, CurrentRows);
-        lock (_htmlParserLock)
+        if (_screenParser is null) return (System.Array.Empty<byte>(), 0, CurrentCols, CurrentRows);
+        lock (_screenLock)
         {
-            if (_streamParser is null || _streamScrollback is null)
-                return (System.Array.Empty<byte>(), _streamBytesReflected, CurrentCols, CurrentRows);
-            var cells = _streamParser.ActiveCells;
+            if (_screenScrollback is null)
+                return (System.Array.Empty<byte>(), _screenBytesReflected, CurrentCols, CurrentRows);
+            var cells = _screenParser.ActiveCells;
             int cols = cells.GetLength(0);
             int rows = cells.GetLength(1);
-            var (cc, cr) = _streamParser.GetCursorPosition();
+            var (cc, cr) = _screenParser.GetCursorPosition();
             var bytes = TerminalSnapshotSerializer.ToAnsi(
-                _streamScrollback, cells, cols, rows, cc, cr,
-                _streamParser.IsCursorVisible, _streamParser.IsAlternateScreen);
-            return (bytes, _streamBytesReflected, cols, rows);
+                _screenScrollback, cells, cols, rows, cc, cr,
+                _screenParser.IsCursorVisible, _screenParser.IsAlternateScreen);
+            return (bytes, _screenBytesReflected, cols, rows);
         }
     }
 
@@ -4800,8 +4823,8 @@ public sealed class Session : IDisposable
 
         _backend.ProcessExited -= OnBackendProcessExited;
         _backend.StatusChanged -= OnBackendStatusChanged;
-        if (_htmlParserFeed is not null && _backend.Buffer is not null)
-            _backend.Buffer.OnBytesWritten -= _htmlParserFeed;
+        if (_screenFeed is not null && _backend.Buffer is not null)
+            _backend.Buffer.OnBytesWritten -= _screenFeed;
         _isAlternateScreen = false;
         // Nothing can render this session's row any more, so its delivery tally has no reader left. The
         // fleet-wide recent ring keeps the history; only the per-session counters are dropped.
