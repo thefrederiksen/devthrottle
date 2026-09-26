@@ -31,7 +31,7 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     };
     public Func<ScreenGridResponse?> Screen = () => null;
     public Func<string, StoredConversation?> Conversation = _ => null;
-    public Func<string, CancellationToken, Task<string>> Judge = (_, _) => Task.FromResult(CannotTell("The session stopped."));
+    public Func<string, CancellationToken, Task<string>> Judge = (_, _) => Task.FromResult(NeedsYou("The session stopped."));
     public Func<string, bool> VoiceSession = _ => false;
     /// <summary>The account's plan answer for the narration. Allowed by default, as on a self-host Gateway.</summary>
     public Func<NarrationPlan> Plan = () => NarrationPlan.Allowed;
@@ -158,11 +158,15 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// this to the narration prompt - see <see cref="CountingBrain"/>.</summary>
     public static string DefaultNarration() => NarratedAnswer(LastCannedSpoken);
 
-    /// <summary>A narrator answer as the real model writes one: the words between the two markers.</summary>
-    public static string NarratedAnswer(string spoken)
+    /// <summary>The label every default narration answers with (Call B writes the row's label from phase 4).</summary>
+    public const string NarratedLabel = "The Wingman's label for this stop";
+
+    /// <summary>A narrator answer as the real model writes one (Call B, phase 4): the label line and the words, between
+    /// the two markers.</summary>
+    public static string NarratedAnswer(string spoken, string label = NarratedLabel)
         => spoken.Length == 0
             ? ""
-            : $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
+            : $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{NarrationCall.LabelTag} {label}\n{NarrationCall.NarrationTag}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
 
     private int _narratorCalls;
     /// <summary>How many narration calls were made. Never counted as judge calls.</summary>
@@ -318,9 +322,10 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     //
     // The label and evidence parameters are kept so callers need not change, and are IGNORED: v4 asks for neither.
 
-    /// <summary>The answer that validates against any package, of either kind: needs-you. It was "cannot-tell" under
-    /// v3; v4 has three words and needs-you is the only one a failure with no reply may take.</summary>
-    public static string CannotTell(string spoken)
+    /// <summary>The answer that validates against any package, of either kind: needs-you. It was named for
+    /// "cannot-tell" under v3; v4 has three words and needs-you is the only one a failure with no reply may take, so
+    /// the helper is named for what it returns (phase 3 review, finding F3).</summary>
+    public static string NeedsYou(string spoken)
     {
         LastCannedSpoken = spoken;
         return "needs-you";
@@ -431,8 +436,8 @@ internal sealed class CountingBrain : IAgentBrain
 
     public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
     {
-        // The narration prompt is the one that asks for the spoken version between two markers.
-        if (prompt.Contains("Output ONLY the spoken version", StringComparison.Ordinal))
+        // The narration prompt is the one that asks for the label line and the spoken version between two markers.
+        if (prompt.Contains(NarrationCall.LabelTag + " <label>", StringComparison.Ordinal))
         {
             Interlocked.Increment(ref _narrations);
             return Task.FromResult(new AskResult { Text = NarrationAnswer(), ReplySeconds = 0.1 });

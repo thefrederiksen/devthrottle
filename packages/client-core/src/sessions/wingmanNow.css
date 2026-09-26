@@ -219,28 +219,6 @@
   border-left-color: #a855f7;
 }
 
-/* A CLICK SENDS, and the card now says so before it happens (the review's item B2). */
-.wnow-options-how {
-  color: var(--text-dim);
-  font-size: 13px;
-}
-
-/* The Gateway's warning that this stop's answer cannot be taken back. It is about the STOP, so it is drawn once,
-   above the options, in the attention colour - a warning repeated on every option stops being read. */
-.wnow-options-final {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--attention);
-}
-
-.wnow-options-final .wnow-option-undo {
-  margin-left: 0;
-}
-
 /* What a write action answered, shown beside the control that started it. A refusal is the Gateway's sentence in
    the attention colour; an accepted action is a quiet line. */
 .wnow-outcome {
@@ -263,109 +241,6 @@
 
 .wnow-unsure-line {
   color: var(--warn);
-}
-
-.wnow-recommends {
-  color: #fde68a;
-}
-
-.wnow-options {
-  display: grid;
-  gap: 8px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.wnow-option {
-  width: 100%;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 10px;
-  align-items: start;
-  text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font: inherit;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.wnow-option:hover:enabled {
-  border-color: var(--accent);
-}
-
-/* THE RECOMMENDED OPTION IS THE FIRST CHOICE, not a box with a small tag on it. Which option carries the mark is
-   still the Gateway's - this only draws the one it marked as the loud one. */
-.wnow-option-recommended {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-}
-
-.wnow-option-final {
-  border-color: var(--attention);
-}
-
-/* The Gateway's own "this cannot be taken back" sentence, on the option and again in the question below it. */
-.wnow-option-undo {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--attention);
-  border: 1px solid var(--attention);
-  border-radius: 4px;
-  padding: 0 6px;
-  margin-left: 6px;
-}
-
-.wnow-option-ask {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 6px;
-  padding: 8px 12px;
-  border: 1px solid var(--attention);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--attention) 10%, transparent);
-  color: var(--text);
-  font-size: 13px;
-}
-
-.wnow-option:disabled {
-  cursor: default;
-  opacity: 0.75;
-}
-
-.wnow-option-index {
-  font-weight: 700;
-  color: var(--text-dim);
-}
-
-.wnow-option-body {
-  display: block;
-}
-
-.wnow-option-key {
-  display: block;
-  font-weight: 600;
-}
-
-.wnow-option-mark {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--bg);
-  background: #fde68a;
-  border-radius: 4px;
-  padding: 0 6px;
-  margin-left: 6px;
-}
-
-.wnow-option-note {
-  display: block;
-  color: var(--text-dim);
-  font-size: 13px;
 }
 
 /* THE ONE MESSAGE BOX ON THIS TAB. What sits in here is the shell's own composer, handed in whole - the same

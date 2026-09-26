@@ -119,7 +119,7 @@ public sealed class TurnVerdictTraceTests : IDisposable
         // echoes a value the canned judge builders share across the whole test process, so a sibling class judging
         // a different stop can decide what this one hears - which is a flake when it disagrees and, worse, a pass
         // when it happens to agree.
-        env.Narrator = (_, _) => Task.FromResult(Spoken);
+        env.Narrator = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.NarratedAnswer(Spoken));
 
         var outcome = await new TurnVerdictService(env).StartTurnEnd(Signal());
         Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);

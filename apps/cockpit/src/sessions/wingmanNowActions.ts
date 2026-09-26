@@ -1,10 +1,8 @@
 // What the Wingman tab's Now view can DO, wired to the calls that already exist.
 //
-// THIS IS WHERE A FAILURE BECOMES A SENTENCE. Now is the screen the owner is meant to live on, so an answer that did
+// THIS IS WHERE A FAILURE BECOMES A SENTENCE. Now is the screen the owner is meant to live on, so an action that did
 // nothing and a reply that vanished are not acceptable there. Every write below runs the call, reads what came back,
-// and hands the view one outcome: whether it was ACCEPTED, and the GATEWAY'S OWN SENTENCE about it, unedited. The
-// answer route's refusal sentence in particular is written for the owner to read - the settled design says it is
-// what he sees, unedited - and it used to be discarded here.
+// and hands the view one outcome: whether it was ACCEPTED, and the GATEWAY'S OWN SENTENCE about it, unedited.
 //
 // NONE OF THESE REJECT. A rejected promise is exactly the swallowed failure this module exists to end: it would
 // reach no screen, and on a reply it would take the owner's typed words with it. Every one of them catches and
@@ -12,7 +10,6 @@
 //
 // The shell owns the tabs and the router, so the three plain navigations are passed in rather than decided here.
 import { holdSession, type SessionDto } from "@devthrottle/client-core/api/client";
-import { answerTurnVerdict } from "@devthrottle/client-core/sessions/verdictAnswer";
 import { holdPillLabel, holdStateFromResponse } from "@devthrottle/client-core/sessions/snoozeAction";
 import { switchVoiceModeOn } from "@devthrottle/client-core/voice/switchVoiceMode";
 import { playSessionNarration } from "@devthrottle/client-core/voice/playNarration";
@@ -82,18 +79,6 @@ export function wingmanNowActions(
 ): WingmanNowActions {
   const snoozed = session?.onHold === true;
   return {
-    // The verdict identifier rides with the option index. A null one cannot happen while the Gateway says the stop
-    // can be answered by option - but it is sent as it is rather than quietly dropped, so if it ever does, the route
-    // refuses it in its own words instead of the buttons silently doing nothing.
-    onAnswerOption: async (option, verdictId) => {
-      try {
-        const result = await answerTurnVerdict(sessionId, verdictId ?? "", [option.index]);
-        return { accepted: result.accepted, message: result.reason };
-      } catch (err) {
-        return refusal("answer that stop", err);
-      }
-    },
-
     onSnooze: session === undefined || snoozed ? undefined : async () => {
       try {
         const result = await holdSession(sessionId, true);

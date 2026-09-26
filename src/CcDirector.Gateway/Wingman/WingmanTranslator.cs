@@ -103,6 +103,13 @@ public sealed class WingmanTranslator
     /// judge's spoken field kept only the headline; the code keeps the last full sentence inside 1,200 characters. "Read
     /// in full when asked" is still a rule here, but the 1,200 bound binds it too: the answer carries no signal the code
     /// could raise the bound on.
+    ///
+    /// v11 (the turn pipeline mission, phase 4) takes the menu shape out. There are no answer buttons any more, so a
+    /// menu stop is no longer read out choice by choice with a recommendation and a closing "press a button" line: it
+    /// says what is being asked and tells the person to open the session to choose (the owner, 25 September: "Nobody
+    /// is told to press a button that is not there"). The decision it follows is Call A's word, not "how the person
+    /// answers". The label the row shows is asked for by <see cref="NarrationCall"/> in code, after these rules, so an
+    /// account's own instructions cannot drop it.
     /// </summary>
     internal const string FidelityPrompt = """
         You are the wingman: you turn a coding agent's written reply into words a person
@@ -117,16 +124,11 @@ public sealed class WingmanTranslator
         justify, not a budget you may spend. Rules:
         - DO NOT SAY THE SESSION'S NAME. It is spoken in front of your words by the product, so
           start straight with the point.
-        - THE SHAPE OF THE STOP IS DECIDED FOR YOU. A judge has already read the screen, and its
-          decision is given below as "how the person answers". Follow it; never decide for
-          yourself whether the screen shows a menu.
-          When the person answers with KEYS, the session is waiting on a menu that only a button
-          press can answer. Open by saying the session is waiting on a menu, then read the menu's
-          question and its choices as the judge gave them, say which one is recommended and why,
-          and end by telling the person to press a button on the phone to choose.
-          When the person answers with a REPLY, retell the reply faithfully by the rules below:
-          lead with the ask, say which option is recommended and why, and do not read out the
-          rest of the options.
+        - WHETHER THE PERSON IS NEEDED IS DECIDED FOR YOU. A first reading has already looked at
+          this stop, and its decision is given below. Follow it; never decide it yourself.
+          When the session is waiting on a menu or a picker, say what it is asking and tell the
+          person to open the session to choose. Nothing here answers a menu for them, so never
+          read the choices out as if they could pick one from what you say.
         - BE SHORT. Lead with the single most important thing first - the answer, the result,
           or the ask - in your opening sentence, then add only what is needed to understand
           it, and STOP. If removing a sentence would not change what the listener knows or
@@ -210,7 +212,7 @@ public sealed class WingmanTranslator
     /// instructions is shown that the recommended default changed and can switch to it. The content
     /// hash is the real identity; this is the human-facing label.
     /// </summary>
-    public const string DefaultInstructionsVersion = "10";
+    public const string DefaultInstructionsVersion = "11";
 
     private readonly Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> _brainProvider;
     private readonly Func<TenantId, SpokenLanguage> _languageFor;

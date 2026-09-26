@@ -4,8 +4,8 @@
 // THIS VIEW DECIDES NOTHING. It renders the strings and flags of one WingmanNow object, in the order below, showing
 // each piece exactly when the Gateway sent it. There is no branch on what a state MEANS anywhere in this file - no
 // `state === "done"`, no colour rule, no wording of its own beyond fixed chrome (the buttons, the three small
-// headings, the one line saying what clicking an option does, and the clock and "ago" phrasing the Gateway cannot
-// write because it does not know the reader's time zone). Adding a state to the product is a change in the
+// headings, and the clock and "ago" phrasing the Gateway cannot write because it does not know the reader's time
+// zone). Adding a state to the product is a change in the
 // Gateway's fold, not here (product CLAUDE.md rule 7).
 //
 // WHICH CONTROLS BELONG ON A STATE IS DECIDED THE SAME WAY, by ABSENCE rather than by a branch: the shell passes a
@@ -16,12 +16,7 @@
 // Lives in client-core so the shell stays thin; only the Cockpit mounts it (the owner's ruling - not the phone).
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type {
-  WingmanNow as WingmanNowDto,
-  WingmanNowOption,
-  WingmanNowPast,
-  WingmanNowWhen,
-} from "./wingmanNowRead";
+import type { WingmanNow as WingmanNowDto, WingmanNowPast, WingmanNowWhen } from "./wingmanNowRead";
 import "./wingmanNow.css";
 
 /** A UTC instant as a clock time in the reader's own zone: "11:12 AM". */
@@ -87,9 +82,6 @@ export interface WingmanNowActions {
   onPlayVoice?: () => Promise<WingmanNowOutcome>;
   /** Turn voice mode on for this session from here. */
   onTurnOnVoice?: () => Promise<WingmanNowOutcome>;
-  /** Answer the stop by picking one of the Gateway's options. `verdictId` is the verdict those options belong to;
-   *  it rides with the index on the answer route, and the view passes it along rather than looking it up. */
-  onAnswerOption?: (option: WingmanNowOption, verdictId: string | null) => Promise<WingmanNowOutcome>;
   /** Snooze the session. Passed only while the session is not already snoozed, so the button never does nothing. */
   onSnooze?: () => Promise<WingmanNowOutcome>;
   /** Wake a snoozed session. Passed only while it IS snoozed - the other half of the same pair. */
@@ -171,7 +163,6 @@ export function WingmanNow({
   /** The shell's own message box, drawn wherever the Gateway offered a reply. Nothing is drawn without it. */
   replyBox?: WingmanNowReplyBox;
 }) {
-  const answer = useOutcome();
   const quick = useOutcome();
   const reply =
     now.replyPlaceholder != null && replyBox ? (
@@ -242,29 +233,9 @@ export function WingmanNow({
           <section className="wnow-card wnow-card-needs" aria-label={now.needs.heading}>
             <h3>{now.needs.heading}</h3>
             {now.unsure && now.unsureLine != null && <p className="wnow-unsure-line">{now.unsureLine}</p>}
-            {now.needs.recommends != null && <p className="wnow-recommends">{now.needs.recommends}</p>}
+            {/* NO ANSWER BUTTONS (the turn pipeline mission, phase 4): a menu is simply "needs you", the narration
+                says to open the session to choose, and the reply box is the way to answer. */}
             {now.needs.question != null && <p className="wnow-question">{now.needs.question}</p>}
-            {(now.needs.options?.length ?? 0) > 0 && (
-              <Options
-                options={now.needs.options ?? []}
-                canAnswer={now.canAnswerByOption}
-                busy={answer.busy}
-                riskFlag={now.needs.riskFlag}
-                riskLine={now.needs.riskLine}
-                confirmBeforeSending={now.needs.confirmBeforeSending}
-                onAnswer={
-                  actions.onAnswerOption
-                    ? // THE VERDICT IDENTIFIER IS AT THE ROOT. It sat inside `needs` here, which is not where
-                      // the route puts it, so every tap sent an empty identifier and the answer route refused it
-                      // without touching the session.
-                      (option) => void answer.run(() => actions.onAnswerOption!(option, now.verdictId ?? null))
-                    : undefined
-                }
-              />
-            )}
-            {/* What the answer route said about the last tap - its refusal sentence unedited, so an answer that
-                did nothing never looks like an answer that landed. */}
-            <Outcome outcome={answer.outcome} />
             {reply}
           </section>
         ) : (
@@ -478,108 +449,6 @@ function Speaker() {
     <svg className="wnow-voice-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
       <path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z" />
     </svg>
-  );
-}
-
-/**
- * The ways of answering, drawn as what they are: buttons that SEND.
- *
- * Three things the shipped card did not say, all from the review's item B2. It said nothing about a click sending
- * the answer straight away - and the first option on the screenshot pushed to main and deployed. It marked the
- * recommended option with a small tag only, so the eye had no first choice. And it showed nothing at all on an
- * option that cannot be undone.
- *
- * THE WARNING IS THE GATEWAY'S WORDS OR IT IS NOTHING. `riskFlag` and `riskLine` are finished sentences folded on
- * the Gateway, and `confirmBeforeSending` is its ruling that this stop is worth an interruption; when they are absent
- * this draws no warning and asks nothing, because a client that decided for itself which answers are dangerous would
- * be ruling in the Gateway's place. The warning is about the STOP, not one option, which is where the Gateway puts
- * it. Only the two words on the confirm buttons are this file's, like every other button on the screen.
- */
-function Options({
-  options,
-  canAnswer,
-  busy,
-  riskFlag,
-  riskLine,
-  confirmBeforeSending,
-  onAnswer,
-}: {
-  options: WingmanNowOption[];
-  canAnswer: boolean;
-  busy: boolean;
-  riskFlag?: string | null;
-  riskLine?: string | null;
-  confirmBeforeSending?: boolean;
-  onAnswer?: (option: WingmanNowOption) => void;
-}) {
-  // The option waiting on a second click, by its index. Only ever an option the Gateway marked as final.
-  const [asking, setAsking] = useState<number | null>(null);
-  const live = canAnswer && onAnswer !== undefined;
-  // THE WARNING IS ABOUT THE STOP, NOT ONE OPTION - that is where the Gateway folds it, so it is drawn once above
-  // the options rather than repeated on each of them, and it is what makes a click ask before it sends.
-  const warning = confirmBeforeSending === true ? (riskFlag ?? null) : null;
-  return (
-    <>
-      {live && <p className="wnow-options-how">Click an option to send it as your answer.</p>}
-      {live && warning != null && (
-        <p className="wnow-options-final">
-          <b className="wnow-option-undo">{warning}</b>
-          {riskLine != null && riskLine !== warning && <span>{riskLine}</span>}
-        </p>
-      )}
-      <ul className="wnow-options">
-        {options.map((option) => {
-          return (
-            <li key={option.index}>
-              <button
-                type="button"
-                className={`wnow-option${option.recommended ? " wnow-option-recommended" : ""}${
-                  warning != null ? " wnow-option-final" : ""
-                }`}
-                disabled={!live || busy}
-                onClick={() => {
-                  if (!onAnswer) return;
-                  if (warning != null && asking !== option.index) {
-                    setAsking(option.index);
-                    return;
-                  }
-                  setAsking(null);
-                  onAnswer(option);
-                }}
-              >
-                <span className="wnow-option-index">{option.number}</span>
-                <span className="wnow-option-body">
-                  <span className="wnow-option-key">
-                    {option.key}
-                    {option.recommended && <b className="wnow-option-mark">RECOMMENDED</b>}
-                  </span>
-                  {option.note != null && <span className="wnow-option-note">{option.note}</span>}
-                </span>
-              </button>
-              {asking === option.index && warning != null && (
-                <div className="wnow-option-ask" role="alert">
-                  <span>{riskLine ?? warning}</span>
-                  <button
-                    type="button"
-                    className="wnow-btn wnow-btn-primary"
-                    disabled={busy}
-                    onClick={() => {
-                      setAsking(null);
-                      onAnswer?.(option);
-                    }}
-                  >
-                    Send it anyway
-                  </button>
-                  <button type="button" className="wnow-btn" onClick={() => setAsking(null)}>
-                    Cancel
-                  </button>
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </>
   );
 }
 

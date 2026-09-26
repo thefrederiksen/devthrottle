@@ -12446,7 +12446,6 @@ export interface components {
             evidence?: string;
             label?: string;
             summary?: string;
-            agentRecommends?: null | string;
             answerVia?: string;
             menu?: null | components["schemas"]["TurnVerdictMenuDto"];
             options?: components["schemas"]["TurnVerdictOptionDto"][];

@@ -537,7 +537,7 @@ a.fmp-item:hover { background: var(--surface-2); }
 .fmw-fmsays { border-left: 3px solid var(--accent); }
 .fmw-fmsays h4 { color: var(--accent-text); }
 .fmw-label { font-size: 15.5px; line-height: 1.5; font-weight: 600; }
-.fmw-summary, .fmw-evidence, .fmw-recommends, .fmw-advice, .fmw-note, .fmw-risk {
+.fmw-summary, .fmw-evidence, .fmw-advice, .fmw-note, .fmw-risk {
   margin: 6px 0 0;
   line-height: 1.5;
 }

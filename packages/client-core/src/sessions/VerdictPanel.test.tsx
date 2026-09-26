@@ -1,9 +1,11 @@
 // The verdict panel, rendered against a fake Gateway (the Wingman-on-every-turn mission, slice E).
 //
 // What these prove that a Gateway test cannot: every field the Gateway stamped reaches the screen, in the order
-// the plan names, and a tap sends exactly the request the route expects - one request, the verdict it came from,
-// the options in the order they were picked. A refusal is the other half: the route's sentence is the one on the
-// screen, character for character, so a panel that swallowed it or composed its own would fail.
+// the plan names, and a report of a wrong verdict sends exactly the request the route expects. A refusal is the
+// other half: the route's sentence is the one on the screen, character for character.
+//
+// The fixture is a record stored under contract v3, menu and options and all: those records still exist, and the
+// panel must still render them - with no answer buttons (the turn pipeline mission, phase 4).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { SessionDto } from "../api/client";
@@ -21,7 +23,6 @@ function verdict(overrides: Partial<TurnVerdict> = {}): TurnVerdict {
     evidence: "Apply the migration to the local database now?",
     label: "Apply the migration now?",
     summary: "The migration is written; the session is asking before it changes the database.",
-    agentRecommends: null,
     answerVia: "keys",
     menu: { question: "Apply the migration now?", selectionMode: "single", submit: "" },
     options: [
@@ -56,8 +57,6 @@ function fakeGateway(status: number, body: Record<string, unknown>) {
     }),
   );
 }
-
-const SENT = { accepted: true, code: "owner-answered", reason: "Sent to the session.", verdictId: "tv-panel-1" };
 
 /** A fake Gateway that answers each route in its own words, for the journeys that make more than one call - the
  *  history read that finds a superseded verdict, and then the correction sent about it. */
@@ -97,16 +96,13 @@ afterEach(() => {
 });
 
 describe("the verdict panel", () => {
-  it("renders nothing for another session's row, and answers to the screen's own session id", async () => {
-    fakeGateway(200, SENT);
+  it("renders nothing for another session's row, and renders the screen's own session's row", () => {
     const OTHER = "5b0c2e7a-0000-4000-8000-000000000002";
     const { container, rerender } = render(<VerdictPanel sessionId={OTHER} session={session(verdict())} />);
     expect(container.innerHTML).toBe("");
 
     rerender(<VerdictPanel sessionId={SID} session={session(verdict())} />);
-    fireEvent.click(screen.getByRole("button", { name: "Yes, apply it" }));
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0].url).toBe(`/sessions/${SID}/turn-verdict/answer`);
+    expect(screen.getByLabelText("Wingman verdict")).toBeTruthy();
   });
 
   // ASSERTION CHANGED IN ROUND 2, and the old one is the defect it was pinning: it said a row carrying no judged
@@ -296,92 +292,38 @@ describe("the verdict panel", () => {
     const panel = container.querySelector(".verdict-panel")!;
     expect(panel.firstElementChild).toBe(risk);
 
-    // The plan's order, top to bottom: risk, receipt, label, summary, options.
-    const order = [".verdict-risk", ".verdict-receipt", ".verdict-label", ".verdict-summary", ".verdict-options"]
+    // The plan's order, top to bottom: risk, receipt, label, summary, and the report action.
+    const order = [".verdict-risk", ".verdict-receipt", ".verdict-label", ".verdict-summary", ".verdict-actions"]
       .map((selector) => panel.querySelector(selector)!);
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
   });
 
-  it("shows each option's label, note and recommendation", () => {
-    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
-    expect(screen.getByRole("button", { name: "Yes, apply it" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "No, leave it" })).toBeTruthy();
-    expect(screen.getByText("Changes the local database.")).toBeTruthy();
-    expect(screen.getAllByText("Recommended")).toHaveLength(1);
-    // The bytes an option sends are the route's business and never reach the screen.
-    expect(screen.queryByText("1")).toBeNull();
+  it("renders a v3 record's label and words and offers no answer button - not one option, no send, no typed reply", () => {
+    const { container } = render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
+
+    // CONTROL: the record is on screen, so the absences below are not a panel that failed to render.
+    expect(screen.getByText("Apply the migration now?")).toBeTruthy();
+    expect(screen.getByText(/The migration is written/)).toBeTruthy();
+
+    expect(screen.queryByRole("button", { name: "Yes, apply it" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "No, leave it" })).toBeNull();
+    expect(screen.queryByText("Changes the local database.")).toBeNull();
+    expect(screen.queryByText("Recommended")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send the chosen options" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send the typed reply" })).toBeNull();
+    expect(container.querySelector(".verdict-options")).toBeNull();
+    // The one button left is the report.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["This is wrong"]);
   });
 
-  it("answers a single-select tap with ONE request naming the verdict and that option", async () => {
-    fakeGateway(200, SENT);
-    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
+  it("renders a v4 record, which carries no menu and no options, the same way", () => {
+    const v4 = verdict({ answerVia: "reply", menu: null, options: [], evidence: "", label: "Asks which plan to take" });
+    render(<VerdictPanel sessionId={SID} session={session(v4)} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "No, leave it" }));
-
-    await waitFor(() => expect(screen.getByText("Sent to the session.")).toBeTruthy());
-    expect(calls).toEqual([
-      {
-        url: `/sessions/${SID}/turn-verdict/answer`,
-        method: "POST",
-        body: { verdictId: "tv-panel-1", optionIndexes: [1] },
-      },
-    ]);
-  });
-
-  it("collects a multiple-select's picks and sends them in the order picked, in ONE request", async () => {
-    fakeGateway(200, SENT);
-    const multi = verdict({
-      menu: { question: "Which parts?", selectionMode: "multiple", submit: "\r" },
-      options: [
-        { key: "the schema", send: "1", recommended: false, note: "" },
-        { key: "the data", send: "2", recommended: false, note: "" },
-        { key: "the seed rows", send: "3", recommended: false, note: "" },
-      ],
-    });
-    render(<VerdictPanel sessionId={SID} session={session(multi)} />);
-
-    const sendButton = screen.getByRole("button", { name: "Send the chosen options" }) as HTMLButtonElement;
-    expect(sendButton.disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "the seed rows" }));
-    fireEvent.click(screen.getByRole("button", { name: "the schema" }));
-    // A pick is a toggle, not a send.
-    expect(calls).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "the seed rows" }).getAttribute("aria-pressed")).toBe("true");
-
-    fireEvent.click(sendButton);
-
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0].body).toEqual({ verdictId: "tv-panel-1", optionIndexes: [2, 0] });
-  });
-
-  it("gives the parked reply one button that says it sends the typed reply, and sends an empty list", async () => {
-    fakeGateway(200, SENT);
-    const parked = verdict({
-      menu: { question: "Send the reply already typed: run the tests first", selectionMode: "single", submit: "\r" },
-      options: [],
-    });
-    render(<VerdictPanel sessionId={SID} session={session(parked)} />);
-
-    expect(screen.getByText("Send the reply already typed: run the tests first")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Send the typed reply" }));
-
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0].body).toEqual({ verdictId: "tv-panel-1", optionIndexes: [] });
-  });
-
-  it("shows the route's refusal sentence exactly as the route wrote it", async () => {
-    const reason = "The screen has changed since the Wingman read it, so nothing was sent. Look at the session again.";
-    fakeGateway(409, { accepted: false, code: "answer-screen-changed", reason, verdictId: "tv-panel-1" });
-    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Yes, apply it" }));
-
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe(reason);
-    expect(screen.queryByText("Sent to the session.")).toBeNull();
+    expect(screen.getByText("Asks which plan to take")).toBeTruthy();
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["This is wrong"]);
   });
 
   // ---- "this is wrong": the report that feeds the graded corpus (slice G) --------------------------------

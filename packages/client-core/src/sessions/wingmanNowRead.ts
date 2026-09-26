@@ -58,36 +58,13 @@ export interface WingmanNowSaid {
   text: string;
 }
 
-/** One thing the owner can answer with. `index` is what POST /turn-verdict/answer takes; `key` is the option's own words. */
-export interface WingmanNowOption {
-  index: number;
-  key: string;
-  note?: string | null;
-  recommended: boolean;
-  /**
-   * The number to SHOW beside the option, folded by the Gateway. `index` is the answer route's own zero-based
-   * position, an internal detail that reached the screen as "0" and "1" on a card people count from one.
-   */
-  number: number;
-}
-
-/** What the session needs from the owner: the agent's recommendation, the question it asked, and the options. */
+/**
+ * What the session needs from the owner: the heading, and the menu's question on a record stored under contract v3.
+ * There are no answer buttons (the turn pipeline mission, phase 4) - the reply box is the way to answer.
+ */
 export interface WingmanNowNeeds {
   heading: string;
-  recommends?: string | null;
   question?: string | null;
-  /**
-   * The Gateway's own short warning that answering this stop costs something that cannot be taken back - and the
-   * ONLY thing that makes the view warn. A client that worked out for itself which answers are dangerous would be
-   * ruling in the Gateway's place, so there is no rule here: no sentence, no warning.
-   */
-  riskFlag?: string | null;
-  /** What the risk is, in the Gateway's plain words. Null exactly when `riskFlag` is. */
-  riskLine?: string | null;
-  /** True when the screen must ask once before it sends. Set by the Gateway, never worked out here. */
-  confirmBeforeSending?: boolean;
-  /** The ways of answering, in the verdict's own order. Empty when the stop takes typed words only. */
-  options: WingmanNowOption[];
 }
 
 /** A card that says nothing is needed: done, only telling you, or carrying on. */
@@ -205,12 +182,6 @@ export interface WingmanNow {
   agentSaid?: WingmanNowSaid | null;
   wholeReply?: string | null;
   needs?: WingmanNowNeeds | null;
-  canAnswerByOption: boolean;
-  /** The verdict the options came from, which POST /sessions/{sid}/turn-verdict/answer takes alongside an option's
-   *  index. Null when there is no verdict in force. AT THE ROOT, not inside `needs`: that is where the route puts
-   *  it, and reading it from inside `needs` made every option answer fail with "The answer did not say which
-   *  verdict it answers, so nothing was sent." */
-  verdictId?: string | null;
   replyPlaceholder?: string | null;
   /**
    * What sending the reply box DOES, in the Gateway's words, shown beneath the box. Null exactly when

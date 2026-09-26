@@ -42,7 +42,7 @@ public sealed class FleetManagerWalkthroughFoldTests
         DirectorId = Director,
     };
 
-    internal static TurnVerdictDto Menu(string id = "verdict-layouts", string? agentRecommends = "It leans to A.") => new()
+    internal static TurnVerdictDto Menu(string id = "verdict-layouts") => new()
     {
         VerdictId = id,
         JudgedAtUtc = Now.AddMinutes(-41),
@@ -52,7 +52,6 @@ public sealed class FleetManagerWalkthroughFoldTests
         Label = "Which fire-safety layout to keep",
         Summary = "Both layouts are built and running. It asks which one to keep; the other is deleted.",
         Evidence = "Which layout should I keep? The other one will be deleted.",
-        AgentRecommends = agentRecommends,
         AnswerVia = "keys",
         Menu = new TurnVerdictMenuDto { Question = "Which layout should I keep?", SelectionMode = "single" },
         Options =
@@ -307,8 +306,6 @@ public sealed class FleetManagerWalkthroughFoldTests
         Assert.Equal("Both layouts are built and running. It asks which one to keep; the other is deleted.", item.Reading.Summary);
         Assert.Equal("In its own words:", item.Reading.EvidenceLead);
         Assert.Equal("Which layout should I keep? The other one will be deleted.", item.Reading.Evidence);
-        Assert.Equal("It recommends:", item.Reading.AgentRecommendsLead);
-        Assert.Equal("It leans to A.", item.Reading.AgentRecommends);
         Assert.Equal("Risk: irreversible", item.Reading.RiskLine);
 
         Assert.Equal("The Fleet Manager says", item.Advice.Heading);

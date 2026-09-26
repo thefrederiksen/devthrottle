@@ -88,24 +88,6 @@ public static class WingmanNowFold
     /// <summary>The heading over what the session needs.</summary>
     public const string NeedsHeading = "What it needs from you";
 
-    /// <summary>What leads the agent's own recommendation. The recommendation is the AGENT's, not the Wingman's, and
-    /// "It" is the session - so the lead says whose opinion is being read.</summary>
-    public const string RecommendsLead = "It recommends: ";
-
-    /// <summary>The line under the needs heading, saying what a tap does. The options are drawn as boxes and
-    /// nothing else on the card says a click is the answer going out.</summary>
-    public const string OptionsLeadText = "Click an option to send it as your answer";
-
-    // THE RISK WORDS, IN THE OWNER'S OWN WORDS. The judge answers one of four (see the turn-verdict contract);
-    // "none" is the fourth and carries nothing. Each flag is the short warning and each line is what it means.
-    public const string RiskFlagIrreversible = "Cannot be undone";
-    public const string RiskLineIrreversible = "Answering this stop does something that cannot be taken back.";
-    public const string RiskFlagStandingGrant = "Says yes from now on";
-    public const string RiskLineStandingGrant =
-        "Answering this stop can say yes to everything of this shape from now on, not only this once.";
-    public const string RiskFlagSpendsMoney = "Spends real money";
-    public const string RiskLineSpendsMoney = "Answering this stop spends real money.";
-
     /// <summary>The lead on the moment a session stopped.</summary>
     public const string StoppedAtLead = "Stopped at";
 
@@ -403,7 +385,6 @@ public static class WingmanNowFold
             ShowWhyColour = !string.Equals(state, WingmanNowStates.SwitchedOff, StringComparison.Ordinal),
             When = When(state, live, row, verdicts, answered),
             Voice = Voice(state, row, live),
-            VerdictId = live?.VerdictId,
             ReplyPlaceholder = ReplyPlaceholder(state),
             ReplyHint = ReplyPlaceholder(state) is null ? null : ReplyHint(state),
         };
@@ -532,7 +513,6 @@ public static class WingmanNowFold
         if (string.Equals(state, WingmanNowStates.NeedsYou, StringComparison.Ordinal))
         {
             answer.Needs = Needs(live);
-            answer.CanAnswerByOption = CanAnswerByOption(live, verdicts);
         }
         else
         {
@@ -805,139 +785,19 @@ public static class WingmanNowFold
         };
     }
 
+    /// <summary>
+    /// What the session needs, as the card draws it: the heading, and the menu's question when a record stored under
+    /// contract v3 carries one. THERE ARE NO ANSWER BUTTONS (the turn pipeline mission, phase 4; the owner, 25
+    /// September: "Drop the buttons for now. A menu is simply needs you, and the narration says open the session to
+    /// choose"). The agent's recommendation, the options and the risk warning that made a tap ask first all served
+    /// the buttons, and went with them. The reply box is the way to answer.
+    /// </summary>
     private static WingmanNowNeedsDto Needs(TurnVerdictDto live)
-    {
-        var needs = new WingmanNowNeedsDto
+        => new()
         {
             Heading = NeedsHeading,
-            Recommends = Recommends(live),
             Question = NullIfBlank(live.Menu?.Question),
-            OptionsLead = live.Options.Count > 0 ? OptionsLeadText : null,
-            // THE RISK WORD IS CUT IN CONTRACT v3 (owner ruling, 2026-09-18), so on every reading made since, all
-            // three of these are absent and the Now screen raises no confirm. The consequence still reaches the
-            // owner: it is in the note beside the button he is about to press, which is where the owner ruled it
-            // belongs - at the point of decision, attached to the choice, where it can change what he does. These
-            // lines stay because a record stored before v3 still carries the word, and a reading in hand should be
-            // shown as it was made rather than silently re-read under the new contract.
-            RiskFlag = RiskFlag(live.Risk),
-            RiskLine = RiskLine(live.Risk),
-            ConfirmBeforeSending = RiskFlag(live.Risk) is not null,
         };
-        for (var i = 0; i < live.Options.Count; i++)
-        {
-            var option = live.Options[i];
-            needs.Options.Add(new WingmanNowOptionDto
-            {
-                // The POSITION, because that is what the answer route takes. The option's own bytes are deliberately
-                // not carried: the Cockpit sends an index and the Gateway decides what that means, so nothing a
-                // client holds can be replayed into a session as keystrokes.
-                Index = i,
-                // And the number he READS, which is that plus one. See WingmanNowOptionDto.Number.
-                Number = i + 1,
-                Key = option.Key,
-                Note = option.Note,
-                Recommended = option.Recommended,
-            });
-        }
-        return needs;
-    }
-
-    /// <summary>
-    /// THE AGENT'S RECOMMENDATION, OR NOTHING - and nothing is the common answer.
-    ///
-    /// The screen already carries the ask three times over: the headline, the story, and the agent's own decisive
-    /// sentence. A judge asked for "the agent's own recommendation, quoted or closely paraphrased" very often
-    /// answers with the ask again, and a fourth copy of one sentence under the words "It recommends" is how a
-    /// reader learns to stop reading the card. So this line is shown only when it ADDS something:
-    ///
-    /// 1. NOT A QUESTION. A recommendation cannot be a question. When the agent's own words are one - "Want me to
-    ///    land it to main and deploy?" - there is nothing to state, and rewriting a question into a statement
-    ///    would be this fold putting words in the agent's mouth. The RECOMMENDED mark on the option is what says
-    ///    which way it leans, and it says it without a sentence.
-    /// 2. NOT THE ASK AGAIN. Measured against the three sentences already on the card - the menu's question, the
-    ///    Wingman's headline and the agent's receipt - with punctuation, case and spacing ignored. Either
-    ///    containing the other counts, because a paraphrase that only adds "Should I " adds nothing.
-    ///
-    /// What survives both is a statement that says something the rest of the card does not, and the lead makes it
-    /// read as one: "It recommends: committing and deploying."
-    /// </summary>
-    private static string? Recommends(TurnVerdictDto live)
-    {
-        if (NullIfBlank(live.AgentRecommends) is not { } recommends) return null;
-        if (recommends.TrimEnd().EndsWith('?')) return null;
-
-        foreach (var already in new[] { live.Menu?.Question, live.Label, live.Evidence })
-        {
-            if (NullIfBlank(already) is { } other && SaysTheSameThing(other, recommends)) return null;
-        }
-
-        return RecommendsLead + recommends;
-    }
-
-    /// <summary>
-    /// Whether two owner-facing sentences say the same thing: equal, or one inside the other, once punctuation,
-    /// case and runs of whitespace are taken out.
-    ///
-    /// CONTAINMENT RATHER THAN EQUALITY, because the sentences this is asked about differ by a lead-in and
-    /// nothing else - "Commit and deploy the fixes?" against "Want me to commit and deploy the fixes?". A test
-    /// for equality would pass every one of them through and change nothing.
-    /// </summary>
-    private static bool SaysTheSameThing(string left, string right)
-    {
-        var a = Normalise(left);
-        var b = Normalise(right);
-        if (a.Length == 0 || b.Length == 0) return false;
-        return a.Contains(b, StringComparison.Ordinal) || b.Contains(a, StringComparison.Ordinal);
-    }
-
-    /// <summary>A sentence with its punctuation, case and spacing taken out, for comparing one against another.
-    /// It is never shown to anybody - only compared - so nothing here has to read.</summary>
-    private static string Normalise(string text)
-    {
-        var chars = new List<char>(text.Length);
-        foreach (var c in text)
-        {
-            if (char.IsLetterOrDigit(c)) chars.Add(char.ToLowerInvariant(c));
-            else if (c == ' ' && chars.Count > 0 && chars[^1] != ' ') chars.Add(' ');
-        }
-        return new string(chars.ToArray()).Trim();
-    }
-
-    /// <summary>The short warning for a risk word, or null for "none" and for a record that carries none.</summary>
-    private static string? RiskFlag(string? risk) => risk switch
-    {
-        TurnVerdictVocabulary.RiskIrreversible => RiskFlagIrreversible,
-        TurnVerdictVocabulary.RiskStandingGrant => RiskFlagStandingGrant,
-        TurnVerdictVocabulary.RiskSpendsMoney => RiskFlagSpendsMoney,
-        _ => null,
-    };
-
-    /// <summary>What that warning means, in one sentence.</summary>
-    private static string? RiskLine(string? risk) => risk switch
-    {
-        TurnVerdictVocabulary.RiskIrreversible => RiskLineIrreversible,
-        TurnVerdictVocabulary.RiskStandingGrant => RiskLineStandingGrant,
-        TurnVerdictVocabulary.RiskSpendsMoney => RiskLineSpendsMoney,
-        _ => null,
-    };
-
-    /// <summary>
-    /// Whether the options may still be tapped. Every gate below can only turn a tap OFF, and each one alone is
-    /// enough: the verdict is the one in force (it is the row's, so it is neither failed nor superseded), nobody has
-    /// answered it, and it offers two or more ways of answering - one option is not a choice.
-    ///
-    /// AN UNKNOWN ANSWER MOMENT COUNTS AS ANSWERED. When the verdict in force is not in the history window read for
-    /// this view, this fold cannot say whether the owner has already answered it, and offering a tap it cannot
-    /// support would end in the answer route refusing it with "that was already answered". The options stay readable
-    /// and the reply box stays open, so nothing is lost but the one-tap path.
-    /// </summary>
-    private static bool CanAnswerByOption(TurnVerdictDto live, IReadOnlyList<AnsweredTurnVerdict> verdicts)
-    {
-        if (live.Options.Count < 2) return false;
-        var stored = verdicts.FirstOrDefault(v =>
-            string.Equals(v.Verdict.VerdictId, live.VerdictId, StringComparison.Ordinal));
-        return stored is not null && stored.AnsweredAtUtc is null;
-    }
 
     /// <summary>
     /// The agent's whole last reply, word for word: the TEXT parts of the newest assistant message, joined.

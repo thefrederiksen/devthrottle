@@ -27,7 +27,6 @@ export interface WingmanDebugStop {
   /** The five fields of the contract, as validation kept them. */
   state?: string | null;
   label?: string | null;
-  agentRecommends?: string | null;
   narration?: string | null;
   failed: boolean;
   failureReason?: string | null;

@@ -27,8 +27,6 @@ afterEach(() => cleanup());
  */
 const SAMPLE = gatewaySample as unknown as Record<string, WingmanNowDto>;
 
-const accepts = () => vi.fn(async () => ({ accepted: true, message: "" }));
-
 /** A reading moment a fixed distance after the instant the Gateway sent, so an elapsed sentence is exact. */
 function minutesAfter(utc: string, minutes: number): Date {
   return new Date(new Date(utc).getTime() + minutes * 60_000);
@@ -42,17 +40,17 @@ describe("Now, rendered from the answer the Gateway actually sends", () => {
     }
   });
 
-  it("carries the verdict identifier to the answer route, from the root of the answer where the route puts it", () => {
+  it("draws a needs-you answer with no option buttons, because the Gateway sends none", () => {
     const now = SAMPLE.needsYou;
-    const onAnswerOption = accepts();
-    render(<WingmanNow now={now} at={minutesAfter(now.when!.atUtc, 8)} actions={{ onAnswerOption }} />);
+    const { container } = render(<WingmanNow now={now} at={minutesAfter(now.when!.atUtc, 8)} />);
 
-    fireEvent.click(screen.getByText("Option 0"));
-
-    // The one assertion the whole screen turns on. It was null against this exact answer, and the answer route
-    // refuses an empty verdict identifier without touching the session.
-    expect(onAnswerOption).toHaveBeenCalledWith(now.needs!.options[0], "verdict-1");
-    expect(now.verdictId).toBe("verdict-1");
+    expect(screen.getByText("What it needs from you")).toBeTruthy();
+    expect(container.querySelector(".wnow-option")).toBeNull();
+    // The retired fields are not on the wire at all - the fold stopped writing them.
+    const wire = now as unknown as Record<string, unknown>;
+    expect("canAnswerByOption" in wire).toBe(false);
+    expect("verdictId" in wire).toBe(false);
+    expect(Object.keys(now.needs as unknown as Record<string, unknown>).sort()).toEqual(["heading", "question"]);
   });
 
   it("shows the agent's own decisive sentence, which the Gateway sends as text", () => {
@@ -62,7 +60,6 @@ describe("Now, rendered from the answer the Gateway actually sends", () => {
     expect(screen.getByText("Claude Code said")).toBeTruthy();
     expect(screen.getByText("Either merge 3002 yourself, or allow that command and I will do it.")).toBeTruthy();
     expect(screen.getByText("What it needs from you")).toBeTruthy();
-    expect(screen.getByText("Option 1")).toBeTruthy();
   });
 
   it("says how long a working session has been working, and names no clock time", () => {
@@ -138,10 +135,10 @@ describe("Now, rendered from the answer the Gateway actually sends", () => {
       }
     };
 
-    for (const key of ["sessionId", "state", "pillText", "canAnswerByOption", "voice.kind"]) {
+    for (const key of ["sessionId", "state", "pillText", "voice.kind"]) {
       for (const answer of Object.values(SAMPLE)) present(answer, key);
     }
-    for (const key of ["verdictId", "agentSaid.who", "agentSaid.text", "needs.heading", "needs.options"]) {
+    for (const key of ["agentSaid.who", "agentSaid.text", "needs.heading"]) {
       present(SAMPLE.needsYou, key);
     }
     for (const key of ["when.lead", "when.atUtc", "when.showAgo", "when.elapsedOnly"]) {

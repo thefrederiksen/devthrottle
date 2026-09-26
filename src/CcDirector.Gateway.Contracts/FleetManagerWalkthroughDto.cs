@@ -125,10 +125,6 @@ public sealed class FleetWalkthroughReadingDto
     public string? EvidenceLead { get; set; }
     public string? Evidence { get; set; }
 
-    /// <summary>The session's own recommendation, as the Wingman recorded it.</summary>
-    public string? AgentRecommendsLead { get; set; }
-    public string? AgentRecommends { get; set; }
-
     /// <summary>"Risk: irreversible", or null when there is none.</summary>
     public string? RiskLine { get; set; }
 }

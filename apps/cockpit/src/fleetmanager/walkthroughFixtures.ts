@@ -65,8 +65,6 @@ export function menuItem(): FleetWalkthroughItem {
       summary: "Both layouts are built and running locally. The other one is deleted.",
       evidenceLead: "In its own words:",
       evidence: "Which layout should I keep?  The other one will be deleted.",
-      agentRecommendsLead: "It recommends:",
-      agentRecommends: "It leans to A.",
       riskLine: "Risk: irreversible",
     },
     advice: {

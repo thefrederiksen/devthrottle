@@ -97,9 +97,13 @@ public sealed class NarrationCallTests : IDisposable
         return new Rig(voice, verdicts, env, speech);
     }
 
-    /// <summary>A narration call's answer, wrapped in the markers the prompt asks for.</summary>
-    private static string Answer(string spoken)
-        => $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
+    /// <summary>The label every narration below answers with.</summary>
+    private const string NarratedLabel = "Pull request open, review can start";
+
+    /// <summary>A narration call's answer in the shape the prompt asks for: the label line, the narration line and the
+    /// words, between the markers.</summary>
+    private static string Answer(string spoken, string label = NarratedLabel)
+        => $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{NarrationCall.LabelTag} {label}\n{NarrationCall.NarrationTag}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
 
     private static async Task HostTurnEndAsync(Rig rig, SessionVerbClient route)
     {
@@ -185,7 +189,7 @@ public sealed class NarrationCallTests : IDisposable
     public async Task ATurnEndOnASessionThatAnswersToTheUser_WithVoiceOff_MakesOneNarrationCall_AndSavesItsTextOnTheVerdict()
     {
         var rig = Build();
-        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
@@ -207,13 +211,13 @@ public sealed class NarrationCallTests : IDisposable
     public async Task ATurnEndOnASessionAnotherSessionOwns_MakesNoNarrationCall()
     {
         var rig = Build();
-        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         var judged = await rig.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
         Assert.Equal(TurnVerdictOutcomeKind.Judged, judged.Kind);
         Assert.Equal(1, rig.Env.NarratorCalls);   // control: the same stop, owned by the user, is narrated
 
         var owned = Build();
-        owned.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        owned.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         // Owned by a live session from the moment it was judged: a session that becomes owned while its verdict is
         // being formed. The held check before the narration call stops it; ownership is answered here by whether the
         // judge has run.
@@ -231,7 +235,7 @@ public sealed class NarrationCallTests : IDisposable
     public async Task AnAccountWhosePlanLacksTheWingman_GetsTheProSentenceAsItsNarration_AndNoModelCall()
     {
         var rig = Build();
-        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         rig.Env.Plan = () => NarrationPlan.NeedsPro;
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
@@ -244,7 +248,7 @@ public sealed class NarrationCallTests : IDisposable
     public async Task AVoiceSessionOnAPlanWithoutTheWingman_HearsTheProSentence()
     {
         var rig = Build();
-        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         rig.Env.Plan = () => NarrationPlan.NeedsPro;
         rig.Voice.Mark(Tenant, Sid);
 
@@ -259,7 +263,7 @@ public sealed class NarrationCallTests : IDisposable
     public async Task AnAccountWhosePlanCouldNotBeRead_GetsNoNarration_AndIsNeverToldToUpgrade()
     {
         var rig = Build();
-        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         rig.Env.Plan = () => NarrationPlan.Unknown;
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
@@ -272,7 +276,7 @@ public sealed class NarrationCallTests : IDisposable
     public async Task ASavedNarration_IsNotMadeAgain_AndIsWhatVoiceSpeaksWhenVoiceIsTurnedOnLater()
     {
         var rig = Build();
-        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
         Assert.Equal(1, rig.Env.NarratorCalls);
 
@@ -290,7 +294,7 @@ public sealed class NarrationCallTests : IDisposable
     public async Task AVoiceSessionsNarration_IsSavedOnTheVerdictToo()
     {
         var rig = Build();
-        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         rig.Voice.Mark(Tenant, Sid);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
@@ -346,12 +350,16 @@ public sealed class NarrationCallTests : IDisposable
     // ================================================================= what the call is given
 
     /// <summary>
-    /// A PICKER STOP IS NEEDS-YOU AND NOTHING MORE (contract v4; the owner, 25 September: "A menu is simply needs
-    /// you ... Nobody is told to press a button that is not there"). Code decides it at the picker step, with no model
-    /// call, and the narration is handed a reply-shaped decision - no menu, no options, and no press-a-button line.
+    /// A PICKER STOP IS NEEDS-YOU, AND ITS NARRATION SAYS TO OPEN THE SESSION TO CHOOSE (phase 4; the owner, 25
+    /// September: "A menu is simply needs you, and the narration says open the session to choose. Nobody is told to
+    /// press a button that is not there"). Code decides it at the picker step, with no model call; Call B is handed the
+    /// word, the step's reason, and the code-owned closing sentence - and no menu, no options, no KEYS/REPLY line.
+    ///
+    /// IN VOICE MODE TOO (phase 3 review, finding F1): the session here is a voice session, and the clip the listener
+    /// hears is Call B's own words - the ones told to end with "open the session to choose" - with nothing appended.
     /// </summary>
     [Fact]
-    public async Task APickerStop_IsDecidedByCode_AndIsNeverToldToPressAButton()
+    public async Task APickerStop_InVoiceMode_IsDecidedByCode_AndItsNarrationIsToldToSayOpenTheSessionToChoose()
     {
         var rig = Build(menu: true);
         rig.Voice.Mark(Tenant, Sid);
@@ -363,11 +371,17 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal("picker", stored.DecidedBy);
         Assert.Equal("needs-you", stored.State);
         var prompt = Assert.Single(rig.Env.NarratorPrompts);
-        Assert.Contains("How the person answers: REPLY", prompt);
+        Assert.Contains("What the stop is: needs-you", prompt);
+        Assert.Contains("Why: " + stored.DecisionReason, prompt);
+        Assert.Contains(NarrationCall.MenuClosingInstruction, prompt);
+        Assert.Contains("open the session to choose", prompt);
+        Assert.DoesNotContain("How the person answers", prompt);
         Assert.DoesNotContain("The menu's question:", prompt);
-        // The code-owned closing sentence for a menu is not added. (The shipped fidelity rules still describe a menu
-        // stop in general terms; phase 4 removes that wording with the buttons.)
-        Assert.DoesNotContain("This stop is a menu: end by telling the person to press a button", prompt);
+        Assert.DoesNotContain("press a button", prompt);
+        // The listener hears exactly Call B's words, and the reading carries Call B's label.
+        Assert.True(rig.Voice.IsVoiceSession(Tenant, Sid));
+        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+        Assert.Equal(NarratedLabel, stored.Label);
     }
 
     [Fact]
@@ -379,7 +393,8 @@ public sealed class NarrationCallTests : IDisposable
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
         var prompt = Assert.Single(rig.Env.NarratorPrompts);
-        Assert.Contains("How the person answers: REPLY", prompt);
+        Assert.DoesNotContain("How the person answers", prompt);
+        Assert.DoesNotContain(NarrationCall.MenuClosingInstruction, prompt);
         Assert.DoesNotContain("The menu's question:", prompt);
         Assert.Contains(ReplyText, prompt);
     }
@@ -418,7 +433,7 @@ public sealed class NarrationCallTests : IDisposable
         Assert.False(rig.Voice.HasVoice(Tenant, Sid));
         Assert.Equal(0, rig.Speech.Calls);
         // The JUDGEMENT itself survived - only the words are missing. The row still knows what the stop is: its
-        // state. A v4 reading carries no label until phase 4 moves the label to the narration call.
+        // state. Call B failed, so there is no label either, and the row shows its plain state label.
         var stored = rig.Env.Latest(Tenant, Sid)!;
         Assert.False(stored.Failed, stored.FailureReason);
         Assert.Equal("", stored.Narration ?? "");
@@ -657,9 +672,10 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(1150, fullSentences.Length);                            // CONTROL: 1,150 characters of full sentences
         Assert.True(answer.Length > NarrationCall.MaxChars);                  // CONTROL: and the answer crosses 1,200 mid-sentence
 
-        var spoken = NarrationCall.SpokenFrom(Answer(answer));
+        var parsed = NarrationCall.ParseAnswer(Answer(answer));
 
-        Assert.Equal(fullSentences, spoken);
+        Assert.Null(parsed.FailureReason);
+        Assert.Equal(fullSentences, parsed.Spoken);
     }
 
     /// <summary>Whole sentences, joined by single spaces, exactly <paramref name="length"/> characters long.</summary>
@@ -678,9 +694,9 @@ public sealed class NarrationCallTests : IDisposable
         var answer = string.Concat(Enumerable.Repeat("The branch is pushed and the review can start. ", 20)) + "and one more clause";
         Assert.True(answer.Length < NarrationCall.MaxChars);
 
-        var spoken = NarrationCall.SpokenFrom(Answer(answer));
+        var parsed = NarrationCall.ParseAnswer(Answer(answer));
 
-        Assert.Equal(answer.Trim(), spoken);
+        Assert.Equal(answer.Trim(), parsed.Spoken);
     }
 
     [Fact]
@@ -908,12 +924,12 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     [Fact]
-    public void AStoredV3KeysRecord_OnAnAccountWithItsOwnInstructions_IsStillToldToEndByPressingAButton()
+    public void AStoredV3KeysRecord_OnAnAccountWithItsOwnInstructions_IsToldToSayOpenTheSessionToChoose()
     {
-        // Contract v4 never writes a keys record, but a v3 record reused on an unchanged screen still carries one, and
-        // its narration keeps its old shape until phase 4 removes the sentence. Custom instructions replace the whole
-        // fidelity prompt; the closing sentence for a menu lives in the code-owned decision block, so it cannot be
-        // edited away.
+        // Contract v4 never writes a keys record, but a v3 record reused on an unchanged screen still carries one.
+        // Custom instructions replace the whole fidelity prompt; the closing sentence for a menu lives in the
+        // code-owned decision block, so it cannot be edited away - and since phase 4 it sends the person to the
+        // session rather than to a button.
         var package = new TurnVerdictPackage { ScreenRows = MenuRows, LatestReply = "Choose one.", AgentKind = "ClaudeCode" };
         var v3Keys = new TurnVerdictDto
         {
@@ -926,8 +942,10 @@ public sealed class NarrationCallTests : IDisposable
         var prompt = NarrationCall.BuildPrompt(SpokenLanguages.English, "Speak briefly and plainly.", package, v3Keys);
 
         Assert.DoesNotContain(WingmanTranslator.FidelityPrompt.Trim(), prompt);   // CONTROL: the shipped prompt was replaced
-        Assert.Contains("How the person answers: KEYS", prompt);
-        Assert.Contains("end by telling the person to press a button on the phone to choose", prompt);
+        Assert.Contains(NarrationCall.MenuClosingInstruction, prompt);
+        Assert.DoesNotContain("How the person answers", prompt);
+        Assert.DoesNotContain(MenuQuestion, prompt);
+        Assert.DoesNotContain("press a button", prompt);
     }
 
     [Fact]

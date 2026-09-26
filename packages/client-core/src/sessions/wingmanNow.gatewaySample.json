@@ -25,31 +25,8 @@
     "wholeReply": "Earlier reply.",
     "needs": {
       "heading": "What it needs from you",
-      "recommends": "It recommends: allow the merge - the notes have been reviewed",
-      "question": null,
-      "optionsLead": "Click an option to send it as your answer",
-      "riskFlag": null,
-      "riskLine": null,
-      "confirmBeforeSending": false,
-      "options": [
-        {
-          "index": 0,
-          "number": 1,
-          "key": "Option 0",
-          "note": "What option 0 does.",
-          "recommended": true
-        },
-        {
-          "index": 1,
-          "number": 2,
-          "key": "Option 1",
-          "note": "What option 1 does.",
-          "recommended": false
-        }
-      ]
+      "question": null
     },
-    "canAnswerByOption": true,
-    "verdictId": "verdict-1",
     "replyPlaceholder": "Or answer in your own words.",
     "replyHint": "Sent to the session as your message. You can answer more than one question in one reply.",
     "snoozedUntil": null,
@@ -92,8 +69,6 @@
     "agentSaid": null,
     "wholeReply": null,
     "needs": null,
-    "canAnswerByOption": false,
-    "verdictId": null,
     "replyPlaceholder": "Send it something while it works - it is queued until it is ready.",
     "replyHint": "Sent to the session as your message.",
     "snoozedUntil": null,
@@ -146,8 +121,6 @@
     "agentSaid": null,
     "wholeReply": null,
     "needs": null,
-    "canAnswerByOption": false,
-    "verdictId": null,
     "replyPlaceholder": "Send it something while it works - it is queued until it is ready.",
     "replyHint": "Sent to the session as your message.",
     "snoozedUntil": null,
@@ -209,8 +182,6 @@
     },
     "wholeReply": null,
     "needs": null,
-    "canAnswerByOption": false,
-    "verdictId": "verdict-1",
     "replyPlaceholder": null,
     "replyHint": null,
     "snoozedUntil": null,
@@ -264,8 +235,6 @@
     },
     "wholeReply": null,
     "needs": null,
-    "canAnswerByOption": false,
-    "verdictId": "verdict-1",
     "replyPlaceholder": "Give it something else to do.",
     "replyHint": "Sent to the session as your message.",
     "snoozedUntil": null,
@@ -315,8 +284,6 @@
     },
     "wholeReply": null,
     "needs": null,
-    "canAnswerByOption": false,
-    "verdictId": "verdict-1",
     "replyPlaceholder": "Answer the session directly.",
     "replyHint": "Sent to the session as your message.",
     "snoozedUntil": {

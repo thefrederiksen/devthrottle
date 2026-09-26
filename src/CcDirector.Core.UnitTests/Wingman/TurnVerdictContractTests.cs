@@ -94,7 +94,6 @@ public sealed class TurnVerdictContractTests
         Assert.Equal("", record.Label);
         Assert.Null(record.Menu);
         Assert.Empty(record.Options);
-        Assert.Null(record.AgentRecommends);
         Assert.Equal("reply", record.AnswerVia);
     }
 

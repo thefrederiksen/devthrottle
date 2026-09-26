@@ -1440,8 +1440,10 @@ public sealed class WingmanVoiceService
             }
 
             // Announce a waiting menu AS THE STOP IS READ (issue #2193): voice cannot pick an option yet, so a
-            // stop that ends on a picker says so. The verdict is the judge's, and it already fed the menu cache
-            // the send-time guards read, under the same full-grid hash.
+            // stop that ends on a picker says so. The suffix below is reached only by a record stored under
+            // contract v3 with no saved narration: a v4 reading never carries a keys answer, and its narration is
+            // told by Call B to say "open the session to choose". A reading no longer feeds the menu cache the
+            // send-time guards read (contract v4) - the guard asks its own question on a menu-shaped screen.
             // Every spoken string goes through the one sanitize-for-speech pass, whether a model wrote it or not.
             // TWO STEPS, IN THIS ORDER, AND BOTH ARE NAMED BECAUSE THE SECOND ONE USED TO BE HIDDEN.
             // Finish strips Markdown for the ear and drops fenced blocks whole - it CAN lose words, and a
@@ -1450,7 +1452,7 @@ public sealed class WingmanVoiceService
             // An earlier version of this comment said the narration was untouched here, which was true of
             // the naming and false of the pair.
             // A SAVED NARRATION IS SPOKEN AS IT IS (owner ruling, 2026-09-17): it was written for this stop by the narration
-            // call and already ends with its own press-a-button sentence on a menu, so the suffix is not added to it.
+            // call and already ends with its own open-the-session sentence on a menu, so the suffix is not added to it.
             var saved = HasSavedNarration(verdict);
             var spoken = saved
                 ? Speech.SpokenForEar.Assemble(_sessionTitleResolver?.Invoke(tenant, sid), verdict.Narration!)
@@ -1530,8 +1532,8 @@ public sealed class WingmanVoiceService
     /// Make one stop's narration call and, when it answers, replace the clip for that verdict id with its words. The
     /// judge's text stays when the call fails, and it also stays when the stop has moved on while the call ran - a new
     /// turn, or a newer verdict's clip - because the narration then describes a stop nobody is listening to any more.
-    /// The menu sentence is NOT appended: the narration ends with its own press-a-button sentence when the judge said
-    /// the stop is a menu. Never throws for a failed call; the failure is logged by the verdict service.
+    /// The menu sentence is NOT appended: the narration ends with its own open-the-session sentence when the stop is a
+    /// menu. Never throws for a failed call; the failure is logged by the verdict service.
     /// </summary>
     private async Task RunNarrationCallAsync(TenantId tenant, string sid, TurnVerdictOutcome outcome, long stopEpoch, CancellationToken ct)
     {
@@ -1545,7 +1547,7 @@ public sealed class WingmanVoiceService
         }
         // SAVED FOR READING FIRST, whether or not the clip below is still current: the text describes its own verdict, and
         // the verdict service stores it only while that verdict is the session's latest.
-        RequireVerdicts().SaveNarration(tenant, sid, verdict.VerdictId, result.Spoken);
+        RequireVerdicts().SaveNarration(tenant, sid, verdict.VerdictId, result.Spoken, result.Label);
         // STILL THIS STOP: no Working edge, later user message or voice-off since the claim, and no clip for another
         // verdict. A store of this same verdict's words (explain, the voice-turn route) is NOT the stop moving on.
         bool StillCurrent()
@@ -1699,7 +1701,7 @@ public sealed class WingmanVoiceService
             NarrationCallResult words;
             try { words = await verdicts.NarrateAsync(tenant, sid, outcome, ct); }
             finally { verdicts.NarrationCallFinished(tenant, sid, verdict.VerdictId); }
-            if (words.Spoken is not { Length: > 0 } written || !verdicts.SaveNarration(tenant, sid, verdict.VerdictId, written))
+            if (words.Spoken is not { Length: > 0 } written || !verdicts.SaveNarration(tenant, sid, verdict.VerdictId, written, words.Label))
                 return new AskAgainResult(true, "That attempt failed too. " + WingmanErrorFold.ReasonFor(verdict) + " The schedule is unchanged.");
         }
         if (route is not null && IsVoiceSession(tenant, sid))

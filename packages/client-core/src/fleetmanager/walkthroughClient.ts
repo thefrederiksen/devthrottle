@@ -16,8 +16,6 @@ export interface FleetWalkthroughReading {
   evidenceLead?: string | null;
   /** The session's own words, copied exactly. */
   evidence?: string | null;
-  agentRecommendsLead?: string | null;
-  agentRecommends?: string | null;
   riskLine?: string | null;
 }
 

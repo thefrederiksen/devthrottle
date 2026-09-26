@@ -196,7 +196,6 @@ public sealed class WingmanNowRouteTests : IDisposable
         Label = "Merge pull request 3002, or allow me to merge it",
         Summary = "The merge command was refused by a permission check.",
         Evidence = "Either merge 3002 yourself, or allow that command and I will do it.",
-        AgentRecommends = "allow the merge",
         AnswerVia = "reply",
         Options =
         {
@@ -339,29 +338,8 @@ public sealed class WingmanNowRouteTests : IDisposable
         // The agent tool's display name comes from the roster fold's stamp, not from anything this route knows.
         Assert.Equal("Claude Code said", now.AgentSaid!.Who);
         Assert.Equal("I need help with three things. The merge was refused by a permission check.", now.WholeReply);
-        Assert.Equal("verdict-now-1", now.VerdictId);
-        Assert.True(now.CanAnswerByOption);
-        Assert.Equal(2, now.Needs!.Options.Count);
+        Assert.Equal("What it needs from you", now.Needs!.Heading);
         Assert.Equal(Stopped, now.When!.AtUtc);
-    }
-
-    /// <summary>The one-tap path closes the moment the store says the verdict was answered - and it is the STORE
-    /// that says so, not anything this view was handed.</summary>
-    [Fact]
-    public void An_answered_verdict_is_served_with_its_options_readable_and_no_longer_tappable()
-    {
-        var verdict = NeedsYouVerdict();
-        var verdicts = StoreHolding(verdict);
-        var pushed = PushedHolding(Sid);
-
-        var before = BodyOf(Read(Caller.Device, Sid, verdicts, pushed));
-        Assert.True(before.CanAnswerByOption);
-
-        Assert.True(verdicts.MarkAnswered(Account, Chose(verdict), Stopped.AddMinutes(2)));
-
-        var after = BodyOf(Read(Caller.Device, Sid, verdicts, pushed));
-        Assert.False(after.CanAnswerByOption);
-        Assert.Equal(2, after.Needs!.Options.Count);
     }
 
     /// <summary>

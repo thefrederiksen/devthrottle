@@ -37,8 +37,31 @@ not one of the words is not re-attempted for a listener, because at temperature 
 Every record says which step decided it and why (`DecidedBy`, `DecisionReason`), and so does the debug view.
 
 **Gone from Call A:** the label, what the agent recommends, the menu and the options, and `InventedMenuCheck`,
-which had nothing left to correct. A v4 reading carries no label until phase 4 moves it to the narration call; the
-row shows its plain state label meanwhile. A record stored under v3 keeps its fields and still renders.
+which had nothing left to correct. A record stored under v3 keeps its fields and still renders.
+
+**Call B writes the label and the narration, and nothing else (phase 4).** `NarrationCall.BuildPrompt` is given
+the reply, the recent turns, the screen, the account's narration rules and language, Call A's word, and - when a
+code step decided - that step's reason. It is no longer given a menu, options, a recommendation or a "keys or
+reply" line. It answers, between the usual markers:
+
+```
+LABEL: <at most ten words - what the row shows>
+NARRATION:
+<the spoken version>
+```
+
+`NarrationCall.ParseAnswer` reads the two parts mechanically. Any other shape - no label line, an empty or
+eleven-word label, no narration line, no words - is a failed Call B: Call A's colour stands, the record has no
+label (the row shows its plain state label) and no words, and it carries `NarrationFailureReason`. Nothing is
+stored until both calls are done, so colour, label and words appear together. A person asking again after a
+failed Call B saves the label with the words.
+
+**A menu is "open the session to choose".** On a stop Call A's picker step decided (or a v3 record answered with
+keys), the code-owned closing sentence tells the narration to say what is being asked and to tell the person to
+open the session to choose. No prompt tells anyone to press a button: there is none. The Cockpit's answer buttons
+(the verdict panel's options and the Now card's options, with the "It recommends" line and the confirm-before-send
+warning) are gone, and so is `agentRecommends` everywhere it was produced or shown. The answer route itself stays,
+with its screen check, because the Fleet Manager walkthrough still answers through it.
 
 **The send-time menu cache is no longer fed by a reading.** Call A does not say whether a menu is drawn, so the
 voice-reply guard (`WaitingScreenReader.ConfirmedMenuAsync`) asks its own question on a menu-shaped screen and

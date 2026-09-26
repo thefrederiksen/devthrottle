@@ -108,11 +108,11 @@ public static class SpokenPaths
     public static readonly IReadOnlyDictionary<string, string> NotSpokenOutput = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["TurnVerdictPrompt.BuildVerdictPrompt"] =
-            "Asks what one stop means and returns JSON code parses: a state word from a closed English set, a "
-            + "short label, what the agent recommends, and a menu whose option keys are KEYSTROKES TYPED INTO A "
-            + "TERMINAL. Contract v3 cut the \"spoken\" field it used to answer, so nothing it produces is read "
-            + "aloud; the narration call writes every spoken word and is registered above. Translating this one "
-            + "would change a state word the parser matches and the bytes sent to a live session.",
+            "Call A's model step (contract v4): asks whether a stop needs its owner and answers exactly one word "
+            + "from a closed English set - needs-you, done or carrying-on - which code matches and maps to a "
+            + "colour. It answers no label, no prose and no keystrokes, so nothing it produces is read aloud or "
+            + "shown; the narration call (Call B) writes the label and every spoken word and is registered above. "
+            + "Translating this one would change the word the parser matches.",
         ["WingmanTranslator.BuildMenuMapPrompt"] =
             "Returns a single option number for code to act on. Nothing it produces is ever spoken.",
         ["DictionarySuggestionScreen.BuildPrompt"] =

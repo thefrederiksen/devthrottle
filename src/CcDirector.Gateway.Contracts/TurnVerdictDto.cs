@@ -91,8 +91,6 @@ public sealed class TurnVerdictDto
     /// </summary>
     public string Summary { get; set; } = "";
 
-    /// <summary>The agent's own recommendation, quoted or closely paraphrased, when it made one.</summary>
-    public string? AgentRecommends { get; set; }
 
     /// <summary>"reply" (typed words) or "keys" (a selection in a picker). DERIVED from contract v3 - a menu on
     /// the record means keys, no menu means a reply - rather than asked of the judge, which could contradict
