@@ -124,9 +124,10 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         // Proves, through the real routes, the phase 2 sequence as phase 5 drives it: the prompt verb goes out and no
         // answer comes back, the Gateway asks the Director instead of calling it a failure, the Director says not
         // delivered - held as "retrying" (202), never a 502, because the Gateway owns it now. With NO further client
-        // call, the Gateway's own attempt (its driver's tick) asks FIRST, hears not delivered again, transcribes, sends
-        // and delivers. Every line - the ownership, the drive with what woke it and its attempt number, the question and
-        // why - is read back through GET /dictation/{uploadId}/decisions, in order, and none holds the words.
+        // call, the Gateway's own attempt (its driver's tick) asks FIRST, hears not delivered again, REUSES the kept
+        // words - one transcription in total, never paid for twice (contract section 8) - sends and delivers. Every
+        // line - the ownership, the drive with what woke it and its attempt number, the question and why - is read
+        // back through GET /dictation/{uploadId}/decisions, in order, and none holds the words.
         var uploadId = await RegisterAndUploadAsync();
         var prompts = 0;
         _director.OnCommand(cmd => cmd.Verb switch
@@ -160,7 +161,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
             DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer, DeliveryDecisions.AskedDirector,
             DeliveryDecisions.DeliveryStateAnswer, DeliveryDecisions.StillDelivering,
             DeliveryDecisions.GatewayDrive, DeliveryDecisions.AskedDirector, DeliveryDecisions.DeliveryStateAnswer,
-            DeliveryDecisions.Transcribed, DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer,
+            DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer,
             DeliveryDecisions.Delivered,
         }, lines.Select(l => l.GetProperty("decision").GetString()));
         Assert.Equal(DeliveryDecisions.AskReasonPromptUnanswered, lines[5].GetProperty("facts").GetProperty("reason").GetString());
