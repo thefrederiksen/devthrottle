@@ -114,9 +114,12 @@ internal sealed class HeldDeliveryDriver : IDisposable
 
     /// <summary>
     /// A delivery the Gateway just took over: from now on this driver finishes it. Its first attempt by the driver is due
-    /// after the shortest wait - the owner's own call is making the first attempt right now.
+    /// after the shortest wait - the owner's own call is making the first attempt right now. The start-up pass passes
+    /// <c>startupPass: true</c>: it drives the delivery immediately itself, so its next attempt is not due until that
+    /// attempt has run and set the wait (the tick must not steal a delivery the pass is about to drive, and name the
+    /// wrong wake-up on its decision line).
     /// </summary>
-    public void Track(TenantId tenant, string uploadId, HeldDeliveryKind kind)
+    public void Track(TenantId tenant, string uploadId, HeldDeliveryKind kind, bool startupPass = false)
     {
         if (kind == HeldDeliveryKind.TypedPrompt && _typedPrompts is null)
             throw new InvalidOperationException("a typed prompt was handed to the held-delivery driver before its store was attached");
@@ -126,20 +129,26 @@ internal sealed class HeldDeliveryDriver : IDisposable
             ?? throw new ArgumentException($"'{uploadId}' is not a {kind} id", nameof(uploadId));
         var now = Now();
         _held.AddOrUpdate(Key(tenant, uid, kind),
-            _ => new Held { Tenant = tenant, UploadId = uid, Kind = kind, NextDueUtc = now + ShortestWait },
+            _ => new Held { Tenant = tenant, UploadId = uid, Kind = kind,
+                NextDueUtc = startupPass ? DateTimeOffset.MaxValue : now + ShortestWait },
             (_, existing) => existing);
         FileLog.Write($"[HeldDeliveryDriver] tracking {kind} upload={uid} tenant={tenant.ToLogString()}");
     }
 
     /// <summary>
     /// The Gateway started: find every owned, unfinished delivery on disk, in every partition, and attempt each one now
-    /// (<see cref="DeliveryDecisions.DriveGatewayStarted"/>); then start the tick. A delivery that cannot be read is
-    /// written up and not driven.
+    /// (<see cref="DeliveryDecisions.DriveGatewayStarted"/>). THE TICK STARTS FIRST (Voice Delivery phase 5, review
+    /// round, the review's finding 3): the pass is serial and can be slow - each attempt can wait out a thirty-second
+    /// send and a thirty-second question - and while it works, a delivery newly taken over by a complete call must get
+    /// its first driver attempt on the ordinary cadence, not queued behind every held record the pass is still working
+    /// through. The pass's own deliveries are not due to the tick: the pass drives them now, and each attempt sets the
+    /// next wait when it stays held. A delivery that cannot be read is written up and not driven.
     /// </summary>
     public async Task StartAsync()
     {
         if (_delivery is null)
             throw new InvalidOperationException("the held-delivery driver was started before the dictation routes attached their delivery core");
+        _timer = new Timer(_ => _ = TickAsync(), null, TickInterval, TickInterval);
         var found = 0;
         foreach (var tenant in PartitionTenants())
         {
@@ -153,7 +162,7 @@ internal sealed class HeldDeliveryDriver : IDisposable
                         new DeliveryDecisionFacts { Error = problem, Trigger = DeliveryDecisions.DriveGatewayStarted });
                     continue;
                 }
-                Track(tenant, held.UploadId, held.Kind);
+                Track(tenant, held.UploadId, held.Kind, startupPass: true);
                 found++;
             }
         }
@@ -167,14 +176,13 @@ internal sealed class HeldDeliveryDriver : IDisposable
                 if (_hosted && tenant.Equals(TenantId.Local)) continue;
                 foreach (var (deliveryId, _) in _typedPrompts.ForTenant(tenant).HeldDeliveries())
                 {
-                    Track(tenant, deliveryId, HeldDeliveryKind.TypedPrompt);
+                    Track(tenant, deliveryId, HeldDeliveryKind.TypedPrompt, startupPass: true);
                     found++;
                 }
             }
         }
         FileLog.Write($"[HeldDeliveryDriver] started: {found} held deliver{(found == 1 ? "y" : "ies")} found on disk; tick every {TickInterval.TotalSeconds:0.###}s");
         await DriveAsync(_held.Values.ToList(), DeliveryDecisions.DriveGatewayStarted);
-        _timer = new Timer(_ => _ = TickAsync(), null, TickInterval, TickInterval);
     }
 
     /// <summary>

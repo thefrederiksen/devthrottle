@@ -203,6 +203,71 @@ public sealed class HeldDeliveryDriverTests : IDisposable
         Assert.Equal(0, restarted.HeldCount);
     }
 
+    // ===== the tick runs while the start-up pass is still working (review round, finding 3) =============
+
+    [Fact]
+    public async Task TheTickDrivesANewlyHeldDelivery_WhileTheStartUpPassIsStillWorkingThroughItsOwn()
+    {
+        // The start-up pass is serial and can be slow - each attempt can wait out a long send - and it used
+        // to hold the TICK: the timer was not even created until the whole pass finished, so a delivery taken
+        // over while the pass was working waited for every held record on disk before its first driver
+        // attempt. Here the pass is BLOCKED inside its one held delivery's send, and while it is blocked a
+        // second delivery is taken over exactly as the complete route does: the REAL tick must give it its
+        // first driver attempt within the bounded wait - on the old code no timer exists yet, and the wait
+        // fails.
+        var blockedPrompt = new TaskCompletionSource<DirectorCommandResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var enteredBlock = new TaskCompletionSource();
+        var blockerSid = Seat();
+        var blocker = await StagedClipAsync(blockerSid);
+        var blockerDeliveryId = VoiceUploadStore.NormalizeUploadId(blocker)!;   // the id the prompt carries
+        _ = _store.TakeOwnership(blocker, Owned(blockerSid)).Result;   // held on disk, as a restart finds it
+        _prompt = cmd =>
+        {
+            if (cmd.PayloadJson.Contains(blockerDeliveryId))
+            {
+                enteredBlock.TrySetResult();
+                return blockedPrompt.Task;
+            }
+            return Task.FromResult<DirectorCommandResult?>(Accepted());
+        };
+        var delivery = new DictationDelivery(_registry, owners: null, Transcription(), _marks, _pushed, SendAsync,
+            TimeSpan.FromSeconds(20), _clock);
+        var driver = new HeldDeliveryDriver(_store, _ => new NoScope(),
+            (tenant, sid) => _pushed.TryLocateIgnoringFreshness(tenant, sid)?.DirectorId, hosted: false)
+        {
+            TickInterval = TimeSpan.FromMilliseconds(50),   // a real, fast tick - the thing the pass used to hold
+        };
+        driver.Attach(delivery);
+        using (driver)
+        {
+            var pass = driver.StartAsync();   // not awaited: it must not block anything below
+            await enteredBlock.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            // While the pass is still inside its blocked send, a second delivery is taken over - exactly as
+            // the complete route does it. The pass has NOT finished; on the old code no tick exists yet.
+            var sid = Seat();
+            var uploadId = await StagedClipAsync(sid);
+            var owned = Owned(sid);
+            Assert.Equal(DictationOwnership.Taken, _store.TakeOwnership(uploadId, owned).Result);
+            driver.Track(TenantId.Local, uploadId, HeldDeliveryKind.Dictation);
+
+            // The tick gives the new delivery its first driver attempt on the ordinary cadence (the shortest
+            // wait, then the tick), while the pass is still blocked on its own delivery.
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Delivered }
+                   && DateTime.UtcNow < deadline)
+                await Task.Delay(50);
+            Assert.False(blockedPrompt.Task.IsCompleted, "the start-up pass is still working on its own delivery");
+            Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
+            var drive = Lines(uploadId).Single(l => l.Decision == DeliveryDecisions.GatewayDrive);
+            Assert.Equal(DeliveryDecisions.DriveTick, drive.Facts!.Trigger);
+
+            // Let the pass finish, so nothing leaks past the test.
+            blockedPrompt.TrySetResult(Timeout());
+            await pass.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
     // ===== a Director that already delivered it refuses the re-send ========================================
 
     [Fact]
