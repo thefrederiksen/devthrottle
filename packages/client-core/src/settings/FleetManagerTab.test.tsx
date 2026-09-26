@@ -63,6 +63,7 @@ function placement(running: boolean): FleetManagerPlacement {
         thinkingShown: false,
         notRunningBarShown: !running,
         settingsLabel: "",
+        startFresh: action("Start fresh", running),
       },
     },
     save: running

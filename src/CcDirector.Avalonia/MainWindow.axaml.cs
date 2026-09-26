@@ -4852,6 +4852,8 @@ public partial class MainWindow : Window
                 { UseShellExecute = true });
         }));
         help.Menu.Items.Add(Item("Send Feedback...", () => BtnFeedback_Click(this, new RoutedEventArgs())));
+        // No GitHub account and no email needed: the recent log goes straight to DevThrottle (issue #3311, B5).
+        help.Menu.Items.Add(Item("Send Logs to DevThrottle", SendLogsToDevThrottle));
         help.Menu.Items.Add(new NativeMenuItemSeparator());
         help.Menu.Items.Add(Item("About Director", () => BtnHelp_Click(this, new RoutedEventArgs())));
         menu.Items.Add(help);
@@ -4860,6 +4862,28 @@ public partial class MainWindow : Window
     }
 
     // ==================== TOP APP BAR ====================
+
+    /// <summary>
+    /// Help, Send Logs to DevThrottle: the recent tail of this Director's log goes to the hosted Gateway, signed
+    /// in or not (issue #3311, B5). The notification bar says it is sending at once and then what happened,
+    /// including the reference the person can quote to us.
+    /// </summary>
+    private async void SendLogsToDevThrottle()
+    {
+        FileLog.Write("[MainWindow] Menu: Send Logs to DevThrottle");
+        ShowNotification("Sending your log to DevThrottle...");
+        try
+        {
+            var result = await Task.Run(() => CcDirector.Core.ErrorReports.LogSender.SendAsync(
+                CcDirector.Core.ErrorReports.ErrorReportLimits.Director, "Help menu", CancellationToken.None));
+            ShowNotification(result.Detail);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] SendLogsToDevThrottle FAILED: {ex}");
+            ShowNotification($"The log could not be sent: {ex.Message}");
+        }
+    }
 
     private async void BtnFeedback_Click(object? sender, RoutedEventArgs e)
     {

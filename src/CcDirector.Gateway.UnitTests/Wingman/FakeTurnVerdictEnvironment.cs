@@ -31,7 +31,7 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     };
     public Func<ScreenGridResponse?> Screen = () => null;
     public Func<string, StoredConversation?> Conversation = _ => null;
-    public Func<string, CancellationToken, Task<string>> Judge = (_, _) => Task.FromResult(CannotTell("The session stopped."));
+    public Func<string, CancellationToken, Task<string>> Judge = (_, _) => Task.FromResult(NeedsYou("The session stopped."));
     public Func<string, bool> VoiceSession = _ => false;
     /// <summary>The account's plan answer for the narration. Allowed by default, as on a self-host Gateway.</summary>
     public Func<NarrationPlan> Plan = () => NarrationPlan.Allowed;
@@ -158,11 +158,15 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// this to the narration prompt - see <see cref="CountingBrain"/>.</summary>
     public static string DefaultNarration() => NarratedAnswer(LastCannedSpoken);
 
-    /// <summary>A narrator answer as the real model writes one: the words between the two markers.</summary>
-    public static string NarratedAnswer(string spoken)
+    /// <summary>The label every default narration answers with (Call B writes the row's label from phase 4).</summary>
+    public const string NarratedLabel = "The Wingman's label for this stop";
+
+    /// <summary>A narrator answer as the real model writes one (Call B, phase 4): the label line and the words, between
+    /// the two markers.</summary>
+    public static string NarratedAnswer(string spoken, string label = NarratedLabel)
         => spoken.Length == 0
             ? ""
-            : $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
+            : $"{Core.Drivers.SessionAskRunner.AnswerBeginMarker}\n{NarrationCall.LabelTag} {label}\n{NarrationCall.NarrationTag}\n{spoken}\n{Core.Drivers.SessionAskRunner.AnswerEndMarker}";
 
     private int _narratorCalls;
     /// <summary>How many narration calls were made. Never counted as judge calls.</summary>
@@ -310,104 +314,51 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     // ------------------------------------------------------------------ canned judge answers
 
-    private static string Json(object value) => JsonSerializer.Serialize(value);
-
-    // THESE ARE CONTRACT v3 ANSWERS: state, label, agentRecommends, menu, options, and nothing else.
+    // THESE ARE CONTRACT v4 ANSWERS: one word, needs-you, done or carrying-on, and nothing else.
     //
-    // THE spoken PARAMETER IS STILL HERE, AND IT NO LONGER GOES INTO THE JUDGE'S ANSWER. It now sets what the
-    // default narrator answers with, which is where a reading's words come from under v3. Every caller therefore
-    // keeps saying the same thing it always said - "the listener hears these words for this stop" - without
-    // knowing which of the two calls produces them, which is the point of the change being tested.
+    // THE spoken PARAMETER IS STILL HERE, AND IT NEVER GOES INTO THE JUDGE'S ANSWER. It sets what the default
+    // narrator answers with, which is where a reading's words come from. Every caller therefore keeps saying the
+    // same thing it always said - "the listener hears these words for this stop".
     //
-    // The evidence parameter is kept on the two that had one so callers need not change, and is IGNORED: the
-    // receipt was cut in v3 and nothing checks a quote any more.
+    // The label and evidence parameters are kept so callers need not change, and are IGNORED: v4 asks for neither.
 
-    /// <summary>A "cannot-tell" answer: the state for a stop the screen does not support a judgement on, so it
-    /// validates against any package, of either kind.</summary>
-    public static string CannotTell(string spoken)
+    /// <summary>The answer that validates against any package, of either kind: needs-you. It was named for
+    /// "cannot-tell" under v3; v4 has three words and needs-you is the only one a failure with no reply may take, so
+    /// the helper is named for what it returns (phase 3 review, finding F3).</summary>
+    public static string NeedsYou(string spoken)
     {
         LastCannedSpoken = spoken;
-        return Json(new
-        {
-            state = "cannot-tell",
-            label = "Cannot tell what this stop needs",
-            agentRecommends = (string?)null,
-            menu = (object?)null,
-            options = Array.Empty<object>(),
-        });
+        return "needs-you";
     }
 
-    /// <summary>A finished answer with something for the owner to read.</summary>
+    /// <summary>A finished answer: done.</summary>
     public static string Finished(string evidence, string spoken, string risk = "none")
     {
         LastCannedSpoken = spoken;
-        return Json(new
-        {
-            state = "finished-report",
-            label = "Pushed the branch and opened the pull request",
-            agentRecommends = (string?)null,
-            menu = (object?)null,
-            options = Array.Empty<object>(),
-        });
+        return "done";
     }
 
-    /// <summary>A "carrying-on" answer: the agent said it is still working and will report back, so the stop is
-    /// calm and a clock is set on it.</summary>
+    /// <summary>A "carrying-on" answer: the stop is calm and a clock is set on it.</summary>
     public static string CarryingOn(string label, string spoken)
     {
         LastCannedSpoken = spoken;
-        return Json(new
-        {
-            state = "carrying-on",
-            label,
-            agentRecommends = (string?)null,
-            menu = (object?)null,
-            options = Array.Empty<object>(),
-        });
+        return "carrying-on";
     }
 
-    /// <summary>
-    /// A REFUSED ANSWER THAT IS STILL READABLE, AND STILL CARRIES ITS MENU. The state word is not one of the
-    /// seven, so the contract refuses it; every other field is well formed, so SalvageNarrationDecision can
-    /// still read the picker out of it.
-    ///
-    /// This used to be an answer whose receipt was not on the screen. Contract v3 cut the receipt, so that is
-    /// no longer a refusal at all - it is one of the twenty-five failures in seventy that v3 deletes - and a
-    /// test built on it was quietly testing an accepted answer instead.
-    /// </summary>
+    /// <summary>A REFUSED ANSWER: not one of the three words, so the contract refuses it and the record is red. The
+    /// name is kept from v3, when a refused answer could still carry a readable menu; v4's refused answer carries
+    /// nothing, because a one-word answer that is not one of the words holds no decision to salvage.</summary>
     public static string RefusedButReadableMenu(string question)
     {
         LastCannedSpoken = "";
-        return Json(new
-        {
-            state = "waiting-on-you",   // not one of the seven
-            label = "Choose whether to proceed",
-            agentRecommends = (string?)null,
-            menu = new { question, selectionMode = "single", submit = "" },
-            options = new object[]
-            {
-                new { key = "Proceed", send = "1", recommended = true, note = "Carries on with the change." },
-                new { key = "Stop", send = "2", recommended = false, note = "Leaves the change unmade." },
-            },
-        });
+        return "waiting-on-you";   // not one of the three
     }
 
-    /// <summary>A "needs-you" answer on a single-select picker.</summary>
+    /// <summary>A "needs-you" answer. The question is kept so callers need not change; v4 asks for no menu.</summary>
     public static string Menu(string question, string evidence, string spoken)
     {
         LastCannedSpoken = spoken;
-        return Json(new
-        {
-            state = "needs-you",
-            label = "Choose whether to proceed",
-            agentRecommends = (string?)null,
-            menu = new { question, selectionMode = "single", submit = "" },
-            options = new object[]
-            {
-                new { key = "Proceed", send = "1", recommended = true, note = "Carries on with the change." },
-                new { key = "Stop", send = "2", recommended = false, note = "Leaves the change unmade." },
-            },
-        });
+        return "needs-you";
     }
 }
 
@@ -485,8 +436,8 @@ internal sealed class CountingBrain : IAgentBrain
 
     public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
     {
-        // The narration prompt is the one that asks for the spoken version between two markers.
-        if (prompt.Contains("Output ONLY the spoken version", StringComparison.Ordinal))
+        // The narration prompt is the one that asks for the label line and the spoken version between two markers.
+        if (prompt.Contains(NarrationCall.LabelTag + " <label>", StringComparison.Ordinal))
         {
             Interlocked.Increment(ref _narrations);
             return Task.FromResult(new AskResult { Text = NarrationAnswer(), ReplySeconds = 0.1 });

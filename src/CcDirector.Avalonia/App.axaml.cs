@@ -877,14 +877,21 @@ public partial class App : Application
 
         try { splash.Close(); } catch (Exception closeEx) { FileLog.Write($"[CcDirector] Splash close after fatal error FAILED: {closeEx.Message}"); }
 
+        // The FATAL line above is already queued for DevThrottle; send it while the person reads the message,
+        // because shutting down ends the process (issue #3311, B2).
+        var flush = Task.Run(() => CcDirector.Core.ErrorReports.ErrorReporter.FlushBeforeExit(TimeSpan.FromSeconds(5)));
+
+        // NativeNotice, not MessageBoxW: MessageBoxW exists only on Windows. On a Mac it threw, the throw was
+        // taken as handled, and the Director was left running with no window and no message (issue #3311, B2).
         var logPath = FileLog.CurrentLogPath ?? "(log path unavailable)";
-        MessageBoxW(IntPtr.Zero,
+        NativeNotice.Show(
             "Director failed to start:\n\n" +
             $"{ex.Message}\n\n" +
             $"Log file:\n{logPath}\n\n" +
             (crashPath is null ? "" : $"Crash details:\n{crashPath}"),
-            "Director - Startup error", MB_OK | MB_ICONERROR | MB_TOPMOST);
+            "Director - Startup error", NativeNotice.Kind.Error);
 
+        flush.Wait(TimeSpan.FromSeconds(5));
         desktop.Shutdown(1);
     }
 
@@ -907,13 +914,6 @@ public partial class App : Application
             return null; // never let crash-reporting itself throw
         }
     }
-
-    private const uint MB_OK = 0x00000000;
-    private const uint MB_ICONERROR = 0x00000010;
-    private const uint MB_TOPMOST = 0x00040000;
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     /// <summary>0 until the shutdown routine has run. OnShutdown is reachable from TWO paths - the
     /// lifetime's ShutdownRequested event (user/OS close) and the programmatic path below, which runs

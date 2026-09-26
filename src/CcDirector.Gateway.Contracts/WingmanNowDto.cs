@@ -87,15 +87,6 @@ public sealed class WingmanNowResponse
     /// <summary>What the session needs from the owner. Null on a stop that needs nothing.</summary>
     public WingmanNowNeedsDto? Needs { get; set; }
 
-    /// <summary>True when the options in <see cref="WingmanNowNeedsDto.Options"/> can still be tapped: this verdict is
-    /// the one in force, it was accepted, nobody has answered it yet, and it offers a real choice. False leaves the
-    /// options readable and the reply box the way to answer.</summary>
-    public bool CanAnswerByOption { get; set; }
-
-    /// <summary>The verdict the options came from, which <c>POST /sessions/{sid}/turn-verdict/answer</c> takes
-    /// alongside an option's index. Null when there is no verdict in force.</summary>
-    public string? VerdictId { get; set; }
-
     /// <summary>The words inside the empty reply box. Null when this state offers no reply box.</summary>
     public string? ReplyPlaceholder { get; set; }
 
@@ -394,71 +385,9 @@ public sealed class WingmanNowNeedsDto
     /// <summary>The card's heading.</summary>
     public string Heading { get; set; } = "";
 
-    /// <summary>The agent's own recommendation, already led in with "It recommends: ". Null when it made none.</summary>
-    public string? Recommends { get; set; }
-
     /// <summary>The choice being asked, in plain words, when the answer is a selection in a picker. Null
     /// otherwise.</summary>
     public string? Question { get; set; }
-
-    /// <summary>The line under the heading saying what a tap does - "Click an option to send it as your answer".
-    /// Null when this stop offers no options, where it would be an affordance for something that is not there.
-    /// </summary>
-    public string? OptionsLead { get; set; }
-
-    /// <summary>
-    /// The short warning beside the options when answering this stop costs something that cannot be taken back:
-    /// "Cannot be undone", "Says yes from now on", "Spends real money". Null when the judge's risk word is
-    /// "none", and null when it recorded none at all - an unrecorded risk is not a safe one, and it is not
-    /// claimed to be either way.
-    ///
-    /// IT IS ABOUT THE STOP, NOT ABOUT ONE OPTION, and that is the honest reading of what reaches here: the
-    /// judge answers ONE risk word for the whole answer (see the turn-verdict contract), and nothing in the
-    /// record says which of the options carries it. Putting it on the recommended option would be this fold
-    /// guessing, and putting it on all of them would say "cannot be undone" about the option that does nothing -
-    /// which is how a warning stops being read.
-    /// </summary>
-    public string? RiskFlag { get; set; }
-
-    /// <summary>The sentence under the flag, saying what the risk is in plain words. Null exactly when
-    /// <see cref="RiskFlag"/> is.</summary>
-    public string? RiskLine { get; set; }
-
-    /// <summary>True when the screen must ask once before it sends an answer to this stop. Set exactly when
-    /// <see cref="RiskFlag"/> is present: the one place a confirmation earns its interruption is the answer
-    /// that cannot be taken back.</summary>
-    public bool ConfirmBeforeSending { get; set; }
-
-    /// <summary>The ways of answering, in the verdict's own order. Empty when the stop takes typed words only.</summary>
-    public List<WingmanNowOptionDto> Options { get; set; } = new();
-}
-
-/// <summary>One way of answering the stop.</summary>
-public sealed class WingmanNowOptionDto
-{
-    /// <summary>The option's position in the verdict's own list, which is what
-    /// <c>POST /sessions/{sid}/turn-verdict/answer</c> takes. Zero-based, as that route reads it.</summary>
-    public int Index { get; set; }
-
-    /// <summary>
-    /// THE NUMBER THE OWNER READS - <see cref="Index"/> plus one, so the first option is 1.
-    ///
-    /// Two numbers for one option looks like duplication and is the opposite: the zero-based one is what the
-    /// answer route takes and is an internal detail, and it was being rendered. People count from one, so the
-    /// screen was showing him a "0" that meant nothing to him and a "1" that meant the second option. The
-    /// display number is folded here, beside every other owner-facing value, rather than by arithmetic in a
-    /// client - which is the one place it could quietly go back to agreeing with the route.
-    /// </summary>
-    public int Number { get; set; }
-
-    /// <summary>The short label, naming the action being decided.</summary>
-    public string Key { get; set; } = "";
-
-    /// <summary>What choosing it does, and what it costs.</summary>
-    public string Note { get; set; } = "";
-
-    /// <summary>True on at most one option.</summary>
-    public bool Recommended { get; set; }
 }
 
 /// <summary>A heading and a body - the card on a stop that needs nothing from the owner.</summary>

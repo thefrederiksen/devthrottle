@@ -17,7 +17,32 @@ public static class Program
         if (!string.IsNullOrWhiteSpace(releaseDir))
             EngineInstallRunner.ReleaseDirectoryOverride = releaseDir;
 
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        // A crash of the wizard itself used to leave nothing: no log line and no report (#3311). These
+        // log it and report it before the process goes.
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            var ex = e.ExceptionObject as Exception;
+            SetupLog.Write($"[Program] UNHANDLED exception (terminating={e.IsTerminating}): {ex}");
+            WizardErrorReport.SendAndWait("wizard", "crash", $"The setup wizard crashed: {ex?.GetType().Name}: {ex?.Message}", ex);
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            SetupLog.Write($"[Program] UNOBSERVED task exception: {e.Exception}");
+            WizardErrorReport.SendAndWait("wizard", "unobserved-task", $"A background task in the setup wizard failed: {e.Exception.GetBaseException().Message}", e.Exception);
+            e.SetObserved();
+        };
+
+        try
+        {
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+        catch (Exception ex)
+        {
+            // Logged here and REPORTED once, by the UnhandledException handler above, when the rethrow leaves
+            // Main. Reporting here too sent every start failure twice and blocked twice as long.
+            SetupLog.Write($"[Program] FATAL: the wizard could not run: {ex}");
+            throw;
+        }
     }
 
     private static string? ParseOption(string[] args, string name)

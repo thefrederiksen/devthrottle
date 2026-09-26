@@ -192,8 +192,6 @@ function StopDebug({
             <dd>{stop.state || "-"}</dd>
             <dt>Label</dt>
             <dd>{stop.label ?? "-"}</dd>
-            <dt>It recommends</dt>
-            <dd>{stop.agentRecommends ?? "-"}</dd>
           </dl>
           <h5>Narration</h5>
           {stop.narration ? (

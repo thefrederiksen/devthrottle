@@ -69,24 +69,39 @@ public class DirectorWayUpTopLevelOwnerTests
     /// <summary>
     /// Pressing bring back on that row asks the restore for exactly those two seats. Who owns them is the
     /// restore's to decide and is never sent in the order - the window reports that rule, it does not carry it.
+    ///
+    /// THE HANDOVERS LIVE IN A REAL FOLDER, because bringing a seat back writes its seed file beside its
+    /// handover. The rig's default handover path names a folder that exists on no machine, so a bring back
+    /// over it refuses with "Could not find a part of the path" (product issue 3419).
     /// </summary>
     [Fact]
     public async Task Bringing_that_row_back_asks_the_restore_for_the_seats_under_the_lead()
     {
-        var rig = new WayUpTestRig();
-        rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+        var folder = Path.Combine(Path.GetTempPath(), "way-up-tests-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(folder);
+        try
         {
-            WayUpTestRig.NotComingBack("lead", "A lead"),
-            WayUpTestRig.Owed("worker-a", "A worker", reportsTo: "lead", sortOrder: 1),
-            WayUpTestRig.Owed("worker-b", "Another worker", reportsTo: "lead", sortOrder: 2),
-        }));
+            var rig = new WayUpTestRig();
+            rig.Gateway.With(WayUpTestRig.Record("restart-1", Shutdown, new[]
+            {
+                WayUpTestRig.NotComingBack("lead", "A lead"),
+                WayUpTestRig.Owed("worker-a", "A worker", Path.Combine(folder, "worker-a - handover.md"),
+                    reportsTo: "lead", sortOrder: 1),
+                WayUpTestRig.Owed("worker-b", "Another worker", Path.Combine(folder, "worker-b - handover.md"),
+                    reportsTo: "lead", sortOrder: 2),
+            }));
 
-        var result = await rig.WayUp().BringBackAsync(
-            new WayUpBringBackRequest("restart-1", new[] { "lead" }), CancellationToken.None);
+            var result = await rig.WayUp().BringBackAsync(
+                new WayUpBringBackRequest("restart-1", new[] { "lead" }), CancellationToken.None);
 
-        Assert.True(result.Started, result.Refusal);
-        var order = Assert.Single(rig.Restore.Orders);
-        Assert.Equal(new[] { "worker-a", "worker-b" }, order.Seats!.ToArray());
+            Assert.True(result.Started, result.Refusal);
+            var order = Assert.Single(rig.Restore.Orders);
+            Assert.Equal(new[] { "worker-a", "worker-b" }, order.Seats!.ToArray());
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
     }
 
     /// <summary>

@@ -1073,8 +1073,8 @@ change is recorded in the governance audit trail (event type `handed-over`, with
 the Fleet Manager's session, as the actor).
 
 **Who may make the change.** The owner, from their own signed-in phone or browser - in the Cockpit, the
-"Hand sessions to the Fleet Manager..." list on the Fleet Manager page and the session menu's "Hand to the
-Fleet Manager" and "Hand back to me". And the account's Fleet Manager, with its own session key, when the
+session menu's "Hand to the Fleet Manager" and "Hand back to me". (The "Hand sessions to the Fleet
+Manager..." list lived in the Fleet Manager page's right panel, which is hidden for now.) And the account's Fleet Manager, with its own session key, when the
 owner has asked it to: it may take a session that asks the owner directly (`--to fleet-manager`) and hand
 a session it owns back (`--to owner`).
 
@@ -1492,7 +1492,10 @@ answer's `status.page` carries what the Fleet Manager page may show and use in t
 The Cockpit's Fleet Manager page (`/fleet-manager`, where the Cockpit opens) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is refused and reads the
 digest instead): the cards drawn from the records, the right panel (waiting on you, under way, answered
 today, and the sessions that still ask the owner directly - their count, and the list of them with a
-hand-over button each) and the rail's badge count. A card button is one call - the answer
+hand-over button each) and the rail's badge count. The right panel is hidden on the page for now, so
+the conversation takes the full width; the answer still carries it. The page's header also has "Start
+fresh" (`status.page.startFresh` on the placement answer): after one confirmation it makes the same
+`POST /gateway/fleet-manager/restart` as Settings, and it is offered exactly when that restart is. A card button is one call - the answer
 route - and the Gateway passes the words to the Fleet Manager as an `answered` event; the answered card
 says how far they have got (`answerDelivery`). Every open record is a card; only the answered history is
 limited (the newest 100). Hand over is `POST /gateway/fleet-manager/hand-over` (see
@@ -1505,8 +1508,8 @@ the session list. The Gateway routes that served only the Assistant were removed
 `/gateway/ai-provider` no longer carries `carModeModel` or `carModeEndPhrase`, and the stored values of
 those two settings are deleted when the Gateway next migrates its database.
 
-"Take me through them" (`/fleet-manager/walkthrough` in the Cockpit, opened from the Waiting on you
-panel) reads `/gateway/fleet-manager/walkthrough?round=<id>,<id>` (GET): one round of the waiting
+"Take me through them" (`/fleet-manager/walkthrough` in the Cockpit; its button was in the Waiting on
+you panel, which is hidden for now, so nothing on the page leads there) reads `/gateway/fleet-manager/walkthrough?round=<id>,<id>` (GET): one round of the waiting
 records, in the page's order, each with the Wingman's reading of its session (or the sentence saying
 why there is none), the Fleet Manager's advice, both picks marked, and whether snooze and close are
 offered. The client sends the round's ids back so answered items stay in the list as done. Three owner
@@ -1890,7 +1893,14 @@ the secrets so every credential has one home; a setting can be read with `get` a
 output, because hiding a host name would blank it out of everything that prints it. The kind is stored in
 `secrets.json` beside the value: editing a secret's kind to `setting` by hand makes `get` print it.
 
-`add`, `import`, `edit` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
+`add`, `import`, `edit` and `remove` refuse to run inside a DevThrottle session, unless the owner approved that
+exact command in the session's chat and the session reruns it with `--owner-approved "<the owner's words, verbatim>"`.
+The approval covers that one command only. Every use is written to the audit log with the approval text and the
+session's id and name (`cc-secrets log` shows them), and a refusal is logged too. cc-secrets cannot prove the words
+came from the owner; the log is what makes every such change reviewable. For example:
+`cc-secrets edit coldemail-workspace-password --username jake@example.com --owner-approved "Soren approved in chat: update the username"`.
+Inside a session `add` reads the secret only piped on standard input, from a file or command the owner provided -
+never a prompt in the session's terminal. There is no option that takes the
 secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` refuses there: run it from
 PowerShell or cmd, or pipe the secret in.
 
@@ -1912,6 +1922,7 @@ OPTIONS:
   --replace               Replace an existing entry without asking
   --setting               Store a setting that is not secret: readable with get, not hidden
   --env-name TEXT         The variable run supplies it in [default: CC_SECRET]
+  --owner-approved TEXT   Inside a session: the owner's approval of this command, verbatim
 ```
 
 With the secret piped on stdin, `--username`, `--domains` and `--agents`/`--no-agents` are required.
@@ -1928,6 +1939,7 @@ OPTIONS:
   --agents / --no-agents  Whether sessions on this machine may use it
   --notes TEXT            A note for yourself; agents see it in list
   --env-name TEXT         The variable run supplies it in
+  --owner-approved TEXT   Inside a session: the owner's approval of this command, verbatim
 ```
 
 Changes only the details given; the secret (or a setting's value) is never touched, so no prompt. To clear a field
@@ -1949,6 +1961,7 @@ OPTIONS:
   --skip TEXT             Comma-separated keys NOT to import
   --replace               Replace entries that already exist
   --dry-run               Show what would happen, by name only, and change nothing
+  --owner-approved TEXT   Inside a session: the owner's approval of this command, verbatim
 ```
 
 Each `KEY=VALUE` line becomes its own entry, named after the key in lower case with hyphens

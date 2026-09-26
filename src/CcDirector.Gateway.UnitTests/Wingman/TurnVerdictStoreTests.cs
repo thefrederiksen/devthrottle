@@ -56,7 +56,6 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Evidence = "I have finished the migration and pushed it.",
         Label = "Finished the migration",
         Summary = "The migration is written and pushed; nothing is waiting on you.",
-        AgentRecommends = null,
         AnswerVia = "reply",
         Menu = null,
         Options = new List<TurnVerdictOptionDto>(),

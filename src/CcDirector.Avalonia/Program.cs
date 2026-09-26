@@ -41,6 +41,10 @@ internal static class Program
         // before App initializes its own logging) are actually recorded.
         FileLog.Start();
 
+        // The setup engine runs inside the Director too - the first-start tools install, the autostart
+        // registration - and its lines were thrown away because nothing set its sink (issue #3311, B3).
+        CcDirector.Setup.Engine.EngineLog.Sink = FileLog.Write;
+
         FileLog.Write($"[Program] Instance: slug={InstanceContext.Slug}, isDefault={InstanceContext.IsDefault}, " +
                       $"explicit={InstanceContext.WasExplicitlySelected}, home={InstanceContext.InstanceHome}");
 
@@ -237,10 +241,14 @@ internal static class Program
         {
             FileLog.Write($"[Program] FATAL startup error: {ex}");
             var crashPath = WriteCrashFile("startup", ex);
+            // The FATAL line above is an error line, so it is already queued for DevThrottle; send it while the
+            // person reads the message, because the process ends the moment they dismiss it (issue #3311, B2).
+            var flush = Task.Run(() => ErrorReporter.FlushBeforeExit(TimeSpan.FromSeconds(5)));
             ShowStartupNotice(
                 $"Director failed to start:\n\n{ex.Message}\n\n" +
                 (crashPath is null ? "" : $"Details written to:\n{crashPath}"),
                 "Director - Startup error", MB_ICONERROR);
+            flush.Wait(TimeSpan.FromSeconds(5));
             return 1;
         }
     }
@@ -343,22 +351,13 @@ internal static class Program
     /// Best-effort; never throws.
     /// </summary>
     /// <summary>
-    /// Show a pre-UI startup notice (update warning, single-instance, fatal startup error). On Windows
-    /// this is a native <c>MessageBoxW</c> so the message is visible even though no Avalonia window exists
-    /// yet. On macOS/Linux there is no user32; the process has no window at this point, so the notice goes
-    /// to the crash log and stderr. Calling MessageBoxW off Windows would throw <c>DllNotFoundException</c>
-    /// and mask the real startup error (the crash file written by the caller already holds the details).
+    /// Show a pre-UI startup notice (update warning, single-instance, fatal startup error) with
+    /// <see cref="NativeNotice"/>, which needs no window of ours: MessageBoxW on Windows, a system alert on
+    /// macOS, zenity on Linux. Before issue #3311 (B2) this only LOGGED off Windows, so a Director that could
+    /// not start on a Mac showed the person nothing at all.
     /// </summary>
     private static void ShowStartupNotice(string text, string caption, uint icon)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            MessageBoxW(IntPtr.Zero, text, caption, MB_OK | icon | MB_TOPMOST);
-            return;
-        }
-        FileLog.Write($"[Program] {caption}: {text.Replace('\n', ' ')}");
-        Console.Error.WriteLine($"{caption}: {text}");
-    }
+        => NativeNotice.Show(text, caption, icon == MB_ICONERROR ? NativeNotice.Kind.Error : NativeNotice.Kind.Warning);
 
     private static bool TryRaiseExistingWindow()
     {
@@ -409,14 +408,9 @@ internal static class Program
         return false;
     }
 
-    private const uint MB_OK = 0x00000000;
     private const uint MB_ICONWARNING = 0x00000030;
     private const uint MB_ICONERROR = 0x00000010;
-    private const uint MB_TOPMOST = 0x00040000;
     private const int SW_RESTORE = 9;
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

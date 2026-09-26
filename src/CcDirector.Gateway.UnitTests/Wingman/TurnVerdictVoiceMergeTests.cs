@@ -120,7 +120,7 @@ public sealed class TurnVerdictVoiceMergeTests : IDisposable
             "Error: API key auth failed for provider openai-mindzie",
             ">");
         rig.Env.Conversation = _ => new StoredConversation(true, new List<Contracts.TurnWidgetDto>());
-        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.CannotTell(
+        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.NeedsYou(
             "Testing pi. The provider rejected its application key, so the session could not answer."));
         rig.Voice.Mark(Tenant, Sid);
 

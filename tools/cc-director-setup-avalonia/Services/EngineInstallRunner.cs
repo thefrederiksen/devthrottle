@@ -321,7 +321,11 @@ public sealed class EngineInstallRunner
     /// </summary>
     private async Task ReportFailureAsync(ToolDownloadItem? item, string component, string step, string message, string? diagnostics, CancellationToken ct)
     {
-        var sent = await _reporter.ReportAsync(component, step, message, diagnostics, ct);
+        // Every step report carries the tail of this run's setup log, after the step's own diagnostics (the
+        // Gateway keeps the first 16,000 characters, so the step's own answers are never the part cut).
+        // director/place used to arrive with nothing at all (#3311).
+        var withLog = (string.IsNullOrEmpty(diagnostics) ? "" : diagnostics + "\n") + WizardErrorReport.Diagnostics(null);
+        var sent = await _reporter.ReportAsync(component, step, message, withLog, ct);
         SetupLog.Write($"[EngineInstallRunner] failure report {component}/{step}: {(sent ? "sent" : "NOT sent")}");
         if (sent && item is not null)
             item.StatusDetail = (string.IsNullOrEmpty(item.StatusDetail) ? message : item.StatusDetail) + " A report of this failure was sent to DevThrottle.";

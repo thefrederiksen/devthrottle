@@ -15,6 +15,72 @@ a stop that has already been detected MEANS.
 
 ---
 
+## AMENDED 26 SEPTEMBER 2026 - CONTRACT v4, CALL A IS CODE FIRST AND ONE WORD
+
+**Read this before anything below it, including the v3 amendment. Where they disagree, this is what shipped.**
+The turn pipeline mission (issue #3399), design v2, approved by the owner on 26 September 2026.
+
+**Call A decides one thing: does this stop need its owner.** Four code steps run first, in order, and the
+first to fire decides with no model call (`CallACodeSteps`, in Core):
+
+1. `picker` - a picker or permission prompt is drawn on the screen (`PickerOnScreen`, the one footer rule) -> needs-you
+2. `agent-verdict` - the agent's last message carries its own CC-DISMISS block saying needs-human -> needs-you
+3. `question` - the agent's latest reply asks the person a real question (not a heading, list item, quoted
+   question, or one the same line answers) -> needs-you
+4. `way-back` - the agent set itself a way back in its last turn: a ScheduleWakeup, a Monitor, a session spawn,
+   or a background run -> carrying-on (never on a failure with no reply)
+
+A stop none of them decides goes to the model (`turn-verdict-v4.txt`): every visible screen row, the cursor row,
+the full-screen flag and the agent's latest reply, and nothing else - no conversation, no recent turns, no first
+ask, no previous label, no owned-sessions line. It is asked at temperature 0, with reasoning off and output capped
+at sixteen tokens, on the same fast model, and must answer exactly `needs-you`, `done` or `carrying-on`.
+Anything else, a timeout or an error is a failed record: red, on the unchanged retry schedule. An answer that is
+not one of the words is not re-attempted for a listener, because at temperature 0 it would repeat.
+
+| word | colour | stored verdict |
+|---|---|---|
+| needs-you | red | needed-you |
+| done | cyan | finished (kind done) |
+| carrying-on | purple, carrying-on clock unchanged | continues-alone |
+
+Every record says which step decided it and why (`DecidedBy`, `DecisionReason`), and so does the debug view.
+
+**Gone from Call A:** the label, what the agent recommends, the menu and the options, and `InventedMenuCheck`,
+which had nothing left to correct. A record stored under v3 keeps its fields and still renders.
+
+**Call B writes the label and the narration, and nothing else (phase 4).** `NarrationCall.BuildPrompt` is given
+the reply, the recent turns, the screen, the account's narration rules and language, Call A's word, and - when a
+code step decided - that step's reason. It is no longer given a menu, options, a recommendation or a "keys or
+reply" line. It answers, between the usual markers:
+
+```
+LABEL: <at most ten words - what the row shows>
+NARRATION:
+<the spoken version>
+```
+
+`NarrationCall.ParseAnswer` reads the two parts mechanically. Any other shape - no label line, an empty or
+eleven-word label, no narration line, no words - is a failed Call B: Call A's colour stands, the record has no
+label (the row shows its plain state label) and no words, and it carries `NarrationFailureReason`. Nothing is
+stored until both calls are done, so colour, label and words appear together. A person asking again after a
+failed Call B saves the label with the words.
+
+**A menu is "open the session to choose".** On a stop Call A's picker step decided (or a v3 record answered with
+keys), the code-owned closing sentence tells the narration to say what is being asked and to tell the person to
+open the session to choose. No prompt tells anyone to press a button: there is none. The Cockpit's answer buttons
+(the verdict panel's options and the Now card's options, with the "It recommends" line and the confirm-before-send
+warning) are gone, and so is `agentRecommends` everywhere it was produced or shown. The answer route itself stays,
+with its screen check, because the Fleet Manager walkthrough still answers through it.
+
+**The send-time menu cache is no longer fed by a reading.** Call A does not say whether a menu is drawn, so the
+voice-reply guard (`WaitingScreenReader.ConfirmedMenuAsync`) asks its own question on a menu-shaped screen and
+fails closed, as it always did on a cache miss.
+
+**Not in the steps, on purpose:** the phrase list ("your call", "waiting on you") until it is checked against the
+owner's own labels, and "owns sessions still working", which the measurement showed points the other way.
+
+---
+
 ## AMENDED 18 SEPTEMBER 2026 - CONTRACT v3, THE FIVE-FIELD READING
 
 **Read this before anything below it. Where the two disagree, this is what shipped.**

@@ -200,7 +200,6 @@ public sealed class WingmanNowWireSampleTests
         Label = label,
         Summary = "The release notes are pushed and the merge command was refused by a permission check.",
         Evidence = "Either merge 3002 yourself, or allow that command and I will do it.",
-        AgentRecommends = "allow the merge - the notes have been reviewed",
         Options = Enumerable.Range(0, options).Select(i => new TurnVerdictOptionDto
         {
             Key = "Option " + i,

@@ -89,6 +89,67 @@ public static class LaunchdDiagnostics
         return string.Join('\n', lines.Skip(Math.Max(0, lines.Count - maxLines)));
     }
 
+    /// <summary>
+    /// The last <paramref name="maxLines"/> lines of the newest <c>launcher-*.log</c> in
+    /// <paramref name="launcherLogDir"/> - the launcher's own record, which says WHY it stopped when launchd
+    /// only knows THAT it did (issue #3311, B4). Read with write sharing, because a launcher that is still
+    /// running holds the file open. Null when there is no such log.
+    /// </summary>
+    public static string? LauncherLogTail(string launcherLogDir, int maxLines)
+    {
+        if (!Directory.Exists(launcherLogDir)) return null;
+        var newest = new DirectoryInfo(launcherLogDir).GetFiles("launcher-*.log")
+            .OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault();
+        if (newest is null) return null;
+        var lines = new List<string>();
+        try
+        {
+            using var stream = new FileStream(newest.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            string? line;
+            while ((line = reader.ReadLine()) is not null)
+                if (line.Trim().Length > 0) lines.Add(line);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Said in the report rather than thrown: one unreadable file must not cost the whole report.
+            return $"{newest.Name}: could not be read ({ex.GetType().Name}: {ex.Message})";
+        }
+        if (lines.Count == 0) return null;
+        return newest.Name + ":\n" + string.Join('\n', lines.Skip(Math.Max(0, lines.Count - maxLines)));
+    }
+
+    /// <summary>The most lines of one binary check kept in a report. The security log can run to
+    /// thousands of lines; the refusal is at the end.</summary>
+    public const int MaxBinaryCheckLines = 25;
+
+    /// <summary>
+    /// The answers macOS gave about the launcher binary (quarantine flag, signature, security log), one
+    /// labelled block each, with the exit code, so an empty answer and a failed command read differently.
+    /// </summary>
+    public static string ComposeBinaryChecks(IEnumerable<(string Name, int Exit, string Output)> checks)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("launcher binary:");
+        foreach (var (name, exit, output) in checks)
+        {
+            sb.AppendLine($"  {name} -> exit {exit}:");
+            var lines = (output ?? "").Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Trim().Length > 0).ToList();
+            if (lines.Count == 0)
+            {
+                sb.AppendLine("    (no output)");
+                continue;
+            }
+            if (lines.Count > MaxBinaryCheckLines)
+            {
+                sb.AppendLine($"    ({lines.Count - MaxBinaryCheckLines} earlier lines left out)");
+                lines = lines.Skip(lines.Count - MaxBinaryCheckLines).ToList();
+            }
+            foreach (var line in lines) sb.AppendLine("    " + line);
+        }
+        return sb.ToString().TrimEnd();
+    }
+
     /// <summary>Everything gathered, as one block of text for the report.</summary>
     public static string Compose(string? launchctlPrintOutput, bool jobLoaded, IEnumerable<(string Name, string? Text)> logTails)
     {

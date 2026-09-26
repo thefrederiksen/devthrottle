@@ -129,7 +129,6 @@ internal static class FleetManagerEventPrompt
                 if (opt.Recommended) sb.Append(" (recommended)");
             }
             sb.Append('\n');
-            sb.Append("agentRecommends: ").Append(v.AgentRecommends ?? "-").Append('\n');
             // THE RECEIPT IS CUT IN v3, and an empty pair of markers is worse than no markers: it says a quote
             // was taken from the screen and that the quote was the empty string. The summary above carries the
             // Wingman's own words about the stop on every reading, which is what this block existed to support.

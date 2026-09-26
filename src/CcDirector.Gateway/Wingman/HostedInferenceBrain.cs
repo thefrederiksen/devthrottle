@@ -60,6 +60,8 @@ public sealed class HostedInferenceBrain : IAgentBrain
     private readonly string _model;
     private readonly TimeSpan _callTimeout;
     private readonly bool _thinkingOff;
+    private readonly double? _temperature;
+    private readonly int? _maxTokens;
     private readonly AiCallTag? _tag;
     private readonly Action<string> _log;
 
@@ -83,7 +85,12 @@ public sealed class HostedInferenceBrain : IAgentBrain
     /// <param name="tag">What this brain's calls are FOR and which account they are for, sent on every call so
     /// the API records it (see <see cref="AiCallTag"/>). Every production construction passes one - a test
     /// pins that - and null sends no tag, which the API records as untagged.</param>
-    public HostedInferenceBrain(string baseUrl, string apiKey, Core.Configuration.IncludedModelId model, HttpClient? http = null, Action<string>? log = null, TimeSpan? callTimeout = null, bool thinkingOff = false, AiCallTag? tag = null)
+    /// <param name="temperature">The sampling temperature to ask for, or null to send none and take the host's
+    /// default. Only a caller that measured its answers at a fixed temperature sets it: Call A answers at 0, because
+    /// without it the same prompt flipped between red and calm on 23 of 381 stops (turn pipeline phase 1).</param>
+    /// <param name="maxTokens">The most output the model may write, or null to send no cap. Only a caller whose
+    /// whole answer is known to be short sets it: Call A answers one word.</param>
+    public HostedInferenceBrain(string baseUrl, string apiKey, Core.Configuration.IncludedModelId model, HttpClient? http = null, Action<string>? log = null, TimeSpan? callTimeout = null, bool thinkingOff = false, AiCallTag? tag = null, double? temperature = null, int? maxTokens = null)
     {
         if (string.IsNullOrWhiteSpace(baseUrl)) throw new ArgumentException("baseUrl is required", nameof(baseUrl));
         ArgumentNullException.ThrowIfNull(model);
@@ -93,6 +100,8 @@ public sealed class HostedInferenceBrain : IAgentBrain
         _model = model.Value;
         _callTimeout = callTimeout ?? DefaultCallTimeout;
         _thinkingOff = thinkingOff;
+        _temperature = temperature;
+        _maxTokens = maxTokens;
         _tag = tag;
         _log = log ?? FileLog.Write;
     }
@@ -117,6 +126,12 @@ public sealed class HostedInferenceBrain : IAgentBrain
     /// <summary>Whether this brain asks its model not to reason out loud. Read by the tests that pin WHICH
     /// callers turn it on - the judge does, and nothing else may without its own measurement.</summary>
     internal bool ThinkingOff => _thinkingOff;
+
+    /// <summary>The temperature this brain asks for, or null when it sends none.</summary>
+    internal double? Temperature => _temperature;
+
+    /// <summary>The output cap this brain sends, or null when it sends none.</summary>
+    internal int? MaxTokens => _maxTokens;
 
     /// <summary>The deadline one round trip on this brain is held to. Read by the test that pins the turn
     /// verdict judge to its measured thirty seconds rather than to <see cref="DefaultCallTimeout"/>.</summary>
@@ -151,6 +166,10 @@ public sealed class HostedInferenceBrain : IAgentBrain
         };
         if (_thinkingOff)
             request[ThinkingOffTemplateArgument] = new Dictionary<string, object> { ["thinking"] = false };
+        if (_temperature is { } temperature)
+            request["temperature"] = temperature;
+        if (_maxTokens is { } maxTokens)
+            request["max_tokens"] = maxTokens;
         var payload = JsonSerializer.Serialize(request);
 
         var sw = Stopwatch.StartNew();

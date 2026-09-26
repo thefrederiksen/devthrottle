@@ -91,9 +91,8 @@ describe("the Cockpit pins the Fleet Manager first", () => {
       expect(within(pinned).getByRole("button", { name: "Expand the 2 sessions under The Fleet Manager" })).toBeTruthy();
       expect(within(pinned).getByText("2 under it: 2 working, 0 stopped, 0 need you")).toBeTruthy();
       expect(screen.getByTestId("roster-others-head").textContent).toBe("Not its own - they ask you (fake heading)");
-      const link = screen.getByTestId("roster-handover-link");
-      expect(link.textContent).toBe("Hand sessions over... (fake link)");
-      expect(link.getAttribute("href")).toBe("/fleet-manager?handover=1");
+      // The hand-over list lived in the Fleet Manager page's right panel, which is hidden, so no link leads to it.
+      expect(screen.queryByTestId("roster-handover-link")).toBeNull();
       // Only the pinned row wears the mark.
       expect(container.querySelectorAll(".roster-pin-mark")).toHaveLength(1);
     });
@@ -124,13 +123,5 @@ describe("the Cockpit pins the Fleet Manager first", () => {
     expect(screen.queryByTestId("roster-handover-link")).toBeNull();
     expect(container.querySelector(".roster-pin-mark")).toBeNull();
     expect(rowNames(container)).toEqual(["Early session", "Fleet Manager"]);
-  });
-
-  it("offers the hand-over link only when a row below offers the hand over", () => {
-    const plain = session({ sessionId: "s-plain", name: "Plain", sortOrder: 1 });
-    renderRoster([plain, fm], "my-order");
-
-    expect(screen.getByTestId("roster-others-head")).toBeTruthy();
-    expect(screen.queryByTestId("roster-handover-link")).toBeNull();
   });
 });

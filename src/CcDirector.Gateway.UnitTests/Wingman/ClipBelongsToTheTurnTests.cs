@@ -101,7 +101,7 @@ public sealed class ClipBelongsToTheTurnTests : IDisposable
         // SAID EXPLICITLY, because these tests assert on the WORDS a listener hears. Contract v3 leaves no prose
         // on the judge's answer at all, so those words can only come from the narration call - and leaving that
         // to the double's shared default would make this test depend on a value any sibling test can overwrite.
-        rig.Env.Narrator = (_, _) => Task.FromResult(spoken);
+        rig.Env.Narrator = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.NarratedAnswer(spoken));
     }
 
     private static async Task TurnEndAsync(Rig rig)

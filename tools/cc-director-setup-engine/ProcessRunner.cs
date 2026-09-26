@@ -17,6 +17,9 @@ internal static class ProcessRunner
     /// <summary>The exit code returned when a run is killed for exceeding its timeout.</summary>
     public const int TimeoutExitCode = -559038737; // 0xDEADBEEF as a signed int - a sentinel no real exe returns.
 
+    /// <summary>How long to wait, after the process has exited, for its output pipes to finish draining.</summary>
+    public static readonly TimeSpan PipeDrainTimeout = TimeSpan.FromSeconds(5);
+
     public static (int exit, string output) Run(string exe, string arguments)
         => Run(exe, arguments, onStdoutLine: null, timeout: DefaultTimeout);
 
@@ -77,6 +80,19 @@ internal static class ProcessRunner
             return (TimeoutExitCode, $"TIMEOUT: '{exe}' exceeded {timeout.TotalSeconds:F0}s and was killed.\n{partial}");
         }
 
+        // The timed WaitForExit returns when the process exits, NOT when the async readers have drained
+        // its pipes, so a short command's output could be read back empty while its exit code said 0.
+        // Measured on a Mac for #3411: codesign -dv came back with no lines three runs out of three. The
+        // async wait also waits for the readers to reach end of stream. It is bounded, because a
+        // grandchild that inherited the pipe (a started background process) would hold it open forever.
+        using (var drain = new CancellationTokenSource(PipeDrainTimeout))
+        {
+            try { p.WaitForExitAsync(drain.Token).GetAwaiter().GetResult(); }
+            catch (OperationCanceledException)
+            {
+                EngineLog.Write($"[ProcessRunner] output still open {PipeDrainTimeout.TotalSeconds:F0}s after exit (a child kept the pipe); returning what was read: {exe} {arguments}");
+            }
+        }
         return (p.ExitCode, Combine(stdoutBuf, stderrBuf));
     }
 

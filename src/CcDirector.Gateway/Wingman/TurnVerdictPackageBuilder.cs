@@ -203,6 +203,34 @@ public static class TurnVerdictPackageBuilder
             : text[^TurnVerdictPackage.MaxRecentTurnsChars..];
     }
 
+    /// <summary>The widget kind the stored conversation gives a tool call (<see cref="StoredConversationWidgets.From"/>
+    /// keeps a part's own kind); its header is the tool's name and its content the input as raw JSON.</summary>
+    internal const string ToolUseKind = "ToolUse";
+
+    /// <summary>
+    /// THE TOOL USES OF THE AGENT'S LAST TURN, for Call A's way-back step (<see cref="CallACodeSteps"/>): every tool
+    /// call after the last thing the person typed, in order. The same definition of "last turn" the phase 1
+    /// measurement used (code_first.py last_turn_tools), where a person's turn is a message with text - a tool
+    /// result travels as the person's role in the transcript, and it is not the person speaking. Empty when the
+    /// conversation holds no tool call since the person last spoke, or holds nothing at all.
+    /// </summary>
+    public static IReadOnlyList<CallAToolUse> LastTurnToolUses(IReadOnlyList<TurnWidgetDto>? widgets)
+    {
+        if (widgets is null || widgets.Count == 0) return Array.Empty<CallAToolUse>();
+        var start = 0;
+        for (var i = widgets.Count - 1; i >= 0; i--)
+        {
+            if (!string.Equals(widgets[i].Kind, StoredConversationWidgets.UserTextKind, StringComparison.Ordinal)) continue;
+            start = i + 1;
+            break;
+        }
+        var uses = new List<CallAToolUse>();
+        for (var i = start; i < widgets.Count; i++)
+            if (string.Equals(widgets[i].Kind, ToolUseKind, StringComparison.Ordinal))
+                uses.Add(new CallAToolUse(widgets[i].Header ?? "", widgets[i].Content ?? ""));
+        return uses;
+    }
+
     /// <summary>The first thing the person asked this session - the seed of what the whole session is
     /// for. Null when the conversation holds nothing the person said, which is ordinary for an agent
     /// that keeps no readable conversation.</summary>

@@ -286,9 +286,7 @@ internal static class FleetManagerPlacementFold
             {
                 status.Restart.Offered = true;
                 status.Restart.ConfirmTitle = "Restart the Fleet Manager?";
-                status.Restart.ConfirmMessage =
-                    $"A new Fleet Manager starts on {where} and picks up from its records. The one running now finishes "
-                    + "its current turn and then closes. Nothing it was watching is lost.";
+                status.Restart.ConfirmMessage = $"A new Fleet Manager starts on {where} and {HandOverSentence}";
             }
             else if (placement is not null)
             {
@@ -340,6 +338,11 @@ internal static class FleetManagerPlacementFold
         status.Start.Note = $"Starting can take up to {StartWaitSeconds} seconds when a Director has to be started first.";
         return status;
     }
+
+    /// <summary>What a restart does to the running one - said once, so Settings' Restart and the page's Start fresh
+    /// confirm the same thing in the same words.</summary>
+    private const string HandOverSentence = "picks up from its records. The one running now finishes its current turn "
+                                            + "and then closes. Nothing it was watching is lost.";
 
     private const string StartingLabel = "Starting... this can take up to 90 seconds while a Director is started.";
 
@@ -443,8 +446,24 @@ internal static class FleetManagerPlacementFold
             ThinkingShown = running && dto.Status.Thinking,
             NotRunningBarShown = !running,
             SettingsLabel = "Move it in Settings",
+            StartFresh = FoldStartFresh(dto.Status.Restart),
         };
     }
+
+    /// <summary>The page's "Start fresh" button. It follows the restart action and never decides anything of its own:
+    /// offered only when a restart is, with the restart's note when it is not, and the restart's busy line.</summary>
+    private static FleetManagerActionDto FoldStartFresh(FleetManagerActionDto restart) => new()
+    {
+        Offered = restart.Offered,
+        Label = "Start fresh",
+        Note = restart.Note,
+        BusyLabel = restart.BusyLabel,
+        ConfirmTitle = restart.Offered ? "Start a fresh Fleet Manager?" : null,
+        ConfirmMessage = restart.Offered
+            ? $"A brand new Fleet Manager session starts and {HandOverSentence} This page then shows the new one's "
+              + "conversation."
+            : null,
+    };
 
     private static SessionDto? LiveMarked(FleetManagerPlacementInputs input)
     {

@@ -19,7 +19,15 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // The launcher's record lives in logs/launcher/, beside the launchd output and where every message the
+        // installer shows points (issue #3311, B4). It used to land in logs/director/ as director-*.log.
+        FileLog.UseLogDirectory(CcDirector.Core.Storage.CcStorage.ToolLogs("launcher"), "launcher");
         FileLog.Start();
+
+        // The setup engine runs inside the launcher too (autostart registration, the tools install), and its
+        // lines were thrown away because nothing set its sink (issue #3311, B3). They go to this log now - and
+        // so an engine line that says FAILED reaches the error reporter like any other.
+        EngineLog.Sink = FileLog.Write;
 
         // Nothing recorded an exception that escaped a background thread or a task before this, so a
         // launcher that died left no reason behind. Both are logged now, and every error the launcher

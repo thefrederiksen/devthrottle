@@ -106,6 +106,9 @@ public sealed class LauncherTrayController : IDisposable
         _flyout.WarmUp();
 
         var menu = new NativeMenu();
+        var sendLogs = new NativeMenuItem("Send Logs to DevThrottle");
+        sendLogs.Click += (_, _) => SendLogsToDevThrottle("tray menu");
+        menu.Add(sendLogs);
         var quit = new NativeMenuItem("Quit");
         quit.Click += (_, _) => _ = QuitAsync();
         menu.Add(quit);
@@ -169,6 +172,7 @@ public sealed class LauncherTrayController : IDisposable
         {
             new() { Text = "Logs", OnClick = OpenLogsFolder },
             new() { Text = "Config", OnClick = OpenConfigFolder },
+            new() { Text = "Send logs", OnClick = () => SendLogsToDevThrottle("tray panel") },
         };
 
         ToggleSpec? toggle = OperatingSystem.IsWindows()
@@ -256,6 +260,33 @@ public sealed class LauncherTrayController : IDisposable
             _flyout?.Close();
             if (_trayIcon is not null) _trayIcon.IsVisible = false;
             _desktop.Shutdown();
+        });
+    }
+
+    /// <summary>
+    /// Send the recent tail of the launcher's log to DevThrottle, signed in or not (issue #3311, B5). The tray
+    /// tooltip says it is sending at once; the answer - sent with a reference to quote, or why not - comes back
+    /// as a system message box, because the launcher has no window of its own to put it in.
+    /// </summary>
+    private void SendLogsToDevThrottle(string trigger)
+    {
+        FileLog.Write($"[LauncherTrayController] SendLogsToDevThrottle: from the {trigger}");
+        if (_trayIcon is not null) _trayIcon.ToolTipText = "Launcher - sending logs to DevThrottle...";
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await CcDirector.Core.ErrorReports.LogSender.SendAsync(
+                    CcDirector.Core.ErrorReports.ErrorReportLimits.Launcher, trigger, _lifetime.Token);
+                Dispatcher.UIThread.Post(() => { if (_trayIcon is not null) _trayIcon.ToolTipText = "Launcher"; });
+                NativeNotice.Show(result.Detail, "Launcher - Send logs",
+                    result.Sent ? NativeNotice.Kind.Info : NativeNotice.Kind.Warning);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[LauncherTrayController] SendLogsToDevThrottle FAILED: {ex}");
+                Dispatcher.UIThread.Post(() => { if (_trayIcon is not null) _trayIcon.ToolTipText = "Launcher"; });
+            }
         });
     }
 

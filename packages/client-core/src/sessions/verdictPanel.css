@@ -39,35 +39,6 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.verdict-question {
-  font-style: italic;
-}
-.verdict-options {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.verdict-option {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.verdict-option-button[aria-pressed="true"] {
-  outline: 2px solid currentColor;
-}
-.verdict-recommended {
-  font-size: 12px;
-  font-weight: 600;
-}
-.verdict-note {
-  font-size: 12px;
-  opacity: 0.8;
-  flex-basis: 100%;
-}
 .verdict-refusal {
   border-left: 3px solid #ef4444;
   padding: 4px 8px;

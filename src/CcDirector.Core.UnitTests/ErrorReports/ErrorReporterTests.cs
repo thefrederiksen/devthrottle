@@ -297,4 +297,123 @@ public sealed class ErrorReporterTests
     [Fact]
     public void Constructor_AComponentADeviceMayNotReportAs_Throws()
         => Assert.Throws<ArgumentException>(() => new ErrorReporter(ErrorReportLimits.Install));
+
+    // ---- Before sign-in (issue #3311, B1) ----
+
+    private sealed class SignInState
+    {
+        public GatewayConfig Config = new() { Url = "", Token = "" };
+    }
+
+    private (ErrorReporter Reporter, StubHandler Handler, SignInState State, string Dir) NewReporterWithOutbox()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-reporter-test-" + Guid.NewGuid().ToString("N"));
+        var handler = new StubHandler();
+        var state = new SignInState();
+        var http = new HttpClient(handler);
+        var reporter = new ErrorReporter(ErrorReportLimits.Launcher, () => state.Config, http,
+            () => _now, machineName: "TEST-MACHINE", productVersion: "2.9.0+abc",
+            preSignIn: r => new PreSignInOutbox(Path.Combine(dir, "launcher-before-sign-in.json"), ErrorReportLimits.Launcher,
+                () => "3f2a9c1e-0000-4000-8000-000000000002", () => "https://hosted.example", http, () => _now));
+        return (reporter, handler, state, dir);
+    }
+
+    [Fact]
+    public async Task SendPending_NoCredential_SendsToThePublicInstallReportRoute_AndDropsNothing()
+    {
+        var (reporter, handler, _, dir) = NewReporterWithOutbox();
+        try
+        {
+            reporter.OnLogLine("[LauncherCore] Register FAILED: System.Net.Http.HttpRequestException: refused");
+
+            Assert.Equal(1, await reporter.SendPendingAsync(CancellationToken.None));
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal("https://hosted.example/install-reports", request.Url);
+            Assert.Null(request.Auth);
+            var payload = JsonSerializer.Deserialize<InstallReportPayload>(request.Body)!;
+            Assert.Equal("launcher", payload.Component);
+            Assert.Equal(PreSignInOutbox.Step, payload.Step);
+            Assert.Contains("Register FAILED", payload.Diagnostics);
+            Assert.Equal(0, reporter.Dropped);
+            Assert.Equal(0, reporter.Outbox!.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SendPending_NoCredentialAndNoAnswer_KeepsTheErrorOnDisk_ThenSendsItWithTheCredentialOnceSignedIn()
+    {
+        var (reporter, handler, state, dir) = NewReporterWithOutbox();
+        try
+        {
+            handler.Throw = new HttpRequestException("offline");
+            reporter.OnLogLine("[LauncherCore] Register FAILED: refused");
+
+            Assert.Equal(0, await reporter.SendPendingAsync(CancellationToken.None));
+            Assert.Equal(0, reporter.PendingCount);
+            Assert.Equal(1, reporter.Outbox!.Count);
+            Assert.Equal(0, reporter.Dropped);
+
+            handler.Throw = null;
+            state.Config = new GatewayConfig { Url = "https://gateway.example", Token = "device-key" };
+            Assert.Equal(1, await reporter.SendPendingAsync(CancellationToken.None));
+
+            var last = handler.Requests[^1];
+            Assert.Equal("https://gateway.example/gateway/director-errors", last.Url);
+            Assert.Equal("Bearer device-key", last.Auth);
+            Assert.Equal("Register FAILED: refused", Assert.Single(Sent(handler, handler.Requests.Count - 1)).Message);
+            Assert.Equal(0, reporter.Outbox.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SendPending_SignedIn_AKeptErrorTheGatewayRefuses_StaysOnDisk()
+    {
+        var (reporter, handler, state, dir) = NewReporterWithOutbox();
+        try
+        {
+            handler.Throw = new HttpRequestException("offline");
+            reporter.OnLogLine("[LauncherCore] Register FAILED: refused");
+            await reporter.SendPendingAsync(CancellationToken.None);
+
+            handler.Throw = null;
+            handler.Status = () => HttpStatusCode.Forbidden;
+            state.Config = new GatewayConfig { Url = "https://gateway.example", Token = "device-key" };
+            Assert.Equal(0, await reporter.SendPendingAsync(CancellationToken.None));
+
+            Assert.Equal(1, reporter.Outbox!.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Flush_BeforeSignIn_KeepsTheCrashOnDiskEvenWhenItCannotBeSent()
+    {
+        var (reporter, handler, _, dir) = NewReporterWithOutbox();
+        try
+        {
+            handler.Throw = new HttpRequestException("offline");
+            reporter.OnLogLine("[Program] UNHANDLED (terminating): System.InvalidOperationException: boom");
+
+            Assert.Equal(0, await reporter.FlushAsync(CancellationToken.None));
+
+            Assert.Equal(1, reporter.Outbox!.Count);
+            Assert.Contains("boom", File.ReadAllText(Path.Combine(dir, "launcher-before-sign-in.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
 }

@@ -57,8 +57,6 @@ function base(overrides: Partial<WingmanNowDto> = {}): WingmanNowDto {
     agentSaid: null,
     wholeReply: null,
     needs: null,
-    canAnswerByOption: false,
-    verdictId: null,
     replyPlaceholder: null,
     replyHint: null,
     snoozedUntil: null,
@@ -93,29 +91,15 @@ const NEEDS_YOU = base({
   wholeReply: "The Fable review is done, and the notes are fixed and pushed to pull request #3002.",
   needs: {
     heading: "What it needs from you",
-    recommends: "It recommends: allow the merge - the notes have been reviewed.",
     question: null,
-    options: [
-      {
-        index: 1,
-        number: 1,
-        key: "Allow the merge",
-        note: "It runs the merge itself. This lands the release notes on main and cannot be undone by the session.",
-        recommended: true,
-      },
-      { index: 2, number: 2, key: "I will merge it myself", note: "It waits for you. Nothing changes until you merge.", recommended: false },
-    ],
   },
-  canAnswerByOption: true,
-  // THE VERDICT IDENTIFIER IS AT THE ROOT of the answer, which is where the route puts it.
-  verdictId: "v-3002",
   replyPlaceholder: "Or answer in your own words - for example: allow the merge, tag straight after it.",
   voice: { kind: "play", label: "Play", afterTurnOnText: null },
 });
 
 describe("Now - the live stop", () => {
-  it("draws the everyday needs-you stop: the pill, when it stopped, the story, the agent's sentence and every option", () => {
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
+  it("draws the everyday needs-you stop: the pill, when it stopped, the story, the agent's sentence and the needs card", () => {
+    render(<WingmanNow now={NEEDS_YOU} at={AT} />);
 
     expect(screen.getByText("Needs you")).toBeTruthy();
     expect(screen.getByText(`Stopped at ${formatClockTime(STOPPED)}, 8 minutes ago`)).toBeTruthy();
@@ -124,45 +108,9 @@ describe("Now - the live stop", () => {
     expect(screen.getByText("Claude Code said")).toBeTruthy();
     expect(screen.getByText(/Either merge #3002 yourself/)).toBeTruthy();
     expect(screen.getByText("What it needs from you")).toBeTruthy();
-    expect(screen.getByText("It recommends: allow the merge - the notes have been reviewed.")).toBeTruthy();
-    expect(screen.getByText("Allow the merge")).toBeTruthy();
-    expect(screen.getByText("RECOMMENDED")).toBeTruthy();
-    expect(screen.getByText(/This lands the release notes on main/)).toBeTruthy();
-    expect(screen.getByText("I will merge it myself")).toBeTruthy();
     expect(screen.getByText("The whole reply, word for word")).toBeTruthy();
     // The unsure tag and line belong to the next state, not this one.
     expect(screen.queryByText("The Wingman is not sure")).toBeNull();
-  });
-
-  it("answers by option with the index the Gateway gave, and refuses when the Gateway says the stop cannot be answered that way", async () => {
-    const onAnswerOption = accepts();
-    const { rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
-    fireEvent.click(screen.getByText("Allow the merge"));
-    expect(onAnswerOption).toHaveBeenCalledWith(NEEDS_YOU.needs!.options[0], "v-3002");
-    await waitFor(() => expect((screen.getByText("Allow the merge").closest("button"))!.disabled).toBe(false));
-
-    rerender(<WingmanNow now={base({ ...NEEDS_YOU, canAnswerByOption: false })} at={AT} actions={{ onAnswerOption }} />);
-    fireEvent.click(screen.getByText("Allow the merge"));
-    expect(onAnswerOption).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows the answer route's refusal sentence unedited, so an answer that did nothing never looks like one that landed", async () => {
-    const onAnswerOption = refuses("The screen has moved on since that question was asked.");
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
-
-    fireEvent.click(screen.getByText("Allow the merge"));
-    await waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toBe("The screen has moved on since that question was asked."),
-    );
-  });
-
-  it("shows what the answer route said when it accepted the answer, as a quiet line rather than an alert", async () => {
-    const onAnswerOption = accepts("Sent option 1 to the session.");
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
-
-    fireEvent.click(screen.getByText("Allow the merge"));
-    await waitFor(() => expect(screen.getByText("Sent option 1 to the session.")).toBeTruthy());
-    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("draws the shell's one message box inside the card, with the Gateway's words in it", () => {
@@ -517,27 +465,13 @@ describe("Now - the fields the contract may legitimately send as nothing", () =>
     expect(screen.queryByText(/ - $/)).toBeNull();
   });
 
-  it("draws no option list at all rather than dying, if a Gateway ever sends needs with no options", () => {
-    // The contract initialises options and the fold always writes them, so this is a belt on a rule kept elsewhere -
-    // but the Cockpit has no error boundary, so an absent list would take the whole screen down with it.
+  it("draws a stop that takes typed words only: the needs card and the reply box, and nothing to tap", () => {
     const now = base({
       state: "needs-you",
-      needs: { heading: "What it needs from you", recommends: null, question: null } as never,
+      needs: { heading: "What it needs from you", question: null },
       replyPlaceholder: "Answer in your own words.",
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onAnswerOption: accepts() }} replyBox={replyBox} />);
-
-    expect(screen.getByText("What it needs from you")).toBeTruthy();
-    expect(screen.getByLabelText("Your reply to this session")).toBeTruthy();
-  });
-
-  it("draws a stop that takes typed words only, with no option list and nothing to tap", () => {
-    const now = base({
-      state: "needs-you",
-      needs: { heading: "What it needs from you", recommends: null, question: null, options: [] },
-      replyPlaceholder: "Answer in your own words.",
-    });
-    render(<WingmanNow now={now} at={AT} actions={{ onAnswerOption: accepts() }} replyBox={replyBox} />);
+    render(<WingmanNow now={now} at={AT} replyBox={replyBox} />);
 
     expect(screen.getByText("What it needs from you")).toBeTruthy();
     expect(screen.getByLabelText("Your reply to this session")).toBeTruthy();
@@ -705,89 +639,49 @@ describe("Now - the quick actions", () => {
   });
 });
 
-describe("Now - the options are buttons, and they say so", () => {
-  it("says a click sends, while the Gateway says the stop can still be answered that way", () => {
-    const { rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
-    expect(screen.getByText("Click an option to send it as your answer.")).toBeTruthy();
+describe("Now - there are no answer buttons (the turn pipeline mission, phase 4)", () => {
+  // The owner, 25 September: "Drop the buttons for now. A menu is simply needs you, and the narration says open the
+  // session to choose." A record stored under contract v3 still carries a menu question, and it is still shown; what
+  // is gone is every control that sent an option, the agent's recommendation, and the warning that made a tap ask.
+  const V3_MENU = base({
+    ...NEEDS_YOU,
+    needs: { heading: "What it needs from you", question: "Merge the pull request now?" },
+  });
 
-    // Nothing to click: the options are there to READ, so the sentence that promises a click would be a lie.
-    rerender(
-      <WingmanNow now={base({ ...NEEDS_YOU, canAnswerByOption: false })} at={AT} actions={{ onAnswerOption: accepts() }} />,
-    );
+  it("draws the needs card with the v3 menu question and the reply box, and not one option button", () => {
+    const { container } = render(<WingmanNow now={V3_MENU} at={AT} replyBox={replyBox} />);
+
+    expect(screen.getByText("What it needs from you")).toBeTruthy();
+    expect(screen.getByText("Merge the pull request now?")).toBeTruthy();
+    expect(screen.getByLabelText("Your reply to this session")).toBeTruthy();
+    // CONTROL: the card itself is drawn, so the absences below are not a card that failed to render.
+    expect(container.querySelector(".wnow-card-needs")).not.toBeNull();
+    expect(container.querySelector(".wnow-options")).toBeNull();
+    expect(container.querySelector(".wnow-option")).toBeNull();
+    expect(container.querySelector(".wnow-recommends")).toBeNull();
     expect(screen.queryByText("Click an option to send it as your answer.")).toBeNull();
-
-    // And nothing wired to send them either.
-    rerender(<WingmanNow now={NEEDS_YOU} at={AT} />);
-    expect(screen.queryByText("Click an option to send it as your answer.")).toBeNull();
-  });
-
-  it("draws the option the GATEWAY recommended as the first choice, and only that one", () => {
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
-
-    expect(screen.getByText("Allow the merge").closest("button")!.className).toContain("wnow-option-recommended");
-    expect(screen.getByText("I will merge it myself").closest("button")!.className).not.toContain(
-      "wnow-option-recommended",
-    );
-  });
-
-  it("asks once before sending an answer the Gateway says cannot be undone, in the Gateway's own words", async () => {
-    const onAnswerOption = accepts();
-    const now = base({
-      ...NEEDS_YOU,
-      needs: {
-        ...NEEDS_YOU.needs!,
-        riskFlag: "This cannot be undone.",
-        riskLine: "This cannot be undone.",
-        confirmBeforeSending: true,
-      },
-    });
-    render(<WingmanNow now={now} at={AT} actions={{ onAnswerOption }} />);
-
-    // The warning is on the card, once, before anything is clicked - not repeated on every option.
-    expect(screen.getAllByText("This cannot be undone.").length).toBe(1);
-
-    // The first click asks instead of sending.
-    fireEvent.click(screen.getByText("Allow the merge"));
-    expect(onAnswerOption).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert").textContent).toContain("This cannot be undone.");
-
-    // Cancel sends nothing at all.
-    fireEvent.click(screen.getByText("Cancel"));
-    expect(onAnswerOption).not.toHaveBeenCalled();
-    expect(screen.queryByRole("alert")).toBeNull();
-
-    // The second click, once asked, sends.
-    fireEvent.click(screen.getByText("Allow the merge"));
-    fireEvent.click(screen.getByText("Send it anyway"));
-    await waitFor(() => expect(onAnswerOption).toHaveBeenCalledWith(expect.objectContaining({ index: 1 }), "v-3002"));
-  });
-
-  it("asks nothing, and warns about nothing, on an option the Gateway did not mark - one click still sends", () => {
-    const onAnswerOption = accepts();
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
-
-    fireEvent.click(screen.getByText("I will merge it myself"));
-    expect(onAnswerOption).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("RECOMMENDED")).toBeNull();
     expect(screen.queryByText("Send it anyway")).toBeNull();
   });
 
-  it("shows the number the Gateway folded for the reader, never the answer route's own index", () => {
-    const { container, rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
-    expect([...container.querySelectorAll(".wnow-option-index")].map((n) => n.textContent)).toEqual(["1", "2"]);
-
-    const numbered = base({
-      ...NEEDS_YOU,
+  it("ignores the retired option fields if an older Gateway still sends them", () => {
+    // A Gateway deployed before this change still stamps options, a recommendation and the answerable flag. The view
+    // reads none of them, so a Cockpit ahead of its Gateway draws no button that the Gateway would then refuse.
+    const older = {
+      ...V3_MENU,
+      canAnswerByOption: true,
+      verdictId: "v-3002",
       needs: {
-        ...NEEDS_YOU.needs!,
-        options: [
-          { index: 0, number: 1, key: "Commit and deploy", note: null, recommended: true },
-          { index: 1, number: 2, key: "Do not commit", note: null, recommended: false },
-        ],
+        ...V3_MENU.needs!,
+        recommends: "It recommends: allow the merge.",
+        options: [{ index: 0, number: 1, key: "Allow the merge", note: null, recommended: true }],
       },
-    });
-    rerender(<WingmanNow now={numbered} at={AT} actions={{ onAnswerOption: accepts() }} />);
-    // The route still counts from zero; the reader never sees it.
-    expect([...container.querySelectorAll(".wnow-option-index")].map((n) => n.textContent)).toEqual(["1", "2"]);
+    } as unknown as WingmanNowDto;
+    render(<WingmanNow now={older} at={AT} />);
+
+    expect(screen.getByText("Merge the pull request now?")).toBeTruthy();
+    expect(screen.queryByText("Allow the merge")).toBeNull();
+    expect(screen.queryByText("It recommends: allow the merge.")).toBeNull();
   });
 });
 

@@ -32,7 +32,6 @@ internal static class TurnVerdictDtoCopy
             Evidence = v.Evidence,
             Label = v.Label,
             Summary = v.Summary,
-            AgentRecommends = v.AgentRecommends,
             AnswerVia = v.AnswerVia,
             Menu = v.Menu,
             Options = v.Options,
@@ -47,6 +46,8 @@ internal static class TurnVerdictDtoCopy
             RetriesMade = v.RetriesMade,
             NextRetryAtUtc = v.NextRetryAtUtc,
             OptionsDroppedReason = v.OptionsDroppedReason,
+            DecidedBy = v.DecidedBy,
+            DecisionReason = v.DecisionReason,
         };
     }
 }

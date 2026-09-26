@@ -101,7 +101,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             streamStale: Stale,
             route: (_, directorId) => RouteServing(directorId, () => Screen("any", Evidence, "> ")),
             conversation: (_, _) => null,
-            judgeBrain: (_, _, _) => _brain,
+            judgeBrain: (_, _, _, _) => _brain,
             judgeModel: _ => FakeTurnVerdictEnvironment.Model,
             store: _verdicts,
             traces: new TurnVerdictTraceWriter((_, _) => { }),
@@ -1765,7 +1765,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         public async Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
         {
             // The narration prompt is the one that asks for the spoken version between two markers.
-            var narrating = prompt.Contains("Output ONLY the spoken version", StringComparison.Ordinal);
+            var narrating = prompt.Contains(NarrationCall.LabelTag + " <label>", StringComparison.Ordinal);
             if (narrating) Interlocked.Increment(ref _narrations); else Interlocked.Increment(ref _asks);
             await _gate.Task.WaitAsync(ct);
             return new AskResult { Text = narrating ? NarrationAnswer : Answer, ReplySeconds = 0.1 };

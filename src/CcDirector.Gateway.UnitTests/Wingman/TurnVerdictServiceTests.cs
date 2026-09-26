@@ -58,7 +58,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
             streamStale: Stale,
             route: (_, _) => null,
             conversation: (_, _) => null,
-            judgeBrain: (_, _, requestedFeature) =>
+            judgeBrain: (_, _, requestedFeature, _) =>
             {
                 feature = requestedFeature;
                 return brain;
@@ -95,7 +95,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.False(pushed.TryLocate(Tenant, "child-1", Stale)!.Value.Session.HasLiveSupervisor);
 
         var screenReads = 0;
-        var brain = new CountingBrain(() => FakeTurnVerdictEnvironment.CannotTell("The child session stopped."));
+        var brain = new CountingBrain(() => FakeTurnVerdictEnvironment.NeedsYou("The child session stopped."));
         var records = new List<TurnVerdictRecord>();
         var env = new GatewayTurnVerdictEnvironment(
             settings: _ => TurnVerdictSettings.Defaults with { JudgeEnabled = true, SettleMs = 0 },
@@ -104,7 +104,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
             route: (_, directorId) => RouteServing(directorId, () => Screen("child-1", "Working on the migration.", "> "),
                 onRead: () => Interlocked.Increment(ref screenReads)),
             conversation: (_, _) => null,
-            judgeBrain: (_, _, _) => brain,
+            judgeBrain: (_, _, _, _) => brain,
             judgeModel: _ => FakeTurnVerdictEnvironment.Model,
             store: new TurnVerdictStore(_harness.Open()),
             traces: new TurnVerdictTraceWriter((_, _) => { }),
@@ -251,7 +251,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
         env.Judge = async (_, ct) =>
         {
             await release.Task.WaitAsync(ct);
-            return FakeTurnVerdictEnvironment.CannotTell("The session stopped.");
+            return FakeTurnVerdictEnvironment.NeedsYou("The session stopped.");
         };
         var service = new TurnVerdictService(env);
 
@@ -409,24 +409,18 @@ public sealed class TurnVerdictServiceTests : IDisposable
             TurnVerdictFailureKind.RateLimited, "rate limited", expectedRetryAfter: TimeSpan.FromSeconds(40));
 
     [Fact]
-    public Task UnparseableAnswer_StoresAFailedRecord_AndNoVerdict()
+    public Task AnAnswerThatIsNotOneOfTheThreeWords_StoresAFailedRecord_AndNoVerdict()
         => AssertFailed(
             (_, _) => Task.FromResult("Sure! The session finished."),
-            TurnVerdictFailureKind.Refused, "not valid JSON");
+            TurnVerdictFailureKind.Refused, "is not one of the three words");
 
     /// <summary>
-    /// THE TWO REFUSALS CONTRACT v3 DELETED, MEASURED FROM THE OTHER SIDE. Until 2026-09-18 an answer whose quote
-    /// was not on the reply or the screen character for character was refused, and so was one carrying a risk word
-    /// the contract did not know. On the live fleet that morning those rules, with the finishedKind rule beside
-    /// them, accounted for 45 of 110 failed readings out of 273 - and a failed reading is stored against the screen
-    /// and never asked again, so a session it happened to stays silent for good.
-    ///
-    /// The owner cut both fields. This is an answer that carries BOTH of the things that used to refuse it - a
-    /// quote that appears nowhere, and a risk word that was never a risk word - and it is now a real reading. The
-    /// two tests this replaces asserted the refusals; they are gone because the rules are, not because they broke.
+    /// A FIVE-FIELD ANSWER IS NOT AN ANSWER ANY MORE (contract v4). A model that still wrote the v3 JSON object - a
+    /// correct state and all - is refused, because Call A's answer is exactly one word and nothing is searched for
+    /// inside a longer one. The record is failed and red, and it goes on the retry schedule like any other failure.
     /// </summary>
     [Fact]
-    public async Task AnAnswerTheOldReceiptAndRiskRulesRefused_IsNowARealReading()
+    public async Task AFiveFieldV3Answer_IsRefused_BecauseTheAnswerIsOneWord()
     {
         const string answer = """
             {
@@ -434,24 +428,18 @@ public sealed class TurnVerdictServiceTests : IDisposable
               "label": "Pushed the branch and opened the pull request",
               "agentRecommends": null,
               "menu": null,
-              "options": [],
-              "evidence": "I have pushed the branch and merged it.",
-              "risk": "catastrophic"
+              "options": []
             }
             """;
         var env = Env();
         env.Judge = (_, _) => Task.FromResult(answer);
-        var service = new TurnVerdictService(env);
 
-        var outcome = await service.StartTurnEnd(Signal());
+        var outcome = await new TurnVerdictService(env).StartTurnEnd(Signal());
 
-        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-        Assert.True(outcome.HasAcceptedVerdict);
-        Assert.False(outcome.Verdict!.Failed, outcome.Verdict.FailureReason);
-        Assert.Equal(TurnVerdictStates.FinishedReport, outcome.Verdict.State);
-        // The two cut fields are empty on the record, never carried through from an answer that still sent them.
-        Assert.Equal("", outcome.Verdict.Evidence);
-        Assert.Equal("", outcome.Verdict.Risk);
+        Assert.Equal(TurnVerdictOutcomeKind.Failed, outcome.Kind);
+        Assert.True(outcome.Verdict!.Failed);
+        Assert.Contains("is not one of the three words", outcome.Verdict.FailureReason);
+        Assert.NotNull(outcome.Verdict.NextRetryAtUtc);
     }
 
     private static async Task AssertFailed(
@@ -626,24 +614,26 @@ public sealed class TurnVerdictServiceTests : IDisposable
 
     // ================================================================= what the verdict feeds
 
+    /// <summary>
+    /// A READING NO LONGER FEEDS THE SEND-TIME MENU CACHE (contract v4). Call A does not answer whether a menu is
+    /// drawn, so what it would store for a real picker is "answer" - and WaitingScreenReader.ConfirmedMenuAsync would
+    /// read that as "no menu" and let a voice reply be typed into the picker. Nothing is stored, so the guard asks its
+    /// own question on a menu-shaped screen and fails closed, as it always did on a cache miss.
+    /// </summary>
     [Fact]
-    public async Task AMenuVerdict_FeedsTheScreenCache_UnderTheFullGridHash()
+    public async Task AReading_DoesNotFeedTheScreenCache_SoTheSendGuardAsksItsOwnQuestion()
     {
         const string sid = "sid-menu-cache";
-        // The screen's option labels are the ones the judge answers with (Proceed / Stop). A picker whose labels
-        // are NOT on the screen is an invented menu and InventedMenuCheck corrects it away - see that test class.
         string[] rows = { "Do you want to proceed?", "> 1. Proceed", "  2. Stop" };
         var env = Env();
         env.Screen = () => Screen(sid, rows);
         env.Conversation = _ => null;
-        env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Menu(
-            "Proceed with the change?", "Do you want to proceed?", "The migration session is asking whether to proceed."));
 
         var outcome = await new TurnVerdictService(env).StartTurnEnd(Signal(sid));
 
         Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-        Assert.True(WingmanScreenVerdictCache.TryGet($"{Tenant}/{sid}", WingmanScreenVerdictCache.HashRows(rows), out var needs));
-        Assert.Equal("menu", needs);
+        Assert.Equal("picker", outcome.Verdict!.DecidedBy);
+        Assert.False(WingmanScreenVerdictCache.TryGet($"{Tenant}/{sid}", WingmanScreenVerdictCache.HashRows(rows), out _));
     }
 
     /// <summary>
