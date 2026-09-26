@@ -21,6 +21,12 @@ public static class FileLog
     // UseUniqueInstanceId() before Start(), because inside a container the process id is always 1.
     private static string _instanceId = Environment.ProcessId.ToString();
 
+    /// <summary>The file-name prefix of a Director's log: director-yyyy-MM-dd-{pid}.log.</summary>
+    public const string DirectorFilePrefix = "director";
+
+    // The first word of the file name. "director" unless the process chose otherwise before Start.
+    private static string _filePrefix = DirectorFilePrefix;
+
     // The active writer. Reassigned in exactly three places, all of them deliberate: UseUniqueInstanceId
     // before the writer has started, Start when the previous writer is SPENT (a stop completed its queue,
     // which cannot be undone), and the test-only RedirectForTests seam (issue #862) which swaps in an
@@ -77,8 +83,35 @@ public static class FileLog
 
         _instanceId = Guid.NewGuid().ToString("N")[..12];
         _logDir = logDirectory;
-        _writer = new FileLogWriter(_logDir, _instanceId, () => DateTime.Now);
+        _writer = new FileLogWriter(_logDir, _instanceId, () => DateTime.Now, _filePrefix);
     }
+
+    /// <summary>
+    /// Write this process's log to <paramref name="logDirectory"/> as <c>{filePrefix}-yyyy-MM-dd-{pid}.log</c>.
+    /// Must be called before <see cref="Start"/>, like <see cref="UseUniqueInstanceId()"/>.
+    ///
+    /// The launcher is why (issue #3311, B4). It used to share the Director's folder and file name, so its
+    /// record sat in <c>logs/director/director-*.log</c> while every message the installer shows a person, and
+    /// the launchd output beside it, pointed at <c>logs/launcher/</c> - the one folder that did not have it.
+    /// </summary>
+    public static void UseLogDirectory(string logDirectory, string filePrefix)
+    {
+        if (_started != 0)
+            throw new InvalidOperationException(
+                "FileLog.UseLogDirectory() must be called before FileLog.Start(); the writer is already running " +
+                "and moving it now would split this process's record in two.");
+        if (string.IsNullOrWhiteSpace(logDirectory))
+            throw new ArgumentException("A log directory cannot be blank.", nameof(logDirectory));
+        if (string.IsNullOrWhiteSpace(filePrefix))
+            throw new ArgumentException("A log file prefix cannot be blank.", nameof(filePrefix));
+
+        _logDir = logDirectory;
+        _filePrefix = filePrefix;
+        _writer = new FileLogWriter(_logDir, _instanceId, () => DateTime.Now, _filePrefix);
+    }
+
+    /// <summary>The folder this process writes its log to.</summary>
+    public static string LogDirectory => _logDir;
 
     /// <summary>
     /// True when the file sink has failed repeatedly and the console mirror was turned on to report it
@@ -145,7 +178,7 @@ public static class FileLog
             return;
 
         if (_writer.IsSpent)
-            _writer = new FileLogWriter(_logDir, _instanceId, () => DateTime.Now);
+            _writer = new FileLogWriter(_logDir, _instanceId, () => DateTime.Now, _filePrefix);
 
         _writer.OnSinkHealthChanged = OnSinkHealthChanged;
         _writer.Start();
@@ -200,7 +233,7 @@ public static class FileLog
 
     /// <summary>Returns the current log file path (useful for display).</summary>
     public static string CurrentLogPath =>
-        Path.Combine(_logDir, $"director-{DateTime.Now:yyyy-MM-dd}-{_instanceId}.log");
+        Path.Combine(_logDir, $"{_filePrefix}-{DateTime.Now:yyyy-MM-dd}-{_instanceId}.log");
 
     /// <summary>
     /// TEST-ONLY seam (issue #862). Redirects FileLog to a private, throwaway directory for the life

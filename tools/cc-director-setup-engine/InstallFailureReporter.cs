@@ -1,9 +1,8 @@
-using System.Net.Http.Json;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Setup.Engine;
 
@@ -26,7 +25,7 @@ namespace CcDirector.Setup.Engine;
 /// </summary>
 public sealed class InstallFailureReporter
 {
-    public const string Path = "/install-reports";
+    public const string Path = InstallReportLimits.Path;
 
     private static readonly Regex MacHome = new(@"/Users/[^/\s""']+", RegexOptions.CultureInvariant);
     private static readonly Regex LinuxHome = new(@"/home/[^/\s""']+", RegexOptions.CultureInvariant);
@@ -47,28 +46,16 @@ public sealed class InstallFailureReporter
         _gatewayUrl = gatewayUrl ?? HostedGateway.ResolveUrl;
     }
 
-    internal sealed record Payload(
-        [property: JsonPropertyName("install_id")] string InstallId,
-        [property: JsonPropertyName("installer")] string Installer,
-        [property: JsonPropertyName("component")] string Component,
-        [property: JsonPropertyName("step")] string Step,
-        [property: JsonPropertyName("message")] string Message,
-        [property: JsonPropertyName("diagnostics")] string Diagnostics,
-        [property: JsonPropertyName("os")] string Os,
-        [property: JsonPropertyName("os_version")] string OsVersion,
-        [property: JsonPropertyName("arch")] string Arch,
-        [property: JsonPropertyName("product_version")] string ProductVersion);
-
     /// <summary>Send one failure. Returns whether the Gateway accepted it.</summary>
     public async Task<bool> ReportAsync(string component, string step, string message, string? diagnostics, CancellationToken ct = default)
     {
         try
         {
             var payload = BuildPayload(component, step, message, diagnostics);
-            var url = _gatewayUrl().TrimEnd('/') + Path;
-            using var resp = await _http.PostAsJsonAsync(url, payload, ct).ConfigureAwait(false);
-            EngineLog.Write($"[InstallFailureReporter] {component}/{step} -> HTTP {(int)resp.StatusCode} ({url})");
-            return resp.IsSuccessStatusCode;
+            var url = _gatewayUrl();
+            var outcome = await InstallReportClient.PostAsync(_http, url, payload, ct).ConfigureAwait(false);
+            EngineLog.Write($"[InstallFailureReporter] {component}/{step} -> {outcome} ({url.TrimEnd('/')}{Path})");
+            return outcome.Accepted;
         }
         catch (Exception ex)
         {
@@ -77,7 +64,7 @@ public sealed class InstallFailureReporter
         }
     }
 
-    internal Payload BuildPayload(string component, string step, string message, string? diagnostics) => new(
+    internal InstallReportPayload BuildPayload(string component, string step, string message, string? diagnostics) => new(
         InstallId: InstallId(),
         Installer: _installer,
         Component: component,
@@ -98,20 +85,9 @@ public sealed class InstallFailureReporter
         return WindowsHome.Replace(s, "~");
     }
 
-    /// <summary>One random id per machine, created on first use and kept beside the install.</summary>
-    internal string InstallId()
-    {
-        var path = System.IO.Path.Combine(_layout.LocalRoot, "install-id");
-        if (File.Exists(path))
-        {
-            var existing = File.ReadAllText(path).Trim();
-            if (Guid.TryParse(existing, out _)) return existing;
-        }
-        var id = Guid.NewGuid().ToString("D");
-        Directory.CreateDirectory(_layout.LocalRoot);
-        File.WriteAllText(path, id);
-        return id;
-    }
+    /// <summary>One random id per machine, created on first use and kept beside the install. The launcher and
+    /// the Director read the same file (<see cref="CcDirector.Core.ErrorReports.InstallId"/>).</summary>
+    internal string InstallId() => CcDirector.Core.ErrorReports.InstallId.ReadOrCreate(_layout.LocalRoot);
 
     private static string ProductVersion()
     {

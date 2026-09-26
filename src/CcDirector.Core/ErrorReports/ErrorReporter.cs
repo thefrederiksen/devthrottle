@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Network;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.ErrorReports;
@@ -35,8 +36,12 @@ namespace CcDirector.Core.ErrorReports;
 ///     as an error, so a failing send cannot report itself.
 ///
 /// THE CREDENTIAL. The device's existing Gateway credential (<see cref="GatewayConfig.Token"/>) - the same one
-/// the Director and launcher already use - so reports land in the device's own account. A machine with no
-/// Gateway configured sends nothing.
+/// the Director and launcher already use - so reports land in the device's own account.
+///
+/// BEFORE SIGN-IN there is no credential, and that is when a fresh install fails. Errors then go to a
+/// <see cref="PreSignInOutbox"/>: kept on disk first, sent to the hosted Gateway's public install-report route
+/// within that route's per-machine limit, and handed to the device route once the machine signs in. They are
+/// never dropped for want of a credential.
 /// </summary>
 public sealed class ErrorReporter : IDisposable
 {
@@ -61,6 +66,7 @@ public sealed class ErrorReporter : IDisposable
     private readonly string _osVersion;
     private readonly string _arch;
     private readonly string _machineId;
+    private readonly PreSignInOutbox? _preSignIn;
 
     private readonly object _lock = new();
     // Insertion-ordered, so the oldest error goes first.
@@ -105,7 +111,7 @@ public sealed class ErrorReporter : IDisposable
     public static void Start(string component)
     {
         if (Current is not null) return;
-        var reporter = new ErrorReporter(component);
+        var reporter = new ErrorReporter(component, preSignIn: DefaultOutbox);
         Current = reporter;
         FileLog.ErrorObserver = reporter.OnLogLine;
         reporter.StartLoop();
@@ -132,7 +138,8 @@ public sealed class ErrorReporter : IDisposable
     }
 
     public ErrorReporter(string component, Func<GatewayConfig>? config = null, HttpClient? http = null,
-        Func<DateTime>? clock = null, string? machineName = null, string? productVersion = null)
+        Func<DateTime>? clock = null, string? machineName = null, string? productVersion = null,
+        Func<ErrorReporter, PreSignInOutbox>? preSignIn = null)
     {
         if (!ErrorReportLimits.DeviceComponents.Contains(component))
             throw new ArgumentException($"component must be one of: {string.Join(", ", ErrorReportLimits.DeviceComponents)}", nameof(component));
@@ -146,7 +153,21 @@ public sealed class ErrorReporter : IDisposable
         _osVersion = ErrorTextScrubber.Clean(RuntimeInformation.OSDescription, ErrorReportLimits.MaxShortField);
         _arch = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant();
         _machineId = ErrorReportMachineId.Of(machineName ?? Environment.MachineName);
+        _preSignIn = preSignIn?.Invoke(this);
     }
+
+    /// <summary>The outbox <see cref="Start"/> gives a real process: a file under this storage root's logs,
+    /// one per component, sending to the hosted Gateway with the machine's install id.</summary>
+    internal static PreSignInOutbox DefaultOutbox(ErrorReporter reporter) => new(
+        System.IO.Path.Combine(CcStorage.Logs(), "error-outbox", $"{reporter._component}-before-sign-in.json"),
+        reporter._component,
+        () => InstallId.ReadOrCreate(CcStorage.MachineRoot()),
+        HostedGateway.ResolveUrl,
+        reporter._http,
+        reporter._clock);
+
+    /// <summary>The outbox, when this reporter has one.</summary>
+    internal PreSignInOutbox? Outbox => _preSignIn;
 
     /// <summary>Errors dropped because the table was full or a batch ran out of attempts.</summary>
     public long Dropped => Interlocked.Read(ref _dropped);
@@ -277,87 +298,183 @@ public sealed class ErrorReporter : IDisposable
         if (!await _sendGate.WaitAsync(final ? Timeout.InfiniteTimeSpan : TimeSpan.Zero, ct).ConfigureAwait(false)) return 0;
         try
         {
-            var now = _clock();
-            List<Pending> batch;
-            lock (_lock)
-            {
-                if (_order.Count == 0 || (!final && now < _pausedUntilUtc)) return 0;
-                var budget = final ? ErrorReportLimits.MaxReportsPerBatch : MaxSentPerHour - SentInLastHour(now);
-                if (budget <= 0) return 0;
-                batch = _order.Take(Math.Min(budget, ErrorReportLimits.MaxReportsPerBatch)).ToList();
-                foreach (var p in batch)
-                {
-                    _order.Remove(_bySignature[p.Signature]);
-                    _bySignature.Remove(p.Signature);
-                }
-            }
-
             var config = _config();
             if (!config.IsEnabled || string.IsNullOrWhiteSpace(config.Token))
-            {
-                if (!_loggedNoGateway)
-                {
-                    _loggedNoGateway = true;
-                    FileLog.Write($"{ErrorLine.ReporterTag} no Gateway credential on this machine; errors stay in the local log only");
-                }
-                Drop(batch.Count);
-                return 0;
-            }
+                return await SendBeforeSignInAsync(final, ct).ConfigureAwait(false);
 
-            var body = new ErrorReportBatch(batch.Select(ToItem).ToList());
-            var url = config.Url.TrimEnd('/') + Path;
-            HttpStatusCode status;
-            try
-            {
-                using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.Token);
-                using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-                status = response.StatusCode;
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                Requeue(batch);
-                throw;
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"{ErrorLine.ReporterTag} {batch.Count} report(s) not delivered ({ex.GetType().Name}): {ex.Message}");
-                Requeue(batch);
-                return 0;
-            }
-
-            var code = (int)status;
-            if (code is >= 200 and < 300)
-            {
-                lock (_lock) _sentWindow.Enqueue((now, batch.Count));
-                Interlocked.Add(ref _sent, batch.Count);
-                return batch.Count;
-            }
-
-            if (status == HttpStatusCode.NotFound)
-            {
-                // A Gateway older than this route. Not worth retrying every twenty seconds.
-                Pause(PauseAfterMissingRoute);
-                FileLog.Write($"{ErrorLine.ReporterTag} the Gateway has no {Path} route (HTTP 404); {batch.Count} report(s) dropped, next try in {PauseAfterMissingRoute.TotalMinutes:0} minutes");
-                Drop(batch.Count);
-            }
-            else if (code is 401 or 403 or 413 or 429 || (code >= 400 && code < 500))
-            {
-                Pause(PauseAfterRefusal);
-                FileLog.Write($"{ErrorLine.ReporterTag} the Gateway refused {batch.Count} report(s) (HTTP {code}); dropped, next try in {PauseAfterRefusal.TotalMinutes:0} minutes");
-                Drop(batch.Count);
-            }
-            else
-            {
-                FileLog.Write($"{ErrorLine.ReporterTag} {batch.Count} report(s) not delivered (HTTP {code})");
-                Requeue(batch);
-            }
-            return 0;
+            var delivered = await SendPendingSignedInAsync(config, final, ct).ConfigureAwait(false);
+            // Errors kept on disk from before this machine signed in go to its own account now - after the
+            // fresh ones, inside the same hourly budget, and never on the last send before exit.
+            if (!final && _preSignIn is not null)
+                delivered += await SendKeptSignedInAsync(config, ct).ConfigureAwait(false);
+            return delivered;
         }
         finally
         {
             _sendGate.Release();
         }
+    }
+
+    /// <summary>
+    /// No Gateway credential on this machine. Everything pending moves to the disk outbox (issue #3311, B1) and
+    /// the outbox sends what it can to the public install-report route. Without an outbox - a reporter a test
+    /// built without one - the errors are counted as dropped, which is what the tests of that case pin.
+    /// </summary>
+    private async Task<int> SendBeforeSignInAsync(bool final, CancellationToken ct)
+    {
+        List<Pending> all;
+        lock (_lock)
+        {
+            all = _order.ToList();
+            _order.Clear();
+            _bySignature.Clear();
+        }
+
+        if (_preSignIn is null)
+        {
+            if (all.Count == 0) return 0;
+            if (!_loggedNoGateway)
+            {
+                _loggedNoGateway = true;
+                FileLog.Write($"{ErrorLine.ReporterTag} no Gateway credential on this machine and no outbox; errors stay in the local log only");
+            }
+            Drop(all.Count);
+            return 0;
+        }
+
+        if (all.Count > 0)
+        {
+            try
+            {
+                _preSignIn.Keep(all.Select(ToItem).ToList());
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The disk refused. The errors go back into memory, where the next tick tries again.
+                FileLog.Write($"{ErrorLine.ReporterTag} could not keep {all.Count} error(s) on disk ({ex.GetType().Name}): {ex.Message}");
+                Requeue(all);
+                return 0;
+            }
+        }
+
+        if (!_loggedNoGateway)
+        {
+            _loggedNoGateway = true;
+            FileLog.Write($"{ErrorLine.ReporterTag} no Gateway credential on this machine yet; errors are kept in {_preSignIn.FilePath} and sent to DevThrottle's install-report route until it signs in");
+        }
+
+        var sent = await _preSignIn.SendBeforeSignInAsync(final, ct).ConfigureAwait(false);
+        Interlocked.Add(ref _sent, sent);
+        return sent;
+    }
+
+    private async Task<int> SendPendingSignedInAsync(GatewayConfig config, bool final, CancellationToken ct)
+    {
+        var now = _clock();
+        List<Pending> batch;
+        lock (_lock)
+        {
+            if (_order.Count == 0 || (!final && now < _pausedUntilUtc)) return 0;
+            var budget = final ? ErrorReportLimits.MaxReportsPerBatch : MaxSentPerHour - SentInLastHour(now);
+            if (budget <= 0) return 0;
+            batch = _order.Take(Math.Min(budget, ErrorReportLimits.MaxReportsPerBatch)).ToList();
+            foreach (var p in batch)
+            {
+                _order.Remove(_bySignature[p.Signature]);
+                _bySignature.Remove(p.Signature);
+            }
+        }
+
+        HttpStatusCode status;
+        try
+        {
+            status = await PostAsync(config, batch.Select(ToItem).ToList(), ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Requeue(batch);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"{ErrorLine.ReporterTag} {batch.Count} report(s) not delivered ({ex.GetType().Name}): {ex.Message}");
+            Requeue(batch);
+            return 0;
+        }
+
+        var code = (int)status;
+        if (code is >= 200 and < 300)
+        {
+            RecordSent(now, batch.Count);
+            return batch.Count;
+        }
+
+        if (status == HttpStatusCode.NotFound)
+        {
+            // A Gateway older than this route. Not worth retrying every twenty seconds.
+            Pause(PauseAfterMissingRoute);
+            FileLog.Write($"{ErrorLine.ReporterTag} the Gateway has no {Path} route (HTTP 404); {batch.Count} report(s) dropped, next try in {PauseAfterMissingRoute.TotalMinutes:0} minutes");
+            Drop(batch.Count);
+        }
+        else if (code is 401 or 403 or 413 or 429 || (code >= 400 && code < 500))
+        {
+            Pause(PauseAfterRefusal);
+            FileLog.Write($"{ErrorLine.ReporterTag} the Gateway refused {batch.Count} report(s) (HTTP {code}); dropped, next try in {PauseAfterRefusal.TotalMinutes:0} minutes");
+            Drop(batch.Count);
+        }
+        else
+        {
+            FileLog.Write($"{ErrorLine.ReporterTag} {batch.Count} report(s) not delivered (HTTP {code})");
+            Requeue(batch);
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Send errors kept on disk from before sign-in through the device route. A failure of any kind leaves them
+    /// on disk: unlike a fresh error they have waited for this, so they are never dropped for a refusal.
+    /// </summary>
+    private async Task<int> SendKeptSignedInAsync(GatewayConfig config, CancellationToken ct)
+    {
+        var now = _clock();
+        int budget;
+        lock (_lock)
+        {
+            if (now < _pausedUntilUtc) return 0;
+            budget = MaxSentPerHour - SentInLastHour(now);
+        }
+        var sent = await _preSignIn!.SendSignedInAsync(budget, async items =>
+        {
+            try
+            {
+                var status = await PostAsync(config, items, ct).ConfigureAwait(false);
+                if ((int)status is >= 200 and < 300) return true;
+                FileLog.Write($"{ErrorLine.ReporterTag} {items.Count} error(s) kept from before sign-in not accepted (HTTP {(int)status}); still on disk");
+                return false;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                FileLog.Write($"{ErrorLine.ReporterTag} {items.Count} error(s) kept from before sign-in not delivered ({ex.GetType().Name}): {ex.Message}");
+                return false;
+            }
+        }).ConfigureAwait(false);
+        if (sent > 0) RecordSent(now, sent);
+        return sent;
+    }
+
+    private async Task<HttpStatusCode> PostAsync(GatewayConfig config, IReadOnlyList<ErrorReportItem> items, CancellationToken ct)
+    {
+        var url = config.Url.TrimEnd('/') + Path;
+        using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(new ErrorReportBatch(items)) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.Token);
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        return response.StatusCode;
+    }
+
+    private void RecordSent(DateTime at, int count)
+    {
+        lock (_lock) _sentWindow.Enqueue((at, count));
+        Interlocked.Add(ref _sent, count);
     }
 
     private ErrorReportItem ToItem(Pending p) => new(

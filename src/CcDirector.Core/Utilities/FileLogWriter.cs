@@ -25,6 +25,7 @@ internal sealed class FileLogWriter
 
     private readonly string _logDir;
     private readonly string _instanceId;
+    private readonly string _filePrefix;
     private readonly Func<DateTime> _clock;
     private readonly BlockingCollection<string> _queue = new(1024);
 
@@ -70,7 +71,7 @@ internal sealed class FileLogWriter
     /// </summary>
     internal Action<string>? BeforeWriteHook { get; set; }
 
-    internal FileLogWriter(string logDir, string instanceId, Func<DateTime> clock)
+    internal FileLogWriter(string logDir, string instanceId, Func<DateTime> clock, string filePrefix = FileLog.DirectorFilePrefix)
     {
         if (string.IsNullOrWhiteSpace(logDir))
             throw new ArgumentException("Log directory is required", nameof(logDir));
@@ -79,6 +80,9 @@ internal sealed class FileLogWriter
 
         _logDir = logDir;
         _instanceId = instanceId;
+        _filePrefix = string.IsNullOrWhiteSpace(filePrefix)
+            ? throw new ArgumentException("File prefix is required", nameof(filePrefix))
+            : filePrefix;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
@@ -176,7 +180,7 @@ internal sealed class FileLogWriter
     /// <see cref="FileLog.UseUniqueInstanceId"/>.
     /// </summary>
     internal string ComputeLogPath(DateTime instant) =>
-        Path.Combine(_logDir, $"director-{instant:yyyy-MM-dd}-{_instanceId}.log");
+        Path.Combine(_logDir, $"{_filePrefix}-{instant:yyyy-MM-dd}-{_instanceId}.log");
 
     /// <summary>
     /// Open the dated log file for appending with FileShare.Read so live log viewers (and tests)

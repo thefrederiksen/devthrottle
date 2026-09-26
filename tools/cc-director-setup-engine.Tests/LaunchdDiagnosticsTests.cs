@@ -110,4 +110,42 @@ public sealed class LaunchdDiagnosticsTests
         Assert.Contains("Unhandled exception. System.Exception: boom", text);
         Assert.Contains("launchd-stdout.log (last lines):\n  (missing or empty)", text.Replace("\r\n", "\n"));
     }
+
+    // ---- The launcher's own log in the launcher/start report (issue #3311, B4) ----
+
+    [Fact]
+    public void LauncherLogTail_TakesTheNewestLauncherLog_EvenWhileTheLauncherHoldsItOpen()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-launcher-log-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var older = Path.Combine(dir, "launcher-2026-09-25-100.log");
+            File.WriteAllText(older, "old run\n");
+            File.SetLastWriteTimeUtc(older, DateTime.UtcNow.AddDays(-1));
+            File.WriteAllText(Path.Combine(dir, "launchd-stderr.log"), "not the launcher's own log\n");
+            var current = Path.Combine(dir, "launcher-2026-09-26-200.log");
+            using var writer = new StreamWriter(new FileStream(current, FileMode.Create, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+            for (var i = 0; i < 100; i++) writer.WriteLine($"line {i}");
+            writer.WriteLine("[LauncherCore] StartAsync FAILED: the Gateway refused the registration");
+
+            var tail = LaunchdDiagnostics.LauncherLogTail(dir, 60)!;
+
+            Assert.StartsWith("launcher-2026-09-26-200.log:", tail);
+            Assert.Contains("StartAsync FAILED: the Gateway refused the registration", tail);
+            Assert.Equal(61, tail.Split('\n').Length);
+            Assert.DoesNotContain("old run", tail);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LauncherLogTail_NoLauncherLog_IsNull()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-launcher-log-test-" + Guid.NewGuid().ToString("N"));
+        Assert.Null(LaunchdDiagnostics.LauncherLogTail(dir, 60));
+    }
 }
