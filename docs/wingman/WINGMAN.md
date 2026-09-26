@@ -6,6 +6,49 @@ this first and keep it accurate.
 
 ---
 
+## AMENDED 26 SEPTEMBER 2026 - CONTRACT v4, CALL A IS CODE FIRST AND ONE WORD
+
+**Read this before anything below it, including the v3 amendment. Where they disagree, this is what shipped.**
+The turn pipeline mission (issue #3399), design v2, approved by the owner on 26 September 2026.
+
+**Call A decides one thing: does this stop need its owner.** Four code steps run first, in order, and the
+first to fire decides with no model call (`CallACodeSteps`, in Core):
+
+1. `picker` - a picker or permission prompt is drawn on the screen (`PickerOnScreen`, the one footer rule) -> needs-you
+2. `agent-verdict` - the agent's last message carries its own CC-DISMISS block saying needs-human -> needs-you
+3. `question` - the agent's latest reply asks the person a real question (not a heading, list item, quoted
+   question, or one the same line answers) -> needs-you
+4. `way-back` - the agent set itself a way back in its last turn: a ScheduleWakeup, a Monitor, a session spawn,
+   or a background run -> carrying-on (never on a failure with no reply)
+
+A stop none of them decides goes to the model (`turn-verdict-v4.txt`): every visible screen row, the cursor row,
+the full-screen flag and the agent's latest reply, and nothing else - no conversation, no recent turns, no first
+ask, no previous label, no owned-sessions line. It is asked at temperature 0, with reasoning off and output capped
+at sixteen tokens, on the same fast model, and must answer exactly `needs-you`, `done` or `carrying-on`.
+Anything else, a timeout or an error is a failed record: red, on the unchanged retry schedule. An answer that is
+not one of the words is not re-attempted for a listener, because at temperature 0 it would repeat.
+
+| word | colour | stored verdict |
+|---|---|---|
+| needs-you | red | needed-you |
+| done | cyan | finished (kind done) |
+| carrying-on | purple, carrying-on clock unchanged | continues-alone |
+
+Every record says which step decided it and why (`DecidedBy`, `DecisionReason`), and so does the debug view.
+
+**Gone from Call A:** the label, what the agent recommends, the menu and the options, and `InventedMenuCheck`,
+which had nothing left to correct. A v4 reading carries no label until phase 4 moves it to the narration call; the
+row shows its plain state label meanwhile. A record stored under v3 keeps its fields and still renders.
+
+**The send-time menu cache is no longer fed by a reading.** Call A does not say whether a menu is drawn, so the
+voice-reply guard (`WaitingScreenReader.ConfirmedMenuAsync`) asks its own question on a menu-shaped screen and
+fails closed, as it always did on a cache miss.
+
+**Not in the steps, on purpose:** the phrase list ("your call", "waiting on you") until it is checked against the
+owner's own labels, and "owns sessions still working", which the measurement showed points the other way.
+
+---
+
 ## AMENDED 18 SEPTEMBER 2026 - CONTRACT v3, THE FIVE-FIELD READING
 
 **Read this before anything below it. Where the two disagree, this is what shipped.**

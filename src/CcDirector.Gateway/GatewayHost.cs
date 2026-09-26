@@ -3017,14 +3017,16 @@ public sealed class GatewayHost : IAsyncDisposable
             // The tenant scope is entered inside this reader, synchronously - the judgement runs on a background
             // task and an ambient scope does not survive into its continuations.
             conversation: ReadStoredConversation,
-            judgeBrain: (tenant, settings, feature) =>
+            judgeBrain: (tenant, settings, feature, callA) =>
             {
                 var mode = Core.Configuration.TranscriptionModeConfig.Get();
                 var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
                 var key = _keyVault.Get(ep.KeyName) ?? "";
                 var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Wingman.TurnVerdictJudge.Role);
-                return Wingman.TurnVerdictJudge.BuildBrain(ep.BaseUrl, key, model, settings,
-                    HostedAi.GatewayAiCallTags.For(tenant, feature));
+                var tag = HostedAi.GatewayAiCallTags.For(tenant, feature);
+                return callA
+                    ? Wingman.TurnVerdictJudge.BuildCallABrain(ep.BaseUrl, key, model, settings, tag)
+                    : Wingman.TurnVerdictJudge.BuildBrain(ep.BaseUrl, key, model, settings, tag);
             },
             judgeModel: tenant => ResolveWingmanModel(tenant, Wingman.TurnVerdictJudge.Role),
             store: _turnVerdicts,

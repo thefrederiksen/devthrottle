@@ -413,38 +413,6 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
     }
 
     [Fact]
-    public async Task ABadButtonList_IsNotAFailure_TheReadingIsKeptAndNarrated_AndNothingIsRetried()
-    {
-        // The model answered with ONE option, which breaks a button rule. The buttons go; the reading stays.
-        var rig = new Rig();
-        rig.Env.VoiceSession = _ => true;
-        rig.Env.Judge = (_, _) => Task.FromResult(System.Text.Json.JsonSerializer.Serialize(new
-        {
-            state = "needs-you",
-            label = "Choose whether to proceed",
-            agentRecommends = (string?)null,
-            menu = new { question = "Do you want to proceed?", selectionMode = "single", submit = "" },
-            options = new object[] { new { key = "Proceed", send = "1", recommended = true, note = "Carries on." } },
-        }));
-        rig.Env.Narrator = (_, _) => Task.FromResult(NarratedAnswer(Spoken));
-
-        var outcome = await rig.TurnEnds();
-
-        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-        var kept = rig.Latest();
-        Assert.False(kept.Failed);
-        Assert.Equal(TurnVerdictVocabulary.NeededYou, kept.Verdict);
-        Assert.Empty(kept.Options);
-        Assert.Null(kept.Menu);
-        Assert.False(string.IsNullOrEmpty(kept.OptionsDroppedReason));   // recorded, for the debug view
-        Assert.Null(kept.NextRetryAtUtc);
-        Assert.Null(WingmanErrorFold.For(kept, agentWorking: false));    // and no error on the card
-        Assert.Equal(1, rig.Env.JudgeCalls);
-        rig.Now = rig.Now.AddHours(1);
-        Assert.Equal(0, await rig.SweepAsync());
-    }
-
-    [Fact]
     public async Task AReadingWhoseWriteUpFailed_ShowsTheSameError_AndIsReadAgainOnTheSameSchedule()
     {
         // The judge answered; the second call, which writes the words, did not. The owner is owed words and has

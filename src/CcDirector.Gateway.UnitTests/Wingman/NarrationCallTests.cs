@@ -2,6 +2,8 @@ using System.Net;
 using CcDirector.AgentBrain;
 using CcDirector.Core;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Wingman;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Settings;
@@ -343,22 +345,29 @@ public sealed class NarrationCallTests : IDisposable
 
     // ================================================================= what the call is given
 
+    /// <summary>
+    /// A PICKER STOP IS NEEDS-YOU AND NOTHING MORE (contract v4; the owner, 25 September: "A menu is simply needs
+    /// you ... Nobody is told to press a button that is not there"). Code decides it at the picker step, with no model
+    /// call, and the narration is handed a reply-shaped decision - no menu, no options, and no press-a-button line.
+    /// </summary>
     [Fact]
-    public async Task AKeysVerdict_IsNarratedFromTheJudgesMenu_NotFromTheModelsOwnReadingOfTheScreen()
+    public async Task APickerStop_IsDecidedByCode_AndIsNeverToldToPressAButton()
     {
         var rig = Build(menu: true);
         rig.Voice.Mark(Tenant, Sid);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
+        Assert.Equal(0, rig.Env.JudgeCalls);
+        var stored = rig.Env.Latest(Tenant, Sid)!;
+        Assert.Equal("picker", stored.DecidedBy);
+        Assert.Equal("needs-you", stored.State);
         var prompt = Assert.Single(rig.Env.NarratorPrompts);
-        Assert.Contains("How the person answers: KEYS", prompt);
-        Assert.Contains("The menu's question: " + MenuQuestion, prompt);
-        Assert.Contains("1. Proceed (recommended) - Carries on with the change.", prompt);
-        Assert.Contains("2. Stop - Leaves the change unmade.", prompt);
-        // The shape the prompt asks for, from the version 10 rules.
-        Assert.Contains("press a button on the phone", prompt);
-        Assert.DoesNotContain("OPEN WITH THE SESSION TITLE", prompt);
+        Assert.Contains("How the person answers: REPLY", prompt);
+        Assert.DoesNotContain("The menu's question:", prompt);
+        // The code-owned closing sentence for a menu is not added. (The shipped fidelity rules still describe a menu
+        // stop in general terms; phase 4 removes that wording with the buttons.)
+        Assert.DoesNotContain("This stop is a menu: end by telling the person to press a button", prompt);
     }
 
     [Fact]
@@ -408,11 +417,12 @@ public sealed class NarrationCallTests : IDisposable
 
         Assert.False(rig.Voice.HasVoice(Tenant, Sid));
         Assert.Equal(0, rig.Speech.Calls);
-        // The JUDGEMENT itself survived - only the words are missing. The row still knows what the stop is.
+        // The JUDGEMENT itself survived - only the words are missing. The row still knows what the stop is: its
+        // state. A v4 reading carries no label until phase 4 moves the label to the narration call.
         var stored = rig.Env.Latest(Tenant, Sid)!;
         Assert.False(stored.Failed, stored.FailureReason);
         Assert.Equal("", stored.Narration ?? "");
-        Assert.NotEqual("", stored.Label);
+        Assert.Equal("needs-you", stored.State);
     }
 
     /// <summary>
@@ -694,15 +704,16 @@ public sealed class NarrationCallTests : IDisposable
     // ================================================================= a refused record with a menu
 
     /// <summary>
-    /// A REFUSED JUDGEMENT IS NOT NARRATED AT ALL (contract v3), and this is the test that says so. Until
-    /// 2026-09-18 a refused answer that still carried a readable menu was narrated in the menu shape, from a
-    /// decision salvaged out of the raw reply - the row offered no buttons and a listener was told to press one.
-    /// A reading that could not be read now says it could not be read, rather than half-speaking.
+    /// A REFUSED JUDGEMENT IS NOT NARRATED AT ALL (contract v3, and v4 keeps it), and this is the test that says so.
+    /// Until 2026-09-18 a refused answer that still carried a readable menu was narrated in the menu shape, from a
+    /// decision salvaged out of the raw reply. Under v4 a refused answer is one that is not one of the three words, and
+    /// it holds nothing to salvage. A picker screen no longer reaches the model at all - code decides it - so this runs
+    /// on a stop only the model can decide.
     /// </summary>
     [Fact]
-    public async Task ARefusedRecordWithAMenu_IsNotNarratedAtAll_AndItsRowOffersNoButtons()
+    public async Task ARefusedRecord_IsNotNarratedAtAll_AndItsRowOffersNoButtons()
     {
-        var rig = Build(menu: true);
+        var rig = Build();
         rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.RefusedButReadableMenu(MenuQuestion));
         rig.Voice.Mark(Tenant, Sid);
 
@@ -725,7 +736,7 @@ public sealed class NarrationCallTests : IDisposable
     [Fact]
     public async Task AVoiceRefreshThatReusesARefusedRecord_StillNarratesNothing()
     {
-        var rig = Build(menu: true);
+        var rig = Build();
         rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.RefusedButReadableMenu(MenuQuestion));
 
         rig.Voice.Mark(Tenant, Sid);
@@ -897,17 +908,23 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     [Fact]
-    public async Task AKeysStop_OnAnAccountWithItsOwnInstructions_IsStillToldToEndByPressingAButton()
+    public void AStoredV3KeysRecord_OnAnAccountWithItsOwnInstructions_IsStillToldToEndByPressingAButton()
     {
-        // Custom instructions replace the whole fidelity prompt; the closing sentence for a menu lives in the code-owned
-        // decision block, so it cannot be edited away.
-        var rig = Build(menu: true);
-        rig.Env.Custom = "Speak briefly and plainly.";
-        rig.Voice.Mark(Tenant, Sid);
+        // Contract v4 never writes a keys record, but a v3 record reused on an unchanged screen still carries one, and
+        // its narration keeps its old shape until phase 4 removes the sentence. Custom instructions replace the whole
+        // fidelity prompt; the closing sentence for a menu lives in the code-owned decision block, so it cannot be
+        // edited away.
+        var package = new TurnVerdictPackage { ScreenRows = MenuRows, LatestReply = "Choose one.", AgentKind = "ClaudeCode" };
+        var v3Keys = new TurnVerdictDto
+        {
+            ContractVersion = "v3.1",
+            Verdict = "needed-you",
+            AnswerVia = "keys",
+            Menu = new TurnVerdictMenuDto { Question = MenuQuestion },
+        };
 
-        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        var prompt = NarrationCall.BuildPrompt(SpokenLanguages.English, "Speak briefly and plainly.", package, v3Keys);
 
-        var prompt = Assert.Single(rig.Env.NarratorPrompts);
         Assert.DoesNotContain(WingmanTranslator.FidelityPrompt.Trim(), prompt);   // CONTROL: the shipped prompt was replaced
         Assert.Contains("How the person answers: KEYS", prompt);
         Assert.Contains("end by telling the person to press a button on the phone to choose", prompt);

@@ -59,6 +59,7 @@
          pins the embedded copy to the file byte for byte. -->
     <EmbeddedResource Include="Wingman\Prompts\turn-verdict-v2.txt" />
     <EmbeddedResource Include="Wingman\Prompts\turn-verdict-v3.txt" />
+    <EmbeddedResource Include="Wingman\Prompts\turn-verdict-v4.txt" />
   </ItemGroup>
 
   <!-- macOS controlling-terminal shim (UnixPty/ccd-ptyshim.c, see its header comment).

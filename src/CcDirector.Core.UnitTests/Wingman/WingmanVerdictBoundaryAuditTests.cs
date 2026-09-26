@@ -65,7 +65,9 @@ public sealed class WingmanVerdictBoundaryAuditTests
     private const string AnyConversationReadMarker = "_env.ReadConversation(";
     private static readonly Step ConversationRead = new("conversation read", "var conversation = _env.ReadConversation(", "conversation read");
     private static readonly Step AccountCeiling = new("account ceiling", ".MaxInFlight", "account ceiling");
-    private static readonly Step ModelCall = new("model call", "AskJudgeAsync(", "model call");
+    // Contract v4: the model call is made through AskCallAModelAsync, which JudgeAsync calls only for a stop no code
+    // step decided. It is still the last step of the order the charter states.
+    private static readonly Step ModelCall = new("model call", "AskCallAModelAsync(", "model call");
 
     private const string SwitchName = "judge switch";
     private const string SwitchMarker = "JudgeEnabled";

@@ -138,7 +138,7 @@ public sealed class OwnedSessionsAreNotReadTests : IDisposable
             route: (_, directorId) => RouteServing(directorId, () => Screen("any", "I have pushed the branch.", "> "),
                 onRead: () => Interlocked.Increment(ref _screenReads)),
             conversation: (_, _) => null,
-            judgeBrain: (_, _, _) => _brain,
+            judgeBrain: (_, _, _, _) => _brain,
             judgeModel: _ => FakeTurnVerdictEnvironment.Model,
             store: new TurnVerdictStore(_harness.Open()),
             traces: new TurnVerdictTraceWriter((_, _) => { }),

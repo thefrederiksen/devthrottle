@@ -1,4 +1,4 @@
-﻿namespace CcDirector.Gateway.Contracts;
+namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// One judged stop: what the Wingman says this turn end MEANS, with the agent's own words as the
@@ -207,6 +207,18 @@ public sealed class TurnVerdictDto
     /// model did not clearly choose. Recorded here so it is answerable by query and visible in the debug view.
     /// </summary>
     public string? OptionsDroppedReason { get; set; }
+
+    /// <summary>
+    /// WHICH STEP OF CALL A DECIDED THIS STOP (contract v4, the turn pipeline mission): a code step - "picker",
+    /// "agent-verdict", "question", "way-back" - or "model" when no code step fired and the model answered. Null on
+    /// every record stored before v4, and on a failure that never reached Call A.
+    /// </summary>
+    public string? DecidedBy { get; set; }
+
+    /// <summary>Why that step decided, in words a person can read: "the reply asks a question: ...", "the agent set
+    /// itself a way back in its last turn: a ScheduleWakeup call", or what the model answered. On a refused answer, the
+    /// refusal. Null before v4.</summary>
+    public string? DecisionReason { get; set; }
 }
 
 /// <summary>The picker on the screen that a "keys" answer selects from.</summary>
