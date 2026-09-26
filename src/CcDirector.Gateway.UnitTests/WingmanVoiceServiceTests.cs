@@ -372,7 +372,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
         {
             Interlocked.Increment(ref _askCount);
-            var wrapped = FakeTurnVerdictEnvironment.CannotTell("narrated spoken text");
+            var wrapped = FakeTurnVerdictEnvironment.NeedsYou("narrated spoken text");
             return Task.FromResult(new AskResult { Text = wrapped, ReplySeconds = 0.1 });
         }
         public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;

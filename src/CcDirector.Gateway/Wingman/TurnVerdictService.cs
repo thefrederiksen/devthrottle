@@ -2674,9 +2674,10 @@ public sealed class TurnVerdictService : IDisposable
     private static bool OwnsALiveSession(OwnedSessionsFacts? owned)
         => owned is { Live: > 0 } or { Working: > 0 };
 
-    /// <summary>The three-word screen verdict the menu cache has always held, read off the verdict: a picker
-    /// the answer selects from is a menu; a stop that needs a person is waiting on an answer; anything else
-    /// needs nothing.</summary>
+    /// <summary>The three-word screen verdict (the menu cache's words), read off a stored verdict: a picker the
+    /// answer selects from is a menu; a stop that needs a person is waiting on an answer; anything else needs
+    /// nothing. It does NOT feed the menu cache any more (contract v4). Its one caller is the voice service's menu
+    /// suffix, and only a record stored under v3 can answer "menu" - a v4 record never carries a keys answer.</summary>
     internal static string ScreenNeeds(TurnVerdictDto verdict)
     {
         if (string.Equals(verdict.AnswerVia, "keys", StringComparison.Ordinal) && verdict.Menu is not null) return "menu";

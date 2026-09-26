@@ -5,8 +5,9 @@ using System.Text;
 namespace CcDirector.Gateway.Wingman;
 
 /// <summary>
-/// The model's judgment of what a session's live screen needs from its owner, produced alongside the
-/// per-turn spoken summary (the SCREEN line of the translation contract). Three answers, one story:
+/// The model's judgment of what a session's live screen needs from its owner, asked by the send-time menu guard
+/// (<c>WaitingScreenReader.ConfirmedMenuAsync</c>) on a menu-shaped screen. A per-turn reading no longer produces
+/// it: since contract v4 Call A answers one word and says nothing about a menu. Three answers, one story:
 /// <c>menu</c> - an interactive picker owns the screen and typed text cannot answer it; <c>answer</c> -
 /// the agent is waiting on words or a decision the owner types or speaks; <c>nothing</c> - the turn is
 /// informational, the agent reported and is not waiting on the owner. Null/absent means the model gave
@@ -27,11 +28,11 @@ public sealed class WingmanScreenVerdict
 
 /// <summary>
 /// Remembers the model's latest screen verdict per session, keyed by a FINGERPRINT of the grid rows it
-/// judged. The point: the menu question is asked at two different moments - once per turn (when the
-/// narration call sees the screen anyway) and again at send time (the prompt menu guard, a voice
-/// reply) - and the screen usually has not changed between them. A fingerprint match serves the model's
-/// verdict instantly, so the send path gets model-grade judgment at regex cost; a mismatch means the
-/// screen moved and the verdict is stale, so the caller re-judges. One entry per session (newest wins).
+/// judged. It is fed only by the send-time guard's own question (the prompt menu guard, a voice reply): the
+/// per-turn reading fed it until contract v4, and no longer does, because Call A no longer says whether a menu
+/// is drawn. The guard asks again for the same screen only when the fingerprint changed - a match serves the
+/// earlier answer instantly; a mismatch means the screen moved and the caller re-judges, failing closed. One
+/// entry per session (newest wins).
 /// </summary>
 public static class WingmanScreenVerdictCache
 {

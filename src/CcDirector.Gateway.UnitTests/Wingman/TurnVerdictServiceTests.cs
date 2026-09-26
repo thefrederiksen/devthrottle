@@ -95,7 +95,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.False(pushed.TryLocate(Tenant, "child-1", Stale)!.Value.Session.HasLiveSupervisor);
 
         var screenReads = 0;
-        var brain = new CountingBrain(() => FakeTurnVerdictEnvironment.CannotTell("The child session stopped."));
+        var brain = new CountingBrain(() => FakeTurnVerdictEnvironment.NeedsYou("The child session stopped."));
         var records = new List<TurnVerdictRecord>();
         var env = new GatewayTurnVerdictEnvironment(
             settings: _ => TurnVerdictSettings.Defaults with { JudgeEnabled = true, SettleMs = 0 },
@@ -251,7 +251,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
         env.Judge = async (_, ct) =>
         {
             await release.Task.WaitAsync(ct);
-            return FakeTurnVerdictEnvironment.CannotTell("The session stopped.");
+            return FakeTurnVerdictEnvironment.NeedsYou("The session stopped.");
         };
         var service = new TurnVerdictService(env);
 

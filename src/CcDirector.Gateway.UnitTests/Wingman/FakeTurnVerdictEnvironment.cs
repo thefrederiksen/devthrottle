@@ -31,7 +31,7 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     };
     public Func<ScreenGridResponse?> Screen = () => null;
     public Func<string, StoredConversation?> Conversation = _ => null;
-    public Func<string, CancellationToken, Task<string>> Judge = (_, _) => Task.FromResult(CannotTell("The session stopped."));
+    public Func<string, CancellationToken, Task<string>> Judge = (_, _) => Task.FromResult(NeedsYou("The session stopped."));
     public Func<string, bool> VoiceSession = _ => false;
     /// <summary>The account's plan answer for the narration. Allowed by default, as on a self-host Gateway.</summary>
     public Func<NarrationPlan> Plan = () => NarrationPlan.Allowed;
@@ -322,9 +322,10 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     //
     // The label and evidence parameters are kept so callers need not change, and are IGNORED: v4 asks for neither.
 
-    /// <summary>The answer that validates against any package, of either kind: needs-you. It was "cannot-tell" under
-    /// v3; v4 has three words and needs-you is the only one a failure with no reply may take.</summary>
-    public static string CannotTell(string spoken)
+    /// <summary>The answer that validates against any package, of either kind: needs-you. It was named for
+    /// "cannot-tell" under v3; v4 has three words and needs-you is the only one a failure with no reply may take, so
+    /// the helper is named for what it returns (phase 3 review, finding F3).</summary>
+    public static string NeedsYou(string spoken)
     {
         LastCannedSpoken = spoken;
         return "needs-you";

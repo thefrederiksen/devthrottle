@@ -354,9 +354,12 @@ public sealed class NarrationCallTests : IDisposable
     /// September: "A menu is simply needs you, and the narration says open the session to choose. Nobody is told to
     /// press a button that is not there"). Code decides it at the picker step, with no model call; Call B is handed the
     /// word, the step's reason, and the code-owned closing sentence - and no menu, no options, no KEYS/REPLY line.
+    ///
+    /// IN VOICE MODE TOO (phase 3 review, finding F1): the session here is a voice session, and the clip the listener
+    /// hears is Call B's own words - the ones told to end with "open the session to choose" - with nothing appended.
     /// </summary>
     [Fact]
-    public async Task APickerStop_IsDecidedByCode_AndItsNarrationIsToldToSayOpenTheSessionToChoose()
+    public async Task APickerStop_InVoiceMode_IsDecidedByCode_AndItsNarrationIsToldToSayOpenTheSessionToChoose()
     {
         var rig = Build(menu: true);
         rig.Voice.Mark(Tenant, Sid);
@@ -375,6 +378,10 @@ public sealed class NarrationCallTests : IDisposable
         Assert.DoesNotContain("How the person answers", prompt);
         Assert.DoesNotContain("The menu's question:", prompt);
         Assert.DoesNotContain("press a button", prompt);
+        // The listener hears exactly Call B's words, and the reading carries Call B's label.
+        Assert.True(rig.Voice.IsVoiceSession(Tenant, Sid));
+        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+        Assert.Equal(NarratedLabel, stored.Label);
     }
 
     [Fact]
