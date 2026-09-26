@@ -13,6 +13,7 @@ import { clearDictationStatus, publishDictationStatus } from "./status";
 import { blobToWav16kMono } from "./wav";
 import { reportDictationQuality } from "./qualityReport";
 import { activeAccount, listAccounts } from "../auth/accountStore";
+import { resumeHeldPrompts } from "./typedPromptDelivery";
 
 // The durable Send pipeline + background retry driver for the mobile Speak dialog (issue #1006,
 // strengthened for #1182). The instant the user hits Send the dialog hands the recorded audio here and
@@ -364,10 +365,14 @@ export async function backgroundTranscribeAndSend(
 // network returns, not only on the next load.
 export async function resumePendingDictations(): Promise<void> {
   ensureRetryListeners();
+  // Typed prompts the Gateway was still delivering (voice delivery phase 5, contract section 7, T6) are read on
+  // the same load, through this one entry point both shells already call. They are only read, never sent.
+  const typed = resumeHeldPrompts();
   let all: PendingDictation[];
   try {
     all = await listPending();
   } catch {
+    await typed;
     return; // no durable store; nothing to resume
   }
   // A parked clip (permanent failure, issue #1184) and a clip shown back not sent (issue #1590) are NOT
@@ -407,6 +412,7 @@ export async function resumePendingDictations(): Promise<void> {
       return driveRecord(rec, { resumed: true, attempt: 0 });
     }),
   );
+  await typed;
 }
 
 // The explicit "Upload now" control on the status strip: kick a waiting or throttled clip back to

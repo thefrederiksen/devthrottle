@@ -848,8 +848,13 @@ function spokenSpanClaims(spans?: readonly SpokenSpan[]): { start: number; lengt
 // delivery, so it is returned as `delivering` for the caller to act on. A prompt without the claim never
 // gets a 202.
 export interface PromptSendResult {
-  /** True on a 202: the words may already be in, and pressing the same claim again is safe. */
+  /** True on a 202: the words may already be in. Since voice delivery phase 5 an ordinary typed prompt can be
+   *  answered 202 too (contract section 7, T2): the Gateway holds it and asks the Director what became of it,
+   *  and the caller reads the outcome by `deliveryId` - it never sends the words again. */
   delivering: boolean;
+  /** The id the Gateway minted for this prompt (contract section 7, T1), or the claimed recording's id on a
+   *  "Send anyway". Read from the 200 and the 202 answers; absent from a Gateway older than phase 5. */
+  deliveryId?: string;
   /** The Director's answer behind a 202 ("delivering" or "no-answer"). Informational only. */
   directorState?: string;
   /** True on the Gateway's "could not confirm it arrived" verdict (phase 2, change 1): a claimed re-press
@@ -886,17 +891,19 @@ export async function sendPrompt(
   if (!res.ok) {
     throw await GatewayError.from(res, "send that to the session");
   }
+  const answer = (await res.json().catch(() => ({}))) as {
+    directorState?: string;
+    deliveryId?: string | null;
+    unconfirmed?: boolean;
+  };
+  const deliveryId = typeof answer.deliveryId === "string" && answer.deliveryId !== "" ? answer.deliveryId : undefined;
   if (res.status === 202) {
-    const answer = (await res.json().catch(() => ({}))) as { directorState?: string };
-    return { delivering: true, directorState: answer.directorState };
+    return { delivering: true, directorState: answer.directorState, deliveryId };
   }
   // Only a claimed send can come back "unconfirmed"; an ordinary prompt answer has no such field, so it is
   // read only when a claim was made.
-  if (recordingUploadId) {
-    const answer = (await res.json().catch(() => ({}))) as { unconfirmed?: boolean };
-    if (answer.unconfirmed === true) return { delivering: false, unconfirmed: true };
-  }
-  return { delivering: false };
+  if (recordingUploadId && answer.unconfirmed === true) return { delivering: false, unconfirmed: true, deliveryId };
+  return { delivering: false, deliveryId };
 }
 
 // What a session's live screen is right now (GET /sessions/{sid}/wingman/waiting-screen). "menu" means a
@@ -2498,7 +2505,7 @@ export async function uploadDictationToSession(
   // terminal outcome: acknowledge it (so the server can retire the tombstone) and return terminal so the
   // driver drops the on-device copy. No chunks are re-uploaded and nothing is injected a second time.
   if (regBody.terminal === true) {
-    const offerSendAnyway = shownBackOffer(regBody, args.uploadId);
+    const offerSendAnyway = shownBackOffer(regBody, `upload ${args.uploadId}`);
     await ackDictation(id);
     return {
       terminal: true,
@@ -2675,7 +2682,7 @@ export async function uploadDictationToSession(
     // outcome and holds a durable delivery record. Acknowledge it so the server can retire that tombstone
     // (best-effort, idempotent), then return terminal so the driver drops the durable local copy. The
     // background driver owns the terminal status (a "done" for a delivered turn, or a quiet clear).
-    const offerSendAnyway = shownBackOffer(body, args.uploadId);
+    const offerSendAnyway = shownBackOffer(body, `upload ${args.uploadId}`);
     await ackDictation(id);
     return {
       terminal: true,
@@ -2713,7 +2720,42 @@ export type DictationOutcomeRead =
 // read that did not happen and is thrown as such (a network failure throws too); the caller reads again later.
 export async function readDictationOutcome(uploadId: string): Promise<DictationOutcomeRead> {
   const id = encodeURIComponent(uploadId);
-  const res = await gatewayFetch(`/dictation/${id}/outcome`, {
+  return readDeliveryOutcome(
+    `/dictation/${id}/outcome`,
+    () => ackDictation(id),
+    `upload ${uploadId}`,
+    "read what became of that recording",
+  );
+}
+
+// GET /sessions/{sid}/prompts/{deliveryId}/outcome (voice delivery phase 5, contract section 7, T5): a typed
+// prompt the Gateway answered 202 "still delivering" is held by the Gateway, which asks the Director what
+// became of it; the client only READS the ruling. The route answers in the dictation outcome's own body shapes
+// (the section 5 table), so it is read by the SAME reader - one set of rules for every held delivery, never a
+// second copy. A final 200 is acknowledged (`POST .../ack`, which retires the Gateway's copy of the text) before
+// it is returned, exactly as a recording's is.
+export async function readPromptOutcome(sessionId: string, deliveryId: string): Promise<DictationOutcomeRead> {
+  const sid = encodeURIComponent(sessionId);
+  const id = encodeURIComponent(deliveryId);
+  return readDeliveryOutcome(
+    `/sessions/${sid}/prompts/${id}/outcome`,
+    () => ackPrompt(sid, id),
+    `typed message ${deliveryId}`,
+    "read what became of that message",
+  );
+}
+
+// The one reader of a held delivery's outcome, for a recording and for a typed prompt alike. 404 is
+// `not-found`; 202 is `delivering`; 200 is final and read by the complete call's rules (a shown-back answer
+// must carry offerSendAnyway, or it is an error naming the delivery, thrown BEFORE the acknowledgement so the
+// Gateway keeps its record). Anything else, or a network failure, throws: the read did not happen.
+async function readDeliveryOutcome(
+  path: string,
+  ack: () => Promise<void>,
+  subject: string,
+  action: string,
+): Promise<DictationOutcomeRead> {
+  const res = await gatewayFetch(path, {
     method: "GET",
     headers: { Accept: "application/json", ...authHeaders() },
   });
@@ -2722,12 +2764,12 @@ export async function readDictationOutcome(uploadId: string): Promise<DictationO
     const body = (await res.json().catch(() => ({}))) as { directorState?: string };
     return { kind: "delivering", directorState: body.directorState };
   }
-  if (res.status !== 200) throw await GatewayError.from(res, "read what became of that recording");
+  if (res.status !== 200) throw await GatewayError.from(res, action);
   const body = (await res.json().catch(() => ({}))) as {
     submitted?: boolean; movedOn?: boolean; transcript?: string; reason?: string; offerSendAnyway?: boolean;
   };
-  const offerSendAnyway = shownBackOffer(body, uploadId);
-  await ackDictation(id);
+  const offerSendAnyway = shownBackOffer(body, subject);
+  await ack();
   return {
     kind: "resolved",
     result: {
@@ -2746,10 +2788,10 @@ export async function readDictationOutcome(uploadId: string): Promise<DictationO
 // names the upload id: guessing would either offer a second copy that might double the words, or hide the
 // button from words that were plainly not sent. Thrown BEFORE the acknowledgement, so the Gateway keeps its
 // record and the driver keeps the copy and asks again. Undefined for an answer that is not shown back.
-function shownBackOffer(body: { movedOn?: boolean; offerSendAnyway?: boolean }, uploadId: string): boolean | undefined {
+function shownBackOffer(body: { movedOn?: boolean; offerSendAnyway?: boolean }, subject: string): boolean | undefined {
   if (body.movedOn !== true) return undefined;
   if (typeof body.offerSendAnyway !== "boolean")
-    throw new Error(`[uploadDictationToSession] the Gateway's shown-back answer for upload ${uploadId} carries no offerSendAnyway`);
+    throw new Error(`[uploadDictationToSession] the Gateway's shown-back answer for ${subject} carries no offerSendAnyway`);
   return body.offerSendAnyway;
 }
 
@@ -2776,6 +2818,21 @@ async function ackDictation(encodedUploadId: string): Promise<void> {
     });
   } catch {
     /* best-effort: the tombstone persists and a later re-complete re-acks */
+  }
+}
+
+// Acknowledge a final typed-prompt outcome (POST /sessions/{sid}/prompts/{deliveryId}/ack, contract section 7,
+// T5) so the Gateway retires its copy of the text. Idempotent on the Gateway and best-effort here, for the same
+// reason as ackDictation: the client keeps its own copy until the owner acts, and a lost ack only leaves the
+// Gateway's copy to its 30-day rule.
+async function ackPrompt(encodedSessionId: string, encodedDeliveryId: string): Promise<void> {
+  try {
+    await gatewayFetch(`/sessions/${encodedSessionId}/prompts/${encodedDeliveryId}/ack`, {
+      method: "POST",
+      headers: { Accept: "application/json", ...authHeaders() },
+    });
+  } catch {
+    /* best-effort: the Gateway's copy is retired by its own 30-day rule */
   }
 }
 

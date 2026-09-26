@@ -2034,6 +2034,89 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
+                    content: {
+                        "application/json": components["schemas"]["PromptDeliveryAnswer"];
+                    };
+                };
+                /** @description Accepted - still delivering (added by hand, voice delivery phase 5) */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PromptDeliveryAnswer"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sid}/prompts/{deliveryId}/outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sid: string;
+                    deliveryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sid}/prompts/{deliveryId}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sid: string;
+                    deliveryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
                     content?: never;
                 };
             };
@@ -12192,6 +12275,13 @@ export interface components {
             spokenSpans?: null | components["schemas"]["SpokenSpanClaimDto"][];
             provenance?: null | components["schemas"]["SubmissionProvenanceDto"];
             deliveryIdClaim?: null | string;
+        };
+        /** Added by hand (voice delivery phase 5): the id the Gateway minted for a prompt, on a 200 and on a 202
+         *  "still delivering" answer, where `delivering` and `directorState` are also set. */
+        PromptDeliveryAnswer: {
+            deliveryId?: null | string;
+            delivering?: boolean;
+            directorState?: null | string;
         };
         RepoAddRequest: {
             path?: string;

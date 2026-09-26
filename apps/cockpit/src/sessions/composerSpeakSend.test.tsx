@@ -31,7 +31,7 @@ import { useState } from "react";
 // hoisted phase (vi.hoisted) rather than as ordinary consts.
 const { sendPrompt, transcribeUtterance, backgroundTranscribeAndSend } = vi.hoisted(() => ({
   // The synchronous POST /prompt path: PAUSED-stage Send (text already in hand) and Insert use it.
-  sendPrompt: vi.fn(async () => {}),
+  sendPrompt: vi.fn(async () => ({ delivering: false })),
   // The synchronous /wingman/utterance/* transcription: the Pause checkpoint and Insert use it.
   transcribeUtterance: vi.fn(async () => ({ text: "the dictated words", deliveryId: "utt-77" })),
   // The durable background pipeline (POST /dictation/*) the recording-stage Send now rides.

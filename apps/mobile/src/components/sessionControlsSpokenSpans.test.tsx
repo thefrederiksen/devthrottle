@@ -9,7 +9,7 @@ import { render, screen, fireEvent, waitFor, within, cleanup } from "@testing-li
 // claims the Gateway verifies.
 
 const { sendPrompt, transcribeUtterance, listSessions } = vi.hoisted(() => ({
-  sendPrompt: vi.fn(async () => {}),
+  sendPrompt: vi.fn(async () => ({ delivering: false })),
   transcribeUtterance: vi.fn(async () => ({ text: "the dictated words", deliveryId: "utt-77" })),
   listSessions: vi.fn(async () => [{ sessionId: "sess-42", totalBufferBytes: 4321 }]),
 }));

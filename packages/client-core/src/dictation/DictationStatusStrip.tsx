@@ -7,6 +7,7 @@ import {
   sendDroppedDictationAnyway,
 } from "./backgroundSend";
 import { clearDictationStatus, useDictationStatusFor } from "./status";
+import { checkTypedPromptNow, dismissTypedPrompt, sendTypedPromptAnyway } from "./typedPromptDelivery";
 // The strip carries its own styles, exactly like DictationDialog does (issue #1288's rule): every
 // shell that mounts it gets the dictate-strip-* rules from this one copy. The rules formerly lived
 // only in the mobile stylesheet (apps/mobile/src/styles.css); they moved here when the strip itself
@@ -43,6 +44,10 @@ import "./dictationStrip.css";
 // Dismiss is the ONLY thing that throws the words away - never a timer.
 // An UNHEARD send is the quiet cousin: the clip arrived and had no speech in it, so there was no turn to
 // make. Nothing was lost and there is nothing to retry, but it is still an answer rather than silence.
+//
+// A TYPED prompt the Gateway held (voice delivery phase 5, contract section 7, T6; `status.typed`) uses this same
+// strip - "Still delivering" with "Check now", and the words shown back with "Send anyway" or Dismiss only - and
+// its buttons act on the held typed prompt instead of a recording. One strip, never a second copy.
 
 const DONE_AUTOCLEAR_MS = 2500;
 
@@ -66,7 +71,8 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
     const onUploadNow = async () => {
       setUploadingNow(true);
       try {
-        await retryPendingDictation(status.uploadId);
+        if (status.typed) await checkTypedPromptNow(status.uploadId);
+        else await retryPendingDictation(status.uploadId);
       } finally {
         setUploadingNow(false);
       }
@@ -132,7 +138,8 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
     const onSendAnyway = async () => {
       setUploadingNow(true);
       try {
-        await sendDroppedDictationAnyway(status.uploadId);
+        if (status.typed) await sendTypedPromptAnyway(status.uploadId);
+        else await sendDroppedDictationAnyway(status.uploadId);
       } finally {
         setUploadingNow(false);
       }
@@ -167,7 +174,7 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
         <button
           type="button"
           className="dictate-strip-btn dictate-strip-dismiss"
-          onClick={() => void dismissDictationStatus(status.uploadId)}
+          onClick={() => void (status.typed ? dismissTypedPrompt(status.uploadId) : dismissDictationStatus(status.uploadId))}
           disabled={uploadingNow}
         >
           Dismiss
