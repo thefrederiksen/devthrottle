@@ -5000,7 +5000,19 @@ internal static class GatewayEndpoints
                 return Results.Json(new { error = said }, statusCode: StatusCodes.Status403Forbidden);
             }
 
-            FileLog.Write($"[GatewayEndpoints] POST /compact-context: caller={callerSessionId} owns sid={sid}; compacting, then the follow-up as a guarded prompt");
+            // THE RECORD COMES BEFORE THE ACTION, as the middleware does it for every raised grant. A raised session typing
+            // into a session it does not own is an action no other session could take, so it is recorded with the session
+            // that took it first; if the record cannot be written, nothing is compacted and nothing is typed.
+            if (ownershipWaived && !OwnedSessionInput.OwnsDirectly(callerSessionId, session))
+            {
+                if (raisedRecord is null)
+                    throw new InvalidOperationException(
+                        "A raised session was let past ownership on compact-continue on a Gateway with nowhere to record it.");
+                raisedRecord.Action(tenant.Value, callerSessionId,
+                    $"compacted session {sid}, which it does not own, and typed a follow-up into it: POST /sessions/{sid}/compact-context");
+            }
+
+            FileLog.Write($"[GatewayEndpoints] POST /compact-context: caller={callerSessionId} may type into sid={sid} (raised={ownershipWaived}); compacting, then the follow-up as a guarded prompt");
             var compacted = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "compact-context", sid,
                 new CompactContextRequest { ContinuePrompt = null }, ctx.RequestAborted,
                 timeout: DirectorCommandRouter.LanguageModelCommandTimeout, machineName: director.MachineName);
