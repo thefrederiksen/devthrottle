@@ -12274,6 +12274,8 @@ export interface components {
             onlyWhenWaitingForInput?: boolean;
             spokenSpans?: null | components["schemas"]["SpokenSpanClaimDto"][];
             provenance?: null | components["schemas"]["SubmissionProvenanceDto"];
+            /** Format: date-time */
+            sentAtUtc?: null | string;
             deliveryIdClaim?: null | string;
         };
         /** Added by hand (voice delivery phase 5): the id the Gateway minted for a prompt, on a 200 and on a 202
