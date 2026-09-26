@@ -84,6 +84,14 @@ internal sealed class TypedPromptDelivery
     public static string MintDeliveryId() => Guid.NewGuid().ToString("N");
 
     /// <summary>
+    /// Send a typed prompt (which carries its minted delivery id) and read the answer (<see cref="ReadSend"/>). The typed
+    /// prompt route's one send: it needs the three outcomes of <see cref="SessionVerbClient.SendPromptAsync"/> kept apart,
+    /// because "unanswered" is held and asked about later while "never left" and "refused" are known not in.
+    /// </summary>
+    public static async Task<TypedSendReading> SendAsync(SessionVerbClient route, string sid, PromptRequest prompt)
+        => ReadSend(await route.SendPromptAsync(sid, prompt));
+
+    /// <summary>
     /// Read the prompt verb's answer to a typed prompt through <see cref="DeliverySendAndAsk.Read"/> - the one reading - and
     /// say what the route answers: delivered, answered-not-typed (today's 200), known not in (today's 502), or held.
     /// </summary>

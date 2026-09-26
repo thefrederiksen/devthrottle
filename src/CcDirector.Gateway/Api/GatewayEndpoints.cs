@@ -3391,8 +3391,7 @@ internal static class GatewayEndpoints
             var deliveryId = req.DeliveryId
                 ?? throw new InvalidOperationException("a typed prompt reached the Director send without the delivery id the route mints");
             var sentAtUtc = claimClock.GetUtcNow().UtcDateTime;
-            var sent = await new SessionVerbClient(director, sendCommand).SendPromptAsync(sid, req);
-            var reading = TypedPromptDelivery.ReadSend(sent);
+            var reading = await TypedPromptDelivery.SendAsync(new SessionVerbClient(director, sendCommand), sid, req);
             switch (reading.Kind)
             {
                 case TypedSendKind.Delivered:

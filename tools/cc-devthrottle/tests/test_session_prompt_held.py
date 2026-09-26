@@ -1,4 +1,4 @@
-"""Tests for how `cc-devthrottle session prompt` reads the Gateway's answer (Voice Delivery mission, phase 5).
+"""Tests for how the command line's `session prompt` verb reads the Gateway's answer (Voice Delivery mission, phase 5).
 
 A typed prompt the Director has not answered as delivered is HELD by the Gateway: the route answers 202
 `{ delivering: true, directorState, deliveryId }` and the Gateway itself asks what became of it. That is a

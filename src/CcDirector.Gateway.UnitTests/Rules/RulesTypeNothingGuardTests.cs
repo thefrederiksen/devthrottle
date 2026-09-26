@@ -388,12 +388,16 @@ public sealed class RulesTypeNothingGuardTests
     /// left must say so in the log. The sixth is the voice delivery's send-and-ask piece (the Voice Delivery mission,
     /// phase 2), shared by the dictation complete and a claimed "Send anyway": a send that went out unanswered is
     /// followed by a question to the Director, never read as a failure that types the words again - so it must see
-    /// "unanswered" apart from "never left" and "refused". Every other caller in the Gateway goes through the wrapper.</summary>
+    /// "unanswered" apart from "never left" and "refused". The seventh is the typed prompt route's send (the Voice
+    /// Delivery mission, phase 5): every typed prompt carries a delivery id, and one that went out unanswered is HELD
+    /// and asked about by the Gateway later, never read as a failure the caller re-sends - so it must see the same three
+    /// outcomes apart. Every other caller in the Gateway goes through the wrapper.</summary>
     private static readonly string[] AllowedDirectCallersOfTheSeam =
     {
         "CcDirector.Gateway.Api.DeliverySendAndAsk",
         "CcDirector.Gateway.Api.SessionVerbClient",
         "CcDirector.Gateway.Api.TunnelTurnVerdictAnswerChannel",
+        "CcDirector.Gateway.Api.TypedPromptDelivery",
         "CcDirector.Gateway.DevReports.DevReportDelivery",
         "CcDirector.Gateway.Fleet.GatewayFleetManagerEventEnvironment",
         "CcDirector.Gateway.Rules.GatewayRuleEnvironment",
