@@ -430,16 +430,57 @@ public sealed class FleetMessageRouteTests : IAsyncLifetime
     // =========================================================================================
 
     [Theory]
-    [InlineData("prompt")]
     [InlineData("interrupt")]
     [InlineData("escape")]
-    public async Task A_session_key_may_not_type_into_interrupt_or_escape_its_own_worker(string verb)
+    public async Task A_session_key_may_not_interrupt_or_escape_even_its_own_worker(string verb)
     {
+        // Parent Control, fix 1 opened the prompt to a session's own workers; these two stay the owner's, because Ctrl+C
+        // and Escape clear the owner's unsent words and the Director has no guarded form of either.
         var r = await _asManager.PostAsJsonAsync($"sessions/{_workerA}/{verb}", new { text = "do this now", appendEnter = true });
 
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
         Assert.Equal(AgentInputRefusal.Typing, S(await Body(r), "error"));
         Assert.Empty(VerbsSent());
+    }
+
+    [Fact]
+    public async Task A_session_key_may_not_prompt_a_session_it_does_not_own()
+    {
+        _gateway.TurnPushCapabilities.Record(CcDirector.Core.Tenancy.TenantId.Local, DirectorId, pushesTurns: true, checksIdleBeforeTyping: true);
+
+        var r = await _asManager.PostAsJsonAsync($"sessions/{_stranger}/prompt", new { text = "do this now" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Equal(AgentInputRefusal.NotYourSession, S(await Body(r), "error"));
+        Assert.Empty(VerbsSent());
+    }
+
+    [Fact]
+    public async Task A_session_key_prompting_its_own_worker_through_a_director_that_does_not_check_first_sends_nothing()
+    {
+        // This fake Director's Hello does not say it checks the session is waiting before it types.
+        var r = await _asManager.PostAsJsonAsync($"sessions/{_workerA}/prompt", new { text = "do this now" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Equal(AgentInputRefusal.DirectorTooOld, S(await Body(r), "error"));
+        Assert.Empty(VerbsSent());
+    }
+
+    [Fact]
+    public async Task A_session_key_prompting_its_own_worker_sends_the_guarded_prompt_and_believes_no_unconfirmed_receipt()
+    {
+        _gateway.TurnPushCapabilities.Record(CcDirector.Core.Tenancy.TenantId.Local, DirectorId, pushesTurns: true, checksIdleBeforeTyping: true);
+
+        var r = await _asManager.PostAsJsonAsync($"sessions/{_workerA}/prompt", new { text = "do this now", appendEnter = true });
+
+        var cmd = Assert.Single(_commands, c => c.Verb == "prompt");
+        var sent = JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, Web)!;
+        Assert.True(sent.OnlyWhenWaitingForInput);
+        Assert.True(sent.AgentDriven);
+        Assert.Equal("do this now", sent.Text);
+        // This fake answers accepted without saying it made the check, which is not counted as delivered.
+        Assert.Equal(HttpStatusCode.BadGateway, r.StatusCode);
+        Assert.Equal(OwnedSessionInput.AcceptedWithoutTheCheck, S(await Body(r), "error"));
     }
 
     [Fact]
@@ -463,12 +504,70 @@ public sealed class FleetMessageRouteTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_session_key_may_not_compact_and_continue()
+    public async Task A_session_key_may_not_compact_and_continue_a_session_it_does_not_own()
+    {
+        _gateway.TurnPushCapabilities.Record(CcDirector.Core.Tenancy.TenantId.Local, DirectorId, pushesTurns: true, checksIdleBeforeTyping: true);
+
+        var r = await _asManager.PostAsJsonAsync($"sessions/{_stranger}/compact-context", new { continuePrompt = "continue" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Equal(AgentInputRefusal.CompactContinue, S(await Body(r), "error"));
+        Assert.Empty(VerbsSent());
+    }
+
+    [Fact]
+    public async Task A_session_key_compact_and_continue_on_its_own_worker_compacts_plainly_then_sends_a_stamped_guarded_prompt()
+    {
+        _gateway.TurnPushCapabilities.Record(CcDirector.Core.Tenancy.TenantId.Local, DirectorId, pushesTurns: true, checksIdleBeforeTyping: true);
+
+        var r = await _asManager.PostAsJsonAsync($"sessions/{_workerA}/compact-context", new { continuePrompt = "continue" });
+
+        // The compaction goes WITHOUT its continuation: the Director's own continuation looks at no composer.
+        var compact = _commands.First(c => c.Verb == "compact-context");
+        Assert.True(string.IsNullOrEmpty(JsonSerializer.Deserialize<CompactContextRequest>(compact.PayloadJson, Web)?.ContinuePrompt));
+        // This fake reports no observed compaction, so no follow-up may be sent at all.
+        Assert.DoesNotContain(_commands, c => c.Verb == "prompt");
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.False((await Body(r)).GetProperty("continued").GetBoolean());
+    }
+
+    [Fact]
+    public async Task A_session_key_compact_and_continue_follow_up_carries_the_gateways_stamps()
+    {
+        await _director.DisposeAsync();
+        _commands.Clear();
+        _director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine, cmd =>
+        {
+            _commands.Enqueue(cmd);
+            return cmd.Verb == "compact-context"
+                ? FakeTunnelDirector.Ok(new CompactContextResponse { Submitted = true, CompactionObserved = true, Detail = "Compacted." })
+                : FakeTunnelDirector.Ok(new PromptResponse { Accepted = true, IdleChecked = true });
+        });
+        await _director.PushSnapshotAsync(
+            Row(_manager, "Mission - Manager", controller: null),
+            Row(_workerA, "Mission - Worker - A", controller: _manager));
+        _gateway.TurnPushCapabilities.Record(CcDirector.Core.Tenancy.TenantId.Local, DirectorId, pushesTurns: true, checksIdleBeforeTyping: true);
+
+        var r = await _asManager.PostAsJsonAsync($"sessions/{_workerA}/compact-context", new { continuePrompt = "continue" });
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.True((await Body(r)).GetProperty("continued").GetBoolean());
+        var follow = JsonSerializer.Deserialize<PromptRequest>(_commands.Single(c => c.Verb == "prompt").PayloadJson, Web)!;
+        Assert.Equal("continue", follow.Text);
+        Assert.True(follow.OnlyWhenWaitingForInput);
+        Assert.True(follow.AgentDriven);
+        Assert.NotNull(follow.Surface);
+        Assert.NotNull(follow.Provenance);
+        Assert.Equal(CcDirector.Core.Sessions.SubmissionRoutes.FleetMessage, follow.Provenance!.Route);
+    }
+
+    [Fact]
+    public async Task A_session_key_compact_and_continue_on_its_own_worker_through_a_director_that_does_not_check_first_does_nothing()
     {
         var r = await _asManager.PostAsJsonAsync($"sessions/{_workerA}/compact-context", new { continuePrompt = "continue" });
 
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
-        Assert.Equal(AgentInputRefusal.CompactContinue, S(await Body(r), "error"));
+        Assert.Equal(AgentInputRefusal.DirectorTooOld, S(await Body(r), "error"));
         Assert.Empty(VerbsSent());
     }
 

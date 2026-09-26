@@ -356,6 +356,14 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
             // down the route as the owner's own device did.
             Assert.Equal(CodeOf(owner.Body), CodeOf(raised.Body));
 
+            if (name == "prompt")
+            {
+                // Parent Control, fix 1: any session key reaches the prompt route, which types only into a session the
+                // caller owns. The unraised key does not own this one, so the ROUTE refuses it, with its own sentence.
+                Assert.Equal(HttpStatusCode.Forbidden, unraised.Status);
+                Assert.Equal(Util.AgentInputRefusal.NotYourSession, Root(unraised.Body).GetProperty("error").GetString());
+                continue;
+            }
             AssertRefusedByTheGuard(unraised);
             Assert.Equal(Util.AgentInputRefusal.Typing, Root(unraised.Body).GetProperty("error").GetString());
         }

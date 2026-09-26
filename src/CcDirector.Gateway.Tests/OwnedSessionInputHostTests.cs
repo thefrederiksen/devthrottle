@@ -18,7 +18,7 @@ namespace CcDirector.Gateway.Tests;
 /// and the route (which decides ownership) and only the pair, run together, says what an agent can actually do.
 ///
 /// HOW A PASS IS READ. No Director is connected to the tunnel, so a send that clears every check is answered 502 by the
-/// tunnel - "the Director is not connected" - which is a specific presence: the request got past the guard AND the
+/// tunnel - the Director is not connected, or the connection dropped - which is a specific presence: the request got past the guard AND the
 /// ownership rule and was on its way to the Director. A refusal is a specific presence too: 403 with the rule's own
 /// sentence, or the guard's code. That what the Director then receives is the guarded send, and that the owner's
 /// unsent words stop it, is proven over a real tunnel in <c>PromptAttributionIsGatewayAuthoritativeTests</c>.
@@ -165,9 +165,12 @@ public sealed class OwnedSessionInputHostTests : IAsyncLifetime
 
     private static void AssertReachedTheTunnel((HttpStatusCode Status, string Body) answer)
     {
-        // Past the guard and the ownership rule: the only thing left to say no was the Director's absence.
+        // Past the guard and the ownership rule: the only thing left to say no was the Director's absence. This harness
+        // registers a pushed connection with no live hub behind it, so the tunnel answers either "not connected" or
+        // "dropped while the command was being sent" - both are the send to the Director, which no refusal reaches.
         Assert.Equal(HttpStatusCode.BadGateway, answer.Status);
-        Assert.Contains("not connected", answer.Body);
+        Assert.True(answer.Body.Contains("not connected") || answer.Body.Contains("dropped while the command was being sent"),
+            "expected the tunnel's answer, got: " + answer.Body);
     }
 
     // ---- prompt --------------------------------------------------------------------------------------------

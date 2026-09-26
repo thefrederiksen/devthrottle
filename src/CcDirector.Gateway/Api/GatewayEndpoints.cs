@@ -5021,7 +5021,20 @@ internal static class GatewayEndpoints
             // The compaction is seen finished in the tool's own record a moment before the session's state reads waiting,
             // so a follow-up refused only because the session is still settling is tried again, briefly. A refusal for
             // the owner's unsent words, or for a one-call terminal, is final.
-            var follow = new PromptRequest { Text = continuePrompt };
+            // Stamped exactly as the prompt route stamps a session's prompt, because the Director believes these fields:
+            // the surface from the verified credential (a session key has none, so "unknown"), and what this door knew -
+            // a session calling is the fleet-message route, with the credential kind this gate verified.
+            var follow = new PromptRequest
+            {
+                Text = continuePrompt,
+                Surface = (ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var followDevice) ? followDevice as string : null) ?? "unknown",
+                Provenance = new SubmissionProvenanceDto
+                {
+                    Route = Core.Sessions.SubmissionRoutes.FleetMessage,
+                    IdentityKind = AuthMiddleware.IdentityKind(ctx),
+                    SpokenSpans = new List<SpokenSpanDto>(),
+                },
+            };
             OwnedSessionInput.ApplyTo(follow);
             var settleUntil = DateTime.UtcNow + OwnedSessionInput.SettleAfterCompaction;
             PromptResponse? sent;
