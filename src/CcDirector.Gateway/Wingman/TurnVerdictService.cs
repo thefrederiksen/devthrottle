@@ -452,6 +452,19 @@ public sealed class TurnVerdictService : IDisposable
             }
         }
 
+        /// <summary>
+        /// The session went back to work: close the list, then cancel. A CANCELLED JUDGEMENT TAKES NO JOINS (issue #3399).
+        /// It still holds the gate until it has written its rows, and a stop joined to it would come back "already judging"
+        /// and never be read, judged or narrated - it describes a screen this judgement will never look at. Closed first, so
+        /// no stop can join between the two: a later stop queues, and this flight hands it the gate as it leaves.
+        /// </summary>
+        public void CloseToJoinsAndCancel()
+        {
+            lock (Sync) _closedToJoins = true;
+            try { Cts.Cancel(); }
+            catch (ObjectDisposedException) { /* the flight already finished and disposed it */ }
+        }
+
         /// <summary>Join stops handed over with the gate, before this flight is registered. Its list is open.</summary>
         public void JoinHandedOver(IEnumerable<QueuedStop> stops)
         {
@@ -946,10 +959,7 @@ public sealed class TurnVerdictService : IDisposable
         // stop carries the moment it started, and takes the observed moment when the detector catches up.
         _lastObserved.TryRemove(key, out _);
         if (_inFlight.TryGetValue(key, out var flight))
-        {
-            try { flight.Cts.Cancel(); }
-            catch (ObjectDisposedException) { /* the flight already finished and disposed it */ }
-        }
+            flight.CloseToJoinsAndCancel();
     }
 
     private async Task<TurnVerdictOutcome> RunFlightAsync(

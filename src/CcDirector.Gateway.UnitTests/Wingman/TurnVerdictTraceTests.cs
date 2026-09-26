@@ -207,17 +207,17 @@ public sealed class TurnVerdictTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task ACancelledTrace_CarriesItsOwnStopsMoment_AndALaterStopObservedMeanwhileLeavesAJoinedTrace()
+    public async Task ACancelledTrace_CarriesItsOwnStopsMoment_AndALaterStopObservedMeanwhileIsJudgedUnderItsOwn()
     {
         // Found in review: the cancellation looked up "the latest observed stop" again, after the session had moved on,
         // and stamped the old stop's screen and answer with the new stop's moment.
         var env = Env();
         var release = new TaskCompletionSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
         env.Judge = async (_, _) =>
         {
-            entered.TrySetResult();
-            await release.Task;
+            if (Interlocked.Increment(ref calls) == 1) { entered.TrySetResult(); await release.Task; }
             return FinishedAnswer;
         };
         var service = new TurnVerdictService(env);
@@ -226,23 +226,23 @@ public sealed class TurnVerdictTraceTests : IDisposable
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         service.OnSessionWorking(Tenant, Sid);
         var later = ObservedAt.AddMinutes(3);
-        var second = await service.StartTurnEnd(Signal(later));
-        Assert.Equal(ActivityCauses.AlreadyJudging, second.SkipCause);
+        // The later stop does NOT join the cancelled judgement (issue #3399: it used to, and was never judged). It queues
+        // behind it and is handed the gate when the cancelled judgement leaves.
+        var second = service.StartTurnEnd(Signal(later));
         release.SetResult();
 
         Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await pending.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await second.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
 
         // Two stops, two traces, each under its own moment: the earlier one cancelled with its evidence, and the later
-        // one - found in review to vanish - recorded as joined, because it asked nothing of its own.
-        // The joined trace is written off the turn-end handler, so it is waited for.
+        // one judged with its own.
         Assert.True(await WaitUntil(() => env.Traces.Count == 2), $"expected two traces, saw {env.Traces.Count}");
         var cancelled = Assert.Single(env.Traces, t => t.Outcome == TurnVerdictTraceOutcomes.Cancelled);
         Assert.Equal(ObservedAt, cancelled.TurnEndObservedAtUtc);
         Assert.NotNull(cancelled.Prompt);
-        var joined = Assert.Single(env.Traces, t => t.Outcome == TurnVerdictTraceOutcomes.Joined);
-        Assert.Equal(later, joined.TurnEndObservedAtUtc);
-        Assert.Equal(ActivityCauses.AlreadyJudging, joined.Cause);
-        Assert.Null(joined.Prompt);
+        var judged = Assert.Single(env.Traces, t => t.Outcome == TurnVerdictTraceOutcomes.Judged);
+        Assert.Equal(later, judged.TurnEndObservedAtUtc);
+        Assert.NotNull(judged.Prompt);
     }
 
     [Fact]
