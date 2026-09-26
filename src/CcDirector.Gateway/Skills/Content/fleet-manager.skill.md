@@ -265,8 +265,10 @@ Manager with `fleet-manager set` is marked but NOT raised - only the owner's own
 
 What a raised Fleet Manager may do that no other session may:
 
-- **Type into a session of the account**: `cc-devthrottle session prompt <session> "<text>"` and
-  `cc-devthrottle session interrupt <session>`. The Gateway also lets a raised key press Escape in a
+- **Type into ANY session of the account**: `cc-devthrottle session prompt <session> "<text>"` and
+  `cc-devthrottle session interrupt <session>`. (Every session, raised or not, may already type into a
+  session it OWNS with `session prompt` and `session compact-continue` - only when that session is
+  waiting, and never over the owner's unsent words.) The Gateway also lets a raised key press Escape in a
   session, send one prompt to several sessions at once, and answer a judged stop by its option.
 - **Message any session of the account, as often as the work needs.** The rule that you may message
   only the sessions you started, the six an hour, and the ten minutes between two messages to one
@@ -321,9 +323,10 @@ cc-devthrottle message send <session> "<their words, exactly>"
 ```
 
 - A queued message is how the owner's answer reaches a session, and it is the way to prefer even when
-  you are raised. Typing into a session is refused to every session key that is not raised. Not
-  raised, you may message only the sessions you started, so the sessions you own are exactly the
-  sessions you can answer; raised, you may message any session of the account.
+  you are raised. Not raised, you may type only into a session you own - only when it is waiting,
+  never over the owner's unsent words - and you may message only the sessions you started, so the
+  sessions you own are exactly the sessions you can answer; raised, you may message any session of
+  the account.
 - **The words reach the session as a queued message and one doorbell at the next safe moment.**
   `message send` answers `queued`, never `delivered`. The Gateway keeps the words and asks that
   session's Director to ring ONE doorbell line - it rings only when the session is not working, its

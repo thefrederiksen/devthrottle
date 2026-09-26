@@ -84,9 +84,11 @@ def test_the_two_verbs_are_separately_discoverable(monkeypatch):
     assert "NOTHING afterwards" in plain["description"]
     assert "compact-continue" in both["command"]
     assert "THEN type a prompt" in both["description"]
-    # The Message Load mission, ruling 17: the continue half is the owner's, and the entry says so, so an
-    # agent listing actions does not pick a verb the Gateway will refuse it.
-    assert "REFUSES this to every agent" in both["description"]
+    # Parent Control, fix 1: the continue half types into a session, so an agent may use it only on a
+    # session it owns, and the entry says so, so an agent listing actions does not pick a verb the
+    # Gateway will refuse it for any other session.
+    assert "only to a session it OWNS" in both["description"]
+    assert "never over words the owner typed" in both["description"]
 
 
 def test_compact_only_sends_no_follow_up(posted):

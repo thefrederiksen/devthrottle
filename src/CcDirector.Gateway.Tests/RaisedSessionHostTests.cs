@@ -356,9 +356,39 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
             // down the route as the owner's own device did.
             Assert.Equal(CodeOf(owner.Body), CodeOf(raised.Body));
 
+            if (name == "prompt")
+            {
+                // Parent Control, fix 1: any session key reaches the prompt route, which types only into a session the
+                // caller owns. The unraised key does not own this one, so the ROUTE refuses it, with its own sentence.
+                Assert.Equal(HttpStatusCode.Forbidden, unraised.Status);
+                Assert.Equal(Util.AgentInputRefusal.NotYourSession, Root(unraised.Body).GetProperty("error").GetString());
+                continue;
+            }
             AssertRefusedByTheGuard(unraised);
             Assert.Equal(Util.AgentInputRefusal.Typing, Root(unraised.Body).GetProperty("error").GetString());
         }
+    }
+
+    [Fact]
+    public async Task CompactContinue_ARaisedKeyOnASessionItDoesNotOwn_IsRecordedBeforeAnythingIsSent_AndAnUnraisedKeyIsRefused()
+    {
+        // Parent Control, fix 1: a raised key is not held to ownership on compact-continue, and that door records the
+        // action itself - the guard gives compact-context no grant, so the middleware writes nothing for it.
+        await Raise(_raisedId);
+        _gateway.TurnPushCapabilities.Record(_tenantA, DirectorId, pushesTurns: true, checksIdleBeforeTyping: true);
+        var path = $"sessions/{_workerId}/compact-context";
+
+        var unraised = await Send(_unraised, "POST", path, new { continuePrompt = "continue" });
+        var raised = await Send(_raised, "POST", path, new { continuePrompt = "continue" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, unraised.Status);
+        Assert.Equal(Util.AgentInputRefusal.CompactContinue, Root(unraised.Body).GetProperty("error").GetString());
+        // No Director is connected, so the raised request ends at the tunnel - after its record was written.
+        Assert.NotEqual(HttpStatusCode.Forbidden, raised.Status);
+        var details = (await Records(GovernanceAuditEventType.RaisedAction, _raisedId))
+            .Select(r => r.GetProperty("detail").GetString()!).ToList();
+        Assert.Single(details, d => d.EndsWith($"POST /{path}", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(await Records(GovernanceAuditEventType.RaisedAction, _unraisedId));
     }
 
     [Fact]

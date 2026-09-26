@@ -17,12 +17,11 @@ public sealed class SessionKeyGuardRaisedTests
     private const string Sid = "11111111-1111-1111-1111-111111111111";
 
     [Theory]
-    [InlineData("POST", "/sessions/" + Sid + "/prompt")]
     [InlineData("POST", "/sessions/" + Sid + "/interrupt")]
     [InlineData("POST", "/sessions/" + Sid + "/escape")]
     [InlineData("POST", "/fanout")]
     [InlineData("POST", "/sessions/" + Sid + "/turn-verdict/answer")]
-    [InlineData("POST", "/Sessions/" + Sid + "/PROMPT/")]
+    [InlineData("POST", "/Sessions/" + Sid + "/INTERRUPT/")]
     public void Check_AgentInput_RaisedPasses_UnraisedIsRefusedAsToday(string method, string path)
     {
         var raised = SessionKeyGuard.Check(method, path, raised: true);
@@ -32,6 +31,22 @@ public sealed class SessionKeyGuardRaisedTests
         var unraised = SessionKeyGuard.Check(method, path, raised: false);
         Assert.False(unraised.Allowed);
         Assert.Equal(AgentInputRefusal.Typing, unraised.Reason);
+        Assert.Equal(RaisedGrant.None, unraised.RaisedGrant);
+    }
+
+    /// <summary>The prompt shape (Parent Control, fix 1): a raised key still passes with the recorded grant; an unraised
+    /// key is let through to the route, which types only into a session the caller owns.</summary>
+    [Theory]
+    [InlineData("POST", "/sessions/" + Sid + "/prompt")]
+    [InlineData("POST", "/Sessions/" + Sid + "/PROMPT/")]
+    public void Check_Prompt_RaisedPassesWithTheGrant_UnraisedReachesTheOwnershipRoute(string method, string path)
+    {
+        var raised = SessionKeyGuard.Check(method, path, raised: true);
+        Assert.True(raised.Allowed);
+        Assert.Equal(RaisedGrant.AgentInput, raised.RaisedGrant);
+
+        var unraised = SessionKeyGuard.Check(method, path, raised: false);
+        Assert.True(unraised.Allowed);
         Assert.Equal(RaisedGrant.None, unraised.RaisedGrant);
     }
 
@@ -117,7 +132,7 @@ public sealed class SessionKeyGuardRaisedTests
     [Fact]
     public void Check_TheTwoArgumentForm_IsTheUnraisedAnswer()
     {
-        var path = "/sessions/" + Sid + "/prompt";
+        var path = "/sessions/" + Sid + "/interrupt";
 
         Assert.Equal(SessionKeyGuard.Check("POST", path, raised: false), SessionKeyGuard.Check("POST", path));
         Assert.False(SessionKeyGuard.Check("POST", path).Allowed);

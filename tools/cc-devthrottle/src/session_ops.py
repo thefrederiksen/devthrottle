@@ -654,9 +654,11 @@ def rename_session(target: Optional[str], new_name: str) -> Dict[str, Any]:
 def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str, Any]:
     """Send raw text into a session - what a human typing into it would produce.
 
-    THE GATEWAY REFUSES THIS TO EVERY AGENT (the Message Load mission, ruling 17): only the owner
-    types into a session, from his own screens. This command always runs with a session key, so it
-    prints the Gateway's refusal, which names the queued message to send instead.
+    AN AGENT MAY TYPE ONLY INTO A SESSION IT OWNS (Parent Control, fix 1). This command runs with a
+    session key, so the Gateway types only when the target is this session's own, and only when that
+    session is waiting for a prompt with nothing the owner typed and did not send in its composer.
+    Otherwise it answers with a refusal that names the queued message to send instead, and that
+    refusal is printed as the Gateway wrote it.
     """
     if not text.strip():
         axi_cli.usage_error(

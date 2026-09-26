@@ -568,10 +568,15 @@ internal static class AuthMiddleware
         {
             case SessionCredentialResolutionKind.Active when resolution.Identity is not null:
                 var verdict = SessionKeyGuard.Check(ctx.Request.Method, ctx.Request.Path.Value);
-                if (!verdict.Allowed && isRaised is not null)
+                if (isRaised is not null)
                 {
+                    // Asked as raised when the unraised answer is no, AND when the raised answer carries a grant the
+                    // unraised one does not. The second case is the prompt route (Parent Control, fix 1): any session key
+                    // now reaches it, for the route to hold it to the sessions it owns, but a RAISED key is not held to
+                    // that - and the route can only tell the two apart by the grant recorded here.
                     var asRaised = SessionKeyGuard.Check(ctx.Request.Method, ctx.Request.Path.Value, raised: true);
-                    if (asRaised.Allowed && isRaised(resolution.Identity))
+                    var raisingChangesTheAnswer = !verdict.Allowed || asRaised.RaisedGrant != verdict.RaisedGrant;
+                    if (asRaised.Allowed && raisingChangesTheAnswer && isRaised(resolution.Identity))
                         verdict = asRaised;
                 }
                 if (!verdict.Allowed)

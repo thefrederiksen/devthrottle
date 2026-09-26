@@ -58,6 +58,12 @@ public sealed class RetiredMessagingWordsTests
     /// to EVERY session key, and the Fleet Manager's own conduct must say what a raised Fleet Manager may
     /// do, by the command's name. Those two texts are exempted below for that reason and no other; every
     /// other text is still held to the ban, because every other session is still refused.
+    ///
+    /// AND AGAIN ON 26 SEPTEMBER 2026 (Parent Control, fix 1). Any session may now type into a session it
+    /// OWNS, only when that session is waiting and never over the owner's unsent words; every other target
+    /// is still refused. So the command may be named where that rule is stated - the Gateway's own refusal
+    /// sentence and its test, the command line, and the skills that teach the rule - and still nowhere else,
+    /// because a queued message remains the way to reach every session the caller does not own.
     /// </summary>
     private const string RetiredTypingCommand = "cc-devthrottle session prompt";
 
@@ -77,6 +83,10 @@ public sealed class RetiredMessagingWordsTests
             "the Fleet Manager's conduct: names the command only under the rule on what raised allows and forbids"),
         (".claude/skills/fleet-comms/SKILL.md",
             "the repository copy of that skill, which is the shipped body plus frontmatter"),
+        ("src/CcDirector.Gateway/Util/SessionKeyGuard.cs",
+            "the Gateway's refusal sentence, which names the command a session may use on a session it owns"),
+        ("src/CcDirector.Gateway.UnitTests/SessionKeyGuardTests.cs",
+            "asserts that refusal sentence names the command"),
     };
 
     /// <summary>The phrases to scan <paramref name="relative"/> for: the retired words always, and the
@@ -103,7 +113,7 @@ public sealed class RetiredMessagingWordsTests
             "Text agents read still teaches the messaging the Message Load mission retired (a message " +
             "interrupts, a blocking ask, one-line messages, naming another session as owner, or typing " +
             "into a session with 'cc-devthrottle session prompt', which the Gateway refuses to every " +
-            "session key the owner has not raised). Rewrite it to the queue - the owner's words reach a session as a queued " +
+            "session key for a session it does not own). Rewrite it to the queue - the owner's words reach a session as a queued " +
             "message and one doorbell; see docs/FleetMessaging.md:\n  " + string.Join("\n  ", offenders));
     }
 

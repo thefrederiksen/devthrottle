@@ -31,11 +31,22 @@ def _help_text(*command: str) -> str:
     return " ".join(" ".join(parts).split())
 
 
-def test_compact_continue_says_it_is_the_owners_tool():
+def test_compact_continue_says_an_agent_may_rescue_only_a_session_it_owns():
+    # Parent Control, fix 1 (26 September 2026): an agent may type into a session it owns, never over
+    # the owner's unsent words; every other session is still reached by a queued message.
     text = _help_text("session", "compact-continue")
-    assert "refuses this verb to every session key" in text
-    assert "queues a message instead" in text
-    assert "supervising agent can rescue" not in text
+    assert "ONLY A SESSION IT OWNS" in text
+    assert "never over words the owner typed" in text
+    assert "queue a message instead" in text
+    assert "refuses this verb to every session key" not in text
+
+
+def test_prompt_says_an_agent_may_type_only_into_a_session_it_owns():
+    text = _help_text("session", "prompt")
+    assert "YOU OWN" in text
+    assert "NEVER over words the owner typed" in text
+    assert "message send" in text
+    assert "REFUSED to agents: only the owner may type" not in text
 
 
 def test_hold_says_another_agents_message_does_not_end_it():
