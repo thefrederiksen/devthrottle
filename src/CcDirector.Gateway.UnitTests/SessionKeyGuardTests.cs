@@ -498,6 +498,14 @@ public sealed class SessionKeyGuardTests
         Assert.False(SessionKeyGuard.Check("GET", "/dictation/11111111111111111111111111111111/decisions").Allowed);
     }
 
+    [Fact]
+    public void The_dictation_outcome_read_is_dictation_data_and_is_refused_to_a_session_key()
+    {
+        // Proves an agent's session key cannot read how the owner's recordings came out (Voice Delivery phase 5), by
+        // the allow list's default, exactly as the decision log.
+        Assert.False(SessionKeyGuard.Check("GET", "/dictation/11111111111111111111111111111111/outcome").Allowed);
+    }
+
     [Theory]
     // Device registration and enrolment. The owner named this one himself: a credential that can enrol a
     // device can admit a NEW device, which is not configuring the product - it is the boundary itself.

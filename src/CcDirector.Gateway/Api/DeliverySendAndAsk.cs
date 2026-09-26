@@ -33,9 +33,12 @@ internal enum DeliverySendKind
 
 /// <summary>What <see cref="DeliverySendAndAsk.SendAsync"/> came to. <paramref name="NoAnswerKind"/> says which kind of no
 /// answer the question got (<c>no-answer</c>, <c>director-too-old</c>, <c>never-left-the-gateway</c>), on
-/// <see cref="DeliverySendKind.NoAnswer"/> only.</summary>
+/// <see cref="DeliverySendKind.NoAnswer"/> only.
+/// <paramref name="NeverLeft"/> is true on <see cref="DeliverySendKind.NotDelivered"/> when the prompt never left this
+/// Gateway at all - the Director is not connected - which the owned delivery holds as "waiting for the Director" rather
+/// than "retrying" (Voice Delivery phase 5).</summary>
 internal sealed record DeliverySendResult(DeliverySendKind Kind, PromptResponse? Body, string? Error, bool RefusedDuplicate = false,
-    string? NoAnswerKind = null);
+    string? NoAnswerKind = null, bool NeverLeft = false);
 
 /// <summary>What the prompt verb's own answer meant, before any question: the fact a caller writes as the Director's answer.</summary>
 internal sealed record PromptAnswerReading(bool Unanswered, bool Delivered, string? Error, bool RefusedDuplicate);
@@ -69,7 +72,8 @@ internal static class DeliverySendAndAsk
         var (kind, error, refusedDuplicate) = Read(sent);
         recordAnswer(sent, new PromptAnswerReading(kind is null, kind == DeliverySendKind.Delivered, error, refusedDuplicate));
         if (kind is { } settled)
-            return new DeliverySendResult(settled, sent.Body, error, refusedDuplicate);
+            return new DeliverySendResult(settled, sent.Body, error, refusedDuplicate,
+                NeverLeft: sent.Kind == SessionVerbClient.PromptSendKind.NeverLeftTheGateway);
 
         // UNANSWERED: the prompt went out and no answer came back. Ask; never call it a failure.
         var asked = await AskAsync(store, uploadId, sid, deliveryId, route, DeliveryDecisions.AskReasonPromptUnanswered);
@@ -195,4 +199,23 @@ internal static class DeliverySendAndAsk
     /// be asked, or silent. The other held states are the Director's own words (<see cref="DeliveryStates"/>).
     /// </summary>
     public const string NoAnswerState = "no-answer";
+
+    /// <summary>
+    /// The <c>directorState</c> of an owned delivery the Gateway cannot reach right now (Voice Delivery phase 5): the
+    /// session's Director is not connected - the session could not be located, or the prompt never left the Gateway.
+    /// The Gateway sends it itself when that Director's tunnel comes back.
+    /// </summary>
+    public const string WaitingForDirectorState = "waiting-for-director";
+
+    /// <summary>
+    /// The <c>directorState</c> of an owned delivery the Gateway will try again itself (Voice Delivery phase 5): the
+    /// Director said the words are not in, or a Gateway-side step such as the transcription failed.
+    /// </summary>
+    public const string RetryingState = "retrying";
+
+    /// <summary>
+    /// Which kind of no answer is written on the "could not confirm it arrived" line when the session's Director was
+    /// not connected at all, so the question could not even be asked.
+    /// </summary>
+    public const string DirectorNotConnected = "director-not-connected";
 }

@@ -269,6 +269,8 @@ internal sealed class TypedPromptDelivery
             OnlyWhenWaitingForInput = unsent.OnlyWhenWaitingForInput,
             Provenance = unsent.Provenance,
             DeliveryId = id,
+            // Contract section 9, F6: the moment the Gateway received it, so the Director applies the same age limit.
+            SentAtUtc = DateTime.SpecifyKind(record.SentAtUtc, DateTimeKind.Utc),
         });
         FileLog.Write($"[TypedPromptDelivery] deliveryId={id}: sent once by the Gateway, answer read as {reading.Kind}");
         if (reading.Kind == TypedSendKind.NotIn && reading.NeverLeft)

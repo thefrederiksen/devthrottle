@@ -108,7 +108,7 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     [InlineData("delivered", 200, null, DictationDeliveryState.Delivered)]
     [InlineData("delivering", 202, "delivering", DictationDeliveryState.Pending)]
     [InlineData("unknown", 202, "unknown", DictationDeliveryState.Pending)]
-    [InlineData("not-delivered", 502, null, DictationDeliveryState.Pending)]
+    [InlineData("not-delivered", 202, "retrying", DictationDeliveryState.Pending)]
     [InlineData("no-answer", 202, "no-answer", DictationDeliveryState.Pending)]
     [InlineData("director-too-old", 202, "no-answer", DictationDeliveryState.Pending)]
     [InlineData("never-left-the-gateway", 202, "no-answer", DictationDeliveryState.Pending)]
@@ -117,8 +117,9 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     {
         // Proves each answer to the question maps to its HTTP answer and leaves the record where the contract says:
         // delivered resolves (200); delivering, unknown and every kind of no-answer hold (202, the record PENDING so the
-        // client's retry re-runs); not-delivered is the retryable 502. The answer line names the state, or which kind
-        // of no-answer it was - never folded into "unknown".
+        // Gateway's next attempt re-runs); not-delivered is held as "retrying" - since phase 5 the Gateway owns the
+        // delivery and tries again itself, so it is never a 502. The answer line names the state, or which kind of
+        // no-answer it was - never folded into "unknown".
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => Timeout();
@@ -190,17 +191,19 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     }
 
     [Fact]
-    public async Task APromptThatNeverLeftTheGateway_IsStillA502_AndNothingIsAsked()
+    public async Task APromptThatNeverLeftTheGateway_IsHeldWaitingForTheDirector_AndNothingIsAsked()
     {
-        // Proves the one case that is definitely not in stays the retryable 502: nothing was sent, so there is nothing
-        // to ask about.
+        // Proves the one case that is definitely not in - nothing was sent, so there is nothing to ask about - is held as
+        // "waiting for the Director" (phase 5): the Gateway owns the delivery and sends it itself when that Director's
+        // tunnel comes back. It used to be a 502 for the client to retry.
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => null;
 
-        var (status, _) = await CompleteAsync(uploadId, sid, sentAt: T0);
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0);
 
-        Assert.Equal(StatusCodes.Status502BadGateway, status);
+        Assert.Equal(StatusCodes.Status202Accepted, status);
+        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, body.GetProperty("directorState").GetString());
         Assert.Equal(new[] { "prompt" }, _commands.Select(c => c.Verb));
         Assert.True(_store.IsPending(uploadId));
     }
@@ -268,7 +271,7 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => Timeout();
         _deliveryState = _ => StateIs(DeliveryState.NotDelivered);
-        Assert.Equal(502, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
 
         _prompt = _ => Accepted();
         _deliveryState = _ => StateIs(answer);

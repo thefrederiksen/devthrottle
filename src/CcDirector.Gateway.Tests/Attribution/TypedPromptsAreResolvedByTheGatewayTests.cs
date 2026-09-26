@@ -65,6 +65,8 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             streamMode: true);
         _gateway.DeliveryClock = _clock;
+        // Only a test's own TickAsync ticks the Gateway's driver, so an attempt a test makes by hand never races it.
+        _gateway.HeldDeliveryTickInterval = TimeSpan.FromHours(1);
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -232,6 +234,41 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, outcomeStatus);
         Assert.True(outcome.GetProperty("submitted").GetBoolean());
         Assert.Null(_gateway.TypedPrompts.Read(deliveryId).Record!.Text);
+        Assert.Equal(1, Arrived());
+    }
+
+    [Fact]
+    public async Task The_route_sets_the_send_time_and_hands_a_held_prompt_to_the_Gateways_own_driver()
+    {
+        // Proves F6 and the wiring into the Gateway's driver on the real host. The send time the Director judges the age
+        // limit by is the moment the Gateway received the prompt - a body's own value is overwritten. And a held typed
+        // prompt is handed to the SAME driver that drives dictations: its own tick asks the Director and finishes it,
+        // with no hand-made attempt and nothing sent twice.
+        _promptAnswer = body =>
+        {
+            Assert.True(_directorRecord.TryBeginDelivery(_session.Id, body.DeliveryId!).Began);
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
+        };
+        var before = _clock.GetUtcNow().UtcDateTime;
+
+        var (status, held) = await Send(HttpMethod.Post, $"sessions/{_sid}/prompt",
+            new { text = "typed with a forged send time", appendEnter = true, sentAtUtc = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc) });
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        PromptRequest arrived;
+        lock (_arrived) arrived = Assert.Single(_arrived);
+        Assert.InRange(arrived.SentAtUtc!.Value, before.AddSeconds(-1), _clock.GetUtcNow().UtcDateTime.AddSeconds(1));
+        var deliveryId = held.GetProperty("deliveryId").GetString()!;
+        var driver = _gateway.HeldDeliveries!;
+        Assert.Equal(1, driver.HeldCount);
+
+        _directorRecord.MarkDelivered(_session.Id, deliveryId);
+        _clock.Ahead = HeldDeliveryDriver.ShortestWait + TimeSpan.FromSeconds(1);
+        await driver.TickAsync();
+
+        Assert.Equal(TypedPromptState.Delivered, _gateway.TypedPrompts.Read(deliveryId).Record!.State);
+        Assert.Equal(0, driver.HeldCount);
+        Assert.Equal(1, _asks);
         Assert.Equal(1, Arrived());
     }
 

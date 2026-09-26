@@ -440,6 +440,8 @@ public sealed class TypedPromptDeliveryTests : IDisposable
         Assert.Equal(id, sent.DeliveryId);
         Assert.Equal("hello agent", sent.Text);
         Assert.Equal("cockpit", sent.Surface);
+        // Contract section 9, F6: sent with the moment the Gateway RECEIVED it, not the moment of this later send.
+        Assert.Equal(_clock.GetUtcNow().UtcDateTime - TimeSpan.FromSeconds(300), sent.SentAtUtc!.Value, TimeSpan.FromMilliseconds(5));
         var record = store.Read(id).Record!;
         Assert.Equal(TypedPromptState.Delivered, record.State);
         Assert.Null(record.Text);

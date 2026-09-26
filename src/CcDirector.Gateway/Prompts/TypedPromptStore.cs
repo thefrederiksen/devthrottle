@@ -100,8 +100,8 @@ public static class TypedPromptDecisions
 {
     public const string SentToDirector = Voice.DeliveryDecisions.SentToDirector;
     public const string DirectorAnswer = Voice.DeliveryDecisions.DirectorAnswer;
-    public const string GatewayDrive = "gateway-drive";
-    public const string GatewayDriveRefused = "gateway-drive-refused";
+    public const string GatewayDrive = Voice.DeliveryDecisions.GatewayDrive;
+    public const string GatewayDriveRefused = Voice.DeliveryDecisions.GatewayDriveRefused;
     public const string AskedDirector = Voice.DeliveryDecisions.AskedDirector;
     public const string DeliveryStateAnswer = Voice.DeliveryDecisions.DeliveryStateAnswer;
     public const string StillDelivering = Voice.DeliveryDecisions.StillDelivering;
@@ -123,7 +123,7 @@ public static class TypedPromptDecisions
     /// <summary>The session is known to have ended: located, and exited.</summary>
     public const string SessionExited = Voice.DeliveryDecisions.SessionExited;
     /// <summary>The held state while the session's Director cannot be reached (contract section 2's value).</summary>
-    public const string WaitingForDirector = "waiting-for-director";
+    public const string WaitingForDirector = Api.DeliverySendAndAsk.WaitingForDirectorState;
     /// <summary>Why a never-sent prompt was shown back rather than sent: it asked for the menu guard, which reads the live
     /// screen one hop before the send, and only the prompt route can do that.</summary>
     public const string ReasonMenuGuardNotAtTheDriver = "menu-guard-needs-the-prompt-route";
@@ -131,11 +131,11 @@ public static class TypedPromptDecisions
     public const string ReasonNeverLeftTheGateway = "never-left-the-gateway";
 
     /// <summary>What woke the driver: the session's Director connected again. Same spelling as the dictation driver's.</summary>
-    public const string DriveDirectorConnected = "director-connected";
+    public const string DriveDirectorConnected = Voice.DeliveryDecisions.DriveDirectorConnected;
     /// <summary>What woke the driver: the steady tick.</summary>
-    public const string DriveTick = "tick";
+    public const string DriveTick = Voice.DeliveryDecisions.DriveTick;
     /// <summary>What woke the driver: the Gateway started and picked the record up from disk.</summary>
-    public const string DriveGatewayStarted = "gateway-started";
+    public const string DriveGatewayStarted = Voice.DeliveryDecisions.DriveGatewayStarted;
 }
 
 /// <summary>
