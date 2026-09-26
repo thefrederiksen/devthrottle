@@ -44,4 +44,23 @@ public sealed class ProcessRunnerTests
         Assert.Equal(0, exit);
         Assert.NotEqual(ProcessRunner.TimeoutExitCode, exit);
     }
+
+    [Fact]
+    public void Run_ShortProcessThatExitsAtOnce_ReturnsAllItsOutput()
+    {
+        // #3411: the timed wait returned before the pipe readers drained, so a short command's output
+        // (codesign -dv on a Mac) came back empty with exit 0. Repeated, because the race was per run.
+        var (exe, args) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c (for /L %i in (1,1,9) do @echo line %i) & echo err-line 1>&2")
+            : ("/bin/sh", "-c \"for i in 1 2 3 4 5 6 7 8 9; do echo line $i; done; echo err-line 1>&2\"");
+
+        for (var run = 0; run < 20; run++)
+        {
+            var (exit, output) = ProcessRunner.Run(exe, args, onStdoutLine: null, TimeSpan.FromSeconds(30));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("line 9", output, StringComparison.Ordinal);
+            Assert.Contains("err-line", output, StringComparison.Ordinal);
+        }
+    }
 }
