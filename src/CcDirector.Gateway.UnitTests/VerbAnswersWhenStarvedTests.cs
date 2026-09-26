@@ -98,20 +98,25 @@ public sealed class VerbAnswersWhenStarvedTests
             PayloadJson = JsonSerializer.Serialize(new DeliveryStateRequest { DeliveryId = deliveryId }, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
         };
 
-        // Act: ask five times, each from the pool as the Gateway's command handler does.
-        var slowest = TimeSpan.Zero;
-        for (var i = 0; i < 5; i++)
+        // Act: ask ten times, a moment apart, each from the pool as the Gateway's command handler does. The pause matters:
+        // the Gateway's commands arrive spaced out, so each one wakes a pool thread that has gone idle - and waking is
+        // exactly what a starved process waits for. Asked back to back, a thread still spinning from the last read can
+        // take the next and hide the wait. Stops at the first slow answer, so a starved run does not take minutes.
+        var took = new List<TimeSpan>();
+        for (var i = 0; i < 10; i++)
         {
+            Thread.Sleep(300);
             var sw = Stopwatch.StartNew();
             var answer = await Task.Run(() => ControlApi.SessionReadExecutor.DeliveryStateOf(command, busy.Record));
-            var took = sw.Elapsed;
+            took.Add(sw.Elapsed);
             Assert.True(answer.Ok, answer.Error);
-            if (took > slowest) slowest = took;
+            if (sw.Elapsed >= TimeSpan.FromSeconds(1)) break;
         }
 
         // Assert
-        Assert.True(slowest < TimeSpan.FromSeconds(1),
-            $"the slowest delivery-state answer took {slowest.TotalSeconds:F1}s - it is a read of one small file");
+        Assert.True(took.Max() < TimeSpan.FromSeconds(1),
+            "a delivery-state answer is a read of one small file; these took " +
+            string.Join(", ", took.Select(t => $"{t.TotalSeconds:F2}s")));
     }
 
     /// <summary>
