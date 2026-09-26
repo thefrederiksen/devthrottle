@@ -80,6 +80,15 @@ def _say(text: str, err: bool = False) -> None:
     stream.flush()
 
 
+BYTE_ORDER_MARK = "\ufeff"
+
+
+def _visible_ascii(text: str) -> str:
+    """A table cell for a person to read: every character outside printable ASCII is written as its escape
+    (\\ufeff), so an invisible character in a stored value shows up instead of crashing a cp1252 terminal."""
+    return "".join(c if " " <= c <= "~" else c.encode("unicode_escape").decode("ascii") for c in text)
+
+
 def _say_json(payload: object) -> None:
     _say(json.dumps(payload, indent=2))
 
@@ -203,6 +212,9 @@ def _read_secret_from_owner() -> str:
     """The secret from a hidden prompt (typed twice), or piped on standard input."""
     if not _stdin_is_tty():
         piped = sys.stdin.read()
+        # Windows PowerShell puts a byte-order mark in front of text it pipes to a program. It is never part of
+        # a credential, and a stored one breaks every use of the value and crashed `list` (issue 3420).
+        piped = piped[1:] if piped.startswith(BYTE_ORDER_MARK) else piped
         secret = piped[:-1] if piped.endswith("\n") else piped
         secret = secret[:-1] if secret.endswith("\r") else secret
         if "\n" in secret:
@@ -433,7 +445,7 @@ def list_entries(
             if all_entries:
                 row.append("yes" if v["agentsMayUse"] else "no")
             row.append(v["notes"])
-            table.add_row(*[SCRUBBER.scrub(str(c)) for c in row])
+            table.add_row(*[_visible_ascii(SCRUBBER.scrub(str(c))) for c in row])
         console.print(table)
     except Exception as exc:
         _log_failure("list", exc)
@@ -819,7 +831,7 @@ def show_log(
             session = " ".join(part for part in (str(l.get("session", "")), str(l.get("sessionName", ""))) if part)
             row = [l.get("time", ""), l.get("entry", ""), session, l.get("command", ""), l.get("outcome", ""),
                    l.get("detail", ""), l.get("ownerApproved", "")]
-            table.add_row(*[SCRUBBER.scrub(str(c)) for c in row])
+            table.add_row(*[_visible_ascii(SCRUBBER.scrub(str(c))) for c in row])
         console.print(table)
     except Exception as exc:
         _log_failure("log", exc)
