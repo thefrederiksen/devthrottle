@@ -102,10 +102,14 @@ public sealed record WayUpMarkOutcome(WayUpMarkState State, string? Reason);
 public interface IWayUpRestore
 {
     /// <summary>
-    /// Check the order and run it. Throws <see cref="InvalidOperationException"/> with the reason when the
-    /// restore cannot start at all - another restore is running, the record has no seat left to bring back,
-    /// a named seat is still running - so the caller can say so plainly instead of starting nothing and
-    /// reporting success.
+    /// Ask for the order and answer what became of each seat. Throws <see cref="InvalidOperationException"/>
+    /// with the reason when the restore cannot start at all - another restore is running, the record has no
+    /// seat left to bring back, a named seat is still running, another Director holds the restore lease - so
+    /// the caller can say so plainly instead of starting nothing and reporting success.
+    ///
+    /// WHO CHECKS THOSE RULES is not the way up and is not this seam: the real implementation asks the
+    /// Gateway's restore door, and the reasons above are the Gateway's own words carried up unchanged. See
+    /// <see cref="DirectorRestoreWayUp"/> for why there is no other way in.
     /// </summary>
     /// <param name="order">The seats to bring back, and their seed files.</param>
     /// <param name="ct">Cancellation.</param>
@@ -211,9 +215,29 @@ public sealed class GatewayClientWayUp : IWayUpGateway
 }
 
 /// <summary>
-/// The real restore seam, over <see cref="DirectorRestore"/>. It does what the tunnel's own restore does,
-/// in the same order and for the same reasons: claim the Director's one-at-a-time gate before anything is
-/// promised, check the order, give the gate back when the check refuses, and only then run.
+/// THE REAL RESTORE SEAM: THE WAY UP ASKS THE GATEWAY'S RESTORE DOOR (product issue 3395).
+///
+/// WHY IT CANNOT RUN <see cref="DirectorRestore"/> ITSELF, which is what it did until 25 September 2026. The
+/// Gateway grants one restore lease per workspace, at one place only - <c>POST /gateway/workspaces/{id}/restore</c> -
+/// and it refuses every restore mark written by a Director that does not hold it. A restore constructed inside
+/// the Director holds no lease, so the very FIRST mark it writes - the "started" mark, written before the create
+/// is sent - came back refused:
+///
+///   Director '...' does not hold the restore lease on workspace "..." (nobody does), so it may not write what
+///   a restore did. Ask for the restore again.
+///
+/// Nothing was started and nothing was damaged; the whole bring back simply stopped there, on both the start-up
+/// window and File, Restart history, which share <see cref="DirectorWayUp"/>. Going through the door is not a
+/// second path - it IS the existing path: the Gateway takes the lease and relays the order back down to this
+/// same Director, which runs the same <see cref="DirectorRestore"/> it always ran, with the lease held.
+///
+/// THERE IS NO LOCAL CLAIM HERE, and that is deliberate rather than an omission. The relayed order claims the
+/// Director's one-at-a-time gate when it arrives, so a claim taken before asking would make this Director
+/// refuse its own restore.
+///
+/// IT IS THE SAME CLASS THE CANCELLED SHUTDOWN USES, <see cref="GatewaySmartShutdownBringBack"/>, rather than a
+/// second copy of it: the door answers "taken" and not "done", so somebody has to read each seat's outcome off
+/// the record, and one such reader is enough for both surfaces.
 /// </summary>
 public sealed class DirectorRestoreWayUp : IWayUpRestore
 {
@@ -222,7 +246,8 @@ public sealed class DirectorRestoreWayUp : IWayUpRestore
 
     /// <summary>Create the seam.</summary>
     /// <param name="client">Reads the host's CURRENT Gateway client, or null when there is none.</param>
-    /// <param name="directorId">This Director's id, which the restore records against every seat.</param>
+    /// <param name="directorId">This Director's id. The restore is asked for ONTO it, and it is the Director the
+    /// Gateway grants the lease to - so it is not the caller's to choose.</param>
     public DirectorRestoreWayUp(Func<GatewayClient?> client, string directorId)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
@@ -235,24 +260,31 @@ public sealed class DirectorRestoreWayUp : IWayUpRestore
     public async Task<DirectorRestoreResult> RestoreAsync(WorkspaceRestoreOrder order, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(order);
-        var client = _client() ?? throw new InvalidOperationException(GatewayClientWayUp.NotConnected);
-        var restore = new DirectorRestore(new GatewayClientRestoreGateway(client), _directorId);
-        if (!restore.TryClaim())
-            throw new InvalidOperationException(
-                $"a restore is already running on this Director (workspace '{DirectorRestore.Running?.Order?.WorkspaceId}'); " +
-                "a second is refused before it starts anything.");
+        var seats = order.Seats ?? new List<string>();
+        FileLog.Write($"[DirectorRestoreWayUp] RestoreAsync: {seats.Count} seat(s) from workspace {order.WorkspaceId}, " +
+                      $"through the Gateway restore door onto Director {_directorId}");
 
-        try
+        var bringBack = new GatewaySmartShutdownBringBack(
+            () => _client() is { } client ? new GatewayClientBringBackGateway(client) : null,
+            _directorId);
+
+        var result = await bringBack
+            .BringBackAsync(order.WorkspaceId, seats, order.Seeds, ct)
+            .ConfigureAwait(false);
+
+        // THE GATEWAY'S OWN WORDS REACH THE WINDOW. A restore the door would not take - another restore
+        // running, a seat still running, another Director holding the lease - is a refusal that started
+        // nothing, and this seam's contract is to THROW it so the caller says so plainly instead of
+        // reporting a run that never happened. See IWayUpRestore.RestoreAsync.
+        if (result.CouldNotStart is { Length: > 0 } why)
         {
-            var seats = await restore.PrepareAsync(order, ct).ConfigureAwait(false);
-            FileLog.Write($"[DirectorRestoreWayUp] RestoreAsync: {seats.Count} seat(s) from workspace {order.WorkspaceId}");
-        }
-        catch
-        {
-            restore.Release();
-            throw;
+            FileLog.Write($"[DirectorRestoreWayUp] RestoreAsync REFUSED: {why}");
+            throw new InvalidOperationException(why);
         }
 
-        return await restore.RunAsync(order, ct).ConfigureAwait(false);
+        FileLog.Write($"[DirectorRestoreWayUp] RestoreAsync: workspace={order.WorkspaceId}, " +
+                      $"back={result.Seats.Count(s => s.RestoredSessionId is not null)}, " +
+                      $"not={result.Seats.Count(s => s.RestoredSessionId is null)}");
+        return new DirectorRestoreResult(order.WorkspaceId, result.Seats);
     }
 }
