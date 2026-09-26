@@ -58,6 +58,10 @@ public sealed record TypedPromptRecord
     public TypedPromptUnsentRequest? Unsent { get; init; }
     /// <summary>Why a shown-back record is shown back (<c>not-delivered</c>, <c>unconfirmed</c>), null otherwise.</summary>
     public string? Reason { get; init; }
+    /// <summary>The request fields to re-press a CLAIMED record with (the "Send anyway" press's own settled fields);
+    /// null when this record was never claimed. The provenance is filled in by
+    /// <see cref="TypedPromptStore.RememberClaimProvenance"/> once the prompt route has built it.</summary>
+    public TypedPromptUnsentRequest? ClaimRequest { get; init; }
     public DateTime? ResolvedAtUtc { get; init; }
     public DateTime? AcknowledgedAtUtc { get; init; }
 }
@@ -89,6 +93,29 @@ public enum TypedPromptReadKind
     Present,
     /// <summary>A record file exists but cannot be read. Never guessed at, never driven.</summary>
     Unreadable,
+}
+
+/// <summary>What <see cref="TypedPromptStore.ClaimSendAnyway"/> decided about a "Send anyway" claim naming a typed prompt.</summary>
+public enum TypedPromptClaimKind
+{
+    /// <summary>The claim is verified and the record is marked: the words go out under the original delivery id.</summary>
+    Verified,
+    /// <summary>The record exists but may not be pressed: it is already claimed and held, or already resolved another
+    /// way. Nothing is sent, nothing is marked; <see cref="TypedPromptClaimResolution.Record"/> is the record's CURRENT
+    /// state for the route to answer with.</summary>
+    Refused,
+    /// <summary>The claim names nothing this account may press (no record here, another session's, or past the claim
+    /// window): the words go out as an ordinary prompt with a fresh id, exactly as a dropped recording claim does.</summary>
+    Dropped,
+}
+
+/// <summary>The answer to <see cref="TypedPromptStore.ClaimSendAnyway"/>: what was decided, a short reason code (written
+/// to the decision log), why in words, and on a refusal the record as it stands - the state the caller answers with.</summary>
+public sealed record TypedPromptClaimResolution(TypedPromptClaimKind Kind, string Reason, string Why, TypedPromptRecord? Record)
+{
+    public static TypedPromptClaimResolution Verified() => new(TypedPromptClaimKind.Verified, "verified", "", null);
+    public static TypedPromptClaimResolution Refused(string reason, string why, TypedPromptRecord record) => new(TypedPromptClaimKind.Refused, reason, why, record);
+    public static TypedPromptClaimResolution Dropped(string reason, string why) => new(TypedPromptClaimKind.Dropped, reason, why, null);
 }
 
 /// <summary>
@@ -124,11 +151,26 @@ public static class TypedPromptDecisions
     public const string SessionExited = Voice.DeliveryDecisions.SessionExited;
     /// <summary>The held state while the session's Director cannot be reached (contract section 2's value).</summary>
     public const string WaitingForDirector = Api.DeliverySendAndAsk.WaitingForDirectorState;
+    /// <summary>The held state while the Gateway will press the claim itself (contract section 2's value): a claimed
+    /// record is marked with it the moment its claim is verified, before anything is sent.</summary>
+    public const string Retrying = Api.DeliverySendAndAsk.RetryingState;
     /// <summary>Why a never-sent prompt was shown back rather than sent: it asked for the menu guard, which reads the live
     /// screen one hop before the send, and only the prompt route can do that.</summary>
     public const string ReasonMenuGuardNotAtTheDriver = "menu-guard-needs-the-prompt-route";
     /// <summary>Why a prompt that went out is known not in: nothing left the Gateway (its Director was not connected).</summary>
     public const string ReasonNeverLeftTheGateway = "never-left-the-gateway";
+
+    /// <summary>The claim of a "Send anyway" was verified: the record is marked and the words go out under its id.
+    /// Same line name as the recording claim writes (Voice Delivery phase 5, the Delivery Lead's ruling on review
+    /// finding 2 - one claim mechanism for both).</summary>
+    public const string ClaimVerified = Voice.DeliveryDecisions.ClaimVerified;
+    /// <summary>A "Send anyway" claim was not taken: refused, or dropped. The reason on the line says which.</summary>
+    public const string ClaimDropped = Voice.DeliveryDecisions.ClaimDropped;
+    /// <summary>The Director's answer to a claimed send, written after every claimed send whatever it came to - the line
+    /// a later re-press reads to know it must ask first.</summary>
+    public const string ClaimDirectorAnswer = Voice.DeliveryDecisions.ClaimDirectorAnswer;
+    /// <summary>Why a claimed press was shown back not delivered again: the claim's own send was known not in.</summary>
+    public const string ReasonSendAnywayNotIn = "send-anyway-not-in";
 
     /// <summary>What woke the driver: the session's Director connected again. Same spelling as the dictation driver's.</summary>
     public const string DriveDirectorConnected = Voice.DeliveryDecisions.DriveDirectorConnected;
@@ -153,6 +195,9 @@ public sealed record TypedPromptDecisionFacts
     public bool? Ok { get; init; }
     public bool? RefusedDuplicate { get; init; }
     public int? Characters { get; init; }
+    /// <summary>When the shown-back record was resolved, on a "Send anyway" claim line: the claim window was measured
+    /// from it (the same field the dictation log's claim lines carry).</summary>
+    public DateTime? ResolvedAtUtc { get; init; }
     public DateTime? SentAtUtc { get; init; }
     public long? AgeSeconds { get; init; }
     public string? DirectorNoAnswer { get; init; }
@@ -452,6 +497,193 @@ public sealed class TypedPromptStore
             });
             WriteRecord(dir, record with { DirectorState = TypedPromptDecisions.WaitingForDirector });
         });
+    }
+
+    /// <summary>
+    /// What this record's decision log says about "Send anyway" presses of it (ONE claim mechanism for both kinds of
+    /// record, the Delivery Lead's ruling on the phase 5 review, finding 2): whether an earlier claimed send MAY have
+    /// reached the Director - the log holds a <see cref="TypedPromptDecisions.ClaimDirectorAnswer"/> line, written
+    /// after every claimed send whatever it came to, or a line that cannot be read and so could be one - and when the
+    /// FIRST claim naming it was verified (the time of its first <see cref="TypedPromptDecisions.ClaimVerified"/>
+    /// line), which the "could not confirm it arrived" limit is measured from. A re-press that sees the first asks
+    /// the Director before it sends, exactly as a recording's re-press does. Nothing for an id that is not a delivery
+    /// id or has no record here.
+    /// </summary>
+    public Voice.ClaimSendHistory ReadClaimSends(string deliveryId)
+    {
+        var id = NormalizeDeliveryId(deliveryId);
+        if (id is null) return Voice.ClaimSendHistory.None;
+        return WithGate(id, () =>
+        {
+            var lines = ReadLines(Path.Combine(DirFor(id), DecisionsFileName));
+            var mayHaveReached = lines.Any(l =>
+                l.Decision is TypedPromptDecisions.ClaimDirectorAnswer or TypedPromptDecisions.UnreadableLine);
+            var firstVerified = lines.FirstOrDefault(l => l.Decision == TypedPromptDecisions.ClaimVerified)?.AtUtc;
+            return new Voice.ClaimSendHistory(mayHaveReached, firstVerified);
+        });
+    }
+
+    /// <summary>
+    /// DECIDE AND MARK A "SEND ANYWAY" CLAIM OF A TYPED PROMPT, ATOMICALLY, under the record's own gate (the Delivery
+    /// Lead's ruling on the phase 5 review, finding 2). A typed "Send anyway" claims the ORIGINAL delivery id through
+    /// the same request field a recording's does, but the Director holds that id as <c>not-delivered</c> - a state that
+    /// may begin again - so the Director cannot be the one that refuses the second copy. The GATEWAY is:
+    ///
+    /// - VERIFIED for a record of this partition's tenant (the caller's own account), for <paramref name="sessionId"/>,
+    ///   shown back <see cref="TypedPromptState.NotDelivered"/> (known not in), resolved inside the claim window
+    ///   (<c>DeliveryRetention.ClaimWindow</c>, the same window a recording claim is measured by). The record is marked
+    ///   HELD BEFORE anything is sent: the text as pressed, the press's own request fields, and the
+    ///   <see cref="TypedPromptDecisions.ClaimVerified"/> line the claim's time limit is measured from.
+    /// - REFUSED for a record that is already held (an earlier claim the Gateway owns, or the delivery it was held for)
+    ///   or already resolved another way. Nothing is sent and nothing is marked; the record as it stands is handed back
+    ///   for the route to answer with - a second claim of the same id, another tab, a double press, a retry, is refused
+    ///   without sending and exactly one press ever reaches the Director.
+    /// - DROPPED for a claim that names nothing this account may press: no record here, another session's, or past the
+    ///   claim window. The words go out as an ordinary prompt with a fresh id, exactly as a dropped recording claim.
+    ///
+    /// The decision line is written for every claim that names a record of this partition (never for another
+    /// account's, which this partition cannot even see), in the same name the recording claim writes its lines in.
+    /// </summary>
+    public TypedPromptClaimResolution ClaimSendAnyway(string deliveryId, string sessionId, string text,
+        TypedPromptUnsentRequest request, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var id = NormalizeDeliveryId(deliveryId);
+        if (id is null) return TypedPromptClaimResolution.Dropped("not-a-delivery-id", "it is not a delivery id");
+        return WithGate(id, () =>
+        {
+            var read = ReadUnlocked(id);
+            if (read.Kind == TypedPromptReadKind.Absent)
+                return TypedPromptClaimResolution.Dropped("no-typed-prompt-here",
+                    "no typed prompt of the caller's account has this delivery id");
+            if (read.Record is not { } record)
+            {
+                AppendLine(DirFor(id), id, TypedPromptDecisions.ClaimDropped, new TypedPromptDecisionFacts
+                {
+                    SessionId = sessionId,
+                    Reason = "record-not-readable",
+                    Error = read.Problem,
+                });
+                return TypedPromptClaimResolution.Dropped("record-not-readable", $"the record cannot be read: {read.Problem}");
+            }
+
+            var (kind, reason, why) = DecideClaim(record, sessionId, nowUtc);
+            if (kind != TypedPromptClaimKind.Verified)
+            {
+                AppendLine(DirFor(id), id, TypedPromptDecisions.ClaimDropped, new TypedPromptDecisionFacts
+                {
+                    SessionId = sessionId,
+                    State = record.State.ToString(),
+                    Reason = reason,
+                    ResolvedAtUtc = record.ResolvedAtUtc,
+                    Characters = text.Length,
+                });
+                return kind == TypedPromptClaimKind.Refused
+                    ? TypedPromptClaimResolution.Refused(reason, why, record)
+                    : TypedPromptClaimResolution.Dropped(reason, why);
+            }
+
+            // THE MARK, before anything is sent: the record goes back to Held with the words as pressed and the
+            // press's own request fields, so the outcome route answers "still delivering" for the ORIGINAL id, the
+            // driver re-presses it, and a second claim finds it held and is refused. ResolvedAtUtc is cleared - the
+            // claim is not settled - and the claim-verified line's time is the claim's limit from here on.
+            WriteRecord(DirFor(id), record with
+            {
+                State = TypedPromptState.Held,
+                Text = text,
+                Characters = text.Length,
+                DirectorState = TypedPromptDecisions.Retrying,
+                UnknownAnswers = 0,
+                NeverSent = false,
+                Unsent = null,
+                Reason = null,
+                ResolvedAtUtc = null,
+                AcknowledgedAtUtc = null,
+                ClaimRequest = request,
+            });
+            AppendLine(DirFor(id), id, TypedPromptDecisions.ClaimVerified, new TypedPromptDecisionFacts
+            {
+                SessionId = sessionId,
+                State = TypedPromptState.NotDelivered.ToString(),
+                Characters = text.Length,
+                ResolvedAtUtc = record.ResolvedAtUtc,
+            });
+            FileLog.Write($"[TypedPromptStore] ClaimSendAnyway: deliveryId={id} sid={sessionId} VERIFIED; " +
+                $"the record is held and the Gateway presses the claim");
+            return TypedPromptClaimResolution.Verified();
+        });
+    }
+
+    private static (TypedPromptClaimKind Kind, string Reason, string Why) DecideClaim(TypedPromptRecord record,
+        string sessionId, DateTime nowUtc)
+    {
+        if (!Guid.TryParse(record.SessionId, out var recorded) || !Guid.TryParse(sessionId, out var target) || recorded != target)
+            return (TypedPromptClaimKind.Dropped, "another-session",
+                $"the typed prompt belongs to session '{record.SessionId}', not this one");
+        switch (record.State)
+        {
+            case TypedPromptState.NotDelivered:
+                if (record.ResolvedAtUtc is not { } resolvedAt)
+                    return (TypedPromptClaimKind.Dropped, "no-resolution-time",
+                        "the shown-back record does not say when it was resolved");
+                var age = nowUtc - resolvedAt;
+                if (age > Contracts.DeliveryRetention.ClaimWindow)
+                    return (TypedPromptClaimKind.Dropped, "outside-claim-window",
+                        $"the typed prompt was shown back {age.TotalDays:0.#} days ago, past the " +
+                        $"{Contracts.DeliveryRetention.ClaimWindow.TotalDays:0}-day claim window, so the Director may no longer remember it");
+                return (TypedPromptClaimKind.Verified, "known-not-in",
+                    $"the typed prompt was shown back not-delivered {age.TotalDays:0.#} days ago");
+            case TypedPromptState.Held:
+                return (TypedPromptClaimKind.Refused, "already-delivering",
+                    "the Gateway is already delivering this message; nothing was sent again");
+            case TypedPromptState.Delivered:
+                return (TypedPromptClaimKind.Refused, "already-delivered",
+                    "the words of this message are already in; nothing was sent again");
+            case TypedPromptState.Unconfirmed:
+                return (TypedPromptClaimKind.Refused, "unconfirmed",
+                    "the Gateway could not confirm this message arrived, so it is not offered again");
+            case TypedPromptState.SessionEnded:
+                return (TypedPromptClaimKind.Refused, "session-ended",
+                    "the session has ended, so there is nothing left to send this message to");
+            default:
+                throw new InvalidOperationException($"a claim of a typed prompt in state {record.State} is not decided");
+        }
+    }
+
+    /// <summary>
+    /// Fill in the provenance of a claimed record's re-press fields, once the prompt route has built it: the claim is
+    /// marked before the route builds provenance (the mark must be atomic and come first), so the fields go out first
+    /// and this completes them. No-op when the record is not a held claimed one.
+    /// </summary>
+    public void RememberClaimProvenance(string deliveryId, CcDirector.Gateway.Contracts.SubmissionProvenanceDto? provenance)
+    {
+        var id = RequireId(deliveryId);
+        WithGate(id, () =>
+        {
+            var read = ReadUnlocked(id);
+            if (read.Record is not { State: TypedPromptState.Held, ClaimRequest: { } claim } record) return;
+            WriteRecord(DirFor(id), record with { ClaimRequest = claim with { Provenance = provenance } });
+        });
+    }
+
+    /// <summary>
+    /// Settle a CLAIMED record whose decision line the claim mechanism already wrote (<c>unconfirmed</c>, <c>too-old</c>):
+    /// the state moves and the reason is set, with NO second line - the claim wrote the one the recording claim writes,
+    /// with the age and which kind of no answer. A claim whose words are known not in (the press's own send refused)
+    /// settles through <see cref="ResolveNotDelivered"/> instead, which writes its own <c>not-delivered</c> line.
+    /// </summary>
+    public void SettleClaimResolved(string deliveryId, TypedPromptState state, string reason)
+    {
+        var id = RequireId(deliveryId);
+        WithGate(id, () =>
+        {
+            var read = ReadUnlocked(id);
+            if (read.Record is not { State: TypedPromptState.Held } record)
+                throw new InvalidOperationException(
+                    $"typed prompt {id} is {read.Record?.State.ToString() ?? read.Kind.ToString()}, not a held claim; it cannot settle as {state}");
+            WriteRecord(DirFor(id), record with { State = state, Reason = reason, ResolvedAtUtc = _clock.GetUtcNow().UtcDateTime });
+        });
+        FileLog.Write($"[TypedPromptStore] claim settled: deliveryId={id} state={state}");
     }
 
     /// <summary>Keep a held record held, with the Director's state as the owner is told it, and write <c>still-delivering</c>.</summary>

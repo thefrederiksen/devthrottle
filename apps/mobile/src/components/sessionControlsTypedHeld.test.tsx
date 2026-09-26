@@ -131,7 +131,7 @@ describe("phone: a typed send answered 202", () => {
     expect(disk.has(DELIVERY_ID)).toBe(false);
   });
 
-  it("not delivered: the words come back with the label and Send anyway, which makes ONE fresh send without the old id", async () => {
+  it("not delivered: the words come back with the label and Send anyway, which CLAIMS the original id", async () => {
     await sendHeld();
     readPromptOutcome.mockResolvedValueOnce(
       resolved({ movedOn: true, movedOnReason: "not-delivered", offerSendAnyway: true }),
@@ -144,15 +144,17 @@ describe("phone: a typed send answered 202", () => {
     expect(within(s).getByText(TEXT)).toBeTruthy();
     expect(within(s).getByRole("button", { name: "Dismiss" })).toBeTruthy();
 
-    sendPrompt.mockResolvedValueOnce({ delivering: false, deliveryId: "ffff0000ffff0000ffff0000ffff0000" });
+    // The press claims the ORIGINAL delivery id - the same request field a recording's "Send anyway" uses - so
+    // the Gateway, not this tab, is the gate that sends the words exactly once.
+    sendPrompt.mockResolvedValueOnce({ delivering: false, deliveryId: DELIVERY_ID });
     fireEvent.click(within(s).getByRole("button", { name: "Send anyway" }));
 
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(2));
-    const fresh = sendPrompt.mock.calls[1] as unknown[];
-    expect(fresh.slice(0, 3)).toEqual([SID, TEXT, true]);
-    expect(fresh[6]).toBeUndefined();
-    expect(JSON.stringify(fresh)).not.toContain(DELIVERY_ID);
+    const claim = sendPrompt.mock.calls[1] as unknown[];
+    expect(claim.slice(0, 3)).toEqual([SID, TEXT, true]);
+    expect(claim[6]).toBe(DELIVERY_ID);
     await waitFor(() => expect(strip().className).toContain("dictate-strip-done"));
+    expect(disk.has(DELIVERY_ID)).toBe(false);
   });
 
   it("could not confirm: the words come back with its label and Dismiss, and no Send anyway", async () => {

@@ -420,6 +420,136 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
         Assert.Equal(1, Arrived());
     }
 
+    private Task<(HttpStatusCode Status, JsonElement Body)> PostClaimedPrompt(string text, string deliveryIdClaim)
+        => Send(HttpMethod.Post, $"sessions/{_sid}/prompt", new { text, appendEnter = true, deliveryIdClaim });
+
+    /// <summary>
+    /// A typed prompt held by the real route and then shown back not-delivered - the record a "Send anyway" claims - with
+    /// the Director's own delivery record saying the id is not in.
+    /// </summary>
+    private async Task<string> ShownBack(string text)
+    {
+        _promptAnswer = body =>
+        {
+            Assert.True(_directorRecord.TryBeginDelivery(_session.Id, body.DeliveryId!).Began);
+            _directorRecord.MarkNotDelivered(_session.Id, body.DeliveryId!, "the composer never echoed the text");
+            return DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse
+            {
+                Accepted = true, DeliveryState = DeliveryState.Delivering, ActivityState = "Working",
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        };
+        var (_, held) = await PostPrompt(text);
+        var deliveryId = held.GetProperty("deliveryId").GetString()!;
+        var driven = await _gateway.TypedPromptDriver.DriveOnceAsync(TenantId.Local, _gateway.TypedPrompts, deliveryId,
+            TypedPromptDecisions.DriveTick);
+        Assert.Equal(TypedDriveResult.Finished, driven);
+        Assert.Equal(TypedPromptState.NotDelivered, _gateway.TypedPrompts.Read(deliveryId).Record!.State);
+        _promptAnswer = null; // from here the REAL prompt core answers, as it will for the claim's press
+        return deliveryId;
+    }
+
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > until) throw new TimeoutException("the condition never held");
+            await Task.Delay(10);
+        }
+    }
+
+    [Fact]
+    public async Task Send_anyway_on_a_shown_back_typed_prompt_claims_the_original_id_and_sends_once()
+    {
+        // Proves the Delivery Lead's ruling on the review's finding 2 across the real route: "Send anyway" on a
+        // shown-back typed prompt CLAIMS the ORIGINAL delivery id through the same request field a recording's does,
+        // the Gateway verifies it against the typed prompt store, and the prompt goes out under the ORIGINAL id and
+        // the PRESS TIME. The Director's record holds that id as not-delivered, which may begin again, so the claim's
+        // send types the words once, and the outcome route answers on the SAME id.
+        const string words = "Reply with only the word OK. Marker, choral lemur 25";
+        var deliveryId = await ShownBack(words);
+        var before = _clock.GetUtcNow().UtcDateTime;
+
+        var (status, body) = await PostClaimedPrompt(words, deliveryId);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(body.GetProperty("accepted").GetBoolean());
+        Assert.Equal(deliveryId, body.GetProperty("deliveryId").GetString());
+        PromptRequest[] arrived;
+        lock (_arrived) arrived = _arrived.ToArray();
+        Assert.Equal(2, arrived.Length); // the original send, and the claim's press - never a second copy
+        Assert.All(arrived, p => Assert.Equal(deliveryId, p.DeliveryId)); // the claim carried the ORIGINAL id
+        var claimed = arrived[1];
+        Assert.Equal(words, claimed.Text);
+        Assert.InRange(claimed.SentAtUtc!.Value, before.AddSeconds(-1), _clock.GetUtcNow().UtcDateTime.AddSeconds(1));
+        var record = _gateway.TypedPrompts.Read(deliveryId).Record!;
+        Assert.Equal(TypedPromptState.Delivered, record.State);
+        Assert.Null(record.Text);
+        var (outcomeStatus, outcome) = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{deliveryId}/outcome");
+        Assert.Equal(HttpStatusCode.OK, outcomeStatus);
+        Assert.True(outcome.GetProperty("submitted").GetBoolean());
+        Assert.Equal(1, _backend.TextsSent); // the claim's press typed the words exactly once
+    }
+
+    [Fact]
+    public async Task Two_tabs_pressing_Send_anyway_at_the_same_moment_make_exactly_one_send()
+    {
+        // Proves the atomicity the ruling demands, across the real route: two claims of the same typed delivery id, as
+        // two tabs would send them, at the same moment - exactly ONE prompt reaches the Director, the other claim is
+        // refused without sending and answered with the record's current state.
+        const string words = "only one of us may arrive";
+        var deliveryId = await ShownBack(words);
+        // The claim's press is slow on the Director, so the first tab's send is still in flight when the second tab's
+        // claim arrives - the exact race two tabs run.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _promptAnswer = body =>
+        {
+            gate.Task.Wait();
+            return SessionCommandExecutor.SendPromptAsync(_session, body, SendSource.UserInput, _directorRecord)
+                .GetAwaiter().GetResult();
+        };
+
+        var first = PostClaimedPrompt(words, deliveryId);
+        await WaitUntil(() => Arrived() == 2); // the claim's press reached the Director
+        var (secondStatus, second) = await PostClaimedPrompt(words, deliveryId);
+
+        // The second claim was refused while the record was held by the first: answered its current state, nothing sent.
+        Assert.Equal(HttpStatusCode.Accepted, secondStatus);
+        Assert.True(second.GetProperty("delivering").GetBoolean());
+        Assert.Equal(deliveryId, second.GetProperty("deliveryId").GetString());
+        gate.SetResult();
+        var (firstStatus, firstBody) = await first;
+        Assert.Equal(HttpStatusCode.OK, firstStatus);
+        Assert.True(firstBody.GetProperty("accepted").GetBoolean());
+        Assert.Equal(2, Arrived()); // the original send and ONE claim press - the second tab sent nothing
+        Assert.Equal(1, _backend.TextsSent);
+    }
+
+    [Fact]
+    public async Task A_claim_of_another_sessions_typed_id_is_dropped_and_the_words_go_as_an_ordinary_prompt()
+    {
+        // Proves the claim is gated to THIS session, as the recording claim is: an id held for another session is
+        // dropped, and the words go out as an ordinary prompt under a FRESH minted id - the claimed record untouched.
+        var otherSid = Guid.NewGuid().ToString();
+        var otherId = TypedPromptDelivery.MintDeliveryId();
+        _gateway.TypedPrompts.Hold(otherId, otherSid, "another session's words", _clock.GetUtcNow().UtcDateTime,
+            "no-answer", new TypedPromptDecisionFacts());
+        _gateway.TypedPrompts.ResolveNotDelivered(otherId, TypedPromptDecisions.ReasonDirectorSaidNotDelivered, "not-delivered");
+
+        var (status, body) = await PostClaimedPrompt("words pressed at this session", otherId);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var freshId = body.GetProperty("deliveryId").GetString()!;
+        Assert.NotEqual(otherId, freshId); // dropped: the Gateway minted a fresh id, exactly as a dropped recording claim
+        PromptRequest[] arrived;
+        lock (_arrived) arrived = _arrived.ToArray();
+        var sent = Assert.Single(arrived);
+        Assert.Equal(freshId, sent.DeliveryId);
+        Assert.Equal(TypedPromptState.NotDelivered, _gateway.TypedPrompts.Read(otherId).Record!.State); // untouched
+        var lines = _gateway.TypedPrompts.ReadDecisions(otherId).Select(l => l.Decision).ToArray();
+        Assert.Contains("send-anyway-claim-dropped", lines);
+    }
+
     /// <summary>The real clock moved ahead by <see cref="Ahead"/>: the route and the driver judge the limit by it.</summary>
     private sealed class AheadClock : TimeProvider
     {

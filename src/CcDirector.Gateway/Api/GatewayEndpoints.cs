@@ -3220,24 +3220,85 @@ internal static class GatewayEndpoints
         // delivery id only when the id is an upload record in the caller's OWN tenant, read through the dictation gate's
         // tenant partition, bound to THIS session, and resolved inside the claim window - see
         // VoiceUploadStore.ResolveDeliveryClaim, which also sees the ACKNOWLEDGED record every real "Send anyway" names
-        // (review finding 1) and writes the decision to that recording's decision log (finding 2). Anything else is
-        // dropped and logged, and the text goes as an ordinary prompt - exactly what "Send anyway" sent before the
-        // delivery id existed. The store is handed back with a verified id so the Director's answer can be written too.
-        (string? DeliveryId, Voice.VoiceUploadStore? Store) ResolveDeliveryIdClaim(HttpContext httpCtx, string sid, string? claim, bool callerIsSession, int characters)
+        // (review finding 1) and writes the decision to that recording's decision log (finding 2). Anything else falls
+        // through to the typed prompt store, and what that drops goes as an ordinary prompt - exactly what "Send anyway"
+        // sent before the delivery id existed. The store is handed back with a verified id so the Director's answer can
+        // be written too.
+        //
+        // THE SAME CLAIM CAN NAME A TYPED PROMPT (Voice Delivery phase 5, the Delivery Lead's ruling on the review's
+        // finding 2): "Send anyway" on a shown-back typed prompt claims its ORIGINAL delivery id through this same
+        // request field, and ONE resolver finds the id in the typed prompt store as well as the upload store - the
+        // caller's own account (the partition), this session, a record shown back known-not-in, inside the claim window.
+        // The typed claim is marked ATOMICALLY, under the record's own lock, BEFORE anything is sent, so a second claim
+        // of the same id - another tab, a double press, a retry - is refused without sending and answered with the
+        // record's current state; a recording's claim needs no mark here, because the Director's refusal of a duplicate
+        // delivery id is its gate.
+        (string? DeliveryId, Voice.VoiceUploadStore? Store, Prompts.TypedPromptStore? TypedStore,
+            Prompts.TypedPromptClaimResolution? TypedRefusal) ResolveDeliveryIdClaim(
+            HttpContext httpCtx, string sid, PromptRequest req, bool callerIsSession)
         {
-            if (string.IsNullOrWhiteSpace(claim)) return (null, null);
-            (string?, Voice.VoiceUploadStore?) Drop(string why)
+            var claim = req.DeliveryIdClaim;
+            if (string.IsNullOrWhiteSpace(claim)) return (null, null, null, null);
+            (string?, Voice.VoiceUploadStore?, Prompts.TypedPromptStore?, Prompts.TypedPromptClaimResolution?) None()
+                => (null, null, null, null);
+            void Drop(string why)
+                => FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery id claim DROPPED (id={claim}): {why}; sent as an ordinary prompt");
+            if (callerIsSession)
             {
-                FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery id claim DROPPED (upload={claim}): {why}; sent as an ordinary prompt");
-                return (null, null);
+                Drop("the caller is a session, and a session has no recordings and no typed prompts");
+                return None();
             }
-            if (callerIsSession) return Drop("the caller is a session, and a session has no recordings");
-            if (dictationUploads is null) return Drop("no dictation upload store is wired to this route");
-            if (!dictationUploads.TryOpen(httpCtx, out var store, out _, out _)) return Drop("no tenant resolved for the caller");
-            var resolution = store.ResolveDeliveryClaim(claim, sid, characters, DateTime.UtcNow);
-            if (!resolution.Verified) return Drop($"{resolution.Reason}: {resolution.Why}");
-            FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery id claim VERIFIED (upload={resolution.UploadId}): {resolution.Why}");
-            return (resolution.UploadId, store);
+            if (dictationUploads is null)
+            {
+                Drop("no dictation upload store is wired to this route");
+            }
+            else if (!dictationUploads.TryOpen(httpCtx, out var uploads, out _, out _))
+            {
+                Drop("no tenant resolved for the caller");
+            }
+            else
+            {
+                var resolution = uploads.ResolveDeliveryClaim(claim, sid, req.Text!.Length, DateTime.UtcNow);
+                if (resolution.Verified)
+                {
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} recording delivery id claim VERIFIED (upload={resolution.UploadId}): {resolution.Why}");
+                    return (resolution.UploadId, uploads, null, null);
+                }
+                Drop($"recording: {resolution.Reason}: {resolution.Why}");
+            }
+            if (typedPrompts is not null && ResolveReadTenant(httpCtx, tenantBoundary) is { } typedTenant)
+            {
+                var typedStore = typedPrompts.ForTenant(typedTenant);
+                var typed = typedStore.ClaimSendAnyway(claim, sid, req.Text!, new Prompts.TypedPromptUnsentRequest
+                {
+                    AppendEnter = req.AppendEnter,
+                    AgentDriven = req.AgentDriven,
+                    Surface = req.Surface,
+                    MenuGuard = req.MenuGuard,
+                    OnlyWhenWaitingForInput = req.OnlyWhenWaitingForInput,
+                }, DateTime.UtcNow);
+                switch (typed.Kind)
+                {
+                    case Prompts.TypedPromptClaimKind.Verified:
+                        FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} typed delivery id claim VERIFIED (id={claim}); " +
+                            "the record is marked held and the Gateway owns the claim");
+                        return (Prompts.TypedPromptStore.NormalizeDeliveryId(claim), null, typedStore, null);
+                    case Prompts.TypedPromptClaimKind.Refused:
+                        FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} typed delivery id claim REFUSED (id={claim}): " +
+                            $"{typed.Why}; answered the record's current state, nothing sent");
+                        return (null, null, typedStore, typed);
+                    default:
+                        Drop($"typed: {typed.Reason}: {typed.Why}");
+                        break;
+                }
+            }
+            else
+            {
+                Drop(typedPrompts is null
+                    ? "no typed prompt store is wired to this route"
+                    : "no tenant resolved for the caller");
+            }
+            return None();
         }
 
         var claimClock = deliveryClock ?? TimeProvider.System;
@@ -3298,6 +3359,63 @@ internal static class GatewayEndpoints
                     }, statusCode: StatusCodes.Status502BadGateway);
                 default:
                     throw new InvalidOperationException($"a Send anyway pressed by the owner came to {attempt.Kind}, which only the Gateway's own re-press can");
+            }
+        }
+
+        // A TYPED "SEND ANYWAY" WITH A VERIFIED CLAIM (Voice Delivery phase 5, the Delivery Lead's ruling on the review's
+        // finding 2): the claim was verified and marked atomically before this ran, so the record is HELD, and this sends
+        // through the SAME claim mechanism a recording's does - ClaimedSendCore, the one ask-first-send-and-hold piece.
+        // The prompt goes out carrying the ORIGINAL delivery id and the press time; the Director's record holds that id
+        // as not-delivered, a state that may begin again, so the first claim is typed, and an id the Director holds as
+        // delivered or delivering is refused by the Director as today. What came to settles on the SAME record the
+        // outcome route reads - so the client keeps its strip on the original id - and a held claim is handed to the one
+        // driver, which presses it again on the same wake-ups a recording's claim is pressed on.
+        async Task<IResult> DeliverClaimedTypedPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req,
+            Prompts.TypedPromptStore store, string deliveryId, HttpContext httpCtx, Action<bool> outcome)
+        {
+            var attempt = await ClaimedSendCore.AttemptAsync(new SessionVerbClient(director, sendCommand), sid, req,
+                new Prompts.TypedPromptClaimLog(store), deliveryId, session.ActivityState, claimClock, gatewayDriven: false);
+            switch (attempt.Kind)
+            {
+                case ClaimAttemptKind.Delivered:
+                    store.ResolveDelivered(deliveryId);
+                    outcome(attempt.Body!.Accepted);
+                    attempt.Body.DeliveryId = deliveryId;
+                    return await AnswerAcceptedPromptAsync(director, sid, req, attempt.Body);
+                case ClaimAttemptKind.AlreadyDelivered:
+                    // The words are in - the Director refused this press as a copy of one already delivered - so the record
+                    // resolves delivered and the owner is told the truth in the Director's own refusal shape.
+                    store.ResolveDelivered(deliveryId);
+                    outcome(false);
+                    attempt.Body!.DeliveryId = deliveryId;
+                    return await AnswerAcceptedPromptAsync(director, sid, req, attempt.Body);
+                case ClaimAttemptKind.Held:
+                    outcome(false);
+                    var heldTenant = ResolveReadTenant(httpCtx, tenantBoundary)
+                        ?? throw new InvalidOperationException($"typed claim {deliveryId} is held, but no tenant is bound to the request");
+                    store.StayHeld(deliveryId, attempt.DirectorState!, countUnknown: false);
+                    heldDeliveries?.Track(heldTenant, deliveryId, Voice.HeldDeliveryKind.TypedPrompt);
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} typed claim {deliveryId} HELD ({attempt.DirectorState}); the Gateway presses it");
+                    return Results.Json(new { delivering = true, directorState = attempt.DirectorState, deliveryId },
+                        statusCode: StatusCodes.Status202Accepted);
+                case ClaimAttemptKind.Unconfirmed:
+                    outcome(false);
+                    store.SettleClaimResolved(deliveryId, Prompts.TypedPromptState.Unconfirmed, "unconfirmed");
+                    return Results.Json(new { unconfirmed = true, offerSendAnyway = false, deliveryId });
+                case ClaimAttemptKind.NotIn:
+                    outcome(false);
+                    // The press's own send was known not in, so the claim is settled: the record goes back to shown-back
+                    // and a later press starts afresh, exactly as a settled recording "Send anyway" is forgotten.
+                    store.ResolveNotDelivered(deliveryId, Prompts.TypedPromptDecisions.ReasonSendAnywayNotIn, null);
+                    return Results.Json(new PromptResponse
+                    {
+                        Accepted = false,
+                        Error = attempt.Error,
+                        ActivityState = session.ActivityState,
+                        DeliveryId = deliveryId,
+                    }, statusCode: StatusCodes.Status502BadGateway);
+                default:
+                    throw new InvalidOperationException($"a typed Send anyway pressed by the owner came to {attempt.Kind}, which only the Gateway's own re-press can");
             }
         }
 
@@ -3704,7 +3822,12 @@ internal static class GatewayEndpoints
             // refuses a second copy of a delivery id it has already typed, so an id a client could set freely would let
             // it block, or pass off as delivered, words it did not own. Whatever arrives is overwritten; a client may
             // only CLAIM a recording, and the claim is checked below.
-            var (claimedDeliveryId, claimStore) = ResolveDeliveryIdClaim(httpCtx, sid, req.DeliveryIdClaim, callingSessionForAttribution is not null, req.Text.Length);
+            var (claimedDeliveryId, claimStore, typedClaimStore, typedClaimRefusal) = ResolveDeliveryIdClaim(httpCtx, sid, req, callingSessionForAttribution is not null);
+            // A REFUSED typed claim is answered with the record's CURRENT state - the same body the outcome route gives
+            // for it - and nothing is sent or asked: a second claim of the same id, from any tab, any press, is refused
+            // here, before anything can leave the Gateway.
+            if (typedClaimRefusal is { Kind: Prompts.TypedPromptClaimKind.Refused, Record: { } refusedRecord })
+                return TypedPromptDelivery.OutcomeResult(refusedRecord);
             // EVERY PROMPT CARRIES A DELIVERY ID (Voice Delivery phase 5, contract section 7, T1). Without a verified claim the
             // Gateway mints a fresh one, so the Director records it and can be asked what became of it: in phase 4 a typed
             // prompt answered "delivering" was in the end refused with nothing typed, and with no id nobody could ask.
@@ -3800,6 +3923,12 @@ internal static class GatewayEndpoints
                 SpokenSpans = verifiedSpans,
             };
 
+            // The typed claim was marked before the provenance existed - the mark is atomic and comes first - so this
+            // completes the re-press fields on the record with the press's own provenance. A crash in between leaves a
+            // claimed record whose re-press carries no provenance; its decision log still tells the whole story.
+            if (typedClaimStore is not null && claimedDeliveryId is not null)
+                typedClaimStore.RememberClaimProvenance(claimedDeliveryId, req.Provenance);
+
             var accepted = false;
             try
             {
@@ -3851,6 +3980,21 @@ internal static class GatewayEndpoints
             var (director, session) = await LocateSessionForRequestAsync(httpCtx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
             {
+                // A verified TYPED claim whose session cannot be located now is a HELD claim (contract section 8): the
+                // record is already marked, so the Gateway owns it and its driver presses the claim when the Director
+                // is back - never "session gone", and never a second record for an id that already has one.
+                if (typedClaimStore is not null && claimedDeliveryId is not null)
+                {
+                    var claimTenant = ResolveReadTenant(httpCtx, tenantBoundary)
+                        ?? throw new InvalidOperationException($"typed claim {claimedDeliveryId} must be held, but no tenant is bound to the request");
+                    typedClaimStore.RecordDecision(claimedDeliveryId, Prompts.TypedPromptDecisions.SessionNotFound,
+                        new Prompts.TypedPromptDecisionFacts { SessionId = sid, Reason = "the session could not be located; its Director is not connected" });
+                    typedClaimStore.StayHeld(claimedDeliveryId, Prompts.TypedPromptDecisions.WaitingForDirector, countUnknown: false);
+                    heldDeliveries?.Track(claimTenant, claimedDeliveryId, Voice.HeldDeliveryKind.TypedPrompt);
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} not located now; typed claim {claimedDeliveryId} HELD waiting for its Director");
+                    return Results.Json(new { delivering = true, directorState = Prompts.TypedPromptDecisions.WaitingForDirector, deliveryId = claimedDeliveryId },
+                        statusCode: StatusCodes.Status202Accepted);
+                }
                 RecordClaimStoppedBeforeDirector(ClaimStopSessionNotFound);
                 // A TYPED PROMPT WHOSE SESSION CANNOT BE LOCATED NOW IS HELD, NEVER "GONE" (contract section 8): a stale
                 // or frozen Director is not a session that ended. It never left the Gateway, so it is held 202
@@ -3884,6 +4028,7 @@ internal static class GatewayEndpoints
                 if (guardTenant is null)
                 {
                     RecordClaimStoppedBeforeDirector(ClaimStopNoTenant);
+                    SettleTypedClaimNotPressed("no tenant could be resolved for the menu guard");
                     return Results.Json(new { error = "a tenant could not be resolved for this request" },
                         statusCode: StatusCodes.Status403Forbidden);
                 }
@@ -3900,6 +4045,7 @@ internal static class GatewayEndpoints
                             + "TenantSettingsResolver to read the account's spoken language from.");
                     FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} REFUSED - a menu owns the live screen (menu guard); nothing typed, no Enter pressed");
                     RecordClaimStoppedBeforeDirector(ClaimStopMenu);
+                    SettleTypedClaimNotPressed("a menu owned the live screen, so the menu guard refused the press");
                     return Results.Json(new PromptResponse
                     {
                         Accepted = false,
@@ -3917,7 +4063,22 @@ internal static class GatewayEndpoints
 
             return claimStore is not null && claimedDeliveryId is not null
                 ? await DeliverClaimedPromptAsync(director, session, sid, req, claimStore, claimedDeliveryId, wasAccepted => accepted = wasAccepted)
-                : await DeliverPromptAsync(director, session, sid, req, httpCtx, wasAccepted => accepted = wasAccepted);
+                : typedClaimStore is not null && claimedDeliveryId is not null
+                    ? await DeliverClaimedTypedPromptAsync(director, session, sid, req, typedClaimStore, claimedDeliveryId, httpCtx, wasAccepted => accepted = wasAccepted)
+                    : await DeliverPromptAsync(director, session, sid, req, httpCtx, wasAccepted => accepted = wasAccepted);
+            }
+
+            // A typed claim that stopped before the Director - the menu guard refused the press, or no tenant could be
+            // resolved for the guard - is settled back to shown-back: the mark is undone, nothing was sent, and a fresh
+            // press starts afresh. A recording claim needs no such undo - it is not marked, and its stopped line is the
+            // whole story.
+            void SettleTypedClaimNotPressed(string why)
+            {
+                if (typedClaimStore is null || claimedDeliveryId is null) return;
+                typedClaimStore.ResolveNotDelivered(claimedDeliveryId, why, null);
+                typedClaimStore.RecordDecision(claimedDeliveryId, Voice.DeliveryDecisions.ClaimStoppedBeforeDirector,
+                    new Prompts.TypedPromptDecisionFacts { SessionId = sid, Reason = why });
+                FileLog.Write($"[GatewayEndpoints] POST prompt: typed claim {claimedDeliveryId} settled back as not pressed: {why}");
             }
         });
 

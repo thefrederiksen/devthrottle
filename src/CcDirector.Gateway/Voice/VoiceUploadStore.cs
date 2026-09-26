@@ -53,7 +53,7 @@ namespace CcDirector.Gateway.Voice;
 /// error at the call site rather than a live object with the widest possible reach. See the constructor
 /// below for why the previous defaults were the wrong shape.
 /// </summary>
-public sealed partial class VoiceUploadStore
+public sealed partial class VoiceUploadStore : IClaimDecisionLog
 {
     /// <summary>The container directory hosting the non-local partitions, directly under the base root.</summary>
     public const string TenantPartitionDirectoryName = "tenants";
