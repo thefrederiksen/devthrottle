@@ -3274,7 +3274,11 @@ internal static class GatewayEndpoints
             if (typedPrompts is not null && ResolveReadTenant(httpCtx, tenantBoundary) is { } typedTenant)
             {
                 var typedStore = typedPrompts.ForTenant(typedTenant);
-                var typed = typedStore.ClaimSendAnyway(claim, sid, req.Text!, new Prompts.TypedPromptUnsentRequest
+                // THE CLAIM AND THE HAND-OFF ARE ONE STEP (the Delivery Lead's ruling on the phase 5 review, round 2, finding 1):
+                // the mark makes the record HELD, so from that moment the driver must own it - a press that throws between
+                // the mark and its settle was the finding, a claim "still delivering" with nobody driving it. The claim is
+                // decided, marked, and handed to the driver before anything is sent.
+                var typed = TypedPromptDelivery.ClaimAndTrack(typedStore, heldDeliveries, claim, sid, req.Text!, new Prompts.TypedPromptUnsentRequest
                 {
                     AppendEnter = req.AppendEnter,
                     AgentDriven = req.AgentDriven,
@@ -3373,13 +3377,29 @@ internal static class GatewayEndpoints
         // The prompt goes out carrying the ORIGINAL delivery id and the press time; the Director's record holds that id
         // as not-delivered, a state that may begin again, so the first claim is typed, and an id the Director holds as
         // delivered or delivering is refused by the Director as today. What came to settles on the SAME record the
-        // outcome route reads - so the client keeps its strip on the original id - and a held claim is handed to the one
-        // driver, which presses it again on the same wake-ups a recording's claim is pressed on.
+        // outcome route reads - so the client keeps its strip on the original id - and the claim was handed to the one
+        // driver AT THE MARK (round 2, finding 1), which presses it again on the same wake-ups a recording's claim is
+        // pressed on.
         async Task<IResult> DeliverClaimedTypedPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req,
             Prompts.TypedPromptStore store, string deliveryId, HttpContext httpCtx, Action<bool> outcome)
         {
-            var attempt = await ClaimedSendCore.AttemptAsync(new SessionVerbClient(director, sendCommand), sid, req,
-                new Prompts.TypedPromptClaimLog(store), deliveryId, session.ActivityState, claimClock, gatewayDriven: false);
+            var tenant = ResolveReadTenant(httpCtx, tenantBoundary)
+                ?? throw new InvalidOperationException($"typed claim {deliveryId} is pressed, but no tenant is bound to the request");
+            // THE OWNER'S PRESS GOES THROUGH THE ONE PRESS GATE (the Delivery Lead's ruling on the phase 5 review, round 2,
+            // finding 1): the claim was handed to the driver AT the mark, before this press runs, so a driver wake-up can
+            // arrive while this press is in flight - the gate keeps the two apart, and neither presses the words twice
+            // beside the other. The driver of this claim is already tracking it; nothing is handed over here.
+            var attempt = await TypedPromptDelivery.PressClaimAsync(tenant, deliveryId,
+                new SessionVerbClient(director, sendCommand), sid, req, new Prompts.TypedPromptClaimLog(store),
+                session.ActivityState, claimClock);
+            if (attempt is null)
+            {
+                // Only the Gateway's own driver can be pressing this claim at this moment. The honest answer is the
+                // record's own current state - the same body a refused claim is answered with.
+                var record = store.Read(deliveryId).Record
+                    ?? throw new InvalidOperationException($"typed claim {deliveryId} is held, but its record cannot be read");
+                return TypedPromptDelivery.OutcomeResult(record);
+            }
             switch (attempt.Kind)
             {
                 case ClaimAttemptKind.Delivered:
@@ -3396,10 +3416,7 @@ internal static class GatewayEndpoints
                     return await AnswerAcceptedPromptAsync(director, sid, req, attempt.Body);
                 case ClaimAttemptKind.Held:
                     outcome(false);
-                    var heldTenant = ResolveReadTenant(httpCtx, tenantBoundary)
-                        ?? throw new InvalidOperationException($"typed claim {deliveryId} is held, but no tenant is bound to the request");
                     store.StayHeld(deliveryId, attempt.DirectorState!, countUnknown: false);
-                    heldDeliveries?.Track(heldTenant, deliveryId, Voice.HeldDeliveryKind.TypedPrompt);
                     FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} typed claim {deliveryId} HELD ({attempt.DirectorState}); the Gateway presses it");
                     return Results.Json(new { delivering = true, directorState = attempt.DirectorState, deliveryId },
                         statusCode: StatusCodes.Status202Accepted);
@@ -3460,6 +3477,30 @@ internal static class GatewayEndpoints
                         DeliveryId = deliveryId,
                     }, statusCode: StatusCodes.Status502BadGateway);
                 case TypedSendKind.Held:
+                    // A SESSION KEY IS NEVER HELD (the Delivery Lead's ruling on merging this phase with #3435, 26
+                    // September 2026): holding and the driver are for the owner's own words only. The only session
+                    // caller that reaches this send is a RAISED session - the ownership rule answered every other one -
+                    // and it is answered what happened, so it retries itself: the Director's own answer when it gave
+                    // one (an accepted send is in, whatever it goes on to), or "could not be reached now" when it did
+                    // not. The prompt still carries its delivery id, so the Director refuses a repeat of it.
+                    if (AuthMiddleware.CallingSession(httpCtx) is not null)
+                    {
+                        outcome?.Invoke(reading.Body?.Accepted ?? false);
+                        if (reading.Body is { } sessionCallerBody)
+                        {
+                            sessionCallerBody.DeliveryId = deliveryId;
+                            return Results.Json(sessionCallerBody);
+                        }
+                        FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery {deliveryId} unanswered for a session caller; " +
+                            "not held, not driven - the caller was answered and retries itself");
+                        return Results.Json(new PromptResponse
+                        {
+                            Accepted = false,
+                            Error = reading.Error,
+                            ActivityState = session.ActivityState,
+                            DeliveryId = deliveryId,
+                        }, statusCode: StatusCodes.Status502BadGateway);
+                    }
                     // The spoken-claim reservation follows the Director's own word, as before: an accepted "delivering"
                     // commits it; no answer releases it.
                     outcome?.Invoke(reading.Body?.Accepted ?? false);
@@ -4041,12 +4082,10 @@ internal static class GatewayEndpoints
                 // is back - never "session gone", and never a second record for an id that already has one.
                 if (typedClaimStore is not null && claimedDeliveryId is not null)
                 {
-                    var claimTenant = ResolveReadTenant(httpCtx, tenantBoundary)
-                        ?? throw new InvalidOperationException($"typed claim {claimedDeliveryId} must be held, but no tenant is bound to the request");
+                    // The driver was handed this claim at the mark; it presses the claim when the Director is back.
                     typedClaimStore.RecordDecision(claimedDeliveryId, Prompts.TypedPromptDecisions.SessionNotFound,
                         new Prompts.TypedPromptDecisionFacts { SessionId = sid, Reason = "the session could not be located; its Director is not connected" });
                     typedClaimStore.StayHeld(claimedDeliveryId, Prompts.TypedPromptDecisions.WaitingForDirector, countUnknown: false);
-                    heldDeliveries?.Track(claimTenant, claimedDeliveryId, Voice.HeldDeliveryKind.TypedPrompt);
                     FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} not located now; typed claim {claimedDeliveryId} HELD waiting for its Director");
                     return Results.Json(new { delivering = true, directorState = Prompts.TypedPromptDecisions.WaitingForDirector, deliveryId = claimedDeliveryId },
                         statusCode: StatusCodes.Status202Accepted);
@@ -4056,7 +4095,14 @@ internal static class GatewayEndpoints
                 // or frozen Director is not a session that ended. It never left the Gateway, so it is held 202
                 // "waiting-for-director" and the Gateway's driver settles it: sent once if its Director is back within
                 // the age limit (contract section 10), shown back past it. A claimed "Send anyway" keeps its own path.
-                if (claimStore is null && ResolveReadTenant(httpCtx, tenantBoundary) is { } heldTenant)
+                //
+                // BUT ONLY THE OWNER'S OWN WORDS ARE HELD (the Delivery Lead's ruling on merging this phase with #3435,
+                // 26 September 2026): a prompt sent with a SESSION key is never held and never handed to the driver, in
+                // any branch. The caller here is a session key - a raised one, the only kind that reaches a send; an
+                // unraised one was answered by the ownership rule above - so it is answered exactly as before phase 5:
+                // the session could not be reached now, and the calling agent retries.
+                if (claimStore is null && callingSessionForAttribution is null
+                    && ResolveReadTenant(httpCtx, tenantBoundary) is { } heldTenant)
                     return HoldNeverSent(heldTenant);
                 return SessionUnavailable(httpCtx, tenantBoundary, pushedSessions, sid);
             }

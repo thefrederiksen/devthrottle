@@ -691,6 +691,89 @@ public sealed class HeldDeliveryDriverTests : IDisposable
         Assert.Equal(0, driver.HeldCount);
     }
 
+    // ===== a claimed typed prompt is handed to the driver AT the mark (the ruling on review round 2, finding 1) =========
+
+    [Fact]
+    public async Task ARecordWriteThatThrowsAfterTheClaimMark_IsPressedAgainByTheDriver_ResolvedWithNoRestart()
+    {
+        // The finding: a typed "Send anyway" is marked HELD before anything is sent, but the driver was handed the
+        // claim only once the press came back held - so a write that threw in between (the record write the route
+        // makes between the mark and the press, failing on the hosted Gateway's network share) left the record
+        // "still delivering" with nobody driving it until the next Gateway restart. The ruling: the claim is handed
+        // to the driver AT the mark, as the dictation path hands a taken-over recording over, so the driver is the
+        // backstop and resolves the claim itself.
+        var sid = Seat();
+        var (typed, id) = ShownBackTyped(sid);
+        var (driver, _) = NewDriver();
+        driver.AttachTypedPrompts(typed, () => TypedDriver());
+
+        // The prompt route's first step, now the one piece it is: decide, mark, and hand to the driver - nothing runs
+        // between the mark and the hand-off.
+        var claim = TypedPromptDelivery.ClaimAndTrack(typed, driver, id, sid, SpokenWords, TypedPress(), DateTime.UtcNow);
+        Assert.Equal(TypedPromptClaimKind.Verified, claim.Kind);
+        Assert.Equal(1, driver.HeldCount); // handed over BEFORE any press
+
+        // The route's next write - the provenance it completes the claimed record with - fails, exactly as a write to
+        // the share can: nothing was sent, nothing was settled, and the claim is still the driver's.
+        var recordFile = Path.Combine(typed.Root, id, "record.json");
+        File.SetAttributes(recordFile, FileAttributes.ReadOnly);
+        await Assert.ThrowsAnyAsync<Exception>(() => Task.Run(() =>
+            typed.RememberClaimProvenance(id, new SubmissionProvenanceDto())));
+        Assert.Equal(0, Prompts()); // the press never reached the Director
+        Assert.Equal(TypedPromptState.Held, typed.Read(id).Record!.State);
+
+        // The share recovers, and the driver's first attempt - due after the shortest wait - presses the claim itself:
+        // the words go in ONCE, and no Gateway restart happened.
+        File.SetAttributes(recordFile, FileAttributes.Normal);
+        _prompt = _ => Task.FromResult<DirectorCommandResult?>(Accepted());
+        _clock.Ahead = HeldDeliveryDriver.ShortestWait + TimeSpan.FromSeconds(1);
+        await driver.TickAsync();
+
+        Assert.Equal(1, Prompts());
+        Assert.Equal(TypedPromptState.Delivered, typed.Read(id).Record!.State);
+        Assert.Equal(0, driver.HeldCount);
+    }
+
+    [Fact]
+    public async Task TheOwnersPressAndADriverTickAtTheSameMoment_PressTheWordsOnce()
+    {
+        // The other half of the ruling: because the claim is handed to the driver BEFORE the owner's press runs, the
+        // two can now be in flight at the same moment - and must not press twice. The one press gate keeps them
+        // apart: the driver's tick finds the owner's press running and presses nothing (not an ask, not a send), and
+        // the owner's press is the only send.
+        var sid = Seat();
+        var (typed, id) = ShownBackTyped(sid);
+        var (driver, _) = NewDriver();
+        driver.AttachTypedPrompts(typed, () => TypedDriver());
+        Assert.Equal(TypedPromptClaimKind.Verified,
+            TypedPromptDelivery.ClaimAndTrack(typed, driver, id, sid, SpokenWords, TypedPress(), DateTime.UtcNow).Kind);
+
+        var pressReachedTheDirector = new TaskCompletionSource();
+        var releaseThePress = new TaskCompletionSource<DirectorCommandResult>();
+        _prompt = async _ => { pressReachedTheDirector.SetResult(); return await releaseThePress.Task; };
+        _deliveryState = _ => StateIs(DeliveryState.Delivering); // what the driver would ask, had it not declined
+        var owner = Task.Run(() => TypedPromptDelivery.PressClaimAsync(TenantId.Local, id,
+            TypedRoute(), sid, TypedPressRequest(id), new TypedPromptClaimLog(typed), "Working", _clock));
+        await pressReachedTheDirector.Task; // the owner's press is in flight, inside the Director send
+
+        // The driver's tick while the press runs: it presses nothing. A second press of the same claim finds the gate
+        // held and returns nothing to send either.
+        _clock.Ahead = HeldDeliveryDriver.ShortestWait + TimeSpan.FromSeconds(1);
+        await driver.TickAsync();
+        Assert.Equal(1, Prompts());
+        Assert.DoesNotContain(_commands, c => c.Verb == DeliveryStateRequest.Verb); // no ask from the driver
+        Assert.Equal(1, driver.HeldCount); // the tick declined, the claim is not lost
+        Assert.Null(await TypedPromptDelivery.PressClaimAsync(TenantId.Local, id,
+            TypedRoute(), sid, TypedPressRequest(id), new TypedPromptClaimLog(typed), "Working", _clock));
+
+        // The press lands: delivered, once - and the route's settle finishes the claim.
+        releaseThePress.SetResult(Accepted());
+        Assert.Equal(ClaimAttemptKind.Delivered, (await owner)!.Kind);
+        typed.ResolveDelivered(id); // the route's settle of a delivered claim
+        Assert.Equal(TypedPromptState.Delivered, typed.Read(id).Record!.State);
+        Assert.Equal(1, Prompts());
+    }
+
     // ===== harness ==========================================================================================
 
     private (HeldDeliveryDriver Driver, DictationDelivery Delivery) NewDriver()
@@ -711,6 +794,35 @@ public sealed class HeldDeliveryDriverTests : IDisposable
     private sealed class NoScope : IDisposable { public void Dispose() { } }
 
     private TypedPromptStore TypedStore() => new(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+
+    /// <summary>A typed prompt held, then shown back not-delivered - the record a typed "Send anyway" claims.</summary>
+    private (TypedPromptStore Store, string Id) ShownBackTyped(string sid)
+    {
+        var typed = TypedStore();
+        var id = TypedPromptDelivery.MintDeliveryId();
+        typed.Hold(id, sid, SpokenWords, DateTime.UtcNow, DeliverySendAndAsk.NoAnswerState, new TypedPromptDecisionFacts());
+        typed.ResolveNotDelivered(id, TypedPromptDecisions.ReasonDirectorSaidNotDelivered, "not-delivered");
+        return (typed, id);
+    }
+
+    private static TypedPromptUnsentRequest TypedPress() => new()
+    {
+        AppendEnter = true,
+        AgentDriven = false,
+        Surface = "cockpit",
+    };
+
+    private static PromptRequest TypedPressRequest(string id) => new()
+    {
+        Text = SpokenWords,
+        AppendEnter = true,
+        AgentDriven = false,
+        Surface = "cockpit",
+        DeliveryId = id,
+        SentAtUtc = DateTime.UtcNow,
+    };
+
+    private SessionVerbClient TypedRoute() => new(new DirectorDto { DirectorId = DirectorId, MachineName = "typed-claim-machine" }, SendAsync);
 
     private TypedPromptDelivery TypedDriver() => new(_registry, owners: null, _pushed, SendAsync, TimeSpan.FromSeconds(20), _clock);
 

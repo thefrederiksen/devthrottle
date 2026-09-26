@@ -4,6 +4,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Prompts;
+using CcDirector.Gateway.Voice;
 using Microsoft.AspNetCore.Http;
 
 namespace CcDirector.Gateway.Api;
@@ -57,7 +58,13 @@ internal sealed record TypedSendReading(TypedSendKind Kind, PromptResponse? Body
 /// </summary>
 internal sealed class TypedPromptDelivery
 {
-    // One attempt of one record at a time, across every wake-up (tunnel back, tick, Gateway start). Keyed by tenant and id.
+    // THE ONE PRESS GATE OF A CLAIMED TYPED PROMPT (the Delivery Lead's ruling on the phase 5 review, round 2, finding
+    // 1): the owner's own press of a claimed "Send anyway" and every press the Gateway's driver makes of the same claim
+    // go through this one gate, keyed by tenant and id - the same single-flight idea that keeps a dictation attempt and
+    // a driver attempt of one upload apart (the complete route's single-flight, GatewayDictationEndpoint). The claim is
+    // handed to the driver AT the mark, BEFORE the owner's press has run, so the two can be in flight at the same
+    // moment; the second presser to arrive finds the gate held and presses nothing, so the words are never pressed
+    // twice beside a press that is still running.
     private static readonly ConcurrentDictionary<string, byte> Running = new(StringComparer.Ordinal);
 
     private readonly DirectorRegistry _registry;
@@ -82,6 +89,69 @@ internal sealed class TypedPromptDelivery
 
     /// <summary>A fresh delivery id for a typed prompt: a new GUID, the same <c>N</c> spelling as upload ids.</summary>
     public static string MintDeliveryId() => Guid.NewGuid().ToString("N");
+
+    /// <summary>
+    /// Try to take the one press gate of a claimed typed prompt. Null when a press of this claim is already running:
+    /// the caller presses nothing - the driver answers "still held, try again on the next wake-up", the owner's route
+    /// answers the record's own current state. <paramref name="pressedBy"/> names the presser in the log, so a declined
+    /// press says who declined it.
+    /// </summary>
+    internal static PressGate? TryTakePressGate(TenantId tenant, string deliveryId, string pressedBy)
+    {
+        var id = TypedPromptStore.NormalizeDeliveryId(deliveryId)
+            ?? throw new ArgumentException($"'{deliveryId}' is not a delivery id", nameof(deliveryId));
+        var key = $"{tenant.Value}:{id}";
+        if (!Running.TryAdd(key, 0))
+        {
+            FileLog.Write($"[TypedPromptDelivery] deliveryId={id}: a press is already running; {pressedBy} presses nothing");
+            return null;
+        }
+        return new PressGate(key);
+    }
+
+    /// <summary>The one press gate, released when the press it guards is over.</summary>
+    internal sealed class PressGate : IDisposable
+    {
+        private readonly string _key;
+        internal PressGate(string key) => _key = key;
+        public void Dispose() => Running.TryRemove(_key, out _);
+    }
+
+    /// <summary>
+    /// DECIDE AND MARK A TYPED "SEND ANYWAY" CLAIM AND HAND IT TO THE DRIVER, AS ONE STEP (the Delivery Lead's ruling
+    /// on the phase 5 review, round 2, finding 1). The mark (<see cref="TypedPromptStore.ClaimSendAnyway"/>) makes the
+    /// record HELD before anything is sent, so from that moment SOMETHING must drive the claim to its end: the driver
+    /// is handed it AT the mark, exactly as the dictation path hands a taken-over recording over before its first
+    /// attempt (the complete route: take ownership, hand it to the driver, then attempt). Until the owner's press
+    /// settles the claim, the driver is the backstop: a press that throws between the mark and the settle - a
+    /// decision-line write failing on the hosted Gateway's network share - is pressed again by the driver after the
+    /// shortest wait and resolved, never left "still delivering" with nobody driving it until the next Gateway
+    /// restart. The driver's first attempt is due after the shortest wait because the owner's own press is making the
+    /// first attempt right now, and the one press gate keeps the two apart.
+    /// </summary>
+    public static TypedPromptClaimResolution ClaimAndTrack(Prompts.TypedPromptStore store, HeldDeliveryDriver? driver,
+        string claim, string sessionId, string text, Prompts.TypedPromptUnsentRequest request, DateTime nowUtc)
+    {
+        var typed = store.ClaimSendAnyway(claim, sessionId, text, request, nowUtc);
+        if (typed.Kind == TypedPromptClaimKind.Verified)
+            driver?.Track(store.Tenant, TypedPromptStore.NormalizeDeliveryId(claim)!, HeldDeliveryKind.TypedPrompt);
+        return typed;
+    }
+
+    /// <summary>
+    /// THE OWNER'S OWN PRESS OF A CLAIMED TYPED PROMPT, through the one press gate. The claim is handed to the driver at
+    /// the mark, before this runs, so a driver wake-up can arrive while this press is in flight: the gate keeps the two
+    /// apart, so neither presses the words twice beside the other. Null when a press of this claim is already running
+    /// - which cannot be another owner press (the mark is atomic, so only the marker presses) but the driver's own
+    /// press: the caller answers the record's current state, the same body a refused claim is answered with.
+    /// </summary>
+    public static async Task<ClaimAttempt?> PressClaimAsync(TenantId tenant, string deliveryId, SessionVerbClient route,
+        string sid, PromptRequest req, IClaimDecisionLog store, string? activityState, TimeProvider clock)
+    {
+        using var gate = TryTakePressGate(tenant, deliveryId, "the owner's press");
+        if (gate is null) return null;
+        return await ClaimedSendCore.AttemptAsync(route, sid, req, store, deliveryId, activityState, clock, gatewayDriven: false);
+    }
 
     /// <summary>
     /// Send a typed prompt (which carries its minted delivery id) and read the answer (<see cref="ReadSend"/>). The typed
@@ -144,20 +214,11 @@ internal sealed class TypedPromptDelivery
             throw new ArgumentException($"the typed prompt store is bound to {store.Tenant.ToLogString()}, not {tenant.ToLogString()}", nameof(store));
         var id = TypedPromptStore.NormalizeDeliveryId(deliveryId)
             ?? throw new ArgumentException($"'{deliveryId}' is not a delivery id", nameof(deliveryId));
-        var key = $"{tenant.Value}:{id}";
-        if (!Running.TryAdd(key, 0))
-        {
-            FileLog.Write($"[TypedPromptDelivery] DriveOnceAsync: deliveryId={id} already being attempted; this wake-up ({trigger}) does nothing");
-            return TypedDriveResult.Held;
-        }
-        try
-        {
-            return await DriveUnderFlightAsync(tenant, store, id, trigger);
-        }
-        finally
-        {
-            Running.TryRemove(key, out _);
-        }
+        // The driver's press goes through the ONE PRESS GATE the owner's own press goes through: at most one press of
+        // this claim runs at a time, whoever started it.
+        using var gate = TryTakePressGate(tenant, id, $"this wake-up ({trigger})");
+        if (gate is null) return TypedDriveResult.Held;
+        return await DriveUnderFlightAsync(tenant, store, id, trigger);
     }
 
     private async Task<TypedDriveResult> DriveUnderFlightAsync(TenantId tenant, TypedPromptStore store, string id, string trigger)
