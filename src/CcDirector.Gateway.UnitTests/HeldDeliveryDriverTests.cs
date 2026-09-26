@@ -274,11 +274,14 @@ public sealed class HeldDeliveryDriverTests : IDisposable
         var client = OwnAndAttemptAsync(driver, uploadId, sid);
         await inPrompt.Task.WaitAsync(TimeSpan.FromSeconds(10));
         _clock.Ahead = TimeSpan.FromSeconds(5);
-        await driver.TickAsync();
+        // Not awaited before the release: a tick that wrongly started its own attempt would sit in the held prompt, and
+        // the test must fail on the counts below rather than hang.
+        var tick = driver.TickAsync();
         driver.OnSessionsArrived(TenantId.Local, DirectorId);
         await Task.Delay(300);
         release.SetResult(Accepted());
-        var answer = await client;
+        var answer = await client.WaitAsync(TimeSpan.FromSeconds(10));
+        await tick.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal(200, answer.Status);
         Assert.Equal(1, Prompts());
