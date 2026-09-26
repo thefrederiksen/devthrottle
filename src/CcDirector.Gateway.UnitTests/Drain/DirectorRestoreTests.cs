@@ -364,6 +364,15 @@ public sealed class DirectorRestoreTests : IDisposable
         Assert.Contains("is not running", Assert.Single(result.Seats).Failure);
     }
 
+    /// <summary>
+    /// A BLOCKED OWNER THE RECORD SAYS WAS CLOSED AFTER ALL IS NOT TAKEN FOR RUNNING - its old id is dead and
+    /// the worker is never started under it. What the worker gets instead changed with the owner's ruling of
+    /// 25 September 2026 (product issue 3395): this owner was closed and nothing decided it would come back,
+    /// so it is not coming back, the worker is top level now, and the user owns it. It used to fail here.
+    ///
+    /// THE OWNER STILL BEING BLOCKED, AND NOT YET CLOSED, IS THE OTHER TEST ABOVE, and that one is unchanged:
+    /// such an owner still exists, so its worker still waits for it rather than being handed to the user.
+    /// </summary>
     [Fact]
     public async Task RunAsync_ABlockedOwnerThatWasClosedAfterAll_IsNotTakenForRunning()
     {
@@ -372,8 +381,8 @@ public sealed class DirectorRestoreTests : IDisposable
 
         var result = await NewRestore(gw).RunAsync(Order());
 
-        Assert.Empty(gw.Spawns);
-        Assert.NotNull(Assert.Single(result.Seats).Failure);
+        Assert.Null(Assert.Single(gw.Spawns).ControllerSessionId);
+        Assert.Null(Assert.Single(result.Seats).Failure);
     }
 
     [Fact]
@@ -693,17 +702,61 @@ public sealed class DirectorRestoreTests : IDisposable
         Assert.Contains("could not be brought back", gw.Stored.Seats.Single(s => s.SessionId == "w").Restore!.Failure);
     }
 
+    /// <summary>
+    /// AN OWNER DECIDED "CLOSE" IS NOT COMING BACK, SO THE SEATS UNDER IT ARE TOP LEVEL AND THE USER OWNS THEM.
+    /// The owner's ruling of 25 September 2026, on product issue 3395, in his own words: "the top level session
+    /// should be owned by the user that started the director".
+    ///
+    /// THIS IS THE TEST THAT FAILS ON THE CODE THIS RULING CHANGED. Before it, both workers here failed with
+    /// "its owner ... is decided \"close\", so it is not coming back and nobody would own this seat", nothing was
+    /// spawned, and the window's own row - which had already promised these sessions would come back - brought
+    /// back nothing at all.
+    /// </summary>
     [Fact]
-    public async Task RunAsync_AnOwnerDecidedClose_FailsItsWorker_RatherThanStartingItUnowned()
+    public async Task RunAsync_AnOwnerDecidedClose_IsTerminal_SoTheSeatsUnderItComeBackOwnedByTheUser()
     {
         var gw = Gateway(
             Seat("m", "Manager", decision: WorkspaceRestoreDecisions.Close),
+            Seat("w1", "Worker one", reportsTo: "m", order: 1),
+            Seat("w2", "Worker two", reportsTo: "m", order: 2));
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        // FIRST, so that a run against the code before the ruling says which rule refused these seats and not
+        // merely that nothing was started.
+        Assert.All(result.Seats, s => Assert.Null(s.Failure));
+
+        Assert.Equal(new[] { "Worker one", "Worker two" }, gw.Spawns.Select(s => s.Name));
+        Assert.All(gw.Spawns, s => Assert.Null(s.ControllerSessionId));
+        Assert.All(result.Seats, s => Assert.Null(s.OwnerSessionId));
+
+        var stored = gw.Stored.Seats.ToDictionary(s => s.SessionId!);
+        Assert.Equal("new-1", stored["w1"].RestoredSessionId);
+        Assert.Equal("new-2", stored["w2"].RestoredSessionId);
+        Assert.Null(stored["w1"].Restore!.Failure);
+        Assert.Null(stored["w2"].Restore!.Failure);
+
+        // The lead itself is untouched: "close" was a decision about it, and the ruling is about the seats it
+        // used to own.
+        Assert.Null(stored["m"].RestoredSessionId);
+    }
+
+    /// <summary>
+    /// AND SO IS AN OWNER WITH NOTHING DECIDED - the ruling is about an owner that is not coming back, and a
+    /// seat nobody decided to restore is not coming back either. The lead here ended at the limit with nothing
+    /// decided, which is what the operating system shutting the machine down writes for every seat.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_AnOwnerWithNothingDecided_IsAlsoTerminal_SoItsWorkerComesBackOwnedByTheUser()
+    {
+        var gw = Gateway(
+            Seat("m", "Manager", decision: WorkspaceRestoreDecisions.Undecided),
             Seat("w", "Worker", reportsTo: "m"));
 
         var result = await NewRestore(gw).RunAsync(Order());
 
-        Assert.Empty(gw.Spawns);
-        Assert.Contains("\"close\"", Assert.Single(result.Seats).Failure);
+        Assert.Null(Assert.Single(gw.Spawns).ControllerSessionId);
+        Assert.Null(Assert.Single(result.Seats).Failure);
     }
 
     [Fact]
@@ -911,5 +964,72 @@ public sealed class DirectorRestoreTests : IDisposable
         var after = Publish(gw, "new-1");
         Assert.False(after.Created);
         Assert.Equal(before.Id, after.Id);
+    }
+
+    /// <summary>
+    /// A DECISION IS NOT PROOF THE OWNER STOPPED (both reviewers of pull request 3397, independently, on the
+    /// branch that carried the ruling).
+    ///
+    /// <c>DirectorDrain.EndEverySessionStillPresentAsync</c> marks a session that had not handed over at the
+    /// limit "ended at the limit" with nothing decided BEFORE it tries to end it, and when that end FAILS it
+    /// leaves <see cref="WorkspaceSeat.ClosedAtUtc"/> null and records that the session is still running.
+    /// Reading the decision alone then handed that live owner's worker to the user while the owner was still
+    /// working - which is not what the ruling of 25 September 2026 is about, because that owner has not gone
+    /// anywhere. This TIGHTENS the evidence for "not coming back"; the ruling itself is unchanged.
+    ///
+    /// BOTH ROSTER STATES ARE THE SAME ANSWER. An owner reachable on this Director is plainly still there; an
+    /// owner listed on a Director the Gateway cannot reach right now is ALSO still there, merely out of reach -
+    /// which is exactly the case every sibling branch of ResolveOwner already refuses.
+    /// </summary>
+    [Theory]
+    [InlineData(ThisDirector)]
+    [InlineData(DeadDirector)]
+    public async Task RunAsync_AnOwnerWhoseEndFailed_AndTheFleetStillListsIt_KeepsItsWorker_RatherThanGivingItToTheUser(
+        string director)
+    {
+        var boss = Seat("m", "Manager", decision: WorkspaceRestoreDecisions.Undecided);
+        boss.DrainState = WorkspaceDrainStates.EndedAtLimit;
+        boss.ClosedAtUtc = null;
+        var worker = Seat("w", "Worker", reportsTo: "m");
+        worker.ClosedAtUtc = Now;
+        var doc = Doc(boss, worker);
+        doc.ShutdownKind = WorkspaceShutdownKinds.SmartShutdown;
+        var gw = Gateway(doc);
+        gw.AddLive("m", director);
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        var outcome = Assert.Single(result.Seats);
+        Assert.Null(outcome.RestoredSessionId);
+        Assert.Null(outcome.OwnerSessionId);
+        Assert.Contains("has not ended", outcome.Failure);
+
+        // NOTHING WAS STARTED AT ALL, which is the part that matters: a session started top level under the user
+        // cannot be taken back, and its owner is still collecting work it will never see.
+        Assert.Empty(gw.Spawns);
+    }
+
+    /// <summary>
+    /// THE OTHER HALF OF THAT GUARD, so it cannot quietly harden into a blanket refusal: the same owner, decided
+    /// the same way, with the record carrying ITS CLOSE - and the worker comes back owned by the user even while
+    /// the fleet still lists the owner's old id. A recorded close is the Director's own statement that the
+    /// session ended, and it settles the question; the fleet is asked only when the record does not say.
+    ///
+    /// This passes before the guard as well as after it. It is here to pin the line the guard draws, not to
+    /// prove the guard: the two tests either side of that line are what make it a line.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_AnOwnerTheRecordSaysClosed_GivesItsWorkerToTheUser_EvenWhileTheFleetStillListsIt()
+    {
+        var boss = Seat("m", "Manager", decision: WorkspaceRestoreDecisions.Close);
+        boss.ClosedAtUtc = Now;
+        var gw = Gateway(Doc(boss, Seat("w", "Worker", reportsTo: "m")));
+        gw.AddLive("m", ThisDirector);
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        Assert.Null(Assert.Single(result.Seats).Failure);
+        Assert.Null(Assert.Single(result.Seats).OwnerSessionId);
+        Assert.Null(Assert.Single(gw.Spawns).ControllerSessionId);
     }
 }

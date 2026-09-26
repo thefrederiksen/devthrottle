@@ -135,6 +135,12 @@ public sealed class WayUpTestRig
     /// <summary>
     /// A seat that handed over and was decided NOT to come back. Nothing is owed for it, and - unlike a seat
     /// that has already come back - it does not make the record a USED one.
+    ///
+    /// IT CARRIES ITS CLOSE, because a real smart shutdown records one for every seat it ended, and that close
+    /// is the proof the session ended: <see cref="CcDirector.ControlApi.Drain.DirectorRestore.ResolveOwner"/>
+    /// hands the seats under such an owner to the user, and the window says so. A seat decided "close" with NO
+    /// close recorded is a different case entirely and has its own builder - see
+    /// <see cref="NotComingBackAndNeverClosed"/>.
     /// </summary>
     /// <param name="id">Its captured session id.</param>
     /// <param name="name">Its name.</param>
@@ -146,6 +152,25 @@ public sealed class WayUpTestRig
             Decision = WorkspaceRestoreDecisions.Close,
             Why = "its work was finished",
         };
+        seat.ClosedAtUtc = Now;
+        return seat;
+    }
+
+    /// <summary>
+    /// A seat that is not coming back and that the record NEVER CLOSED - the drain tried to end it at the limit
+    /// and the end failed, or it blocked the drain, or a cancelled shutdown left it running. It may still be
+    /// running under the id it had, and only the fleet can say; the record cannot.
+    /// </summary>
+    /// <param name="id">Its captured session id.</param>
+    /// <param name="name">Its name.</param>
+    /// <param name="drainState">What the drain recorded about it.</param>
+    public static WorkspaceSeat NotComingBackAndNeverClosed(
+        string id, string name, string drainState = WorkspaceDrainStates.EndedAtLimit)
+    {
+        var seat = NotComingBack(id, name);
+        seat.Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided };
+        seat.DrainState = drainState;
+        seat.ClosedAtUtc = null;
         return seat;
     }
 
