@@ -3824,9 +3824,16 @@ public sealed class Session : IDisposable
     {
         if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return TextSendOutcome.Delivered;
         var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
-        if (fingerprint.Length == 0) return TextSendOutcome.Delivered;
         var window = ComposerReleaseWindowForTests ?? ComposerReleaseWindow;
-        var release = await WatchComposerReleaseAsync(fingerprint, window, typed.Length, untilLeft: true);
+        // A TEXT WITH NO LETTERS OR DIGITS ("???") HAS NOTHING FOR THE COMPOSER READER TO LOOK FOR (Voice Delivery
+        // mission, phase 3, round-2 review finding 1). It is unreadable, exactly as in ConfirmArrivalAsync's
+        // still-delivering branch - never delivered unseen: a working agent's output proves nothing.
+        if (fingerprint.Length == 0)
+            FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: the text has no letters or digits, so the composer " +
+                          $"cannot be read for it; treated as unreadable. len={typed.Length}");
+        var release = fingerprint.Length == 0
+            ? ComposerRelease.Unreadable
+            : await WatchComposerReleaseAsync(fingerprint, window, typed.Length, untilLeft: true);
         if (release == ComposerRelease.Left) return TextSendOutcome.Delivered;
         if (release == ComposerRelease.StillHeld)
         {
@@ -3991,9 +3998,11 @@ public sealed class Session : IDisposable
                 }
                 catch (Drivers.ComposerNotAcceptingInputException ex)
                     when (proof is not null && ex.TerminalReacted && Drivers.ComposerClearKeys.For(AgentKind) is not null
-                          && !ScreenShowsWorking())
+                          && !AgentShowsWorking())
                 {
-                    // NEVER WHILE THE SCREEN SHOWS THE AGENT WORKING (Voice Delivery mission, phase 3): a working agent can
+                    // NEVER WHILE THE AGENT SHOWS WORKING - its state or its screen (Voice Delivery mission, phase 3; the
+                    // state added by the round-2 review, minor note 1, so a screen read that misses the marker, issue #3406,
+                    // cannot fire the clear keys into a working agent). A working agent can
                     // still be reading the first typing, and the clear keys then empty only what has arrived - measured on
                     // 25 September 2026, the rest ran on and a fragment was left in the composer. Such a send is reported
                     // not delivered, with the text left where it is.

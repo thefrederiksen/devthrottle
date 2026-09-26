@@ -30,11 +30,12 @@ public sealed class BusyAgentSendTests : IDisposable
         catch (IOException) { }
     }
 
-    private (Session Session, ScriptedAgentTerminal Terminal) NewWorkingSession(AgentKind agent, string composer = "")
+    private (Session Session, ScriptedAgentTerminal Terminal) NewWorkingSession(AgentKind agent, string composer = "",
+        bool screenShowsWorking = true)
     {
         var transcript = Path.Combine(_dir, Guid.NewGuid() + ".jsonl");
         File.WriteAllText(transcript, "");
-        var terminal = new ScriptedAgentTerminal(agent, transcript, _dir) { Working = true };
+        var terminal = new ScriptedAgentTerminal(agent, transcript, _dir) { Working = screenShowsWorking };
         terminal.SetComposer(composer);
         _cleanup.Add(terminal);
         var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = agent };
@@ -270,6 +271,54 @@ public sealed class BusyAgentSendTests : IDisposable
         Assert.Equal(1, CountOf(terminal.TypedText, text));
         Assert.Equal(1, terminal.EntersAccepted);
         Assert.Equal(0, terminal.ClearKeysPressed);
+    }
+
+    // ===== Phase 3 follow-up: the round-2 review's finding 1 and first minor note =====
+
+    [Fact]
+    public async Task SendTextAsync_WorkingAgentTextWithNoLettersOrDigitsEnterSwallowed_IsNeverReportedDelivered()
+    {
+        // Arrange (round-2 finding 1): a working Codex swallows the Enter, and the text has no letters or digits, so the
+        // composer reader has no fingerprint to look for. Output after the Enter proves nothing while the agent works, so
+        // a text the composer check cannot see must be treated as unreadable, never answered delivered unseen.
+        var (session, terminal) = NewWorkingSession(AgentKind.Codex);
+        terminal.SwallowEnter = true;
+        session.ComposerReleaseWindowForTests = TimeSpan.FromSeconds(1);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(1);
+        var text = "???";
+
+        // Act
+        var outcome = await session.SendTextAsync(text, SessionTestDoors.TestDoor);
+
+        // Assert: still delivering, not delivered; the text left where it is, typed once, nothing cleared.
+        Assert.False(outcome.Confirmed, "a text with no letters or digits was reported delivered without the composer being read");
+        Assert.Contains("could not be read", outcome.Reason);
+        Assert.Equal(LateArrival.NoRecordsToWatch, (await outcome.LateProof!).Ended);
+        Assert.Equal(text, terminal.Composer);
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_StateSaysWorkingButScreenMissesTheMarker_NeverClearsAndRetypes()
+    {
+        // Arrange (round-2 minor note 1): the session's state says the agent is working, but the screen read misses the
+        // working marker (as the fixed 220 by 40 grid can, issue #3406). The agent reacts to the typing but never draws
+        // it, so the echo is never confirmed. The clear-and-retype recovery must ask the same question as the rest of the
+        // phase - the state or the screen - and must not fire the clear keys into a working agent.
+        var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode, screenShowsWorking: false);
+        terminal.TypedDrawDelay = TimeSpan.FromMinutes(5);
+        Assert.Equal(ActivityState.Working, session.ActivityState);
+        var text = "Token GRID1. Reply with exactly: ACK";
+
+        // Act
+        await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+
+        // Assert: typed once, nothing cleared, never typed again.
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+        Assert.Equal(0, terminal.EntersAccepted);
     }
 
     private static int CountOf(string hay, string needle)
