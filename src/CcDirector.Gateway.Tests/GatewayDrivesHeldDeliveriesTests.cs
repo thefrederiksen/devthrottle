@@ -196,8 +196,17 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
 
         await StartGatewayAsync();
         var store = new VoiceUploadStore(CcStorage.DictationUploads(), TenantId.Local);
+        // Wait for the start-up attempt to SETTLE, not merely to start (Voice Delivery phase 5, review round:
+        // the flaky restart test). The gateway-drive line is written BEFORE the attempt runs, so a wait that
+        // ends on the line can read the held state a moment before the attempt writes its own
+        // still-delivering line - and under load it did, seeing the FIRST complete's "no-answer" where this
+        // test means to see the restart attempt's "waiting-for-director". The settled state IS the fact: the
+        // restart attempt held waiting-for-director and only that attempt writes it (the first complete
+        // held no-answer, the Director is not connected, so nothing else can). The trigger line is asserted
+        // separately, after the wait, from the same durable log.
         await WaitUntilAsync(() => store.ReadDecisions(uploadId).Lines.Any(l =>
-            l.Decision == DeliveryDecisions.GatewayDrive && l.Facts?.Trigger == DeliveryDecisions.DriveGatewayStarted));
+            l.Decision == DeliveryDecisions.GatewayDrive && l.Facts?.Trigger == DeliveryDecisions.DriveGatewayStarted)
+            && store.LastHeldState(uploadId) == DeliverySendAndAsk.WaitingForDirectorState);
         Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, store.LastHeldState(uploadId));
         _starved = false;
         await ConnectDirectorAsync();
