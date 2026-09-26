@@ -24,6 +24,24 @@ public static class SegmentTiming
             + $"the phone suspended the recorder for about {FormatSpan(late)}, and audio in that stretch may be missing.";
     }
 
+    /// <summary>
+    /// The note to add when a segment had to be dropped because the recorder could not finish its file, or
+    /// null when the segment was too short to have held real audio. Android's recorder throws on Stop when it
+    /// received no valid audio, and the file it leaves behind is not playable; a Stop pressed just after a
+    /// rotation always does this, and that sub-second tail is not worth a note.
+    /// </summary>
+    /// <param name="ran">How long the dropped segment had been recording.</param>
+    public static string? DroppedSegmentNote(TimeSpan ran)
+    {
+        if (ran < DroppedSegmentNoteThreshold)
+            return null;
+        return $"[capture] The last {FormatSpan(ran)} of audio could not be saved: the phone's recorder "
+            + "finished without a usable file.";
+    }
+
+    /// <summary>A dropped segment shorter than this is the Stop-right-after-a-rotation case and is not reported.</summary>
+    public static readonly TimeSpan DroppedSegmentNoteThreshold = TimeSpan.FromSeconds(2);
+
     private static string FormatSpan(TimeSpan span)
         => span.TotalMinutes >= 1
             ? $"{(int)span.TotalMinutes} min {span.Seconds} s"

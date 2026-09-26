@@ -308,6 +308,90 @@ public sealed class RecordingIngestServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Process_OneBadSegmentOnTheLastAttempt_TranscribesTheRestAndNamesIt()
+    {
+        // 25 September 2026: four good minutes and one empty final segment. The empty one must not keep
+        // the four behind an "error" for good.
+        var svc = NewService(new FailsOnAudioTranscriber("empty"), new FakeFiler(),
+            maxChunkAttempts: 1, maxJobAttempts: 2);
+        await EnqueueChunks(svc, "rec1", "minute-0", "minute-1", "empty");
+
+        await svc.ProcessRecordingAsync("rec1"); // attempt 1 of 2: a passing failure must still retry
+        Assert.Equal("error", svc.GetStatus("rec1").State);
+
+        await svc.ProcessRecordingAsync("rec1"); // the last attempt: skip it and name it
+
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("transcribed", status.State);
+        var md = await File.ReadAllTextAsync(Path.Combine(_tmp, "recordings", "rec1", "transcript.md"));
+        Assert.Contains("heard minute-0", md);
+        Assert.Contains("heard minute-1", md);
+        Assert.Contains("## Segments that could not be transcribed", md);
+        Assert.Contains("segment 2: Chunk 2 failed after 1 attempts", md);
+    }
+
+    [Fact]
+    public async Task Process_BadSegmentBeforeTheLastAttempt_StillFailsTheJobForARetry()
+    {
+        var svc = NewService(new FailsOnAudioTranscriber("empty"), new FakeFiler(),
+            maxChunkAttempts: 1, maxJobAttempts: 5);
+        await EnqueueChunks(svc, "rec1", "minute-0", "empty");
+
+        await svc.ProcessRecordingAsync("rec1");
+
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("error", status.State);
+        Assert.NotNull(status.NextRetryAtUtc);
+    }
+
+    [Fact]
+    public async Task Process_EverySegmentBadOnTheLastAttempt_IsAnErrorNotAnEmptyTranscript()
+    {
+        var svc = NewService(new FailsOnAudioTranscriber("empty"), new FakeFiler(),
+            maxChunkAttempts: 1, maxJobAttempts: 1);
+        await EnqueueChunks(svc, "rec1", "empty", "empty");
+
+        await svc.ProcessRecordingAsync("rec1");
+
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("error", status.State);
+        Assert.Contains("No segment could be transcribed", status.Error);
+    }
+
+    private static async Task EnqueueChunks(RecordingIngestService svc, string id, params string[] audios)
+    {
+        svc.Register(Reg(id));
+        var chunks = new List<RecordingChunkInfo>();
+        for (var i = 0; i < audios.Length; i++)
+        {
+            var bytes = Encoding.UTF8.GetBytes(audios[i]);
+            await svc.StoreChunkAsync(id, i, bytes, Sha(bytes));
+            chunks.Add(new RecordingChunkInfo(i, $"{i:D4}.mp3", i * 60000, 60000, bytes.Length, Sha(bytes)));
+        }
+        var manifest = new RecordingManifest(id, "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3", chunks, new());
+        await svc.CompleteAsync(id, manifest);
+    }
+
+    /// <summary>Transcribes every segment except one whose audio is exactly <c>bad</c>, which always fails.</summary>
+    private sealed class FailsOnAudioTranscriber : IRecordingTranscriber
+    {
+        private readonly string _bad;
+        public FailsOnAudioTranscriber(string bad) => _bad = bad;
+
+        public Task<string> TranscribeChunkAsync(byte[] audio, string contentType, string fileName, CancellationToken ct = default)
+        {
+            var text = Encoding.UTF8.GetString(audio);
+            if (text == _bad)
+                throw new InvalidOperationException("Transcription returned 400: upstream_error");
+            return Task.FromResult("heard " + text);
+        }
+
+        public Task<CleanupOutcome> CleanupAsync(string rawTranscript, CancellationToken ct = default)
+            => Task.FromResult(new CleanupOutcome(rawTranscript, Applied: false, Reason: null));
+    }
+
+    [Fact]
     public async Task Process_ResumesWithoutRetranscribingDoneChunks()
     {
         // Pre-seed the per-segment text as if a prior run had transcribed it.

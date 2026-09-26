@@ -48,4 +48,22 @@ public class SegmentTimingTests
 
         Assert.All(note, c => Assert.True(c < 128));
     }
+
+    [Fact]
+    public void DroppedSegmentNote_StopRightAfterARotation_SaysNothing()
+    {
+        // The 25 September case: Stop pressed a moment after the minute rolled over.
+        Assert.Null(SegmentTiming.DroppedSegmentNote(TimeSpan.FromMilliseconds(400)));
+    }
+
+    [Fact]
+    public void DroppedSegmentNote_RealAudioLost_SaysHowMuch()
+    {
+        var note = SegmentTiming.DroppedSegmentNote(TimeSpan.FromSeconds(37));
+
+        Assert.NotNull(note);
+        Assert.StartsWith("[capture]", note);
+        Assert.Contains("37 s", note);
+        Assert.All(note!, c => Assert.True(c < 128));
+    }
 }
