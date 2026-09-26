@@ -22,7 +22,8 @@
 #
 # Safe to re-run: it replaces any previous copy of the wizard.
 
-set -euo pipefail
+# -E makes the ERR trap below fire inside functions too.
+set -Eeuo pipefail
 
 REPO="${DEVTHROTTLE_REPO:-thefrederiksen/devthrottle}"
 ASSET="devthrottle-setup-mac-arm64.zip"
@@ -33,7 +34,19 @@ BASE_URL="https://github.com/$REPO/releases/latest/download"
 
 GATEWAY_URL="${DEVTHROTTLE_HOSTED_GATEWAY_URL:-https://gateway.devthrottle.com}"
 
-log()  { printf '%s\n' "$*"; }
+# Every line this script prints also goes to a log file the user (and support) can find, next to the
+# setup wizard's own logs. Writing it is best effort: a log that cannot be written must not stop the install.
+LOG_DIR="$HOME/Library/Application Support/cc-director/logs/setup"
+LOG_FILE="$LOG_DIR/install-mac-$(date +%Y%m%d-%H%M%S).log"
+mkdir -p "$LOG_DIR" 2>/dev/null || LOG_FILE=""
+
+# The step the script is on, carried by every failure report. It used to say "download" whatever failed.
+STEP="preconditions"
+
+log() {
+    printf '%s\n' "$*"
+    if [[ -n "$LOG_FILE" ]]; then printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG_FILE" 2>/dev/null || true; fi
+}
 
 # Send a failed step to DevThrottle (issue #3311), so the failure is not only on this screen. No sign-in
 # exists yet, and none is needed. It sends the error text (home folder reduced to "~"), the macOS version,
@@ -55,13 +68,28 @@ report_failure() {
     message="${message//\\/\\\\}"
     message="${message//\"/\\\"}"
     local body
-    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"download\",\"message\":\"$message\",\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
+    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":\"$message\",\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
     if curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1; then
         printf 'A report of this failure was sent to DevThrottle.\n' >&2
     fi
 }
 
-fail() { printf 'ERROR: %s\n' "$*" >&2; report_failure "$*"; exit 1; }
+fail() {
+    # The install has already failed: nothing below may stop the script before it has said so.
+    trap - ERR
+    set +e
+    printf 'ERROR: %s\n' "$*" >&2
+    if [[ -n "$LOG_FILE" ]]; then
+        printf '%s ERROR (step %s): %s\n' "$(date +%H:%M:%S)" "$STEP" "$*" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+    report_failure "$*"
+    if [[ -n "$LOG_FILE" ]]; then printf 'The log of this run is in %s\n' "$LOG_FILE" >&2; fi
+    exit 1
+}
+
+# A command that fails without its own "|| fail" (mkdir, mv, open, shasum...) stops the script through
+# set -e. Without this trap that stop was silent to us: no report, and no ERROR line of our own.
+trap 'fail "Unexpected failure at line $LINENO while running: $BASH_COMMAND (exit $?)"' ERR
 
 # ----------------------------------------------------------------------------
 # Preconditions: Apple Silicon Mac.
@@ -75,6 +103,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 # ----------------------------------------------------------------------------
 # Download the wizard and the release manifest from the latest release.
 # ----------------------------------------------------------------------------
+STEP="download"
 log "Downloading the latest DevThrottle Setup wizard..."
 log "  $BASE_URL/$ASSET"
 curl -fL --progress-bar -o "$WORK_DIR/$ASSET" "$BASE_URL/$ASSET" \
@@ -89,6 +118,7 @@ curl -fsSL -o "$WORK_DIR/$MANIFEST" "$BASE_URL/$MANIFEST" \
 # part of every macOS install. Do NOT use /usr/bin/python3 here: it is only a
 # stub that hands off to the Xcode developer tools, so on a Mac with no
 # developer tools - or a broken Xcode - it fails and the install stops.
+STEP="verify"
 log "Verifying the download against the release manifest..."
 expected_hash="$(osascript -l JavaScript -e '
 ObjC.import("Foundation");
@@ -106,6 +136,7 @@ log "  SHA-256 verified: $actual_hash"
 # ----------------------------------------------------------------------------
 # Unpack with ditto so the app bundle's signature and permissions survive.
 # ----------------------------------------------------------------------------
+STEP="unpack"
 log "Unpacking..."
 ditto -xk "$WORK_DIR/$ASSET" "$WORK_DIR/unpacked" || fail "Could not unpack $ASSET."
 [[ -d "$WORK_DIR/unpacked/$APP_NAME" ]] || fail "The archive did not contain \"$APP_NAME\"."
@@ -117,6 +148,7 @@ xattr -dr com.apple.quarantine "$WORK_DIR/unpacked/$APP_NAME" 2>/dev/null || tru
 # ----------------------------------------------------------------------------
 # Install to ~/Applications, replacing any previous copy.
 # ----------------------------------------------------------------------------
+STEP="place"
 mkdir -p "$DESTINATION_DIR"
 if [[ -d "$DESTINATION_DIR/$APP_NAME" ]]; then
     log "Replacing the previous copy in $DESTINATION_DIR..."
@@ -128,6 +160,7 @@ log "Installed \"$APP_NAME\" into $DESTINATION_DIR."
 # ----------------------------------------------------------------------------
 # Open the wizard (skippable for unattended or scripted runs).
 # ----------------------------------------------------------------------------
+STEP="open"
 if [[ "${DEVTHROTTLE_NO_OPEN:-}" == "1" ]]; then
     log "DEVTHROTTLE_NO_OPEN=1 - not opening the wizard. Open it later with:"
     log "  open \"$DESTINATION_DIR/$APP_NAME\""

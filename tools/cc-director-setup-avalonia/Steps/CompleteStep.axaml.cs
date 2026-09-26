@@ -215,7 +215,7 @@ public partial class CompleteStep : UserControl
             {
                 if (!Directory.Exists(_installPath))
                 {
-                    SetupLog.Write($"[CompleteStep] Director bundle not found at {_installPath}");
+                    LaunchFailed($"The Director was not found at {_installPath}", null);
                     return;
                 }
 
@@ -226,7 +226,7 @@ public partial class CompleteStep : UserControl
             {
                 if (!File.Exists(_installPath))
                 {
-                    SetupLog.Write($"[CompleteStep] cc-director not found at {_installPath}");
+                    LaunchFailed($"The Director was not found at {_installPath}", null);
                     return;
                 }
 
@@ -246,8 +246,20 @@ public partial class CompleteStep : UserControl
         }
         catch (Exception ex)
         {
-            SetupLog.Write($"[CompleteStep] LaunchButton_Click FAILED: {ex.Message}");
+            LaunchFailed($"The Director could not be started: {ex.GetType().Name}: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// A Launch click that fails used to do nothing at all: the button stayed, nothing was said, and the
+    /// reason went only to the setup log (#3311). Now it is said on screen and reported.
+    /// </summary>
+    private void LaunchFailed(string message, Exception? ex)
+    {
+        SetupLog.Write($"[CompleteStep] LaunchButton_Click FAILED: {message}{(ex is null ? "" : "\n" + ex)}");
+        SummaryLine.Text = $"ERROR: {message}. The log is at {SetupLog.Path}";
+        SummaryLine.IsVisible = true;
+        _ = WizardErrorReport.SendAsync("wizard", "launch-director", message, ex);
     }
 
     [SupportedOSPlatform("windows")]
