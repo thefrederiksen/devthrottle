@@ -15,33 +15,42 @@ using static CcDirector.Gateway.Tests.Wingman.TurnVerdictTestDoubles;
 namespace CcDirector.Gateway.Tests.Wingman;
 
 /// <summary>
-/// THE WINGMAN READS WHAT THE FLEET MANAGER OWNS (Fleet Manager mission, step 2; owner ruling, 2026-09-16).
+/// A SESSION ANOTHER SESSION OWNS GETS NO MODEL CALLS (Turn Pipeline mission, phase 2; owner ruling, 2026-09-25).
 ///
-/// A session whose DIRECT live owner is the account's Fleet Manager is judged automatically - its turn end and its
-/// snooze expiry - and its verdict is stored under its own session id. Everything the owner sees stays as it was:
-/// the session is still held for narration, still supervised in the fold, still out of the owner's "needs you".
-/// Every other held session keeps today's rule and is never read automatically.
+/// "Any session that has an owner other than the user should not even get calling." Every session a live session
+/// owns stands down from the automatic Wingman entirely - no verdict call (Call A, AskJudgeAsync), no narration call
+/// (Call B, AskNarratorAsync), no speech - and the account's Fleet Manager as owner is NOT an exception any more:
+/// "one rule for every owned session ... The Fleet Manager reads its own sessions; it is a coding agent and can."
+///
+/// THIS REPLACES FleetManagerOwnedSessionsAreJudgedTests, which asserted the 2026-09-16 rule the owner reversed: that
+/// a session whose direct owner is the Fleet Manager is judged and stored. Those tests are inverted here.
+///
+/// THE NEGATIVE CONTROL IS BESIDE EVERY CASE. A session the owner owns directly - the Fleet Manager itself, an
+/// unowned Architect - still gets BOTH calls in the same fixture, so a change that switched the Wingman off
+/// altogether would turn these tests red rather than pass them.
 ///
 /// THE FLEET MANAGER IS THE ONE SESSION THE ACCOUNT MARKS, set here through the production settings resolver over
-/// the real tenant settings store. A session seated on the fleet-manager workflow that the account has NOT marked
-/// is an ordinary session, and its Workers stay held.
-///
-/// Every identifier below - the session ids, the workflow id, the role, the setting key - is written out as a
-/// literal and never read from the production constant, so a changed production value turns a test red.
+/// the real tenant settings store. Every identifier below - the session ids, the workflow id, the role, the setting
+/// key - is written out as a literal and never read from the production constant, so a changed production value
+/// turns a test red.
 ///
 /// The held answer is resolved by the PRODUCTION environment over the REAL push store ingest, for the reason
 /// <see cref="TurnVerdictServiceTests"/> gives: the defect class lives in the path from the store to the answer.
 ///
-/// NOT PROVEN HERE, AND NOT BUILT: carrying the verdict to the Fleet Manager session (step 4). These tests prove
-/// the verdict is judged and stored under the child's own id, nothing more. The carrying-on watchdog
-/// (<c>ExpireCarryingOn</c>) has no held check at all, so this change does not reach it.
+/// SPEECH, STATED: the audio clip is made by the voice paths, and every one of them asks the held check first - the
+/// voice turn end and the idle sweep in the host (<c>IsHeld</c>), and the seat's own narration triggers (Voice and
+/// Sweep, proven skipped below on a voice session). No clip is made without a narration, and no narration call is made
+/// for an owned session, which is what these tests count.
+///
+/// That the Fleet Manager is still TOLD of the stop - with no reading, and without waiting for one - is proven in
+/// <c>FleetManagerEventServiceTests</c>.
 ///
 /// PARKED SUITE. Gateway.UnitTests runs under -Parked.
 /// </summary>
-public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
+public sealed class OwnedSessionsAreNotReadTests : IDisposable
 {
     private static readonly TenantId Tenant = TenantId.Local;
-    private static readonly DateTime ObservedAt = new(2026, 9, 16, 10, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime ObservedAt = new(2026, 9, 25, 10, 0, 0, DateTimeKind.Utc);
     private static readonly TimeSpan Stale = TimeSpan.FromMinutes(5);
 
     // Literals, on purpose: never FleetManagerSessions or TenantSettingKeys constants.
@@ -58,6 +67,10 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
     private const string MissionArchitect = "b3000000-0000-4000-8000-000000000001";
     private const string MissionArchitectWorker = "b3000000-0000-4000-8000-000000000002";
 
+    /// <summary>Every owned session in the fleet below.</summary>
+    private static readonly string[] Owned =
+        { FmWorker, FmArchitect, FmArchitectWorker, SeatedArchitectWorker, MissionArchitectWorker };
+
     private readonly GatewayDbTestHarness _harness = new();
     private int _screenReads;
     private readonly CountingBrain _brain = new(() => FakeTurnVerdictEnvironment.Finished(
@@ -68,11 +81,12 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
     // ================================================================= the roster
 
     /// <summary>
-    /// The whole fleet:
-    ///   Fm (marked; seated on no workflow at all) -> FmWorker                                         judged
-    ///   Fm -> FmArchitect (Architect; inherited the fleet-manager seat; judged) -> FmArchitectWorker   held
-    ///   SeatedArchitect (Architect; unowned; seated on fleet-manager; NOT marked) -> its Worker       held
-    ///   MissionArchitect (Architect; seated on mission) -> its Worker                                held
+    /// The whole fleet. Owned (no calls): every session with an arrow into it. The owner's own (both calls): Fm,
+    /// SeatedArchitect and MissionArchitect.
+    ///   Fm (marked; seated on no workflow at all) -> FmWorker
+    ///   Fm -> FmArchitect (Architect; inherited the fleet-manager seat) -> FmArchitectWorker
+    ///   SeatedArchitect (Architect; unowned; seated on fleet-manager; NOT marked) -> its Worker
+    ///   MissionArchitect (Architect; seated on mission) -> its Worker
     /// </summary>
     private static SessionDto[] Fleet() => new[]
     {
@@ -131,21 +145,28 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => voice,
-            fleetManagerSessionId: settings.FleetManagerSessionId,
             narrationPlan: _ => NarrationPlan.Allowed);
         return (new TurnVerdictService(env), env, pushed);
     }
 
     private static TurnEndSignal Signal(string sid) => new(sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true);
 
+    /// <summary>No screen read, no verdict call, no narration call, nothing stored.</summary>
+    private void AssertNothingAsked(GatewayTurnVerdictEnvironment env, string sid)
+    {
+        Assert.Equal(0, _screenReads);
+        Assert.Equal(0, _brain.Asks);
+        Assert.Equal(0, _brain.Narrations);
+        Assert.Null(env.Latest(Tenant, sid));
+    }
+
     private async Task AssertSkippedAsHeld(TurnVerdictService seat, GatewayTurnVerdictEnvironment env, string sid)
     {
         var outcome = await seat.StartTurnEnd(Signal(sid));
 
+        // Kind and cause together, so a failure names the skip (or the judgement) it got instead.
         Assert.Equal((TurnVerdictOutcomeKind.Skipped, (string?)ActivityCauses.Held), (outcome.Kind, outcome.SkipCause));
-        Assert.Equal(0, _screenReads);
-        Assert.Equal(0, _brain.Asks);
-        Assert.Null(env.Latest(Tenant, sid));
+        AssertNothingAsked(env, sid);
     }
 
     // ================================================================= the mark
@@ -182,7 +203,7 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
     }
 
     [Fact]
-    public void PushStoreIngest_KeepsTheExplicitArchitectRole_TheFixtureRelies_On()
+    public void PushStoreIngest_KeepsTheExplicitArchitectRole_TheFixtureReliesOn()
     {
         var (_, env, pushed) = Seat();
 
@@ -191,48 +212,45 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
         Assert.Equal(ArchitectRole, env.ReadSessionState(Tenant, SeatedArchitect).Facts!.SessionRole);
     }
 
-    // ================================================================= held for judging
+    // ================================================================= owned: no calls, whoever owns it
 
     [Theory]
-    [InlineData(FmWorker)]
-    [InlineData(FmArchitect)]   // an Architect the Fleet Manager started answers to the Fleet Manager directly
-    public async Task TurnEnd_SessionTheFleetManagerOwns_IsJudgedAndStored_OneScreenReadOneModelCall(string sid)
+    [InlineData(FmWorker, false)]              // the Fleet Manager's own Worker: the reversed exemption
+    [InlineData(FmWorker, true)]               // ...and as a voice session, which the judge switch never stops
+    [InlineData(FmArchitect, false)]           // an Architect the Fleet Manager started
+    [InlineData(FmArchitect, true)]
+    [InlineData(FmArchitectWorker, false)]     // two levels under the Fleet Manager
+    [InlineData(SeatedArchitectWorker, false)] // owned by an Architect seated on the fleet-manager workflow, not marked
+    [InlineData(MissionArchitectWorker, false)]
+    [InlineData(MissionArchitectWorker, true)]
+    public async Task TurnEnd_OwnedSession_GetsNoScreenReadNoVerdictCallAndNoNarrationCall(string sid, bool voice)
     {
-        var (seat, env, _) = Seat();
-
-        var outcome = await seat.StartTurnEnd(Signal(sid));
-
-        // Kind and cause together, so a failure names the skip that refused the read.
-        Assert.Equal((TurnVerdictOutcomeKind.Judged, (string?)null), (outcome.Kind, outcome.SkipCause));
-        Assert.Equal(1, _screenReads);
-        Assert.Equal(1, _brain.Asks);
-        Assert.NotNull(env.Latest(Tenant, sid));   // stored under the child's own id - and that is all step 2 does
-    }
-
-    [Theory]
-    [InlineData(MissionArchitectWorker)]   // held by an Architect on another workflow
-    [InlineData(FmArchitectWorker)]        // held by an Architect the Fleet Manager started, which carries the inherited
-                                           // seat but is not the mark: only the direct owner counts
-    public async Task TurnEnd_SessionHeldByAnyoneButTheFleetManager_IsStillSkippedAsHeld_WithNoReadAndNoCall(string sid)
-    {
-        var (seat, env, _) = Seat();
+        var (seat, env, _) = Seat(voice: voice);
 
         await AssertSkippedAsHeld(seat, env, sid);
     }
 
-    [Fact]
-    public async Task TurnEnd_WorkerOfAnUnownedArchitectSeatedOnTheFleetManagerWorkflow_ButNotMarked_IsStillHeld()
+    [Theory]
+    [InlineData(Fm)]                 // the Fleet Manager itself answers to the owner
+    [InlineData(SeatedArchitect)]
+    [InlineData(MissionArchitect)]
+    public async Task TurnEnd_SessionTheOwnerOwns_StillGetsTheVerdictCallAndTheNarrationCall(string sid)
     {
+        // THE NEGATIVE CONTROL: the same fixture, a session nobody else owns. Without it, a Wingman switched off
+        // altogether would pass every test above.
         var (seat, env, _) = Seat();
 
-        var state = env.ReadSessionState(Tenant, SeatedArchitectWorker);
-        Assert.True(state.Held);
-        Assert.False(state.OwnedByFleetManager);
-        await AssertSkippedAsHeld(seat, env, SeatedArchitectWorker);
+        var outcome = await seat.StartTurnEnd(Signal(sid));
+
+        Assert.Equal((TurnVerdictOutcomeKind.Judged, (string?)null), (outcome.Kind, outcome.SkipCause));
+        Assert.Equal(1, _screenReads);
+        Assert.Equal(1, _brain.Asks);
+        Assert.Equal(1, _brain.Narrations);
+        Assert.NotNull(env.Latest(Tenant, sid));
     }
 
     [Fact]
-    public async Task TurnEnd_AccountWithNoMark_HoldsEveryOwnedSession_EvenUnderTheOldFleetManager()
+    public async Task TurnEnd_AccountWithNoMark_HoldsEveryOwnedSession()
     {
         var (seat, env, _) = Seat(mark: null);
 
@@ -240,63 +258,64 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
     }
 
     [Fact]
-    public async Task TurnEnd_MarkOnAnOwnedSession_DoesNotMakeItAFleetManager_SoItsWorkerIsStillHeld()
-    {
-        // The account marks the Architect the Fleet Manager started; that Architect is owned, so it is not the
-        // Fleet Manager while that ownership stands.
-        var (seat, env, _) = Seat(mark: FmArchitect);
-
-        await AssertSkippedAsHeld(seat, env, FmArchitectWorker);
-    }
-
-    [Fact]
-    public async Task SnoozeExpiry_SessionTheFleetManagerOwns_IsReadingAndJudged_ButAnArchitectsWorkerIsNot()
+    public async Task SnoozeExpiry_OwnedSessions_AreNotRead_ButTheOwnersOwnSessionIs()
     {
         var (seat, env, _) = Seat();
 
-        Assert.False(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", MissionArchitectWorker));
-        Assert.False(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", SeatedArchitectWorker));
-        Assert.True(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", FmWorker));
+        foreach (var sid in Owned)
+            Assert.False(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", sid), sid);
+        // CONTROL: the owner's own session is read on its snooze expiry.
+        Assert.True(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Fm));
 
-        Assert.True(await WaitUntil(() => env.Latest(Tenant, FmWorker) is not null), "the snooze expiry never judged the Fleet Manager's session");
+        Assert.True(await WaitUntil(() => env.Latest(Tenant, Fm) is not null), "the snooze expiry never read the owner's own session");
         Assert.Equal(1, _brain.Asks);
-        Assert.Null(env.Latest(Tenant, MissionArchitectWorker));
-        Assert.Null(env.Latest(Tenant, SeatedArchitectWorker));
+        foreach (var sid in Owned)
+            Assert.Null(env.Latest(Tenant, sid));
     }
 
-    // ================================================================= held for narration: unchanged
-
     [Fact]
-    public void IsHeld_SessionTheFleetManagerOwns_IsStillHeld_SoNoNarrationCallerReadsItAloud()
+    public void IsHeld_ASessionTheFleetManagerOwns_IsHeldLikeAnyOtherOwnedSession()
     {
         var (seat, env, _) = Seat();
 
-        Assert.True(seat.IsHeld(Tenant, FmWorker));
-        Assert.True(seat.IsHeld(Tenant, MissionArchitectWorker));
+        foreach (var sid in Owned)
+        {
+            Assert.True(seat.IsHeld(Tenant, sid), sid);
+            Assert.True(env.ReadSessionState(Tenant, sid).Held, sid);
+        }
         Assert.False(seat.IsHeld(Tenant, Fm));
-
-        var state = env.ReadSessionState(Tenant, FmWorker);
-        Assert.True(state.Held);
-        Assert.True(state.OwnedByFleetManager);
-        Assert.False(state.HeldForJudging);
+        Assert.False(seat.IsHeld(Tenant, MissionArchitect));
     }
 
     [Theory]
     [InlineData(TurnVerdictTrigger.Voice)]
     [InlineData(TurnVerdictTrigger.Sweep)]
-    public async Task NarrationTriggers_SessionTheFleetManagerOwns_AreStillSkippedAsHeld(TurnVerdictTrigger trigger)
+    public async Task SpeechTriggers_ASessionTheFleetManagerOwns_AreSkippedAsHeld_WithNoCall(TurnVerdictTrigger trigger)
     {
-        var (seat, _, _) = Seat(voice: true);
+        var (seat, env, _) = Seat(voice: true);
 
         var outcome = await seat.VerdictForCurrentScreenAsync(Tenant, "dir-1", FmWorker, trigger);
 
-        Assert.Equal(TurnVerdictOutcomeKind.Skipped, outcome.Kind);
-        Assert.Equal(ActivityCauses.Held, outcome.SkipCause);
-        Assert.Equal(0, _screenReads);
-        Assert.Equal(0, _brain.Asks);
+        Assert.Equal((TurnVerdictOutcomeKind.Skipped, (string?)ActivityCauses.Held), (outcome.Kind, outcome.SkipCause));
+        AssertNothingAsked(env, FmWorker);
     }
 
-    // ================================================================= the owner's badge: unchanged
+    [Theory]
+    [InlineData(TurnVerdictTrigger.Voice)]
+    [InlineData(TurnVerdictTrigger.Sweep)]
+    public async Task SpeechTriggers_TheOwnersOwnVoiceSession_IsRead(TurnVerdictTrigger trigger)
+    {
+        // CONTROL for the test above: the same triggers on the owner's own voice session make both calls.
+        var (seat, _, _) = Seat(voice: true);
+
+        var outcome = await seat.VerdictForCurrentScreenAsync(Tenant, "dir-1", Fm, trigger);
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
+        Assert.Equal(1, _brain.Asks);
+        Assert.Equal(1, _brain.Narrations);
+    }
+
+    // ================================================================= the owner's badge: "supporting"
 
     private sealed class StoreRows : ITurnVerdictRowSource
     {
@@ -321,10 +340,34 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
         Label = label,
     };
 
+    [Fact]
+    public void Fold_AnOwnedSessionWithNoReadingAtAll_IsSupporting_AndNeverCountsAsNeedsYou()
+    {
+        // The new normal: an owned session is never read, so it has no verdict at all. Its row is still "supporting".
+        var store = new TurnVerdictStore(_harness.Open());
+        var rows = Fleet().ToList();
+
+        GatewayEndpoints.StampFleetRolesAndFold(rows, rows, needsYouStampFor: null, snoozeRegistry: null,
+            tenant: Tenant, handRaises: null, turnVerdictRows: new StoreRows(store));
+
+        foreach (var sid in Owned)
+        {
+            var owned = rows.Single(r => r.SessionId == sid);
+            Assert.True(owned.HasLiveSupervisor, sid);
+            Assert.Equal("supporting", owned.EffectiveColor);
+            Assert.Equal(SessionOrdering.TriageBucket.OnHold, SessionOrdering.Classify(owned));
+        }
+        // CONTROL: the owner's own stopped session, unread, is not "supporting".
+        Assert.NotEqual("supporting", rows.Single(r => r.SessionId == Fm).EffectiveColor);
+        Assert.Equal(0, WebPushNeedsYouNotifier.CountNeedsYou(rows.Where(r => Owned.Contains(r.SessionId))));
+    }
+
+    /// <summary>A reading stored before the 2026-09-25 ruling may still sit on an owned session; it never colours the
+    /// owner's badge.</summary>
     [Theory]
     [InlineData("needed-you", "red")]
     [InlineData("finished", "cyan")]
-    public void Fold_AVerdictOnASessionTheFleetManagerOwns_NeverColoursTheOwnersBadgeOrNeedsYouCount(string word, string unownedColour)
+    public void Fold_AnOlderVerdictOnASessionTheFleetManagerOwns_NeverColoursTheOwnersBadgeOrNeedsYouCount(string word, string unownedColour)
     {
         var store = new TurnVerdictStore(_harness.Open());
         store.Store(Tenant, FmWorker, Verdict(word, "Choose whether to run the migration"));

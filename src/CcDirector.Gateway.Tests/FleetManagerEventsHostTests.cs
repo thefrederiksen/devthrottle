@@ -180,21 +180,40 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
     // ---- the hooks ---------------------------------------------------------------------------------------
 
     /// <summary>THE TURN-END HOOK AND THE READING-COMPLETED HOOK. The worker's turn end is stored by the host's turn-end
-    /// fan-out, and the Wingman seat's reading of it (the judge switch is off) reaches the stop through the seat's
-    /// notice - so the stop is no longer waiting, and it says why it has no reading.</summary>
+    /// fan-out COMPLETE: an owned session is never read (owner ruling, 2026-09-25), so the stop is not left waiting and
+    /// says why it has no reading. The reading-completed hook now matters for the Fleet Manager's OWN turn only - its
+    /// reading says whether it may be typed into - so it is proven there: the Fleet Manager's reading (the judge
+    /// switch is off) reaches the service through the seat's notice, and the Gateway's note names that reason. Without
+    /// the notice the note would still say the Wingman is reading.</summary>
     [Fact]
-    public async Task TurnEnd_OfAnOwnedSession_IsStored_AndGetsItsReadingThroughTheHost()
+    public async Task TurnEnd_OfAnOwnedSession_IsStoredWithNoReading_AndTheFleetManagersReadingReachesTheService()
     {
         Observe(_workerId, "Working");
         SetState(_workerId, "WaitingForInput");
         Observe(_workerId, "WaitingForInput");
 
-        var events = await EventsWhenAsync(e => e.Count == 1 && !e[0].ReadingPending);
+        var events = await EventsWhenAsync(e => e.Count == 1);
 
         var stop = Assert.Single(events);
         Assert.Equal(("stop", _workerId, _fleetManagerId), (stop.Kind, stop.SessionId, stop.AddressedTo));
-        Assert.False(stop.ReadingPending, "the reading never reached the stored stop - the seat's notice is not wired");
-        Assert.Equal("this account's Wingman judge switch is off", stop.NoVerdictReason);
+        Assert.False(stop.ReadingPending);
+        Assert.Null(stop.Verdict);
+        Assert.Equal("the Wingman does not read a session another session owns, so this stop has no reading", stop.NoVerdictReason);
+
+        Observe(_fleetManagerId, "Working");
+        SetState(_fleetManagerId, "WaitingForInput");
+        Observe(_fleetManagerId, "WaitingForInput");
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        string? note = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            await _gateway.FleetManagerEventsForTest!.WhenIdleAsync();
+            note = _gateway.FleetManagerEventsForTest.DeliveryNote(_tenant);
+            if (note?.Contains("judge switch is off", StringComparison.Ordinal) == true) break;
+            await Task.Delay(50);
+        }
+        Assert.True(note?.Contains("judge switch is off", StringComparison.Ordinal) == true,
+            $"the Fleet Manager's own reading never reached the service - the seat's notice is not wired. Note: {note ?? "(none)"}");
     }
 
     [Fact]

@@ -20,6 +20,13 @@ namespace CcDirector.Gateway.Tests.Fleet;
 /// <summary>
 /// THE GATEWAY TELLS THE FLEET MANAGER WHEN A SESSION IT OWNS STOPS OR DIES (the Fleet Manager mission, step 4).
 ///
+/// AN OWNED SESSION IS NEVER READ (owner ruling, 2026-09-25; Turn Pipeline mission, phase 2). Its stop is stored with
+/// no reading and the plain reason, and is ready to deliver at once - no verdict call, no narration call, and nothing
+/// waits for a reading that will not come. Tests that followed an owned session's reading into the prompt were
+/// replaced by tests of exactly that. A stop still WAITING for a reading can now only be one an earlier Gateway left
+/// behind, so those paths (the reconcile's reason, withdrawal, not delivering it) are driven through the store as that
+/// earlier Gateway wrote it.
+///
 /// Driven in process over the real stores: the REAL turn verdict seat on the production environment, over a REAL
 /// push store whose ingest discards every inbound role and owner answer, with the seat's ReadingCompleted wired to
 /// the service exactly as the host wires it. "Owned" is the account's mark - a plain value here - and the pushed
@@ -43,11 +50,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     /// carries - read or heard - and the NARRATION call writes it, not the judge.</summary>
     private const string Spoken = "The branch is pushed.";
 
-    /// <summary>The label the canned answer gives every stop in this class. Every session here that reaches the
-    /// Fleet Manager is one the Fleet Manager OWNS, and an owned session is read by its owner rather than narrated
-    /// for the person, so it carries no narration and no summary - the label is the whole of what the reading says
-    /// about it. That is what these tests follow to the prompt.</summary>
-    private const string Label = "Pushed the branch and opened the pull request";
+    /// <summary>What an owned session's stop says in place of a reading, as a literal: a changed production text turns
+    /// a test red.</summary>
+    private const string OwnedReason = "the Wingman does not read a session another session owns, so this stop has no reading";
 
     private readonly GatewayDbTestHarness _harness = new();
     private DateTime _now = Start;
@@ -103,7 +108,6 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
-            fleetManagerSessionId: _ => _marked,
             // Main's narration-plan parameter (pull request 3018). These tests are about which stops reach
             // the Fleet Manager, not about billing: this class judges stops, it does not narrate, so the plan
             // is the allowing one, as it is for the sibling verdict tests, and it never changes what they measure.
@@ -192,34 +196,43 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     // ================================================================= a stop
 
     [Fact]
-    public async Task Stop_OfAnOwnedSession_IsStoredBeforeTheReading_ThenCarriesTheStoredVerdict()
+    public async Task Stop_OfAnOwnedSession_IsStoredWithNoReadingAndThePlainReason_AndNoModelIsAsked()
     {
-        _brain.Hold();
         var signal = Signal("worker-1");
 
         _service.OnTurnEnd(signal, wingmanRunning: true);
 
-        // Stored on the caller's thread, before anything read it.
-        var waiting = Assert.Single(Open());
-        Assert.True(waiting.ReadingPending);
-        Assert.Equal(("stop", "worker-1", "fm", "dir-1"), (waiting.Kind, waiting.SessionId, waiting.AddressedTo, waiting.DirectorId));
-
-        var reading = _seat.StartTurnEnd(signal);
-        _brain.Release();
-        await reading;
-        await _service.WhenIdleAsync();
-
+        // Stored on the caller's thread, already complete: nothing is left waiting for a reading.
         var e = Assert.Single(Open());
-        Assert.Equal(waiting.Id, e.Id);
+        Assert.Equal(("stop", "worker-1", "fm", "dir-1"), (e.Kind, e.SessionId, e.AddressedTo, e.DirectorId));
         Assert.False(e.ReadingPending);
+        Assert.Null(e.ReadingNote);
+        Assert.Null(e.Verdict);
+        Assert.Equal(OwnedReason, e.NoVerdictReason);
+        Assert.Equal(OwnedReason, FleetManagerEventService.OwnedNotReadReason);
         Assert.Equal("Repository - the session named worker-1", e.SessionName);
-        var stored = _verdicts.Latest(Tenant, "worker-1");
-        Assert.NotNull(stored);
-        Assert.Equal(stored!.VerdictId, e.Verdict!.VerdictId);
-        Assert.Equal(Label, e.Verdict.Label);
-        Assert.Equal("", e.Verdict.Summary);
-        Assert.Null(e.NoVerdictReason);
         Assert.Null(e.DeliveredTo);
+
+        // The seat, fanned out after it as the host does: it stands down, and nothing is asked or stored.
+        var outcome = await _seat.StartTurnEnd(signal);
+        await _service.WhenIdleAsync();
+        Assert.Equal((TurnVerdictOutcomeKind.Skipped, (string?)ActivityCauses.Held), (outcome.Kind, outcome.SkipCause));
+        Assert.Equal((0, 0), (_brain.Asks, _brain.Narrations));
+        Assert.Null(_verdicts.Latest(Tenant, "worker-1"));
+        Assert.Equal(e.Id, Assert.Single(Open()).Id);
+        Assert.Equal(OwnedReason, Assert.Single(Open()).NoVerdictReason);
+    }
+
+    /// <summary>CONTROL for the test above, in the same fixture: the owner's own session IS read - one verdict call and
+    /// one narration call - so the Wingman is proven running here, and it simply stands down for the owned one.</summary>
+    [Fact]
+    public async Task Stop_OfTheOwnersOwnSession_IsReadAndNarrated_AndIsNoFleetManagerEvent()
+    {
+        await TurnEndAsync("plain");
+
+        Assert.Equal((1, 1), (_brain.Asks, _brain.Narrations));
+        Assert.NotNull(_verdicts.Latest(Tenant, "plain"));
+        Assert.Empty(Open());
     }
 
     [Theory]
@@ -245,29 +258,6 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Stop_ThatJoinedAReadingInFlight_IsOneEvent()
-    {
-        _brain.Hold();
-        var first = Signal("worker-1");
-        _service.OnTurnEnd(first, wingmanRunning: true);
-        var firstReading = _seat.StartTurnEnd(first);
-        Assert.True(await WaitUntil(() => _brain.Asks == 1), "the first reading never reached the judge");
-
-        // A second sighting while the first is being read joins it.
-        var second = Signal("worker-1");
-        _service.OnTurnEnd(second, wingmanRunning: true);
-        Assert.Equal(ActivityCauses.AlreadyJudging, (await _seat.StartTurnEnd(second)).SkipCause);
-
-        _brain.Release();
-        await firstReading;
-        await _service.WhenIdleAsync();
-
-        var e = Assert.Single(Open());
-        Assert.NotNull(e.Verdict);
-        Assert.Equal(1, _brain.Asks);
-    }
-
-    [Fact]
     public async Task Stop_SeenAgainAfterAGatewayRestart_IsNotStoredTwice()
     {
         await TurnEndAsync("worker-1");
@@ -277,54 +267,30 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Single(Open());
     }
 
-    [Fact]
-    public async Task Stop_TheWingmanDidNotRead_IsStored_WithNoVerdictAndTheReason()
+    /// <summary>THE REASON DOES NOT DEPEND ON THE WINGMAN: an owned session is not read whatever the account's judge switch
+    /// says, and whether or not this Gateway runs a Wingman at all.</summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task Stop_OfAnOwnedSession_HasTheSameReason_WhateverTheWingmanSettings(bool judgeEnabled, bool wingmanRunning)
     {
-        _judgeEnabled = false;
+        _judgeEnabled = judgeEnabled;
 
-        await TurnEndAsync("worker-1");
+        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning);
+        await _service.WhenIdleAsync();
 
         var e = Assert.Single(Open());
         Assert.False(e.ReadingPending);
         Assert.Null(e.Verdict);
-        Assert.Equal("this account's Wingman judge switch is off", e.NoVerdictReason);
+        Assert.Equal(OwnedReason, e.NoVerdictReason);
         Assert.Equal(0, _brain.Asks);
-    }
-
-    [Fact]
-    public async Task Stop_WithNoWingmanOnTheGateway_IsStoredWithThatReason()
-    {
-        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: false);
-        await _service.WhenIdleAsync();
-
-        var e = Assert.Single(Open());
-        Assert.False(e.ReadingPending);
-        Assert.Equal("the Wingman is not running on this Gateway", e.NoVerdictReason);
-    }
-
-    [Fact]
-    public async Task Stop_ThatWentBackToWorkWhileBeingRead_IsWithdrawn()
-    {
-        _brain.Hold();
-        var signal = Signal("worker-1");
-        _service.OnTurnEnd(signal, wingmanRunning: true);
-        var reading = _seat.StartTurnEnd(signal);
-        Assert.True(await WaitUntil(() => _brain.Asks == 1));
-        Assert.Single(Open());
-
-        SetState("worker-1", "Working");
-        _seat.OnSessionWorking(Tenant, "worker-1");
-        _brain.Release();
-        Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await reading).Kind);
-        await _service.WhenIdleAsync();
-
-        Assert.Empty(Open());
     }
 
     // ---- ruling 3: never dropped because the session left the fresh roster
 
-    /// <summary>The Director's report has gone stale: the fresh roster no longer has the session, the Wingman cannot
-    /// see it - and the stop is still stored, with that said.</summary>
+    /// <summary>The Director's report has gone stale: the fresh roster no longer has the session - and the stop is still
+    /// stored, and delivered with the owned session's reason.</summary>
     [Fact]
     public async Task Stop_OfASessionMissingFromTheFreshRoster_IsStillStored_AndSaysWhy()
     {
@@ -336,7 +302,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var e = Assert.Single(Open());
         Assert.Equal(("worker-1", "fm"), (e.SessionId, e.AddressedTo));
         Assert.False(e.ReadingPending);
-        Assert.Contains("could not see the session", e.NoVerdictReason);
+        Assert.Equal(OwnedReason, e.NoVerdictReason);
     }
 
     /// <summary>The row itself is gone by the time the turn end is handled: what was last known of the session - it
@@ -358,44 +324,17 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
     // ---- ruling 5: whatever started the reading, once per stop
 
-    /// <summary>The inspection's case: a snooze expiry is already reading the session when its turn end arrives, so the
-    /// turn end's reading joins it. The stop is told when the SNOOZE EXPIRY reading completes.</summary>
+    /// <summary>A snooze expiry of an owned session reads nothing and stores nothing: its stop was told at its turn end,
+    /// and the Wingman does not read an owned session on any trigger.</summary>
     [Fact]
-    public async Task Stop_ThatJoinedASnoozeExpiryReading_IsToldWhenThatReadingCompletes()
+    public async Task SnoozeExpiry_OfAnOwnedSession_AsksNothing_AndStoresNoEvent()
     {
-        _brain.Hold();
-        Assert.True(_seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", "worker-1"));
-        Assert.True(await WaitUntil(() => _brain.Asks == 1), "the snooze expiry reading never reached the judge");
-
-        var signal = Signal("worker-1");
-        _service.OnTurnEnd(signal, wingmanRunning: true);
-        Assert.Equal(ActivityCauses.AlreadyJudging, (await _seat.StartTurnEnd(signal)).SkipCause);
-        Assert.True(Assert.Single(Open()).ReadingPending);
-
-        _brain.Release();
-        Assert.True(await WaitUntil(() => Open().Count == 1 && !Open()[0].ReadingPending), "the stop never got its reading");
+        Assert.False(_seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", "worker-1"));
+        Assert.True(await WaitUntil(() => _readingsTold == 1), "the snooze expiry's stand-down was not told");
         await _service.WhenIdleAsync();
 
-        var e = Assert.Single(Open());
-        Assert.Equal(_verdicts.Latest(Tenant, "worker-1")!.VerdictId, e.Verdict!.VerdictId);
-    }
-
-    /// <summary>A snooze expiry reads a stop nothing observed in this process (the Gateway restarted): that reading is a
-    /// stop of its own - and a second reading of the same unchanged screen is not a second stop.</summary>
-    [Fact]
-    public async Task SnoozeExpiryReading_WithNoStopWaiting_IsStoredOnce()
-    {
-        Assert.True(_seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", "worker-1"));
-        Assert.True(await WaitUntil(() => _readingsTold == 1), "the snooze expiry reading was not told");
-        Assert.Single(Open());
-        // Asked again about the same, unchanged screen.
-        _ = _seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", "worker-1");
-        Assert.True(await WaitUntil(() => _readingsTold == 2), "the second reading was not told");
-        await _service.WhenIdleAsync();
-
-        var e = Assert.Single(Open());
-        Assert.Equal(Label, e.Verdict!.Label);
-        Assert.Equal(1, _brain.Asks);
+        Assert.Empty(Open());
+        Assert.Equal(0, _brain.Asks);
     }
 
     [Fact]
@@ -409,48 +348,35 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Single(Open());
     }
 
-    [Theory]
-    [InlineData(ActivityCauses.JudgeSwitchOff, "this account's Wingman judge switch is off")]
-    [InlineData(ActivityCauses.InFlightCap, "this account's limit on readings at once was reached")]
-    [InlineData(ActivityCauses.SessionNotLive, "the Wingman could not see the session: its Director's report was not current")]
-    public void ReadingSkipped_ForAReason_IsAttachedWithThatReason(string cause, string reason)
-    {
-        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
-
-        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-1", "dir-1", TurnVerdictTrigger.TurnEnd,
-            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = cause }));
-
-        Assert.Equal(reason, Assert.Single(Open()).NoVerdictReason);
-    }
-
-    [Theory]
-    [InlineData(ActivityCauses.WorkingObservation)]
-    [InlineData(ActivityCauses.SessionExit)]
-    public void ReadingSkipped_BecauseItIsNotStopped_WithdrawsTheStop(string cause)
-    {
-        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
-
-        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-1", "dir-1", TurnVerdictTrigger.TurnEnd,
-            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = cause }));
-
-        Assert.Empty(Open());
-    }
-
+    /// <summary>A READING OF AN OWNED SESSION CHANGES NOTHING. None should ever arrive from the automatic Wingman, but a
+    /// person may press Explain on the session, and a stale roster can let one through. Whatever it says, the stop
+    /// already told keeps its reason, and no reading ever becomes a stop of its own.</summary>
     [Fact]
-    public void ReadingFailed_WithARecord_IsCarried_AndWithoutOne_SaysSo()
+    public void AReadingOfAnOwnedSession_WhateverItSays_ChangesNoEvent_AndIsNeverAStopOfItsOwn()
     {
-        var failed = new TurnVerdictDto { VerdictId = "failed-1", Failed = true, FailureReason = "the judge did not answer" };
-        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
-        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-1", "dir-1", TurnVerdictTrigger.TurnEnd,
-            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed, Verdict = failed }));
-        _service.OnTurnEnd(Signal("worker-2"), wingmanRunning: true);
-        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-2", "dir-1", TurnVerdictTrigger.TurnEnd,
-            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed }));
+        var judged = new TurnVerdictDto { VerdictId = "late-1", Verdict = "finished", Label = "Pushed the branch" };
+        // With no stop at all: a snooze expiry's reading of an owned session is not a stop.
+        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-2", "dir-1", TurnVerdictTrigger.SnoozeExpiry,
+            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Judged, Verdict = judged }));
+        Assert.Empty(Open());
 
-        var events = Open();
-        Assert.Equal("failed-1", events.Single(e => e.SessionId == "worker-1").Verdict!.VerdictId);
-        Assert.Equal("the Wingman's reading failed and no record of it was stored",
-            events.Single(e => e.SessionId == "worker-2").NoVerdictReason);
+        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
+        var told = Assert.Single(Open());
+        foreach (var outcome in new[]
+                 {
+                     new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Judged, Verdict = judged },
+                     new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed },
+                     new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Cancelled },
+                     new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = ActivityCauses.WorkingObservation },
+                     new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = ActivityCauses.Held },
+                 })
+            _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-1", "dir-1", TurnVerdictTrigger.TurnEnd,
+                _now, outcome));
+
+        var e = Assert.Single(Open());
+        Assert.Equal(told.Id, e.Id);
+        Assert.Null(e.Verdict);
+        Assert.Equal(OwnedReason, e.NoVerdictReason);
     }
 
     // ================================================================= a death
@@ -487,9 +413,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Died_WhileItsStopWasBeingRead_TheStopSaysWhyItHasNoReading()
+    public async Task Died_AfterItsStop_IsAnEventOfItsOwn_AndTheStopKeepsItsReason()
     {
-        // Stored, and its reading has not reported back.
         _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
         SetState("worker-1", "Exited");
 
@@ -498,9 +423,35 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         var events = Open();
         Assert.Equal(2, events.Count);
-        var stop = events.Single(e => e.Kind == "stop");
+        Assert.Equal(OwnedReason, events.Single(e => e.Kind == "stop").NoVerdictReason);
+        Assert.Single(events, e => e.Kind == "died");
+    }
+
+    /// <summary>A stop an EARLIER GATEWAY left waiting for its reading - the only way one can be waiting now - is given
+    /// the death's reason when the session dies.</summary>
+    [Fact]
+    public async Task Died_WhileAStopAnEarlierGatewayLeftWasWaiting_TheStopSaysWhyItHasNoReading()
+    {
+        LeftWaitingByAnEarlierGateway("worker-1");
+        SetState("worker-1", "Exited");
+
+        _service.OnSessionExited(Tenant, "worker-1", "dir-1");
+        await _service.WhenIdleAsync();
+
+        var stop = Open().Single(e => e.Kind == "stop");
         Assert.False(stop.ReadingPending);
         Assert.Equal("the session died before the Wingman's reading of this stop was stored", stop.NoVerdictReason);
+    }
+
+    /// <summary>A stop stored by a Gateway from before the 2026-09-25 ruling, still waiting for the reading that Gateway
+    /// would have made. Written through the store exactly as that Gateway wrote it.</summary>
+    private FleetManagerEventDto LeftWaitingByAnEarlierGateway(string sid)
+    {
+        var stop = _events.RecordStop(Tenant, new FleetManagerStopSighting(sid, _fleet[sid].Name ?? "", "fm", "dir-1", _now,
+            IsCatchUp: false), _now);
+        Assert.NotNull(stop);
+        Assert.True(stop!.ReadingPending);
+        return stop;
     }
 
     // ---- ruling 4: the reconcile, and across a restart
@@ -629,8 +580,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task Reconcile_AfterARestart_AStopLeftWaitingGetsItsReason_AndIsDelivered()
     {
-        // Stored, and the Gateway stopped before any reading reported back.
-        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
+        // Stored by an earlier Gateway, which stopped before any reading reported back.
+        LeftWaitingByAnEarlierGateway("worker-1");
         _now += TimeSpan.FromSeconds(1);
         Restart();
         await FleetManagerTurnEndAsync();
@@ -676,7 +627,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         var stop = Assert.Single(Open());
         Assert.Equal(("stop", "plain", "fm"), (stop.Kind, stop.SessionId, stop.AddressedTo));
-        Assert.Equal(Label, stop.Verdict!.Label);
+        Assert.Equal(OwnedReason, stop.NoVerdictReason);
         // No longer red for the owner, and handed back from the list.
         var folded = Folded("plain");
         Assert.NotEqual("red", folded.EffectiveColor);
@@ -714,18 +665,11 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task OwnerChanged_HandedBackWhileItsStopWaitedForItsReading_TheStopIsWithdrawn()
+    public void OwnerChanged_HandedBackWhileAStopAnEarlierGatewayLeftWasWaiting_TheStopIsWithdrawn()
     {
-        _brain.Hold();
-        var signal = Signal("worker-1");
-        _service.OnTurnEnd(signal, wingmanRunning: true);
-        Assert.True(Assert.Single(Open()).ReadingPending);
+        LeftWaitingByAnEarlierGateway("worker-1");
 
         ChangeOwner("worker-1", null);
-        var reading = _seat.StartTurnEnd(signal);
-        _brain.Release();
-        await reading;
-        await _service.WhenIdleAsync();
 
         Assert.Empty(Open());
     }
@@ -768,17 +712,13 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public void Wingman_HeldCheck_FollowsTheCurrentOwner()
     {
-        Assert.False(TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked).OwnedByFleetManager);
+        Assert.False(TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain").Held);
 
         ChangeOwner("plain", "fm");
-        var over = TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked);
-        Assert.True(over.Held);
-        Assert.True(over.OwnedByFleetManager);
+        Assert.True(TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain").Held);
 
         ChangeOwner("plain", null);
-        var back = TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked);
-        Assert.False(back.Held);
-        Assert.False(back.OwnedByFleetManager);
+        Assert.False(TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain").Held);
     }
 
     private void Restart()
@@ -810,19 +750,17 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var positions = events.Select(e => sent.Text.IndexOf(e.Id, StringComparison.Ordinal)).ToList();
         Assert.All(positions, p => Assert.True(p >= 0));
         Assert.Equal(positions.OrderBy(p => p), positions);
-        Assert.Equal(2, CountOf(sent.Text, "label: " + Label));
-        // AND NO FIELD THAT LOOKS ANSWERED AND IS EMPTY. Contract v3 asks for no quote and no risk word, and an
-        // owned session gets no narration call, so all three are ABSENT rather than written as empty - an empty
-        // pair of receipt markers reads as "a quote was taken and it was blank", which is a lie the reader of
-        // this prompt would have no way to see through.
+        // Each stop says plainly it has no reading and why, and tells the Fleet Manager to read the session itself.
+        Assert.Equal(2, CountOf(sent.Text, "verdict: none - " + OwnedReason + ". Read the session yourself."));
+        // AND NO FIELD THAT LOOKS ANSWERED AND IS EMPTY: an owned session has no reading, so no label, state, quote,
+        // risk, summary or verdict id is written at all.
         Assert.DoesNotContain(FleetManagerEventPrompt.EvidenceStart, sent.Text);
+        Assert.DoesNotContain("label: ", sent.Text);
         Assert.DoesNotContain("risk: ", sent.Text);
         Assert.DoesNotContain("summary: ", sent.Text);
-        Assert.Contains("state: finished-report", sent.Text);
+        Assert.DoesNotContain("state: ", sent.Text);
+        Assert.DoesNotContain("\nverdictId: ", sent.Text);
         Assert.Contains("session: worker-1 \"Repository - the session named worker-1\"", sent.Text);
-        Assert.Contains("verdict: finished", sent.Text);
-        // The stop's identity, which a record filed about it names (fleet ... --verdict).
-        Assert.Equal(2, CountOf(sent.Text, "\nverdictId: "));
         Assert.Contains("how: exited", sent.Text);
         Assert.Contains("detail: it exited", sent.Text);
         Assert.Contains("cc-devthrottle fleet ack", sent.Text);
@@ -856,10 +794,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task AStopStillWaitingForItsReading_IsNotDelivered()
+    public async Task AStopAnEarlierGatewayLeftWaitingForItsReading_IsNotDelivered()
     {
-        // Stored, and its reading has not reported back.
-        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
+        LeftWaitingByAnEarlierGateway("worker-1");
 
         await FleetManagerTurnEndAsync();
 
@@ -867,33 +804,37 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Empty(_env.Sends);
     }
 
-    // ================================================================= waiting for a reading (step 4 fixes, round 3)
+    // ================================================================= no waiting for a reading (Turn Pipeline, phase 2)
 
-    /// <summary>A STOP WAITING FOR ITS READING IS DELIVERED WHEN THE READING COMPLETES: not at the Fleet Manager's turn
-    /// end while it waits, and then - with nothing else happening - as soon as the reading is stored.</summary>
+    /// <summary>NEVER WAIT FOR A READING THAT WILL NOT COME. The model is HELD - any call made to it would never return -
+    /// and the stop of an owned session is still delivered to the idle Fleet Manager at once, with no reading. Had
+    /// anything waited for a reading of it, this would hang or send nothing.</summary>
     [Fact]
-    public async Task AStopWaitingForItsReading_IsDeliveredWhenItsReadingCompletes_WithThatReading()
+    public async Task AStopOfAnOwnedSession_IsDeliveredPromptly_WhileTheModelIsHeld_WithNoReading()
     {
+        await FleetManagerTurnEndAsync();
+        var asksBefore = _brain.Asks;
         _brain.Hold();
-        var signal = Signal("worker-1");
-        _service.OnTurnEnd(signal, wingmanRunning: true);
-        var reading = _seat.StartTurnEnd(signal);
-        var fleetManagerReading = await FleetManagerTurnEndAsync();
-        Assert.Empty(_env.Sends);
+        try
+        {
+            var signal = Signal("worker-1");
+            _service.OnTurnEnd(signal, wingmanRunning: true);
+            var outcome = await _seat.StartTurnEnd(signal).WaitAsync(TimeSpan.FromSeconds(10));
+            await _service.WhenIdleAsync().WaitAsync(TimeSpan.FromSeconds(10));
 
-        _brain.Release();
-        // Both readings were held, and each is a delivery trigger: the stop's own, and the Fleet Manager's, which is
-        // what says its turn asks the owner nothing. Waiting for only one of them left the other still running.
-        await Task.WhenAll(reading, fleetManagerReading);
-        await _service.WhenIdleAsync();
-
-        var sent = Assert.Single(_env.Sends);
-        var e = Assert.Single(Open());
-        Assert.False(e.ReadingPending);
-        Assert.Null(e.ReadingNote);
-        Assert.Contains("event 1 of 1: " + e.Id, sent.Text);
-        Assert.Contains("verdict: finished", sent.Text);
-        Assert.Equal(("fm", 1), (e.DeliveredTo, e.DeliveryCount));
+            Assert.Equal(ActivityCauses.Held, outcome.SkipCause);
+            Assert.Equal(asksBefore, _brain.Asks);   // the held model was never asked about the owned session
+            var sent = Assert.Single(_env.Sends);
+            var e = Assert.Single(Open());
+            Assert.False(e.ReadingPending);
+            Assert.Contains("event 1 of 1: " + e.Id, sent.Text);
+            Assert.Contains("verdict: none - " + OwnedReason + ". Read the session yourself.", sent.Text);
+            Assert.Equal(("fm", 1), (e.DeliveredTo, e.DeliveryCount));
+        }
+        finally
+        {
+            _brain.Release();
+        }
     }
 
     /// <summary>A DELIVERY ASKED FOR WHILE ANOTHER IS IN FLIGHT IS NOT LOST. The pass in flight read what was owed, or
@@ -905,14 +846,14 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     {
         await FleetManagerTurnEndAsync();
         _env.HoldDelay();
-        await StopWithReadingAsync("worker-1");
+        await StopAsync("worker-1");
         _env.HoldSend();
         _env.Result = FleetManagerPromptSend.Busy;
 
         var first = _service.DeliverToAsync(Tenant, "fm");
         Assert.Single(_env.Sends);
 
-        await StopWithReadingAsync("worker-2");
+        await StopAsync("worker-2");
         Assert.Equal(FleetManagerDeliveryResult.AlreadyDelivering, await _service.DeliverToAsync(Tenant, "fm"));
 
         _env.Result = FleetManagerPromptSend.Accepted;
@@ -935,13 +876,13 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     {
         await FleetManagerTurnEndAsync();
         _env.HoldDelay();
-        await StopWithReadingAsync("worker-1");
+        await StopAsync("worker-1");
         _env.HoldSend();
 
         var first = _service.DeliverToAsync(Tenant, "fm");
         Assert.Single(_env.Sends);
 
-        await StopWithReadingAsync("worker-2");
+        await StopAsync("worker-2");
         var second = Open().Single(e => e.SessionId == "worker-2");
         Assert.Equal(FleetManagerDeliveryResult.AlreadyDelivering, await _service.DeliverToAsync(Tenant, "fm"));
 
@@ -963,65 +904,22 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Contains("event 1 of 1: " + second.Id, _env.Sends[1].Text);
     }
 
-    /// <summary>A stop of an owned session and its finished reading, without waiting for the delivery it books.</summary>
-    private async Task StopWithReadingAsync(string sid)
+    /// <summary>A stop of an owned session, as the host fans it out, without waiting for the delivery it books. The
+    /// seat stands down for it.</summary>
+    private async Task StopAsync(string sid)
     {
         var signal = Signal(sid);
         _service.OnTurnEnd(signal, wingmanRunning: true);
-        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await _seat.StartTurnEnd(signal)).Kind);
+        Assert.Equal(ActivityCauses.Held, (await _seat.StartTurnEnd(signal)).SkipCause);
     }
 
-    /// <summary>A reading that ends as cannot-tell is a reading: the stop is delivered as that, never left waiting.</summary>
+    /// <summary>THE TIME LIMIT IS FIVE MINUTES, for a stop an earlier Gateway left waiting for its reading: it waits until
+    /// the limit - not delivered, and still waiting - and just after it is given the reason and delivered as that.</summary>
     [Fact]
-    public async Task AStopReadAsCannotTell_IsDeliveredAsCannotTell()
-    {
-        await FleetManagerTurnEndAsync();
-        _brain.Answer = FakeTurnVerdictEnvironment.CannotTell("The session stopped.");
-
-        await TurnEndAsync("worker-1");
-
-        var e = Assert.Single(Open());
-        Assert.False(e.ReadingPending);
-        Assert.Equal("cannot-tell", e.Verdict!.Verdict);
-        var sent = Assert.Single(_env.Sends);
-        Assert.Contains("verdict: cannot-tell", sent.Text);
-        Assert.Contains(e.Id, sent.Text);
-    }
-
-    /// <summary>A reading that fails is delivered as a failure, with or without a stored record, never left waiting.
-    /// The batch is held until both readings are recorded: the first reading books the delivery, and without the hold
-    /// it can run before the second is recorded - then the second stop is rightly left for the next idle moment.</summary>
-    [Fact]
-    public async Task AStopWhoseReadingFails_IsDeliveredAsFailed()
-    {
-        await FleetManagerTurnEndAsync();
-        _env.HoldDelay();
-        var failed = new TurnVerdictDto { VerdictId = "failed-1", Failed = true, FailureReason = "the judge did not answer" };
-        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
-        _service.OnTurnEnd(Signal("worker-2"), wingmanRunning: true);
-        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-1", "dir-1", TurnVerdictTrigger.TurnEnd,
-            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed, Verdict = failed }));
-        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-2", "dir-1", TurnVerdictTrigger.TurnEnd,
-            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed }));
-        Assert.Empty(_env.Sends);
-
-        _env.ReleaseDelay();
-        await _service.WhenIdleAsync();
-
-        Assert.All(Open(), e => Assert.False(e.ReadingPending));
-        var text = string.Concat(_env.Sends.Select(x => x.Text));
-        Assert.Contains("verdictId: failed-1\nverdict: failed - the judge did not answer. Read the session yourself.", text);
-        Assert.Contains("verdict: none - the Wingman's reading failed and no record of it was stored. Read the session yourself.", text);
-        Assert.All(Open(), e => Assert.Equal("fm", e.DeliveredTo));
-    }
-
-    /// <summary>THE TIME LIMIT IS FIVE MINUTES. A stop whose reading never reports back waits until the limit - not
-    /// delivered, and still waiting - and just after it is given the reason and delivered as that.</summary>
-    [Fact]
-    public async Task AStopWithNoReading_WaitsUntilTheTimeLimit_ThenIsDeliveredWithTheReason()
+    public async Task AStopLeftWaiting_WaitsUntilTheTimeLimit_ThenIsDeliveredWithTheReason()
     {
         Assert.Equal(TimeSpan.FromMinutes(5), FleetManagerEventService.PendingLimit);
-        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
+        LeftWaitingByAnEarlierGateway("worker-1");
         await FleetManagerTurnEndAsync();
 
         _now = Start + FleetManagerEventService.PendingLimit - TimeSpan.FromSeconds(1);

@@ -35,11 +35,8 @@ public enum FleetManagerReadingResult
     /// <summary>It was attached to the stop that was waiting for it.</summary>
     Attached,
 
-    /// <summary>No stop was waiting, so a new stop event carrying it was stored.</summary>
-    StoredNew,
-
-    /// <summary>Nothing changed: no stop was waiting, and this reading is already held (or there was no reading).</summary>
-    AlreadyHeld,
+    /// <summary>Nothing changed: no stop was waiting for it.</summary>
+    NothingWaiting,
 }
 
 /// <summary>A session the Gateway last knew alive while a Fleet Manager owned it.</summary>
@@ -89,15 +86,15 @@ public sealed record FleetManagerOwedEvents(IReadOnlyList<FleetManagerEventDto> 
 /// mission, step 4). An event is kept until it is acknowledged, across a Gateway restart and across a restart or a
 /// move of the Fleet Manager.
 ///
-/// A STOP IS STORED BEFORE IT IS READ (<see cref="RecordStop"/>), and its reading is attached when the reading
-/// completes (<see cref="AttachReading"/>), whatever started that reading. So a stop is never lost because the
-/// session left the roster, a Director disconnected or the Gateway stopped while it was being read: at worst it is
-/// delivered with the reason there is no reading (<see cref="ExpirePendingStops"/>).
+/// A STOP IS STORED FIRST (<see cref="RecordStop"/>) and then given what stands in for its reading
+/// (<see cref="AttachReading"/>). Since the owner's ruling of 2026-09-25 the Wingman reads no owned session, so the
+/// event service attaches the reason there is no reading in the same call; a stop an earlier Gateway left waiting is
+/// given its reason by <see cref="ExpirePendingStops"/>. Stops stored before that ruling may carry a reading, and
+/// still render it.
 ///
 /// ONE EVENT PER HAPPENING. The store refuses a second copy itself, so no caller has to remember to: a stop sighted
-/// again while one is still waiting for its reading, a reading it already holds offered with no stop waiting, a
-/// second death of one session, and a stop seen again on a Gateway restart while the session still has an
-/// unacknowledged stop are not stored again.
+/// again while one is still waiting, a second death of one session, and a stop seen again on a Gateway restart while
+/// the session still has an unacknowledged stop are not stored again.
 ///
 /// DEATHS ACROSS A RESTART. The owned sessions the Gateway has seen alive are kept
 /// (<see cref="NoteOwnedAlive"/>), so a reconcile after a restart can raise the death of every one that is gone.
@@ -227,18 +224,14 @@ public sealed class FleetManagerEventStore
     }
 
     /// <summary>
-    /// A reading of this session has completed: attach it to the stop waiting for it. With no stop waiting, a real
-    /// reading this store does not already hold is stored as a stop of its own (a stop the Gateway did not see end
-    /// in this process - a snooze expiry after a restart); a reason with no reading changes nothing then, because
-    /// no stop is owed one.
+    /// Attach a reading, or the reason there is none, to the stop of this session that is waiting for it. With no
+    /// stop waiting nothing changes: a reading never becomes a stop of its own.
     /// </summary>
     /// <param name="verdict">The stored reading (accepted or failed), or null.</param>
     /// <param name="noVerdictReason">Why there is no reading, when <paramref name="verdict"/> is null.</param>
-    /// <param name="owner">Who to address a new stop to, and its name and Director; used only when no stop waits.</param>
     /// <exception cref="ArgumentException">Neither a reading nor a reason was given.</exception>
     public (FleetManagerReadingResult Result, IReadOnlyList<FleetManagerEventDto> Events) AttachReading(
-        TenantId tenant, string sessionId, TurnVerdictDto? verdict, string? noVerdictReason,
-        FleetManagerStopSighting? owner, DateTime nowUtc)
+        TenantId tenant, string sessionId, TurnVerdictDto? verdict, string? noVerdictReason, DateTime nowUtc)
     {
         FileLog.Write($"[FleetManagerEventStore] AttachReading: tenant={tenant.ToLogString()}, sid={sessionId}, " +
                       $"verdict={verdict?.VerdictId}, reason={noVerdictReason}");
@@ -270,31 +263,8 @@ public sealed class FleetManagerEventStore
                     return (FleetManagerReadingResult.Attached, pending.Select(ToDto).ToList());
                 }
 
-                if (verdict is null || owner is null
-                    || (verdictId is not null && ctx.FleetManagerEvents.Any(
-                        e => e.SessionId == sessionId && e.Kind == KindStop && e.VerdictId == verdictId)))
-                {
-                    FileLog.Write($"[FleetManagerEventStore] AttachReading: sid={sessionId} - no stop waiting and nothing new to store");
-                    return (FleetManagerReadingResult.AlreadyHeld, Array.Empty<FleetManagerEventDto>());
-                }
-
-                var entity = new FleetManagerEventEntity
-                {
-                    Kind = KindStop,
-                    SessionId = sessionId,
-                    SessionName = owner.SessionName ?? "",
-                    AddressedTo = owner.AddressedTo,
-                    DirectorId = owner.DirectorId,
-                    VerdictId = verdictId,
-                    VerdictJson = json,
-                    StopObservedAtUtc = Utc(owner.ObservedAtUtc),
-                    CreatedAtUtc = Utc(nowUtc),
-                };
-                entity.TenantId = ctx.ActiveTenant!;
-                ctx.FleetManagerEvents.Add(entity);
-                ctx.SaveChanges();
-                FileLog.Write($"[FleetManagerEventStore] AttachReading: sid={sessionId}, no stop waiting - stored id={entity.Id}");
-                return (FleetManagerReadingResult.StoredNew, new[] { ToDto(entity) });
+                FileLog.Write($"[FleetManagerEventStore] AttachReading: sid={sessionId} - no stop waiting, nothing changed");
+                return (FleetManagerReadingResult.NothingWaiting, Array.Empty<FleetManagerEventDto>());
             }
         }
         catch (Exception ex)

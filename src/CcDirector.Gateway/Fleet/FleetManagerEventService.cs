@@ -119,12 +119,13 @@ internal sealed record FleetManagerTurn(
 /// is used - the session's last pushed row however stale, or the owned session this Gateway last saw alive - never
 /// only the fresh roster, so a session that has just left the roster is still somebody's.
 ///
-/// A STOP IS STORED THE MOMENT IT IS SEEN (<see cref="OnTurnEnd"/>), on the caller's thread, before any reading and
-/// before any roster lookup. It waits for its reading: <see cref="OnReadingCompleted"/> is raised by the Wingman for
-/// EVERY reading that ends, whatever started it (a turn end or a snooze expiry), and attaches the reading - or the
-/// reason there is none - to the waiting stop. A reading with no stop waiting is stored as a stop of its own unless
-/// it is one already held, so each stop is told once. A stop that turned back into work before it was read is
-/// withdrawn; one whose reading never reports back is delivered with the reason after <see cref="PendingLimit"/>.
+/// A STOP IS STORED THE MOMENT IT IS SEEN (<see cref="OnTurnEnd"/>), on the caller's thread, WITH NO READING, and is
+/// ready to deliver at once. The Wingman does not read a session another session owns - no verdict, no narration, no
+/// speech - and the account's Fleet Manager is no exception (owner ruling, 2026-09-25: "one rule for every owned
+/// session ... The Fleet Manager reads its own sessions; it is a coding agent and can"). So nothing here waits for a
+/// reading of an owned session: the stop carries <see cref="OwnedNotReadReason"/>, which tells the Fleet Manager to
+/// read the session itself. A stop an earlier Gateway left waiting for a reading is given its reason by the reconcile
+/// (<see cref="PendingLimit"/>).
 ///
 /// A DEATH is stored when an owned session is seen to exit (<see cref="OnSessionExited"/>), when it is removed from
 /// its Director's list (<see cref="OnSessionRemoved"/>), and by <see cref="ReconcileAsync"/>, which compares the
@@ -209,10 +210,6 @@ public sealed class FleetManagerEventService : IDisposable
     // An owned session no Director reports, already logged as not counted dead - so the timer does not repeat it.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _unreportedLogged = new();
 
-    // Sessions with a stop waiting for its reading in this process, so a reading of any other session costs no
-    // database read unless the session is owned.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _waitingStops = new();
-
     // What was last written for each owned session seen alive, so a sighting that changes nothing writes nothing.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string Owner, string Name, string Director)> _noted = new();
 
@@ -239,12 +236,18 @@ public sealed class FleetManagerEventService : IDisposable
 
     // ================================================================= what the Gateway observes
 
+    /// <summary>What a stop of an owned session says in place of a reading. The Wingman reads no session another
+    /// session owns, so there is never a reading to wait for.</summary>
+    public const string OwnedNotReadReason =
+        "the Wingman does not read a session another session owns, so this stop has no reading";
+
     /// <summary>
-    /// A turn end was observed. The stop of an owned session is STORED HERE, synchronously, before this returns; the
+    /// A turn end was observed. The stop of an owned session is STORED HERE, synchronously, with
+    /// <see cref="OwnedNotReadReason"/> in place of a reading, and its delivery is booked before this returns; the
     /// Fleet Manager's own turn end books a delivery. Never throws.
     /// </summary>
-    /// <param name="wingmanRunning">False when this Gateway has no Wingman to read the stop: it is stored with that
-    /// reason at once.</param>
+    /// <param name="wingmanRunning">False when this Gateway has no Wingman. It matters only for the Fleet Manager's
+    /// own turn end, which waits for its reading; an owned session's stop is never read either way.</param>
     public void OnTurnEnd(TurnEndSignal signal, bool wingmanRunning)
     {
         if (_disposed || signal is null) return;
@@ -277,12 +280,11 @@ public sealed class FleetManagerEventService : IDisposable
             var owner = OwnedSighting(tenant, sid, signal.DirectorId, signal.ObservedAtUtc, !signal.IsNewTurn, marked);
             if (owner is null) return;
 
-            var stored = _store.RecordStop(tenant, owner, _env.NowUtc());
-            if (stored is not null) _waitingStops[(tenant, sid)] = 0;
-            if (!wingmanRunning)
-            {
-                ApplyReading(tenant, sid, verdict: null, "the Wingman is not running on this Gateway", owner: null);
-            }
+            // NEVER WAIT FOR A READING THAT WILL NOT COME: the stop is stored and given its reason in this one call.
+            if (_store.RecordStop(tenant, owner, _env.NowUtc()) is null) return;
+            GiveReason(tenant, sid, OwnedNotReadReason);
+            FileLog.Write($"[FleetManagerEventService] stop of owned session {sid} stored for {owner.AddressedTo} " +
+                          "with no reading (owned sessions are not read); delivery booked");
         }
         catch (Exception ex)
         {
@@ -312,8 +314,10 @@ public sealed class FleetManagerEventService : IDisposable
     }
 
     /// <summary>
-    /// The Wingman finished a reading - of any session, whatever started it. Attaches it to the stop waiting for it,
-    /// or stores it as a stop of an owned session when none is waiting. Never throws.
+    /// The Wingman finished a reading - of any session, whatever started it. Only a reading of the Fleet Manager
+    /// itself, or of a session waiting to take over from it, is kept: that is what says whether the Fleet Manager may
+    /// be typed into. A reading of any other session is not this service's business - an owned session's stop was
+    /// delivered at its turn end without one. Never throws.
     /// </summary>
     public void OnReadingCompleted(TurnVerdictReadingCompleted completed)
     {
@@ -329,50 +333,6 @@ public sealed class FleetManagerEventService : IDisposable
                 return;
             }
             if (IsPendingSuccessor(tenant, sid)) RecordFleetManagerReading(tenant, sid, completed);
-
-            var waiting = _waitingStops.ContainsKey((tenant, sid));
-            FleetManagerStopSighting? owner = null;
-            if (completed.Trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry)
-                owner = OwnedSighting(tenant, sid, completed.DirectorId, completed.StopObservedAtUtc, isCatchUp: false,
-                    marked);
-            if (!waiting && owner is null) return;
-
-            var outcome = completed.Outcome;
-            switch (outcome.Kind)
-            {
-                case TurnVerdictOutcomeKind.Judged:
-                case TurnVerdictOutcomeKind.Reused:
-                case TurnVerdictOutcomeKind.Failed when outcome.Verdict is not null:
-                    ApplyReading(tenant, sid, outcome.Verdict, null, owner);
-                    return;
-                case TurnVerdictOutcomeKind.Failed:
-                    ApplyReading(tenant, sid, null, "the Wingman's reading failed and no record of it was stored", owner);
-                    return;
-                case TurnVerdictOutcomeKind.Cancelled:
-                    Withdraw(tenant, sid, "it went back to work while it was being read");
-                    return;
-                case TurnVerdictOutcomeKind.Skipped:
-                    switch (outcome.SkipCause)
-                    {
-                        case ActivityCauses.WorkingObservation:
-                            Withdraw(tenant, sid, "it was working again when the Wingman looked");
-                            return;
-                        case ActivityCauses.SessionExit:
-                            // Not a stop: the death is its own event.
-                            Withdraw(tenant, sid, "it had exited when the Wingman looked");
-                            return;
-                        case ActivityCauses.Unknown:
-                            // The Gateway is stopping: the stop stays waiting, and the next start gives it its reason.
-                            return;
-                        case ActivityCauses.AlreadyJudging:
-                            // Never the end of a flight; the flight it joined reports.
-                            return;
-                    }
-                    ApplyReading(tenant, sid, null, SkipReason(outcome.SkipCause), owner);
-                    return;
-                default:
-                    throw new InvalidOperationException($"unhandled verdict outcome {outcome.Kind}");
-            }
         }
         catch (Exception ex)
         {
@@ -419,7 +379,7 @@ public sealed class FleetManagerEventService : IDisposable
     /// A session's owner was changed by a hand over (step 8). <paramref name="row"/> is the session as its Director
     /// reported it after the change. Owned by the account's Fleet Manager now: it is remembered alive, so its stops and
     /// its death are the Fleet Manager's from this moment. Owned by anyone else, or nobody: what was kept of it is
-    /// forgotten, and a stop still waiting for its reading is withdrawn, so its stops and its death go to its new owner
+    /// forgotten, and a stop an earlier Gateway left waiting for its reading is withdrawn, so its stops and its death go to its new owner
     /// and no longer to the Fleet Manager. Never throws.
     /// </summary>
     public void OnOwnerChanged(TenantId tenant, string directorId, SessionDto row)
@@ -513,7 +473,6 @@ public sealed class FleetManagerEventService : IDisposable
 
             var death = _store.RecordDeath(tenant, new FleetManagerDeath(owned.SessionId, owned.SessionName,
                 owned.FleetManagerSessionId, owned.DirectorId, crashed, detail), now);
-            _waitingStops.TryRemove((tenant, owned.SessionId), out _);
             changed |= death is not null;
         }
 
@@ -571,18 +530,16 @@ public sealed class FleetManagerEventService : IDisposable
         Withdraw(tenant, sid, $"its owner changed before its reading arrived ({why})");
     }
 
-    private void ApplyReading(TenantId tenant, string sid, TurnVerdictDto? verdict, string? reason,
-        FleetManagerStopSighting? owner)
+    /// <summary>Give the stop just stored its reason in place of a reading, and book its delivery.</summary>
+    private void GiveReason(TenantId tenant, string sid, string reason)
     {
-        var (result, _) = _store.AttachReading(tenant, sid, verdict, reason, owner, _env.NowUtc());
-        _waitingStops.TryRemove((tenant, sid), out _);
-        if (result != FleetManagerReadingResult.AlreadyHeld) ScheduleDelivery(tenant);
+        var (result, _) = _store.AttachReading(tenant, sid, verdict: null, reason, _env.NowUtc());
+        if (result == FleetManagerReadingResult.Attached) ScheduleDelivery(tenant);
     }
 
     private void Withdraw(TenantId tenant, string sid, string why)
     {
         var removed = _store.WithdrawPendingStops(tenant, sid);
-        _waitingStops.TryRemove((tenant, sid), out _);
         if (removed > 0)
             FileLog.Write($"[FleetManagerEventService] sid={sid}: the stop was withdrawn, not delivered - {why}");
     }
@@ -621,7 +578,6 @@ public sealed class FleetManagerEventService : IDisposable
         }
         if (death is null) return;
 
-        _waitingStops.TryRemove((tenant, sid), out _);
         if (_store.RecordDeath(tenant, death, _env.NowUtc()) is not null)
             ScheduleDelivery(tenant);
     }

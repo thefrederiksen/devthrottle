@@ -212,8 +212,9 @@ public sealed class NarrationCallTests : IDisposable
 
         var owned = Build();
         owned.Env.Narrator = (_, _) => Task.FromResult(Narrated);
-        // Owned by a live session from the moment it was judged: the case of a session a Fleet Manager owns, which is
-        // still judged. The fake cannot say "held but judged", so ownership is answered by whether the judge has run.
+        // Owned by a live session from the moment it was judged: a session that becomes owned while its verdict is
+        // being formed. The held check before the narration call stops it; ownership is answered here by whether the
+        // judge has run.
         owned.Env.Held = _ => owned.Env.JudgeCalls > 0;
         var outcome = await owned.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
         Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);

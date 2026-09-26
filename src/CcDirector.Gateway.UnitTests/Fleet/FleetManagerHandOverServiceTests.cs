@@ -444,7 +444,7 @@ public sealed class FleetManagerHandOverServiceTests
     [Fact]
     public async Task OwningSessionKey_AfterTheRelease_TheSessionsTurnEndReachesTheUser()
     {
-        var before = TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker, Fm);
+        var before = TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker);
         Assert.True(before.Held, "before the release the Architect holds it, so its turn end is the Architect's to read");
 
         var result = await HandAsSessionAsync(Architect, ArchitectWorker, "owner");
@@ -454,7 +454,7 @@ public sealed class FleetManagerHandOverServiceTests
         row.Session.ControllerSessionId = result.Answer!.Session!.ControllerSessionId;
         row.Session.IsControlled = result.Answer.Session.IsControlled;
 
-        var after = TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker, Fm);
+        var after = TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker);
 
         Assert.False(after.Held, "after the release nothing holds it, so its red goes to the user");
         Assert.True(FleetManagerSessions.AsksOwnerDirectly(
@@ -566,7 +566,7 @@ public sealed class FleetManagerHandOverServiceTests
     [Fact]
     public async Task SessionKey_AfterTakingASession_ThatSessionStopsReachingTheUser()
     {
-        Assert.False(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Plain, Fm).Held);
+        Assert.False(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Plain).Held);
 
         var result = await HandAsSessionAsync(Architect, Plain, "me");
 
@@ -575,7 +575,7 @@ public sealed class FleetManagerHandOverServiceTests
         row.Session.ControllerSessionId = result.Answer!.Session!.ControllerSessionId;
         row.Session.IsControlled = result.Answer.Session.IsControlled;
 
-        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Plain, Fm).Held,
+        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Plain).Held,
             "the session that took it holds it now, so its turn end is that session's to read");
         Assert.False(FleetManagerSessions.AsksOwnerDirectly(
             _world.Roster(Tenant).First(r => r.Session.SessionId == Plain).Session, Fm));
@@ -660,15 +660,15 @@ public sealed class FleetManagerHandOverServiceTests
     [Fact]
     public void ARingOfTwoLiveSessionsHoldingEachOther_SilencesBothForTheOwner()
     {
-        Assert.False(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Architect, Fm).Held,
+        Assert.False(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Architect).Held,
             "the Architect answers to the owner before the ring");
 
         var architect = _world.Rosters[Tenant].First(r => r.Session.SessionId == Architect).Session;
         architect.ControllerSessionId = ArchitectWorker;
         architect.IsControlled = true;
 
-        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Architect, Fm).Held);
-        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker, Fm).Held);
+        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Architect).Held);
+        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker).Held);
     }
 
     [Fact]

@@ -69,7 +69,6 @@ public sealed class TurnVerdictServiceTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
-            fleetManagerSessionId: _ => null,
             narrationPlan: _ => NarrationPlan.Allowed);
 
         var answer = await env.AskRecoveryProbeAsync(
@@ -112,7 +111,6 @@ public sealed class TurnVerdictServiceTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
-            fleetManagerSessionId: _ => null,
             narrationPlan: _ => NarrationPlan.Allowed);
         var service = new TurnVerdictService(env);
 
