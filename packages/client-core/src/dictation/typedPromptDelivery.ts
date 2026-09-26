@@ -1,4 +1,4 @@
-import { readPromptOutcome, sendPrompt, type DictationOutcomeRead } from "../api/client";
+import { readPromptOutcome, sendPrompt, type DictationOutcomeRead, type PromptSendResult } from "../api/client";
 import type { SpokenSpan } from "./composerProvenance";
 import { activeAccount, listAccounts } from "../auth/accountStore";
 import { deleteHeldPrompt, getHeldPrompt, listHeldPrompts, saveHeldPrompt, type HeldPrompt } from "./heldPromptStore";
@@ -22,9 +22,10 @@ import { clearDictationStatus, publishDictationStatus } from "./status";
 //   recordings use) on the same wake-ups as a held recording: app load, the page becoming visible, the
 //   connection returning, a modest timer while visible, and "Check now". Nothing on any of those sends.
 // - Delivered: the copy is removed and the strip shows "Sent". Not delivered: the words come back with "Send
-//   anyway" (a FRESH typed send, which the Gateway gives a fresh id) and Dismiss. Could not confirm: the words
-//   come back with Dismiss only, because they may already be in. The session ended (QA finding F4): the words
-//   come back with the ended-session label and Dismiss only - there is no session left to send anything to.
+//   anyway" (which CLAIMS the original delivery id, so the Gateway sends them exactly once) and Dismiss. Could not
+//   confirm: the words come back with Dismiss only, because they may already be in. The session ended (QA finding
+//   F4): the words come back with the ended-session label and Dismiss only - there is no session left to send
+//   anything to.
 
 // How often an owned delivery is read while the page is visible - the recordings' own interval. A hidden page
 // does not read on this timer at all; it reads when it becomes visible again.
@@ -155,9 +156,14 @@ export async function checkTypedPromptNow(deliveryId: string): Promise<void> {
 }
 
 /**
- * "Send anyway" on a typed prompt the Gateway ruled not delivered: a FRESH typed send of the same words, which
- * the Gateway gives a fresh delivery id - the old id is never sent again. Only when the Gateway offered it.
- * Guarded so two taps, or two mounted strips, make one send.
+ * "Send anyway" on a typed prompt the Gateway ruled not delivered: the press CLAIMS the ORIGINAL delivery id - the
+ * same request field a recording's "Send anyway" uses - so the Gateway verifies the claim atomically and the words
+ * are never sent twice: a second press, from any tab, is refused by the Gateway and answered with the record's
+ * current state, and the Director refuses the id as a duplicate if a copy ever landed anyway. The strip stays on
+ * the SAME record (the original id) while the claim is held and reads its outcome after a reload too. A claim the
+ * Gateway drops (another account's id, past the claim window) goes out as an ordinary prompt under a fresh id,
+ * exactly as a dropped recording claim does. Only when the Gateway offered it; guarded so two taps, or two mounted
+ * strips, make one send.
  */
 export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
   if (_inFlight.has(deliveryId)) return;
@@ -178,21 +184,85 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       if (rec.shownBack) publishShownBack(rec);
       return;
     }
-    let outcome: TypedSendOutcome;
+    let answer: PromptSendResult;
     try {
-      outcome = await sendTypedPrompt(rec.sessionId, rec.text);
+      // The claim names the ORIGINAL delivery id, so the Gateway - not this tab - is the gate that lets exactly one
+      // press through. A 202 back with the SAME id means the claim is held on the same record.
+      answer = await sendPrompt(rec.sessionId, rec.text, true, undefined, undefined, undefined, rec.deliveryId);
     } catch {
       // Keep the record and the words on screen; the owner decides again.
       publishShownBack(rec, SEND_ANYWAY_FAILED_MESSAGE);
       return;
     }
-    await forgetHeld(rec.deliveryId);
-    if (outcome === "delivered") {
-      publishDictationStatus({ sessionId: rec.sessionId, uploadId: rec.deliveryId, phase: "done", typed: true });
-    } else {
-      // The fresh send is held under its own new id and shows its own strip.
-      clearDictationStatus(rec.deliveryId);
+    if (answer.unconfirmed === true || answer.shownBack?.reason === "unconfirmed") {
+      // The Gateway could not confirm the claim arrived: shown back with Dismiss only - the words may be in.
+      const shown: HeldPrompt = { ...rec, shownBack: true, shownBackReason: "unconfirmed", offerSendAnyway: false };
+      await keepHeld(shown);
+      publishShownBack(shown);
+      return;
     }
+    if (answer.shownBack) {
+      // A second press of a claim the Gateway refused (already resolved, or the session ended): the record's own
+      // outcome is the honest thing to show, and nothing was sent.
+      const shown: HeldPrompt = {
+        ...rec,
+        shownBack: true,
+        shownBackReason: answer.shownBack.reason,
+        offerSendAnyway: answer.shownBack.offerSendAnyway,
+      };
+      await keepHeld(shown);
+      publishShownBack(shown);
+      return;
+    }
+    if (answer.delivering) {
+      if (answer.deliveryId === rec.deliveryId) {
+        // The claim is HELD on the SAME record: the strip stays on the original id and keeps reading its outcome,
+        // and a reload finds it because the record is no longer shown back.
+        const held: HeldPrompt = {
+          ...rec,
+          shownBack: false,
+          shownBackReason: undefined,
+          offerSendAnyway: undefined,
+        };
+        await keepHeld(held);
+        publishDelivering(held);
+        scheduleOutcomeRead(held);
+        return;
+      }
+      // The claim was DROPPED (not this account's id, or past the claim window) and the words went out as an
+      // ordinary prompt: a fresh id, its own record and strip. The old record is retired - its delivery is over.
+      await forgetHeld(rec.deliveryId);
+      if (answer.deliveryId === undefined) {
+        publishDictationStatus({
+          sessionId: rec.sessionId,
+          uploadId: `typed-${Date.now()}`,
+          phase: "failed",
+          retryable: false,
+          typed: true,
+          error: NO_DELIVERY_ID_MESSAGE,
+        });
+        return;
+      }
+      const fresh: HeldPrompt = {
+        deliveryId: answer.deliveryId,
+        sessionId: rec.sessionId,
+        text: rec.text,
+        sentAt: Date.now(),
+        accountId: activeAccount()?.id,
+      };
+      try {
+        await saveHeldPrompt(fresh);
+      } catch (err) {
+        console.error(`[typedPromptDelivery] could not keep held typed message ${fresh.deliveryId} on this device: ${errText(err)}`);
+        _unkept.set(fresh.deliveryId, fresh);
+      }
+      publishDelivering(fresh);
+      scheduleOutcomeRead(fresh);
+      return;
+    }
+    // Delivered (or the record already said the words are in): retire the record, show Sent.
+    await forgetHeld(rec.deliveryId);
+    publishDictationStatus({ sessionId: rec.sessionId, uploadId: rec.deliveryId, phase: "done", typed: true });
   } finally {
     _inFlight.delete(deliveryId);
   }

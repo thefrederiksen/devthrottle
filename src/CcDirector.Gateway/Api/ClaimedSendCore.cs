@@ -34,6 +34,11 @@ internal sealed record ClaimAttempt(ClaimAttemptKind Kind, PromptResponse? Body 
 /// contract section 4). One piece, so the two cannot disagree about what a "Send anyway" does - it was the prompt
 /// route's local function until the driver needed the same logic, and a second copy is exactly what the ruling forbids.
 ///
+/// ONE CLAIM MECHANISM FOR BOTH KINDS OF RECORD IT CAN NAME (the Delivery Lead's ruling on the phase 5 review, finding
+/// 2): a recording's upload and a typed prompt are both read and written through <see cref="IClaimDecisionLog"/>, so
+/// a typed "Send anyway" asks first, holds, and runs out of time exactly as a recording's does - same lines, same
+/// limits, same answers.
+///
 /// It sends through <see cref="DeliverySendAndAsk"/>, the one piece dictation sends through. A re-press asks first when
 /// an earlier claimed send may have reached the Director (phase 2, change 1), because to a Director too old to keep a
 /// delivery record a second send is a second copy. Its time limit is phase 2's: the limit from the FIRST verified claim.
@@ -46,7 +51,7 @@ internal static class ClaimedSendCore
     /// answer - under the limit it is held as "retrying" (the Gateway sends again on its next attempt), past it the words
     /// are shown back as too old - because there is no client waiting to be told to show them back.</param>
     public static async Task<ClaimAttempt> AttemptAsync(SessionVerbClient route, string sid, PromptRequest req,
-        VoiceUploadStore store, string deliveryId, string? activityState, TimeProvider clock, bool gatewayDriven)
+        IClaimDecisionLog store, string deliveryId, string? activityState, TimeProvider clock, bool gatewayDriven)
     {
         var history = store.ReadClaimSends(deliveryId);
         if (history.MayHaveReachedDirector)
@@ -121,11 +126,11 @@ internal static class ClaimedSendCore
     /// "could not confirm it arrived" - an earlier claimed send may already be in, so it is never shown back with
     /// "Send anyway".
     /// </summary>
-    public static ClaimAttempt DirectorNotConnected(VoiceUploadStore store, string sid, string deliveryId, TimeProvider clock)
+    public static ClaimAttempt DirectorNotConnected(IClaimDecisionLog store, string sid, string deliveryId, TimeProvider clock)
         => HoldOrUnconfirmed(store, sid, deliveryId, store.ReadClaimSends(deliveryId), DeliverySendAndAsk.DirectorNotConnected,
             DeliverySendAndAsk.WaitingForDirectorState, clock);
 
-    private static ClaimAttempt Held(VoiceUploadStore store, string sid, string deliveryId, string directorState)
+    private static ClaimAttempt Held(IClaimDecisionLog store, string sid, string deliveryId, string directorState)
     {
         DeliverySendAndAsk.RecordHeld(store, deliveryId, sid, directorState);
         FileLog.Write($"[ClaimedSendCore] sid={sid} claimed delivery {deliveryId} HELD as still delivering ({directorState})");
@@ -135,7 +140,7 @@ internal static class ClaimedSendCore
     // A claim whose question got no answer of any kind: held within the limit from the FIRST verified claim, and past it
     // the verdict "could not confirm it arrived", written with the age and which kind of no answer. The first claim's time
     // is the Gateway's own record; the client sends nothing new for it.
-    private static ClaimAttempt HoldOrUnconfirmed(VoiceUploadStore store, string sid, string deliveryId, ClaimSendHistory history,
+    private static ClaimAttempt HoldOrUnconfirmed(IClaimDecisionLog store, string sid, string deliveryId, ClaimSendHistory history,
         string noAnswerKind, string heldState, TimeProvider clock)
     {
         if (!IsPastLimit(history, deliveryId, clock, out var age))
@@ -151,7 +156,7 @@ internal static class ClaimedSendCore
         return new ClaimAttempt(ClaimAttemptKind.Unconfirmed);
     }
 
-    private static ClaimAttempt TooOld(VoiceUploadStore store, string sid, string deliveryId, TimeSpan age)
+    private static ClaimAttempt TooOld(IClaimDecisionLog store, string sid, string deliveryId, TimeSpan age)
     {
         store.RecordDecision(deliveryId, DeliveryDecisions.TooOld, new DeliveryDecisionFacts
         {
@@ -175,7 +180,7 @@ internal static class ClaimedSendCore
     // (phase 1 review finding 2): accepted and typed, refused as delivered or delivering with nothing typed, failed, or -
     // phase 2 - unanswered, which the next lines of the log follow with the question. This is the line that answers "why
     // did my words go in once when I pressed Send twice?" without the container log.
-    private static void RecordClaimAnswer(VoiceUploadStore store, string deliveryId, string sid,
+    private static void RecordClaimAnswer(IClaimDecisionLog store, string deliveryId, string sid,
         SessionVerbClient.PromptSendOutcome sent, PromptAnswerReading reading)
     {
         var body = sent.Body;

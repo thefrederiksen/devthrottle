@@ -172,6 +172,13 @@ internal sealed class TypedPromptDelivery
         var record = store.BeginDrive(id, trigger);
         if (record is null) return TypedDriveResult.NotHeld;
         var sid = record.SessionId;
+        // A CLAIMED record (its log holds a verified "Send anyway" claim) is pressed again - asking first, sending
+        // again while the words are known not in and the claim is within its limit - through the SAME claim mechanism
+        // a recording's held "Send anyway" is pressed by (the Delivery Lead's ruling on the phase 5 review, finding
+        // 2: one claim mechanism for both, no second path). Whether a prompt left the Gateway is still decided from
+        // the log alone, so an unclaimed record keeps the ask-only rule below.
+        if (store.ReadClaimSends(id).FirstClaimVerifiedAtUtc is { } firstClaim)
+            return await DriveClaimedAsync(tenant, store, record, firstClaim);
         // Did it ever leave the Gateway? Read from the decision log alone (contract section 10).
         var mayHaveBeenSent = store.MayHaveBeenSentToDirector(id);
         FileLog.Write($"[TypedPromptDelivery] DriveOnceAsync: deliveryId={id} sid={sid} trigger={trigger} attempt={record.DriveAttempts}");
@@ -235,6 +242,73 @@ internal sealed class TypedPromptDelivery
                 return TypedDriveResult.Finished;
             default:
                 throw new InvalidOperationException($"the Director answered delivery state {asked.Answer.State}, which this Gateway does not know");
+        }
+    }
+
+    // THE DRIVER'S PRESS OF A CLAIMED TYPED PROMPT (contract section 4, through the one claim mechanism): the same
+    // thing DictationDelivery.DriveSendAnywayAsync does to a recording's held "Send anyway" - ask first when an
+    // earlier claimed send may have reached the Director, send again when the words are known not in and the claim is
+    // within its limit from the FIRST verified claim, and settle what came to on the record. The time limit is the
+    // claim's (from the first verified claim), never this attempt's clock - a re-press minutes later is not minutes
+    // fresher than the press it stands in for (contract section 9, F6).
+    private async Task<TypedDriveResult> DriveClaimedAsync(TenantId tenant, TypedPromptStore store,
+        TypedPromptRecord record, DateTime firstClaim)
+    {
+        var id = record.DeliveryId;
+        var sid = record.SessionId;
+        var log = new Prompts.TypedPromptClaimLog(store);
+        var (director, session) = await GatewayEndpoints.LocateSessionAsync(_registry, sid, _pushedSessions, _streamStale, tenant, _owners);
+        ClaimAttempt attempt;
+        if (director is null || session is null)
+        {
+            // NOT LOCATED NOW (contract section 8): a stale or frozen Director is not a session that ended, so the
+            // claim is held - the Gateway owns it and presses it when the Director is back - and past the limit from
+            // the first claim it is ruled could-not-confirm, never "gone".
+            store.RecordDecision(id, Prompts.TypedPromptDecisions.SessionNotFound,
+                new Prompts.TypedPromptDecisionFacts { SessionId = sid, Reason = "the session could not be located; its Director is not connected" });
+            attempt = ClaimedSendCore.DirectorNotConnected(log, sid, id, Clock);
+        }
+        else if (GatewayDictationEndpoint.IsExited(session))
+        {
+            // PROVABLY ENDED (contract section 9, F4): located, and exited. Shown back with Dismiss - there is no
+            // session left to send anything to - and the text is kept for that.
+            store.ResolveSessionEnded(id, session.Status ?? session.ActivityState);
+            return TypedDriveResult.Finished;
+        }
+        else
+        {
+            var request = record.ClaimRequest
+                ?? throw new InvalidOperationException($"claimed typed prompt {id} carries no request fields to press it with");
+            attempt = await ClaimedSendCore.AttemptAsync(new SessionVerbClient(director, _sendCommand), sid, new PromptRequest
+            {
+                Text = record.Text ?? throw new InvalidOperationException($"claimed typed prompt {id} has no text to press"),
+                AppendEnter = request.AppendEnter,
+                AgentDriven = request.AgentDriven,
+                Surface = request.Surface,
+                OnlyWhenWaitingForInput = request.OnlyWhenWaitingForInput,
+                Provenance = request.Provenance,
+                DeliveryId = id,
+                SentAtUtc = DateTime.SpecifyKind(firstClaim, DateTimeKind.Utc),
+            }, log, id, session.ActivityState, Clock, gatewayDriven: true);
+        }
+
+        switch (attempt.Kind)
+        {
+            case ClaimAttemptKind.Delivered:
+            case ClaimAttemptKind.AlreadyDelivered:
+                store.ResolveDelivered(id);
+                return TypedDriveResult.Finished;
+            case ClaimAttemptKind.Held:
+                store.StayHeld(id, attempt.DirectorState!, countUnknown: false);
+                return TypedDriveResult.Held;
+            case ClaimAttemptKind.Unconfirmed:
+                store.SettleClaimResolved(id, TypedPromptState.Unconfirmed, "unconfirmed");
+                return TypedDriveResult.Finished;
+            case ClaimAttemptKind.TooOld:
+                store.SettleClaimResolved(id, TypedPromptState.NotDelivered, "not-delivered");
+                return TypedDriveResult.Finished;
+            default:
+                throw new InvalidOperationException($"the Gateway's own press of typed claim {id} came to {attempt.Kind}, which only an owner's press can");
         }
     }
 

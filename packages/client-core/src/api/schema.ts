@@ -12284,6 +12284,15 @@ export interface components {
             deliveryId?: null | string;
             delivering?: boolean;
             directorState?: null | string;
+            /** Added by hand (voice delivery phase 5, review finding 2): on a claimed "Send anyway" whose claim the
+             * Gateway ruled on or refused, the record's own outcome - the same shape the prompt outcome route answers
+             * with - plus the phase 2 `unconfirmed` verdict. Absent from an ordinary prompt answer. */
+            unconfirmed?: boolean;
+            submitted?: boolean;
+            movedOn?: boolean;
+            reason?: null | string;
+            offerSendAnyway?: boolean;
+            transcript?: null | string;
         };
         RepoAddRequest: {
             path?: string;

@@ -68,7 +68,7 @@ internal static class DeliverySendAndAsk
     /// <paramref name="recordAnswer"/> writes the Director's answer to the send, before any question, with the prompt
     /// verb's outcome and what it was read to mean.
     /// </summary>
-    public static async Task<DeliverySendResult> SendAsync(SessionVerbClient route, VoiceUploadStore store, string uploadId,
+    public static async Task<DeliverySendResult> SendAsync(SessionVerbClient route, IClaimDecisionLog store, string uploadId,
         string sid, string deliveryId, PromptRequest prompt,
         Action<SessionVerbClient.PromptSendOutcome, PromptAnswerReading> recordAnswer)
     {
@@ -146,7 +146,7 @@ internal static class DeliverySendAndAsk
     /// gave none, which kind of no-answer it was - they are different facts and are never folded into "unknown".
     /// </summary>
     public static async Task<SessionVerbClient.DeliveryStateAsk> AskAsync(
-        VoiceUploadStore store, string uploadId, string sid, string deliveryId, SessionVerbClient route, string why)
+        IClaimDecisionLog store, string uploadId, string sid, string deliveryId, SessionVerbClient route, string why)
     {
         store.RecordDecision(uploadId, DeliveryDecisions.AskedDirector, new DeliveryDecisionFacts { SessionId = sid, Reason = why });
         var asked = await route.GetDeliveryStateAsync(sid, deliveryId);
@@ -194,7 +194,7 @@ internal static class DeliverySendAndAsk
     /// Write that a recording which may already be in the session is HELD as still delivering, with the Director's state
     /// as the client is told it (<c>delivering</c>, <c>unknown</c> or <c>no-answer</c>).
     /// </summary>
-    public static void RecordHeld(VoiceUploadStore store, string uploadId, string sid, string directorState)
+    public static void RecordHeld(IClaimDecisionLog store, string uploadId, string sid, string directorState)
     {
         store.RecordDecision(uploadId, DeliveryDecisions.StillDelivering, new DeliveryDecisionFacts
         {

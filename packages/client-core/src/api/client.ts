@@ -870,6 +870,10 @@ export interface PromptSendResult {
    *  whose Director gave no answer for more than 5 minutes from the first claim. Nothing was typed, and the
    *  Gateway says not to offer "Send anyway" again - the words may be in, and a second press could double them. */
   unconfirmed?: boolean;
+  /** The record's own outcome, when the answer is the outcome of a claimed prompt the Gateway refused or
+   *  ruled on (voice delivery phase 5, review finding 2): a second press of the same claim answers the record's
+   *  current state, so the words are shown back rather than delivered, and the reason says which. */
+  shownBack?: { reason: string; offerSendAnyway: boolean; transcript: string | null };
 }
 
 export async function sendPrompt(
@@ -904,6 +908,11 @@ export async function sendPrompt(
     directorState?: string;
     deliveryId?: string | null;
     unconfirmed?: boolean;
+    submitted?: boolean;
+    movedOn?: boolean;
+    reason?: string;
+    offerSendAnyway?: boolean;
+    transcript?: string | null;
   };
   const deliveryId = typeof answer.deliveryId === "string" && answer.deliveryId !== "" ? answer.deliveryId : undefined;
   if (res.status === 202) {
@@ -912,7 +921,17 @@ export async function sendPrompt(
   // Only a claimed send can come back "unconfirmed"; an ordinary prompt answer has no such field, so it is
   // read only when a claim was made.
   if (recordingUploadId && answer.unconfirmed === true) return { delivering: false, unconfirmed: true, deliveryId };
-  return { delivering: false, deliveryId };
+  // The outcome body of a REFUSED claim (voice delivery phase 5, review finding 2): the Gateway answered with the
+  // record's current state, so the words are shown back, not delivered. An ordinary prompt answer has no such
+  // fields, so only a claim's answer can be read this way.
+  const shownBack = answer.submitted === false && answer.movedOn === true
+    ? {
+        reason: typeof answer.reason === "string" ? answer.reason : "",
+        offerSendAnyway: answer.offerSendAnyway === true,
+        transcript: typeof answer.transcript === "string" ? answer.transcript : null,
+      }
+    : undefined;
+  return { delivering: false, deliveryId, shownBack };
 }
 
 // What a session's live screen is right now (GET /sessions/{sid}/wingman/waiting-screen). "menu" means a

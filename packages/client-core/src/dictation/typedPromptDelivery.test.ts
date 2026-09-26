@@ -326,25 +326,91 @@ describe("each outcome of a held typed prompt", () => {
 });
 
 describe("Send anyway on a typed prompt shown back not delivered", () => {
-  it("makes exactly one FRESH typed send that carries no old id, and retires the old record", async () => {
+  it("sends the claim naming the ORIGINAL id, and the claim held on the same record keeps the strip on it", async () => {
     disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
-    vi.mocked(sendPrompt).mockResolvedValueOnce(DELIVERED_200);
+    // The claim is held: the Gateway answers 202 with the SAME delivery id back.
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: true, directorState: "no-answer", deliveryId: DELIVERY_ID });
+    vi.mocked(readPromptOutcome).mockResolvedValue(STILL);
+
+    await sendTypedPromptAnyway(DELIVERY_ID);
+
+    // The press CLAIMS the original id - the same request field a recording's "Send anyway" uses - so the Gateway,
+    // not this tab, is the gate that sends the words exactly once.
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    expect(sendPrompt).toHaveBeenCalledWith(SID, TEXT, true, undefined, undefined, undefined, DELIVERY_ID);
+    // The record is kept on the SAME id, no longer shown back, and the strip shows Still delivering.
+    expect(disk.get(DELIVERY_ID)).toMatchObject({ deliveryId: DELIVERY_ID, shownBack: false });
+    expect(statusFor(DELIVERY_ID)).toMatchObject({ phase: "held", delivering: true, typed: true });
+  });
+
+  it("two strips pressing it at the same moment make one send", async () => {
+    disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
+    vi.mocked(sendPrompt).mockResolvedValue({ delivering: true, directorState: "no-answer", deliveryId: DELIVERY_ID });
+    vi.mocked(readPromptOutcome).mockResolvedValue(STILL);
 
     await Promise.all([sendTypedPromptAnyway(DELIVERY_ID), sendTypedPromptAnyway(DELIVERY_ID)]);
 
     expect(sendPrompt).toHaveBeenCalledTimes(1);
-    const call = vi.mocked(sendPrompt).mock.calls[0];
-    expect(call[0]).toBe(SID);
-    expect(call[1]).toBe(TEXT);
-    expect(call[2]).toBe(true);
-    // No recording claim, no spoken id: the Gateway mints a fresh delivery id for it.
-    expect(call[6]).toBeUndefined();
-    expect(JSON.stringify(call)).not.toContain(DELIVERY_ID);
+    expect(disk.get(DELIVERY_ID)).toMatchObject({ shownBack: false });
+    expect(statusFor(DELIVERY_ID)).toMatchObject({ phase: "held", delivering: true });
+  });
+
+  it("after a reload the strip reads the ORIGINAL id's outcome, and a delivered outcome retires it", async () => {
+    disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: true, directorState: "no-answer", deliveryId: DELIVERY_ID });
+    await sendTypedPromptAnyway(DELIVERY_ID);
+
+    // A reload: the record is no longer shown back, so it is READ - on the original id - and never re-sent.
+    vi.mocked(readPromptOutcome).mockResolvedValueOnce(DELIVERED);
+    await resumeHeldPrompts();
+
+    expect(readPromptOutcome).toHaveBeenCalledWith(SID, DELIVERY_ID);
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    expect(disk.has(DELIVERY_ID)).toBe(false);
+    expect(statusFor(DELIVERY_ID)).toMatchObject({ phase: "done", typed: true });
+  });
+
+  it("a claim answered delivered retires the record and shows Sent", async () => {
+    disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
+    vi.mocked(sendPrompt).mockResolvedValueOnce(DELIVERED_200);
+
+    await sendTypedPromptAnyway(DELIVERY_ID);
+
     expect(disk.has(DELIVERY_ID)).toBe(false);
     expect(statusFor(DELIVERY_ID)).toMatchObject({ phase: "done" });
   });
 
-  it("a fresh send that is itself held is held under its NEW id, and the old strip goes", async () => {
+  it("a REFUSED claim answers the record's current state and sends nothing more", async () => {
+    // Another tab read the outcome first and the record resolved unconfirmed, so the Gateway refuses this press and
+    // answers the record's own outcome: the words come back with Dismiss only, and no second send is made.
+    disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
+    vi.mocked(sendPrompt).mockResolvedValueOnce({
+      delivering: false,
+      deliveryId: DELIVERY_ID,
+      shownBack: { reason: "unconfirmed", offerSendAnyway: false, transcript: TEXT },
+    });
+
+    await sendTypedPromptAnyway(DELIVERY_ID);
+
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    expect(disk.get(DELIVERY_ID)).toMatchObject({ shownBack: true, shownBackReason: "unconfirmed", offerSendAnyway: false });
+    expect(statusFor(DELIVERY_ID)).toMatchObject({ phase: "dropped", offerSendAnyway: false, recoverableText: TEXT });
+    expect(statusFor(DELIVERY_ID)?.error).toContain("could not confirm");
+  });
+
+  it("the claim's own unconfirmed verdict shows the words with Dismiss only", async () => {
+    disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
+    vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: false, unconfirmed: true, deliveryId: DELIVERY_ID });
+
+    await sendTypedPromptAnyway(DELIVERY_ID);
+
+    expect(disk.get(DELIVERY_ID)).toMatchObject({ shownBack: true, shownBackReason: "unconfirmed", offerSendAnyway: false });
+    expect(statusFor(DELIVERY_ID)).toMatchObject({ phase: "dropped", offerSendAnyway: false, recoverableText: TEXT });
+  });
+
+  it("a claim the Gateway DROPS goes out as an ordinary prompt and is held under its NEW id, and the old strip goes", async () => {
+    // Another account's id, or one past the claim window: the Gateway drops the claim and sends the words as an
+    // ordinary prompt with a fresh id - exactly as a dropped recording claim does.
     disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
     const NEW_ID = "1111222233334444aaaabbbbccccdddd";
     vi.mocked(sendPrompt).mockResolvedValueOnce({ delivering: true, directorState: "no-answer", deliveryId: NEW_ID });
@@ -358,7 +424,7 @@ describe("Send anyway on a typed prompt shown back not delivered", () => {
     expect(statusFor(NEW_ID)).toMatchObject({ phase: "held", delivering: true, typed: true });
   });
 
-  it("a fresh send that fails keeps the words on screen and on the device", async () => {
+  it("a claim that fails keeps the words on screen and on the device", async () => {
     disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
     vi.mocked(sendPrompt).mockRejectedValueOnce(new BadGateway("bad gateway"));
 
