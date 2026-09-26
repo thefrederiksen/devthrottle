@@ -4,6 +4,7 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Prompts;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -213,6 +214,7 @@ public sealed class TypedPromptDeliveryTests : IDisposable
 
         Assert.Equal(TypedDriveResult.Held, await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
         Assert.Equal(TypedPromptState.Held, store.Read(id).Record!.State);
+        Assert.Equal("waiting-for-director", store.Read(id).Record!.DirectorState);
 
         _clock.Ahead = TimeSpan.FromMinutes(6);
         Assert.Equal(TypedDriveResult.Finished, await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
@@ -363,6 +365,108 @@ public sealed class TypedPromptDeliveryTests : IDisposable
         Assert.Equal(1, _asks);
     }
 
+    // ===== section 8 and 9: not located is held, only a provably ended session is shown back as ended ============
+
+    [Fact]
+    public async Task Drive_SessionNotLocatedNow_IsHeldWaitingForDirector_ThenUnconfirmedPastFiveMinutes()
+    {
+        // Proves QA case 9 at the driver: a prompt that went out unanswered, then a Director frozen so its session is not
+        // located, is held "waiting-for-director" on every wake-up - never "gone" - and at 5:01 from the sent time is
+        // could-not-confirm with the words.
+        var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+        var id = TypedPromptDelivery.MintDeliveryId();
+        store.Hold(id, Guid.NewGuid().ToString(), "hello agent", _clock.GetUtcNow().UtcDateTime, "no-answer", new TypedPromptDecisionFacts());
+        var driver = Driver();
+
+        for (var wake = 0; wake < 20; wake++)
+        {
+            _clock.Ahead = TimeSpan.FromSeconds(15 * wake);
+            Assert.Equal(TypedDriveResult.Held, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
+            Assert.Equal("waiting-for-director", store.Read(id).Record!.DirectorState);
+        }
+        _clock.Ahead = TimeSpan.FromSeconds(301);
+        Assert.Equal(TypedDriveResult.Finished, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
+
+        var record = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.Unconfirmed, record.State);
+        Assert.Equal("hello agent", record.Text);
+        Assert.Equal(0, _asks);
+        Assert.Equal(0, _prompts);
+    }
+
+    [Fact]
+    public async Task Drive_APromptThatNeverLeft_PastFiveMinutesUnlocated_IsShownBackWithSendAnyway_NotUnconfirmed()
+    {
+        // Proves a typed prompt that never left the Gateway is provably not in: past the limit it is shown back
+        // not-delivered (with "Send anyway"), never "could not confirm".
+        var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+        var id = TypedPromptDelivery.MintDeliveryId();
+        store.HoldNeverSent(id, Guid.NewGuid().ToString(), "hello agent", _clock.GetUtcNow().UtcDateTime);
+
+        _clock.Ahead = TimeSpan.FromSeconds(299);
+        Assert.Equal(TypedDriveResult.Held, await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
+        _clock.Ahead = TimeSpan.FromSeconds(301);
+        Assert.Equal(TypedDriveResult.Finished, await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
+
+        var record = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.NotDelivered, record.State);
+        Assert.Equal("hello agent", record.Text);
+        Assert.Equal("never-sent", store.ReadDecisions(id).Last().Facts!.Reason);
+    }
+
+    [Fact]
+    public async Task Drive_APromptThatNeverLeft_WhenItsSessionIsBack_IsShownBack_WithoutAskingOrSending()
+    {
+        var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+        var id = TypedPromptDelivery.MintDeliveryId();
+        store.HoldNeverSent(id, Seat(), "hello agent", _clock.GetUtcNow().UtcDateTime);
+
+        var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected);
+
+        Assert.Equal(TypedDriveResult.Finished, result);
+        Assert.Equal(TypedPromptState.NotDelivered, store.Read(id).Record!.State);
+        Assert.Equal(0, _asks);
+        Assert.Equal(0, _prompts);
+    }
+
+    [Fact]
+    public async Task Drive_ASessionLocatedAndExited_IsShownBackAsEnded_WithTheTextAndNoSendAnyway()
+    {
+        // Proves F4 at the driver: only a session the Gateway can prove ended - located, and exited - is resolved as
+        // ended; the words are kept and nothing is asked or sent.
+        var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+        var id = TypedPromptDelivery.MintDeliveryId();
+        store.Hold(id, Seat(activityState: "Exited", status: "Exited"), "hello agent", _clock.GetUtcNow().UtcDateTime, "no-answer",
+            new TypedPromptDecisionFacts());
+
+        var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
+
+        Assert.Equal(TypedDriveResult.Finished, result);
+        var record = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.SessionEnded, record.State);
+        Assert.Equal("hello agent", record.Text);
+        Assert.Equal(0, _asks);
+        var body = await ExecuteAsync(TypedPromptDelivery.OutcomeResult(record));
+        Assert.Equal(200, body.Status);
+        Assert.Equal("session-exited", body.Json.GetProperty("reason").GetString());
+        Assert.False(body.Json.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal("hello agent", body.Json.GetProperty("transcript").GetString());
+    }
+
+    private static async Task<(int Status, JsonElement Json)> ExecuteAsync(Microsoft.AspNetCore.Http.IResult result)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddLogging();
+        var ctx = new Microsoft.AspNetCore.Http.DefaultHttpContext
+        {
+            RequestServices = services.BuildServiceProvider(),
+        };
+        var stream = new MemoryStream();
+        ctx.Response.Body = stream;
+        await result.ExecuteAsync(ctx);
+        return (ctx.Response.StatusCode, JsonDocument.Parse(stream.ToArray()).RootElement.Clone());
+    }
+
     // ===== the store (T3) =====================================================================================
 
     [Fact]
@@ -486,7 +590,7 @@ public sealed class TypedPromptDeliveryTests : IDisposable
     private static SessionVerbClient.PromptSendOutcome Accepted(PromptResponse body)
         => new(SessionVerbClient.PromptSendKind.Accepted, body, "");
 
-    private string Seat()
+    private string Seat(string activityState = "Working", string status = "Running")
     {
         var sid = Guid.NewGuid().ToString();
         _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-1");
@@ -497,8 +601,8 @@ public sealed class TypedPromptDeliveryTests : IDisposable
             DirectorId = DirectorId,
             Agent = "ClaudeCode",
             RepoPath = @"D:\ReposFred\devthrottle",
-            Status = "Running",
-            ActivityState = "Working",
+            Status = status,
+            ActivityState = activityState,
             LastActivityAt = DateTime.UtcNow,
         });
         Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", ++_snapshotSeq, known.ToArray()));

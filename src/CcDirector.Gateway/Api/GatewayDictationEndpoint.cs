@@ -1098,7 +1098,7 @@ internal static class GatewayDictationEndpoint
         try { t.End(tenant, sid); } catch { /* the Gateway's stale-mark backstop clears it if this throws */ }
     }
 
-    private static bool IsExited(SessionDto session)
+    internal static bool IsExited(SessionDto session)
         => string.Equals(session.Status, "Exited", StringComparison.OrdinalIgnoreCase)
         || string.Equals(session.Status, "Failed", StringComparison.OrdinalIgnoreCase)
         || string.Equals(session.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase);

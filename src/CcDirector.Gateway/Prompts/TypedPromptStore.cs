@@ -17,6 +17,8 @@ public enum TypedPromptState
     NotDelivered,
     /// <summary>No answer of any kind for more than the age limit from the sent time: shown back with no "Send anyway".</summary>
     Unconfirmed,
+    /// <summary>The session is known to have ended (located, and exited): shown back with Dismiss and no "Send anyway".</summary>
+    SessionEnded,
 }
 
 /// <summary>
@@ -46,6 +48,13 @@ public sealed record TypedPromptRecord
     public int UnknownAnswers { get; init; }
     /// <summary>How many times the Gateway's driver has attempted this record.</summary>
     public int DriveAttempts { get; init; }
+    /// <summary>
+    /// True when the prompt NEVER LEFT the Gateway: its session could not be located when it arrived (a stale or frozen
+    /// Director, contract section 8), so it is held rather than answered "gone". Such a prompt is provably not in the
+    /// session, so it is never ruled could-not-confirm: past the age limit, or once the Director is back, it is shown
+    /// back with "Send anyway".
+    /// </summary>
+    public bool NeverSent { get; init; }
     /// <summary>Why a shown-back record is shown back (<c>not-delivered</c>, <c>unconfirmed</c>), null otherwise.</summary>
     public string? Reason { get; init; }
     public DateTime? ResolvedAtUtc { get; init; }
@@ -94,6 +103,12 @@ public static class TypedPromptDecisions
     public const string ReasonDirectorSaidNotDelivered = "director-said-not-delivered";
     /// <summary>Why the prompt was shown back as not delivered: the Director answered <c>unknown</c> on two wake-ups.</summary>
     public const string ReasonUnknownTwice = "unknown-twice";
+    /// <summary>Why the prompt was shown back as not delivered: it never left the Gateway (its session was not located).</summary>
+    public const string ReasonNeverSent = "never-sent";
+    /// <summary>The session is known to have ended: located, and exited.</summary>
+    public const string SessionExited = Voice.DeliveryDecisions.SessionExited;
+    /// <summary>The held state while the session's Director cannot be reached (contract section 2's value).</summary>
+    public const string WaitingForDirector = "waiting-for-director";
 
     /// <summary>What woke the driver: the session's Director connected again. Same spelling as the dictation driver's.</summary>
     public const string DriveDirectorConnected = "director-connected";
@@ -250,6 +265,44 @@ public sealed class TypedPromptStore
         FileLog.Write($"[TypedPromptStore] Hold: deliveryId={id} sid={sessionId} chars={text.Length} directorState={directorState}");
     }
 
+    /// <summary>
+    /// Hold a typed prompt that NEVER LEFT the Gateway, because its session could not be located when it arrived (contract
+    /// section 8: a stale or frozen Director is a held delivery, never "session gone"). Writes <c>session-not-found</c> and
+    /// <c>still-delivering</c> with <c>waiting-for-director</c> before the route answers. The text is kept.
+    /// </summary>
+    public void HoldNeverSent(string deliveryId, string sessionId, string text, DateTime receivedAtUtc)
+    {
+        var id = RequireId(deliveryId);
+        WithGate(id, () =>
+        {
+            var dir = DirFor(id);
+            if (File.Exists(RecordPath(dir)))
+                throw new InvalidOperationException($"typed prompt {id} is already held; a delivery id is minted once");
+            Directory.CreateDirectory(dir);
+            AppendLine(dir, id, TypedPromptDecisions.SessionNotFound, new TypedPromptDecisionFacts
+            {
+                SessionId = sessionId,
+                Characters = text.Length,
+                SentAtUtc = receivedAtUtc,
+                Reason = "the session could not be located; nothing was sent",
+            });
+            WriteRecord(dir, new TypedPromptRecord
+            {
+                DeliveryId = id,
+                SessionId = sessionId,
+                Text = text,
+                Characters = text.Length,
+                SentAtUtc = receivedAtUtc,
+                State = TypedPromptState.Held,
+                DirectorState = TypedPromptDecisions.WaitingForDirector,
+                NeverSent = true,
+            });
+            AppendLine(dir, id, TypedPromptDecisions.StillDelivering,
+                new TypedPromptDecisionFacts { SessionId = sessionId, State = TypedPromptDecisions.WaitingForDirector });
+        });
+        FileLog.Write($"[TypedPromptStore] HoldNeverSent: deliveryId={id} sid={sessionId} chars={text.Length}");
+    }
+
     /// <summary>The record for one delivery id in this partition. A record stamped for another tenant reads as absent.</summary>
     public TypedPromptRead Read(string deliveryId)
     {
@@ -352,6 +405,15 @@ public sealed class TypedPromptStore
             AgeSeconds = (long)Math.Floor(age.TotalSeconds),
             DirectorNoAnswer = noAnswerKind,
         });
+
+    /// <summary>Resolve a held record as session-ended (the text is kept, no "Send anyway"), and write <c>session-exited</c>.</summary>
+    public void ResolveSessionEnded(string deliveryId, string status)
+        => Transition(deliveryId, r => r with
+        {
+            State = TypedPromptState.SessionEnded,
+            Reason = TypedPromptDecisions.SessionExited,
+            ResolvedAtUtc = _clock.GetUtcNow().UtcDateTime,
+        }, TypedPromptDecisions.SessionExited, r => new TypedPromptDecisionFacts { SessionId = r.SessionId, State = status });
 
     /// <summary>What an acknowledgement came to.</summary>
     public enum AcknowledgeResult { NotFound, StillHeld, Acknowledged, AlreadyAcknowledged }

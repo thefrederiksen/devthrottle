@@ -44,6 +44,7 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
     private readonly List<PromptRequest> _arrived = new();
     private readonly ExecuteActionTestBackend _backend = new();
     private int _asks;
+    private readonly AheadClock _clock = new();
 
     /// <summary>When set, the Director answers the prompt verb with this instead of the real prompt core. Null: the real core.</summary>
     private Func<PromptRequest, DirectorCommandResult>? _promptAnswer;
@@ -63,6 +64,7 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
             keyVaultPath: Path.Combine(_root, "keyvault.json"),
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             streamMode: true);
+        _gateway.DeliveryClock = _clock;
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -300,5 +302,65 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
         Assert.False(body.GetProperty("accepted").GetBoolean());
         var deliveryId = body.GetProperty("deliveryId").GetString()!;
         Assert.Equal(TypedPromptReadKind.Absent, _gateway.TypedPrompts.Read(deliveryId).Kind);
+    }
+
+    [Fact]
+    public async Task A_typed_prompt_to_a_session_that_cannot_be_located_now_is_held_waiting_for_its_Director_never_404()
+    {
+        // Proves contract section 8 on the route: a session no connected Director lists now (a stale or frozen Director)
+        // is not "gone". The typed prompt is held 202 "waiting-for-director" with its delivery id, nothing reaches any
+        // Director, and its outcome reads held.
+        var unlocated = Guid.NewGuid().ToString();
+
+        var (status, held) = await Send(HttpMethod.Post, $"sessions/{unlocated}/prompt", new { text = "for a frozen machine", appendEnter = true });
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        Assert.Equal("waiting-for-director", held.GetProperty("directorState").GetString());
+        var deliveryId = held.GetProperty("deliveryId").GetString()!;
+        Assert.Equal(0, Arrived());
+        var (outcomeStatus, outcome) = await Send(HttpMethod.Get, $"sessions/{unlocated}/prompts/{deliveryId}/outcome");
+        Assert.Equal(HttpStatusCode.Accepted, outcomeStatus);
+        Assert.Equal("waiting-for-director", outcome.GetProperty("directorState").GetString());
+        Assert.True(_gateway.TypedPrompts.Read(deliveryId).Record!.NeverSent);
+    }
+
+    [Fact]
+    public async Task QA_case_9_typed_unanswered_then_frozen_is_held_on_every_wake_up_and_unconfirmed_with_the_words_at_5_01()
+    {
+        // Proves QA's case 9 for a typed prompt: the prompt goes out and is unanswered, then the Director freezes (its
+        // tunnel is gone). Every driver wake-up holds it - 202 on the outcome route, never "gone", never a second send -
+        // and at 5:01 from the sent time it is "could not confirm it arrived", with the words and no "Send anyway".
+        _promptAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
+        var (status, held) = await PostPrompt("typed just before the freeze");
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        var deliveryId = held.GetProperty("deliveryId").GetString()!;
+        await _conn.StopAsync();
+
+        for (var wake = 1; wake <= 12; wake++)
+        {
+            _clock.Ahead = TimeSpan.FromSeconds(20 * wake);
+            var result = await _gateway.TypedPromptDriver.DriveOnceAsync(TenantId.Local, _gateway.TypedPrompts, deliveryId, TypedPromptDecisions.DriveTick);
+            Assert.Equal(TypedDriveResult.Held, result);
+            var (wakeStatus, wakeOutcome) = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{deliveryId}/outcome");
+            Assert.Equal(HttpStatusCode.Accepted, wakeStatus);
+            Assert.Equal("waiting-for-director", wakeOutcome.GetProperty("directorState").GetString());
+        }
+
+        _clock.Ahead = TimeSpan.FromSeconds(301);
+        await _gateway.TypedPromptDriver.DriveOnceAsync(TenantId.Local, _gateway.TypedPrompts, deliveryId, TypedPromptDecisions.DriveTick);
+
+        var (finalStatus, final) = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{deliveryId}/outcome");
+        Assert.Equal(HttpStatusCode.OK, finalStatus);
+        Assert.Equal("unconfirmed", final.GetProperty("reason").GetString());
+        Assert.False(final.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal("typed just before the freeze", final.GetProperty("transcript").GetString());
+        Assert.Equal(1, Arrived());
+    }
+
+    /// <summary>The real clock moved ahead by <see cref="Ahead"/>: the route and the driver judge the limit by it.</summary>
+    private sealed class AheadClock : TimeProvider
+    {
+        public TimeSpan Ahead;
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow + Ahead;
     }
 }

@@ -3891,12 +3891,29 @@ internal static class GatewayEndpoints
                     new Voice.DeliveryDecisionFacts { SessionId = sid, Reason = where });
             }
 
+            IResult HoldNeverSent(TenantId heldTenant)
+            {
+                if (typedPrompts is null)
+                    throw new InvalidOperationException(
+                        $"typed prompt {req.DeliveryId} must be held, but GatewayEndpoints.Map was given no typed prompt store");
+                typedPrompts.ForTenant(heldTenant).HoldNeverSent(req.DeliveryId!, sid, req.Text!, claimClock.GetUtcNow().UtcDateTime);
+                FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} not located now; typed prompt {req.DeliveryId} HELD waiting for its Director");
+                return Results.Json(new { delivering = true, directorState = Prompts.TypedPromptDecisions.WaitingForDirector, deliveryId = req.DeliveryId },
+                    statusCode: StatusCodes.Status202Accepted);
+            }
+
             async Task<IResult> PromptAfterAttributionAsync()
             {
             var (director, session) = await LocateSessionForRequestAsync(httpCtx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
             {
                 RecordClaimStoppedBeforeDirector(ClaimStopSessionNotFound);
+                // A TYPED PROMPT WHOSE SESSION CANNOT BE LOCATED NOW IS HELD, NEVER "GONE" (contract section 8): a stale
+                // or frozen Director is not a session that ended. It never left the Gateway, so it is held 202
+                // "waiting-for-director" and the Gateway's driver settles it - shown back once the Director is back or
+                // the age limit passes. A claimed "Send anyway" keeps its own path.
+                if (claimStore is null && ResolveReadTenant(httpCtx, tenantBoundary) is { } heldTenant)
+                    return HoldNeverSent(heldTenant);
                 return SessionUnavailable(httpCtx, tenantBoundary, pushedSessions, sid);
             }
 

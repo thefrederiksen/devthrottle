@@ -176,9 +176,25 @@ internal sealed class TypedPromptDelivery
         var (director, session) = await GatewayEndpoints.LocateSessionAsync(_registry, sid, _pushedSessions, _streamStale, tenant, _owners);
         if (director is null || session is null)
         {
+            // NOT LOCATED NOW (contract section 8): its Director is stale, frozen or not connected. That is never "session
+            // gone" - the Gateway cannot prove the session ended - so it stays held, waiting for the Director.
             store.RecordDecision(id, TypedPromptDecisions.SessionNotFound,
                 new TypedPromptDecisionFacts { SessionId = sid, Reason = "the session could not be located; its Director is not connected" });
-            return NoAnswer(store, record, "waiting-for-director");
+            return NoAnswer(store, record, TypedPromptDecisions.WaitingForDirector, TypedPromptDecisions.WaitingForDirector);
+        }
+        if (GatewayDictationEndpoint.IsExited(session))
+        {
+            // PROVABLY ENDED (contract section 9, F4): located, and exited. Shown back with Dismiss - there is no session
+            // left to send to - and the text is kept for that.
+            store.ResolveSessionEnded(id, session.Status ?? session.ActivityState);
+            return TypedDriveResult.Finished;
+        }
+        if (record.NeverSent)
+        {
+            // It never left the Gateway, so the Director cannot hold it: asking would only hear "unknown". The typed
+            // driver never sends text, so the owner gets it back with "Send anyway".
+            store.ResolveNotDelivered(id, TypedPromptDecisions.ReasonNeverSent, null);
+            return TypedDriveResult.Finished;
         }
 
         var route = new SessionVerbClient(director, _sendCommand);
@@ -194,7 +210,10 @@ internal sealed class TypedPromptDelivery
             Error = noAnswer is null ? null : asked.Detail,
         });
         if (noAnswer is not null)
-            return NoAnswer(store, record, noAnswer);
+            return NoAnswer(store, record, noAnswer,
+                asked.Kind == SessionVerbClient.DeliveryStateAskKind.NeverLeftTheGateway
+                    ? TypedPromptDecisions.WaitingForDirector
+                    : DeliverySendAndAsk.NoAnswerState);
 
         switch (asked.Answer!.State)
         {
@@ -221,17 +240,23 @@ internal sealed class TypedPromptDelivery
         }
     }
 
-    // No answer of any kind: never read as "not in". Held within the age limit from the sent time; past it, could not confirm.
-    private TypedDriveResult NoAnswer(TypedPromptStore store, TypedPromptRecord record, string noAnswerKind)
+    // No answer of any kind: never read as "not in". Held within the age limit from the sent time; past it, could not
+    // confirm - unless the prompt never left the Gateway, which is provably not in and is shown back with "Send anyway".
+    private TypedDriveResult NoAnswer(TypedPromptStore store, TypedPromptRecord record, string noAnswerKind, string heldState)
     {
         if (DeliverySendAndAsk.IsPastConfirmLimit(Clock.GetUtcNow().UtcDateTime, record.SentAtUtc, out var age))
         {
+            if (record.NeverSent)
+            {
+                store.ResolveNotDelivered(record.DeliveryId, TypedPromptDecisions.ReasonNeverSent, null);
+                return TypedDriveResult.Finished;
+            }
             store.ResolveUnconfirmed(record.DeliveryId, age, noAnswerKind);
             FileLog.Write($"[TypedPromptDelivery] deliveryId={record.DeliveryId}: {age.TotalSeconds:0}s since it was sent and no answer " +
                 $"({noAnswerKind}); ruled unconfirmed");
             return TypedDriveResult.Finished;
         }
-        store.StayHeld(record.DeliveryId, DeliverySendAndAsk.NoAnswerState, countUnknown: false);
+        store.StayHeld(record.DeliveryId, heldState, countUnknown: false);
         return TypedDriveResult.Held;
     }
 
@@ -255,6 +280,11 @@ internal sealed class TypedPromptDelivery
         TypedPromptState.Unconfirmed => Results.Json(new
         {
             submitted = false, movedOn = true, reason = "unconfirmed", offerSendAnyway = false,
+            transcript = record.Text, deliveryId = record.DeliveryId,
+        }),
+        TypedPromptState.SessionEnded => Results.Json(new
+        {
+            submitted = false, movedOn = true, reason = TypedPromptDecisions.SessionExited, offerSendAnyway = false,
             transcript = record.Text, deliveryId = record.DeliveryId,
         }),
         _ => throw new InvalidOperationException($"typed prompt state {record.State} has no answer"),
