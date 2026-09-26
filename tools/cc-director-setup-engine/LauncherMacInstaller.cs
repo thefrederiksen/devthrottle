@@ -44,6 +44,9 @@ public sealed class LauncherMacInstaller
     /// </summary>
     public static readonly TimeSpan DefaultLaunchdPidWait = TimeSpan.FromSeconds(25);
 
+    /// <summary>The bound on any one command this step runs.</summary>
+    public static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(60);
+
     public LauncherMacInstaller(
         InstallLayout layout,
         CommandRunner? runCommand = null,
@@ -54,7 +57,9 @@ public sealed class LauncherMacInstaller
         TimeSpan? launchdPidWait = null)
     {
         _layout = layout ?? throw new ArgumentNullException(nameof(layout));
-        _runCommand = runCommand ?? ProcessRunner.Run;
+        // Every command this step runs is short (id, launchctl, and the failure-only diagnostics), so a
+        // minute bounds a wedged one without holding a failure report for ProcessRunner's 15-minute default.
+        _runCommand = runCommand ?? ((exe, args) => ProcessRunner.Run(exe, args, onStdoutLine: null, CommandTimeout));
         _startProcess = startProcess ?? StartDetachedProcess;
         _launchAgentPlistPath = launchAgentPlistPath ?? DefaultLaunchAgentPlistPath();
         _registrationPath = registrationPath ?? LauncherDiscovery.DefaultPath;
@@ -328,11 +333,13 @@ public sealed class LauncherMacInstaller
         string? print = _lastLaunchdPrint;
         var loaded = _lastLaunchdPrintExit == 0;
         string? gatherError = null;
+        int? uid = null;
         try
         {
             var (uidExit, uidOutput) = _runCommand("/usr/bin/id", "-u");
-            if (uidExit == 0 && int.TryParse(uidOutput.Trim(), out var uid))
+            if (uidExit == 0 && int.TryParse(uidOutput.Trim(), out var parsedUid))
             {
+                uid = parsedUid;
                 var (printExit, printOutput) = _runCommand(
                     "/bin/launchctl", $"print gui/{uid}/{LauncherLaunchdAutostart.Label}");
                 print = printOutput;
@@ -355,6 +362,59 @@ public sealed class LauncherMacInstaller
             ("launcher log (last lines)", LaunchdDiagnostics.LauncherLogTail(LauncherLogDir, 60)),
         ]);
         var header = gatherError is null ? "" : $"launchd query failed: {gatherError}\n";
-        return header + composed + "\nsteps:\n  " + string.Join("\n  ", steps);
+        // The binary checks go LAST: the Gateway keeps the first 16,000 characters of a report, and the
+        // system log is the only part long enough to be cut.
+        return header + composed + "\nsteps:\n  " + string.Join("\n  ", steps) + "\n" + GatherBinaryChecks(uid);
+    }
+
+    /// <summary>
+    /// What macOS itself thinks of the launcher. launchd only knows THAT it refused the program
+    /// ("78: EX_CONFIG", "spawn failed"); the reason sits elsewhere - the file's quarantine flag and
+    /// signature, a switched-off background item, a device-management policy, the security log. A
+    /// user's Mac failed three installs in a row with nothing else to go on (#3411), so these answers
+    /// travel with every failure.
+    /// </summary>
+    /// <param name="uid">The user id GatherDiagnostics resolved, or null when it could not.</param>
+    private string GatherBinaryChecks(int? uid)
+    {
+        var binary = _layout.PathFor(ComponentRegistry.Launcher);
+        var checks = new List<(string Name, int Exit, string Output)>();
+
+        void Check(string name, string exe, string args, Func<string, string>? keep = null)
+        {
+            try
+            {
+                var (exit, output) = _runCommand(exe, args);
+                checks.Add((name, exit, keep is null ? output : keep(output)));
+            }
+            catch (Exception ex)
+            {
+                checks.Add((name, -1, $"could not run {exe} ({ex.GetType().Name}): {ex.Message}"));
+            }
+        }
+
+        Check("xattr -l (quarantine flag)", "/usr/bin/xattr", $"-l \"{binary}\"");
+        Check("codesign -dv (signature)", "/usr/bin/codesign", $"-dv --verbose=2 \"{binary}\"");
+
+        // A background item the user (or macOS) switched off is refused without a word from launchd.
+        // The list names every service on the machine; only ours matters.
+        if (uid is { } knownUid)
+            Check("launchctl print-disabled (is our background item switched off)", "/bin/launchctl", $"print-disabled gui/{knownUid}",
+                output =>
+                {
+                    var ours = output.Split('\n').Where(l => l.Contains("devthrottle", StringComparison.OrdinalIgnoreCase)).ToList();
+                    return ours.Count > 0
+                        ? string.Join('\n', ours)
+                        : "no devthrottle entry: our background item is not switched off";
+                });
+        else
+            checks.Add(("launchctl print-disabled (is our background item switched off)", -1, "not run: the user id could not be resolved"));
+
+        // A company-managed Mac can refuse unsigned background programs by policy.
+        Check("profiles status (device management)", "/usr/bin/profiles", "status -type enrollment");
+        Check("log show (last 3 minutes mentioning cc-launcher)", "/usr/bin/log",
+            "show --last 3m --style compact --predicate \"eventMessage CONTAINS 'cc-launcher'\"");
+
+        return LaunchdDiagnostics.ComposeBinaryChecks(checks);
     }
 }

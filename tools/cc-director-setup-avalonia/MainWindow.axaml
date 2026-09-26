@@ -98,16 +98,22 @@
             <!-- Bottom navigation bar -->
             <Border x:Name="NavBar" DockPanel.Dock="Bottom" Background="#252526"
                     Padding="20,12">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="BackButton" Content="Back"
-                            Classes="setup"
-                            Width="90" Click="BackButton_Click"
-                            IsVisible="False" />
-                    <Button x:Name="NextButton" Content="Next"
-                            Classes="primary"
-                            Width="90" Margin="8,0,0,0"
-                            Click="NextButton_Click" />
-                </StackPanel>
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="BackButton" Content="Back"
+                                Classes="setup"
+                                Width="90" Click="BackButton_Click"
+                                IsVisible="False" />
+                        <Button x:Name="NextButton" Content="Next"
+                                Classes="primary"
+                                Width="90" Margin="8,0,0,0"
+                                Click="NextButton_Click" />
+                    </StackPanel>
+                    <!-- An unexpected error, on whichever step is showing (#3311). -->
+                    <TextBlock x:Name="ErrorBanner" IsVisible="False" TextWrapping="Wrap"
+                               Foreground="#F48771" FontSize="12" VerticalAlignment="Center"
+                               Margin="0,0,16,0" />
+                </DockPanel>
             </Border>
 
             <!-- Step content -->
