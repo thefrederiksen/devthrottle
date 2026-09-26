@@ -49,10 +49,9 @@ public sealed record TypedPromptRecord
     /// <summary>How many times the Gateway's driver has attempted this record.</summary>
     public int DriveAttempts { get; init; }
     /// <summary>
-    /// True when the prompt NEVER LEFT the Gateway: its session could not be located when it arrived (a stale or frozen
-    /// Director, contract section 8), so it is held rather than answered "gone". Such a prompt is provably not in the
-    /// session, so it is never ruled could-not-confirm: past the age limit, or once the Director is back, it is shown
-    /// back with "Send anyway".
+    /// True when the prompt ARRIVED while its session could not be located (a stale or frozen Director, contract section
+    /// 8), so it was held rather than answered "gone", with nothing sent. Informational: whether it has been sent since is
+    /// read from the decision log alone (<see cref="TypedPromptStore.MayHaveBeenSentToDirector"/>, section 10).
     /// </summary>
     public bool NeverSent { get; init; }
     /// <summary>The request fields to send a never-sent prompt with (contract section 10); null once it has been sent.</summary>
@@ -389,9 +388,26 @@ public sealed class TypedPromptStore
     }
 
     /// <summary>
-    /// The driver is about to SEND a never-sent prompt (contract section 10): in one step under the record's gate, write
-    /// <c>sent-to-director</c> and mark it no longer never-sent - so from here on, a crash or any later wake-up only ASKS
-    /// what became of it and never sends it again. Returns false (nothing written) when it is not a held never-sent record.
+    /// True when this record's decision log says the prompt MAY have reached the Director: it holds a
+    /// <c>sent-to-director</c> line, or a line nobody can read and so could be one. This is the ONE test of whether a typed
+    /// prompt left the Gateway (contract section 10: the driver decides from that line alone) - a prompt that did is only
+    /// ever asked about, one that did not may be sent once. It leans to "may have", because asking is always safe.
+    /// </summary>
+    public bool MayHaveBeenSentToDirector(string deliveryId)
+    {
+        var id = RequireId(deliveryId);
+        return WithGate(id, () => MayHaveBeenSentUnlocked(id));
+    }
+
+    private bool MayHaveBeenSentUnlocked(string id)
+        => ReadLines(Path.Combine(DirFor(id), DecisionsFileName))
+            .Any(l => l.Decision is TypedPromptDecisions.SentToDirector or TypedPromptDecisions.UnreadableLine);
+
+    /// <summary>
+    /// The driver is about to SEND a prompt that never left the Gateway (contract section 10): write <c>sent-to-director</c>
+    /// under the record's gate BEFORE the send, so from here on - a crash, an unanswered send, any later wake-up - the
+    /// prompt is only asked about and never sent again. Returns false (nothing written) when the record is not held or the
+    /// log already says it may have been sent.
     /// </summary>
     public bool MarkSending(string deliveryId)
     {
@@ -399,7 +415,7 @@ public sealed class TypedPromptStore
         return WithGate(id, () =>
         {
             var read = ReadUnlocked(id);
-            if (read.Record is not { State: TypedPromptState.Held, NeverSent: true } record) return false;
+            if (read.Record is not { State: TypedPromptState.Held } record || MayHaveBeenSentUnlocked(id)) return false;
             var dir = DirFor(id);
             AppendLine(dir, id, TypedPromptDecisions.SentToDirector, new TypedPromptDecisionFacts
             {
@@ -414,9 +430,9 @@ public sealed class TypedPromptStore
     }
 
     /// <summary>
-    /// A send the driver began left NOTHING behind - the Director's tunnel was gone, so the command never left the Gateway
-    /// (<see cref="MarkSending"/> said it might have). Written as the Director's answer with that reason, and the record is
-    /// never-sent again, so the next wake-up may send it.
+    /// A send the driver began left nothing behind - the Director's tunnel was gone, so the command never left the Gateway.
+    /// Written as the Director's answer with that reason, and held waiting for the Director. The <c>sent-to-director</c>
+    /// line stays, so from here the prompt is asked about, never sent again (section 10 decides from that line alone).
     /// </summary>
     public void MarkNeverLeft(string deliveryId, string? error)
     {
@@ -434,7 +450,7 @@ public sealed class TypedPromptStore
                 Reason = TypedPromptDecisions.ReasonNeverLeftTheGateway,
                 Error = error,
             });
-            WriteRecord(dir, record with { NeverSent = true, DirectorState = TypedPromptDecisions.WaitingForDirector });
+            WriteRecord(dir, record with { DirectorState = TypedPromptDecisions.WaitingForDirector });
         });
     }
 

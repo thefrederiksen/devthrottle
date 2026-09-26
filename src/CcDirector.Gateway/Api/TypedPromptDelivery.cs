@@ -172,6 +172,8 @@ internal sealed class TypedPromptDelivery
         var record = store.BeginDrive(id, trigger);
         if (record is null) return TypedDriveResult.NotHeld;
         var sid = record.SessionId;
+        // Did it ever leave the Gateway? Read from the decision log alone (contract section 10).
+        var mayHaveBeenSent = store.MayHaveBeenSentToDirector(id);
         FileLog.Write($"[TypedPromptDelivery] DriveOnceAsync: deliveryId={id} sid={sid} trigger={trigger} attempt={record.DriveAttempts}");
 
         var (director, session) = await GatewayEndpoints.LocateSessionAsync(_registry, sid, _pushedSessions, _streamStale, tenant, _owners);
@@ -181,7 +183,7 @@ internal sealed class TypedPromptDelivery
             // gone" - the Gateway cannot prove the session ended - so it stays held, waiting for the Director.
             store.RecordDecision(id, TypedPromptDecisions.SessionNotFound,
                 new TypedPromptDecisionFacts { SessionId = sid, Reason = "the session could not be located; its Director is not connected" });
-            return NoAnswer(store, record, TypedPromptDecisions.WaitingForDirector, TypedPromptDecisions.WaitingForDirector);
+            return NoAnswer(store, record, mayHaveBeenSent, TypedPromptDecisions.WaitingForDirector, TypedPromptDecisions.WaitingForDirector);
         }
         if (GatewayDictationEndpoint.IsExited(session))
         {
@@ -190,7 +192,7 @@ internal sealed class TypedPromptDelivery
             store.ResolveSessionEnded(id, session.Status ?? session.ActivityState);
             return TypedDriveResult.Finished;
         }
-        if (record.NeverSent)
+        if (!mayHaveBeenSent)
             return await SendNeverSentAsync(store, record, new SessionVerbClient(director, _sendCommand));
 
         var route = new SessionVerbClient(director, _sendCommand);
@@ -206,7 +208,7 @@ internal sealed class TypedPromptDelivery
             Error = noAnswer is null ? null : asked.Detail,
         });
         if (noAnswer is not null)
-            return NoAnswer(store, record, noAnswer,
+            return NoAnswer(store, record, mayHaveBeenSent, noAnswer,
                 asked.Kind == SessionVerbClient.DeliveryStateAskKind.NeverLeftTheGateway
                     ? TypedPromptDecisions.WaitingForDirector
                     : DeliverySendAndAsk.NoAnswerState);
@@ -271,6 +273,8 @@ internal sealed class TypedPromptDelivery
         FileLog.Write($"[TypedPromptDelivery] deliveryId={id}: sent once by the Gateway, answer read as {reading.Kind}");
         if (reading.Kind == TypedSendKind.NotIn && reading.NeverLeft)
         {
+            // The tunnel was gone between the locate and the send. Nothing reached the Director, but the log now says it
+            // may have, so from here it is only asked about - the one rule, read from the log alone.
             store.MarkNeverLeft(id, reading.Error);
             store.StayHeld(id, TypedPromptDecisions.WaitingForDirector, countUnknown: false);
             return TypedDriveResult.Held;
@@ -300,11 +304,12 @@ internal sealed class TypedPromptDelivery
 
     // No answer of any kind: never read as "not in". Held within the age limit from the sent time; past it, could not
     // confirm - unless the prompt never left the Gateway, which is provably not in and is shown back with "Send anyway".
-    private TypedDriveResult NoAnswer(TypedPromptStore store, TypedPromptRecord record, string noAnswerKind, string heldState)
+    private TypedDriveResult NoAnswer(TypedPromptStore store, TypedPromptRecord record, bool mayHaveBeenSent, string noAnswerKind,
+        string heldState)
     {
         if (DeliverySendAndAsk.IsPastConfirmLimit(Clock.GetUtcNow().UtcDateTime, record.SentAtUtc, out var age))
         {
-            if (record.NeverSent)
+            if (!mayHaveBeenSent)
             {
                 store.ResolveNotDelivered(record.DeliveryId, TypedPromptDecisions.ReasonNeverSent, null);
                 return TypedDriveResult.Finished;

@@ -497,10 +497,11 @@ public sealed class TypedPromptDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task Drive_AGatewaySendThatNeverLeft_StaysNeverSent_AndIsSentOnTheNextWakeUp()
+    public async Task Drive_AGatewaySendThatNeverLeft_IsAskOnlyFromThenOn_BecauseTheLogSaysSent()
     {
-        // Proves a send the Director's tunnel was gone for left nothing behind: it is written as never-left, the record is
-        // never-sent again, and the next wake-up sends it - still exactly one prompt reaches a Director.
+        // Proves section 10's one rule - decided from the sent-to-director line alone: the Gateway's send found the
+        // tunnel gone, so it is written as never-left and held waiting for the Director; the line stays, so the next
+        // wake-up ASKS and never sends a second time.
         var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
         var id = TypedPromptDelivery.MintDeliveryId();
         store.HoldNeverSent(id, Seat(), "hello agent", _clock.GetUtcNow().UtcDateTime, new TypedPromptUnsentRequest());
@@ -508,14 +509,15 @@ public sealed class TypedPromptDeliveryTests : IDisposable
 
         _directorConnected = false;
         Assert.Equal(TypedDriveResult.Held, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
-        Assert.True(store.Read(id).Record!.NeverSent);
+        Assert.True(store.MayHaveBeenSentToDirector(id));
         Assert.Equal("waiting-for-director", store.Read(id).Record!.DirectorState);
 
         _directorConnected = true;
         _promptAnswer = _ => Accepted(DeliveryState.Delivered);
-        Assert.Equal(TypedDriveResult.Finished, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected));
-        Assert.Equal(1, _prompts);
-        Assert.Equal(TypedPromptState.Delivered, store.Read(id).Record!.State);
+        Answer(DeliveryState.Unknown);
+        Assert.Equal(TypedDriveResult.Held, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected));
+        Assert.Equal(0, _prompts); // the one send never left the Gateway, and nothing was sent after it
+        Assert.Equal(1, _asks);
     }
 
     [Fact]
