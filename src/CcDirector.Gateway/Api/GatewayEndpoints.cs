@@ -310,7 +310,12 @@ internal static class GatewayEndpoints
         DictationTenantGate? dictationUploads = null,
         // Voice Delivery phase 2, change 1: the clock a "Send anyway" is judged by for "could not confirm it arrived" -
         // the real one in production; a test injects its own so the five-minute boundary needs no five-minute wait.
-        TimeProvider? deliveryClock = null)
+        TimeProvider? deliveryClock = null,
+        // Voice Delivery phase 5, contract section 7: the held typed prompts. A typed prompt the Director did not answer as
+        // delivered is held here, and GET/POST /sessions/{sid}/prompts/{deliveryId}/outcome|ack read and retire it. Null
+        // (tests, older callers) maps neither route, and a prompt that needs holding then fails loudly rather than
+        // answering 202 for a record nobody could ever read.
+        Prompts.TypedPromptStore? typedPrompts = null)
     {
         if ((raisedSessions is null) != (raisedRecord is null))
             throw new ArgumentException(
@@ -3371,36 +3376,57 @@ internal static class GatewayEndpoints
             return Results.Json(new { unconfirmed = true, offerSendAnyway = false });
         }
 
-        async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req, Action<bool>? outcome = null)
+        // A TYPED PROMPT (everything the prompt route sends without a verified "Send anyway" claim). It carries the delivery
+        // id the route minted, and its answer is read through DeliverySendAndAsk.Read, the one reading of a prompt answer
+        // (Voice Delivery phase 5, contract section 7, T2): 200 with the Director's answer when the words are in, or when the
+        // Director answered and typed nothing for a reason of its own (busy, a menu) exactly as before; 502 when they are
+        // known not in (refused before the session was touched, or the prompt never left this Gateway); and 202 "still
+        // delivering" when it is not final - the Director said delivering, or gave no answer. A held prompt is written to the
+        // typed prompt store BEFORE the answer goes back, and the Gateway's driver asks what became of it; the route itself
+        // never asks inline, because that would keep the caller waiting another thirty seconds or more. Every answer body
+        // carries the delivery id.
+        async Task<IResult> DeliverPromptAsync(DirectorDto director, SessionDto session, string sid, PromptRequest req,
+            HttpContext httpCtx, Action<bool>? outcome = null)
         {
-            // Post-cut: tunnel-only. A null result means the Director is not connected -> 502. The WaitForIdle
-            // poll below is unchanged - it observes the session regardless of how the prompt was delivered.
-            bool ok; PromptResponse? body; string? err;
-            var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "prompt", sid, req, CancellationToken.None, machineName: director.MachineName);
-            if (streamResult is null)
+            var deliveryId = req.DeliveryId
+                ?? throw new InvalidOperationException("a typed prompt reached the Director send without the delivery id the route mints");
+            var sentAtUtc = claimClock.GetUtcNow().UtcDateTime;
+            var sent = await new SessionVerbClient(director, sendCommand).SendPromptAsync(sid, req);
+            var reading = TypedPromptDelivery.ReadSend(sent);
+            switch (reading.Kind)
             {
-                ok = false;
-                body = null;
-                err = "director not connected to the tunnel";
+                case TypedSendKind.Delivered:
+                case TypedSendKind.AnsweredNotTyped:
+                    var body = reading.Body!;
+                    body.DeliveryId = deliveryId;
+                    outcome?.Invoke(body.Accepted);
+                    return await AnswerAcceptedPromptAsync(director, sid, req, body);
+                case TypedSendKind.NotIn:
+                    outcome?.Invoke(false);
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery {deliveryId} NOT delivered: {reading.Error}");
+                    return Results.Json(new PromptResponse
+                    {
+                        Accepted = false,
+                        Error = reading.Error,
+                        ActivityState = session.ActivityState,
+                        DeliveryId = deliveryId,
+                    }, statusCode: StatusCodes.Status502BadGateway);
+                case TypedSendKind.Held:
+                    // The spoken-claim reservation follows the Director's own word, as before: an accepted "delivering"
+                    // commits it; no answer releases it.
+                    outcome?.Invoke(reading.Body?.Accepted ?? false);
+                    var tenant = ResolveReadTenant(httpCtx, tenantBoundary)
+                        ?? throw new InvalidOperationException($"typed prompt {deliveryId} must be held, but no tenant is bound to the request");
+                    if (typedPrompts is null)
+                        throw new InvalidOperationException(
+                            $"typed prompt {deliveryId} must be held, but GatewayEndpoints.Map was given no typed prompt store");
+                    typedPrompts.ForTenant(tenant).Hold(deliveryId, sid, req.Text!, sentAtUtc, reading.DirectorState!, reading.DirectorAnswer);
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} delivery {deliveryId} HELD ({reading.DirectorState}); the Gateway asks what became of it");
+                    return Results.Json(new { delivering = true, directorState = reading.DirectorState, deliveryId },
+                        statusCode: StatusCodes.Status202Accepted);
+                default:
+                    throw new InvalidOperationException($"unknown typed send reading {reading.Kind}");
             }
-            else
-            {
-                ok = streamResult.Ok;
-                body = streamResult.Ok ? DirectorCommandRouter.ReadBody<PromptResponse>(streamResult) : null;
-                err = streamResult.Ok ? null : DirectorCommandRouter.DescribeFailure(streamResult);
-            }
-            if (!ok || body is null)
-            {
-                outcome?.Invoke(false);
-                return Results.Json(new PromptResponse
-                {
-                    Accepted = false,
-                    Error = err,
-                    ActivityState = session.ActivityState,
-                }, statusCode: StatusCodes.Status502BadGateway);
-            }
-            outcome?.Invoke(body.Accepted);
-            return await AnswerAcceptedPromptAsync(director, sid, req, body);
         }
 
         // The answer to a prompt the Director answered: the body as it came, or - when the caller asked to wait for the
@@ -3752,7 +3778,10 @@ internal static class GatewayEndpoints
             // it block, or pass off as delivered, words it did not own. Whatever arrives is overwritten; a client may
             // only CLAIM a recording, and the claim is checked below.
             var (claimedDeliveryId, claimStore) = ResolveDeliveryIdClaim(httpCtx, sid, req.DeliveryIdClaim, callingSessionForAttribution is not null, req.Text.Length);
-            req.DeliveryId = claimedDeliveryId;
+            // EVERY PROMPT CARRIES A DELIVERY ID (Voice Delivery phase 5, contract section 7, T1). Without a verified claim the
+            // Gateway mints a fresh one, so the Director records it and can be asked what became of it: in phase 4 a typed
+            // prompt answered "delivering" was in the end refused with nothing typed, and with no id nobody could ask.
+            req.DeliveryId = claimedDeliveryId ?? TypedPromptDelivery.MintDeliveryId();
             req.DeliveryIdClaim = null;
             // RESERVED HERE, COMMITTED OR RELEASED BELOW (final inspection finding F-07). The claim used to be spent
             // at this line, before the session was located or the menu guard ran, so a prompt that never entered a
@@ -3928,9 +3957,71 @@ internal static class GatewayEndpoints
 
             return claimStore is not null && claimedDeliveryId is not null
                 ? await DeliverClaimedPromptAsync(director, session, sid, req, claimStore, claimedDeliveryId, wasAccepted => accepted = wasAccepted)
-                : await DeliverPromptAsync(director, session, sid, req, wasAccepted => accepted = wasAccepted);
+                : await DeliverPromptAsync(director, session, sid, req, httpCtx, wasAccepted => accepted = wasAccepted);
             }
         });
+
+        // WHAT BECAME OF A TYPED PROMPT (Voice Delivery phase 5, contract section 7, T5). A typed prompt answered 202 "still
+        // delivering" is resolved by the Gateway's driver; the owner's surfaces READ the outcome here and never re-send. It
+        // never sends, asks or writes. Scoped to the caller's own account: the typed prompt store is partitioned by tenant,
+        // so another account's delivery id is simply not found, and a record of another session is not found either. The
+        // body shapes are the dictation outcome's (section 5): 202 { delivering, directorState }; 200 delivered; 200 shown
+        // back with the text, reason not-delivered and "Send anyway", or reason unconfirmed and no "Send anyway"; 404.
+        //
+        // POST .../ack retires the text of a RESOLVED record - the owner has seen it - and is idempotent; a record still held
+        // is answered 409, because what became of it is not yet known.
+        if (typedPrompts is not null)
+        {
+            app.MapGet("/sessions/{sid}/prompts/{deliveryId}/outcome", (string sid, string deliveryId, HttpContext ctx) =>
+            {
+                var tenant = ResolveReadTenant(ctx, tenantBoundary);
+                if (tenant is null)
+                    return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+                var read = typedPrompts.ForTenant(tenant.Value).Read(deliveryId);
+                if (read.Kind == Prompts.TypedPromptReadKind.Unreadable)
+                {
+                    FileLog.Write($"[GatewayEndpoints] GET prompt outcome: sid={sid} deliveryId={deliveryId} UNREADABLE: {read.Problem}");
+                    return Results.Json(new { error = read.Problem }, statusCode: StatusCodes.Status500InternalServerError);
+                }
+                if (read.Record is not { } record || !SameSession(record.SessionId, sid))
+                    return Results.Json(new { error = "no typed prompt with this delivery id is held for this session in your account" },
+                        statusCode: StatusCodes.Status404NotFound);
+                FileLog.Write($"[GatewayEndpoints] GET prompt outcome: sid={sid} deliveryId={record.DeliveryId} state={record.State}");
+                return TypedPromptDelivery.OutcomeResult(record);
+            });
+
+            app.MapPost("/sessions/{sid}/prompts/{deliveryId}/ack", (string sid, string deliveryId, HttpContext ctx) =>
+            {
+                var tenant = ResolveReadTenant(ctx, tenantBoundary);
+                if (tenant is null)
+                    return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+                var store = typedPrompts.ForTenant(tenant.Value);
+                var read = store.Read(deliveryId);
+                if (read.Kind == Prompts.TypedPromptReadKind.Unreadable)
+                    return Results.Json(new { error = read.Problem }, statusCode: StatusCodes.Status500InternalServerError);
+                if (read.Record is not { } record || !SameSession(record.SessionId, sid))
+                    return Results.Json(new { error = "no typed prompt with this delivery id is held for this session in your account" },
+                        statusCode: StatusCodes.Status404NotFound);
+                var result = store.Acknowledge(record.DeliveryId);
+                FileLog.Write($"[GatewayEndpoints] POST prompt ack: sid={sid} deliveryId={record.DeliveryId} result={result}");
+                return result switch
+                {
+                    Prompts.TypedPromptStore.AcknowledgeResult.Acknowledged => Results.Json(new { ok = true, acknowledged = true }),
+                    Prompts.TypedPromptStore.AcknowledgeResult.AlreadyAcknowledged => Results.Json(new { ok = true, acknowledged = true }),
+                    Prompts.TypedPromptStore.AcknowledgeResult.StillHeld => Results.Json(
+                        new { error = "this prompt is still being delivered; what became of it is not known yet", delivering = true },
+                        statusCode: StatusCodes.Status409Conflict),
+                    Prompts.TypedPromptStore.AcknowledgeResult.NotFound => Results.Json(
+                        new { error = "no typed prompt with this delivery id is held for this session in your account" },
+                        statusCode: StatusCodes.Status404NotFound),
+                    _ => throw new InvalidOperationException($"unknown acknowledgement result {result}"),
+                };
+            });
+        }
+
+        static bool SameSession(string recorded, string sid)
+            => Guid.TryParse(recorded, out var a) && Guid.TryParse(sid, out var b) ? a == b
+                : string.Equals(recorded, sid, StringComparison.OrdinalIgnoreCase);
 
         app.MapPost("/sessions/{sid}/interrupt", async (HttpContext ctx, string sid) =>
         {

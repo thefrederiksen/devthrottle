@@ -255,6 +255,13 @@ public sealed class PromptResponse
     /// <summary>Why <see cref="DeliveryState"/> is what it is, in words: the reason a delivery was not made, or that a
     /// copy was refused because the id was already delivered or being delivered. Null when there is nothing to say.</summary>
     public string? DeliveryStateReason { get; set; }
+
+    /// <summary>
+    /// The delivery id this prompt was sent under (Voice Delivery mission, phase 5): the one the Gateway minted for a typed
+    /// prompt, so a caller can ask <c>GET /sessions/{sid}/prompts/{deliveryId}/outcome</c> what became of it. Set by the
+    /// Gateway's prompt route on every typed answer; null from the Director itself.
+    /// </summary>
+    public string? DeliveryId { get; set; }
 }
 
 /// <summary>

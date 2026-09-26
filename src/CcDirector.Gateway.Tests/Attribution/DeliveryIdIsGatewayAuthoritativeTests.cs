@@ -147,6 +147,18 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         lock (_arrived) return _arrived[^1];
     }
 
+    /// <summary>
+    /// A dropped claim leaves the prompt a TYPED one, and since phase 5 every typed prompt carries a delivery id the
+    /// Gateway minted (contract section 7, T1): a fresh GUID in the N spelling, never the claimed recording's id.
+    /// </summary>
+    private void AssertMintedNotClaimed(string claimedUploadId)
+    {
+        var arrived = LastArrived().DeliveryId;
+        Assert.NotNull(arrived);
+        Assert.Matches("^[0-9a-f]{32}$", arrived);
+        Assert.NotEqual(VoiceUploadStore.NormalizeUploadId(claimedUploadId), arrived);
+    }
+
     /// <summary>An upload record for <paramref name="sessionId"/> in <paramref name="store"/>'s tenant, as the
     /// dictation upload leg leaves it.</summary>
     private static string Upload(VoiceUploadStore store, string sessionId)
@@ -178,7 +190,7 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         var answer = await PostPrompt(new { text = "hello", appendEnter = true, deliveryIdClaim = uploadId });
 
         Assert.True(answer.GetProperty("accepted").GetBoolean());
-        Assert.Null(LastArrived().DeliveryId);
+        AssertMintedNotClaimed(uploadId);
     }
 
     [Fact]
@@ -190,7 +202,7 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
 
         await PostPrompt(new { text = "hello", appendEnter = true, deliveryIdClaim = uploadId });
 
-        Assert.Null(LastArrived().DeliveryId);
+        AssertMintedNotClaimed(uploadId);
     }
 
     [Fact]
@@ -201,7 +213,8 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         var uploadId = Upload(_uploads, _sid);
 
         await PostPrompt(new { text = "first", appendEnter = true, deliveryId = "made-up-id" });
-        Assert.Null(LastArrived().DeliveryId);
+        AssertMintedNotClaimed(uploadId);
+        Assert.NotEqual("made-up-id", LastArrived().DeliveryId);
 
         await PostPrompt(new { text = "second", appendEnter = true, deliveryId = "made-up-id", deliveryIdClaim = uploadId });
         Assert.Equal(VoiceUploadStore.NormalizeUploadId(uploadId), LastArrived().DeliveryId);

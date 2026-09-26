@@ -385,6 +385,14 @@ public static class CcStorage
     public static string DictationUploads() => Ensure(Path.Combine(Base(), "dictation-uploads"));
 
     /// <summary>
+    /// Held TYPED prompts (Voice Delivery mission, phase 5): base/typed-prompts/&lt;deliveryId&gt;/. A typed prompt the
+    /// Director did not answer as delivered is held here - its delivery id, session, the text while it may need to be
+    /// shown back, and a decision log - so the Gateway can ask what became of it after a restart. Retired by the same
+    /// thirty-day rule as the dictation records. Owned by the Gateway.
+    /// </summary>
+    public static string TypedPrompts() => Ensure(Path.Combine(Base(), "typed-prompts"));
+
+    /// <summary>
     /// "This brief is wrong" reports (TURN_BRIEFING.md D7): base/brief-feedback/. Each report
     /// stores the brief + the user's note as a labeled example that drives wingman prompt
     /// iteration. Written by the GATEWAY's feedback endpoint since issue #187. (The old

@@ -90,9 +90,9 @@ internal static class DeliverySendAndAsk
     /// <summary>
     /// Read the prompt verb's answer: a settled kind, or null when the send went out and no answer came back (ask). An
     /// accepted answer that carries no delivery state (a Director older than the field) is read exactly as it always
-    /// was: delivered.
+    /// was: delivered. Internal so the typed prompt route reads its answer here too (Voice Delivery phase 5, T2).
     /// </summary>
-    private static (DeliverySendKind? Kind, string? Error, bool RefusedDuplicate) Read(SessionVerbClient.PromptSendOutcome sent)
+    internal static (DeliverySendKind? Kind, string? Error, bool RefusedDuplicate) Read(SessionVerbClient.PromptSendOutcome sent)
     {
         switch (sent.Kind)
         {

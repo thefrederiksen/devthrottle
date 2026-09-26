@@ -1,0 +1,304 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using CcDirector.ControlApi;
+using CcDirector.Core.Configuration;
+using CcDirector.Core.Sessions;
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Prompts;
+using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace CcDirector.Gateway.Tests.Attribution;
+
+/// <summary>
+/// A TYPED PROMPT GETS A DELIVERY ID AND THE GATEWAY RESOLVES IT, PROVEN ACROSS THE REAL ROUTE (Voice Delivery mission,
+/// phase 5, contract section 7). Phase 4 case 2f: a typed prompt was answered 200 "delivering", the Director in the end
+/// refused it and typed nothing, and with no delivery id nobody could ask.
+///
+/// The same rig as <see cref="DeliveryIdIsGatewayAuthoritativeTests"/>: a real <see cref="GatewayHost"/>, its mapped
+/// routes, a real SignalR Director connection, and on the Director side the REAL prompt core and the REAL
+/// <c>delivery-state</c> verb over this test's own delivery record. The Gateway's driver is the host's own
+/// (<see cref="GatewayHost.TypedPromptDriver"/>), called directly as its wake-ups will call it.
+/// </summary>
+[Collection("DirectorRoot")]
+public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
+{
+    private const string Token = "test-token-typed-prompts";
+    private const string DirectorId = "dir-typed-prompts";
+
+    private readonly string _root;
+    private readonly string? _prevRoot;
+    private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-typed-" + Guid.NewGuid().ToString("N"));
+    private GatewayHost _gateway = null!;
+    private HttpClient _http = null!;
+    private SessionManager _sm = null!;
+    private HubConnection _conn = null!;
+    private Session _session = null!;
+    private string _sid = "";
+    private DeliveryRecord _directorRecord = null!;
+    private readonly List<PromptRequest> _arrived = new();
+    private readonly ExecuteActionTestBackend _backend = new();
+    private int _asks;
+
+    /// <summary>When set, the Director answers the prompt verb with this instead of the real prompt core. Null: the real core.</summary>
+    private Func<PromptRequest, DirectorCommandResult>? _promptAnswer;
+
+    public TypedPromptsAreResolvedByTheGatewayTests()
+    {
+        _prevRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        _root = Path.Combine(Path.GetTempPath(), "ccd-typed-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_root);
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
+    }
+
+    public async Task InitializeAsync()
+    {
+        _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
+            instancesDirectory: _instancesDir,
+            keyVaultPath: Path.Combine(_root, "keyvault.json"),
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
+            streamMode: true);
+        await _gateway.StartAsync();
+        _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
+        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        _directorRecord = new DeliveryRecord(Path.Combine(_root, "director-delivery-records"));
+
+        _sm = new SessionManager(new AgentOptions());
+        _session = _sm.CreateEmbeddedSession(Path.GetTempPath(), null, _backend);
+        _sid = _session.Id.ToString();
+
+        _gateway.Registry.Upsert(new DirectorRegistrationRequest
+        {
+            DirectorId = DirectorId,
+            TailnetEndpoint = "http://127.0.0.1:59919/",
+            MachineName = "typed-machine",
+            Pid = 1,
+            Version = "test",
+            StartedAt = DateTime.UtcNow,
+        });
+        _conn = new HubConnectionBuilder()
+            .WithUrl($"http://127.0.0.1:{_gateway.Port}/director-stream", o => o.AccessTokenProvider = () => Task.FromResult<string?>(Token))
+            .AddMessagePackProtocol()
+            .Build();
+        _conn.On<DirectorCommand, DirectorCommandResult>("Command", async cmd =>
+        {
+            if (cmd.Verb == DeliveryStateRequest.Verb)
+            {
+                Interlocked.Increment(ref _asks);
+                var stateAnswer = SessionReadExecutor.DeliveryStateOf(cmd, _directorRecord);
+                stateAnswer.CommandId = cmd.CommandId;
+                return stateAnswer;
+            }
+            if (cmd.Verb != "prompt") return await SessionCommandExecutor.DispatchAsync(_sm, DirectorId, cmd);
+            var body = JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            lock (_arrived) _arrived.Add(body);
+            var result = _promptAnswer is { } played
+                ? played(body)
+                : await SessionCommandExecutor.SendPromptAsync(_session, body, SendSource.UserInput, _directorRecord);
+            result.CommandId = cmd.CommandId;
+            return result;
+        });
+        await _conn.StartAsync();
+        await _conn.InvokeAsync("Hello", new DirectorStreamHello { DirectorId = DirectorId, Version = "test" });
+        await _conn.InvokeAsync("PushSnapshot", 1L, new[] { new SessionDto { SessionId = _sid, ActivityState = "WaitingForInput" } });
+    }
+
+    public async Task DisposeAsync()
+    {
+        try { await _conn.DisposeAsync(); } catch { /* best effort */ }
+        _sm.Dispose();
+        _http.Dispose();
+        await _gateway.StopAsync();
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
+        foreach (var dir in new[] { _instancesDir, _root })
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { /* best effort */ }
+    }
+
+    private async Task<(HttpStatusCode Status, JsonElement Body)> Send(HttpMethod method, string path, object? body = null)
+    {
+        using var request = new HttpRequestMessage(method, path);
+        if (body is not null) request.Content = JsonContent.Create(body);
+        var resp = await _http.SendAsync(request);
+        var text = await resp.Content.ReadAsStringAsync();
+        return (resp.StatusCode, string.IsNullOrEmpty(text) ? default : JsonDocument.Parse(text).RootElement.Clone());
+    }
+
+    private Task<(HttpStatusCode Status, JsonElement Body)> PostPrompt(string text)
+        => Send(HttpMethod.Post, $"sessions/{_sid}/prompt", new { text, appendEnter = true });
+
+    private int Arrived()
+    {
+        lock (_arrived) return _arrived.Count;
+    }
+
+    [Fact]
+    public async Task A_typed_prompt_carries_a_minted_delivery_id_to_the_Director_and_back_to_the_caller()
+    {
+        // Proves T1 as the prompt leaves for the Director: a fresh id in the N spelling on every typed prompt, a
+        // different one each time, and the same id on the answer body the caller reads.
+        var (firstStatus, first) = await PostPrompt("the first typed prompt");
+        var (_, second) = await PostPrompt("the second typed prompt");
+
+        Assert.Equal(HttpStatusCode.OK, firstStatus);
+        PromptRequest[] arrived;
+        lock (_arrived) arrived = _arrived.ToArray();
+        Assert.Equal(2, arrived.Length);
+        Assert.Matches("^[0-9a-f]{32}$", arrived[0].DeliveryId);
+        Assert.Matches("^[0-9a-f]{32}$", arrived[1].DeliveryId);
+        Assert.NotEqual(arrived[0].DeliveryId, arrived[1].DeliveryId);
+        Assert.Equal(arrived[0].DeliveryId, first.GetProperty("deliveryId").GetString());
+        Assert.Equal(arrived[1].DeliveryId, second.GetProperty("deliveryId").GetString());
+        Assert.True(first.GetProperty("accepted").GetBoolean());
+        // Delivered at once: no record is written.
+        Assert.Equal(TypedPromptReadKind.Absent, _gateway.TypedPrompts.Read(arrived[0].DeliveryId!).Kind);
+    }
+
+    [Fact]
+    public async Task The_phase_4_case_2f_shape_is_held_asked_and_shown_back_and_the_prompt_is_never_sent_twice()
+    {
+        // Proves the case that started this: the Director accepts and answers "delivering", then refuses in the end and
+        // types nothing (its record becomes not-delivered). The route answers 202 with the id; the driver asks and hears
+        // not-delivered; the outcome route shows the words back with "Send anyway"; and exactly ONE prompt reached the
+        // Director - the Gateway never re-sent the typed text.
+        _promptAnswer = body =>
+        {
+            Assert.True(_directorRecord.TryBeginDelivery(_session.Id, body.DeliveryId!).Began);
+            _directorRecord.MarkNotDelivered(_session.Id, body.DeliveryId!, "the composer never echoed the text");
+            return DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse
+            {
+                Accepted = true, DeliveryState = DeliveryState.Delivering, ActivityState = "Working",
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        };
+
+        var (status, held) = await PostPrompt("Reply with only the word OK. Marker, choral lemur 24");
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        Assert.True(held.GetProperty("delivering").GetBoolean());
+        Assert.Equal("delivering", held.GetProperty("directorState").GetString());
+        var deliveryId = held.GetProperty("deliveryId").GetString()!;
+        Assert.Equal(0, _asks);
+
+        var (heldStatus, heldOutcome) = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{deliveryId}/outcome");
+        Assert.Equal(HttpStatusCode.Accepted, heldStatus);
+        Assert.Equal("delivering", heldOutcome.GetProperty("directorState").GetString());
+
+        var result = await _gateway.TypedPromptDriver.DriveOnceAsync(TenantId.Local, _gateway.TypedPrompts, deliveryId,
+            TypedPromptDecisions.DriveDirectorConnected);
+        Assert.Equal(TypedDriveResult.Finished, result);
+        Assert.Equal(1, _asks);
+
+        var (outcomeStatus, outcome) = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{deliveryId}/outcome");
+        Assert.Equal(HttpStatusCode.OK, outcomeStatus);
+        Assert.False(outcome.GetProperty("submitted").GetBoolean());
+        Assert.True(outcome.GetProperty("movedOn").GetBoolean());
+        Assert.Equal("not-delivered", outcome.GetProperty("reason").GetString());
+        Assert.True(outcome.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal("Reply with only the word OK. Marker, choral lemur 24", outcome.GetProperty("transcript").GetString());
+        Assert.Equal(1, Arrived());
+        Assert.Equal(0, _backend.TextsSent);
+    }
+
+    [Fact]
+    public async Task An_unanswered_typed_prompt_is_held_at_once_and_the_route_does_not_ask()
+    {
+        // Proves the route holds an unanswered typed prompt at once - no inline question - and the driver then resolves
+        // it from the Director's own record.
+        _promptAnswer = body =>
+        {
+            Assert.True(_directorRecord.TryBeginDelivery(_session.Id, body.DeliveryId!).Began);
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
+        };
+
+        var (status, held) = await PostPrompt("typed while the Director is starved");
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        Assert.Equal("no-answer", held.GetProperty("directorState").GetString());
+        Assert.Equal(0, _asks);
+        var deliveryId = held.GetProperty("deliveryId").GetString()!;
+        var names = _gateway.TypedPrompts.ReadDecisions(deliveryId).Select(l => l.Decision).ToArray();
+        Assert.Equal(new[] { "sent-to-director", "director-answer", "still-delivering" }, names);
+
+        _directorRecord.MarkDelivered(_session.Id, deliveryId);
+        await _gateway.TypedPromptDriver.DriveOnceAsync(TenantId.Local, _gateway.TypedPrompts, deliveryId, TypedPromptDecisions.DriveTick);
+
+        var (outcomeStatus, outcome) = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{deliveryId}/outcome");
+        Assert.Equal(HttpStatusCode.OK, outcomeStatus);
+        Assert.True(outcome.GetProperty("submitted").GetBoolean());
+        Assert.Null(_gateway.TypedPrompts.Read(deliveryId).Record!.Text);
+        Assert.Equal(1, Arrived());
+    }
+
+    [Fact]
+    public async Task The_outcome_route_never_sends_or_asks_and_refuses_another_account_and_another_session()
+    {
+        // Proves T5's gate: reading the outcome sends nothing and asks nothing; a delivery id held in ANOTHER account's
+        // partition is not found, and so is this account's id asked for under a different session.
+        _promptAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
+        var (_, held) = await PostPrompt("mine");
+        var deliveryId = held.GetProperty("deliveryId").GetString()!;
+        var otherAccountsId = TypedPromptDelivery.MintDeliveryId();
+        _gateway.TypedPrompts.ForTenant(new TenantId("55555555-5555-5555-5555-555555555555"))
+            .Hold(otherAccountsId, _sid, "theirs", DateTime.UtcNow, "no-answer", new TypedPromptDecisionFacts());
+        var arrivedBefore = Arrived();
+
+        var mine = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{deliveryId}/outcome");
+        var theirs = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{otherAccountsId}/outcome");
+        var wrongSession = await Send(HttpMethod.Get, $"sessions/{Guid.NewGuid()}/prompts/{deliveryId}/outcome");
+        var nonsense = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/not-an-id/outcome");
+
+        Assert.Equal(HttpStatusCode.Accepted, mine.Status);
+        Assert.Equal(HttpStatusCode.NotFound, theirs.Status);
+        Assert.Equal(HttpStatusCode.NotFound, wrongSession.Status);
+        Assert.Equal(HttpStatusCode.NotFound, nonsense.Status);
+        Assert.Equal(arrivedBefore, Arrived());
+        Assert.Equal(0, _asks);
+        Assert.Equal(1, _gateway.TypedPrompts.ReadDecisions(deliveryId).Count(l => l.Decision == "still-delivering"));
+    }
+
+    [Fact]
+    public async Task Ack_refuses_a_held_prompt_then_deletes_the_text_of_a_shown_back_one_and_is_idempotent()
+    {
+        // Proves T5's acknowledgement: a held prompt cannot be acknowledged (409); once shown back, the acknowledgement
+        // deletes the words, answers the same the second time, and writes "acknowledged" once.
+        _promptAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
+        var (_, held) = await PostPrompt("show me back");
+        var deliveryId = held.GetProperty("deliveryId").GetString()!;
+
+        var whileHeld = await Send(HttpMethod.Post, $"sessions/{_sid}/prompts/{deliveryId}/ack");
+        Assert.Equal(HttpStatusCode.Conflict, whileHeld.Status);
+
+        Assert.True(_directorRecord.TryBeginDelivery(_session.Id, deliveryId).Began);
+        _directorRecord.MarkNotDelivered(_session.Id, deliveryId, "refused");
+        await _gateway.TypedPromptDriver.DriveOnceAsync(TenantId.Local, _gateway.TypedPrompts, deliveryId, TypedPromptDecisions.DriveTick);
+
+        var first = await Send(HttpMethod.Post, $"sessions/{_sid}/prompts/{deliveryId}/ack");
+        var second = await Send(HttpMethod.Post, $"sessions/{_sid}/prompts/{deliveryId}/ack");
+
+        Assert.Equal(HttpStatusCode.OK, first.Status);
+        Assert.Equal(HttpStatusCode.OK, second.Status);
+        Assert.Null(_gateway.TypedPrompts.Read(deliveryId).Record!.Text);
+        Assert.Equal(1, _gateway.TypedPrompts.ReadDecisions(deliveryId).Count(l => l.Decision == "acknowledged"));
+        var (_, after) = await Send(HttpMethod.Get, $"sessions/{_sid}/prompts/{deliveryId}/outcome");
+        Assert.Equal("not-delivered", after.GetProperty("reason").GetString());
+        Assert.Equal(JsonValueKind.Null, after.GetProperty("transcript").ValueKind);
+    }
+
+    [Fact]
+    public async Task A_prompt_refused_before_the_session_was_touched_is_still_502_with_its_delivery_id()
+    {
+        // Proves the known-not-in row of T2 keeps today's 502, now with the delivery id, and holds nothing.
+        _promptAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
+
+        var (status, body) = await PostPrompt("to an ended session");
+
+        Assert.Equal(HttpStatusCode.BadGateway, status);
+        Assert.False(body.GetProperty("accepted").GetBoolean());
+        var deliveryId = body.GetProperty("deliveryId").GetString()!;
+        Assert.Equal(TypedPromptReadKind.Absent, _gateway.TypedPrompts.Read(deliveryId).Kind);
+    }
+}

@@ -1213,6 +1213,28 @@ public sealed class GatewayHost : IAsyncDisposable
     // inside that partition. Naming Local here reproduces exactly the path this store has always used.
     private readonly Voice.VoiceUploadStore _dictationUploads =
         new(CcDirector.Core.Storage.CcStorage.DictationUploads(), CcDirector.Core.Tenancy.TenantId.Local);
+    // Voice Delivery phase 5, contract section 7: the held TYPED prompts - a typed prompt the Director did not answer as
+    // delivered, kept (per tenant, like the dictation staging) so the Gateway can ask what became of it, after a restart
+    // too. Built on first use rather than here, because it is judged by DeliveryClock, which a test sets after
+    // construction. This is the BASE handle; every reader re-scopes it with ForTenant.
+    private Prompts.TypedPromptStore? _typedPrompts;
+
+    /// <summary>The held typed prompt store (base handle, local partition): the prompt route writes it, the driver drives it.</summary>
+    internal Prompts.TypedPromptStore TypedPrompts
+        => _typedPrompts ??= new Prompts.TypedPromptStore(CcDirector.Core.Storage.CcStorage.TypedPrompts(),
+            CcDirector.Core.Tenancy.TenantId.Local, DeliveryClock);
+
+    private Api.TypedPromptDelivery? _typedPromptDriver;
+
+    /// <summary>
+    /// One attempt at a held typed prompt (<see cref="Api.TypedPromptDelivery.DriveOnceAsync"/>): what the Gateway's driver
+    /// calls on every wake-up - the Director's tunnel back, the tick, the Gateway starting - for each of
+    /// <see cref="Prompts.TypedPromptStore.HeldDeliveries"/> in each of <see cref="Prompts.TypedPromptStore.TenantsWithPartitions"/>.
+    /// </summary>
+    internal Api.TypedPromptDelivery TypedPromptDriver
+        => _typedPromptDriver ??= new Api.TypedPromptDelivery(Registry, SessionOwners, PushedSessions,
+            (directorId, command, ct) => SendCommandAsync(directorId, command, ct),
+            TimeSpan.FromSeconds(Core.Configuration.GatewayConfig.DefaultStreamStaleAfterSeconds), DeliveryClock);
     // Store injection points (Hosted Gateway, Step 1b): the host owns ONE instance of each durable store
     // that was previously reached through a process-wide static, and hands it to the endpoint/service that
     // uses it, so a tenant id can reach the storage layer in a later pull request. Same default paths as
@@ -3952,6 +3974,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // Voice Delivery mission, phase 1: "Send anyway" names its recording; the prompt route checks it here.
             dictationUploads: new Api.DictationTenantGate(_dictationUploads, _tenantBoundary),
             deliveryClock: DeliveryClock,
+            // Voice Delivery phase 5: a typed prompt not answered as delivered is held here, and its outcome read here.
+            typedPrompts: TypedPrompts,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -5175,6 +5199,9 @@ public sealed class GatewayHost : IAsyncDisposable
                         // leaving it for the next tick six hours later.
                         uploads.ExpireStalePending(StalePendingMaxAge);
                         uploads.SweepResolvedTombstones(DictationTombstoneMaxAge);
+                        // Held typed prompts (Voice Delivery phase 5) are retired by the same thirty-day rule, in the
+                        // same per-tenant pass, so no account's typed prompt records are left unbounded.
+                        TypedPrompts.ForTenant(tenant).SweepOlderThan(DictationTombstoneMaxAge);
                     });
                 }
                 catch (Exception ex) { FileLog.Write($"[GatewayHost] dictation tombstone sweep error: {ex.Message}"); }
