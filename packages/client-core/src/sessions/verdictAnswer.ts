@@ -37,8 +37,9 @@ export interface TurnVerdict {
   menu?: TurnVerdictMenu | null;
   options: TurnVerdictOption[];
   risk: string;
-  /** The narration call's faithful retelling of this stop, saved onto the verdict a few seconds after it is judged, for
-   *  every session that answers to the user. Null or absent until it arrives, and when the call failed. Shown verbatim. */
+  /** The narration call's (Call B's) faithful retelling of this stop, for every session that answers to the user. It is
+   *  written BEFORE the record is published - nothing is shown until both calls are done - so a record never arrives
+   *  judged-but-not-yet-narrated. Null or absent only when the call failed or none was owed. Shown verbatim. */
   narration?: string | null;
   failed?: boolean;
   /** Why the Gateway refused the judge's answer, on a failed record. Shown verbatim. */
