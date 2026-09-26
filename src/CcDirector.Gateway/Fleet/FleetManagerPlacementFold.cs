@@ -443,8 +443,25 @@ internal static class FleetManagerPlacementFold
             ThinkingShown = running && dto.Status.Thinking,
             NotRunningBarShown = !running,
             SettingsLabel = "Move it in Settings",
+            StartFresh = FoldStartFresh(dto.Status.Restart),
         };
     }
+
+    /// <summary>The page's "Start fresh" button. It follows the restart action and never decides anything of its own:
+    /// offered only when a restart is, with the restart's note when it is not, and the restart's busy line.</summary>
+    private static FleetManagerActionDto FoldStartFresh(FleetManagerActionDto restart) => new()
+    {
+        Offered = restart.Offered,
+        Label = "Start fresh",
+        Note = restart.Note,
+        BusyLabel = restart.BusyLabel,
+        ConfirmTitle = restart.Offered ? "Start a fresh Fleet Manager?" : null,
+        ConfirmMessage = restart.Offered
+            ? "A brand new Fleet Manager session starts and picks up from its records. The one running now finishes "
+              + "its current turn and then closes, and this page then shows the new one's conversation. Nothing it "
+              + "was watching is lost."
+            : null,
+    };
 
     private static SessionDto? LiveMarked(FleetManagerPlacementInputs input)
     {

@@ -5,13 +5,17 @@ import { MemoryRouter } from "react-router-dom";
 import type { FleetManagerPlacement } from "@devthrottle/client-core/settings/fleetManagerClient";
 import type { FleetManagerPage } from "@devthrottle/client-core/fleetmanager/pageClient";
 import { emptyPage, FM_SESSION, morningPage } from "./fixtures";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-// The Fleet Manager page (step 6): the header and the not-running state are the setting's answer, the panel is the
-// page's answer, and both are rendered exactly as the Gateway sent them.
+// The Fleet Manager page (step 6): the header, the not-running state and the "Start fresh" button are the setting's
+// answer, the outcome cards are the page's answer, and both are rendered exactly as the Gateway sent them. The right
+// panel is hidden for now, so the conversation takes the full width.
 
 const api = vi.hoisted(() => ({
   placement: vi.fn<() => Promise<FleetManagerPlacement>>(),
   start: vi.fn<() => Promise<FleetManagerPlacement>>(),
+  restart: vi.fn<() => Promise<FleetManagerPlacement>>(),
   page: vi.fn<() => Promise<FleetManagerPage>>(),
   sendPrompt: vi.fn(async () => undefined),
 }));
@@ -19,6 +23,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@devthrottle/client-core/settings/fleetManagerClient", () => ({
   getFleetManagerPlacement: api.placement,
   startFleetManager: api.start,
+  restartFleetManager: api.restart,
 }));
 vi.mock("@devthrottle/client-core/fleetmanager/pageClient", () => ({
   getFleetManagerPage: api.page,
@@ -55,6 +60,14 @@ function action(label: string, offered: boolean, note: string | null = null) {
   return { offered, label, note, busyLabel: `${label} busy (fake)` };
 }
 
+function startFresh(offered: boolean) {
+  return {
+    ...action("Start fresh (fake)", offered),
+    confirmTitle: offered ? "Start a fresh one? (fake)" : null,
+    confirmMessage: offered ? "A brand new one starts and the old one closes (fake)." : null,
+  };
+}
+
 function placement(state: "running" | "not-running" | "unreachable", thinking = false): FleetManagerPlacement {
   const running = state === "running";
   // What the Gateway decides for the page in each state (fake words, so a test proves they are rendered as sent).
@@ -70,6 +83,7 @@ function placement(state: "running" | "not-running" | "unreachable", thinking = 
     thinkingShown: running && thinking,
     notRunningBarShown: !running,
     settingsLabel: "Move it in Settings",
+    startFresh: startFresh(running),
   };
   return {
     agent: "ClaudeCode",
@@ -111,6 +125,7 @@ describe("FleetManagerView", () => {
     cleanup();
     api.placement.mockReset();
     api.start.mockReset();
+    api.restart.mockReset();
     api.page.mockReset();
     api.sendPrompt.mockClear();
   });
@@ -220,57 +235,126 @@ describe("FleetManagerView", () => {
     await waitFor(() => expect(api.sendPrompt).toHaveBeenCalledWith(FM_SESSION, "What did I miss?", true));
   });
 
-  it("renders the panel's sections, items and the not-the-Fleet-Manager's count verbatim", async () => {
+  it("does not render the right panel: the conversation is the only thing in the body", async () => {
+    api.placement.mockResolvedValue(placement("running"));
+    api.page.mockResolvedValue(morningPage());
+    const { container } = renderPage();
+
+    // The cards still come from the page's answer and still show in the conversation.
+    expect(await screen.findByText("Ready for you (fake)")).toBeTruthy();
+    expect(screen.getByText("Finding (fake)")).toBeTruthy();
+    expect(screen.getByText("Decision - only you can make this (fake)")).toBeTruthy();
+    expect(container.querySelector(".fmp-side")).toBeNull();
+    expect(screen.queryByTestId("fmp-sec-waiting")).toBeNull();
+    expect(screen.queryByTestId("fmp-notmine")).toBeNull();
+    expect(screen.queryByTestId("fmp-walkthrough")).toBeNull();
+    expect(screen.queryByText("Hand sessions to the Fleet Manager... (fake)")).toBeNull();
+    const body = container.querySelector(".fmp-body");
+    expect(body?.children).toHaveLength(1);
+    expect(body?.firstElementChild?.className).toBe("fmp-convo");
+  });
+
+  it("gives the conversation the full width: the body reserves no second column", () => {
+    // Vitest hands a CSS import to the test as empty, so the stylesheet is read from disk.
+    const css = readFileSync(join(__dirname, "fleetmanager.css"), "utf8");
+    const body = /\.fmp-body\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(body).toContain("grid-template-columns: minmax(0, 1fr);");
+    const convo = /\.fmp-convo\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(convo).not.toContain("border-right");
+  });
+
+  it("an empty account shows the Gateway's no-conversation sentence", async () => {
+    const none = placement("not-running");
+    none.status.sessionId = null;
+    api.placement.mockResolvedValue(none);
+    api.page.mockResolvedValue(emptyPage());
+    renderPage();
+
+    expect(await screen.findByText("There is no Fleet Manager conversation yet. (fake)")).toBeTruthy();
+  });
+
+  it("offers Start fresh in the header in the Gateway's words, and asks before doing anything", async () => {
     api.placement.mockResolvedValue(placement("running"));
     api.page.mockResolvedValue(morningPage());
     renderPage();
 
-    const waiting = await screen.findByTestId("fmp-sec-waiting");
-    expect(waiting.textContent).toContain("Waiting on you (fake)");
-    expect(waiting.textContent).toContain("Asks which check to keep (fake Wingman label)");
-    expect(waiting.textContent).toContain("Ready - risk low - checks passed - Fix the flaky list test");
-    expect(waiting.textContent).toContain("26m");
-    expect(screen.getByTestId("fmp-sec-under-way").textContent).toContain("widgets-internal - 1h 29m");
-    const landed = screen.getByTestId("fmp-sec-landed");
-    expect(landed.textContent).toContain("Answered today (fake)");
-    expect(landed.textContent).toContain("You said \"Merge: Session tree on the web\" at 01:52");
-    expect(landed.textContent).toContain("which the Gateway does not record yet. (fake)");
-    expect(screen.getByTestId("fmp-notmine").textContent).toBe(
-      "2 sessions are not the Fleet Manager's. (fake) They still ask you directly. (fake)Hand sessions to the Fleet Manager... (fake)",
-    );
-    // The three cards are in the conversation.
-    expect(screen.getByText("Ready for you (fake)")).toBeTruthy();
-    expect(screen.getByText("Finding (fake)")).toBeTruthy();
-    expect(screen.getByText("Decision - only you can make this (fake)")).toBeTruthy();
+    const button = await screen.findByRole("button", { name: "Start fresh (fake)" });
+    expect(button.closest(".fmp-head-actions")).not.toBeNull();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    fireEvent.click(button);
+    const dialog = screen.getByRole("alertdialog", { name: "Start a fresh one? (fake)" });
+    expect(dialog.textContent).toContain("A brand new one starts and the old one closes (fake).");
+    expect(api.restart).not.toHaveBeenCalled();
   });
 
-  it("offers the walkthrough from Waiting on you in the Gateway's words, and not when nothing waits", async () => {
+  it("Start fresh: cancel closes the question and restarts nothing", async () => {
     api.placement.mockResolvedValue(placement("running"));
-    api.page.mockResolvedValueOnce(morningPage());
+    api.page.mockResolvedValue(morningPage());
     renderPage();
 
-    const link = await screen.findByTestId("fmp-walkthrough");
-    expect(link.textContent).toBe("Take me through them (fake)");
-    expect(link.getAttribute("href")).toBe("/fleet-manager/walkthrough");
+    fireEvent.click(await screen.findByRole("button", { name: "Start fresh (fake)" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
 
-    cleanup();
-    api.page.mockResolvedValue(emptyPage());
-    renderPage();
-    await screen.findByText("Nothing is waiting on you. (fake)");
-    expect(screen.queryByTestId("fmp-walkthrough")).toBeNull();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(api.restart).not.toHaveBeenCalled();
   });
 
-  it("an empty account shows the Gateway's empty sentences", async () => {
+  it("Start fresh: confirming calls the Gateway's restart once, shows its busy line, and shows the answer", async () => {
+    api.placement.mockResolvedValue(placement("running"));
+    api.page.mockResolvedValue(morningPage());
+    let finish: (p: FleetManagerPlacement) => void = () => undefined;
+    api.restart.mockReturnValue(
+      new Promise<FleetManagerPlacement>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start fresh (fake)" }));
+    const dialog = screen.getByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start fresh (fake)" }));
+
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Start fresh (fake) busy (fake)" })).toBeTruthy());
+    expect(api.restart).toHaveBeenCalledTimes(1);
+
+    const swapping = placement("running");
+    swapping.status.replacement = "A new Fleet Manager has started (fake).";
+    swapping.status.replacementTone = "idle";
+    swapping.status.page.startFresh = startFresh(false);
+    finish(swapping);
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByTestId("fmp-replacement").textContent).toBe("A new Fleet Manager has started (fake).");
+    expect(screen.queryByRole("button", { name: "Start fresh (fake)" })).toBeNull();
+    expect(api.restart).toHaveBeenCalledTimes(1);
+  });
+
+  it("Start fresh: a failed restart keeps the question open with the Gateway's words", async () => {
+    api.placement.mockResolvedValue(placement("running"));
+    api.page.mockResolvedValue(morningPage());
+    api.restart.mockRejectedValue(new Error("That computer cannot be reached (fake)."));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start fresh (fake)" }));
+    const dialog = screen.getByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start fresh (fake)" }));
+
+    await waitFor(() => expect(dialog.textContent).toContain("That computer cannot be reached (fake)."));
+    expect(screen.getByRole("alertdialog")).toBe(dialog);
+    expect(api.restart).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no Start fresh when the Gateway does not", async () => {
     api.placement.mockResolvedValue(placement("not-running"));
-    api.page.mockResolvedValue(emptyPage());
+    api.page.mockResolvedValue(morningPage());
     renderPage();
 
-    expect(await screen.findByText("Nothing is waiting on you. (fake)")).toBeTruthy();
-    expect(screen.getByText("No Fleet Manager is marked. (fake)")).toBeTruthy();
-    expect(screen.getByText("No Ready card was answered today. (fake)")).toBeTruthy();
+    await screen.findByTestId("fmp-not-running");
+    expect(screen.queryByRole("button", { name: "Start fresh (fake)" })).toBeNull();
   });
 
-  it("a failed panel read shows the Gateway's words, and the header still renders", async () => {
+  it("a failed page read shows the Gateway's words, and the header still renders", async () => {
     api.placement.mockResolvedValue(placement("running"));
     api.page.mockRejectedValue(new Error("the Gateway could not read the records (fake)"));
     renderPage();

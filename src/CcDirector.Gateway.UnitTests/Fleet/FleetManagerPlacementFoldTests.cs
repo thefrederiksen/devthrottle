@@ -297,6 +297,61 @@ public sealed class FleetManagerPlacementFoldTests
     }
 
     [Fact]
+    public void Fold_Running_ThePageOffersStartFresh_WithItsOneConfirmation()
+    {
+        var roster = new[] { Session(MarkedId) };
+
+        var dto = FleetManagerPlacementFold.Fold(Inputs(new[] { WithDirector("WORKSTATION-A") }, marked: MarkedId, roster: roster));
+
+        var fresh = dto.Status.Page.StartFresh;
+        Assert.True(fresh.Offered);
+        Assert.Equal("Start fresh", fresh.Label);
+        Assert.Equal("Start a fresh Fleet Manager?", fresh.ConfirmTitle);
+        Assert.Equal("A brand new Fleet Manager session starts and picks up from its records. The one running now finishes "
+                     + "its current turn and then closes, and this page then shows the new one's conversation. Nothing it "
+                     + "was watching is lost.", fresh.ConfirmMessage);
+        Assert.Equal(dto.Status.Restart.BusyLabel, fresh.BusyLabel);
+        Assert.Null(fresh.Note);
+    }
+
+    [Fact]
+    public void Fold_NotRunning_ThePageOffersNoStartFresh()
+    {
+        var dto = FleetManagerPlacementFold.Fold(Inputs(new[] { WithDirector("WORKSTATION-A") }));
+
+        Assert.False(dto.Status.Page.StartFresh.Offered);
+        Assert.Null(dto.Status.Page.StartFresh.ConfirmTitle);
+        Assert.Null(dto.Status.Page.StartFresh.ConfirmMessage);
+    }
+
+    [Fact]
+    public void Fold_RunningButSavedComputerUnreachable_ThePageOffersNoStartFresh_AndSaysWhy()
+    {
+        var roster = new[] { Session(MarkedId, machine: "WORKSTATION-B") };
+
+        var dto = FleetManagerPlacementFold.Fold(Inputs(new[] { Offline("WORKSTATION-A"), WithDirector("WORKSTATION-B") },
+            marked: MarkedId, roster: roster));
+
+        Assert.False(dto.Status.Page.StartFresh.Offered);
+        Assert.StartsWith("It cannot be restarted on WORKSTATION-A now", dto.Status.Page.StartFresh.Note);
+    }
+
+    [Fact]
+    public void Fold_RestartUnderWay_ThePageOffersNoSecondStartFresh()
+    {
+        const string successorId = "30000000-0000-4000-8000-000000000009";
+        var roster = new[] { Session(MarkedId, "Working"), Session(successorId) };
+
+        var dto = FleetManagerPlacementFold.Fold(Inputs(new[] { WithDirector("WORKSTATION-A") }, marked: MarkedId, roster: roster)
+            with { SuccessorSessionId = successorId });
+
+        Assert.Equal(successorId, dto.Status.SuccessorSessionId);
+        Assert.False(dto.Status.Page.StartFresh.Offered);
+        Assert.Equal("A restart or a move is already under way. Wait for the new Fleet Manager to take over.",
+            dto.Status.Page.StartFresh.Note);
+    }
+
+    [Fact]
     public void Fold_RunningWithOneOwnedSession_SaysSessionInTheSingular()
     {
         var roster = new[] { Session(MarkedId), Session("30000000-0000-4000-8000-000000000002", controller: MarkedId) };

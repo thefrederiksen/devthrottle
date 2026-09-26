@@ -216,11 +216,8 @@ function PinnedAndRest({
         </div>
       )}
       {children(tree, split.rest)}
-      {split.pin !== null && split.rest.some((r) => r.ownerChange?.to === "fleet-manager") && (
-        <Link className="roster-handover-link" to="/fleet-manager?handover=1" data-testid="roster-handover-link">
-          {split.pin.handOverLinkLabel}
-        </Link>
-      )}
+      {/* No "Hand sessions to the Fleet Manager..." link here while the Fleet Manager page's right panel, where that
+          list lives, is hidden. Hand-over stays in each session's menu. */}
     </>
   );
 }
